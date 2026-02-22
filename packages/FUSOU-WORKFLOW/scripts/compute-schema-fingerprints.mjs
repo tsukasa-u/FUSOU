@@ -1,45 +1,49 @@
 #!/usr/bin/env node
 /**
  * Compute SHA-256 fingerprints for Avro schemas.
- * 
+ *
  * Usage:
  *   node scripts/compute-schema-fingerprints.mjs schemas/*.avsc
  *   node scripts/compute-schema-fingerprints.mjs path/to/schema.json
- * 
+ *
  * Output:
  *   Prints JSON to stdout, e.g. {"v0_4":"<sha256>","v0_5":"<sha256>"}
- * 
+ *
  * Notes:
  * - Expects each schema JSON to contain a `namespace` like "fusou.v0_4".
  * - Fingerprint is computed on the canonical JSON string of the schema.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Use the built implementation for SHA-256 to match runtime
-import { computeSchemaFingerprint } from '../dist/avro-manual.js';
+import { computeSchemaFingerprint } from "../dist/avro-manual.js";
 
 function usageAndExit(msg) {
   if (msg) console.error(msg);
-  console.error('\nUsage:');
-  console.error('  node scripts/compute-schema-fingerprints.mjs <schema.json|*.avsc>...');
-  console.error('\nExample:');
-  console.error('  node scripts/compute-schema-fingerprints.mjs schemas/battle_result.v0_4.avsc schemas/battle_result.v0_5.avsc');
+  console.error("\nUsage:");
+  console.error(
+    "  node scripts/compute-schema-fingerprints.mjs <schema.json|*.avsc>...",
+  );
+  console.error("\nExample:");
+  console.error(
+    "  node scripts/compute-schema-fingerprints.mjs schemas/battle_result.v0_4.avsc schemas/battle_result.v0_5.avsc",
+  );
   process.exit(1);
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 0) usageAndExit('No schema files provided.');
+  if (args.length === 0) usageAndExit("No schema files provided.");
 
   const map = {}; // { version: fingerprint }
 
   for (const p of args) {
     const abs = path.resolve(p);
     if (!fs.existsSync(abs)) usageAndExit(`File not found: ${p}`);
-    const text = fs.readFileSync(abs, 'utf-8');
+    const text = fs.readFileSync(abs, "utf-8");
 
     let schema;
     try {
@@ -48,9 +52,12 @@ async function main() {
       usageAndExit(`Failed to parse JSON for ${p}: ${e.message}`);
     }
 
-    const ns = typeof schema.namespace === 'string' ? schema.namespace : '';
+    const ns = typeof schema.namespace === "string" ? schema.namespace : "";
     const match = ns.match(/fusou\.(v[\w\-]+)/);
-    if (!match) usageAndExit(`Schema namespace must include version like fusou.v0_4: ${ns}`);
+    if (!match)
+      usageAndExit(
+        `Schema namespace must include version like fusou.v0_4: ${ns}`,
+      );
     const version = match[1]; // e.g. v1
 
     // Canonicalize JSON (sort keys) to ensure stable hash

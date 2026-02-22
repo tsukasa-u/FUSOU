@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
-import { CORS_HEADERS, MAX_UPLOAD_BYTES, SIGNED_URL_TTL_SECONDS } from "../constants";
+import {
+  CORS_HEADERS,
+  MAX_UPLOAD_BYTES,
+  SIGNED_URL_TTL_SECONDS,
+} from "../constants";
 import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { ERROR_CODES, createErrorResponse } from "../error-codes";
@@ -36,24 +40,24 @@ app.options(
  * POST /upload - Master data bulk upload (all tables in one request)
  *
  * Purpose: Upload all master data tables at once to R2 with D1 metadata tracking
- * 
+ *
  * Key changes from individual upload:
  * - Single request for all 12 tables (~240kB total)
  * - Client concatenates all tables and provides table_offsets
  * - Atomic: all tables uploaded together or none
  * - Reuses battle_data pattern (proven implementation)
- * 
+ *
  * Key constraints:
  * - Master data is shared across all users (global)
  * - Each period_tag can only be uploaded once (all tables together)
  * - Once uploaded, content is immutable
- * 
+ *
  * Race condition handling (D1-first pattern):
  * 1. Preparation: INSERT ... ON CONFLICT DO NOTHING to claim ownership for entire period
  *    - If returns id: this user is first, proceed with R2 upload
  *    - If returns NULL: another user already has this period, return 409
  * 2. Execution: Split data by table_offsets, upload all to R2, then UPDATE D1 status to 'completed'
- * 
+ *
  * Upload flow:
  * 1. Client concatenates all tables and sends metadata + table_offsets in preparation phase
  * 2. Server attempts to claim ownership in D1 with UNIQUE(period_tag) constraint
@@ -95,14 +99,22 @@ app.post("/upload", async (c) => {
 
     // Preparation phase: claim ownership for entire period
     preparationValidator: async (body, user) => {
-      const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
-      const tableVersion = typeof body?.table_version === "string"
-        ? body.table_version.trim()
-        : typeof body?.tableVersion === "string"
-          ? body.tableVersion.trim()
+      const periodTag =
+        typeof body?.kc_period_tag === "string"
+          ? body.kc_period_tag.trim()
           : "";
-      const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
-      const tableOffsetsStr = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : "";
+      const tableVersion =
+        typeof body?.table_version === "string"
+          ? body.table_version.trim()
+          : typeof body?.tableVersion === "string"
+            ? body.tableVersion.trim()
+            : "";
+      const contentHash =
+        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+      const tableOffsetsStr =
+        typeof body?.table_offsets === "string"
+          ? body.table_offsets.trim()
+          : "";
 
       // Validate period_tag
       const MAX_PERIOD_TAG_LENGTH = 64;
@@ -110,13 +122,31 @@ app.post("/upload", async (c) => {
         return c.json({ error: "kc_period_tag is required" }, 400);
       }
       if (periodTag.length > MAX_PERIOD_TAG_LENGTH) {
-        return c.json({ error: `kc_period_tag must be 1-${MAX_PERIOD_TAG_LENGTH} characters` }, 400);
+        return c.json(
+          {
+            error: `kc_period_tag must be 1-${MAX_PERIOD_TAG_LENGTH} characters`,
+          },
+          400,
+        );
       }
       if (!/^[a-zA-Z0-9_\-]+$/.test(periodTag)) {
-        return c.json({ error: "kc_period_tag must contain only ASCII alphanumeric characters, underscores, and hyphens" }, 400);
+        return c.json(
+          {
+            error:
+              "kc_period_tag must contain only ASCII alphanumeric characters, underscores, and hyphens",
+          },
+          400,
+        );
       }
-      if (periodTag.startsWith('.') || periodTag.startsWith('/') || periodTag.includes('..')) {
-        return c.json({ error: "kc_period_tag cannot start with . or / or contain .." }, 400);
+      if (
+        periodTag.startsWith(".") ||
+        periodTag.startsWith("/") ||
+        periodTag.includes("..")
+      ) {
+        return c.json(
+          { error: "kc_period_tag cannot start with . or / or contain .." },
+          400,
+        );
       }
 
       if (!tableVersion) {
@@ -128,7 +158,13 @@ app.post("/upload", async (c) => {
         return c.json({ error: "content_hash (SHA-256) is required" }, 400);
       }
       if (!/^[a-f0-9]{64}$/i.test(contentHash)) {
-        return c.json({ error: "content_hash must be a valid SHA-256 hash (64 hexadecimal characters)" }, 400);
+        return c.json(
+          {
+            error:
+              "content_hash must be a valid SHA-256 hash (64 hexadecimal characters)",
+          },
+          400,
+        );
       }
 
       // Validate file size
@@ -136,7 +172,7 @@ app.post("/upload", async (c) => {
       // Handle both number and string types (Rust sends as number, other clients may send as string)
       let declaredSize: number;
       const fileSizeRaw = body?.file_size;
-      
+
       if (typeof fileSizeRaw === "number") {
         declaredSize = fileSizeRaw;
       } else if (typeof fileSizeRaw === "string") {
@@ -148,20 +184,35 @@ app.post("/upload", async (c) => {
       } else {
         return c.json({ error: "file_size is required" }, 400);
       }
-      
+
       if (declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
-        return c.json({ error: `Invalid file size. Must be > 0 and <= ${MAX_UPLOAD_BYTES} bytes` }, 400);
+        return c.json(
+          {
+            error: `Invalid file size. Must be > 0 and <= ${MAX_UPLOAD_BYTES} bytes`,
+          },
+          400,
+        );
       }
       // Parse and validate table_offsets
       if (!tableOffsetsStr) {
-        return c.json({ error: "table_offsets is required for bulk upload" }, 400);
+        return c.json(
+          { error: "table_offsets is required for bulk upload" },
+          400,
+        );
       }
 
-      let tableOffsets: Array<{ table_name: string; start: number; end: number }> = [];
+      let tableOffsets: Array<{
+        table_name: string;
+        start: number;
+        end: number;
+      }> = [];
       try {
         tableOffsets = JSON.parse(tableOffsetsStr);
         if (!Array.isArray(tableOffsets) || tableOffsets.length === 0) {
-          return c.json({ error: "table_offsets must be a non-empty array" }, 400);
+          return c.json(
+            { error: "table_offsets must be a non-empty array" },
+            400,
+          );
         }
       } catch (e) {
         return c.json({ error: "table_offsets must be valid JSON" }, 400);
@@ -171,46 +222,83 @@ app.post("/upload", async (c) => {
       const providedTables = new Set<string>();
       for (let i = 0; i < tableOffsets.length; i++) {
         const offset = tableOffsets[i];
-        
-        if (!offset.table_name || typeof offset.table_name !== 'string') {
-          return c.json({ error: `table_offsets[${i}]: table_name is required and must be string` }, 400);
+
+        if (!offset.table_name || typeof offset.table_name !== "string") {
+          return c.json(
+            {
+              error: `table_offsets[${i}]: table_name is required and must be string`,
+            },
+            400,
+          );
         }
-        
+
         if (!ALLOWED_MASTER_TABLES.has(offset.table_name)) {
-          return c.json({ 
-            error: `table_offsets[${i}]: invalid table_name "${offset.table_name}". Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}` 
-          }, 400);
+          return c.json(
+            {
+              error: `table_offsets[${i}]: invalid table_name "${offset.table_name}". Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}`,
+            },
+            400,
+          );
         }
-        
-        if (typeof offset.start !== 'number' || typeof offset.end !== 'number') {
-          return c.json({ error: `table_offsets[${i}]: start and end must be numbers` }, 400);
+
+        if (
+          typeof offset.start !== "number" ||
+          typeof offset.end !== "number"
+        ) {
+          return c.json(
+            { error: `table_offsets[${i}]: start and end must be numbers` },
+            400,
+          );
         }
-        
+
         if (!Number.isInteger(offset.start) || !Number.isInteger(offset.end)) {
-          return c.json({ error: `table_offsets[${i}]: start and end must be integers` }, 400);
+          return c.json(
+            { error: `table_offsets[${i}]: start and end must be integers` },
+            400,
+          );
         }
-        
+
         if (offset.start < 0 || offset.end <= offset.start) {
-          return c.json({ error: `table_offsets[${i}]: invalid range (start=${offset.start}, end=${offset.end})` }, 400);
+          return c.json(
+            {
+              error: `table_offsets[${i}]: invalid range (start=${offset.start}, end=${offset.end})`,
+            },
+            400,
+          );
         }
-        
+
         if (offset.end > declaredSize) {
-          return c.json({ error: `table_offsets[${i}]: end (${offset.end}) exceeds declared file size (${declaredSize})` }, 400);
+          return c.json(
+            {
+              error: `table_offsets[${i}]: end (${offset.end}) exceeds declared file size (${declaredSize})`,
+            },
+            400,
+          );
         }
-        
+
         if (providedTables.has(offset.table_name)) {
-          return c.json({ error: `table_offsets[${i}]: duplicate table_name "${offset.table_name}"` }, 400);
+          return c.json(
+            {
+              error: `table_offsets[${i}]: duplicate table_name "${offset.table_name}"`,
+            },
+            400,
+          );
         }
-        
+
         providedTables.add(offset.table_name);
       }
 
       // Check for missing required tables
-      const missingTables = Array.from(ALLOWED_MASTER_TABLES).filter(t => !providedTables.has(t));
+      const missingTables = Array.from(ALLOWED_MASTER_TABLES).filter(
+        (t) => !providedTables.has(t),
+      );
       if (missingTables.length > 0) {
-        return c.json({ 
-          error: `Missing required tables: ${missingTables.join(", ")}` 
-        }, 400);
+        return c.json(
+          {
+            error: `Missing required tables: ${missingTables.join(", ")}`,
+          },
+          400,
+        );
       }
 
       // Validate offsets are contiguous and cover entire file
@@ -223,7 +311,10 @@ app.post("/upload", async (c) => {
       }
       for (let i = 1; i < sortedOffsets.length; i++) {
         if (sortedOffsets[i].start !== sortedOffsets[i - 1].end) {
-          return c.json({ error: "table_offsets must be contiguous (no gaps or overlaps)" }, 400);
+          return c.json(
+            { error: "table_offsets must be contiguous (no gaps or overlaps)" },
+            400,
+          );
         }
       }
 
@@ -237,30 +328,28 @@ app.post("/upload", async (c) => {
           ON CONFLICT(period_tag, table_version) DO NOTHING
           RETURNING id
         `);
-        
+
         const now = Date.now();
-        const result = await stmt.bind(
-          periodTag,
-          tableVersion,
-          contentHash,
-          user.id,
-          now
-        ).first() as { id?: number } | null;
-        
+        const result = (await stmt
+          .bind(periodTag, tableVersion, contentHash, user.id, now)
+          .first()) as { id?: number } | null;
+
         if (!result?.id) {
           // Another user already claimed this period
           console.info(`[master-data] Duplicate period detected: ${periodTag}`);
           return c.json(
-            { 
+            {
               error: "Master data for this period has already been uploaded",
               period_tag: periodTag,
             },
-            409
+            409,
           );
         }
 
         // We successfully claimed ownership
-        console.info(`[master-data] Claimed ownership: id=${result.id}, period=${periodTag}, tables=${tableOffsets.length}`);
+        console.info(
+          `[master-data] Claimed ownership: id=${result.id}, period=${periodTag}, tables=${tableOffsets.length}`,
+        );
 
         return {
           tokenPayload: {
@@ -281,10 +370,13 @@ app.post("/upload", async (c) => {
           contentHashLength: contentHash.length,
           tableOffsetsLength: tableOffsetsStr.length,
         });
-        return c.json({ 
-          error: "Failed to process upload request",
-          details: err instanceof Error ? err.message : String(err)
-        }, 500);
+        return c.json(
+          {
+            error: "Failed to process upload request",
+            details: err instanceof Error ? err.message : String(err),
+          },
+          500,
+        );
       }
     },
 
@@ -293,23 +385,28 @@ app.post("/upload", async (c) => {
       // [Issue #19] Validate token payload with type safety
       const { validateTokenPayload } = await import("../utils");
       const payloadValidation = validateTokenPayload(tokenPayload, [
-        'record_id',
-        'period_tag',
-        'content_hash',
-        'table_offsets',
-        'table_count',
-        'declared_size', // [Bug Fix #3] Add missing required field
+        "record_id",
+        "period_tag",
+        "content_hash",
+        "table_offsets",
+        "table_count",
+        "declared_size", // [Bug Fix #3] Add missing required field
       ]);
-      
+
       if (!payloadValidation.valid) {
-        console.error(`[master-data] Invalid token payload: ${payloadValidation.error}`);
-        return new Response(JSON.stringify({
-          error: `Invalid upload token: ${payloadValidation.error}`,
-          code: "INVALID_TOKEN_PAYLOAD",
-        }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        console.error(
+          `[master-data] Invalid token payload: ${payloadValidation.error}`,
+        );
+        return new Response(
+          JSON.stringify({
+            error: `Invalid upload token: ${payloadValidation.error}`,
+            code: "INVALID_TOKEN_PAYLOAD",
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       const recordId = tokenPayload.record_id as number;
@@ -321,31 +418,40 @@ app.post("/upload", async (c) => {
 
       // [Bug Fix #2] Verify uploaded data size matches declared size
       if (data.byteLength !== tokenPayload.declared_size) {
-        return new Response(JSON.stringify({ 
-          error: "Data size mismatch",
-          expected: tokenPayload.declared_size,
-          actual: data.byteLength
-        }), {
-          status: 400,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            error: "Data size mismatch",
+            expected: tokenPayload.declared_size,
+            actual: data.byteLength,
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
 
       try {
         // [Bug Fix #1] Verify content_hash matches the uploaded data (using Web Crypto API)
         // Ensure the input satisfies BufferSource typing across TS versions
-        const bytes = (data.buffer instanceof ArrayBuffer && data.byteOffset === 0)
-          ? data
-          : new Uint8Array(data);
-        const hashBuffer = await globalThis.crypto.subtle.digest('SHA-256', bytes as unknown as BufferSource);
+        const bytes =
+          data.buffer instanceof ArrayBuffer && data.byteOffset === 0
+            ? data
+            : new Uint8Array(data);
+        const hashBuffer = await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          bytes as unknown as BufferSource,
+        );
         const actualContentHash = Array.from(new Uint8Array(hashBuffer))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
 
         // [Bug Fix #15] Hash comparison must be case-insensitive
-        if (actualContentHash.toLowerCase() !== expectedContentHash.toLowerCase()) {
+        if (
+          actualContentHash.toLowerCase() !== expectedContentHash.toLowerCase()
+        ) {
           console.warn(
-            `[master-data] Content hash mismatch for id=${recordId}: expected ${expectedContentHash}, got ${actualContentHash}`
+            `[master-data] Content hash mismatch for id=${recordId}: expected ${expectedContentHash}, got ${actualContentHash}`,
           );
 
           // Mark as failed without uploading
@@ -357,49 +463,74 @@ app.post("/upload", async (c) => {
             `);
             await stmt.bind(recordId).run();
           } catch (updateErr) {
-            console.error(`[master-data] Failed to mark hash mismatch: ${String(updateErr)}`);
+            console.error(
+              `[master-data] Failed to mark hash mismatch: ${String(updateErr)}`,
+            );
           }
 
-          return new Response(JSON.stringify({
-            error: "Content hash mismatch - data may be corrupted",
-            expected: expectedContentHash,
-            actual: actualContentHash,
-          }), {
-            status: 400,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              error: "Content hash mismatch - data may be corrupted",
+              expected: expectedContentHash,
+              actual: actualContentHash,
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
 
         // Parse table_offsets and split data
-        let tableOffsets: Array<{ table_name: string; start: number; end: number }> = [];
+        let tableOffsets: Array<{
+          table_name: string;
+          start: number;
+          end: number;
+        }> = [];
         try {
           tableOffsets = JSON.parse(tableOffsetsStr);
         } catch (e) {
-          console.error(`[master-data] Failed to parse table_offsets: ${String(e)}`);
-          return new Response(JSON.stringify({ error: "Invalid table_offsets in token" }), {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          });
+          console.error(
+            `[master-data] Failed to parse table_offsets: ${String(e)}`,
+          );
+          return new Response(
+            JSON.stringify({ error: "Invalid table_offsets in token" }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
 
-        console.info(`[master-data] Splitting data into ${tableOffsets.length} tables for period ${periodTag}`);
+        console.info(
+          `[master-data] Splitting data into ${tableOffsets.length} tables for period ${periodTag}`,
+        );
 
         // Split data and upload each table to R2
         const r2Keys: string[] = [];
-        const uploadResults: Array<{ table: string; r2_key: string; size: number }> = [];
-        
+        const uploadResults: Array<{
+          table: string;
+          r2_key: string;
+          size: number;
+        }> = [];
+
         for (const offset of tableOffsets) {
           const tableData = data.slice(offset.start, offset.end);
           const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
 
-          console.info(`[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`);
+          console.info(
+            `[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`,
+          );
 
           try {
             // Compute hash for this individual table for integrity verification
-            const tableHashBuf = await crypto.subtle.digest('SHA-256', tableData);
+            const tableHashBuf = await crypto.subtle.digest(
+              "SHA-256",
+              tableData,
+            );
             const tableContentHash = Array.from(new Uint8Array(tableHashBuf))
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
 
             const r2Result = await bucket.put(r2Key, tableData, {
               httpMetadata: {
@@ -418,7 +549,9 @@ app.post("/upload", async (c) => {
             });
 
             if (!r2Result) {
-              throw new Error(`R2 put() returned null for ${offset.table_name}`);
+              throw new Error(
+                `R2 put() returned null for ${offset.table_name}`,
+              );
             }
 
             r2Keys.push(r2Key);
@@ -428,19 +561,27 @@ app.post("/upload", async (c) => {
               size: tableData.byteLength,
             });
 
-            console.info(`[master-data] Successfully uploaded ${offset.table_name} to ${r2Key}`);
+            console.info(
+              `[master-data] Successfully uploaded ${offset.table_name} to ${r2Key}`,
+            );
           } catch (r2Err) {
-            console.error(`[master-data] R2 put() failed for ${offset.table_name}: ${String(r2Err)}`);
+            console.error(
+              `[master-data] R2 put() failed for ${offset.table_name}: ${String(r2Err)}`,
+            );
 
             // Cleanup: delete all successfully uploaded tables before this failure
-            console.warn(`[master-data] Cleaning up ${r2Keys.length} partially uploaded tables`);
+            console.warn(
+              `[master-data] Cleaning up ${r2Keys.length} partially uploaded tables`,
+            );
             const failedCleanups: string[] = [];
             for (const keyToDelete of r2Keys) {
               try {
                 await bucket.delete(keyToDelete);
                 console.info(`[master-data] Deleted ${keyToDelete}`);
               } catch (delErr) {
-                console.error(`[master-data] Failed to delete ${keyToDelete}: ${String(delErr)}`);
+                console.error(
+                  `[master-data] Failed to delete ${keyToDelete}: ${String(delErr)}`,
+                );
                 failedCleanups.push(keyToDelete);
               }
             }
@@ -453,23 +594,33 @@ app.post("/upload", async (c) => {
                 WHERE id = ?
               `);
               // [Bug Fix #4] Store failed cleanup keys so cleanup job can retry
-              const r2KeysToStore = failedCleanups.length > 0 ? JSON.stringify(failedCleanups) : null;
+              const r2KeysToStore =
+                failedCleanups.length > 0
+                  ? JSON.stringify(failedCleanups)
+                  : null;
               await stmt.bind(r2KeysToStore, recordId).run();
             } catch (markErr) {
-              console.error(`[CRITICAL] Failed to mark record as failed after R2 error: ${String(markErr)}`);
+              console.error(
+                `[CRITICAL] Failed to mark record as failed after R2 error: ${String(markErr)}`,
+              );
             }
 
-            return new Response(JSON.stringify({
-              error: `Failed to upload table ${offset.table_name} to R2`,
-              failed_table: offset.table_name,
-            }), {
-              status: 500,
-              headers: { "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({
+                error: `Failed to upload table ${offset.table_name} to R2`,
+                failed_table: offset.table_name,
+              }),
+              {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
           }
         }
 
-        console.info(`[master-data] All ${r2Keys.length} tables uploaded successfully for period ${periodTag}`);
+        console.info(
+          `[master-data] All ${r2Keys.length} tables uploaded successfully for period ${periodTag}`,
+        );
 
         try {
           // Insert master_data_tables records for querying by data-loader
@@ -480,29 +631,34 @@ app.post("/upload", async (c) => {
                 (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
-            
+
             // Compute hash for this individual table
             const tableData = data.slice(offset.start, offset.end);
-            const tableHashBuf = await crypto.subtle.digest('SHA-256', tableData);
+            const tableHashBuf = await crypto.subtle.digest(
+              "SHA-256",
+              tableData,
+            );
             const tableContentHash = Array.from(new Uint8Array(tableHashBuf))
-              .map(b => b.toString(16).padStart(2, '0'))
-              .join('');
-            
+              .map((b) => b.toString(16).padStart(2, "0"))
+              .join("");
+
             const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
             const now = Date.now();
-            
-            await tableStmt.bind(
-              recordId,
-              offset.table_name,
-              tableVersion,
-              i,
-              offset.start,
-              offset.end,
-              null,  // record_count will be calculated if needed
-              r2Key,
-              tableContentHash,
-              now
-            ).run();
+
+            await tableStmt
+              .bind(
+                recordId,
+                offset.table_name,
+                tableVersion,
+                i,
+                offset.start,
+                offset.end,
+                null, // record_count will be calculated if needed
+                r2Key,
+                tableContentHash,
+                now,
+              )
+              .run();
           }
 
           const stmt = db.prepare(`
@@ -516,11 +672,15 @@ app.post("/upload", async (c) => {
           const now = Date.now();
           await stmt.bind(JSON.stringify(r2Keys), now, recordId).run();
 
-          console.info(`[master-data] D1 record updated: id=${recordId}, status=completed, tables=${r2Keys.length}`);
+          console.info(
+            `[master-data] D1 record updated: id=${recordId}, status=completed, tables=${r2Keys.length}`,
+          );
         } catch (d1Err) {
           // D1 update failed - R2 objects exist but D1 is not updated
           console.error(`[master-data] D1 update failed: ${String(d1Err)}`);
-          console.warn(`[CRITICAL] Orphaned R2 objects: ${r2Keys.join(", ")} - cleanup job will handle`);
+          console.warn(
+            `[CRITICAL] Orphaned R2 objects: ${r2Keys.join(", ")} - cleanup job will handle`,
+          );
 
           // Try to mark as failed in D1 (preserve r2_keys so cleanup job can delete them)
           try {
@@ -532,22 +692,32 @@ app.post("/upload", async (c) => {
             await failStmt.bind(JSON.stringify(r2Keys), recordId).run();
           } catch (markFailErr) {
             // [Bug Fix #5] Double failure - store r2_keys in fallback location (alert/logging)
-            console.error(`[CRITICAL] DOUBLE FAILURE: Cannot update D1 to track r2_keys`);
-            console.error(`[CRITICAL] Orphaned R2 keys: ${JSON.stringify(r2Keys)}`);
-            console.error(`[CRITICAL] Period: ${periodTag}, Record ID: ${recordId}`);
+            console.error(
+              `[CRITICAL] DOUBLE FAILURE: Cannot update D1 to track r2_keys`,
+            );
+            console.error(
+              `[CRITICAL] Orphaned R2 keys: ${JSON.stringify(r2Keys)}`,
+            );
+            console.error(
+              `[CRITICAL] Period: ${periodTag}, Record ID: ${recordId}`,
+            );
             console.error(`[CRITICAL] Primary error: ${String(d1Err)}`);
             console.error(`[CRITICAL] Secondary error: ${String(markFailErr)}`);
-            
+
             // TODO: Send alert to monitoring system (Sentry, CloudWatch, etc.)
             // For now, ensure it's logged for manual recovery
           }
 
-          return new Response(JSON.stringify({
-            error: "Completed R2 upload but failed to update metadata. Upload will be cleaned up by system.",
-          }), {
-            status: 503,
-            headers: { "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              error:
+                "Completed R2 upload but failed to update metadata. Upload will be cleaned up by system.",
+            }),
+            {
+              status: 503,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
         }
 
         return {
@@ -573,14 +743,17 @@ app.post("/upload", async (c) => {
           await stmt.bind(recordId).run();
         } catch (updateErr) {
           console.error(
-            `[master-data] Failed to mark record as failed: ${String(updateErr)}`
+            `[master-data] Failed to mark record as failed: ${String(updateErr)}`,
           );
         }
 
-        return new Response(JSON.stringify({ error: "Failed to upload master data" }), {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Failed to upload master data" }),
+          {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
       }
     },
   });
@@ -588,10 +761,10 @@ app.post("/upload", async (c) => {
 
 /**
  * GET /exists - Check if master data for a period already exists
- * 
+ *
  * Query params:
  * - period_tag: required
- * 
+ *
  * Returns 200 with metadata if found, 404 if not found
  * Requires: Authorization bearer token
  */
@@ -628,10 +801,10 @@ app.get("/exists", async (c) => {
     `;
     const params: unknown[] = [periodTag];
     if (tableVersion) {
-      sql += ' AND table_version = ?';
+      sql += " AND table_version = ?";
       params.push(tableVersion);
     }
-    sql += ' LIMIT 1';
+    sql += " LIMIT 1";
 
     const stmt = db.prepare(sql);
     const result = await stmt.bind(...params).first();
@@ -647,7 +820,9 @@ app.get("/exists", async (c) => {
         period_tag: result.period_tag,
         table_version: result.table_version,
         table_count: result.table_count,
-        table_offsets: result.table_offsets ? JSON.parse(result.table_offsets) : [],
+        table_offsets: result.table_offsets
+          ? JSON.parse(result.table_offsets)
+          : [],
         upload_status: result.upload_status,
         created_at: result.created_at,
         completed_at: result.completed_at,
@@ -661,10 +836,10 @@ app.get("/exists", async (c) => {
 
 /**
  * GET /latest - Get latest version of master data
- * 
+ *
  * Query params:
  * - None (returns most recent completed period)
- * 
+ *
  * Returns the most recently completed upload
  * Requires: Authorization bearer token
  */
@@ -695,11 +870,11 @@ app.get("/latest", async (c) => {
     `;
     const params: unknown[] = [];
     if (tableVersion) {
-      sql += ' AND table_version = ?';
+      sql += " AND table_version = ?";
       params.push(tableVersion);
     }
-    sql += ' ORDER BY completed_at DESC LIMIT 1';
-    
+    sql += " ORDER BY completed_at DESC LIMIT 1";
+
     const stmt = db.prepare(sql);
     const result = await stmt.bind(...params).first();
 
@@ -714,7 +889,9 @@ app.get("/latest", async (c) => {
         period_tag: result.period_tag,
         table_version: result.table_version,
         table_count: result.table_count,
-        table_offsets: result.table_offsets ? JSON.parse(result.table_offsets) : [],
+        table_offsets: result.table_offsets
+          ? JSON.parse(result.table_offsets)
+          : [],
         upload_status: result.upload_status,
         created_at: result.created_at,
         completed_at: result.completed_at,
@@ -728,11 +905,11 @@ app.get("/latest", async (c) => {
 
 /**
  * GET /download - Download master data from R2
- * 
+ *
  * Query params:
  * - period_tag: required
  * - table_name: required (which table to download)
- * 
+ *
  * Returns binary Avro data for the specified table
  * Requires: Authorization bearer token
  */
@@ -762,7 +939,7 @@ app.get("/download", async (c) => {
   if (!periodTag) {
     return c.json({ error: "period_tag is required" }, 400);
   }
-  
+
   if (!tableName) {
     return c.json({ error: "table_name is required" }, 400);
   }
@@ -773,9 +950,12 @@ app.get("/download", async (c) => {
 
   // Validate table_name
   if (!ALLOWED_MASTER_TABLES.has(tableName)) {
-    return c.json({ 
-      error: `Invalid table_name. Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}` 
-    }, 400);
+    return c.json(
+      {
+        error: `Invalid table_name. Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}`,
+      },
+      400,
+    );
   }
 
   try {
@@ -787,13 +967,16 @@ app.get("/download", async (c) => {
     `;
     const params: unknown[] = [periodTag];
     if (tableVersion) {
-      sql += ' AND table_version = ?';
+      sql += " AND table_version = ?";
       params.push(tableVersion);
     }
-    sql += ' LIMIT 1';
+    sql += " LIMIT 1";
     const stmt = db.prepare(sql);
 
-    const record = await stmt.bind(...params).first() as { r2_keys?: string; table_offsets?: string } | null;
+    const record = (await stmt.bind(...params).first()) as {
+      r2_keys?: string;
+      table_offsets?: string;
+    } | null;
 
     if (!record?.r2_keys) {
       return c.json({ error: "Master data not found for this period" }, 404);
@@ -809,25 +992,36 @@ app.get("/download", async (c) => {
     }
 
     // [Bug Fix #8] Explicitly use table_offsets to validate table presence
-    let tableOffsetsArray: Array<{ table_name: string; start: number; end: number }> = [];
+    let tableOffsetsArray: Array<{
+      table_name: string;
+      start: number;
+      end: number;
+    }> = [];
     if (record.table_offsets) {
       try {
         tableOffsetsArray = JSON.parse(record.table_offsets);
       } catch (e) {
-        console.warn(`[master-data] Failed to parse table_offsets for metadata: ${String(e)}`);
+        console.warn(
+          `[master-data] Failed to parse table_offsets for metadata: ${String(e)}`,
+        );
       }
     }
 
     // Find the R2 key for this specific table
     // Format: master_data/{table_version}/{period_tag}/{table_name}.avro
     const expectedKey = `master_data/${tableVersion}/${periodTag}/${tableName}.avro`;
-    const r2Key = r2Keys.find(key => key === expectedKey);
+    const r2Key = r2Keys.find((key) => key === expectedKey);
 
     if (!r2Key) {
-      return c.json({ 
-        error: `Table ${tableName} not found in this period`,
-        available_tables: r2Keys.map(k => k.split('/').pop()?.replace('.avro', '')).filter(Boolean)
-      }, 404);
+      return c.json(
+        {
+          error: `Table ${tableName} not found in this period`,
+          available_tables: r2Keys
+            .map((k) => k.split("/").pop()?.replace(".avro", ""))
+            .filter(Boolean),
+        },
+        404,
+      );
     }
 
     // Fetch from R2

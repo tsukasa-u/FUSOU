@@ -49,6 +49,7 @@ node scripts/compute-kc-api-fingerprints.mjs schemas/kc_api_v1.json schemas/kc_a
 ```
 
 出力形式:
+
 ```json
 {
   "v1": {
@@ -73,6 +74,7 @@ node test/test-kc-api-fingerprints.mjs
 ```
 
 このテストは以下を検証します:
+
 - ✅ v1 スキーマの全33テーブルのフィンガープリント一貫性
 - ✅ v2 スキーマの全33テーブルのフィンガープリント一貫性
 - ✅ v1 と v2 で全テーブルのフィンガープリントが異なること（進化検証）
@@ -80,23 +82,29 @@ node test/test-kc-api-fingerprints.mjs
 ## 対象テーブル一覧（33テーブル）
 
 ### コアテーブル
+
 - `env_info` - 環境情報とバージョン
 - `cells` - マップセル情報
 
 ### 基地・航空機
+
 - `airbase` - 基地航空隊
 - `plane_info` - 航空機詳細
 
 ### 装備
+
 - `own_slotitem`, `enemy_slotitem`, `friend_slotitem`
 
 ### 艦船
+
 - `own_ship`, `enemy_ship`, `friend_ship`
 
 ### 艦隊
+
 - `own_deck`, `support_deck`, `enemy_deck`, `friend_deck`
 
 ### 戦闘フェーズ
+
 - `airbase_airattack`, `airbase_airattack_list`
 - `airbase_assult`, `carrierbase_assault`
 - `closing_raigeki`
@@ -122,17 +130,17 @@ TABLE_FINGERPRINTS_JSON = '{"v1": {...}, "v2": {...}}'
 サーバー側では、アップロード時にヘッダーからスキーマを抽出し、フィンガープリントを検証します:
 
 ```typescript
-import { validateHeaderTableVersion } from './reader.js';
+import { validateHeaderTableVersion } from "./reader.js";
 
 // アップロード時の検証
 const isValid = validateHeaderTableVersion(
   avroHeader,
   expectedVersion,
-  JSON.parse(env.TABLE_FINGERPRINTS_JSON)
+  JSON.parse(env.TABLE_FINGERPRINTS_JSON),
 );
 
 if (!isValid) {
-  return new Response('Invalid schema version', { status: 400 });
+  return new Response("Invalid schema version", { status: 400 });
 }
 ```
 
@@ -151,6 +159,7 @@ if (!isValid) {
 ### スキーマ抽出時に警告が混入する
 
 stderr をリダイレクトしてください:
+
 ```bash
 cargo run ... 2>/dev/null > output.json
 ```
@@ -164,6 +173,7 @@ cargo run ... 2>/dev/null > output.json
 ### バージョン間で差分が出ない
 
 `kc-api-database` の feature flag が正しく切り替わっているか確認:
+
 ```bash
 cargo run --no-default-features --features schema_v0_5
 ```

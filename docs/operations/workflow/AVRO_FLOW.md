@@ -1,6 +1,7 @@
 # FUSOU AVRO Hot/Cold Architecture Flow
 
 ## 概要
+
 Cloudflare Workers 上で動作する、**ユーザーのAvroファイルアップロード＆セグメント管理＆取得**フローの詳細説明。
 
 ---
@@ -61,7 +62,7 @@ sequenceDiagram
     participant Consumer as Queue Consumer<br/>(src/consumer.ts)
     participant R2 as R2 Bucket
     participant D1 as D1 Database
-    
+
     User->>HTTP: POST /battle-data/upload<br/>{ dataset_id, table, period_tag,<br/>slices: [base64_avro_1, ...] }
     activate HTTP
     HTTP->>HTTP: Validate payload<br/>(dataset_id, table, slices)
@@ -74,12 +75,13 @@ sequenceDiagram
     Consumer->>Consumer: Group slices by dataset/table (in-memory)
     Consumer->>D1: BULK INSERT<br/>buffer_logs(values...)
     D1-->>Consumer: Success
-    
+
     Consumer->>Consumer: ACK all messages
     deactivate Consumer
 ```
 
 **Key Points:**
+
 - `slices` はbase64エンコード済みデータ。Consumerは復号→バリデーション→そのままD1に保存
 - Queue Consumer は同一データセット/テーブルでバッチ化し、`buffer_logs` に一括INSERT
 - 禁止: この段階でR2へは一切アクセスしない（コスト最適化）
@@ -115,6 +117,7 @@ sequenceDiagram
 ```
 
 **Key Points:**
+
 - R2 への書き込みは Cron のみ、1時間に1回（または閾値）
 - Avro OCFは`deflate`圧縮（コスト最適化）。ヘッダの`avro.codec`は`deflate`。
 - `block_indexes` は Reader のアドレス帳：R2 の Range 取得に使用（`start_byte`はヘッダ長）。
@@ -131,43 +134,44 @@ sequenceDiagram
     participant D1 as D1 Database
     participant R2 as R2 Bucket
     participant Reader as Reader<br/>(src/reader.ts)
-    
+
     User->>HTTP: GET /read?dataset_id=USER_ID&table_name=battle<br/>&from=1234567890&to=1234599999
     activate HTTP
     HTTP->>HTTP: Parse query params:<br/>dataset_id, table_name, from, to
-    
+
     Note over HTTP,Reader: Step 1: Hot データ取得（最新1時間）
     HTTP->>D1: SELECT * FROM buffer_logs<br/>WHERE dataset_id=? AND table_name=?<br/>AND timestamp >= ? AND timestamp <= ?
     D1-->>HTTP: Hot rows (BLOB)
     HTTP->>HTTP: Deserialize BLOB to JSON records
-    
+
     Note over HTTP,Reader: Step 2: Cold インデックス取得
     HTTP->>D1: SELECT bi.*, af.file_path, af.compression_codec<br/>FROM block_indexes bi<br/>JOIN archived_files af ON bi.file_id = af.id<br/>WHERE bi.dataset_id=? AND bi.table_name=?<br/>AND bi.end_timestamp >= ? AND bi.start_timestamp <= ?
     D1-->>HTTP: Block indexes<br/>(file_path, start_byte, length, codec)
-    
+
     Note over HTTP,Reader: Step 3: Cold データ取得（並列 Range Request）
     loop For each file_path group
         HTTP->>R2: GET file_path<br/>Range: [0, 4096]<br/>(Avro header)
         R2-->>HTTP: Header buffer
-        
+
         loop For each block in file
             HTTP->>R2: GET file_path<br/>Range: [start_byte, length]<br/>(compressed data block)
             R2-->>HTTP: Block buffer (deflate)
         end
-        
+
         HTTP->>HTTP: Decompress & parse blocks<br/>using header schema
     end
-    
+
     Note over HTTP,Reader: Step 4: マージ & 重複排除
     HTTP->>HTTP: Merge Hot + Cold records<br/>Sort by timestamp<br/>Deduplicate by content hash
-    
+
     HTTP-->>User: 200 OK (JSON)<br/>{ hot_count, cold_count,<br/>record_count, records: [...] }
     deactivate HTTP
-    
+
     User->>User: Process merged records
 ```
 
 **Key Points:**
+
 - **Hot データ優先**: `buffer_logs` から最新データを取得（アーカイブ前の1時間以内）
 - **Cold データ並列取得**: `block_indexes` でメタデータ検索 → R2 Range Request で該当ブロックのみ取得
 - **圧縮認識**: `archived_files.compression_codec` (deflate/null) を参照して自動デコード
@@ -182,11 +186,11 @@ sequenceDiagram
 
 - 入力: R2 オブジェクトの先頭プレフィックス（初期 4KB）
 - 手順:
-    - `Obj\x01` マジック確認（Avro OCF）
-    - メタデータのMapをAvroの可変長エンコード規則でデコード
-    - Mapの直後に現れる16バイトを「sync marker」として特定
-    - ヘッダー長 = sync marker 終端までのバイト長
-    - プレフィックスが足りずに解析できなければ、長さを2倍に拡張して再試行（上限 64KB）
+  - `Obj\x01` マジック確認（Avro OCF）
+  - メタデータのMapをAvroの可変長エンコード規則でデコード
+  - Mapの直後に現れる16バイトを「sync marker」として特定
+  - ヘッダー長 = sync marker 終端までのバイト長
+  - プレフィックスが足りずに解析できなければ、長さを2倍に拡張して再試行（上限 64KB）
 - 出力: `headerLen`（後続のRange取得で `[headerLen, ...]` として本体のみ連結）
 
 ---
@@ -194,6 +198,7 @@ sequenceDiagram
 ## 6. D1 スキーマ（Buffer パターン）
 
 ### buffer_logs（ホット領域／一時保存）
+
 ```sql
 CREATE TABLE buffer_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -213,6 +218,7 @@ CREATE INDEX IF NOT EXISTS idx_buffer_logs_key
 ```
 
 ### archived_files（R2 に保存したアーカイブの台帳）
+
 ```sql
 CREATE TABLE archived_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -226,6 +232,7 @@ CREATE TABLE archived_files (
 ```
 
 ### block_indexes（Range 取得用アドレス帳）
+
 ```sql
 CREATE TABLE block_indexes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,7 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_block_indexes_lookup
 ```mermaid
 timeline
     title ユーザーの1日のデータフロー例
-    
+
         08:00 : User uploads Avro slice 1 (5MB)
             : POST /battle-data/upload → Queue → Consumer
             : D1: buffer_logs に INSERT（5MB）
@@ -291,13 +298,14 @@ graph TD
     D -->|No| E["DLQ Message<br/>(dead_letter_queue)"]
     B -->|D1 Error| F["Message.ack()<br/>(logged)"]
     E --> G["DLQ Handler<br/>Log Error"]
-    
+
     B -->|Idempotent| H["Segment already exists?<br/>UPDATE vs INSERT"]
     H -->|Exists| I["Overwrite etag/size"]
     H -->|New| J["Create segment record"]
 ```
 
 **Strategy:**
+
 - Queue の `max_retries=3`：失敗時は最大3回再試行
 - DLQ（`dev-kc-compaction-dlq`）：最終失敗メッセージはログして保存
 - D1 挿入失敗時も、R2 PUT は成功している可能性 → Segment 重複登録の防止に `ON CONFLICT UPDATE` 等を検討可能
@@ -306,31 +314,31 @@ graph TD
 
 ## 9. パフォーマンス・制約
 
-| 項目 | 値 | 説明 |
-|------|-----|------|
-| Queue batch size | 10 | max_batch_size |
-| Queue timeout | 30s | max_batch_timeout |
-| R2 PUT frequency | 1/h | Cron のみ（Class A を最小化） |
-| Max segment size | - | セグメント化はCron側の内部実装（任意） |
-| Max header parse | 64KB | Avro header探索上限 |
-| R2 Range request | Range: [offset, length] | バイト単位のセグメント本体取得 |
-| Cache TTL (read) | 300s | public, max-age=300 |
-| D1 Indexes | dataset_id, table, period_tag | 高速フィルタリング用 |
+| 項目             | 値                            | 説明                                   |
+| ---------------- | ----------------------------- | -------------------------------------- |
+| Queue batch size | 10                            | max_batch_size                         |
+| Queue timeout    | 30s                           | max_batch_timeout                      |
+| R2 PUT frequency | 1/h                           | Cron のみ（Class A を最小化）          |
+| Max segment size | -                             | セグメント化はCron側の内部実装（任意） |
+| Max header parse | 64KB                          | Avro header探索上限                    |
+| R2 Range request | Range: [offset, length]       | バイト単位のセグメント本体取得         |
+| Cache TTL (read) | 300s                          | public, max-age=300                    |
+| D1 Indexes       | dataset_id, table, period_tag | 高速フィルタリング用                   |
 
 ---
 
 ## 10. 実装ファイル対応表
 
-| フロー段階 | 実装ファイル | 関連関数 |
-|-----------|----------|--------|
-| 1. Upload endpoint | src/index.ts | POST /battle-data/upload |
-| 2. Queue consumer | src/consumer.ts | バルク INSERT to buffer_logs |
-| 3. Archiver (Cron) | src/cron.ts | D1→Avro構築→R2 PUT→D1更新 |
-| 4. Read endpoint | src/index.ts | GET /read (Hot/Cold ハイブリッド) |
-| 5. Reader core | src/reader.ts | fetchHotData() + fetchColdIndexes() + fetchColdData() + merge |
-| 6. Header/Block parse | src/avro-manual.ts | getAvroHeaderLengthFromPrefix(), parseDeflateAvroBlock() |
-| 7. D1 schema | docs/sql/d1/ | buffer_logs, block_indexes, archived_files |
-| 8. Avro utilities | src/utils/avro.ts | generateHeader(), generateBlock(), generateSyncMarker() |
+| フロー段階            | 実装ファイル       | 関連関数                                                      |
+| --------------------- | ------------------ | ------------------------------------------------------------- |
+| 1. Upload endpoint    | src/index.ts       | POST /battle-data/upload                                      |
+| 2. Queue consumer     | src/consumer.ts    | バルク INSERT to buffer_logs                                  |
+| 3. Archiver (Cron)    | src/cron.ts        | D1→Avro構築→R2 PUT→D1更新                                     |
+| 4. Read endpoint      | src/index.ts       | GET /read (Hot/Cold ハイブリッド)                             |
+| 5. Reader core        | src/reader.ts      | fetchHotData() + fetchColdIndexes() + fetchColdData() + merge |
+| 6. Header/Block parse | src/avro-manual.ts | getAvroHeaderLengthFromPrefix(), parseDeflateAvroBlock()      |
+| 7. D1 schema          | docs/sql/d1/       | buffer_logs, block_indexes, archived_files                    |
+| 8. Avro utilities     | src/utils/avro.ts  | generateHeader(), generateBlock(), generateSyncMarker()       |
 
 ---
 
@@ -352,21 +360,21 @@ graph TD
 ## 12. コンポーネントの責務
 
 - src/consumer.ts: バッファ担当
-    - 役割: キューからのバッチ受信、ペイロード検証、D1 `buffer_logs` への一括 INSERT のみ
-    - 禁止: R2 へのアクセス、`block_indexes`/`archived_files` 更新、削除系操作
-    - 効果: 高頻度でも低コスト（D1 書き込みのみ）。スループット最大化
+  - 役割: キューからのバッチ受信、ペイロード検証、D1 `buffer_logs` への一括 INSERT のみ
+  - 禁止: R2 へのアクセス、`block_indexes`/`archived_files` 更新、削除系操作
+  - 効果: 高頻度でも低コスト（D1 書き込みのみ）。スループット最大化
 
 - src/cron.ts: アーカイブ/コンパクション担当（Cron）
-    - 役割: 定期的に `buffer_logs` を読み出し、Avro OCF を構築して R2 に PUT（1/h）
-    - 付随: `archived_files`/`block_indexes` を UPSERT、コミット済み `buffer_logs` を DELETE
-    - ポリシー: スキーマ整合性、sync marker 共有、圧縮（deflate）等
+  - 役割: 定期的に `buffer_logs` を読み出し、Avro OCF を構築して R2 に PUT（1/h）
+  - 付随: `archived_files`/`block_indexes` を UPSERT、コミット済み `buffer_logs` を DELETE
+  - ポリシー: スキーマ整合性、sync marker 共有、圧縮（deflate）等
 
 - src/reader.ts: ハイブリッド読取担当
-    - 役割: Hot = D1 `buffer_logs`、Cold = D1 `block_indexes` → R2 Range 取得
-    - 付随: Avro ヘッダー長を sync marker で特定、ブロックのデシリアライズ、マージ
+  - 役割: Hot = D1 `buffer_logs`、Cold = D1 `block_indexes` → R2 Range 取得
+  - 付随: Avro ヘッダー長を sync marker で特定、ブロックのデシリアライズ、マージ
 
 - src/index.ts: HTTPエントリポイント
-    - 役割: `/battle-data/upload` と `/read` のルーティング/入出力
+  - 役割: `/battle-data/upload` と `/read` のルーティング/入出力
 
 --
 

@@ -4,7 +4,11 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
-import { validateAvroOCFSmart, extractSchemaFromOCF, validateAvroHeader } from "../utils/avro-validator";
+import {
+  validateAvroOCFSmart,
+  extractSchemaFromOCF,
+  validateAvroHeader,
+} from "../utils/avro-validator";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -14,7 +18,7 @@ const app = new Hono<{ Bindings: Bindings }>();
  */
 function arrayBufferToBase64(bytes: Uint8Array): string {
   const chunkSize = 8192;
-  let binary = '';
+  let binary = "";
   for (let i = 0; i < bytes.length; i += chunkSize) {
     const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
     binary += String.fromCharCode(...Array.from(chunk));
@@ -39,15 +43,15 @@ app.options(
 
 /**
  * POST /upload - Real-time battle data upload with automatic compaction triggering
- * 
+ *
  * Purpose: Accept concatenated Avro data, split by table_offsets, and enqueue slices
- * 
+ *
  * Process:
  * 1. Split concatenated Avro data by table_offsets
  * 2. Enqueue each table's slice to COMPACTION_QUEUE
  * 3. Return 200 OK immediately (non-blocking)
  * 4. Workflow processes slices asynchronously, appending to per-table Avro files in R2
- * 
+ *
  * Note: Queuing failures are logged; upload still succeeds if data was received
  */
 app.post("/upload", async (c) => {
@@ -56,7 +60,10 @@ app.post("/upload", async (c) => {
   const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
-    return c.json({ error: "Server misconfiguration: missing R2 bucket or signing secret" }, 500);
+    return c.json(
+      { error: "Server misconfiguration: missing R2 bucket or signing secret" },
+      500,
+    );
   }
 
   return handleTwoStageUpload(c, {
@@ -64,50 +71,71 @@ app.post("/upload", async (c) => {
     signingSecret,
     preparationValidator: async (body, _user) => {
       // Extract and validate dataset_token (X-Dataset-Token header or dataset_token in body)
-      const datasetTokenHeader = c.req.header('X-Dataset-Token');
-      const datasetTokenBody = typeof body?.dataset_token === 'string' ? body.dataset_token.trim() : '';
+      const datasetTokenHeader = c.req.header("X-Dataset-Token");
+      const datasetTokenBody =
+        typeof body?.dataset_token === "string"
+          ? body.dataset_token.trim()
+          : "";
       const datasetToken = datasetTokenHeader || datasetTokenBody;
 
       if (datasetToken) {
-        const datasetTokenSecret = getEnv(env, 'DATASET_TOKEN_SECRET');
+        const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
         if (!datasetTokenSecret) {
-          console.error('[battle-data] DATASET_TOKEN_SECRET not configured');
-          return c.json({ error: 'Server configuration error' }, 500);
+          console.error("[battle-data] DATASET_TOKEN_SECRET not configured");
+          return c.json({ error: "Server configuration error" }, 500);
         }
 
-        const validatedToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+        const validatedToken = await validateDatasetToken(
+          datasetToken,
+          datasetTokenSecret,
+        );
         if (!validatedToken) {
-          console.warn('[battle-data] Invalid or expired dataset_token');
-          return c.json({ error: 'Invalid or expired dataset_token' }, 401);
+          console.warn("[battle-data] Invalid or expired dataset_token");
+          return c.json({ error: "Invalid or expired dataset_token" }, 401);
         }
 
         // Verify dataset_id matches token
-        const requestedDatasetId = typeof body?.dataset_id === 'string' ? body.dataset_id.trim() : '';
+        const requestedDatasetId =
+          typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
         if (requestedDatasetId !== validatedToken.dataset_id) {
           console.warn(`[battle-data] dataset_id mismatch detected`);
-          return c.json({ error: 'dataset_id does not match token' }, 403);
+          return c.json({ error: "dataset_id does not match token" }, 403);
         }
 
         console.log(`[battle-data] dataset_token validated successfully`);
       }
 
-      const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      const datasetId =
+        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const table = typeof body?.table === "string" ? body.table.trim() : "";
-      const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
-      const tableVersion = typeof body?.table_version === "string"
-        ? body.table_version.trim()
-        : typeof body?.tableVersion === "string"
-          ? body.tableVersion.trim()
+      const periodTag =
+        typeof body?.kc_period_tag === "string"
+          ? body.kc_period_tag.trim()
           : "";
-      const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
-      const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
+      const tableVersion =
+        typeof body?.table_version === "string"
+          ? body.table_version.trim()
+          : typeof body?.tableVersion === "string"
+            ? body.tableVersion.trim()
+            : "";
+      const declaredSize = parseInt(
+        typeof body?.file_size === "string" ? body.file_size : "0",
+        10,
+      );
+      const tableOffsets =
+        typeof body?.table_offsets === "string"
+          ? body.table_offsets.trim()
+          : null;
       const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
       const isBinary = typeof body?.binary === "boolean" ? body.binary : false;
 
       // Verify that client indicated binary format
       if (!isBinary) {
         console.warn("[battle-data] Rejecting non-binary upload");
-        return c.json({ error: "binary field must be true for battle data" }, 400);
+        return c.json(
+          { error: "binary field must be true for battle data" },
+          400,
+        );
       }
 
       if (!pathTag) {
@@ -128,14 +156,21 @@ app.post("/upload", async (c) => {
         return c.json({ error: "table_version is required" }, 400);
       }
       if (!/^[\w\-]+$/.test(periodTag)) {
-        return c.json({ error: "kc_period_tag must contain only alphanumeric characters and hyphens" }, 400);
+        return c.json(
+          {
+            error:
+              "kc_period_tag must contain only alphanumeric characters and hyphens",
+          },
+          400,
+        );
       }
       if (declaredSize <= 0) {
         return c.json({ error: "file_size must be > 0" }, 400);
       }
 
       // Get content_hash from body (computed by client)
-      const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+      const contentHash =
+        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
       if (!contentHash) {
         console.warn("[battle-data] Rejecting upload without content_hash");
         return c.json({ error: "content_hash is required" }, 400);
@@ -144,20 +179,36 @@ app.post("/upload", async (c) => {
       // Validate table_offsets if provided
       if (tableOffsets) {
         try {
-          console.info(`[battle-data] Received table_offsets for ${table}: ${tableOffsets}`);
+          console.info(
+            `[battle-data] Received table_offsets for ${table}: ${tableOffsets}`,
+          );
           const parsed = JSON.parse(tableOffsets);
-          console.info(`[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`);
-          const { valid, errors } = validateOffsetMetadata(parsed, declaredSize);
+          console.info(
+            `[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`,
+          );
+          const { valid, errors } = validateOffsetMetadata(
+            parsed,
+            declaredSize,
+          );
           if (!valid) {
-            console.warn(`[battle-data] Invalid table_offsets provided; rejecting. Errors: ${errors.join(', ')}`);
-            return c.json({ error: "Invalid table_offsets", details: errors }, 400);
+            console.warn(
+              `[battle-data] Invalid table_offsets provided; rejecting. Errors: ${errors.join(", ")}`,
+            );
+            return c.json(
+              { error: "Invalid table_offsets", details: errors },
+              400,
+            );
           }
         } catch (e) {
-          console.warn(`[battle-data] Failed to parse table_offsets; rejecting. Error: ${String(e)}`);
+          console.warn(
+            `[battle-data] Failed to parse table_offsets; rejecting. Error: ${String(e)}`,
+          );
           return c.json({ error: "Malformed table_offsets JSON" }, 400);
         }
       } else {
-        console.info(`[battle-data] No table_offsets provided for table '${table}'`);
+        console.info(
+          `[battle-data] No table_offsets provided for table '${table}'`,
+        );
       }
 
       return {
@@ -194,7 +245,12 @@ app.post("/upload", async (c) => {
       try {
         if (!env.runtime.COMPACTION_QUEUE) {
           console.warn("[battle-data] COMPACTION_QUEUE binding not available");
-          return c.json({ error: "Server misconfiguration: COMPACTION_QUEUE not available" }, 500);
+          return c.json(
+            {
+              error: "Server misconfiguration: COMPACTION_QUEUE not available",
+            },
+            500,
+          );
         }
 
         // Parse table_offsets and split data into per-table Avro slices
@@ -203,7 +259,10 @@ app.post("/upload", async (c) => {
           try {
             offsets = JSON.parse(tableOffsets) as any[];
           } catch (e) {
-            console.warn('[battle-data] Failed to parse table_offsets for queue split', e);
+            console.warn(
+              "[battle-data] Failed to parse table_offsets for queue split",
+              e,
+            );
             offsets = [];
           }
         }
@@ -228,39 +287,73 @@ app.post("/upload", async (c) => {
             // Lightweight header validation (DoS prevention)
             const headerCheck = validateAvroHeader(slice, maxBytes);
             if (!headerCheck.valid) {
-              console.error(`[battle-data] Invalid Avro header for ${tname}:`, headerCheck.error);
-              return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
+              console.error(
+                `[battle-data] Invalid Avro header for ${tname}:`,
+                headerCheck.error,
+              );
+              return c.json(
+                { error: `Invalid Avro data: ${headerCheck.error}` },
+                400,
+              );
             }
 
             // Extract schema and validate via full decode
             const schemaJson = extractSchemaFromOCF(slice);
             if (!schemaJson) {
-              console.error(`[battle-data] Failed to extract schema from ${tname}`);
-              return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
+              console.error(
+                `[battle-data] Failed to extract schema from ${tname}`,
+              );
+              return c.json(
+                { error: "Invalid Avro: schema not found in header" },
+                400,
+              );
             }
 
-            const decodeResult = await validateAvroOCFSmart(slice, tableVersion);
+            const decodeResult = await validateAvroOCFSmart(
+              slice,
+              tableVersion,
+            );
             if (!decodeResult.valid) {
-              console.error(`[battle-data] Decode validation failed for ${tname}:`, decodeResult.errorMessage);
-              return c.json({
-                error: 'Schema validation failed',
-                details: decodeResult.errorMessage
-              }, 400);
+              console.error(
+                `[battle-data] Decode validation failed for ${tname}:`,
+                decodeResult.errorMessage,
+              );
+              return c.json(
+                {
+                  error: "Schema validation failed",
+                  details: decodeResult.errorMessage,
+                },
+                400,
+              );
             }
 
             if (!decodeResult.tableVersion) {
-              console.error(`[battle-data] Missing table_version in Avro header for ${tname}`);
-              return c.json({ error: 'table_version not found in Avro header' }, 400);
+              console.error(
+                `[battle-data] Missing table_version in Avro header for ${tname}`,
+              );
+              return c.json(
+                { error: "table_version not found in Avro header" },
+                400,
+              );
             }
 
             if (decodeResult.tableVersion !== tableVersion) {
-              console.error(`[battle-data] table_version mismatch for ${tname}: token=${tableVersion}, avro=${decodeResult.tableVersion}`);
-              return c.json({ error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}` }, 400);
+              console.error(
+                `[battle-data] table_version mismatch for ${tname}: token=${tableVersion}, avro=${decodeResult.tableVersion}`,
+              );
+              return c.json(
+                {
+                  error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}`,
+                },
+                400,
+              );
             }
 
             detectedTableVersions.add(decodeResult.tableVersion);
 
-            console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`);
+            console.info(
+              `[battle-data] Validated ${tname}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`,
+            );
             validatedOffsets.push({
               table_name: tname,
               start_byte: start,
@@ -272,38 +365,67 @@ app.post("/upload", async (c) => {
           // No offsets: treat entire payload as single table slice
           const headerCheck = validateAvroHeader(data, maxBytes);
           if (!headerCheck.valid) {
-            console.error('[battle-data] Invalid Avro header:', headerCheck.error);
-            return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
+            console.error(
+              "[battle-data] Invalid Avro header:",
+              headerCheck.error,
+            );
+            return c.json(
+              { error: `Invalid Avro data: ${headerCheck.error}` },
+              400,
+            );
           }
 
           const schemaJson = extractSchemaFromOCF(data);
           if (!schemaJson) {
-            console.error('[battle-data] Failed to extract schema from payload');
-            return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
+            console.error(
+              "[battle-data] Failed to extract schema from payload",
+            );
+            return c.json(
+              { error: "Invalid Avro: schema not found in header" },
+              400,
+            );
           }
 
           const decodeResult = await validateAvroOCFSmart(data, tableVersion);
           if (!decodeResult.valid) {
-            console.error('[battle-data] Decode validation failed:', decodeResult.errorMessage);
-            return c.json({
-              error: 'Schema validation failed',
-              details: decodeResult.errorMessage
-            }, 400);
+            console.error(
+              "[battle-data] Decode validation failed:",
+              decodeResult.errorMessage,
+            );
+            return c.json(
+              {
+                error: "Schema validation failed",
+                details: decodeResult.errorMessage,
+              },
+              400,
+            );
           }
 
           if (!decodeResult.tableVersion) {
-            console.error('[battle-data] Missing table_version in Avro header');
-            return c.json({ error: 'table_version not found in Avro header' }, 400);
+            console.error("[battle-data] Missing table_version in Avro header");
+            return c.json(
+              { error: "table_version not found in Avro header" },
+              400,
+            );
           }
 
           if (decodeResult.tableVersion !== tableVersion) {
-            console.error(`[battle-data] table_version mismatch: token=${tableVersion}, avro=${decodeResult.tableVersion}`);
-            return c.json({ error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}` }, 400);
+            console.error(
+              `[battle-data] table_version mismatch: token=${tableVersion}, avro=${decodeResult.tableVersion}`,
+            );
+            return c.json(
+              {
+                error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}`,
+              },
+              400,
+            );
           }
 
           detectedTableVersions.add(decodeResult.tableVersion);
 
-          console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`);
+          console.info(
+            `[battle-data] Validated ${table}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`,
+          );
           validatedOffsets.push({
             table_name: table,
             start_byte: 0,
@@ -313,10 +435,13 @@ app.post("/upload", async (c) => {
         }
 
         if (detectedTableVersions.size > 1) {
-          return c.json({
-            error: 'Mixed table_version detected in upload',
-            detected_versions: Array.from(detectedTableVersions),
-          }, 400);
+          return c.json(
+            {
+              error: "Mixed table_version detected in upload",
+              detected_versions: Array.from(detectedTableVersions),
+            },
+            400,
+          );
         }
 
         // Send a SINGLE queue message with all tables batched
@@ -340,26 +465,42 @@ app.post("/upload", async (c) => {
               table_offsets: validatedOffsets,
             };
 
-            console.info('[battle-data] Sending 1 batched message to COMPACTION_QUEUE with', validatedOffsets.length, 'tables');
+            console.info(
+              "[battle-data] Sending 1 batched message to COMPACTION_QUEUE with",
+              validatedOffsets.length,
+              "tables",
+            );
             await env.runtime.COMPACTION_QUEUE.send(messageBody);
-            console.info('[battle-data] Successfully enqueued batched message with', validatedOffsets.length, 'tables');
+            console.info(
+              "[battle-data] Successfully enqueued batched message with",
+              validatedOffsets.length,
+              "tables",
+            );
           } catch (sendErr) {
-            console.error('[battle-data] FAILED at send', {
+            console.error("[battle-data] FAILED at send", {
               error: String(sendErr),
               tableCount: validatedOffsets.length,
             });
             throw sendErr;
           }
         } else {
-          console.warn('[battle-data] No valid tables to enqueue');
+          console.warn("[battle-data] No valid tables to enqueue");
         }
       } catch (queueErr) {
-        console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr), stack: String(queueErr) });
-        return c.json({ error: 'Failed to enqueue slices' }, 500);
+        console.error("[battle-data] FAILED to enqueue to COMPACTION_QUEUE", {
+          error: String(queueErr),
+          stack: String(queueErr),
+        });
+        return c.json({ error: "Failed to enqueue slices" }, 500);
       }
 
       return {
-        response: { ok: true, dataset_id: datasetId, table, period_tag: periodTag },
+        response: {
+          ok: true,
+          dataset_id: datasetId,
+          table,
+          period_tag: periodTag,
+        },
       };
     },
   });
@@ -408,24 +549,35 @@ app.get("/chunks", async (c) => {
          WHERE bi.dataset_id = ? AND bi.table_name = ?`;
     const params: unknown[] = [datasetId, table];
 
-    if (tableVersion) { sql += ` AND bi.table_version = ?`; params.push(tableVersion); }
+    if (tableVersion) {
+      sql += ` AND bi.table_version = ?`;
+      params.push(tableVersion);
+    }
 
     // Convert ISO8601 to epoch millis if provided
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND bi.start_timestamp >= ?`; params.push(fromMs); }
-    if (toMs && !Number.isNaN(toMs)) { sql += ` AND bi.end_timestamp <= ?`; params.push(toMs); }
+    if (fromMs && !Number.isNaN(fromMs)) {
+      sql += ` AND bi.start_timestamp >= ?`;
+      params.push(fromMs);
+    }
+    if (toMs && !Number.isNaN(toMs)) {
+      sql += ` AND bi.end_timestamp <= ?`;
+      params.push(toMs);
+    }
 
     sql += ` ORDER BY bi.start_timestamp DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
     const result = await stmt.bind(...params).all?.();
-    if (!result) { throw new Error("D1 returned no results for chunks query"); }
+    if (!result) {
+      throw new Error("D1 returned no results for chunks query");
+    }
 
     const rows = (result.results || []) as any[];
     // Map block_indexes to response format
-    const chunks = rows.map(r => ({
+    const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
       dataset_id: r.dataset_id,
@@ -436,8 +588,16 @@ app.get("/chunks", async (c) => {
       uploaded_at: new Date(r.start_timestamp).toISOString(),
     }));
 
-    c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-    return c.json({ chunks, count: chunks.length, dataset_id: datasetId, table });
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=300",
+    );
+    return c.json({
+      chunks,
+      count: chunks.length,
+      dataset_id: datasetId,
+      table,
+    });
   } catch (err) {
     console.error("[battle_data] Failed to query chunks:", err);
     return c.json({ error: "Failed to retrieve chunks" }, 500);
@@ -481,13 +641,18 @@ app.get("/latest", async (c) => {
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.dataset_id = ? AND bi.table_name = ?`;
     const latestParams: unknown[] = [datasetId, table];
-    if (tableVersion) { latestSql += ` AND bi.table_version = ?`; latestParams.push(tableVersion); }
+    if (tableVersion) {
+      latestSql += ` AND bi.table_version = ?`;
+      latestParams.push(tableVersion);
+    }
     latestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
 
     const stmt = indexDb.prepare(latestSql);
     const row = await stmt.bind(...latestParams).first?.();
 
-    if (!row) { return c.json({ error: "No fragments found" }, 404); }
+    if (!row) {
+      return c.json({ error: "No fragments found" }, 404);
+    }
 
     const latest = {
       id: row.id,
@@ -500,7 +665,10 @@ app.get("/latest", async (c) => {
       uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
     };
 
-    c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=300",
+    );
     return c.json({ latest });
   } catch (err) {
     console.error("[battle_data] Failed to query latest:", err);
@@ -553,22 +721,33 @@ app.get("/global/chunks", async (c) => {
          WHERE bi.table_name = ?`;
     const params: unknown[] = [table];
 
-    if (tableVersion) { sql += ` AND bi.table_version = ?`; params.push(tableVersion); }
+    if (tableVersion) {
+      sql += ` AND bi.table_version = ?`;
+      params.push(tableVersion);
+    }
 
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND bi.start_timestamp >= ?`; params.push(fromMs); }
-    if (toMs && !Number.isNaN(toMs)) { sql += ` AND bi.end_timestamp <= ?`; params.push(toMs); }
+    if (fromMs && !Number.isNaN(fromMs)) {
+      sql += ` AND bi.start_timestamp >= ?`;
+      params.push(fromMs);
+    }
+    if (toMs && !Number.isNaN(toMs)) {
+      sql += ` AND bi.end_timestamp <= ?`;
+      params.push(toMs);
+    }
 
     sql += ` ORDER BY bi.start_timestamp DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
     const result = await stmt.bind(...params).all?.();
-    if (!result) { throw new Error("D1 returned no results for global chunks query"); }
+    if (!result) {
+      throw new Error("D1 returned no results for global chunks query");
+    }
 
     const rows = (result.results || []) as any[];
-    const chunks = rows.map(r => ({
+    const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
       dataset_id: r.dataset_id,
@@ -578,7 +757,10 @@ app.get("/global/chunks", async (c) => {
       record_count: r.record_count,
       uploaded_at: new Date(r.start_timestamp).toISOString(),
     }));
-    c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=300",
+    );
     return c.json({ chunks, count: chunks.length, table });
   } catch (err) {
     console.error("[battle_data] Failed to query global chunks:", err);
@@ -619,12 +801,17 @@ app.get("/global/latest", async (c) => {
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
     const globalLatestParams: unknown[] = [table];
-    if (tableVersion) { globalLatestSql += ` AND bi.table_version = ?`; globalLatestParams.push(tableVersion); }
+    if (tableVersion) {
+      globalLatestSql += ` AND bi.table_version = ?`;
+      globalLatestParams.push(tableVersion);
+    }
     globalLatestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
 
     const stmt = indexDb.prepare(globalLatestSql);
     const row = await stmt.bind(...globalLatestParams).first?.();
-    if (!row) { return c.json({ error: "No fragments found" }, 404); }
+    if (!row) {
+      return c.json({ error: "No fragments found" }, 404);
+    }
 
     const latest = {
       id: row.id,
@@ -637,7 +824,10 @@ app.get("/global/latest", async (c) => {
       uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
     };
 
-    c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=60, stale-while-revalidate=300",
+    );
     return c.json({ latest });
   } catch (err) {
     console.error("[battle_data] Failed to query global latest:", err);
