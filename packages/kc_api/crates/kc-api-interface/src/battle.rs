@@ -217,7 +217,7 @@ impl Battle {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct BattleResult {
-    pub win_runk: String,
+    pub win_rank: String,
     pub drop_ship_id: Option<i64>,
     pub landing_hp_now: Option<i64>,
     pub landing_hp_max: Option<i64>,

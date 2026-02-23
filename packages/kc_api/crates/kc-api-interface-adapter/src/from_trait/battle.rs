@@ -42,7 +42,7 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
         let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
         let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
         Self(BattleResult {
-            win_runk: battle_result.api_win_rank,
+            win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
             landing_hp_now,
             landing_hp_max,
