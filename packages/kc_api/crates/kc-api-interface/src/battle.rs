@@ -90,6 +90,7 @@ pub struct Battle {
     pub e_nowhps: Option<Vec<i64>>,
     pub midnight_f_nowhps: Option<Vec<i64>>,
     pub midnight_e_nowhps: Option<Vec<i64>>,
+    pub battle_result: Option<BattleResult>,
 }
 
 impl Battle {
@@ -199,6 +200,10 @@ impl Battle {
                         .midnight_e_nowhps
                         .clone()
                         .or(self.midnight_e_nowhps.clone()),
+                    battle_result: battle
+                        .battle_result
+                        .clone()
+                        .or(self.battle_result.clone()),
                 };
                 battles.battles.insert(self.cell_id, battle_or);
             }
@@ -208,6 +213,17 @@ impl Battle {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
+pub struct BattleResult {
+    pub win_runk: String,
+    pub drop_ship_id: Option<i64>,
+    pub landing_hp_now: Option<i64>,
+    pub landing_hp_max: Option<i64>,
+    pub landing_sub_value: Option<i64>,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]

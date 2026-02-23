@@ -5,14 +5,77 @@ use chrono::Local;
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
 
-use super::battle::{calc_dmg, calc_escape_idx, unwrap_into};
-use kc_api_interface::battle::BattleType;
+use super::battle::{calc_dmg, calc_escape_idx, unwrap_into, parse_landing_hp};
+use kc_api_interface::battle::{BattleResult, BattleType};
 use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
     FriendlyForceAttack, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
     SupportAttack,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
+
+impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
+    fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
+        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
+        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+        let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
+        Self(BattleResult {
+            win_runk: battle_result.api_win_rank,
+            drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
+            landing_hp_now,
+            landing_hp_max,
+            landing_sub_value,
+        })
+    }
+}
+
+impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<Battle> {
+    fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
+        
+        let result: BattleResult = InterfaceWrapper::from(battle_result).unwrap();
+        Self(Battle {
+            battle_order: None,
+            timestamp: None,
+            midnight_timestamp: None,
+            cell_id: 0,
+            deck_id: None,
+            formation: None,
+            enemy_ship_id: None,
+            e_lv: None,
+            e_params: None,
+            e_slot: None,
+            e_hp_max: None,
+            f_total_damages: None,
+            e_total_damages: None,
+            friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
+            reconnaissance: None,
+            escape_idx: None,
+            smoke_type: None,
+            combat_ration: None,
+            balloon_flag: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
+            air_base_air_attacks: None,
+            opening_air_attack: None,
+            support_attack: None,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            friendly_force_attack: None,
+            midnight_flare_pos: None,
+            midnight_touchplane: None,
+            midnight_hougeki: None,
+            f_nowhps: None,
+            e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
+            battle_result: Some(result),
+        })
+    }
+}
 
 impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::ec_battle::ApiData) -> Self {
@@ -99,6 +162,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -186,6 +250,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             e_nowhps: None,
             midnight_f_nowhps: Some(battle.api_f_nowhps),
             midnight_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -279,6 +344,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             e_nowhps: Some(battle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -372,6 +438,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             e_nowhps: Some(battle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -467,6 +534,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -560,6 +628,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -636,6 +705,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             e_nowhps: Some(airbattle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -702,6 +772,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             e_nowhps: None,
             midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
@@ -766,6 +837,7 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             e_nowhps: None,
             midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
+            battle_result: None,
         })
         .unwrap();
         calc_dmg(&mut ret);
