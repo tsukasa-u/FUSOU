@@ -1,6 +1,7 @@
 import type { Battle } from "@ipc-bindings/battle";
-import type { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
+import type { DataSetParamShip, DataSetShip } from "../../utility/get_data_set";
 import {
+  get_mst_ship,
   get_mst_slot_item,
   get_slot_item,
   type DeckShipIds,
@@ -10,6 +11,28 @@ import { useDeckBattles } from "../../utility/provider";
 import { Show } from "solid-js";
 
 const friendly_force_number = 5;
+
+export function WrapDropShipComponent(props: {
+  ship_id: number
+}) {
+
+  let mst_ship = get_mst_ship(props.ship_id);
+
+  return (
+    <>
+      <component-ship-modal
+        size="xs"
+        color=""
+        empty_flag={false}
+        name_flag={true}
+        ship={undefined}
+        mst_ship={mst_ship}
+        slot_items={undefined}
+        mst_slot_items={undefined}
+      />
+    </>
+  );
+} 
 
 interface OwnShipProps {
   ship_idx: number;

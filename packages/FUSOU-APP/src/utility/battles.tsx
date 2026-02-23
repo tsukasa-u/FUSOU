@@ -4,6 +4,7 @@ import { get_data_set_ship } from "./get_data_set";
 import {
   useCells,
   useDeckBattles,
+  useMstShips,
   useMstSlotItems,
   useSlotItems,
 } from "./provider";
@@ -22,6 +23,11 @@ export const calc_critical = (
     return "";
   }
 };
+
+export const get_mst_ship = (id: number) => {
+  const [mst_ships] = useMstShips();
+  return mst_ships.mst_ships[id];
+}
 
 export const get_slot_item = (id: number) => {
   const [slot_items] = useSlotItems();
