@@ -26,7 +26,6 @@ register_trait!(
     (
         battle_water,
         battle,
-        battleresult,
         each_battle_water,
         each_battle,
         goback_port,
@@ -35,6 +34,14 @@ register_trait!(
         sp_midnight
     )
 );
+
+impl TraitForConvert for battleresult::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let battle = InterfaceWrapper::<Battle>::from(self.api_data.clone()).unwrap();
+        Some(vec![EmitData::Add(Add::Battle(battle))])
+    }
+}
 
 impl TraitForConvert for ec_battle::Res {
     type Output = EmitData;

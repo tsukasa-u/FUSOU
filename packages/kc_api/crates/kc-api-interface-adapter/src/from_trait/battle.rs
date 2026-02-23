@@ -1236,13 +1236,18 @@ pub fn calc_dmg(battle: &mut Battle) {
 
 impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
-        
+
+        let cell_no = KCS_CELLS_INDEX
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
+            .unwrap_or(0);
+
         let result: BattleResult = InterfaceWrapper::from(battle_result).unwrap();
         Self(Battle {
             battle_order: None,
             timestamp: None,
             midnight_timestamp: None,
-            cell_id: 0,
+            cell_id: cell_no,
             deck_id: None,
             formation: None,
             enemy_ship_id: None,
