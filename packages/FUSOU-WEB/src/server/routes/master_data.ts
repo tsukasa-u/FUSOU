@@ -60,7 +60,7 @@ app.options(
  *
  * Upload flow:
  * 1. Client concatenates all tables and sends metadata + table_offsets in preparation phase
- * 2. Server attempts to claim ownership in D1 with UNIQUE(period_tag) constraint
+ * 2. Server attempts to claim ownership in D1 with UNIQUE(period_tag, table_version) constraint
  * 3. If successful, client uploads concatenated binary data
  * 4. Server splits by table_offsets, uploads each to R2, marks D1 as 'completed'
  * 5. Cleanup job handles orphaned 'pending' records after timeout
@@ -319,12 +319,12 @@ app.post("/upload", async (c) => {
       }
 
       // Attempt to claim ownership for this period via INSERT ... ON CONFLICT DO NOTHING
-      // UNIQUE(period_tag) ensures only one upload per period
+      // UNIQUE(period_tag, table_version) ensures only one upload per period+version
       try {
         const stmt = db.prepare(`
           INSERT INTO master_data_index 
             (period_tag, table_version, content_hash, upload_status, uploaded_by, created_at)
-          VALUES (?, ?, 'pending', ?, ?, ?)
+          VALUES (?, ?, ?, 'pending', ?, ?)
           ON CONFLICT(period_tag, table_version) DO NOTHING
           RETURNING id
         `);
@@ -387,6 +387,7 @@ app.post("/upload", async (c) => {
       const payloadValidation = validateTokenPayload(tokenPayload, [
         "record_id",
         "period_tag",
+        "table_version",
         "content_hash",
         "table_offsets",
         "table_count",
