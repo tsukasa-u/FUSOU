@@ -5,11 +5,11 @@ use std::str::FromStr;
 use crate::encode::encode;
 use crate::models::airbase::{AirBase, PlaneInfo};
 use crate::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
-    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
-    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
-    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList, MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai
 };
+#[cfg(feature = "schema_v0_5")]
+use crate::models::battle::BattleResult;
+
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use crate::models::env_info::{EnvInfo, UserEnv};
@@ -71,6 +71,8 @@ pub enum PortTableEnum {
     SupportAirattack,
     SupportHourai,
     Battle,
+    // #[cfg(feature = "schema_v0_5")]
+    BattleResult,
 }
 
 #[derive(Debug, Clone, Default, FieldSizeChecker)]
@@ -108,6 +110,8 @@ pub struct PortTable {
     pub support_airattack: Vec<SupportAirattack>,
     pub support_hourai: Vec<SupportHourai>,
     pub battle: Vec<Battle>,
+    #[cfg(feature = "schema_v0_5")]
+    pub battle_result: Vec<BattleResult>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,6 +149,8 @@ pub struct PortTableEncode {
     pub support_airattack: Vec<u8>,
     pub support_hourai: Vec<u8>,
     pub battle: Vec<u8>,
+    #[cfg(feature = "schema_v0_5")]
+    pub battle_result: Vec<u8>,
 }
 
 impl EnvInfo {
@@ -313,6 +319,13 @@ impl Battle {
     }
 }
 
+#[cfg(feature = "schema_v0_5")]
+impl BattleResult {
+    pub fn get_table_name() -> String {
+        "battle_result".to_string()
+    }
+}
+
 pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
     vec![
         EnvInfo::get_table_name(),
@@ -347,6 +360,8 @@ pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyL
         MidnightHougekiList::get_table_name(),
         ClosingRaigeki::get_table_name(),
         Battle::get_table_name(),
+        #[cfg(feature = "schema_v0_5")]
+        BattleResult::get_table_name(),
     ]
 });
 
@@ -398,6 +413,8 @@ impl FromStr for PortTableEnum {
             x if x == SupportAirattack::get_table_name() => Ok(PortTableEnum::SupportAirattack),
             x if x == SupportHourai::get_table_name() => Ok(PortTableEnum::SupportHourai),
             x if x == Battle::get_table_name() => Ok(PortTableEnum::Battle),
+             #[cfg(feature = "schema_v0_5")]
+            x if x == BattleResult::get_table_name() => Ok(PortTableEnum::BattleResult),
             _ => Err(()),
         }
     }
@@ -460,6 +477,8 @@ impl PortTable {
         let support_airattack = encode(self.support_airattack.clone())?;
         let support_hourai = encode(self.support_hourai.clone())?;
         let battle = encode(self.battle.clone())?;
+        #[cfg(feature = "schema_v0_5")]
+        let battle_result = encode(self.battle_result.clone())?;
 
         let cells = encode(self.cells.clone())?;
         tracing::debug!(
@@ -503,6 +522,8 @@ impl PortTable {
             support_airattack,
             support_hourai,
             battle,
+            #[cfg(feature = "schema_v0_5")]
+            battle_result,
         };
         Ok(table_encode)
     }
@@ -688,6 +709,12 @@ impl PortTable {
             Battle::get_table_name(),
             self.battle.len(),
             encode(self.battle.clone())
+        );
+        #[cfg(feature = "schema_v0_5")]
+        enc_push_if_non_empty!(
+            BattleResult::get_table_name(),
+            self.battle_result.len(),
+            encode(self.battle_result.clone())
         );
 
         Ok(tables)
