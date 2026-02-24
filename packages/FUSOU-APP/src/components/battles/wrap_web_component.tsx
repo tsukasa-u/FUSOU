@@ -12,27 +12,19 @@ import { Show } from "solid-js";
 
 const friendly_force_number = 5;
 
-export function WrapDropShipComponent(props: {
-  ship_id: number
-}) {
-
-  let mst_ship = get_mst_ship(props.ship_id);
-
+export function WrapDropShipComponent(props: { ship_id: number }) {
   return (
     <>
-      <component-ship-modal
+      <component-ship-mst-modal
         size="xs"
         color=""
         empty_flag={false}
         name_flag={true}
-        ship={undefined}
-        mst_ship={mst_ship}
-        slot_items={undefined}
-        mst_slot_items={undefined}
+        mst_ship={get_mst_ship(props.ship_id)}
       />
     </>
   );
-} 
+}
 
 interface OwnShipProps {
   ship_idx: number;
@@ -236,7 +228,7 @@ interface NumberedSupportShipProps {
 }
 
 export function WrapNumberedSupportShipComponent(
-  props: NumberedSupportShipProps
+  props: NumberedSupportShipProps,
 ) {
   const support_deck_id = () => props.support_deck_id;
   const error_ship = () => {

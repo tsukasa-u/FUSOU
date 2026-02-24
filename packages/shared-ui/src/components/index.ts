@@ -3,3 +3,4 @@ export * from "./equipment";
 export * from "./equipment-mst";
 export * from "./ship";
 export * from "./ship-masked";
+export * from "./ship-mst";

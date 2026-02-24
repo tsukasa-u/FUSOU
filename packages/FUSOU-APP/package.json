@@ -18,8 +18,7 @@
     "tauri": "dotenvx run -fk ../.env.keys -f .env -f src-tauri/.env --verbose --overload -- tauri",
     "check.tsc": "tsc --noEmit",
     "storybook.build": "storybook build",
-    "storybook": "storybook dev -p 6007",
-    "update-shared-ui": "pnpm up shared-ui"
+    "storybook": "storybook dev -p 6007"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "^4.1.3",

@@ -16,8 +16,8 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [solid()],
   esbuild: {
-    jsx: 'automatic',
-    jsxImportSource: 'solid-js',
+    jsx: "automatic",
+    jsxImportSource: "solid-js",
   },
   test: {
     workspace: [
@@ -49,7 +49,10 @@ export default defineConfig(async () => ({
     exclude: ["stories/**/*.mdx"],
   },
   optimizeDeps: {
-    include: ["shared-ui"],
+    //  include: ["shared-ui"],
+    // shared-ui is a workspace-linked package — exclude it so Vite always
+    // reads the latest dist/index.js instead of serving a stale pre-bundle cache.
+    exclude: ["shared-ui"],
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
@@ -78,7 +81,7 @@ export default defineConfig(async () => ({
       "@ipc-bindings": resolve(__dirname, "../kc_api/bindings"),
       "@fusou-testdata-ipc": resolve(
         __dirname,
-        "../../../FUSOU-TESTDATA/storybook/ipc"
+        "../../../FUSOU-TESTDATA/storybook/ipc",
       ),
     },
   },
