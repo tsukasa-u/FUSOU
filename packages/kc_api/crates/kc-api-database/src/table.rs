@@ -71,7 +71,7 @@ pub enum PortTableEnum {
     SupportAirattack,
     SupportHourai,
     Battle,
-    // #[cfg(feature = "schema_v0_5")]
+    #[cfg(feature = "schema_v0_5")]
     BattleResult,
 }
 
