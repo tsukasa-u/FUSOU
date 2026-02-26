@@ -52,7 +52,7 @@ export interface FormulaTreeProps {
 const TYPE_COLORS: Record<string, string> = {
   operator: "#6366f1", // indigo
   function: "#f59e0b", // amber
-  symbol: "#10b981",   // emerald
+  symbol: "#10b981", // emerald
   constant: "#6b7280", // gray
 };
 
@@ -93,7 +93,7 @@ const nodeTypes: NodeTypes = {
  */
 function layoutNodes(
   nodes: ASTNode[],
-  edges: ASTEdge[]
+  edges: ASTEdge[],
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -141,7 +141,7 @@ export function FormulaTree({
 }: FormulaTreeProps) {
   const { nodes, edges } = useMemo(
     () => layoutNodes(rawNodes, rawEdges),
-    [rawNodes, rawEdges]
+    [rawNodes, rawEdges],
   );
 
   if (rawNodes.length === 0) {

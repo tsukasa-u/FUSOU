@@ -168,9 +168,7 @@ function ParetoTab({
               <td>{i + 1}</td>
               <td>{p.complexity}</td>
               <td>{p.loss.toExponential(3)}</td>
-              <td className="font-mono text-xs max-w-xs truncate">
-                {p.latex}
-              </td>
+              <td className="font-mono text-xs max-w-xs truncate">{p.latex}</td>
             </tr>
           ))}
         </tbody>
@@ -186,9 +184,7 @@ function CoefficientsTab({
 }) {
   const entries = Object.entries(coefficients);
   if (entries.length === 0) {
-    return (
-      <p className="text-sm text-base-content/50">最適化された係数なし</p>
-    );
+    return <p className="text-sm text-base-content/50">最適化された係数なし</p>;
   }
 
   return (
@@ -204,7 +200,9 @@ function CoefficientsTab({
           {entries.map(([key, value]) => (
             <tr key={key}>
               <td className="font-mono">{key}</td>
-              <td>{typeof value === "number" ? value.toFixed(6) : String(value)}</td>
+              <td>
+                {typeof value === "number" ? value.toFixed(6) : String(value)}
+              </td>
             </tr>
           ))}
         </tbody>

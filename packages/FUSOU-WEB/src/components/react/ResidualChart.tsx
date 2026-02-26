@@ -18,7 +18,7 @@ ChartJS.register(
   CategoryScale,
   LineElement,
   Tooltip,
-  Legend
+  Legend,
 );
 
 export interface ResidualChartProps {

@@ -60,13 +60,13 @@ python scripts/publish_results.py --results-dir results/ --api-url https://dev.f
 
 ## パイプライン概要
 
-| Phase | 名称 | 手法 |
-|-------|------|------|
-| 1 | 境界抽出 | 同一条件グルーピング → max/min |
-| 2 | シンボリック回帰 | PySR (遺伝的プログラミング) |
-| 3 | レジームシフト検知 | pwlf / ruptures |
-| 4 | AST 変異 | sympy で floor/ceil ラッピング |
-| 5 | パラメータ最適化 | Optuna (区間ベースペナルティ) |
+| Phase | 名称               | 手法                           |
+| ----- | ------------------ | ------------------------------ |
+| 1     | 境界抽出           | 同一条件グルーピング → max/min |
+| 2     | シンボリック回帰   | PySR (遺伝的プログラミング)    |
+| 3     | レジームシフト検知 | pwlf / ruptures                |
+| 4     | AST 変異           | sympy で floor/ceil ラッピング |
+| 5     | パラメータ最適化   | Optuna (区間ベースペナルティ)  |
 
 ## ディレクトリ構成
 

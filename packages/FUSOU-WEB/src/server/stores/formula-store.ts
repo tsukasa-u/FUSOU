@@ -139,10 +139,22 @@ export class LocalFormulaStore implements FormulaStore {
     this.dir = resultsDir || "";
   }
 
-  private async resolveDir(): Promise<{ fs: typeof import("node:fs"); path: typeof import("node:path"); dir: string }> {
+  private async resolveDir(): Promise<{
+    fs: typeof import("node:fs");
+    path: typeof import("node:path");
+    dir: string;
+  }> {
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const dir = this.dir || path.resolve(process.cwd(), "..", "fusou-datasets", "analysis", "results");
+    const dir =
+      this.dir ||
+      path.resolve(
+        process.cwd(),
+        "..",
+        "fusou-datasets",
+        "analysis",
+        "results",
+      );
     return { fs, path, dir };
   }
 
@@ -197,7 +209,7 @@ export class LocalFormulaStore implements FormulaStore {
 
     filtered.sort(
       (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
 
     const indexPath = path.join(dir, "index.json");
@@ -235,7 +247,7 @@ export class LocalFormulaStore implements FormulaStore {
 
       entries.sort(
         (a, b) =>
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
       );
       return entries;
     } catch {
@@ -265,7 +277,7 @@ export class R2FormulaStore implements FormulaStore {
                   interval_accuracy, created_at
            FROM formula_results
            ORDER BY created_at DESC
-           LIMIT 100`
+           LIMIT 100`,
         )
         .all();
 
@@ -276,9 +288,7 @@ export class R2FormulaStore implements FormulaStore {
         best_formula_latex: String(row.best_formula_latex ?? ""),
         complexity: Number(row.complexity ?? 0),
         interval_accuracy:
-          row.interval_accuracy != null
-            ? Number(row.interval_accuracy)
-            : null,
+          row.interval_accuracy != null ? Number(row.interval_accuracy) : null,
         created_at: String(row.created_at ?? ""),
       }));
     } catch (err) {
@@ -319,7 +329,7 @@ export class R2FormulaStore implements FormulaStore {
         `INSERT OR REPLACE INTO formula_results
            (id, target, status, best_formula_latex, complexity,
             interval_accuracy, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         artifact.id,
@@ -328,7 +338,7 @@ export class R2FormulaStore implements FormulaStore {
         best.latex || "",
         best.complexity || 0,
         metrics.interval_accuracy ?? null,
-        artifact.created_at
+        artifact.created_at,
       )
       .run();
   }
@@ -358,7 +368,7 @@ export function createFormulaStore(env: {
 
   if (!bucket || !db) {
     console.warn(
-      "[FormulaStore] R2/D1 bindings not available, falling back to local"
+      "[FormulaStore] R2/D1 bindings not available, falling back to local",
     );
     return new LocalFormulaStore();
   }

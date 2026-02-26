@@ -10,7 +10,14 @@ import {
 } from "chart.js";
 import { Scatter } from "react-chartjs-2";
 
-ChartJS.register(LinearScale, LogarithmicScale, PointElement, LineElement, Tooltip, Legend);
+ChartJS.register(
+  LinearScale,
+  LogarithmicScale,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+);
 
 export interface ParetoPoint {
   complexity: number;
@@ -83,7 +90,8 @@ export function ParetoChart({ data, bestIndex }: ParetoChartProps) {
             const idx = ctx.dataIndex;
             if (ctx.datasetIndex === 0 && data[idx]) {
               const p = data[idx];
-              const latex = p.latex.length > 40 ? p.latex.slice(0, 40) + "..." : p.latex;
+              const latex =
+                p.latex.length > 40 ? p.latex.slice(0, 40) + "..." : p.latex;
               return `C=${p.complexity} L=${p.loss.toExponential(2)} ${latex}`;
             }
             return `Best: C=${ctx.parsed.x} L=${ctx.parsed.y.toExponential(2)}`;

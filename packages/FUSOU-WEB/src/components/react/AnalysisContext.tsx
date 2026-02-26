@@ -135,9 +135,7 @@ export function AnalysisContext({
               {allFeatures.map((f, i) => (
                 <span key={f}>
                   {i > 0 && "、"}
-                  <code className="bg-base-100 px-1 py-0.5 rounded">
-                    {f}
-                  </code>
+                  <code className="bg-base-100 px-1 py-0.5 rounded">{f}</code>
                   {colDescs[f] && (
                     <span className="text-xs text-base-content/60">
                       ({colDescs[f]})
@@ -159,8 +157,8 @@ export function AnalysisContext({
         {dataSummary && (
           <p className="text-xs text-base-content/60 mt-2">
             データ: {dataSummary.n_rows.toLocaleString()}行 ×{" "}
-            {dataSummary.n_features + 1}列 (入力カラム{dataSummary.n_features}
-            個 + 目的カラム1個)
+            {dataSummary.n_features + 1}列 (入力カラム{dataSummary.n_features}個
+            + 目的カラム1個)
           </p>
         )}
       </div>
@@ -264,9 +262,7 @@ export function AnalysisContext({
       {/* ─── 3. Why: Selection reasoning per variable ─── */}
       {featureSelection && featureSelection.rankings.length > 0 && (
         <div className="bg-base-300 rounded-lg p-4">
-          <h3 className="font-bold text-sm mb-3">
-            各カラムの選択理由
-          </h3>
+          <h3 className="font-bold text-sm mb-3">各カラムの選択理由</h3>
 
           <div className="space-y-3">
             {featureSelection.rankings
@@ -308,19 +304,23 @@ export function AnalysisContext({
           <div className="mt-3 text-xs text-base-content/70 leading-relaxed space-y-2">
             <p>
               3つの独立した手法で各カラムの重要度を評価し、正規化して統合スコアを算出。
-              統合スコアが閾値（{threshold}）以上のカラムのみを入力変数として採用しています。
+              統合スコアが閾値（{threshold}
+              ）以上のカラムのみを入力変数として採用しています。
             </p>
             <ul className="list-disc list-inside space-y-1">
               <li>
-                <strong>相互情報量 (MI)</strong> — 目的変数 <code>{targetCol}</code> との非線形な統計的依存関係を測定。
+                <strong>相互情報量 (MI)</strong> — 目的変数{" "}
+                <code>{targetCol}</code> との非線形な統計的依存関係を測定。
                 値が大きいほど情報量が多い。
               </li>
               <li>
-                <strong>ツリー重要度</strong> — ランダムフォレスト（{pipelineConfig?.fs_n_estimators ?? 200}本）
+                <strong>ツリー重要度</strong> — ランダムフォレスト（
+                {pipelineConfig?.fs_n_estimators ?? 200}本）
                 の不純度低減量。モデル内での利用頻度と効果を反映。
               </li>
               <li>
-                <strong>置換重要度</strong> — カラムの値をシャッフルした時のモデル性能低下量。
+                <strong>置換重要度</strong> —
+                カラムの値をシャッフルした時のモデル性能低下量。
                 因果的な貢献度の指標。
               </li>
             </ul>
@@ -369,7 +369,8 @@ function DataSourceBanner({
               合成テストデータ（fusou-datasets のテーブルではありません）
             </h3>
             <p className="text-xs text-base-content/70 leading-relaxed">
-              この解析はパイプラインの動作検証用に生成した<strong>合成（ダミー）データ</strong>に対して実行されました。
+              この解析はパイプラインの動作検証用に生成した
+              <strong>合成（ダミー）データ</strong>に対して実行されました。
               カラム名{" "}
               <code className="bg-base-100 px-1 rounded">{targetCol}</code>
               {allFeatures.map((f) => (
@@ -377,11 +378,16 @@ function DataSourceBanner({
                   , <code className="bg-base-100 px-1 rounded">{f}</code>
                 </span>
               ))}
-              {" は fusou-datasets のテーブルのフィールドとは<strong>一切関係ありません</strong>。"}
+              {
+                " は fusou-datasets のテーブルのフィールドとは<strong>一切関係ありません</strong>。"
+              }
             </p>
             {dataSource.formula_description && (
               <p className="text-xs text-base-content/60 mt-1">
-                生成式: <code className="bg-base-100 px-1 rounded">{dataSource.formula_description}</code>
+                生成式:{" "}
+                <code className="bg-base-100 px-1 rounded">
+                  {dataSource.formula_description}
+                </code>
               </p>
             )}
             {dataSource.note && (
@@ -410,10 +416,13 @@ function DataSourceBanner({
                 <ul className="list-disc list-inside space-y-0.5">
                   {dataSource.tables.map((t) => (
                     <li key={t}>
-                      <code className="bg-base-100 px-1 rounded font-bold">{t}</code>
+                      <code className="bg-base-100 px-1 rounded font-bold">
+                        {t}
+                      </code>
                       {dataSource.table_descriptions?.[t] && (
                         <span className="text-base-content/60">
-                          {" — "}{dataSource.table_descriptions[t]}
+                          {" — "}
+                          {dataSource.table_descriptions[t]}
                         </span>
                       )}
                     </li>
@@ -438,7 +447,10 @@ function DataSourceBanner({
             </h3>
             {dataSource.csv_path && (
               <p className="text-xs text-base-content/70">
-                ファイル: <code className="bg-base-100 px-1 rounded">{dataSource.csv_path}</code>
+                ファイル:{" "}
+                <code className="bg-base-100 px-1 rounded">
+                  {dataSource.csv_path}
+                </code>
               </p>
             )}
           </div>
@@ -483,8 +495,13 @@ function SelectionReasonCard({
   colDesc?: string;
   targetDesc?: string;
 }) {
-  const { name, mi_score, tree_importance, permutation_importance, combined_rank } =
-    ranking;
+  const {
+    name,
+    mi_score,
+    tree_importance,
+    permutation_importance,
+    combined_rank,
+  } = ranking;
 
   // Build human-readable reason
   const nameLabel = colDesc ? `${name}（${colDesc}）` : name;
@@ -543,7 +560,7 @@ function FeatureImportanceChart({
   threshold: number;
 }) {
   const sorted = [...rankings].sort(
-    (a, b) => b.combined_rank - a.combined_rank
+    (a, b) => b.combined_rank - a.combined_rank,
   );
   const labels = sorted.map((r) => r.name);
 
@@ -622,7 +639,8 @@ function FeatureImportanceChart({
     <div className="bg-base-300 rounded-lg p-4">
       <h3 className="font-bold text-sm mb-1">特徴量重要度の比較</h3>
       <p className="text-xs text-base-content/60 mb-3">
-        各カラムの3手法スコア。緑ラベル = 採用された入力変数、灰色 = 除外されたカラム
+        各カラムの3手法スコア。緑ラベル = 採用された入力変数、灰色 =
+        除外されたカラム
       </p>
       <div style={{ height: `${height}px` }}>
         <Bar data={chartData} options={options} />

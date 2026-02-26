@@ -33,7 +33,8 @@ export function ActualVsPredictedChart({
   targetName = "target",
 }: ActualVsPredictedChartProps) {
   const { points, diagonalLine, r2, metrics } = useMemo(() => {
-    if (!data || data.length === 0) return { points: [], diagonalLine: [], r2: 0, metrics: null };
+    if (!data || data.length === 0)
+      return { points: [], diagonalLine: [], r2: 0, metrics: null };
 
     const pts = data.map((d) => ({ x: d.actual, y: d.predicted }));
 
@@ -55,10 +56,12 @@ export function ActualVsPredictedChart({
     ];
 
     // Aggregate metrics
-    const mae = actuals.reduce((s, a, i) => s + Math.abs(a - predicted[i]), 0) / actuals.length;
+    const mae =
+      actuals.reduce((s, a, i) => s + Math.abs(a - predicted[i]), 0) /
+      actuals.length;
     const maxError = actuals.reduce(
       (m, a, i) => Math.max(m, Math.abs(a - predicted[i])),
-      0
+      0,
     );
 
     return {
@@ -144,9 +147,7 @@ export function ActualVsPredictedChart({
     <div>
       {/* Metrics summary */}
       <div className="flex flex-wrap gap-3 text-xs mb-3">
-        <span className="badge badge-outline">
-          R² = {r2.toFixed(4)}
-        </span>
+        <span className="badge badge-outline">R² = {r2.toFixed(4)}</span>
         {metrics && (
           <>
             <span className="badge badge-outline">

@@ -48,10 +48,7 @@ export function LatexRenderer({
   }
 
   return (
-    <span
-      className={className}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <span className={className} dangerouslySetInnerHTML={{ __html: html }} />
   );
 }
 

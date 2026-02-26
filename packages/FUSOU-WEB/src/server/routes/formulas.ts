@@ -76,7 +76,7 @@ app.post("/upload", async (c) => {
     if (!body.id || !body.target) {
       return c.json(
         { ok: false, error: "Missing required fields: id, target" },
-        400
+        400,
       );
     }
 
