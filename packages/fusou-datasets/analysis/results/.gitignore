@@ -1,0 +1,3 @@
+# Pipeline results - do not commit
+*.json
+!.gitkeep

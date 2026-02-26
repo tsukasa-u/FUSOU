@@ -1,0 +1,107 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import { FormulaList } from "@/components/react/FormulaCard";
+
+// Fetch formula list from internal API
+let entries: any[] = [];
+let error = "";
+
+try {
+  const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+  const isDev = import.meta.env.DEV;
+
+  if (isDev) {
+    // In dev mode, import the store directly to avoid HTTP roundtrip
+    const { LocalFormulaStore } = await import(
+      "@/server/stores/formula-store"
+    );
+    const store = new LocalFormulaStore();
+    entries = await store.list();
+  } else {
+    // In prod, use the API
+    const baseUrl = Astro.url.origin;
+    const resp = await fetch(`${baseUrl}/api/formulas/list`);
+    if (resp.ok) {
+      const json: any = await resp.json();
+      entries = json.data || [];
+    } else {
+      error = `API returned ${resp.status}`;
+    }
+  }
+} catch (e: any) {
+  console.error("[formulas] Failed to load formula list:", e);
+  error = e.message || "Failed to load data";
+}
+
+const statusCounts = {
+  total: entries.length,
+  validated: entries.filter((e: any) => e.status === "validated").length,
+  candidate: entries.filter((e: any) => e.status === "candidate").length,
+  failed: entries.filter((e: any) => e.status === "failed").length,
+};
+---
+
+<Layout title="Formulas | FUSOU">
+  <Navigation filled={false} />
+
+  <main class="pt-20 pb-12 px-4 max-w-[1440px] mx-auto">
+    {/* Header */}
+    <div class="mb-8">
+      <h1 class="text-3xl font-bold">数式抽出結果</h1>
+      <p class="text-base-content/60 mt-2">
+        ブラックボックスデータから自動抽出された数理モデルの一覧
+      </p>
+    </div>
+
+    {/* Stats */}
+    <div class="stats shadow mb-8">
+      <div class="stat">
+        <div class="stat-title">合計</div>
+        <div class="stat-value text-2xl">{statusCounts.total}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">検証済</div>
+        <div class="stat-value text-2xl text-success">{statusCounts.validated}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">候補</div>
+        <div class="stat-value text-2xl text-warning">{statusCounts.candidate}</div>
+      </div>
+      <div class="stat">
+        <div class="stat-title">失敗</div>
+        <div class="stat-value text-2xl text-error">{statusCounts.failed}</div>
+      </div>
+    </div>
+
+    {/* Error display */}
+    {error && (
+      <div class="alert alert-warning mb-6">
+        <span>データの読み込みに失敗しました: {error}</span>
+      </div>
+    )}
+
+    {/* Formula list */}
+    <FormulaList client:load entries={entries} />
+
+    {/* Help section */}
+    {entries.length === 0 && !error && (
+      <div class="card bg-base-200 mt-8">
+        <div class="card-body">
+          <h2 class="card-title text-lg">使い方</h2>
+          <div class="text-sm text-base-content/70 space-y-2">
+            <p>
+              1. <code class="bg-base-300 px-1 rounded">fusou-datasets/analysis/</code> でパイプラインを実行
+            </p>
+            <p>
+              2. <code class="bg-base-300 px-1 rounded">python scripts/run_pipeline.py --target synthetic</code>
+            </p>
+            <p>
+              3. 結果が <code class="bg-base-300 px-1 rounded">results/</code> に保存され、このページに表示されます
+            </p>
+          </div>
+        </div>
+      </div>
+    )}
+  </main>
+</Layout>

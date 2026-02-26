@@ -1,0 +1,307 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import { ParetoChart } from "@/components/react/ParetoChart";
+import { ResidualChart } from "@/components/react/ResidualChart";
+import { FormulaTree, FormulaTreeLegend } from "@/components/react/FormulaTree";
+import { FormulaExplorer } from "@/components/react/FormulaExplorer";
+import { LatexRenderer } from "@/components/react/LatexRenderer";
+import { AnalysisContext } from "@/components/react/AnalysisContext";
+import { ActualVsPredictedChart } from "@/components/react/ActualVsPredictedChart";
+
+const { id } = Astro.params;
+
+let artifact: any = null;
+let error = "";
+
+try {
+  const isDev = import.meta.env.DEV;
+
+  if (isDev) {
+    const { LocalFormulaStore } = await import(
+      "@/server/stores/formula-store"
+    );
+    const store = new LocalFormulaStore();
+    artifact = await store.get(id!);
+  } else {
+    const baseUrl = Astro.url.origin;
+    const resp = await fetch(`${baseUrl}/api/formulas/${id}`);
+    if (resp.ok) {
+      const json: any = await resp.json();
+      artifact = json.data || null;
+    }
+  }
+
+  if (!artifact) {
+    error = "Formula not found";
+  }
+} catch (e: any) {
+  console.error(`[formulas/${id}] Error:`, e);
+  error = e.message || "Failed to load formula";
+}
+
+const best = artifact?.best_formula || {};
+const validation = artifact?.validation || {};
+const metrics = validation?.metrics || {};
+const pareto = artifact?.pareto_front || [];
+const regime = artifact?.regime_info;
+const astTree = best?.ast_tree || { nodes: [], edges: [] };
+const residualHistogram = validation?.residual_histogram;
+const residualByInput = validation?.residual_by_input;
+const featureSelection = artifact?.feature_selection || null;
+const dataSummary = artifact?.data_summary || null;
+const actualVsPredicted = artifact?.actual_vs_predicted || null;
+const dataSource = artifact?.data_source || null;
+
+// Determine feature name for residual chart
+const primaryFeatureName = featureSelection?.selected_features?.[0]
+  || (dataSummary?.n_features === 1 ? "x" : "primary_feature");
+
+// Find best index in pareto (lowest loss)
+let bestParetoIndex = 0;
+if (pareto.length > 0) {
+  let minLoss = pareto[0].loss;
+  for (let i = 1; i < pareto.length; i++) {
+    if (pareto[i].loss < minLoss) {
+      minLoss = pareto[i].loss;
+      bestParetoIndex = i;
+    }
+  }
+}
+
+const formattedDate = artifact
+  ? new Date(artifact.created_at).toLocaleString("ja-JP")
+  : "";
+
+const statusBadge: Record<string, { cls: string; label: string }> = {
+  validated: { cls: "badge-success", label: "検証済" },
+  candidate: { cls: "badge-warning", label: "候補" },
+  failed: { cls: "badge-error", label: "失敗" },
+};
+const badge = statusBadge[artifact?.status] || { cls: "badge-ghost", label: artifact?.status || "" };
+---
+
+<Layout title={`${artifact?.target || "Formula"} | FUSOU`}>
+  <Navigation filled={false} />
+
+  <main class="pt-20 pb-12 px-4 max-w-[1440px] mx-auto">
+    {/* Back link */}
+    <a href="/formulas" class="btn btn-ghost btn-sm mb-4">
+      ← 一覧に戻る
+    </a>
+
+    {error ? (
+      <div class="alert alert-error">
+        <span>{error}</span>
+      </div>
+    ) : (
+      <>
+        {/* Header */}
+        <div class="flex items-start justify-between mb-6">
+          <div>
+            <h1 class="text-2xl font-bold">{artifact.target}</h1>
+            <p class="text-sm text-base-content/60 mt-1">
+              ID: {artifact.id} | 作成日: {formattedDate}
+              {dataSource?.type === "sdk" && dataSource.tables && (
+                <> | テーブル: <code class="bg-base-200 px-1 rounded">{dataSource.tables.join(", ")}</code></>
+              )}
+              {dataSource?.type === "synthetic" && (
+                <> | <span class="text-warning font-semibold">合成テストデータ</span></>
+              )}
+            </p>
+            {featureSelection && (
+              <p class="text-sm mt-1">
+                <span class="text-base-content/50">カラム:</span>{" "}
+                <code class="bg-base-200 px-1 rounded font-bold">{featureSelection.target_col}</code>
+                <span class="text-base-content/50"> = f(</span>
+                {featureSelection.selected_features.map((f: string, i: number) => (
+                  <><code class="bg-base-200 px-1 rounded">{f}</code>{i < featureSelection.selected_features.length - 1 ? ", " : ""}</>
+                ))}
+                <span class="text-base-content/50">)</span>
+              </p>
+            )}
+          </div>
+          <span class={`badge ${badge.cls} badge-lg`}>{badge.label}</span>
+        </div>
+
+        {/* ================================================
+            SECTION 1: Analysis Context — What & Why
+            ================================================ */}
+        <div class="card bg-base-200 mb-6">
+          <div class="card-body">
+            <h2 class="card-title text-lg">解析の概要 — データセットのカラムと変数選択</h2>
+            <AnalysisContext
+              client:load
+              target={artifact.target}
+              featureSelection={featureSelection}
+              dataSummary={dataSummary}
+              pipelineConfig={artifact.pipeline_config}
+              dataSource={dataSource}
+            />
+          </div>
+        </div>
+
+        {/* ================================================
+            SECTION 2: Best Formula with KaTeX rendering
+            ================================================ */}
+        <div class="card bg-base-200 mb-6">
+          <div class="card-body">
+            <h2 class="card-title text-lg">最良の数式</h2>
+            <div class="bg-base-300 rounded-lg p-4 my-2 overflow-x-auto flex justify-center">
+              <LatexRenderer
+                client:load
+                latex={best.latex || "N/A"}
+                displayMode={true}
+                className="text-lg"
+              />
+            </div>
+            <div class="flex flex-wrap gap-4 text-sm">
+              <span>複雑度: <strong>{best.complexity || 0}</strong></span>
+              <span>SymPy: <code class="text-xs bg-base-300 px-1 rounded">{best.sympy_str || "N/A"}</code></span>
+            </div>
+          </div>
+        </div>
+
+        {/* Metrics */}
+        <div class="stats shadow mb-6 w-full">
+          <div class="stat">
+            <div class="stat-title">MAE</div>
+            <div class="stat-value text-xl">{metrics.mae?.toFixed(4) || "N/A"}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">RMSE</div>
+            <div class="stat-value text-xl">{metrics.rmse?.toFixed(4) || "N/A"}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">区間精度</div>
+            <div class="stat-value text-xl">
+              {metrics.interval_accuracy != null
+                ? `${(metrics.interval_accuracy * 100).toFixed(1)}%`
+                : "N/A"}
+            </div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">サンプル数</div>
+            <div class="stat-value text-xl">
+              {metrics.n_samples?.toLocaleString() || "N/A"}
+            </div>
+          </div>
+        </div>
+
+        {/* ================================================
+            SECTION 3: Actual vs Predicted — Visual Comparison
+            ================================================ */}
+        {actualVsPredicted && actualVsPredicted.length > 0 && (
+          <div class="card bg-base-200 mb-6">
+            <div class="card-body">
+              <h2 class="card-title text-lg">実測値 vs 予測値</h2>
+              <p class="text-sm text-base-content/60 mb-2">
+                数式から予測される値と実際のデータとの比較。
+              </p>
+              <ActualVsPredictedChart
+                client:load
+                data={actualVsPredicted}
+                targetName={artifact.target}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Known formula comparison */}
+        {validation.known_formula_match != null && (
+          <div class={`alert ${validation.known_formula_match ? "alert-success" : "alert-info"} mb-6`}>
+            <span>
+              既知式との一致: {validation.known_formula_match ? "✓ 一致" : "✗ 不一致"}
+              {validation.structural_similarity != null && (
+                <> (構造類似度: {(validation.structural_similarity * 100).toFixed(0)}%)</>
+              )}
+            </span>
+          </div>
+        )}
+
+        {/* Regime info */}
+        {regime && regime.breakpoints && regime.breakpoints.length > 0 && (
+          <div class="card bg-base-200 mb-6">
+            <div class="card-body">
+              <h2 class="card-title text-lg">レジーム（区間分割）</h2>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr>
+                      <th>変数</th>
+                      <th>ブレークポイント</th>
+                      <th>信頼度</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {regime.breakpoints.map((bp: any, i: number) => (
+                      <tr>
+                        <td>{bp.variable}</td>
+                        <td>{bp.value.toFixed(2)}</td>
+                        <td>{(bp.confidence * 100).toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Charts Grid */}
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          {/* Pareto chart */}
+          <div class="card bg-base-200">
+            <div class="card-body">
+              <h2 class="card-title text-lg">パレートフロント</h2>
+              <ParetoChart
+                client:load
+                data={pareto}
+                bestIndex={bestParetoIndex}
+              />
+            </div>
+          </div>
+
+          {/* AST Tree */}
+          <div class="card bg-base-200">
+            <div class="card-body">
+              <div class="flex items-center justify-between">
+                <h2 class="card-title text-lg">AST ツリー</h2>
+                <FormulaTreeLegend client:load />
+              </div>
+              <FormulaTree
+                client:load
+                nodes={astTree.nodes}
+                edges={astTree.edges}
+                height={350}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Residual analysis */}
+        {(residualHistogram || residualByInput) && (
+          <div class="card bg-base-200 mb-6">
+            <div class="card-body">
+              <h2 class="card-title text-lg">残差分析</h2>
+              <ResidualChart
+                client:load
+                histogram={residualHistogram}
+                byInput={residualByInput}
+                featureName={primaryFeatureName}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Explorer / Raw Data */}
+        <div class="card bg-base-200 mb-6">
+          <div class="card-body">
+            <h2 class="card-title text-lg">データエクスプローラ</h2>
+            <FormulaExplorer client:load artifact={artifact} />
+          </div>
+        </div>
+      </>
+    )}
+  </main>
+</Layout>

@@ -17,6 +17,7 @@ import masterDataApp from './routes/master_data';
 import apiKeysApp from './routes/api_keys';
 import memberLookupApp from './routes/member-lookup';
 import anonymousSyncApp from './routes/anonymous-sync';
+import formulasApp from './routes/formulas';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -63,6 +64,7 @@ app.route('/master-data', masterDataApp); // masterDataApp declares /upload (Sta
 app.route('/api-keys', apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
 app.route('/member-lookup', memberLookupApp); // memberLookupApp declares /check-hash, /verify-ownership
 app.route('/auth', anonymousSyncApp); // anonymousSyncApp declares /anonymous-sync
+app.route('/formulas', formulasApp); // formulasApp declares /list, /:id, /upload
 
 // Catch-all 404
 app.all('*', (c) => {
