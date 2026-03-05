@@ -38,7 +38,10 @@
     },
     {
       "path": ".github"
-    }
+    },
+    {
+      "path": "../../HuggingFace/FUSOU"
+    },
   ],
   "settings": {
     "jupyter.disableJupyterAutoStart": true,
