@@ -24,6 +24,15 @@
   },
   "diffs": {
     "v0_4_to_v0_5": {
+      "cells": {
+        "status": "changed",
+        "addedFields": [
+          "f_deck_before_id",
+          "f_deck_after_id"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
       "own_ship": {
         "status": "changed",
         "addedFields": [],
@@ -38,6 +47,24 @@
           "sakuteki",
           "lucky"
         ]
+      },
+      "enemy_deck": {
+        "status": "changed",
+        "addedFields": [
+          "combined_flag"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
+      "battle": {
+        "status": "changed",
+        "addedFields": [
+          "battle_result"
+        ],
+        "removedFields": [
+          "f_deck_id"
+        ],
+        "changedFields": []
       }
     }
   }
