@@ -60,8 +60,10 @@ pub struct Battle {
     pub enemy_ship_id: Option<Vec<i64>>,
     pub e_lv: Option<Vec<i64>>,
     pub e_params: Option<Vec<Vec<i64>>>,
+    pub f_params: Option<Vec<Vec<i64>>>,
     pub e_slot: Option<Vec<Vec<i64>>>,
     pub e_hp_max: Option<Vec<i64>>,
+    pub e_combined_flag: Option<i64>,
     pub f_total_damages: Option<Vec<i64>>,
     pub e_total_damages: Option<Vec<i64>>,
     pub friend_total_damages: Option<Vec<i64>>,
@@ -111,8 +113,12 @@ impl Battle {
                     enemy_ship_id: battle.enemy_ship_id.clone().or(self.enemy_ship_id.clone()),
                     e_lv: battle.e_lv.clone().or(self.e_lv.clone()),
                     e_params: battle.e_params.clone().or(self.e_params.clone()),
+                    f_params: battle.f_params.clone().or(self.f_params.clone()),
                     e_slot: battle.e_slot.clone().or(self.e_slot.clone()),
                     e_hp_max: battle.e_hp_max.clone().or(self.e_hp_max.clone()),
+                    e_combined_flag: battle
+                        .e_combined_flag
+                        .or(self.e_combined_flag.clone()),
                     f_total_damages: battle
                         .f_total_damages
                         .clone()

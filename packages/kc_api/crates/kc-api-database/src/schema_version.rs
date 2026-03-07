@@ -16,6 +16,7 @@ compile_error!(
     "At least one schema version feature must be enabled (schema_v0_4, schema_v0_5, or schema_v0_6). \
      Add e.g. `--features schema_v0_4` or use default features."
 );
+// pub const DATABASE_TABLE_VERSION: &str = "0.0";
 
 #[cfg(test)]
 mod tests {

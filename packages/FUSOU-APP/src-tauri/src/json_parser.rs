@@ -1,3 +1,4 @@
+use kc_api::interface::ship::Ships;
 use proxy_https::bidirectional_channel;
 use std::error::Error;
 use tauri::Emitter;
@@ -145,6 +146,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Identifier::MapStart(_) => {
                 let _ = handle.emit_to("main", "set-kcs-air-bases-battles", AirBases::load());
                 let _ = handle.emit_to("main", "set-kcs-deck-battles", DeckPorts::load());
+                Ships::cashe_restore();
             }
         },
     }

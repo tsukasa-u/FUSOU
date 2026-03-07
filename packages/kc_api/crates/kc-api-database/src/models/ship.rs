@@ -90,8 +90,13 @@ impl OwnShip {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
+        cashe: bool,
     ) -> Option<()> {
-        let ships = Ships::load();
+        let ships = if cashe {
+            Ships::load_cashe()
+        } else {
+            Ships::load()
+        };
         let ship = match ships.ships.get(&data) {
             Some(ship) => ship,
             None => {

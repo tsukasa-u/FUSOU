@@ -8,7 +8,9 @@ use crate::models::deck::EnemyDeck;
 use crate::models::deck::EnemyDeckId;
 use crate::models::deck::FriendDeck;
 use crate::models::deck::FriendDeckId;
+#[cfg(feature = "schema_v0_4")]
 use crate::models::deck::OwnDeck;
+#[cfg(feature = "schema_v0_4")]
 use crate::models::deck::OwnDeckId;
 use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
@@ -1514,6 +1516,7 @@ pub struct Battle {
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
     pub cell_id: i32,
+    #[cfg(feature = "schema_v0_4")]
     pub f_deck_id: Option<OwnDeckId>,
     pub e_deck_id: Option<EnemyDeckId>,
     pub friend_deck_id: Option<FriendDeckId>,
@@ -1574,11 +1577,13 @@ impl Battle {
             })
             .unwrap_or_default();
 
+        #[cfg(feature = "schema_v0_4")]
         let new_f_deck_id = {
             let uuid = Uuid::new_v7(ts);
+            let cache = true;
             data.clone()
                 .deck_id
-                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid))
+                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cache))
                 .map(|_| uuid)
         };
         let new_e_deck_id = {
@@ -1604,7 +1609,8 @@ impl Battle {
                         .map(|air| air.deck_id)
                         .or(attack.support_hourai.map(|hourai| hourai.deck_id))
                         .and_then(|deck_id| {
-                            SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid)
+                            let cashe = true;
+                            SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
                         })
                 })
                 .map(|_| uuid)
@@ -1732,6 +1738,7 @@ impl Battle {
             timestamp: data.clone().timestamp,
             midnight_timestamp: data.clone().midnight_timestamp,
             cell_id: data.clone().cell_id as i32,
+            #[cfg(feature = "schema_v0_4")]
             f_deck_id: new_f_deck_id,
             e_deck_id: new_e_deck_id,
             friend_deck_id: new_friend_deck_id,
