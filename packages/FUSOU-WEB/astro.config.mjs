@@ -21,7 +21,7 @@ function resolvePublicSiteUrl() {
   const branch = process.env.CF_PAGES_BRANCH;
   if (branch) {
     if (branch === "main") return "https://fusou.dev";
-    const sanitized = branch.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const sanitized = branch.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
     return `https://${sanitized}.fusou.pages.dev`;
   }
 
