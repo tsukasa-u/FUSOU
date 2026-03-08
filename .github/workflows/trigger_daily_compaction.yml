@@ -8,6 +8,7 @@ on:
 
 jobs:
   trigger-compaction:
+    permissions: {}
     runs-on: ubuntu-latest
     steps:
       - name: Trigger scheduled compaction
