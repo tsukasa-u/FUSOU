@@ -5,7 +5,7 @@ This app validates Avro slices against a table/version allowlist.
 ## Default: Bundled JSON
 
 - Source: `src/server/config/fingerprints.json`
-- Managed in the repo, kept in sync with `packages/FUSOU-WORKFLOW/schemas/fingerprints.json`.
+- Managed in the repo, kept in sync with `packages/configs/fingerprints.json`.
 - Changes require a WEB rebuild/deploy.
 
 ## Override per environment

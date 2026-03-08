@@ -12,11 +12,15 @@
 ## ディレクトリ構成
 
 ```
+kc_api/
+├── generated-schemas/
+│   ├── schema_v0_4.json        # v0.4 スキーマ定義
+│   └── schema_v0_5.json        # v0.5 スキーマ定義
+├── scripts/
+│   └── generate-schemas.sh     # スキーマ生成 + フィンガープリント計算
+configs/
+└── fingerprints.json           # 全バージョンのフィンガープリント
 FUSOU-WORKFLOW/
-├── schemas/
-│   ├── kc_api_v1.json          # v1 スキーマ定義（33テーブル）
-│   ├── kc_api_v2.json          # v2 スキーマ定義（33テーブル）
-│   └── fingerprints.json       # 全バージョンのフィンガープリント
 ├── scripts/
 │   └── compute-kc-api-fingerprints.mjs  # フィンガープリント計算スクリプト
 └── test/
@@ -30,22 +34,16 @@ FUSOU-WORKFLOW/
 kc-api-database から schema_v0_4 および schema_v0_5 の全テーブルスキーマを抽出します。
 
 ```bash
-# v0.4 スキーマを生成
-pushd ../kc_api
-cargo run -p kc-api-database --bin print_schema --features schema_v0_4 2>/dev/null > ../FUSOU-WORKFLOW/schemas/kc_api_v0_4.json
-
-# v0.5 スキーマを生成
-cargo run -p kc-api-database --bin print_schema --no-default-features --features schema_v0_5 2>/dev/null > ../FUSOU-WORKFLOW/schemas/kc_api_v0_5.json
-popd
+# スキーマ生成 + フィンガープリント計算を一括実行
+pnpm --filter fusou-workflow run generate:schemas
 ```
 
-### 2. フィンガープリントの計算
+これにより `kc_api/generated-schemas/schema_v*.json` と `configs/fingerprints.json` が自動更新されます。
 
-抽出したスキーマから各テーブルのフィンガープリント（SHA-256）を計算します。
+フィンガープリントだけ再計算する場合:
 
 ```bash
-# フィンガープリント計算
-node scripts/compute-kc-api-fingerprints.mjs schemas/kc_api_v1.json schemas/kc_api_v2.json > schemas/fingerprints.json
+pnpm --filter fusou-workflow run generate:fingerprints
 ```
 
 出力形式:

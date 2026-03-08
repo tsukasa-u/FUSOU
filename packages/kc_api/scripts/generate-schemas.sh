@@ -53,3 +53,27 @@ if command -v jq &> /dev/null; then
         fi
     done
 fi
+
+# Compute fingerprints from generated schemas
+FINGERPRINT_SCRIPT="$KC_API_ROOT/../FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs"
+FINGERPRINT_OUTPUT="$KC_API_ROOT/../configs/fingerprints.json"
+
+if [ -f "$FINGERPRINT_SCRIPT" ]; then
+    echo ""
+    echo "Computing fingerprints..."
+    SCHEMA_FILES=()
+    for ver in "${VERSIONS[@]}"; do
+        if [ -f "$OUTPUT_DIR/schema_${ver}.json" ]; then
+            SCHEMA_FILES+=("$OUTPUT_DIR/schema_${ver}.json")
+        fi
+    done
+    if [ ${#SCHEMA_FILES[@]} -gt 0 ]; then
+        node "$FINGERPRINT_SCRIPT" "${SCHEMA_FILES[@]}" > "$FINGERPRINT_OUTPUT"
+        echo "✅ Fingerprints written to $FINGERPRINT_OUTPUT"
+    else
+        echo "⚠️  No schema files found; skipping fingerprint generation"
+    fi
+else
+    echo ""
+    echo "⚠️  Fingerprint script not found at $FINGERPRINT_SCRIPT; skipping"
+fi

@@ -98,14 +98,14 @@ jobs:
             CHECKED="packages/kc_api/generated-schemas/schema_${ver}.json"
             GENERATED="packages/kc_api/generated-schemas/schema_${ver}_check.json"
             if [ ! -f "$CHECKED" ] && [ -f "$GENERATED" ]; then
-              echo "❌ schema_${ver}.json is missing but can be generated. Run: packages/kc_api/scripts/generate-schemas.sh"
+              echo "❌ schema_${ver}.json is missing but can be generated. Run: pnpm --filter fusou-workflow run generate:schemas"
               DRIFT=true
             elif [ -f "$CHECKED" ] && [ ! -f "$GENERATED" ]; then
               echo "❌ schema_${ver}: checked-in file exists but regeneration failed. Check 'cargo run --bin print_schema --features schema_${ver},full'."
               DRIFT=true
             elif [ -f "$CHECKED" ] && [ -f "$GENERATED" ]; then
               if ! diff -q "$CHECKED" "$GENERATED" > /dev/null 2>&1; then
-                echo "❌ schema_${ver}.json is out of date. Run: packages/kc_api/scripts/generate-schemas.sh"
+                echo "❌ schema_${ver}.json is out of date. Run: pnpm --filter fusou-workflow run generate:schemas"
                 diff "$CHECKED" "$GENERATED" | head -20 || true
                 DRIFT=true
               else
@@ -117,7 +117,7 @@ jobs:
           rm -f packages/kc_api/generated-schemas/schema_*_check.json
           if [ "$DRIFT" = true ]; then
             echo ""
-            echo "::error::Schema drift detected. Run 'packages/kc_api/scripts/generate-schemas.sh' and commit the updated files."
+            echo "::error::Schema drift detected. Run 'pnpm --filter fusou-workflow run generate:schemas' and commit the updated files."
             exit 1
           fi
 
@@ -154,7 +154,7 @@ jobs:
           CHECKED="packages/configs/fingerprints.json"
           GENERATED="/tmp/fingerprints_check.json"
           if [ ! -f "$CHECKED" ]; then
-            echo "::error::fingerprints.json is missing. Run 'packages/kc_api/scripts/generate-schemas.sh'."
+            echo "::error::fingerprints.json is missing. Run 'pnpm --filter fusou-workflow run generate:schemas'."
             exit 1
           fi
           # Normalize JSON before comparing (sort keys)
@@ -199,7 +199,7 @@ jobs:
           }
           if (drift) {
             console.log('');
-            console.log('::error::Fingerprint drift detected. Run packages/kc_api/scripts/generate-schemas.sh and commit packages/configs/fingerprints.json');
+            console.log('::error::Fingerprint drift detected. Run pnpm --filter fusou-workflow run generate:schemas and commit the updated files.');
             process.exit(1);
           }
           "
