@@ -11,6 +11,12 @@ pub static KCS_SHIPS: Lazy<Mutex<Ships>> = Lazy::new(|| {
     })
 });
 
+pub static KCS_SHIPS_RESTORE: Lazy<Mutex<Ships>> = Lazy::new(|| {
+    Mutex::new(Ships {
+        ships: HashMap::new(),
+    })
+});
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "port.ts")]
 pub struct Ships {
@@ -69,9 +75,20 @@ impl Ships {
         ship_map.clone()
     }
 
+    pub fn load_cashe() -> Self {
+        let restore_map = KCS_SHIPS_RESTORE.lock().unwrap();
+        restore_map.clone()
+    }
+
     pub fn restore(&self) {
         let mut ship_map = KCS_SHIPS.lock().unwrap();
         *ship_map = self.clone();
+    }
+
+    pub fn cashe_restore() {
+        let mut restore_map = KCS_SHIPS_RESTORE.lock().unwrap();
+        let ship_map = KCS_SHIPS.lock().unwrap();
+        *restore_map = ship_map.clone();
     }
 
     pub fn add_or(&self) {

@@ -6,7 +6,7 @@ use kc_api::database::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
-    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai, BattleResult
 };
 use kc_api::database::models::cell::Cells;
 use kc_api::database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -58,5 +58,6 @@ pub fn integrate_by_table_name(
         PortTableEnum::SupportAirattack => integrate::<SupportAirattack>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::Battle => integrate::<Battle>(file_contents).map_err(|e| e.to_string()),
+        PortTableEnum::BattleResult => integrate::<BattleResult>(file_contents).map_err(|e| e.to_string()),
     }
 }

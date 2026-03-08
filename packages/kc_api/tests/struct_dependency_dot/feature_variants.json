@@ -1,0 +1,28 @@
+{
+  "active_features": [
+    "20250627"
+  ],
+  "all_features": [
+    "20250627"
+  ],
+  "field_diffs": {
+    "20250627": {
+      "api_start2__get_data__ApiData": {
+        "api_mst_equip_ship": {
+          "with_feature": "HashMap<i64, ApiMstEquipShip>",
+          "without_feature": "Vec<ApiMstEquipShip>"
+        }
+      },
+      "api_start2__get_data__ApiMstEquipShip": {
+        "api_equip_type": {
+          "with_feature": "HashMap<i64, Option<Vec<i64>>>",
+          "without_feature": "Vec<i64>"
+        },
+        "api_ship_id": {
+          "with_feature": null,
+          "without_feature": "i64"
+        }
+      }
+    }
+  }
+}

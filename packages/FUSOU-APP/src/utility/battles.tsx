@@ -4,7 +4,9 @@ import { get_data_set_ship } from "./get_data_set";
 import {
   useCells,
   useDeckBattles,
+  useMstShips,
   useMstSlotItems,
+  useShips,
   useSlotItems,
 } from "./provider";
 import type { Battle } from "@ipc-bindings/battle";
@@ -12,7 +14,7 @@ import type { Cell } from "@ipc-bindings/cells";
 
 export const calc_critical = (
   dmg: number,
-  cl_flag: number | undefined
+  cl_flag: number | undefined,
 ): string => {
   if (cl_flag == 0 || dmg == 0) {
     return "text-red-500";
@@ -21,6 +23,16 @@ export const calc_critical = (
   } else {
     return "";
   }
+};
+
+export const get_ship = (id: number) => {
+  const [ships] = useShips();
+  return ships.ships[id];
+};
+
+export const get_mst_ship = (id: number) => {
+  const [mst_ships] = useMstShips();
+  return mst_ships.mst_ships[id];
 };
 
 export const get_slot_item = (id: number) => {
@@ -35,7 +47,7 @@ export const get_mst_slot_item = (id: number) => {
 };
 
 export const get_mst_slot_items_list = (
-  mst_slot_item_ids: number[][]
+  mst_slot_item_ids: number[][],
 ): MstSlotItems[] => {
   const [mst_slot_items] = useMstSlotItems();
 
@@ -45,9 +57,10 @@ export const get_mst_slot_items_list = (
         .map((id) => mst_slot_items.mst_slot_items[id])
         .reduce(
           (dict, slot_item) => (
-            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+            slot_item ? (dict[slot_item.id] = slot_item) : dict,
+            dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });

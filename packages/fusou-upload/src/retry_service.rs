@@ -1,18 +1,22 @@
+use std::future::Future;
+use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use std::path::Path;
-use std::pin::Pin;
-use std::future::Future;
 
 use crate::pending_store::{PendingMeta, PendingStore};
-use crate::uploader::{Uploader, UploadRequest, UploadContext};
+use crate::uploader::{UploadContext, UploadRequest, Uploader};
 use configs::get_user_configs;
 use fusou_auth::{AuthManager, FileStorage};
 
 pub trait RetryHandler: Send + Sync {
-    fn handle<'a>(&'a self, context: &'a serde_json::Value, data: &'a [u8]) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>>;
+    fn handle<'a>(
+        &'a self,
+        context: &'a serde_json::Value,
+        data: &'a [u8],
+    ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>>;
 }
 
 pub struct UploadRetryService {
@@ -24,9 +28,9 @@ pub struct UploadRetryService {
 
 impl UploadRetryService {
     pub fn new(
-        store: Arc<PendingStore>, 
+        store: Arc<PendingStore>,
         auth_manager: Arc<AuthManager<FileStorage>>,
-        custom_handler: Option<Arc<dyn RetryHandler>>
+        custom_handler: Option<Arc<dyn RetryHandler>>,
     ) -> Self {
         Self {
             store,
@@ -36,9 +40,15 @@ impl UploadRetryService {
         }
     }
 
+    /// Get a clone of the underlying AuthManager used for retries
+    pub fn auth_manager(&self) -> Arc<AuthManager<FileStorage>> {
+        self.auth_manager.clone()
+    }
+
     pub async fn trigger_retry(&self) {
         let mut running = self.is_running.lock().await;
         if *running {
+            tracing::debug!("Retry process already running, skipping duplicate trigger");
             return;
         }
         *running = true;
@@ -51,10 +61,10 @@ impl UploadRetryService {
 
         tokio::spawn(async move {
             tracing::info!("Starting upload retry process");
-            
+
             let configs = get_user_configs();
             let retry_config = &configs.app.asset_sync.retry;
-            
+
             {
                 // Cleanup expired first
                 store.cleanup_expired(retry_config.get_ttl_seconds());
@@ -67,18 +77,49 @@ impl UploadRetryService {
                     return;
                 }
 
-                tracing::info!("Found {} pending uploads", pending_items.len());
+                tracing::info!("Found {} pending uploads to retry", pending_items.len());
 
                 let client = reqwest::Client::new();
 
+                // Track processed hashes to avoid retrying exact duplicates in single batch
+                let mut processed_hashes = std::collections::HashSet::new();
+
                 for mut meta in pending_items {
+                    // Skip if we already retried this content hash in this batch
+                    if let Some(hash) = meta.headers.get("content-hash") {
+                        if processed_hashes.contains(hash) {
+                            tracing::info!("Skipping duplicate retry for content-hash {}, already processed in this batch", hash);
+                            continue;
+                        }
+                        processed_hashes.insert(hash.clone());
+                    }
+
                     if meta.attempt_count >= retry_config.get_max_attempts() {
-                        tracing::warn!("Max attempts reached for {}, deleting", meta.id);
+                        tracing::warn!(
+                            "Max attempts ({}) reached for {}, deleting",
+                            retry_config.get_max_attempts(),
+                            meta.id
+                        );
                         let _ = store.delete_pending(&meta.id);
                         continue;
                     }
 
-                    if let Err(e) = Self::retry_one(&store, &mut meta, &client, &auth_manager, custom_handler.as_deref()).await {
+                    tracing::info!(
+                        "Retrying upload {} (attempt {}/{})",
+                        meta.id,
+                        meta.attempt_count + 1,
+                        retry_config.get_max_attempts()
+                    );
+
+                    if let Err(e) = Self::retry_one(
+                        &store,
+                        &mut meta,
+                        &client,
+                        &auth_manager,
+                        custom_handler.as_deref(),
+                    )
+                    .await
+                    {
                         tracing::error!("Failed to retry upload {}: {}", meta.id, e);
                         meta.increment_attempt();
                         let _ = store.update_meta(&meta);
@@ -86,7 +127,7 @@ impl UploadRetryService {
                         tracing::info!("Successfully retried upload {}", meta.id);
                         let _ = store.delete_pending(&meta.id);
                     }
-                    
+
                     sleep(Duration::from_secs(1)).await;
                 }
 
@@ -98,14 +139,14 @@ impl UploadRetryService {
     }
 
     async fn retry_one(
-        store: &PendingStore, 
-        meta: &mut PendingMeta, 
+        store: &PendingStore,
+        meta: &mut PendingMeta,
         client: &reqwest::Client,
         auth_manager: &AuthManager<FileStorage>,
-        custom_handler: Option<&dyn RetryHandler>
+        custom_handler: Option<&dyn RetryHandler>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let data = store.read_data(meta)?;
-        
+
         // Reconstruct context
         let context = if let Some(context_str) = &meta.context {
             if let Ok(ctx) = serde_json::from_str::<UploadContext>(context_str) {
@@ -118,12 +159,17 @@ impl UploadRetryService {
         };
 
         match context {
-            UploadContext::Asset { relative_path, key, file_size } => {
+            UploadContext::Asset {
+                relative_path,
+                key,
+                file_size,
+                content_type,
+            } => {
                 // Reconstruct Asset Handshake
                 let configs = get_user_configs();
                 let app_configs = configs.app;
                 let finder_tag = app_configs.asset_sync.get_finder_tag();
-                
+
                 let filename = Path::new(&relative_path)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
@@ -143,19 +189,24 @@ impl UploadRetryService {
                     handshake_body,
                     data,
                     headers: meta.headers.clone(),
-                    context: UploadContext::Asset { relative_path, key, file_size },
+                    context: UploadContext::Asset {
+                        relative_path,
+                        key,
+                        file_size,
+                        content_type,
+                    },
                 };
 
                 Uploader::upload(client, auth_manager, request, None)
                     .await
                     .map(|_| ())
                     .map_err(|e| e.into())
-            },
+            }
             UploadContext::Snapshot { is_snapshot: _ } => {
                 // Reconstruct Snapshot Handshake
                 // Data is the JSON body
                 let json_body: serde_json::Value = serde_json::from_slice(&data)?;
-                
+
                 let request = UploadRequest {
                     endpoint: &meta.target_url,
                     handshake_body: json_body,
@@ -168,7 +219,7 @@ impl UploadRetryService {
                     .await
                     .map(|_| ())
                     .map_err(|e| e.into())
-            },
+            }
             UploadContext::Custom(value) => {
                 if let Some(handler) = custom_handler {
                     handler.handle(&value, &data).await

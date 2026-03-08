@@ -1,16 +1,14 @@
 // Google Drive API operations (raw functions with retry logic)
+// DEPRECATED: Google Drive authentication is deprecated since 0.4.0. Use anonymous authentication instead.
 
 use super::client::DriveClient;
-use super::retry_handler::GoogleDriveOperation;
 use crate::storage::constants::{
     GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_TRASHED_FILTER,
 };
 use http_body_util::BodyExt;
 use tokio::time::sleep;
-use std::collections::HashMap;
-use std::sync::Arc;
-use fusou_upload::{PendingStore, UploadRetryService, UploadContext};
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub fn backoff_delay(attempt: u32) -> tokio::time::Duration {
     // 200ms, 500ms, 1s, 2s, 4s (cap)
     let millis = match attempt {
@@ -25,6 +23,7 @@ pub fn backoff_delay(attempt: u32) -> tokio::time::Duration {
 
 // Raw implementations without error handling wrapper
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn get_file_content(
     hub: &mut DriveClient,
     file_id: String,
@@ -61,65 +60,7 @@ pub async fn get_file_content(
     None
 }
 
-pub async fn get_file_list_in_folder(
-    hub: &mut DriveClient,
-    parent_folder_id: Option<String>,
-    page_size: i32,
-    mime_type: String,
-) -> Option<Vec<String>> {
-    let query = match parent_folder_id {
-        Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and {trash_filter} and '{parent_folder_id}' in parents",
-            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
-        ),
-        None => format!(
-            "mimeType='{mime_type}' and {trash_filter}",
-            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
-        ),
-    };
-    let mut last_err: Option<String> = None;
-    for attempt in 0..5u32 {
-        let result = hub
-            .files()
-            .list()
-            .q(&query)
-            .param("fields", "files(id),nextPageToken")
-            .page_size(page_size.min(100))
-            .doit()
-            .await;
-        match result {
-            Ok(result) => {
-                let files = result.1.files?;
-                let mut file_list = Vec::<String>::new();
-                for file in files {
-                    file_list.push(file.id.unwrap_or_default());
-                }
-                return Some(file_list);
-            }
-            Err(e) => {
-                let msg = format!("{e:?}");
-                last_err = Some(msg.clone());
-                tracing::warn!(
-                    "google drive list failed (attempt {}): {}",
-                    attempt + 1,
-                    msg
-                );
-                if attempt < 4 {
-                    sleep(backoff_delay(attempt)).await;
-                    continue;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    tracing::error!(
-        "get_file_list_in_folder giving up after retries: {}",
-        last_err.unwrap_or_else(|| "unknown error".to_string())
-    );
-    None
-}
-
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn check_folder(
     hub: &mut DriveClient,
     folder_name: String,
@@ -179,6 +120,7 @@ pub async fn check_folder(
     None
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn check_file(
     hub: &mut DriveClient,
     file_name: String,
@@ -237,6 +179,7 @@ pub async fn check_file(
     None
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn create_file_raw(
     hub: &mut DriveClient,
     file_name: String,
@@ -294,6 +237,7 @@ pub async fn create_file_raw(
     Err(last_err)
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn create_or_replace_file_raw(
     hub: &mut DriveClient,
     file_name: String,
@@ -348,6 +292,7 @@ pub async fn create_or_replace_file_raw(
     create_file_raw(hub, file_name, mime_type, content, folder_id).await
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn delete_file_raw(
     hub: &mut DriveClient,
     file_id: String,
@@ -383,6 +328,7 @@ pub async fn delete_file_raw(
     Err(last_err)
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn check_or_create_folder(
     hub: &mut DriveClient,
     folder_name: String,
@@ -404,130 +350,4 @@ pub async fn check_or_create_folder(
     }
 }
 
-pub async fn check_or_create_folders(
-    hub: &mut DriveClient,
-    folder_names: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Option<Vec<String>> {
-    let mut folder_ids = Vec::<String>::new();
-    for folder_name in folder_names {
-        let folder_id = check_or_create_folder(hub, folder_name, parent_folder_id.clone()).await;
-        if let Some(folder_id) = folder_id {
-            folder_ids.push(folder_id);
-        } else {
-            return None;
-        }
-    }
-    return Some(folder_ids);
-}
-
-pub async fn check_or_create_folder_hierarchical(
-    hub: &mut DriveClient,
-    folder_names: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Option<String> {
-    let mut folder_id = parent_folder_id;
-    for folder_name in folder_names {
-        let new_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
-        folder_id = Some(new_folder_id);
-    }
-    return folder_id;
-}
-
-// Wrapper Struct with error handling
-
-pub struct GoogleDriveWrapper {
-    pub hub: DriveClient,
-    pending_store: Arc<PendingStore>,
-    retry_service: Arc<UploadRetryService>,
-}
-
-impl GoogleDriveWrapper {
-    pub fn new(hub: DriveClient, pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
-        Self { hub, pending_store, retry_service }
-    }
-
-    async fn handle_error(
-        &self,
-        operation: GoogleDriveOperation,
-        data: &[u8],
-        err: &google_drive3::Error
-    ) {
-        if let google_drive3::Error::Failure(resp) = err {
-            let status = resp.status();
-            if status == 401 || status == 403 {
-                let context_json = serde_json::to_value(&operation).unwrap();
-                let upload_context = UploadContext::Custom(context_json);
-                let context_str = serde_json::to_string(&upload_context).unwrap();
-                
-                let endpoint = "google_drive";
-                let headers = HashMap::new();
-                
-                if let Err(e) = self.pending_store.save_pending(endpoint, &headers, data, Some(context_str)) {
-                    tracing::error!("Failed to save pending Google Drive operation: {}", e);
-                } else {
-                    tracing::info!("Saved pending Google Drive operation due to auth error");
-                    self.retry_service.trigger_retry().await;
-                }
-            }
-        }
-    }
-
-    pub async fn create_file(
-        &mut self,
-        file_name: String,
-        mime_type: String,
-        content: &[u8],
-        folder_id: Option<String>,
-    ) -> Option<String> {
-        match create_file_raw(&mut self.hub, file_name.clone(), mime_type.clone(), content, folder_id.clone()).await {
-            Ok(id) => Some(id),
-            Err(e) => {
-                let op = GoogleDriveOperation::CreateFile {
-                    file_name,
-                    mime_type,
-                    folder_id,
-                };
-                self.handle_error(op, content, &e).await;
-                None
-            }
-        }
-    }
-
-    pub async fn create_or_replace_file(
-        &mut self,
-        file_name: String,
-        mime_type: String,
-        content: &[u8],
-        folder_id: Option<String>,
-    ) -> Option<String> {
-        match create_or_replace_file_raw(&mut self.hub, file_name.clone(), mime_type.clone(), content, folder_id.clone()).await {
-            Ok(id) => Some(id),
-            Err(e) => {
-                let op = GoogleDriveOperation::CreateOrReplaceFile {
-                    file_name,
-                    mime_type,
-                    folder_id,
-                };
-                self.handle_error(op, content, &e).await;
-                None
-            }
-        }
-    }
-
-    pub async fn delete_file(
-        &mut self,
-        file_id: String,
-    ) -> bool {
-        match delete_file_raw(&mut self.hub, file_id.clone()).await {
-            Ok(_) => true,
-            Err(e) => {
-                let op = GoogleDriveOperation::DeleteFile {
-                    file_id,
-                };
-                self.handle_error(op, &[], &e).await;
-                false
-            }
-        }
-    }
-}
+// End of public API functions

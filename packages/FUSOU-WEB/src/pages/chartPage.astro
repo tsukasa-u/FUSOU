@@ -1,7 +1,6 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
-import MyChart from "@/components/solid/chartSample.tsx";
 import SidePage from "@/components/solid/sidePage";
 import LoadDataComponent from "@/components/solid/loadData";
 import { supabase } from "@/utility/supabase";
@@ -358,7 +357,7 @@ Astro.cookies.set(
   } from "../components/states/persistentPageData";
   import { sidePageSlected } from "../components/states/sidePageMap";
 
-  PageData.subscribe((pagedata) => {
+  PageData.subscribe((_pagedata) => {
     let page_title = window.document.getElementById(
       "page-title"
     )! as HTMLInputElement;

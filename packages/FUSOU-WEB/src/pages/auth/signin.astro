@@ -3,7 +3,7 @@ import Layout from "../../layouts/Layout.astro";
 import Navigation from "../../components/Navigation.astro";
 import KeyIcon from "../../components/icons/KeyIcon.astro";
 
-const { cookies, redirect } = Astro;
+const cookies = Astro.cookies;
 
 const accessToken = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
@@ -11,7 +11,7 @@ const providerToken = cookies.get("sb-provider-token");
 const providerRefreshToken = cookies.get("sb-provider-refresh-token");
 
 if (accessToken && refreshToken && providerToken && providerRefreshToken) {
-  return redirect("/dashboard");
+  return Astro.redirect("/dashboard");
 }
 ---
 

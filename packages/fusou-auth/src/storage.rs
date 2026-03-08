@@ -1,5 +1,5 @@
 use crate::error::AuthError;
-use crate::types::Session;
+use crate::types::{Session, MultiSession};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -12,6 +12,14 @@ pub trait Storage: Send + Sync {
     async fn load_session(&self) -> Result<Option<Session>, AuthError>;
     async fn save_session(&self, session: &Session) -> Result<(), AuthError>;
     async fn clear(&self) -> Result<(), AuthError>;
+}
+
+/// MultiSession用のストレージトレイト
+#[async_trait]
+pub trait MultiSessionStorage: Send + Sync {
+    async fn load_multi_session(&self) -> Result<Option<MultiSession>, AuthError>;
+    async fn save_multi_session(&self, session: &MultiSession) -> Result<(), AuthError>;
+    async fn clear_multi_session(&self) -> Result<(), AuthError>;
 }
 
 /// Simple in-memory storage for testing and single-process usage.
@@ -101,3 +109,56 @@ impl Storage for FileStorage {
 }
 
 // (KeyringStorage removed for now; can be added later as a separate module.)
+
+/// MultiSession用のファイルストレージ
+pub struct MultiSessionFileStorage {
+    path: PathBuf,
+}
+
+impl MultiSessionFileStorage {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+}
+
+#[async_trait]
+impl MultiSessionStorage for MultiSessionFileStorage {
+    async fn load_multi_session(&self) -> Result<Option<MultiSession>, AuthError> {
+        match fs::read_to_string(&self.path).await {
+            Ok(s) => match serde_json::from_str::<MultiSession>(&s) {
+                Ok(session) => Ok(Some(session)),
+                Err(e) => Err(AuthError::Serde(e)),
+            },
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    Ok(None)
+                } else {
+                    Err(AuthError::Other(e.to_string()))
+                }
+            }
+        }
+    }
+
+    async fn save_multi_session(&self, session: &MultiSession) -> Result<(), AuthError> {
+        let s = serde_json::to_string(session)?;
+        if let Some(parent) = self.path.parent() {
+            if let Err(e) = fs::create_dir_all(parent).await {
+                return Err(AuthError::Other(e.to_string()));
+            }
+        }
+        fs::write(&self.path, s).await.map_err(|e| AuthError::Other(e.to_string()))
+    }
+
+    async fn clear_multi_session(&self) -> Result<(), AuthError> {
+        match fs::remove_file(&self.path).await {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                if e.kind() == ErrorKind::NotFound {
+                    Ok(())
+                } else {
+                    Err(AuthError::Other(e.to_string()))
+                }
+            }
+        }
+    }
+}

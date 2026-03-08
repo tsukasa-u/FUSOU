@@ -2,7 +2,7 @@
 import "../assets/app.css";
 import "../styles/global.css";
 
-const { title = "FUSOU", ...rest } = Astro.props;
+const { title = "FUSOU" } = Astro.props;
 ---
 
 <!doctype html>
@@ -23,6 +23,7 @@ const { title = "FUSOU", ...rest } = Astro.props;
         <!-- Cloudflare Web Analytics -->
         <script
           defer
+          is:inline
           src="https://static.cloudflareinsights.com/beacon.min.js"
           data-cf-beacon={`{"token": "${import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
         />

@@ -13,6 +13,7 @@ ts-rs = { workspace = true }
 apache-avro = { workspace = true }
 kc-api-interface = { workspace = true }
 kc-api-dto = { workspace = true }
+sha2 = { workspace = true }
 
 [features]
 default = [ "from20250627" ]

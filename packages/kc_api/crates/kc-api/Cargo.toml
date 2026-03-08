@@ -32,3 +32,7 @@ from20250627 = [
     "kc-api-interface-adapter/20250627",
     "kc-api-dto/20250627",
 ]
+
+# Schema version features - names match table_version values (0.4, 0.5, 0.6)
+schema_v0_4 = ["kc-api-database/schema_v0_4"]
+schema_v0_5 = ["kc-api-database/schema_v0_5"]

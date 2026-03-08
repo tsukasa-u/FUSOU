@@ -46,14 +46,38 @@ pub struct OwnShip {
     pub fuel: Option<i32>,              // 燃料
     pub bull: Option<i32>,              // 弾薬
     pub cond: Option<i32>,              // 疲労度
+    #[cfg(feature = "schema_v0_4")]
     pub karyoku: Option<Vec<i32>>,      // 火力
+    #[cfg(feature = "schema_v0_5")]
+    pub karyoku: Option<i32>,           // 火力
+    #[cfg(feature = "schema_v0_4")]
     pub raisou: Option<Vec<i32>>,       // 雷装
+    #[cfg(feature = "schema_v0_5")]
+    pub raisou: Option<i32>,            // 雷装
+    #[cfg(feature = "schema_v0_4")]
     pub taiku: Option<Vec<i32>>,        // 対空
+    #[cfg(feature = "schema_v0_5")]
+    pub taiku: Option<i32>,             // 対空
+    #[cfg(feature = "schema_v0_4")]
     pub soukou: Option<Vec<i32>>,       // 装甲
+    #[cfg(feature = "schema_v0_5")]
+    pub soukou: Option<i32>,            // 装甲
+    #[cfg(feature = "schema_v0_4")]
     pub kaihi: Option<Vec<i32>>,        // 回避
+    #[cfg(feature = "schema_v0_5")]
+    pub kaihi: Option<i32>,             // 回避
+    #[cfg(feature = "schema_v0_4")]
     pub taisen: Option<Vec<i32>>,       // 対潜
+    #[cfg(feature = "schema_v0_5")]
+    pub taisen: Option<i32>,            // 対潜
+    #[cfg(feature = "schema_v0_4")]
     pub sakuteki: Option<Vec<i32>>,     // 索敵
+    #[cfg(feature = "schema_v0_5")]
+    pub sakuteki: Option<i32>,          // 索敵
+    #[cfg(feature = "schema_v0_4")]
     pub lucky: Option<Vec<i32>>,        // 運
+    #[cfg(feature = "schema_v0_5")]
+    pub lucky: Option<i32>,             // 運
     pub sally_area: Option<i32>,
     pub sp_effect_items: Option<Vec<i32>>,
 }
@@ -66,8 +90,13 @@ impl OwnShip {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
+        cashe: bool,
     ) -> Option<()> {
-        let ships = Ships::load();
+        let ships = if cashe {
+            Ships::load_cashe()
+        } else {
+            Ships::load()
+        };
         let ship = match ships.ships.get(&data) {
             Some(ship) => ship,
             None => {
@@ -152,38 +181,62 @@ impl OwnShip {
             fuel: ship.fuel.map(|value| value as i32),
             bull: ship.bull.map(|value| value as i32),
             cond: ship.cond.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_4")]
             karyoku: ship
                 .karyoku
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
-            raisou: ship
+            #[cfg(feature = "schema_v0_5")]
+            karyoku: ship.karyoku.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
+          raisou: ship
                 .raisou
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            raisou: ship.raisou.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             taiku: ship
                 .taiku
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            taiku: ship.taiku.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             soukou: ship
                 .soukou
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            soukou: ship.soukou.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             kaihi: ship
                 .kaihi
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            kaihi: ship.kaihi.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             taisen: ship
                 .taisen
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            taisen: ship.taisen.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             sakuteki: ship
                 .sakuteki
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            sakuteki: ship.sakuteki.clone().map(|values| values[0] as i32),
+            #[cfg(feature = "schema_v0_4")]
             lucky: ship
                 .lucky
                 .clone()
                 .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            #[cfg(feature = "schema_v0_5")]
+            lucky: ship.lucky.clone().map(|values| values[0] as i32),
             sally_area: ship.sally_area.map(|value| value as i32),
             sp_effect_items: ship
                 .sp_effect_items

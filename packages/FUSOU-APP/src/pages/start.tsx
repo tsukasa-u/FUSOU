@@ -148,8 +148,9 @@ function Start() {
   };
 
   // const navigate = useNavigate();
-  // Note: Auth state changes are now entirely handled by Rust-side AuthManager.
-  // SolidJS receives token updates via Tauri events ("set-supabase-tokens").
+  // Note: All authentication is handled by Rust-side AuthManager (fusou-auth).
+  // Frontend does not interact with Supabase tokens directly.
+  // Session management, token refresh, and storage are all handled in Rust.
 
   function check_server_status() {
     setPacServerHealth(-1);
