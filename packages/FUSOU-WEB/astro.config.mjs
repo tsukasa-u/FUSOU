@@ -8,6 +8,7 @@ import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
+import rehypeMermaid from 'rehype-mermaid';
 
 // https://astro.build/config
 // @ts-ignore
@@ -25,10 +26,32 @@ export default defineConfig({
     }),
   ],
   output: "server",
-  adapter: cloudflare({ imageService: "cloudflare" }),
+  adapter: cloudflare({ 
+    imageService: "cloudflare",
+    platformProxy: {
+      enabled: true,
+      persist: true,
+    },
+  }),
   vite: {
+    ssr: {
+      external: ["node:fs/promises", "node:path", "node:url", "node:crypto"],
+    },
     // @ts-ignore
-    plugins: [tailwindcss()],
+    plugins: [
+      tailwindcss(),
+      /*
+      nodePolyfills({
+        include: ['buffer', 'util'],
+        globals: {
+          Buffer: true,
+        },
+      }),
+      */
+      // Disabled: vite-plugin-wasm injects 'URL = globalThis.URL' which crashes in Cloudflare Workers
+      // wasm(),
+      // topLevelAwait(),
+    ],
     define: {
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
         process.env.PUBLIC_SUPABASE_URL
@@ -48,17 +71,29 @@ export default defineConfig({
       "process.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
         process.env.ASSET_UPLOAD_SIGNING_SECRET
       ),
+      "process.env.MASTER_DATA_SIGNING_SECRET": JSON.stringify(
+        process.env.MASTER_DATA_SIGNING_SECRET
+      ),
       "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
         process.env.FLEET_SNAPSHOT_SIGNING_SECRET
       ),
-      "process.env.ADMIN_API_SECRET": JSON.stringify(
-        process.env.ADMIN_API_SECRET
+      "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
+        process.env.BATTLE_DATA_SIGNING_SECRET
+      ),
+      "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
+        process.env.BATTLE_DATA_SIGNED_URL_SECRET
       ),
       "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
         process.env.GOOGLE_CLIENT_ID
       ),
       "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
         process.env.GOOGLE_CLIENT_SECRET
+      ),
+      "process.env.RESEND_API_KEY": JSON.stringify(
+        process.env.RESEND_API_KEY
+      ),
+      "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
+        process.env.DATASET_TOKEN_SECRET
       ),
     },
     resolve: {
@@ -69,10 +104,16 @@ export default defineConfig({
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),
         "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
+        "@fusou/avro-wasm": fileURLToPath(new URL("../avro-wasm/index.ts", import.meta.url)),
       },
     },
   },
   markdown: {
     remarkPlugins: [remarkCallout],
+    syntaxHighlight: {
+      type: 'shiki',
+      excludeLangs: ['mermaid', 'js'],
+    },
+    rehypePlugins: [[rehypeMermaid, { strategy: 'pre-mermaid' }]],
   },
 });

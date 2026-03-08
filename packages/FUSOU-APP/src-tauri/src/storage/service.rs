@@ -2,24 +2,28 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::storage::providers::{GoogleDriveProvider, LocalFileSystemProvider};
+use crate::storage::providers::{CloudTableStorageProvider, LocalFileSystemProvider, R2StorageProvider};
 use fusou_upload::{PendingStore, UploadRetryService};
+
+// Global singleton for StorageService to avoid repeated initialization
+static STORAGE_SERVICE_INSTANCE: OnceCell<Option<StorageService>> = OnceCell::const_new();
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug)]
 pub enum StorageError {
-    ClientUnavailable,
     Io(std::io::Error),
     Operation(String),
+    #[allow(dead_code)]
+    Authentication,
 }
 
 impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorageError::ClientUnavailable => write!(f, "storage client is unavailable"),
             StorageError::Io(err) => write!(f, "io error: {err}"),
             StorageError::Operation(reason) => write!(f, "{reason}"),
+            StorageError::Authentication => write!(f, "authentication failed"),
         }
     }
 }
@@ -34,6 +38,13 @@ impl From<std::io::Error> for StorageError {
 
 pub trait StorageProvider: Send + Sync {
     fn name(&self) -> &'static str;
+
+    /// Whether this provider participates in integration jobs.
+    /// Providers should consider both their own capabilities (feature flags)
+    /// and user config (e.g., allow_* gates) when deciding.
+    fn supports_integration(&self) -> bool {
+        true
+    }
 
     fn write_get_data_table<'a>(
         &'a self,
@@ -52,7 +63,6 @@ pub trait StorageProvider: Send + Sync {
     fn integrate_port_table<'a>(
         &'a self,
         period_tag: &'a str,
-        page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>>;
 }
 
@@ -72,7 +82,22 @@ pub struct StorageService {
 }
 
 impl StorageService {
-    pub fn resolve(
+    /// Get or initialize the singleton StorageService instance.
+    /// This ensures initialization happens only once, avoiding redundant logs and provider creation.
+    pub async fn get_instance(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<&'static StorageService> {
+        STORAGE_SERVICE_INSTANCE
+            .get_or_init(|| async {
+                Self::initialize(pending_store, retry_service)
+            })
+            .await
+            .as_ref()
+    }
+
+    /// Internal initialization - called only once by get_instance
+    fn initialize(
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>
     ) -> Option<StorageService> {
@@ -80,26 +105,69 @@ impl StorageService {
         let database_config = app_configs.database;
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
+        tracing::info!("Initializing storage service: cloud={}, local={}, shared_cloud={}", 
+            database_config.get_allow_data_to_cloud(),
+            database_config.get_allow_data_to_local(),
+            database_config.get_allow_data_to_shared_cloud()
+        );
+
         if database_config.get_allow_data_to_cloud() {
-            providers.push(Arc::new(GoogleDriveProvider::new(pending_store, retry_service)));
+            #[cfg(feature = "gdrive")]
+            {
+                tracing::debug!("Attempting to initialize Google Drive storage provider");
+                match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
+                    Ok(provider) => {
+                        tracing::info!("Google Drive storage provider initialized");
+                        providers.push(Arc::new(provider));
+                    },
+                    Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
+                }
+            }
         }
 
         if database_config.get_allow_data_to_local() {
+            tracing::debug!("Attempting to initialize local filesystem storage provider");
             match LocalFileSystemProvider::try_new(database_config.local.get_output_directory()) {
-                Ok(provider) => providers.push(Arc::new(provider)),
+                Ok(provider) => {
+                    tracing::info!("Local filesystem storage provider initialized");
+                    providers.push(Arc::new(provider));
+                },
                 Err(err) => {
                     tracing::error!("Failed to initialize local storage provider: {err}");
                 }
             }
         }
 
+        // Add R2 storage provider when shared cloud sync is enabled
+        if database_config.get_allow_data_to_shared_cloud() {
+            tracing::debug!("Attempting to initialize R2 storage provider");
+            providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
+            tracing::info!("R2 storage provider initialized");
+        }
+
         if providers.is_empty() {
+            tracing::warn!("No storage providers initialized - storage disabled");
             None
         } else {
+            tracing::info!("Storage service initialized with {} provider(s)", providers.len());
             Some(StorageService {
                 providers: Arc::new(providers),
             })
         }
+    }
+    
+    /// Legacy compatibility method - deprecated, use get_instance instead
+    #[deprecated(note = "Use get_instance() for singleton pattern to avoid repeated initialization")]
+    pub fn resolve(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<StorageService> {
+        Self::initialize(pending_store, retry_service)
+    }
+
+    /// Returns true if at least one initialized provider supports integration jobs.
+    pub fn any_provider_supports_integration(&self) -> bool {
+        self.providers.iter().any(|p| p.supports_integration())
     }
 
     pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {
@@ -134,11 +202,22 @@ impl StorageService {
         maparea_id: i64,
         mapinfo_no: i64,
     ) {
+        tracing::info!(
+            "StorageService::write_port_table called: period={}, map={}-{}, provider_count={}",
+            period_tag, maparea_id, mapinfo_no, self.providers.len()
+        );
+        
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let table_clone = table.clone();
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
+            
+            tracing::info!(
+                "Dispatching write_port_table to provider: {} for map {}-{}",
+                provider_name, maparea_id, mapinfo_no
+            );
+            
             let handle = tokio::spawn(async move {
                 if let Err(err) = provider
                     .write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no)
@@ -149,6 +228,11 @@ impl StorageService {
                         provider_name,
                         err
                     );
+                } else {
+                    tracing::info!(
+                        "{} storage successfully wrote port_table for map {}-{}",
+                        provider_name, maparea_id, mapinfo_no
+                    );
                 }
             });
             handles.push(handle);
@@ -158,14 +242,25 @@ impl StorageService {
         }
     }
 
-    pub async fn integrate_port_table(&self, period_tag: &str, page_size: i32) {
+    pub async fn integrate_port_table(&self, period_tag: &str) {
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
+
+            // Enable integration only when the provider indicates support
+            // (provider internally considers feature flags and config gates).
+            if !provider.supports_integration() {
+                tracing::debug!(
+                    "Skipping integration for provider {} (supports_integration=false)",
+                    provider_name,
+                );
+                continue;
+            }
+
             let handle = tokio::spawn(async move {
                 if let Err(err) = provider
-                    .integrate_port_table(&period_clone, page_size)
+                    .integrate_port_table(&period_clone)
                     .await
                 {
                     tracing::warn!(

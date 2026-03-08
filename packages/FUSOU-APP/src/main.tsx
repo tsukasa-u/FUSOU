@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { ErrorFallback } from "./utility/ErrorFallback.tsx";
 
 onMount(async () => {
+
   invoke<string>("get_app_theme", {})
     .then((theme) => {
       if (theme == "") return;

@@ -46,6 +46,7 @@ impl OwnDeck {
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
+        cashe: bool,
     ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck_option = decks.deck_ports.get(&data);
@@ -90,6 +91,7 @@ impl OwnDeck {
                         table,
                         env_uuid,
                         ship_id_index,
+                        cashe,
                     )
                 })
                 .collect::<Vec<_>>()
@@ -135,6 +137,7 @@ impl SupportDeck {
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
+        cashe: bool,
     ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck = match decks.deck_ports.get(&data) {
@@ -145,7 +148,11 @@ impl SupportDeck {
             }
         };
 
-        let ships = Ships::load();
+        let ships = if cashe {
+            Ships::load_cashe()
+        } else {
+            Ships::load()
+        };
         let new_ship_ids = Uuid::new_v7(ts);
         let result = deck.ship.clone().map(|ship_ids| {
             ship_ids
@@ -181,6 +188,7 @@ impl SupportDeck {
                         table,
                         env_uuid,
                         ship_id_index,
+                        cashe
                     )
                 })
                 .collect::<Vec<_>>()
@@ -216,6 +224,8 @@ pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
     pub ship_ids: Option<EnemyShipId>,
+    #[cfg(feature = "schema_v0_5")]
+    pub combined_flag: Option<i32>,
 }
 
 impl EnemyDeck {
@@ -280,6 +290,8 @@ impl EnemyDeck {
             env_uuid,
             uuid,
             ship_ids: new_ship_ids_wrap,
+            #[cfg(feature = "schema_v0_5")]
+            combined_flag: data.e_combined_flag.map(|flag| flag as i32),
         };
         table.enemy_deck.push(new_data);
 

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { extractBearer, resolveSupabaseConfig } from "../utils";
+import { extractBearer, resolveSupabaseConfig, createEnvContext } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -51,7 +51,8 @@ app.post("/google/refresh_token", async (c) => {
   const tokenEndpoint = "https://oauth2.googleapis.com/token";
 
   try {
-    const { url, publishableKey } = resolveSupabaseConfig(c.env);
+    const envCtx = createEnvContext(c);
+    const { url, publishableKey } = resolveSupabaseConfig(envCtx);
     if (!url || !publishableKey) {
       return c.json({ error: "Server misconfiguration" }, 500);
     }
@@ -95,7 +96,13 @@ app.post("/google/refresh_token", async (c) => {
       return c.json({ error: "Failed to refresh token" }, 500);
     }
 
-    const data = await response.json();
+    interface GoogleTokenResponse {
+      access_token: string;
+      expires_in: number;
+      refresh_token?: string;
+    }
+
+    const data = await response.json() as GoogleTokenResponse;
 
     if (data.refresh_token) {
       await supabase

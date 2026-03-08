@@ -22,7 +22,7 @@ pub fn check_database_dependency() {
     let re_use =
         regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     let re_parse_type =
-        regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
+        regex::Regex::new(r#"([A-Za-z0-9]+<([A-Za-z0-9]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
 
     let re_check_comma =
         regex::Regex::new(r#"(pub)? [a-z_0-9]+\s?:\s?[A-Za-z0-9<>,\s]*[A-Za-z0-9<>]\r?\n\s*}"#)

@@ -1,0 +1,36 @@
+{
+  "name": "fusou-workflow",
+  "version": "1.0.0",
+  "description": "Cloudflare Workflows for FUSOU data compaction",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types",
+    "tail": "wrangler tail",
+    "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
+    "generate:schemas": "cd ../kc_api && bash scripts/generate-schemas.sh",
+    "generate:fingerprints": "node scripts/compute-kc-api-fingerprints.mjs ../kc_api/generated-schemas/schema_v*.json > ../configs/fingerprints.json",
+    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file ../../docs/sql/workflow/schema.sql",
+    "schema:list:local": "wrangler d1 execute dev_kc_battle_index --local --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'",
+    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file ../../docs/sql/workflow/schema.sql",
+    "schema:list:remote": "wrangler d1 execute dev_kc_battle_index --remote --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "workflows"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20251128.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.51.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.86.0",
+    "@tidbcloud/serverless": "^0.2.0"
+  }
+}

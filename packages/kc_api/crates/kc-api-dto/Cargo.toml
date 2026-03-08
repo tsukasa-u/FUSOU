@@ -16,6 +16,8 @@ dotenvy = { workspace = true }
 confy = { workspace = true }
 dot-writer = { workspace = true }
 chrono = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
 
 [features]
 default = [ "graphviz", "from20250627" ]

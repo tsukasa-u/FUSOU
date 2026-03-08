@@ -1,5 +1,6 @@
 use crate::builder_setup::bidirectional_channel::get_scheduler_integrate_bidirectional_channel;
 use crate::storage::integrate;
+use crate::storage::service::StorageService;
 use proxy_https::{bidirectional_channel, proxy_server_https::setup_default_crypto_provider};
 use tokio_cron_scheduler::{JobBuilder, JobScheduler};
 use fusou_upload::{PendingStore, UploadRetryService};
@@ -10,12 +11,28 @@ pub fn start_scheduler(
     retry_service: Arc<UploadRetryService>
 ) {
     let configs = configs::get_user_configs_for_app();
-    let scheduler_cron = configs.database.google_drive.get_schedule_cron();
+    let db_config = configs.database;
+
+    let scheduler_cron = db_config.get_integration_schedule_cron();
     
     let pending_store_clone = pending_store.clone();
     let retry_service_clone = retry_service.clone();
 
     tokio::spawn(async move {
+        // Initialize storage service and check if any provider supports integration.
+        match StorageService::get_instance(pending_store_clone.clone(), retry_service_clone.clone()).await {
+            Some(service) => {
+                if !service.any_provider_supports_integration() {
+                    tracing::info!("No providers support integration; scheduler will not start");
+                    return;
+                }
+            },
+            None => {
+                tracing::info!("No storage providers initialized; scheduler will not start");
+                return;
+            }
+        }
+
         let pending_store_for_job = pending_store_clone.clone();
         let retry_service_for_job = retry_service_clone.clone();
 
@@ -32,11 +49,11 @@ pub fn start_scheduler(
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
                             Ok(Some(ts)) => {
-                                tracing::info!("Google Drive sync job running at {:?}", ts);
+                                tracing::info!("Storage integration job running at {:?}", ts);
                                 integrate::integrate_port_table(pending_store, retry_service);
                             }
                             _ => {
-                                tracing::warn!("Could not get next tick for Google Drive sync job")
+                                tracing::warn!("Could not get next tick for storage integration job")
                             }
                         }
                     })

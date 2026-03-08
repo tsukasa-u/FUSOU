@@ -112,7 +112,6 @@ pub struct ApiData {
     #[serde(rename = "api_locked_equip")]
     pub api_locked_equip: i64,
     #[serde(rename = "api_sp_effect_items")]
-    #[serde(default)]
     pub api_sp_effect_items: Vec<ApiSpEffectItem>,
     #[serde(rename = "api_sally_area")]
     pub api_sally_area: Option<i64>,

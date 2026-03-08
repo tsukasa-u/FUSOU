@@ -129,7 +129,7 @@ save_file_location = ""
 
     [app.browser]
     # The URL to open first in the browser
-    url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
+    url = "https://play.games.dmm.com/game/kancolle"
 
 
     [app.autostart]
@@ -175,25 +175,44 @@ save_file_location = ""
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication
     # check [app.auth]
+
+    # Whether to allow syncing KanColle data to your cloud storage
     allow_data_to_cloud = true
+
+    # Whether to sync KanColle data to the shared database (Cloudflare R2)
+    allow_data_to_shared_cloud = true
+
     # Whether to save KanColle data to the local filesystem
     allow_data_to_local = true
 
+    # Cron schedule for integration jobs (e.g., local FS or cloud storage integration)
+    # Format: "sec min hour day month day_of_week"
+    # Example: "0 0 * * * *" runs every hour
+    integration_schedule_cron = "0 0 * * * *"
 
-    [app.database.google_drive]
-    # The size of table user can get from Google Drive at once
-    # this option is only used when [app.database] is enabled
-    page_size = 100
-
-    # The interval (in cron format) to sync data to Google Drive
-    # this option is only used when [app.database] is enabled
-    schedule_cron = "0 0 * * * *" # every hour
-
+    [app.database.r2]
+    # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    upload_endpoint = "https://fix-store-ship.fusou.pages.dev/api/battle-data/upload"
+    # Master-data upload endpoint
+    master_data_upload_endpoint = "https://fix-store-ship.fusou.pages.dev/api/master-data/upload"
 
     [app.database.local]
     # Base directory used when writing KanColle data locally
     # leave it empty to use the Documents directory/FUSOU/storage path
     output_directory = ""
+
+    # Batch size for local filesystem integration operations
+    # Higher values = faster but more memory usage
+    # LocalFS can handle larger batches due to local I/O speed
+    # Default is 500 (can adjust down for memory-constrained systems)
+    integration_batch_size = 500
+
+    # Google Drive integration configuration (only available when gdrive feature is enabled)
+    [app.database.google_drive]
+    # Page size for Google Drive API requests (deprecated, use original implementation)
+    # Clamped to 1-100, defaults to 100
+    # Lower values reduce memory per request, higher values reduce API calls
+    page_size = 100
 
 
     [app.asset_sync]
@@ -208,16 +227,16 @@ save_file_location = ""
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    asset_upload_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/upload"
+    asset_upload_endpoint = "https://fix-store-ship.fusou.pages.dev/api/asset-sync/upload"
 
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
-    fleet_snapshot_endpoint = "https://dev.fusou.pages.dev/api/fleet/snapshot"
+    fleet_snapshot_endpoint = "https://fix-store-ship.fusou.pages.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
-    kc_period_endpoint = "https://dev.fusou.pages.dev/api/kc-period/latest"
+    kc_period_endpoint = "https://fix-store-ship.fusou.pages.dev/api/kc-period/latest"
 
     # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
-    asset_existing_keys_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/keys"
+    asset_existing_keys_endpoint = "https://fix-store-ship.fusou.pages.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     asset_skip_extensions = ["mp3", "woff2", "js"]
@@ -248,8 +267,13 @@ save_file_location = ""
 
     # Authentication page URL
     # The URL to open when authentication is required
-    auth_page_url = "https://fusou.dev/auth/local/signin"
+    auth_page_url = "https://fix-store-ship.fusou.pages.dev/auth/local/signin"
 
+    # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
+    member_map_endpoint = "https://fix-store-ship.fusou.pages.dev/api/user/member-map/upsert"
+
+    # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
+    anonymous_sync_endpoint = "https://fix-store-ship.fusou.pages.dev/api/auth/anonymous-sync"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events

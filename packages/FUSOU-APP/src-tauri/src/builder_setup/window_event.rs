@@ -120,14 +120,6 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
 }
 
 #[cfg(target_os = "linux")]
-pub fn set_resize_debouncer_callback<F>(callback: F)
-where
-    F: FnMut() + Send + 'static,
-{
-    RESIZE_DEBOUNCER.set_callback(callback);
-}
-
-#[cfg(target_os = "linux")]
 fn trigger_resize_debouncer() {
     RESIZE_DEBOUNCER.trigger();
 }

@@ -31,12 +31,12 @@ export default function VTable() {
                 <th>Description</th>
               </tr>
             )}
-            itemContent={(index, user) => (
+            itemContent={(_index, user) => (
               <>
-                <td className="bg-base-100 border-t-1 border-base-300 h-8 text-sm p-2">
+                <td className="bg-base-100 border-t border-base-300 h-8 text-sm p-2">
                   {user.name}
                 </td>
-                <td className="bg-base-100 border-t-1 border-base-300 h-8 text-sm p-2">
+                <td className="bg-base-100 border-t border-base-300 h-8 text-sm p-2">
                   {user.description}
                 </td>
               </>
