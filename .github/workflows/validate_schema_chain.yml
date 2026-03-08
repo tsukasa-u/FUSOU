@@ -21,6 +21,9 @@ on:
       - "packages/configs/fingerprints.json"
       - "packages/FUSOU-WORKFLOW/src/reader.ts"
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
