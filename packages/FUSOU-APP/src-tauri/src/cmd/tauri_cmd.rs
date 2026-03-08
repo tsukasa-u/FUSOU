@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
+#[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
@@ -24,7 +25,7 @@ use crate::interface::slot_item::SlotItems;
 use crate::sequence;
 use tracing_unwrap::OptionExt;
 
-use tauri_plugin_notification::NotificationExt;
+// use tauri_plugin_notification::NotificationExt; // replaced by notify wrapper where needed
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -123,6 +124,7 @@ pub async fn close_splashscreen(window: tauri::Window) {
         .unwrap();
 }
 
+#[cfg(feature = "gdrive")]
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
     let split_token: Vec<String> = token.split("&").map(|s| s.to_string()).collect();
@@ -351,21 +353,7 @@ pub async fn perform_snapshot_sync(
     ).await
 }
 
-#[tauri::command]
-pub async fn show_native_notification(_window: tauri::Window, title: String, body: String) -> Result<(), String> {
-    // Use the bundled `tauri-plugin-notification` plugin via the app handle.
-    let app = _window.app_handle();
-    match app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-    {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("native notification failed: {}", e)),
-    }
-}
+// Removed: use notify::show via internal callers when needed.
 
 /// Tauri command to get all stored logs
 #[tauri::command]

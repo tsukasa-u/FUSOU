@@ -8,7 +8,9 @@ use crate::models::deck::EnemyDeck;
 use crate::models::deck::EnemyDeckId;
 use crate::models::deck::FriendDeck;
 use crate::models::deck::FriendDeckId;
+#[cfg(feature = "schema_v0_4")]
 use crate::models::deck::OwnDeck;
+#[cfg(feature = "schema_v0_4")]
 use crate::models::deck::OwnDeckId;
 use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
@@ -39,6 +41,8 @@ pub type SupportHouraiId = Uuid;
 pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
+#[cfg(feature = "schema_v0_5")]
+pub type BattleResultId = Uuid;
 
 trait IntoI32 {
     type Output;
@@ -1448,6 +1452,52 @@ impl FriendlySupportHourai {
     }
 }
 
+#[cfg(feature = "schema_v0_5")]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
+pub struct BattleResult {
+    pub env_uuid: EnvInfoId,
+    pub uuid: BattleResultId,
+    pub win_rank: String,
+    pub drop_ship_id: Option<i32>,
+    pub landing_hp_now: Option<i32>,
+    pub landing_hp_max: Option<i32>,
+    pub landing_sub_value: Option<i32>,
+}
+
+#[cfg(feature = "schema_v0_5")]
+impl BattleResult {
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: kc_api_interface::battle::BattleResult,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let new_data = BattleResult {
+            env_uuid,
+            uuid,
+            win_rank: data.win_rank,
+            drop_ship_id: data.drop_ship_id.map(|id| id as i32),
+            landing_hp_now: data.landing_hp_now.map(|hp| hp as i32),
+            landing_hp_max: data.landing_hp_max.map(|hp| hp as i32),
+            landing_sub_value: data.landing_sub_value.map(|value| value as i32),
+        };
+
+        table.battle_result.push(new_data);
+
+        Some(())
+    }
+}
+
 #[derive(
     Debug,
     Clone,
@@ -1466,6 +1516,7 @@ pub struct Battle {
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
     pub cell_id: i32,
+    #[cfg(feature = "schema_v0_4")]
     pub f_deck_id: Option<OwnDeckId>,
     pub e_deck_id: Option<EnemyDeckId>,
     pub friend_deck_id: Option<FriendDeckId>,
@@ -1499,6 +1550,8 @@ pub struct Battle {
     pub e_nowhps: Option<Vec<i32>>,
     pub midnight_f_nowhps: Option<Vec<i32>>,
     pub midnight_e_nowhps: Option<Vec<i32>>,
+    #[cfg(feature = "schema_v0_5")]
+    pub battle_result: Option<BattleResultId>,
 }
 
 impl Battle {
@@ -1524,11 +1577,13 @@ impl Battle {
             })
             .unwrap_or_default();
 
+        #[cfg(feature = "schema_v0_4")]
         let new_f_deck_id = {
             let uuid = Uuid::new_v7(ts);
+            let cache = true;
             data.clone()
                 .deck_id
-                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid))
+                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cache))
                 .map(|_| uuid)
         };
         let new_e_deck_id = {
@@ -1554,7 +1609,8 @@ impl Battle {
                         .map(|air| air.deck_id)
                         .or(attack.support_hourai.map(|hourai| hourai.deck_id))
                         .and_then(|deck_id| {
-                            SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid)
+                            let cashe = true;
+                            SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
                         })
                 })
                 .map(|_| uuid)
@@ -1665,6 +1721,14 @@ impl Battle {
         let new_e_nowhps = data.clone().e_nowhps;
         let new_midnight_f_nowhps = data.clone().midnight_f_nowhps;
         let new_midnight_e_nowhps = data.clone().midnight_e_nowhps;
+        #[cfg(feature = "schema_v0_5")]
+        let new_battle_result = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .battle_result
+                .and_then(|result| BattleResult::new_ret_option(ts, uuid, result, table, env_uuid))
+                .map(|_| uuid)
+        };
 
         let new_data = Battle {
             env_uuid,
@@ -1674,6 +1738,7 @@ impl Battle {
             timestamp: data.clone().timestamp,
             midnight_timestamp: data.clone().midnight_timestamp,
             cell_id: data.clone().cell_id as i32,
+            #[cfg(feature = "schema_v0_4")]
             f_deck_id: new_f_deck_id,
             e_deck_id: new_e_deck_id,
             friend_deck_id: new_friend_deck_id,
@@ -1741,6 +1806,8 @@ impl Battle {
             e_nowhps: new_e_nowhps.map(|values| values.into_i32()),
             midnight_f_nowhps: new_midnight_f_nowhps.map(|values| values.into_i32()),
             midnight_e_nowhps: new_midnight_e_nowhps.map(|values| values.into_i32()),
+            #[cfg(feature = "schema_v0_5")]
+            battle_result: new_battle_result,
         };
 
         table.battle.push(new_data);

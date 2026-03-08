@@ -1,7 +1,7 @@
 #[cfg(feature = "graphviz")]
 use dot_writer::{Attributes, Color, DotWriter, Node, NodeId, PortId, Scope, Shape, Style};
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     fs::{self, File},
     io::Write,
     path::{self, PathBuf}, /*process::Command*/
@@ -16,18 +16,19 @@ pub fn check_struct_dependency() {
     let re_struct = regex::Regex::new(r#"\n(pub\s+)?struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name =
         regex::Regex::new(r#"\n(pub\s+)?struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
-    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\s*(\/\/[^\r\n]*)?\r?\n"#).unwrap();
+    let re_struct_field = regex::Regex::new(r#"(?:\#\[cfg\(not\(feature\s*=\s*\"([A-Za-z0-9_]+)\"\)\)\]\s+|\#\[cfg\(feature\s*=\s*\"([A-Za-z0-9_]+)\"\)\]\s+)?\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\s*(\/\/[^\r\n]*)?\r?\n"#).unwrap();
     let re_use =
         regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     let re_parse_type =
-        regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
+        regex::Regex::new(r#"([A-Za-z0-9]+<([A-Za-z0-9]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
 
     let re_check_comma =
         regex::Regex::new(r#"(pub)? [a-z_0-9]+\s?:\s?[A-Za-z0-9<>,\s]*[A-Za-z0-9<>]\r?\n\s*}"#)
             .unwrap();
 
     let mut file_path_list: Vec<PathBuf> = Vec::new();
-    let mut books: ApiFieldTypeInfo = ApiFieldTypeInfo::new();
+    let mut books_ext: ApiFieldTypeInfoExt = ApiFieldTypeInfoExt::new();
+    let mut all_cfg_features: BTreeSet<String> = BTreeSet::new();
 
     let sub_target = path::PathBuf::from(sub_target_path);
     let sub_folders = sub_target.read_dir().expect("read_dir call failed");
@@ -57,7 +58,7 @@ pub fn check_struct_dependency() {
         let file_path_str = file_path.to_string_lossy().to_string();
 
         if file_path_str.ends_with(".rs") && !file_path_str.ends_with("mod.rs") {
-            let mut bookm: StructFieldTypeInfo = StructFieldTypeInfo::new();
+            let mut bookm_ext: StructFieldTypeInfoExt = StructFieldTypeInfoExt::new();
 
             let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
 
@@ -88,12 +89,27 @@ pub fn check_struct_dependency() {
 
             let captured = re_struct.captures_iter(&content);
             for cap in captured {
-                let mut book: FieldTypeInfo = FieldTypeInfo::new();
+                let mut book_ext: Vec<FieldEntryExt> = Vec::new();
 
                 let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
                 for field_cap in field_captured {
-                    let field_type = field_cap.get(3).unwrap().as_str();
-                    let field_rename = field_cap.get(1).unwrap().as_str();
+                    // Enhanced capture groups:
+                    // 1=cfg_not_feature, 2=cfg_feature, 3=rename, 4=pub, 5=type, 6=comment
+                    let cfg_not_feature = field_cap.get(1).map(|m| m.as_str().to_string());
+                    let cfg_feature = field_cap.get(2).map(|m| m.as_str().to_string());
+                    let field_rename = field_cap.get(3).unwrap().as_str();
+                    let field_type = field_cap.get(5).unwrap().as_str();
+
+                    // Determine cfg condition
+                    let cfg_cond: CfgCondition = if let Some(feat) = cfg_not_feature {
+                        all_cfg_features.insert(feat.clone());
+                        Some((feat, false))
+                    } else if let Some(feat) = cfg_feature {
+                        all_cfg_features.insert(feat.clone());
+                        Some((feat, true))
+                    } else {
+                        None
+                    };
 
                     let type_captured = re_parse_type.captures(field_type);
                     let type_name = if let Some(type_cap) = type_captured {
@@ -119,16 +135,19 @@ pub fn check_struct_dependency() {
                         "_".to_string()
                     };
 
-                    book.insert(
+                    book_ext.push((
                         field_rename.to_string(),
-                        (field_type_location, field_type.to_string(), type_name),
-                    );
+                        field_type_location,
+                        field_type.to_string(),
+                        type_name,
+                        cfg_cond,
+                    ));
                 }
 
                 let struct_name_captrued = re_struct_name.captures(cap.get(0).unwrap().as_str());
                 if let Some(struct_name) = struct_name_captrued {
                     if let Some(struct_name_unwrap) = struct_name.get(2) {
-                        bookm.insert(struct_name_unwrap.as_str().to_string(), book);
+                        bookm_ext.insert(struct_name_unwrap.as_str().to_string(), book_ext);
 
                         let check_comma_captured =
                             re_check_comma.captures_iter(cap.get(0).unwrap().as_str());
@@ -138,9 +157,15 @@ pub fn check_struct_dependency() {
                     }
                 }
             }
-            books.insert((api_name_1.clone(), api_name_2.clone()), bookm);
+            books_ext.insert((api_name_1.clone(), api_name_2.clone()), bookm_ext);
         }
     }
+
+    // Detect active features by resolving default features from Cargo.toml
+    let active_features = resolve_default_features(&all_cfg_features);
+
+    // Build default books from books_ext filtered for active features
+    let mut books = filter_books_for_features(&books_ext, &active_features);
 
     for ((api_name_1, api_name_2), fieldm) in books.clone().iter() {
         for (struct_name, field) in fieldm.iter() {
@@ -176,6 +201,67 @@ pub fn check_struct_dependency() {
     let mut file = File::create("./tests/struct_dependency.log").unwrap();
     file.write_all(format!("{books:#?}").as_bytes())
         .expect("write failed");
+
+    // Output feature_variants.json metadata
+    {
+        use serde_json::{json, Value};
+
+        let mut field_diffs: HashMap<String, HashMap<String, HashMap<String, Value>>> =
+            HashMap::new();
+        for feat in &all_cfg_features {
+            let mut feat_diffs: HashMap<String, HashMap<String, Value>> = HashMap::new();
+            for ((api_name_1, api_name_2), struct_fields_ext) in books_ext.iter() {
+                for (struct_name, fields) in struct_fields_ext.iter() {
+                    for (field_rename, _loc, field_type, _type_name, cfg_cond) in fields.iter() {
+                        if let Some((f, is_positive)) = cfg_cond {
+                            if f == feat {
+                                let key =
+                                    format!("{api_name_1}__{api_name_2}__{struct_name}");
+                                let struct_entry =
+                                    feat_diffs.entry(key).or_default();
+                                let field_entry =
+                                    struct_entry.entry(field_rename.clone()).or_insert_with(|| {
+                                        json!({"with_feature": null, "without_feature": null})
+                                    });
+                                if let Value::Object(ref mut map) = field_entry {
+                                    if *is_positive {
+                                        map.insert(
+                                            "with_feature".to_string(),
+                                            json!(field_type),
+                                        );
+                                    } else {
+                                        map.insert(
+                                            "without_feature".to_string(),
+                                            json!(field_type),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if !feat_diffs.is_empty() {
+                field_diffs.insert(feat.clone(), feat_diffs);
+            }
+        }
+
+        let feature_variants = json!({
+            "all_features": all_cfg_features.iter().collect::<Vec<_>>(),
+            "active_features": active_features.iter().collect::<Vec<_>>(),
+            "field_diffs": field_diffs,
+        });
+
+        std::fs::create_dir_all("../../tests/struct_dependency_dot").expect("create dir failed");
+        let mut file =
+            File::create("../../tests/struct_dependency_dot/feature_variants.json").unwrap();
+        file.write_all(
+            serde_json::to_string_pretty(&feature_variants)
+                .unwrap()
+                .as_bytes(),
+        )
+        .expect("write failed");
+    }
 
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
     let books_vec_clone = books_vec.clone();
@@ -758,6 +844,101 @@ type FieldTypeInfo = HashMap<String, (String, String, String)>;
 type StructFieldTypeInfo = HashMap<String, FieldTypeInfo>;
 type ApiFieldTypeInfo = HashMap<ApiNamePair, StructFieldTypeInfo>;
 type ApiFieldTypeInfoVec<'a> = Vec<(&'a ApiNamePair, &'a StructFieldTypeInfo)>;
+
+// Extended types for cfg-aware field tracking
+// CfgCondition: None = always present, Some((feat, true)) = requires feature, Some((feat, false)) = requires NOT feature
+type CfgCondition = Option<(String, bool)>;
+// (field_rename, field_type_location, field_type, type_name, cfg_condition)
+type FieldEntryExt = (String, String, String, String, CfgCondition);
+type StructFieldTypeInfoExt = HashMap<String, Vec<FieldEntryExt>>;
+type ApiFieldTypeInfoExt = HashMap<ApiNamePair, StructFieldTypeInfoExt>;
+
+fn filter_books_for_features(
+    books_ext: &ApiFieldTypeInfoExt,
+    active_features: &BTreeSet<String>,
+) -> ApiFieldTypeInfo {
+    let mut result = ApiFieldTypeInfo::new();
+    for (key, struct_fields_ext) in books_ext.iter() {
+        let mut struct_info = StructFieldTypeInfo::new();
+        for (struct_name, fields) in struct_fields_ext.iter() {
+            let mut field_info = FieldTypeInfo::new();
+            for (field_rename, field_type_location, field_type, type_name, cfg_cond) in
+                fields.iter()
+            {
+                let include = match cfg_cond {
+                    None => true,
+                    Some((feat, true)) => active_features.contains(feat),
+                    Some((feat, false)) => !active_features.contains(feat),
+                };
+                if include {
+                    field_info.insert(
+                        field_rename.clone(),
+                        (
+                            field_type_location.clone(),
+                            field_type.clone(),
+                            type_name.clone(),
+                        ),
+                    );
+                }
+            }
+            struct_info.insert(struct_name.clone(), field_info);
+        }
+        result.insert(key.clone(), struct_info);
+    }
+    result
+}
+
+/// Resolve default features from Cargo.toml and intersect with discovered cfg features.
+/// This avoids hardcoding feature names — the source of truth is always Cargo.toml.
+fn resolve_default_features(all_cfg_features: &BTreeSet<String>) -> BTreeSet<String> {
+    let cargo_toml = fs::read_to_string("Cargo.toml").expect("failed to read Cargo.toml");
+
+    let re_feature_line =
+        regex::Regex::new(r#"^([A-Za-z0-9_]+)\s*=\s*\[([^\]]*)\]"#).unwrap();
+
+    let mut features_map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut in_features = false;
+
+    for line in cargo_toml.lines() {
+        let trimmed = line.trim();
+        if trimmed == "[features]" {
+            in_features = true;
+            continue;
+        }
+        if trimmed.starts_with('[') {
+            in_features = false;
+            continue;
+        }
+        if in_features {
+            if let Some(cap) = re_feature_line.captures(trimmed) {
+                let feat_name = cap.get(1).unwrap().as_str().to_string();
+                let deps_str = cap.get(2).unwrap().as_str();
+                let deps: Vec<String> = deps_str
+                    .split(',')
+                    .map(|s| s.trim().trim_matches('"').trim_matches('\'').trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                features_map.insert(feat_name, deps);
+            }
+        }
+    }
+
+    // Resolve default features recursively
+    let mut resolved = BTreeSet::new();
+    let mut queue: Vec<String> = features_map.get("default").cloned().unwrap_or_default();
+    while let Some(feat) = queue.pop() {
+        if resolved.insert(feat.clone()) {
+            if let Some(deps) = features_map.get(&feat) {
+                for dep in deps {
+                    queue.push(dep.clone());
+                }
+            }
+        }
+    }
+
+    // Return only features that appear in cfg annotations
+    resolved.intersection(all_cfg_features).cloned().collect()
+}
 
 #[cfg(feature = "cytoscape")]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

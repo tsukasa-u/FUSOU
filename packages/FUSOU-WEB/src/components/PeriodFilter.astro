@@ -135,7 +135,7 @@ const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12", "2025-5-30"];
   });
 
   let period_filter = window.document.getElementById("apply-period-filter")!;
-  period_filter.addEventListener("click", async (e) => {
+  period_filter.addEventListener("click", async (_e) => {
     let period_range: string[] = [];
     let filter_type: number | null = null;
     let filter_radio = Object.values(
@@ -166,11 +166,11 @@ const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12", "2025-5-30"];
 
         period_range = kc_update_date
           .filter(
-            ([d, d_parsed]) =>
-              filter_calender[0] <= Number(d_parsed) &&
-              Number(d_parsed) < filter_calender[1]
+            ([, parsed]) =>
+              filter_calender[0] <= Number(parsed) &&
+              Number(parsed) < filter_calender[1]
           )
-          .map(([d, d_parsed]) => d);
+          .map(([d]) => d);
       }
       filter_type = 2;
     }
@@ -219,14 +219,14 @@ const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12", "2025-5-30"];
   });
 </script>
 
-<script type="module" src="https://unpkg.com/cally"></script>
+<script type="module" src="https://unpkg.com/cally" is:inline></script>
 
-<script type="module">
+<script type="module" is:inline>
   const calendar_range = window.document.querySelector("calendar-range");
   const date_picker = window.document.getElementById("cally1");
   const reset_picker = window.document.getElementById("reset-cally1");
 
-  reset_picker.addEventListener("click", (e) => {
+  reset_picker.addEventListener("click", (_e) => {
     date_picker.innerText = "Pick a date";
   });
 

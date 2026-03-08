@@ -101,17 +101,28 @@ fn log_response(
         }
 
         tokio::spawn(async move {
-            let mut buffer: Vec<u8> = Vec::new();
-            if !pass && content_type.eq("text/plain") {
-                // this code is for the response not decoded in hudsucker!!
-                match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        buffer = body.clone();
+            // Phase 4: Decompress CPU-bound operations using spawn_blocking
+            let buffer_for_text = if !pass && content_type.eq("text/plain") {
+                let body_clone = body.clone();
+                match tokio::task::spawn_blocking(move || {
+                    let mut buf = Vec::new();
+                    match flate2::read::MultiGzDecoder::new(body_clone.as_slice()).read_to_end(&mut buf) {
+                        Ok(_) => buf,
+                        Err(_) => body_clone,
+                    }
+                }).await {
+                    Ok(buf) => buf,
+                    Err(e) => {
+                        tracing::error!("spawn_blocking decompression failed: {}", e);
+                        body.clone()
                     }
                 }
+            } else {
+                Vec::new()
+            };
 
-                if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
+            if !pass && content_type.eq("text/plain") {
+                if let Ok(buffer_string) = String::from_utf8(buffer_for_text.clone()) {
                     let mes = bidirectional_channel::StatusInfo::RESPONSE {
                         path: uri_path.clone(),
                         content_type: content_type.to_string(),
@@ -122,6 +133,7 @@ fn log_response(
                     tracing::warn!("Failed to convert buffer to string");
                 }
             }
+
             if save {
                 let path_log = Path::new(save_path.as_str());
 
@@ -129,15 +141,12 @@ fn log_response(
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
-                        fs::create_dir_all(path_parent).expect_or_log("Failed to create directory");
+                        // Phase 3: Use async directory creation
+                        if let Err(e) = tokio::fs::create_dir_all(&path_parent).await {
+                            tracing::error!("Failed to create kcsapi directory: {}", e);
+                            return;
+                        }
                     }
-
-                    // let time_stamped = format!(
-                    //     "kcsapi/{}_{}S{}",
-                    //     file_prefix,
-                    //     jst.timestamp(),
-                    //     uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
-                    // );
 
                     let time_formated = format!(
                         "kcsapi/{}S{}",
@@ -151,16 +160,21 @@ fn log_response(
                         file_prefix
                     );
                     let metadata_buffer = metadata_string.as_bytes();
-                    let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
-                    fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
-                        .expect_or_log("Failed to write file");
+                    let combined_buffer = [metadata_buffer, buffer_for_text.as_slice()].concat();
+                    // Phase 3: Use async file I/O (non-blocking)
+                    if let Err(e) = tokio::fs::write(path_log.join(Path::new(&time_formated)), combined_buffer).await {
+                        tracing::error!("Failed to write kcsapi file: {}", e);
+                    }
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
                     if let Some(parent) = Path::new(path_removed.as_str()).parent() {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
-                            fs::create_dir_all(path_parent)
-                                .expect_or_log("Failed to create directory");
+                            // Phase 3: Use async directory creation (non-blocking)
+                            if let Err(e) = tokio::fs::create_dir_all(path_parent).await {
+                                tracing::error!("Failed to create directory: {}", e);
+                                return;
+                            }
                         }
                     }
 
@@ -168,40 +182,37 @@ fn log_response(
                     let file_log_path_for_sync = file_log_path.clone();
 
                     if content_type.eq("application/json") {
-                        // this code is for the response not decoded in hudsucker!!
-                        match flate2::read::MultiGzDecoder::new(body.as_slice())
-                            .read_to_end(&mut buffer)
-                        {
-                            Ok(_) => {}
-                            Err(_) => {
-                                buffer = body.clone();
+                        // Phase 4: Decompress JSON using spawn_blocking
+                        let body_clone = body.clone();
+                        let json_buffer = match tokio::task::spawn_blocking(move || {
+                            let mut buf = Vec::new();
+                            match flate2::read::MultiGzDecoder::new(body_clone.as_slice())
+                                .read_to_end(&mut buf)
+                            {
+                                Ok(_) => buf,
+                                Err(_) => body_clone,
                             }
+                        }).await {
+                            Ok(buf) => buf,
+                            Err(e) => {
+                                tracing::error!("spawn_blocking JSON decompression failed: {}", e);
+                                body.clone()
+                            }
+                        };
+                        
+                        // Phase 3: Use async file I/O (non-blocking)
+                        if let Err(e) = tokio::fs::write(&file_log_path, json_buffer).await {
+                            tracing::error!("Failed to write json file: {}", e);
                         }
-                        fs::write(&file_log_path, buffer).expect_or_log("Failed to write file");
                     } else {
-                        fs::write(&file_log_path, body.clone())
-                            .expect_or_log("Failed to write file");
+                        // Phase 3: Use async file I/O (non-blocking)
+                        if let Err(e) = tokio::fs::write(&file_log_path, body.clone()).await {
+                            tracing::error!("Failed to write file: {}", e);
+                        }
                     }
 
+                    // Phase 2: Non-blocking asset sync notification with backpressure handling
                     asset_sync::notify_new_asset(file_log_path_for_sync);
-
-                    // if !file_log_path.exists() {
-                    //     fs::write(file_log_path, body.clone().clone())
-                    //         .expect_or_log("Failed to write file");
-                    // } else {
-                    //     let file_log_metadata =
-                    //         fs::metadata(file_log_path.clone()).expect_or_log("Failed to get metadata");
-                    //     #[cfg(target_os = "linux")]
-                    //     if file_log_metadata.len() == 0 {
-                    //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect_or_log("Failed to write file");
-                    //     }
-                    //     #[cfg(target_os = "windows")]
-                    //     if file_log_metadata.file_size() == 0 {
-                    //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect_or_log("Failed to write file");
-                    //     }
-                    // }
                 }
             }
         });
@@ -476,12 +487,12 @@ pub fn serve_proxy(
     log_save_path: String,
     ca_save_path: String,
     file_prefix: String,
-    auth_manager: Arc<AuthManager<FileStorage>>,
+    _auth_manager: Arc<AuthManager<FileStorage>>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
     let configs = configs::get_user_configs_for_proxy();
-    let app_configs = configs::get_user_configs_for_app();
+    let _app_configs = configs::get_user_configs_for_app();
     let allow_save_api_requests = configs.get_allow_save_api_requests();
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
@@ -570,25 +581,37 @@ pub fn serve_proxy(
         log_save_path.clone()
     };
 
-    if app_configs.asset_sync.get_enable() {
-        match asset_sync::AssetSyncInit::from_configs(
-            &app_configs.asset_sync,
-            save_path.clone(),
-            if file_prefix.trim().is_empty() {
-                None
-            } else {
-                Some(file_prefix.clone())
-            },
-        ) {
-            Ok(init) => {
-                if let Err(err) = asset_sync::start(init, auth_manager) {
-                    tracing::warn!("failed to start asset sync: {}", err);
+    // Phase 1: Launch asset_sync in independent tokio task (non-blocking)
+    // This prevents asset_sync initialization from blocking the proxy's main handler
+    if _app_configs.asset_sync.get_enable() {
+        let auth_manager_clone = _auth_manager.clone();
+        let save_path_clone = save_path.clone();
+        let file_prefix_clone = file_prefix.clone();
+        let app_configs_clone = _app_configs.clone();
+        
+        tokio::spawn(async move {
+            match asset_sync::AssetSyncInit::from_configs(
+                &app_configs_clone.asset_sync,
+                save_path_clone,
+                if file_prefix_clone.trim().is_empty() {
+                    None
+                } else {
+                    Some(file_prefix_clone)
+                },
+            ) {
+                Ok(init) => {
+                    tracing::info!("Starting asset sync worker in background task");
+                    if let Err(err) = asset_sync::start(init, auth_manager_clone) {
+                        tracing::warn!("failed to start asset sync: {}", err);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("asset sync disabled due to invalid configuration: {}", err);
                 }
             }
-            Err(err) => {
-                tracing::warn!("asset sync disabled due to invalid configuration: {}", err);
-            }
-        }
+        });
+    } else {
+        tracing::info!("asset sync disabled in configuration");
     }
 
     let server_proxy = Proxy::builder()

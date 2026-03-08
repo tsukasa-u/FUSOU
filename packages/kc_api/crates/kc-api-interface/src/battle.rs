@@ -60,8 +60,10 @@ pub struct Battle {
     pub enemy_ship_id: Option<Vec<i64>>,
     pub e_lv: Option<Vec<i64>>,
     pub e_params: Option<Vec<Vec<i64>>>,
+    pub f_params: Option<Vec<Vec<i64>>>,
     pub e_slot: Option<Vec<Vec<i64>>>,
     pub e_hp_max: Option<Vec<i64>>,
+    pub e_combined_flag: Option<i64>,
     pub f_total_damages: Option<Vec<i64>>,
     pub e_total_damages: Option<Vec<i64>>,
     pub friend_total_damages: Option<Vec<i64>>,
@@ -90,6 +92,7 @@ pub struct Battle {
     pub e_nowhps: Option<Vec<i64>>,
     pub midnight_f_nowhps: Option<Vec<i64>>,
     pub midnight_e_nowhps: Option<Vec<i64>>,
+    pub battle_result: Option<BattleResult>,
 }
 
 impl Battle {
@@ -110,8 +113,12 @@ impl Battle {
                     enemy_ship_id: battle.enemy_ship_id.clone().or(self.enemy_ship_id.clone()),
                     e_lv: battle.e_lv.clone().or(self.e_lv.clone()),
                     e_params: battle.e_params.clone().or(self.e_params.clone()),
+                    f_params: battle.f_params.clone().or(self.f_params.clone()),
                     e_slot: battle.e_slot.clone().or(self.e_slot.clone()),
                     e_hp_max: battle.e_hp_max.clone().or(self.e_hp_max.clone()),
+                    e_combined_flag: battle
+                        .e_combined_flag
+                        .or(self.e_combined_flag.clone()),
                     f_total_damages: battle
                         .f_total_damages
                         .clone()
@@ -199,6 +206,10 @@ impl Battle {
                         .midnight_e_nowhps
                         .clone()
                         .or(self.midnight_e_nowhps.clone()),
+                    battle_result: battle
+                        .battle_result
+                        .clone()
+                        .or(self.battle_result.clone()),
                 };
                 battles.battles.insert(self.cell_id, battle_or);
             }
@@ -208,6 +219,17 @@ impl Battle {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
+pub struct BattleResult {
+    pub win_rank: String,
+    pub drop_ship_id: Option<i64>,
+    pub landing_hp_now: Option<i64>,
+    pub landing_hp_max: Option<i64>,
+    pub landing_sub_value: Option<i64>,
+}
+
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]

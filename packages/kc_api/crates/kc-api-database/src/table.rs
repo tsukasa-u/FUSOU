@@ -5,11 +5,11 @@ use std::str::FromStr;
 use crate::encode::encode;
 use crate::models::airbase::{AirBase, PlaneInfo};
 use crate::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
-    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
-    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
-    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList, MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai
 };
+#[cfg(feature = "schema_v0_5")]
+use crate::models::battle::BattleResult;
+
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use crate::models::env_info::{EnvInfo, UserEnv};
@@ -33,8 +33,8 @@ use kc_api_interface::mst_use_item::{MstUseItem, MstUseItems};
 use register_trait::FieldSizeChecker;
 use uuid::Uuid;
 
-// pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
-pub const DATABASE_TABLE_VERSION: &str = include_str!("../../../DATABASE_TABLE_VERSION");
+// Import DATABASE_TABLE_VERSION from schema_version module
+pub use crate::schema_version::DATABASE_TABLE_VERSION;
 
 #[derive(Debug, Clone)]
 pub enum PortTableEnum {
@@ -71,6 +71,8 @@ pub enum PortTableEnum {
     SupportAirattack,
     SupportHourai,
     Battle,
+    #[cfg(feature = "schema_v0_5")]
+    BattleResult,
 }
 
 #[derive(Debug, Clone, Default, FieldSizeChecker)]
@@ -108,6 +110,8 @@ pub struct PortTable {
     pub support_airattack: Vec<SupportAirattack>,
     pub support_hourai: Vec<SupportHourai>,
     pub battle: Vec<Battle>,
+    #[cfg(feature = "schema_v0_5")]
+    pub battle_result: Vec<BattleResult>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -145,6 +149,8 @@ pub struct PortTableEncode {
     pub support_airattack: Vec<u8>,
     pub support_hourai: Vec<u8>,
     pub battle: Vec<u8>,
+    #[cfg(feature = "schema_v0_5")]
+    pub battle_result: Vec<u8>,
 }
 
 impl EnvInfo {
@@ -313,6 +319,13 @@ impl Battle {
     }
 }
 
+#[cfg(feature = "schema_v0_5")]
+impl BattleResult {
+    pub fn get_table_name() -> String {
+        "battle_result".to_string()
+    }
+}
+
 pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
     vec![
         EnvInfo::get_table_name(),
@@ -347,6 +360,8 @@ pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyL
         MidnightHougekiList::get_table_name(),
         ClosingRaigeki::get_table_name(),
         Battle::get_table_name(),
+        #[cfg(feature = "schema_v0_5")]
+        BattleResult::get_table_name(),
     ]
 });
 
@@ -398,6 +413,8 @@ impl FromStr for PortTableEnum {
             x if x == SupportAirattack::get_table_name() => Ok(PortTableEnum::SupportAirattack),
             x if x == SupportHourai::get_table_name() => Ok(PortTableEnum::SupportHourai),
             x if x == Battle::get_table_name() => Ok(PortTableEnum::Battle),
+             #[cfg(feature = "schema_v0_5")]
+            x if x == BattleResult::get_table_name() => Ok(PortTableEnum::BattleResult),
             _ => Err(()),
         }
     }
@@ -460,6 +477,8 @@ impl PortTable {
         let support_airattack = encode(self.support_airattack.clone())?;
         let support_hourai = encode(self.support_hourai.clone())?;
         let battle = encode(self.battle.clone())?;
+        #[cfg(feature = "schema_v0_5")]
+        let battle_result = encode(self.battle_result.clone())?;
 
         let cells = encode(self.cells.clone())?;
         tracing::debug!(
@@ -503,8 +522,202 @@ impl PortTable {
             support_airattack,
             support_hourai,
             battle,
+            #[cfg(feature = "schema_v0_5")]
+            battle_result,
         };
         Ok(table_encode)
+    }
+
+    /// Encode only non-empty tables and return Vec of (table_name, avro_bytes)
+    pub fn encode_non_empty_tables(&self) -> Result<Vec<(String, Vec<u8>)>, apache_avro::Error> {
+        let mut tables: Vec<(String, Vec<u8>)> = Vec::new();
+
+        // helper macro to encode and push when non-empty
+        macro_rules! enc_push_if_non_empty {
+            ($name:expr, $vec_len:expr, $encode_expr:expr) => {
+                if $vec_len > 0 {
+                    let bytes = $encode_expr?;
+                    if !bytes.is_empty() {
+                        tables.push(($name.to_string(), bytes));
+                    }
+                }
+            };
+        }
+
+        // Use the same encoders as encode(), but guard by record counts
+        enc_push_if_non_empty!(
+            EnvInfo::get_table_name(),
+            self.env_info.len(),
+            encode(self.env_info.clone())
+        );
+        enc_push_if_non_empty!(
+            Cells::get_table_name(),
+            self.cells.len(),
+            encode(self.cells.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBase::get_table_name(),
+            self.airbase.len(),
+            encode(self.airbase.clone())
+        );
+        enc_push_if_non_empty!(
+            PlaneInfo::get_table_name(),
+            self.plane_info.len(),
+            encode(self.plane_info.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnSlotItem::get_table_name(),
+            self.own_slotitem.len(),
+            encode(self.own_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemySlotItem::get_table_name(),
+            self.enemy_slotitem.len(),
+            encode(self.enemy_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendSlotItem::get_table_name(),
+            self.friend_slotitem.len(),
+            encode(self.friend_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnShip::get_table_name(),
+            self.own_ship.len(),
+            encode(self.own_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemyShip::get_table_name(),
+            self.enemy_ship.len(),
+            encode(self.enemy_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendShip::get_table_name(),
+            self.friend_ship.len(),
+            encode(self.friend_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnDeck::get_table_name(),
+            self.own_deck.len(),
+            encode(self.own_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportDeck::get_table_name(),
+            self.support_deck.len(),
+            encode(self.support_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemyDeck::get_table_name(),
+            self.enemy_deck.len(),
+            encode(self.enemy_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendDeck::get_table_name(),
+            self.friend_deck.len(),
+            encode(self.friend_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAirAttack::get_table_name(),
+            self.airbase_airattack.len(),
+            encode(self.airbase_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAirAttackList::get_table_name(),
+            self.airbase_airattack_list.len(),
+            encode(self.airbase_airattack_list.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAssult::get_table_name(),
+            self.airbase_assult.len(),
+            encode(self.airbase_assult.clone())
+        );
+        enc_push_if_non_empty!(
+            CarrierBaseAssault::get_table_name(),
+            self.carrierbase_assault.len(),
+            encode(self.carrierbase_assault.clone())
+        );
+        enc_push_if_non_empty!(
+            ClosingRaigeki::get_table_name(),
+            self.closing_raigeki.len(),
+            encode(self.closing_raigeki.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendlySupportHourai::get_table_name(),
+            self.friendly_support_hourai.len(),
+            encode(self.friendly_support_hourai.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendlySupportHouraiList::get_table_name(),
+            self.friendly_support_hourai_list.len(),
+            encode(self.friendly_support_hourai_list.clone())
+        );
+        enc_push_if_non_empty!(
+            Hougeki::get_table_name(),
+            self.hougeki.len(),
+            encode(self.hougeki.clone())
+        );
+        enc_push_if_non_empty!(
+            HougekiList::get_table_name(),
+            self.hougeki_list.len(),
+            encode(self.hougeki_list.clone())
+        );
+        enc_push_if_non_empty!(
+            MidnightHougeki::get_table_name(),
+            self.midnight_hougeki.len(),
+            encode(self.midnight_hougeki.clone())
+        );
+        enc_push_if_non_empty!(
+            MidnightHougekiList::get_table_name(),
+            self.midnight_hougeki_list.len(),
+            encode(self.midnight_hougeki_list.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningAirAttack::get_table_name(),
+            self.opening_airattack.len(),
+            encode(self.opening_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningAirAttackList::get_table_name(),
+            self.opening_airattack_list.len(),
+            encode(self.opening_airattack_list.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningRaigeki::get_table_name(),
+            self.opening_raigeki.len(),
+            encode(self.opening_raigeki.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningTaisen::get_table_name(),
+            self.opening_taisen.len(),
+            encode(self.opening_taisen.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningTaisenList::get_table_name(),
+            self.opening_taisen_list.len(),
+            encode(self.opening_taisen_list.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportAirattack::get_table_name(),
+            self.support_airattack.len(),
+            encode(self.support_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportHourai::get_table_name(),
+            self.support_hourai.len(),
+            encode(self.support_hourai.clone())
+        );
+        enc_push_if_non_empty!(
+            Battle::get_table_name(),
+            self.battle.len(),
+            encode(self.battle.clone())
+        );
+        #[cfg(feature = "schema_v0_5")]
+        enc_push_if_non_empty!(
+            BattleResult::get_table_name(),
+            self.battle_result.len(),
+            encode(self.battle_result.clone())
+        );
+
+        Ok(tables)
     }
 }
 

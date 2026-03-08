@@ -7,7 +7,30 @@ const releaseBase =
   "https://github.com/tsukasa-u/FUSOU/releases/latest/download";
 const releasePage = "https://github.com/tsukasa-u/FUSOU/releases/latest";
 
-const platforms = [
+type DownloadEntry = {
+  label: string;
+  url?: string;
+  description: string;
+  recommended?: boolean;
+  available: boolean;
+};
+
+type Architecture = {
+  id: string;
+  label: string;
+  recommended?: boolean;
+  downloads: DownloadEntry[];
+};
+
+type Platform = {
+  id: string;
+  name: string;
+  summary: string;
+  guide: string;
+  architectures: Architecture[];
+};
+
+const platforms: Platform[] = [
   {
     id: "windows",
     name: "Windows",
@@ -353,14 +376,14 @@ const platforms = [
 
   const archTabContainers =
     document.querySelectorAll<HTMLElement>("[data-arch-tabs]");
-  archTabContainers.forEach((container) => {
+  archTabContainers.forEach((container: HTMLElement) => {
     const archTabs =
       container.querySelectorAll<HTMLButtonElement>("[data-arch]");
     const archPanels =
       container.parentElement?.querySelectorAll<HTMLElement>(
         "[data-arch-panel]"
       ) ?? [];
-    archTabs.forEach((archBtn) => {
+    archTabs.forEach((archBtn: HTMLButtonElement) => {
       archBtn.addEventListener("click", () => {
         const target = archBtn.dataset.arch;
         archTabs.forEach((tab) => {
@@ -371,7 +394,7 @@ const platforms = [
           tab.classList.toggle("border-base-300", !active);
           tab.dataset.active = active.toString();
         });
-        archPanels.forEach((panel) => {
+        archPanels.forEach((panel: HTMLElement) => {
           panel.classList.toggle("hidden", panel.dataset.archPanel !== target);
         });
       });

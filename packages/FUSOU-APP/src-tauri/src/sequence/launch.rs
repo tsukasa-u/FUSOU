@@ -83,7 +83,7 @@ pub async fn launch_with_options(
                         tracing::info!("ca path: {ca_path}");
                         tracing::info!("pac path: {pac_path}");
 
-                        let file_prefix = util::get_user_env_id().await;
+                        let file_prefix = util::get_user_member_id().await;
 
                         let addr = wrap_proxy::serve_proxy(
                             server_address.to_string(),

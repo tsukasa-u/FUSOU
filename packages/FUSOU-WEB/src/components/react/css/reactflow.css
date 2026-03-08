@@ -1,0 +1,38 @@
+@import "@xyflow/react/dist/style.css";
+
+.react-flow__node-schemaTableNode,
+.react-flow__node-endpointNode {
+  /* Prevent ReactFlow's default node styling from interfering with DaisyUI */
+  font-family: inherit;
+}
+
+.react-flow__edge-path {
+  stroke-width: 1.5;
+}
+
+.react-flow__minimap {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid oklch(var(--bc) / 0.2);
+}
+
+.react-flow__controls {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid oklch(var(--bc) / 0.2);
+  box-shadow: 0 1px 4px oklch(0% 0 0 / 0.1);
+}
+
+.react-flow__controls-button {
+  background: oklch(var(--b1));
+  border-bottom: 1px solid oklch(var(--bc) / 0.1);
+  color: oklch(var(--bc));
+}
+
+.react-flow__controls-button:hover {
+  background: oklch(var(--b2));
+}
+
+.react-flow__panel {
+  margin: 0.5rem;
+}

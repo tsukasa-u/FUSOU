@@ -1,41 +1,16 @@
 {
-  // "extends": "astro/tsconfigs/strict",
   "extends": "astro/tsconfigs/base",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"],
+  "exclude": ["dist", "src/server/durable-objects/**"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
     "module": "es2020",
     "moduleResolution": "bundler",
     "strictNullChecks": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@fusou/avro-wasm": ["../avro-wasm/index.ts"]
     },
     "types": ["@cloudflare/workers-types", "astro/client"]
   }
-  // "compilerOptions": {
-  //   "jsx": "preserve",
-  //   "jsxImportSource": "solid-js"
-  // }
-  // "compilerOptions": {
-  //   "strictNullChecks": true,
-  //   "allowJs": true,
-  //   "jsx": "preserve"
-  // },
-  // "overrides": [
-  //   {
-  //     "files": ["**/react/*"],
-  //     "compilerOptions": {
-  //       "jsx": "preserve",
-  //       "jsxImportSource": "react"
-  //     }
-  //   },
-  //   {
-  //     "files": ["**/solid/*"],
-  //     "compilerOptions": {
-  //       "jsx": "preserve",
-  //       "jsxImportSource": "solid-js"
-  //     }
-  //   }
-  // ]
 }

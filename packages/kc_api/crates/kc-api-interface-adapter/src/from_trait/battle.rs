@@ -8,7 +8,7 @@ use kc_api_interface::battle::{
     AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleType,
     CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,
     FriendlySupportHourai, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki,
-    OpeningTaisen, SupportAiratack, SupportAttack, SupportHourai,
+    OpeningTaisen, SupportAiratack, SupportAttack, SupportHourai, BattleResult,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 
@@ -33,6 +33,21 @@ where
     match combined.is_empty() {
         true => None,
         false => Some(combined),
+    }
+}
+
+impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
+    fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
+        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
+        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+        let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
+        Self(BattleResult {
+            win_rank: battle_result.api_win_rank,
+            drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
+            landing_hp_now,
+            landing_hp_max,
+            landing_sub_value,
+        })
     }
 }
 
@@ -1219,6 +1234,61 @@ pub fn calc_dmg(battle: &mut Battle) {
     }
 }
 
+impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<Battle> {
+    fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
+
+        let cell_no = KCS_CELLS_INDEX
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
+            .unwrap_or(0);
+
+        let result: BattleResult = InterfaceWrapper::from(battle_result).unwrap();
+        Self(Battle {
+            battle_order: None,
+            timestamp: None,
+            midnight_timestamp: None,
+            cell_id: cell_no,
+            deck_id: None,
+            formation: None,
+            enemy_ship_id: None,
+            e_lv: None,
+            e_params: None,
+            f_params: None,
+            e_slot: None,
+            e_hp_max: None,
+            e_combined_flag: None,
+            f_total_damages: None,
+            e_total_damages: None,
+            friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
+            reconnaissance: None,
+            escape_idx: None,
+            smoke_type: None,
+            combat_ration: None,
+            balloon_flag: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
+            air_base_air_attacks: None,
+            opening_air_attack: None,
+            support_attack: None,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            friendly_force_attack: None,
+            midnight_flare_pos: None,
+            midnight_touchplane: None,
+            midnight_hougeki: None,
+            f_nowhps: None,
+            e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
+            battle_result: Some(result),
+        })
+    }
+}
+
 impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_sortie::battle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
@@ -1293,8 +1363,10 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             enemy_ship_id: Some(battle.api_ship_ke),
             e_lv: Some(battle.api_ship_lv),
             e_params: Some(battle.api_e_param),
+            f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
             e_hp_max: Some(battle.api_e_maxhps),
+            e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -1322,6 +1394,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             e_nowhps: Some(battle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         });
         calc_dmg(&mut ret.0);
         ret
@@ -1378,8 +1451,10 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             enemy_ship_id: Some(battle.api_ship_ke),
             e_lv: Some(battle.api_ship_lv),
             e_params: Some(battle.api_e_param),
+            f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
             e_hp_max: Some(battle.api_e_maxhps),
+            e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -1407,6 +1482,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             e_nowhps: None,
             midnight_f_nowhps: Some(battle.api_f_nowhps),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
+            battle_result: None,
         });
         calc_dmg(&mut ret.0);
         ret
@@ -1441,8 +1517,10 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             enemy_ship_id: Some(battle.api_ship_ke),
             e_lv: Some(battle.api_ship_lv),
             e_params: Some(battle.api_e_param),
+            f_params: Some(battle.api_f_param),
             e_slot: Some(battle.api_e_slot),
             e_hp_max: Some(battle.api_e_maxhps),
+            e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -1470,6 +1548,7 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             e_nowhps: None,
             midnight_f_nowhps: Some(battle.api_f_nowhps),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
+            battle_result: None,
         });
         calc_dmg(&mut ret.0);
         ret
@@ -1516,8 +1595,10 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             enemy_ship_id: Some(airbattle.api_ship_ke),
             e_lv: Some(airbattle.api_ship_lv),
             e_params: Some(airbattle.api_e_param),
+            f_params: Some(airbattle.api_f_param),
             e_slot: Some(airbattle.api_e_slot),
             e_hp_max: Some(airbattle.api_e_maxhps),
+            e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -1545,6 +1626,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             e_nowhps: Some(airbattle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         });
         calc_dmg(&mut ret.0);
         ret
@@ -1593,8 +1675,10 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             enemy_ship_id: Some(airbattle.api_ship_ke),
             e_lv: Some(airbattle.api_ship_lv),
             e_params: Some(airbattle.api_e_param),
+            f_params: Some(airbattle.api_f_param),
             e_slot: Some(airbattle.api_e_slot),
             e_hp_max: Some(airbattle.api_e_maxhps),
+            e_combined_flag: Some(0),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -1622,6 +1706,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             e_nowhps: Some(airbattle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
+            battle_result: None,
         });
         calc_dmg(&mut ret.0);
         ret
@@ -1718,5 +1803,12 @@ pub fn calc_escape_idx(
         None
     } else {
         Some(escape_idx_combined_unwrap)
+    }
+}
+
+pub fn parse_landing_hp(landing_hp: DuoType<i64, String>) -> Option<i64> {
+    match landing_hp {
+        DuoType::Type1(num) => Some(num),
+        DuoType::Type2(s) => s.trim().parse::<i64>().ok(),
     }
 }

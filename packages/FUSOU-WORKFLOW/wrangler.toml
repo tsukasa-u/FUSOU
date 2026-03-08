@@ -1,0 +1,85 @@
+name = "fusou-workflow"
+compatibility_date = "2024-10-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Main entry point - wrangler will build with esbuild automatically
+main = "src/index.ts"
+
+# Run scheduled compaction hourly (UTC). Adjust as needed.
+[triggers]
+crons = ["0 * * * *"]
+
+# ===== Environment Variables =====
+# All configuration is now via D1 database
+# Previous Supabase credentials have been removed
+
+# ===== R2 bucket bindings =====
+[[r2_buckets]]
+binding = "BATTLE_DATA_BUCKET"
+bucket_name = "dev-kc-battle-data"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
+
+# ===== Queue bindings =====
+# Consumer: receives from main queue
+[[queues.consumers]]
+queue = "dev-kc-compaction-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dev-kc-compaction-dlq"
+
+# Producer binding used by /ingest and /battle-data/upload
+[[queues.producers]]
+queue = "dev-kc-compaction-queue"
+binding = "COMPACTION_QUEUE"
+
+# DLQ Handler: processes failed messages
+[[queues.consumers]]
+queue = "dev-kc-compaction-dlq"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 1
+
+# ===== CPU limit: 5 minutes per step =====
+[limits]
+cpu_ms = 300000
+
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+persist = true
+head_sampling_rate = 1
+
+# ===== D1 database bindings =====
+[[ d1_databases ]]
+binding = "BATTLE_INDEX_DB"
+database_name = "dev_kc_battle_index"
+database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
+
+## Environment Variables
+# Do NOT hardcode variables here.
+# - Development: use dotenvx with `.env`
+# - Production: configure in Cloudflare Dashboard → Settings → Environment Variables
+# ===== WASM Module Rules =====
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
+# ===== TiDB Cloud Configuration =====
+# TiDB Cloud Serverless for buffer_logs (high-volume writes)
+# Official integration guide: https://docs.pingcap.com/tidbcloud/integrate-tidbcloud-with-cloudflare/
+#
+# Secret configured as TIDB_KC_DB_URL:
+#   wrangler secret put TIDB_KC_DB_URL
+#
+# Format: mysql://username:password@host:4000/database

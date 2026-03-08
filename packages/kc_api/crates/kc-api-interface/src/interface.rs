@@ -2,7 +2,7 @@ use crate::use_items::UseItems;
 use crate::air_base::AirBases;
 use crate::battle::Battle;
 use crate::cells::{Cell, Cells};
-use crate::deck_port::DeckPorts;
+use crate::deck_port::{Basic, DeckPorts};
 use crate::logs::Logs;
 use crate::material::Materials;
 use crate::mst_equip_exslot::MstEquipExslots;
@@ -52,6 +52,7 @@ pub enum Set {
     Materials(Materials),
     UseItems(UseItems),
     DeckPorts(DeckPorts),
+    Basic(Basic),
     // Mission,
     NDocks(NDocks),
     Ships(Ships),

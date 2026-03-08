@@ -36,6 +36,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::DeckPorts(data) => {
                 data.restore();
             }
+            Set::Basic(data) => {
+                data.restore();
+            }
             Set::Materials(_) => {}
             Set::UseItems(data) => {
                 data.restore();
