@@ -59,6 +59,8 @@ export function getEnv(ctx: EnvContext, key: string): string | undefined {
       const processValue = (process.env as any)[key];
       if (processValue) return processValue;
     }
+    // 暗号化文字列をそのまま返さない
+    return undefined;
   }
 
   return buildtimeValue;

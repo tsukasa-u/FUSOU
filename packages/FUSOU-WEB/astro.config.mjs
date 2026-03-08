@@ -10,10 +10,31 @@ import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
 import rehypeMermaid from 'rehype-mermaid';
 
+/**
+ * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
+ * 優先順位: 平文の環境変数 → CF_PAGES_BRANCH から算出 → フォールバック
+ */
+function resolvePublicSiteUrl() {
+  const envVal = process.env.PUBLIC_SITE_URL;
+  if (envVal && !envVal.startsWith("encrypted:")) return envVal;
+
+  const branch = process.env.CF_PAGES_BRANCH;
+  if (branch) {
+    if (branch === "main") return "https://fusou.dev";
+    const sanitized = branch.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    return `https://${sanitized}.fusou.pages.dev`;
+  }
+
+  // ローカル開発: dotenvx で復号済みなら envVal は平文
+  return envVal;
+}
+
+const publicSiteUrl = resolvePublicSiteUrl();
+
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
-  site: "https://dev.fusou.pages.dev/",
+  site: publicSiteUrl || "https://dev.fusou.pages.dev/",
   // @ts-ignore
   integrations: [
     sitemap(),
@@ -63,7 +84,7 @@ export default defineConfig({
         process.env.SUPABASE_SECRET_KEY
       ),
       "process.env.PUBLIC_SITE_URL": JSON.stringify(
-        process.env.PUBLIC_SITE_URL
+        publicSiteUrl
       ),
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
