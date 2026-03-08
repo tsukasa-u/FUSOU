@@ -15,9 +15,7 @@ import rehypeMermaid from 'rehype-mermaid';
  * 優先順位: 平文の環境変数 → CF_PAGES_BRANCH から算出 → フォールバック
  */
 function resolvePublicSiteUrl() {
-  const envVal = process.env.PUBLIC_SITE_URL;
-  if (envVal && !envVal.startsWith("encrypted:")) return envVal;
-
+  // CF_PAGES_BRANCH がある = Cloudflare Pages 上のビルド → ブランチから算出
   const branch = process.env.CF_PAGES_BRANCH;
   if (branch) {
     if (branch === "main") return "https://fusou.dev";
@@ -25,8 +23,11 @@ function resolvePublicSiteUrl() {
     return `https://${sanitized}.fusou.pages.dev`;
   }
 
-  // ローカル開発: dotenvx で復号済みなら envVal は平文
-  return envVal;
+  // ローカルビルド: dotenvx で復号済みの平文を使用
+  const envVal = process.env.PUBLIC_SITE_URL;
+  if (envVal && !envVal.startsWith("encrypted:")) return envVal;
+
+  return undefined;
 }
 
 const publicSiteUrl = resolvePublicSiteUrl();
