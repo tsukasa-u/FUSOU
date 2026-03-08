@@ -1,6 +1,7 @@
 # Supabase Integration: User ↔ Member ID Mapping
 
 ## Goal
+
 - Bind Supabase `auth.users.id` (application user) to the game `member_id_hash` (salted SHA-256 of `member_id`), enabling cross-device data consolidation and secure per-user access control.
 
 ## Schema (SQL Migrations)
@@ -70,6 +71,7 @@ create policy user_member_map_delete on public.user_member_map
 > See the full SQL including metadata columns and RPCs (with `client_version`) in [docs/sql/001_user_member_map.sql](./sql/001_user_member_map.sql).
 
 ## Backend (Workers) Hook
+
 - Endpoint: `POST /user/member-map/upsert`
 - Authentication: Requires valid JWT in Authorization header
 - Request body: `{ "member_id_hash": "<salted-sha256-hash>" }`
@@ -89,6 +91,7 @@ create policy user_member_map_delete on public.user_member_map
 - Additional endpoint: `GET /user/member-map` (retrieves current user's mapping)
 
 ## Client Flow (Tauri App)
+
 - Timing: `Set::Basic` が更新されたとき（ゲーム起動後、`get_data` または `require_info` API の後）に自動トリガー
 - Implementation: `json_parser.rs` で `Set::Basic(data)` が `restore()` された直後に `try_upsert_member_id()` を呼び出す
 - One-shot guarantee: `AtomicBool` フラグでセッション内一度きりを保証（失敗時は次回リトライ可能にフラグをリセット）
@@ -102,8 +105,10 @@ create policy user_member_map_delete on public.user_member_map
   - 成功時: ログ出力してフラグ保持（以降スキップ）
 
 ## Notes
+
 - Snapshots currently store under `fleets/{dataset_id}/{tag}/...` after API update (see server route changes). Previously it used `auth.users.id`.
 - Battle data uploads already require `dataset_id` and are aligned with this mapping.
+
 # Supabase Free Tier 最適化ガイド
 
 ## 概要
@@ -112,13 +117,13 @@ Supabase Free プランで運用する場合、**shared infrastructure** 上で�
 
 ## Free プラン の制限
 
-| 項目 | Free | Pro |
-|------|------|-----|
-| データベース容量 | 500 MB | 8 GB |
-| インフラ | Shared | Dedicated |
-| 接続数制限 | なし | あり（PgBouncer 接続プール） |
-| Rate Limiting | あり | あり |
-| レイテンシ | 可変 | 低遅延保証 |
+| 項目             | Free   | Pro                          |
+| ---------------- | ------ | ---------------------------- |
+| データベース容量 | 500 MB | 8 GB                         |
+| インフラ         | Shared | Dedicated                    |
+| 接続数制限       | なし   | あり（PgBouncer 接続プール） |
+| Rate Limiting    | あり   | あり                         |
+| レイテンシ       | 可変   | 低遅延保証                   |
 
 **Free での推奨**: 接続プール、バッチ処理、リトライロジックで負荷を平準化
 
@@ -131,30 +136,32 @@ Supabase Free プランで運用する場合、**shared infrastructure** 上で�
 **目的**: 一時的な rate limit エラーに対応
 
 **実装**:
+
 ```typescript
 async function withRetry<T>(
   fn: () => Promise<T>,
   maxRetries = 3,
-  baseDelay = 1000
+  baseDelay = 1000,
 ): Promise<T> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
-      const isRateLimitError = 
-        (error as any)?.message?.includes('429') ||
+      const isRateLimitError =
+        (error as any)?.message?.includes("429") ||
         (error as any)?.status === 429;
 
       if (!isRateLimitError || attempt === maxRetries - 1) throw error;
 
       const delay = baseDelay * Math.pow(2, attempt); // 1s, 2s, 4s
-      await new Promise(resolve => setTimeout(resolve, delay));
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }
 ```
 
 **使用例**:
+
 ```typescript
 const insertResult = await withRetry(async () => {
   const result = await supabase.from('datasets').insert(...).select();
@@ -164,6 +171,7 @@ const insertResult = await withRetry(async () => {
 ```
 
 **効果**:
+
 - 429 エラーで最大3回再試行
 - 指数バックオフで Supabase のキャパシティ回復を待つ
 - Cloudflare Workers の自動リトライと組み合わせ
@@ -175,6 +183,7 @@ const insertResult = await withRetry(async () => {
 **目的**: `/trigger-scheduled` で複数 dataset を処理する際、クエリ数を最小化
 
 **最適化前**（10 datasets の場合）:
+
 ```
 Query 1: SELECT datasets WHERE compaction_needed=true (10件取得)
 Query 2-11: INSERT processing_metrics (各dataset ごと)
@@ -182,27 +191,29 @@ Query 2-11: INSERT processing_metrics (各dataset ごと)
 ```
 
 **最適化後**:
+
 ```typescript
 // 1つのバッチで全メトリクス作成
 const metricsPayload = datasets.map((d) => ({
   dataset_id: d.id,
   workflow_instance_id: `scheduled-${Date.now()}-${d.id}`,
-  status: 'pending',
+  status: "pending",
   queued_at: new Date().toISOString(),
 }));
 
 const metricsInsertResult = await withRetry(async () => {
   const result = await supabase
-    .from('processing_metrics')
-    .insert(metricsPayload)        // ← バッチ挿入
-    .select('id, dataset_id');
-  
+    .from("processing_metrics")
+    .insert(metricsPayload) // ← バッチ挿入
+    .select("id, dataset_id");
+
   if (result.error) throw result.error;
   return result;
 });
 ```
 
 **効果**:
+
 - `INSERT` クエリを 10 → 1 に削減
 - 同一トランザクション内で一括処理
 - Supabase の負荷を平準化
@@ -214,30 +225,40 @@ const metricsInsertResult = await withRetry(async () => {
 **目的**: Workflow のすべてのステップに一貫性のあるリトライポリシーを適用
 
 **実装**:
+
 ```typescript
 // Standard retry config for Supabase operations
 const SUPABASE_RETRY_CONFIG = {
   limit: 3,
-  delay: '2 seconds',
-  backoff: 'exponential' as const,
+  delay: "2 seconds",
+  backoff: "exponential" as const,
 };
 
 // Step 1: Validate Dataset
-const validation = await step.do('validate-dataset', {
-  retries: SUPABASE_RETRY_CONFIG  // ← 統一設定
-}, async () => {
-  // ... Supabase operation
-});
+const validation = await step.do(
+  "validate-dataset",
+  {
+    retries: SUPABASE_RETRY_CONFIG, // ← 統一設定
+  },
+  async () => {
+    // ... Supabase operation
+  },
+);
 
 // Step 2: Set in-progress flag
-await step.do('set-in-progress-flag', {
-  retries: SUPABASE_RETRY_CONFIG  // ← 統一設定
-}, async () => {
-  // ... Supabase operation
-});
+await step.do(
+  "set-in-progress-flag",
+  {
+    retries: SUPABASE_RETRY_CONFIG, // ← 統一設定
+  },
+  async () => {
+    // ... Supabase operation
+  },
+);
 ```
 
 **効果**:
+
 - Workflow の各ステップで一貫したリトライ戦略
 - 設定の一元管理でメンテナンス性向上
 - Supabase Free 特有の rate limiting に対応
@@ -290,11 +311,13 @@ GET /dlq-status:
 
 ### 症状: 「429 Too Many Requests」エラー
 
-**原因**: 
+**原因**:
+
 - バッチ処理がなく、各dataset で個別にクエリ
 - リトライなし
 
 **対策**:
+
 1. バッチメトリクス挿入を確認（`trigger-scheduled` で 1 INSERT のみ）
 2. リトライロジック のログを確認
 3. `/dlq-status` で失敗原因を特定
@@ -307,18 +330,20 @@ curl https://$PAGES_DOMAIN/api/compaction/dlq-status | jq '.failures[] | {error_
 ### 症状: Workflow が頻繁にタイムアウト
 
 **原因**:
+
 - Supabase リクエスト が slow
 - Shared infrastructure の過負荷
 
 **対策**:
+
 1. `trigger-scheduled` を 02:00 UTC（夜間）に設定済み ✅
 2. リトライ config で delay を増加
    ```typescript
-   delay: '5 seconds'  // 2 秒 → 5 秒に増加
+   delay: "5 seconds"; // 2 秒 → 5 秒に増加
    ```
 3. `limit` を 2 に削減（リトライ回数）
    ```typescript
-   limit: 2  // Fast fail pattern
+   limit: 2; // Fast fail pattern
    ```
 
 ---
@@ -332,6 +357,7 @@ curl https://$PAGES_DOMAIN/api/compaction/dlq-status | jq '.failures[] | {error_
 - **レイテンシ**: 平均 500ms 以上
 
 **Pro のメリット**:
+
 - PgBouncer 接続プール（最大同時接続数を増加）
 - Dedicated infrastructure（リソース保証）
 - Connection pooling（コスト削減）
@@ -378,13 +404,13 @@ ORDER BY count DESC;
 
 ## ベストプラクティス
 
-| 項目 | 推奨値 | 理由 |
-|------|--------|------|
-| Batch Insert Size | 10-50 records | Supabase Free では 50+ で遅延増加 |
-| Retry Max Attempts | 3 | Exponential backoff: 1s, 2s, 4s |
-| Retry Delay | 2 秒（初回） | Free tier の recover time |
-| Concurrent Workflows | ≤ 5 | Shared infrastructure の負荷制限 |
-| scheduled trigger時間 | 02:00 UTC | ユーザーオフピーク時間 |
+| 項目                  | 推奨値        | 理由                              |
+| --------------------- | ------------- | --------------------------------- |
+| Batch Insert Size     | 10-50 records | Supabase Free では 50+ で遅延増加 |
+| Retry Max Attempts    | 3             | Exponential backoff: 1s, 2s, 4s   |
+| Retry Delay           | 2 秒（初回）  | Free tier の recover time         |
+| Concurrent Workflows  | ≤ 5           | Shared infrastructure の負荷制限  |
+| scheduled trigger時間 | 02:00 UTC     | ユーザーオフピーク時間            |
 
 ---
 
@@ -409,7 +435,9 @@ ORDER BY count DESC;
 
 **Last Updated**: 2025-12-17  
 **Status**: ✅ Production Ready for Free Tier
+
 # Production Monitoring and Logging Strategy
+
 **Date:** 2025-12-26
 **Purpose:** Detect schema version issues before they cause failures
 
@@ -430,19 +458,19 @@ export async function handleCron(env: Env): Promise<void> {
     // NEW: Log schema version distribution
     const versionDistribution = new Map<string, number>();
     for (const row of rows) {
-      const v = row.schema_version || 'NULL';
+      const v = row.table_version || 'NULL';
       versionDistribution.set(v, (versionDistribution.get(v) ?? 0) + 1);
     }
-    
-    console.log('[Archival] Version distribution:', 
+
+    console.log('[Archival] Version distribution:',
       Object.fromEntries(versionDistribution)
     );
-    
+
     // Log any NULL occurrences
-    const nullCount = rows.filter(r => !r.schema_version).length;
+    const nullCount = rows.filter(r => !r.table_version).length;
     if (nullCount > 0) {
       console.warn(
-        `[ALERT] Found ${nullCount} rows with NULL schema_version! ` +
+        `[ALERT] Found ${nullCount} rows with NULL table_version! ` +
         `This should not happen after migration.`
       );
     }
@@ -458,28 +486,28 @@ export async function handleCron(env: Env): Promise<void> {
     // Process each group with enhanced logging
     for (const group of groups) {
       if (!group.blocks.length) continue;
-      
-      versionsSeen.add(group.key.schema_version);
-      
+
+      versionsSeen.add(group.key.table_version);
+
       console.debug(
         `[Archival] Processing group: ` +
-        `schema_version=${group.key.schema_version}, ` +
+        `table_version=${group.key.table_version}, ` +
         `table=${group.key.table_name}, ` +
         `period=${group.key.period_tag}, ` +
         `blocks=${group.blocks.length}`
       );
-      
+
       // ... rest of cron logic ...
-      
+
       // After upload, log R2 path and metadata
       const filePath = generateFilePath(...);
       console.info(
         `[Archival] Uploaded file: path=${filePath}, ` +
         `size=${chunk.size}, ` +
-        `schema_version=${group.key.schema_version}`
+        `table_version=${group.key.table_version}`
       );
     }
-    
+
     console.info(
       `[Archival Complete] ` +
       `Files=${totalFiles}, ` +
@@ -487,7 +515,7 @@ export async function handleCron(env: Env): Promise<void> {
       `Bytes=${totalBytes}, ` +
       `Versions=[${Array.from(versionsSeen).join(',')}]`
     );
-    
+
   } catch (error) {
     console.error('[Archival Error]', {
       message: error instanceof Error ? error.message : String(error),
@@ -503,39 +531,41 @@ export async function handleCron(env: Env): Promise<void> {
 ```typescript
 async function handleRead(request: Request, env: Env): Promise<Response> {
   const params = parseParams(request);
-  
+
   // Log read request with version preference
-  console.debug('[Reader] Query:', {
+  console.debug("[Reader] Query:", {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
-    schema_version: params.schema_version || 'any',
-    time_range: params.from && params.to ? 
-      `${params.from}-${params.to}` : 'all'
+    table_version: params.table_version || "any",
+    time_range:
+      params.from && params.to ? `${params.from}-${params.to}` : "all",
   });
-  
+
   try {
     const hotData = await fetchHotData(env.BATTLE_INDEX_DB, params);
     const coldIndexes = await fetchColdIndexes(env.BATTLE_INDEX_DB, params);
-    
+
     // Log version distribution in result
-    const hotVersions = new Set(hotData.map(r => r.schema_version));
-    const coldVersions = new Set(coldIndexes.map(b => b.schema_version));
-    
-    console.info('[Reader] Data distribution:', {
+    const hotVersions = new Set(hotData.map((r) => r.table_version));
+    const coldVersions = new Set(coldIndexes.map((b) => b.table_version));
+
+    console.info("[Reader] Data distribution:", {
       hot_records: hotData.length,
       hot_versions: Array.from(hotVersions),
       cold_blocks: coldIndexes.length,
-      cold_versions: Array.from(coldVersions)
+      cold_versions: Array.from(coldVersions),
     });
-    
+
     // Warn if versions are mixed unexpectedly
     if (hotVersions.size > 1 || coldVersions.size > 1) {
-      console.warn('[Reader] Multiple schema versions detected - this is OK during migration');
+      console.warn(
+        "[Reader] Multiple table versions detected - this is OK during migration",
+      );
     }
-    
+
     // ... rest of reader logic ...
   } catch (error) {
-    console.error('[Reader Error]', {
+    console.error("[Reader Error]", {
       message: error instanceof Error ? error.message : String(error),
       params: params,
     });
@@ -550,61 +580,62 @@ async function handleRead(request: Request, env: Env): Promise<Response> {
 
 ```sql
 -- Query for monitoring dashboard
-SELECT 
+SELECT
   'buffer_logs' as table_name,
-  schema_version,
+  table_version,
   COUNT(*) as record_count,
   MIN(timestamp) as oldest_record,
   MAX(timestamp) as newest_record
 FROM buffer_logs
 WHERE created_at > datetime('now', '-1 hour')
-GROUP BY schema_version
+GROUP BY table_version
 UNION ALL
-SELECT 
+SELECT
   'archived_files',
-  schema_version,
+  table_version,
   COUNT(*),
   MIN(created_at),
   MAX(created_at)
 FROM archived_files
 WHERE created_at > datetime('now', '-1 hour')
-GROUP BY schema_version;
+GROUP BY table_version;
 ```
 
 ### Daily: Integrity Check
 
 ```sql
 -- Check for NULL values (should be 0)
-SELECT 
-  SUM(CASE WHEN schema_version IS NULL THEN 1 ELSE 0 END) as null_count
+SELECT
+  SUM(CASE WHEN table_version IS NULL THEN 1 ELSE 0 END) as null_count
 FROM (
-  SELECT schema_version FROM buffer_logs
+  SELECT table_version FROM buffer_logs
   UNION ALL
-  SELECT schema_version FROM archived_files
+  SELECT table_version FROM archived_files
   UNION ALL
-  SELECT schema_version FROM block_indexes
+  SELECT table_version FROM block_indexes
 );
 ```
 
 ### Weekly: Path vs. Schema Version Consistency
 
 ```sql
--- Detect path/schema_version mismatches
--- e.g., file_path="v1/..." but schema_version="v2"
+-- Detect path/table_version mismatches
+-- e.g., file_path="v1/..." but table_version="v2"
 SELECT COUNT(*) as mismatches
 FROM archived_files
-WHERE 
-  (SUBSTR(file_path, 1, 2) = 'v1' AND schema_version != 'v1') OR
-  (SUBSTR(file_path, 1, 2) = 'v2' AND schema_version != 'v2');
-  
+WHERE
+  (SUBSTR(file_path, 1, 2) = 'v1' AND table_version != 'v1') OR
+  (SUBSTR(file_path, 1, 2) = 'v2' AND table_version != 'v2');
+
 -- Should always be 0
 ```
 
 ## 3. Alert Conditions
 
 ### Critical Alerts
+
 ```
-1. NULL schema_version detected
+1. NULL table_version detected
    - Threshold: > 0
    - Action: Check if migration was applied correctly
    - Severity: CRITICAL
@@ -615,15 +646,16 @@ WHERE
    - Severity: CRITICAL
 
 3. Reader fails on version filtering
-   - Pattern: "schema_version column not found"
+   - Pattern: "table_version column not found"
    - Action: Check if D1 migration was applied
    - Severity: CRITICAL
 ```
 
 ### Warning Alerts
+
 ```
 1. Unexpected version in production
-   - Pattern: schema_version != 'v1' during v1-only phase
+   - Pattern: table_version != 'v1' during v1-only phase
    - Action: Check if new app was deployed early
    - Severity: WARNING
 
@@ -638,16 +670,19 @@ WHERE
 ### Before Going to Production
 
 - [ ] Enable structured logging in cron.ts
+
   ```typescript
-  export const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
+  export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
   ```
 
 - [ ] Enable structured logging in reader.ts
+
   ```typescript
-  const reader_debug = process.env.READER_DEBUG === 'true';
+  const reader_debug = process.env.READER_DEBUG === "true";
   ```
 
 - [ ] Configure CloudFlare Workers analytics
+
   ```toml
   # wrangler.toml
   [analytics]
@@ -655,6 +690,7 @@ WHERE
   ```
 
 - [ ] Set up D1 query logging (if available)
+
   ```bash
   npx wrangler d1 execute dev_kc_battle_index --remote \
     'PRAGMA query_only = true;' # or appropriate logging command
@@ -662,24 +698,26 @@ WHERE
 
 - [ ] Configure alerts in monitoring system
   - Datadog / New Relic / CloudFlare Analytics Engine
-  - Alert on NULL schema_version
+  - Alert on NULL table_version
   - Alert on version mismatch
 
 ### Day-1 Post-Production
 
 - [ ] Monitor first hour of logs
+
   ```bash
-  tail -f cloudflare-worker-logs.txt | grep schema_version
+  tail -f cloudflare-worker-logs.txt | grep table_version
   ```
 
 - [ ] Check version distribution
+
   ```sql
-  SELECT schema_version, COUNT(*) FROM buffer_logs GROUP BY schema_version;
+  SELECT table_version, COUNT(*) FROM buffer_logs GROUP BY table_version;
   ```
 
 - [ ] Verify no NULL values
   ```sql
-  SELECT COUNT(*) FROM buffer_logs WHERE schema_version IS NULL;
+  SELECT COUNT(*) FROM buffer_logs WHERE table_version IS NULL;
   ```
 
 ### Ongoing Monitoring (Daily)
@@ -692,6 +730,7 @@ WHERE
 ## 5. Log Format Specification
 
 ### Standard Log Entry
+
 ```json
 {
   "timestamp": "2025-12-26T10:30:45.123Z",
@@ -700,7 +739,7 @@ WHERE
   "operation": "cron|reader|buffer-consumer",
   "message": "Schema version tracking",
   "data": {
-    "schema_version": "v1",
+    "table_version": "v1",
     "count": 150,
     "duration_ms": 245,
     "error": null
@@ -709,6 +748,7 @@ WHERE
 ```
 
 ### Error Log Entry
+
 ```json
 {
   "timestamp": "2025-12-26T10:30:45.123Z",
@@ -720,14 +760,14 @@ WHERE
     "type": "R2 Range Request Failed",
     "code": "NoSuchKey",
     "path": "v2/2025-12/battle-001.avro",
-    "schema_version": "v2"
+    "table_version": "v2"
   }
 }
 ```
 
 ## 6. Troubleshooting Guide
 
-### Symptom: "schema_version column not found" Error
+### Symptom: "table_version column not found" Error
 
 ```
 Likely Cause: D1 migration not applied
@@ -735,11 +775,11 @@ Fix:
 1. Check if ALTER TABLE was executed
    PRAGMA table_info(buffer_logs);
 2. If missing, apply migration
-   npx wrangler d1 execute prod_db --file=migrations/add_schema_version.sql
+   npx wrangler d1 execute prod_db --file=migrations/add_table_version.sql
 3. Redeploy FUSOU-WORKFLOW
 ```
 
-### Symptom: All new data has schema_version=NULL
+### Symptom: All new data has table_version=NULL
 
 ```
 Likely Cause: Default value not working or app not specifying version
@@ -748,11 +788,11 @@ Fix:
    PRAGMA table_info(buffer_logs);
    (should show: DEFAULT 'v1')
 2. Check app code
-   - buffer-consumer.ts: schemaVersion || 'v1'
-   - cron.ts: Always passes schema_version
+   - buffer-consumer.ts: tableVersion || 'v1'
+   - cron.ts: Always passes table_version
 3. If DEFAULT missing, run:
-   ALTER TABLE buffer_logs ADD CONSTRAINT check_version 
-   CHECK (schema_version IS NOT NULL);
+   ALTER TABLE buffer_logs ADD CONSTRAINT check_version
+   CHECK (table_version IS NOT NULL);
 ```
 
 ### Symptom: Path/Version Mismatch Detected
@@ -760,7 +800,7 @@ Fix:
 ```
 Example:
   archived_files.file_path = "v1/2025-12/battle-001.avro"
-  archived_files.schema_version = "v2"
+  archived_files.table_version = "v2"
 
 Investigation:
 1. Query the specific file
@@ -772,8 +812,8 @@ Investigation:
 
 Fix:
 1. Update the column to match
-   UPDATE archived_files SET schema_version='v1' 
-   WHERE file_path LIKE 'v1/%' AND schema_version != 'v1';
+   UPDATE archived_files SET table_version='v1'
+   WHERE file_path LIKE 'v1/%' AND table_version != 'v1';
 2. Verify R2 object still exists and is readable
 3. Test reader on affected file
 ```
@@ -787,7 +827,7 @@ Expected behavior during migration:
 
 If this is NOT expected:
 1. Check reader.ts query
-   - Was schema_version filtering removed by accident?
+   - Was table_version filtering removed by accident?
 2. Check if v2 app was deployed when it shouldn't be
 3. Check logs for version distribution
 ```
@@ -799,47 +839,59 @@ If this is NOT expected:
 import { D1Database } from "@cloudflare/workers-types";
 
 export async function checkVersionHealth(db: D1Database): Promise<void> {
-  console.log('=== Schema Version Health Check ===');
-  
+  console.log("=== Table Version Health Check ===");
+
   // Check 1: NULL values
-  const nullCount = await db.prepare(
-    `SELECT COUNT(*) as cnt FROM buffer_logs WHERE schema_version IS NULL`
-  ).first<{ cnt: number }>();
-  
+  const nullCount = await db
+    .prepare(
+      `SELECT COUNT(*) as cnt FROM buffer_logs WHERE table_version IS NULL`,
+    )
+    .first<{ cnt: number }>();
+
   if (nullCount?.cnt! > 0) {
-    console.error(`❌ CRITICAL: Found ${nullCount.cnt} NULL schema_version values`);
+    console.error(
+      `❌ CRITICAL: Found ${nullCount.cnt} NULL table_version values`,
+    );
   } else {
-    console.log('✓ No NULL schema_version values');
+    console.log("✓ No NULL table_version values");
   }
-  
+
   // Check 2: Distribution
-  const distribution = await db.prepare(
-    `SELECT schema_version, COUNT(*) as cnt FROM buffer_logs 
-     GROUP BY schema_version`
-  ).all();
-  
-  console.log('Version distribution:', distribution.results);
-  
+  const distribution = await db
+    .prepare(
+      `SELECT table_version, COUNT(*) as cnt FROM buffer_logs 
+     GROUP BY table_version`,
+    )
+    .all();
+
+  console.log("Version distribution:", distribution.results);
+
   // Check 3: Path/Version mismatch
-  const mismatches = await db.prepare(
-    `SELECT COUNT(*) as cnt FROM archived_files 
-     WHERE SUBSTR(file_path, 1, 2) != schema_version`
-  ).first<{ cnt: number }>();
-  
+  const mismatches = await db
+    .prepare(
+      `SELECT COUNT(*) as cnt FROM archived_files 
+     WHERE SUBSTR(file_path, 1, 2) != table_version`,
+    )
+    .first<{ cnt: number }>();
+
   if (mismatches?.cnt! > 0) {
-    console.error(`❌ CRITICAL: Found ${mismatches.cnt} path/version mismatches`);
+    console.error(
+      `❌ CRITICAL: Found ${mismatches.cnt} path/version mismatches`,
+    );
   } else {
-    console.log('✓ No path/version mismatches');
+    console.log("✓ No path/version mismatches");
   }
-  
+
   // Check 4: Indices
-  const indexStatus = await db.prepare(
-    `SELECT name FROM sqlite_master WHERE type='index' 
-     AND name LIKE '%schema%'`
-  ).all();
-  
-  console.log('Schema version indices:', indexStatus.results?.length ?? 0);
-  
-  console.log('=== Health Check Complete ===');
+  const indexStatus = await db
+    .prepare(
+      `SELECT name FROM sqlite_master WHERE type='index' 
+     AND name LIKE '%schema%'`,
+    )
+    .all();
+
+  console.log("Schema version indices:", indexStatus.results?.length ?? 0);
+
+  console.log("=== Health Check Complete ===");
 }
 ```

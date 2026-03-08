@@ -10,7 +10,10 @@ function decodeZigzag(n: number): number {
   return (n >>> 1) ^ -(n & 1);
 }
 
-function decodeLong(buffer: Uint8Array, offset: number): { value: number; offset: number } {
+function decodeLong(
+  buffer: Uint8Array,
+  offset: number,
+): { value: number; offset: number } {
   let n = 0;
   let shift = 0;
   let b: number;
@@ -23,21 +26,16 @@ function decodeLong(buffer: Uint8Array, offset: number): { value: number; offset
   return { value: decodeZigzag(n), offset: pos };
 }
 
-// Ensure namespace embeds schema_version for downstream validation
-export function ensureSchemaNamespace(schema: any, schemaVersion: string = 'v1'): any {
-  if (schema.namespace && schema.namespace.includes(schemaVersion)) {
-    return schema;
-  }
-  return { ...schema, namespace: `fusou.${schemaVersion}` };
-}
-
-export async function computeSchemaFingerprint(schemaJson: string): Promise<string> {
+// Schema fingerprint: SHA-256 hash of the raw schema JSON
+export async function computeSchemaFingerprint(
+  schemaJson: string,
+): Promise<string> {
   // Use WebCrypto (available in Cloudflare Workers) for SHA-256 fingerprint
   const encoder = new TextEncoder();
   const data = encoder.encode(schemaJson);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -46,10 +44,15 @@ export async function computeSchemaFingerprint(schemaJson: string): Promise<stri
 export function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
   // Check magic bytes
   if (buffer.length < 4) {
-    throw new Error('Buffer too small for Avro header');
+    throw new Error("Buffer too small for Avro header");
   }
-  if (buffer[0] !== 0x4f || buffer[1] !== 0x62 || buffer[2] !== 0x6a || buffer[3] !== 0x01) {
-    throw new Error('Invalid Avro magic bytes');
+  if (
+    buffer[0] !== 0x4f ||
+    buffer[1] !== 0x62 ||
+    buffer[2] !== 0x6a ||
+    buffer[3] !== 0x01
+  ) {
+    throw new Error("Invalid Avro magic bytes");
   }
 
   let offset = 4;
@@ -100,7 +103,7 @@ export function getAvroHeaderLength(buffer: Uint8Array): number {
  */
 export function parseAvroDataBlock(
   header: Uint8Array,
-  dataBlock: Uint8Array
+  dataBlock: Uint8Array,
 ): any[] {
   try {
     // For Hot/Cold architecture, data blocks contain JSON-serialized records
@@ -113,11 +116,11 @@ export function parseAvroDataBlock(
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
       // If not JSON, try parsing as newline-delimited JSON
-      const lines = decoded.split('\n').filter(line => line.trim());
-      return lines.map(line => JSON.parse(line));
+      const lines = decoded.split("\n").filter((line) => line.trim());
+      return lines.map((line) => JSON.parse(line));
     }
   } catch (err) {
-    console.error('Failed to parse Avro data block:', err);
+    console.error("Failed to parse Avro data block:", err);
     return [];
   }
 }
@@ -131,7 +134,7 @@ export function parseAvroDataBlock(
  * Works in Cloudflare Workers without node:zlib
  */
 async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
-  const stream = new DecompressionStream('deflate-raw');
+  const stream = new DecompressionStream("deflate-raw");
   const writer = stream.writable.getWriter();
   const reader = stream.readable.getReader();
 
@@ -161,7 +164,10 @@ async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
   return result;
 }
 
-function decodeString(buffer: Uint8Array, offset: number): { value: string; offset: number } {
+function decodeString(
+  buffer: Uint8Array,
+  offset: number,
+): { value: string; offset: number } {
   const lenInfo = decodeLong(buffer, offset);
   const start = lenInfo.offset;
   const end = start + lenInfo.value;
@@ -174,7 +180,10 @@ function decodeString(buffer: Uint8Array, offset: number): { value: string; offs
  * Uses header to obtain schema, then decodes `count` records from the block.
  * Expects dataBlock to start at the beginning of a block (count, size, records, sync).
  */
-export function parseNullAvroBlock(header: Uint8Array, dataBlock: Uint8Array): any[] {
+export function parseNullAvroBlock(
+  header: Uint8Array,
+  dataBlock: Uint8Array,
+): any[] {
   // Parse schema and codec from header
   const { schema, codec } = parseHeaderSchemaAndCodec(header);
   if (!schema) {
@@ -208,7 +217,7 @@ export function parseNullAvroBlock(header: Uint8Array, dataBlock: Uint8Array): a
     }
     return out;
   } catch (err) {
-    console.error('Null codec block parse failed:', err);
+    console.error("Null codec block parse failed:", err);
     return [];
   }
 }
@@ -217,7 +226,10 @@ export function parseNullAvroBlock(header: Uint8Array, dataBlock: Uint8Array): a
  * Parse all blocks from Avro OCF file body (handles multiple blocks concatenated)
  * Returns all records from all blocks
  */
-export function parseAllNullAvroBlocks(header: Uint8Array, body: Uint8Array): any[] {
+export function parseAllNullAvroBlocks(
+  header: Uint8Array,
+  body: Uint8Array,
+): any[] {
   const { schema } = parseHeaderSchemaAndCodec(header);
   if (!schema) {
     return [];
@@ -270,16 +282,28 @@ export function parseAllNullAvroBlocks(header: Uint8Array, body: Uint8Array): an
   return allRecords;
 }
 
-function decodeBytesBuf(buffer: Uint8Array, offset: number): { value: Uint8Array; offset: number } {
+function decodeBytesBuf(
+  buffer: Uint8Array,
+  offset: number,
+): { value: Uint8Array; offset: number } {
   const lenInfo = decodeLong(buffer, offset);
   const start = lenInfo.offset;
   const end = start + lenInfo.value;
   return { value: buffer.slice(start, end), offset: end };
 }
 
-function parseHeaderSchemaAndCodec(header: Uint8Array): { schema: any; codec: string | null } {
+function parseHeaderSchemaAndCodec(header: Uint8Array): {
+  schema: any;
+  codec: string | null;
+} {
   // Validate magic
-  if (header.length < 4 || header[0] !== 0x4f || header[1] !== 0x62 || header[2] !== 0x6a || header[3] !== 0x01) {
+  if (
+    header.length < 4 ||
+    header[0] !== 0x4f ||
+    header[1] !== 0x62 ||
+    header[2] !== 0x6a ||
+    header[3] !== 0x01
+  ) {
     return { schema: null, codec: null };
   }
   let offset = 4;
@@ -295,8 +319,8 @@ function parseHeaderSchemaAndCodec(header: Uint8Array): { schema: any; codec: st
     offset = valInfo.offset;
     const key = keyInfo.value;
     const valText = new TextDecoder().decode(valInfo.value);
-    if (key === 'avro.schema') schemaJsonStr = valText;
-    if (key === 'avro.codec') codecStr = valText;
+    if (key === "avro.schema") schemaJsonStr = valText;
+    if (key === "avro.codec") codecStr = valText;
     remaining--;
   }
   // end marker
@@ -312,31 +336,35 @@ function parseHeaderSchemaAndCodec(header: Uint8Array): { schema: any; codec: st
   }
 }
 
-function decodeValue(buffer: Uint8Array, offset: number, type: string): { value: any; offset: number } {
+function decodeValue(
+  buffer: Uint8Array,
+  offset: number,
+  type: string,
+): { value: any; offset: number } {
   switch (type) {
-    case 'boolean':
+    case "boolean":
       return { value: buffer[offset] === 1, offset: offset + 1 };
-    case 'long':
-    case 'int': {
+    case "long":
+    case "int": {
       const info = decodeLong(buffer, offset);
       return { value: info.value, offset: info.offset };
     }
-    case 'double': {
+    case "double": {
       const dv = new DataView(buffer.buffer, buffer.byteOffset + offset, 8);
       const value = dv.getFloat64(0, true);
       return { value, offset: offset + 8 };
     }
-    case 'float': {
+    case "float": {
       // Avro float is 4 bytes (IEEE 754 single-precision)
       const dv = new DataView(buffer.buffer, buffer.byteOffset + offset, 4);
       const value = dv.getFloat32(0, true);
       return { value, offset: offset + 4 };
     }
-    case 'string': {
+    case "string": {
       const info = decodeString(buffer, offset);
       return { value: info.value, offset: info.offset };
     }
-    case 'bytes': {
+    case "bytes": {
       const info = decodeBytesBuf(buffer, offset);
       return { value: info.value, offset: info.offset };
     }
@@ -347,7 +375,11 @@ function decodeValue(buffer: Uint8Array, offset: number, type: string): { value:
   }
 }
 
-function decodeArray(buffer: Uint8Array, offset: number, itemsType: any): { value: any[]; offset: number } {
+function decodeArray(
+  buffer: Uint8Array,
+  offset: number,
+  itemsType: any,
+): { value: any[]; offset: number } {
   const result: any[] = [];
   let pos = offset;
   while (true) {
@@ -365,7 +397,7 @@ function decodeArray(buffer: Uint8Array, offset: number, itemsType: any): { valu
       if (Array.isArray(itemsType)) {
         const branch = decodeLong(buffer, pos);
         pos = branch.offset;
-        if (itemsType[branch.value] === 'null') {
+        if (itemsType[branch.value] === "null") {
           result.push(null);
         } else {
           const v = decodeComplexValue(buffer, pos, itemsType[branch.value]);
@@ -382,8 +414,12 @@ function decodeArray(buffer: Uint8Array, offset: number, itemsType: any): { valu
   return { value: result, offset: pos };
 }
 
-function decodeComplexValue(buffer: Uint8Array, offset: number, type: any): { value: any; offset: number } {
-  if (typeof type === 'string') {
+function decodeComplexValue(
+  buffer: Uint8Array,
+  offset: number,
+  type: any,
+): { value: any; offset: number } {
+  if (typeof type === "string") {
     return decodeValue(buffer, offset, type);
   }
   if (Array.isArray(type)) {
@@ -391,26 +427,30 @@ function decodeComplexValue(buffer: Uint8Array, offset: number, type: any): { va
     const branch = decodeLong(buffer, offset);
     let pos = branch.offset;
     const t = type[branch.value];
-    if (t === 'null') {
+    if (t === "null") {
       return { value: null, offset: pos };
     }
     const v = decodeComplexValue(buffer, pos, t);
     return v;
   }
-  if (typeof type === 'object') {
-    if (type.type === 'array') {
+  if (typeof type === "object") {
+    if (type.type === "array") {
       return decodeArray(buffer, offset, type.items);
     }
-    if (type.type === 'string') {
-      return decodeValue(buffer, offset, 'string');
+    if (type.type === "string") {
+      return decodeValue(buffer, offset, "string");
     }
     // Fallback
-    return decodeValue(buffer, offset, 'string');
+    return decodeValue(buffer, offset, "string");
   }
-  return decodeValue(buffer, offset, 'string');
+  return decodeValue(buffer, offset, "string");
 }
 
-function decodeRecord(buffer: Uint8Array, offset: number, schema: { fields: { name: string; type: any }[] }): { record: any; offset: number } {
+function decodeRecord(
+  buffer: Uint8Array,
+  offset: number,
+  schema: { fields: { name: string; type: any }[] },
+): { record: any; offset: number } {
   const out: any = {};
   let pos = offset;
   for (const field of schema.fields) {
@@ -421,9 +461,12 @@ function decodeRecord(buffer: Uint8Array, offset: number, schema: { fields: { na
   return { record: out, offset: pos };
 }
 
-export async function parseDeflateAvroBlock(header: Uint8Array, dataBlock: Uint8Array): Promise<any[]> {
+export async function parseDeflateAvroBlock(
+  header: Uint8Array,
+  dataBlock: Uint8Array,
+): Promise<any[]> {
   const { schema, codec } = parseHeaderSchemaAndCodec(header);
-  if (!schema || codec !== 'deflate') {
+  if (!schema || codec !== "deflate") {
     return [];
   }
   // count
@@ -450,7 +493,7 @@ export async function parseDeflateAvroBlock(header: Uint8Array, dataBlock: Uint8
     }
     return out;
   } catch (err) {
-    console.error('Deflate block parse failed:', err);
+    console.error("Deflate block parse failed:", err);
     return [];
   }
 }
@@ -459,9 +502,12 @@ export async function parseDeflateAvroBlock(header: Uint8Array, dataBlock: Uint8
  * Parse all blocks from Avro OCF file body with deflate codec (handles multiple blocks concatenated)
  * Returns all records from all blocks
  */
-export async function parseAllDeflateAvroBlocks(header: Uint8Array, body: Uint8Array): Promise<any[]> {
+export async function parseAllDeflateAvroBlocks(
+  header: Uint8Array,
+  body: Uint8Array,
+): Promise<any[]> {
   const { schema, codec } = parseHeaderSchemaAndCodec(header);
-  if (!schema || codec !== 'deflate') {
+  if (!schema || codec !== "deflate") {
     return [];
   }
 
@@ -503,7 +549,10 @@ export async function parseAllDeflateAvroBlocks(header: Uint8Array, body: Uint8A
           cur = rec.offset;
         }
       } catch (err) {
-        console.error('Deflate block decompression failed, skipping block:', err);
+        console.error(
+          "Deflate block decompression failed, skipping block:",
+          err,
+        );
       }
 
       // Move to next block
@@ -516,4 +565,3 @@ export async function parseAllDeflateAvroBlocks(header: Uint8Array, body: Uint8A
 
   return allRecords;
 }
-

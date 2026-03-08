@@ -22,9 +22,11 @@ kc-api-interface = { workspace = true }
 dotenvy = { workspace = true }
 regex = { workspace = true }
 dot-writer = { workspace = true }
+syn = { workspace = true }
+quote = { workspace = true }
 
 [features]
-default = ["graphviz", "full"]
+default = ["graphviz", "full", "schema_v0_5"]
 graphviz = []
 cytoscape = []
 breaking_schema = []
@@ -34,10 +36,8 @@ full = ["tokio", "apache-avro/zstandard"]
 # WASM feature excludes heavy dependencies (for WASM builds)
 wasm = []
 
-# Note: schema_v1 and schema_v2 features are kept for backward compatibility with FUSOU-APP
-# Both versions are are compiled by default now, but these flags are needed for dependent crates
-schema_v1 = []
-schema_v2 = []
+schema_v0_4 = []
+schema_v0_5 = []
 
 # Optional: Override uuid for WASM target to include js feature
 [target.'cfg(target_arch = "wasm32")'.dependencies]

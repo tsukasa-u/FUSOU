@@ -6,17 +6,21 @@
 
 1. **スキーマ抽出**: `kc-api-database` の Rust コードから Avro スキーマ（canonical JSON）を抽出
 2. **フィンガープリント計算**: 各テーブルスキーマの SHA-256 フィンガープリントを計算
-3. **環境変数用 JSON 生成**: `SCHEMA_FINGERPRINTS_JSON` に設定する形式で出力
+3. **環境変数用 JSON 生成**: `TABLE_FINGERPRINTS_JSON` に設定する形式で出力
 4. **検証**: フィンガープリントの一貫性とバージョン間差分を確認
 
 ## ディレクトリ構成
 
 ```
+kc_api/
+├── generated-schemas/
+│   ├── schema_v0_4.json        # v0.4 スキーマ定義
+│   └── schema_v0_5.json        # v0.5 スキーマ定義
+├── scripts/
+│   └── generate-schemas.sh     # スキーマ生成 + フィンガープリント計算
+configs/
+└── fingerprints.json           # 全バージョンのフィンガープリント
 FUSOU-WORKFLOW/
-├── schemas/
-│   ├── kc_api_v1.json          # v1 スキーマ定義（33テーブル）
-│   ├── kc_api_v2.json          # v2 スキーマ定義（33テーブル）
-│   └── fingerprints.json       # 全バージョンのフィンガープリント
 ├── scripts/
 │   └── compute-kc-api-fingerprints.mjs  # フィンガープリント計算スクリプト
 └── test/
@@ -27,28 +31,23 @@ FUSOU-WORKFLOW/
 
 ### 1. スキーマの抽出
 
-kc-api-database から schema_v1 および schema_v2 の全テーブルスキーマを抽出します。
+kc-api-database から schema_v0_4 および schema_v0_5 の全テーブルスキーマを抽出します。
 
 ```bash
-# v1 スキーマを生成
-pushd ../kc_api
-cargo run -p kc-api-database --bin print_schema --features schema_v1 2>/dev/null > ../FUSOU-WORKFLOW/schemas/kc_api_v1.json
-
-# v2 スキーマを生成
-cargo run -p kc-api-database --bin print_schema --no-default-features --features schema_v2 2>/dev/null > ../FUSOU-WORKFLOW/schemas/kc_api_v2.json
-popd
+# スキーマ生成 + フィンガープリント計算を一括実行
+pnpm --filter fusou-workflow run generate:schemas
 ```
 
-### 2. フィンガープリントの計算
+これにより `kc_api/generated-schemas/schema_v*.json` と `configs/fingerprints.json` が自動更新されます。
 
-抽出したスキーマから各テーブルのフィンガープリント（SHA-256）を計算します。
+フィンガープリントだけ再計算する場合:
 
 ```bash
-# フィンガープリント計算
-node scripts/compute-kc-api-fingerprints.mjs schemas/kc_api_v1.json schemas/kc_api_v2.json > schemas/fingerprints.json
+pnpm --filter fusou-workflow run generate:fingerprints
 ```
 
 出力形式:
+
 ```json
 {
   "v1": {
@@ -73,6 +72,7 @@ node test/test-kc-api-fingerprints.mjs
 ```
 
 このテストは以下を検証します:
+
 - ✅ v1 スキーマの全33テーブルのフィンガープリント一貫性
 - ✅ v2 スキーマの全33テーブルのフィンガープリント一貫性
 - ✅ v1 と v2 で全テーブルのフィンガープリントが異なること（進化検証）
@@ -80,23 +80,29 @@ node test/test-kc-api-fingerprints.mjs
 ## 対象テーブル一覧（33テーブル）
 
 ### コアテーブル
+
 - `env_info` - 環境情報とバージョン
 - `cells` - マップセル情報
 
 ### 基地・航空機
+
 - `airbase` - 基地航空隊
 - `plane_info` - 航空機詳細
 
 ### 装備
+
 - `own_slotitem`, `enemy_slotitem`, `friend_slotitem`
 
 ### 艦船
+
 - `own_ship`, `enemy_ship`, `friend_ship`
 
 ### 艦隊
+
 - `own_deck`, `support_deck`, `enemy_deck`, `friend_deck`
 
 ### 戦闘フェーズ
+
 - `airbase_airattack`, `airbase_airattack_list`
 - `airbase_assult`, `carrierbase_assault`
 - `closing_raigeki`
@@ -111,28 +117,28 @@ node test/test-kc-api-fingerprints.mjs
 
 ## Cloudflare Workers での使用
 
-生成された `fingerprints.json` を環境変数 `SCHEMA_FINGERPRINTS_JSON` に設定します。
+生成された `fingerprints.json` を環境変数 `TABLE_FINGERPRINTS_JSON` に設定します。
 
 ```bash
 # wrangler.toml または Cloudflare ダッシュボードで設定
 [vars]
-SCHEMA_FINGERPRINTS_JSON = '{"v1": {...}, "v2": {...}}'
+TABLE_FINGERPRINTS_JSON = '{"v1": {...}, "v2": {...}}'
 ```
 
 サーバー側では、アップロード時にヘッダーからスキーマを抽出し、フィンガープリントを検証します:
 
 ```typescript
-import { validateHeaderSchemaVersion } from './reader.js';
+import { validateHeaderTableVersion } from "./reader.js";
 
 // アップロード時の検証
-const isValid = validateHeaderSchemaVersion(
+const isValid = validateHeaderTableVersion(
   avroHeader,
   expectedVersion,
-  JSON.parse(env.SCHEMA_FINGERPRINTS_JSON)
+  JSON.parse(env.TABLE_FINGERPRINTS_JSON),
 );
 
 if (!isValid) {
-  return new Response('Invalid schema version', { status: 400 });
+  return new Response("Invalid schema version", { status: 400 });
 }
 ```
 
@@ -151,6 +157,7 @@ if (!isValid) {
 ### スキーマ抽出時に警告が混入する
 
 stderr をリダイレクトしてください:
+
 ```bash
 cargo run ... 2>/dev/null > output.json
 ```
@@ -158,18 +165,19 @@ cargo run ... 2>/dev/null > output.json
 ### フィンガープリントが一致しない
 
 - スキーマ JSON が正しく抽出されているか確認
-- namespace が `fusou.v1` / `fusou.v2` 形式になっているか確認
+- namespace が `fusou.v0_4` / `fusou.v0_5` 形式になっているか確認
 - WebCrypto の SHA-256 実装が一致しているか確認
 
 ### バージョン間で差分が出ない
 
 `kc-api-database` の feature flag が正しく切り替わっているか確認:
+
 ```bash
-cargo run --no-default-features --features schema_v2
+cargo run --no-default-features --features schema_v0_5
 ```
 
 ## 参考資料
 
-- [SCHEMA_VERSION_EXPLANATION.md](../docs/SCHEMA_VERSION_EXPLANATION.md) - スキーマバージョン管理の詳細
+- [SCHEMA_VERSION_EXPLANATION.md](../docs/SCHEMA_VERSION_EXPLANATION.md) - テーブルバージョン管理の詳細
 - [SCHEMA_VALIDATION_SECURITY_ISSUE.md](../docs/SCHEMA_VALIDATION_SECURITY_ISSUE.md) - セキュリティ検証の説明
 - kc-api-database/src/bin/print_schema.rs - スキーマ抽出ツールのソースコード

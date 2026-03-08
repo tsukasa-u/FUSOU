@@ -1,18 +1,26 @@
 #!/usr/bin/env node
 /**
  * Compute schema fingerprints from kc-api-database extracted schemas.
- * Generates SCHEMA_FINGERPRINTS_JSON format for environment configuration.
+ * Generates TABLE_FINGERPRINTS_JSON format for environment configuration.
  */
 
-import { readFileSync } from 'fs';
-import { computeSchemaFingerprint } from '../dist/avro-manual.js';
+import { readFileSync } from "fs";
+import { createHash } from "crypto";
+
+/**
+ * Compute SHA-256 fingerprint of raw schema JSON.
+ * No namespace manipulation — hash must match what OCF headers contain.
+ */
+function computeFingerprint(schemaJson) {
+  return createHash("sha256").update(schemaJson).digest("hex");
+}
 
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0) {
-    console.error('Usage: node compute-kc-api-fingerprints.mjs <schema-file.json>');
-    console.error('Example: node compute-kc-api-fingerprints.mjs schemas/kc_api_v1.json');
-    console.error('Note: Only v1 is currently generated; v2+ will be added as needed.');
+    console.error(
+      "Usage: node compute-kc-api-fingerprints.mjs <schema-file.json> ...",
+    );
     process.exit(1);
   }
 
@@ -20,44 +28,27 @@ async function main() {
 
   for (const schemaFile of args) {
     console.error(`Processing ${schemaFile}...`);
-    
-    const content = readFileSync(schemaFile, 'utf-8');
+
+    const content = readFileSync(schemaFile, "utf-8");
     const schemaData = JSON.parse(content);
 
-    // Extract version from filename (e.g., kc_api_v1.json -> v1)
-    const versionMatch = schemaFile.match(/v(\d+)\.json$/);
-    if (!versionMatch) {
-      console.error(`Warning: Could not extract version from filename ${schemaFile}, skipping`);
-      continue;
-    }
-    const version = `v${versionMatch[1]}`;
-
-    // Extract table_version and schemas array from new format
-    const tableVersion = schemaData.table_version || 'unknown';
+    const tableVersion = schemaData.table_version || "unknown";
     const schemas = schemaData.schemas || [];
 
     console.error(`  TABLE_VERSION: ${tableVersion}`);
 
-    // Compute fingerprints for each table schema
+    // Compute fingerprints for each table schema (raw, no namespace manipulation)
     const tableFingerprints = {};
     for (const schemaEntry of schemas) {
       const tableName = schemaEntry.table_name;
-      const schemaJson = schemaEntry.schema;
-
-      // Parse the schema to add namespace
-      const schemaParsed = JSON.parse(schemaJson);
-      schemaParsed.namespace = `fusou.${version}`;
-      
-      const schemaWithNamespace = JSON.stringify(schemaParsed);
-      const fingerprint = await computeSchemaFingerprint(schemaWithNamespace);
-      // Store as array to allow multiple backward-compatible hashes per table
+      const fingerprint = computeFingerprint(schemaEntry.schema);
       tableFingerprints[tableName] = [fingerprint];
       console.error(`  ${tableName}: ${fingerprint}`);
     }
 
-    results[version] = {
-      table_version: tableVersion,
-      tables: tableFingerprints
+    // Use table_version as the key (e.g., "0.4", "0.5", "0.6")
+    results[tableVersion] = {
+      tables: tableFingerprints,
     };
   }
 
@@ -65,7 +56,7 @@ async function main() {
   console.log(JSON.stringify(results, null, 2));
 }
 
-main().catch(err => {
-  console.error('Error:', err);
+main().catch((err) => {
+  console.error("Error:", err);
   process.exit(1);
 });

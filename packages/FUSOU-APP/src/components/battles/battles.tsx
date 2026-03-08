@@ -48,6 +48,7 @@ import {
 import type { DataSetParamShip, DataSetShip } from "../../utility/get_data_set";
 import { get_data_set_param_ship } from "../../utility/get_data_set";
 import { WrapCompactEquipComponent } from "./wrap_web_component";
+import { BattleResultComponent } from "./battle/battle_result";
 
 export function BattlesComponent() {
   const [cells] = useCells();
@@ -537,6 +538,9 @@ export function BattlesComponent() {
                   store_data_set_param_ship={store_data_set_param_ship}
                 />
                 <For each={battle_history()}>{(battle) => <>{battle}</>}</For>
+                <BattleResultComponent
+                  battle_selected={battle_selected}
+                />
               </ul>
             </Show>
           </Show>

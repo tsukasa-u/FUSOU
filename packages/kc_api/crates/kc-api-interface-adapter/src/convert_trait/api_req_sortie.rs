@@ -9,7 +9,15 @@ register_trait!(
     Req,
     (airbattle, battleresult, battle, goback_port, ld_airbattle)
 );
-register_trait!(Res, (battleresult, goback_port));
+register_trait!(Res, (goback_port));
+
+impl TraitForConvert for battleresult::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let battle = InterfaceWrapper::<Battle>::from(self.api_data.clone()).unwrap();
+        Some(vec![EmitData::Add(Add::Battle(battle))])
+    }
+}
 
 impl TraitForConvert for airbattle::Res {
     type Output = EmitData;

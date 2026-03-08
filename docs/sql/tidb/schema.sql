@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
   dataset_id VARCHAR(255) NOT NULL,
   table_name VARCHAR(255) NOT NULL,
   period_tag VARCHAR(50) NOT NULL DEFAULT 'latest',
-  schema_version VARCHAR(20) NOT NULL DEFAULT 'v1',
+  table_version VARCHAR(20) NOT NULL,
   timestamp BIGINT NOT NULL,
   data LONGBLOB NOT NULL,
   uploaded_by VARCHAR(255),

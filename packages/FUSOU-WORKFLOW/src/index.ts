@@ -1,7 +1,10 @@
-import { handleRead as handleHybridRead } from './reader';
-import { handleCron } from './cron';
-import { handleBufferConsumerChunked } from './buffer-consumer';
-import { cleanupOrphanedMasterData, handleCleanupRequest } from './master_data_cleanup';
+import { handleRead as handleHybridRead } from "./reader";
+import { handleCron } from "./cron";
+import { handleBufferConsumerChunked } from "./buffer-consumer";
+import {
+  cleanupOrphanedMasterData,
+  handleCleanupRequest,
+} from "./master_data_cleanup";
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -17,17 +20,21 @@ interface Env {
 }
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 // Hybrid reader: delegate to reader.ts (buffer_logs + block_indexes)
-async function handleRead(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
+async function handleRead(
+  request: Request,
+  env: Env,
+  _ctx: ExecutionContext,
+): Promise<Response> {
   // Allow backward-compatible params: table or table_name
   const url = new URL(request.url);
-  if (!url.searchParams.get('table_name') && url.searchParams.get('table')) {
-    url.searchParams.set('table_name', url.searchParams.get('table')!);
+  if (!url.searchParams.get("table_name") && url.searchParams.get("table")) {
+    url.searchParams.set("table_name", url.searchParams.get("table")!);
   }
   return handleHybridRead(new Request(url.toString(), request), env);
 }
@@ -35,78 +42,123 @@ async function handleRead(request: Request, env: Env, _ctx: ExecutionContext): P
 const queueConsumer = {
   async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
     if (!env.BATTLE_INDEX_DB) {
-      console.error('[Queue] Missing BATTLE_INDEX_DB binding');
+      console.error("[Queue] Missing BATTLE_INDEX_DB binding");
       batch.messages.forEach((m) => m.retry());
       return;
     }
     // Delegate to chunked bulk-insert consumer for performance and consistency
-    await handleBufferConsumerChunked(batch as unknown as MessageBatch<any>, env as any);
+    await handleBufferConsumerChunked(
+      batch as unknown as MessageBatch<any>,
+      env as any,
+    );
   },
 };
 
 const queueDLQ = {
   async queue(batch: MessageBatch<unknown>, _env: Env, _ctx: ExecutionContext) {
     for (const message of batch.messages) {
-      console.error('[DLQ] Unhandled message', { id: message.id, body: message.body });
+      console.error("[DLQ] Unhandled message", {
+        id: message.id,
+        body: message.body,
+      });
       message.ack();
     }
   },
 };
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (request.method === 'OPTIONS') {
+    if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
     }
 
-    if (path === '/battle-data/upload' && request.method === 'POST') {
+    if (path === "/battle-data/upload" && request.method === "POST") {
       // Inline upload handler: accept base64 Avro slices and enqueue
       try {
         const payload: any = await request.json();
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
         const table = payload?.table;
-        const period_tag = payload?.period_tag ?? payload?.periodTag ?? 'latest';
-        const slices: string[] = Array.isArray(payload?.slices) ? payload.slices : [];
+        const period_tag =
+          payload?.period_tag ?? payload?.periodTag ?? "latest";
+        const table_version = payload?.table_version ?? payload?.tableVersion;
+        const slices: string[] = Array.isArray(payload?.slices)
+          ? payload.slices
+          : [];
         if (!dataset_id || !table || !slices.length) {
-          return new Response(JSON.stringify({ error: 'Missing dataset_id, table, or slices' }), {
-            status: 400,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({ error: "Missing dataset_id, table, or slices" }),
+            {
+              status: 400,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (!table_version) {
+          return new Response(
+            JSON.stringify({ error: "Missing table_version" }),
+            {
+              status: 400,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+            },
+          );
         }
         if (!env.COMPACTION_QUEUE) {
-          return new Response(JSON.stringify({ error: 'Queue binding COMPACTION_QUEUE is missing' }), {
-            status: 500,
-            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-          });
+          return new Response(
+            JSON.stringify({
+              error: "Queue binding COMPACTION_QUEUE is missing",
+            }),
+            {
+              status: 500,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+            },
+          );
         }
-        const messages = slices.map((b64) => ({ body: { dataset_id, table, period_tag, avro_base64: b64 } }));
+        const messages = slices.map((b64) => ({
+          body: {
+            dataset_id,
+            table,
+            period_tag,
+            table_version,
+            avro_base64: b64,
+          },
+        }));
         await (env.COMPACTION_QUEUE as any).sendBatch(messages as any);
-        return new Response(JSON.stringify({ status: 'accepted', enqueued: messages.length }), {
-          status: 202,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ status: "accepted", enqueued: messages.length }),
+          {
+            status: 202,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
+        );
       } catch (err) {
-        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
           status: 400,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
         });
       }
     }
 
-    if (path === '/read' && request.method === 'GET') {
+    if (path === "/read" && request.method === "GET") {
       return handleRead(request, env, ctx);
     }
 
-    if (path === '/master-data/cleanup' && request.method === 'POST') {
+    if (path === "/master-data/cleanup" && request.method === "POST") {
       // Manual cleanup trigger endpoint
       if (!env.MASTER_DATA_INDEX_DB || !env.MASTER_DATA_BUCKET) {
-        return new Response(JSON.stringify({ error: 'Master data storage not configured' }), {
-          status: 503,
-          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-        });
+        return new Response(
+          JSON.stringify({ error: "Master data storage not configured" }),
+          {
+            status: 503,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          },
+        );
       }
       return handleCleanupRequest(request, {
         MASTER_DATA_BUCKET: env.MASTER_DATA_BUCKET,
@@ -114,24 +166,36 @@ export default {
       });
     }
 
-    if (path === '/' && request.method === 'GET') {
-      return new Response(JSON.stringify({ status: 'ok', service: 'fusou-ingest' }), {
-        status: 200,
-        headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-      });
+    if (path === "/" && request.method === "GET") {
+      return new Response(
+        JSON.stringify({ status: "ok", service: "fusou-ingest" }),
+        {
+          status: 200,
+          headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+        },
+      );
     }
 
-    return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
+    return new Response("Not Found", { status: 404, headers: CORS_HEADERS });
   },
-  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(
+    batch: MessageBatch<unknown>,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
     const queueName = (batch as { queue?: string }).queue as string | undefined;
-    const target = queueName && queueName.toLowerCase().includes('dlq') ? 'dlq' : 'main';
-    if (target === 'dlq') {
+    const target =
+      queueName && queueName.toLowerCase().includes("dlq") ? "dlq" : "main";
+    if (target === "dlq") {
       return queueDLQ.queue(batch, env, ctx);
     }
     return queueConsumer.queue(batch, env, ctx);
   },
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(
+    event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
     // Delegate scheduled archiving to cron.ts
     ctx.waitUntil(handleCron(env));
 
@@ -142,8 +206,8 @@ export default {
           MASTER_DATA_BUCKET: env.MASTER_DATA_BUCKET,
           MASTER_DATA_INDEX_DB: env.MASTER_DATA_INDEX_DB,
         }).catch((err) => {
-          console.error('[scheduled] Master data cleanup error:', err);
-        })
+          console.error("[scheduled] Master data cleanup error:", err);
+        }),
       );
     }
   },

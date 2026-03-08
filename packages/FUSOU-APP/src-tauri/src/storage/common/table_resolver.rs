@@ -132,6 +132,7 @@ pub fn resolve_port_table_bytes<'a>(
         PortTableEnum::SupportAirattack => &table.support_airattack,
         PortTableEnum::SupportHourai => &table.support_hourai,
         PortTableEnum::Battle => &table.battle,
+        PortTableEnum::BattleResult => &table.battle_result,
     };
     Some(bytes.as_slice())
 }

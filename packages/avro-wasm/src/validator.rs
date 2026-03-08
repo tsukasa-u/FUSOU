@@ -8,7 +8,7 @@ pub struct ValidationResult {
     valid: bool,
     record_count: Option<u32>,
     error_message: Option<String>,
-    schema_version: Option<String>,
+    table_version: Option<String>,
     table_name: Option<String>,
 }
 
@@ -30,8 +30,8 @@ impl ValidationResult {
     }
 
     #[wasm_bindgen(getter)]
-    pub fn schema_version(&self) -> Option<String> {
-        self.schema_version.clone()
+    pub fn table_version(&self) -> Option<String> {
+        self.table_version.clone()
     }
 
     #[wasm_bindgen(getter)]
@@ -47,8 +47,13 @@ impl ValidationResult {
 /// 2. Matches it against known schemas from kc-api-database
 /// 3. Validates the data conforms to that schema
 /// 4. Returns version and table information
+///
+/// `hint_table_version`: optional table_version hint from the client.
+/// When schemas are identical across multiple versions, this hint is used
+/// to disambiguate and return the correct version. Pass an empty string
+/// if no hint is available.
 #[wasm_bindgen]
-pub fn validate_avro_ocf_smart(avro_data: &[u8]) -> ValidationResult {
+pub fn validate_avro_ocf_smart(avro_data: &[u8], hint_table_version: &str) -> ValidationResult {
     utils::set_panic_hook();
     
     // Step 1: Check basic OCF structure
@@ -57,7 +62,7 @@ pub fn validate_avro_ocf_smart(avro_data: &[u8]) -> ValidationResult {
             valid: false,
             record_count: None,
             error_message: Some("Avro file too small".to_string()),
-            schema_version: None,
+            table_version: None,
             table_name: None,
         };
     }
@@ -69,7 +74,7 @@ pub fn validate_avro_ocf_smart(avro_data: &[u8]) -> ValidationResult {
             valid: false,
             record_count: None,
             error_message: Some("Invalid Avro magic bytes".to_string()),
-            schema_version: None,
+            table_version: None,
             table_name: None,
         };
     }
@@ -82,26 +87,27 @@ pub fn validate_avro_ocf_smart(avro_data: &[u8]) -> ValidationResult {
                 valid: false,
                 record_count: None,
                 error_message: Some("Could not extract schema from OCF header".to_string()),
-                schema_version: None,
+                table_version: None,
                 table_name: None,
             };
         }
     };
     
     // Step 3: Match client schema against known schemas
-    let match_result = schema_registry::match_client_schema(&client_schema_json);
+    // Pass hint_table_version to disambiguate when multiple versions share identical schemas
+    let match_result = schema_registry::match_client_schema(&client_schema_json, hint_table_version);
     
     if !match_result.matched() {
         return ValidationResult {
             valid: false,
             record_count: None,
             error_message: match_result.error(),
-            schema_version: None,
+            table_version: None,
             table_name: None,
         };
     }
     
-    let version = match_result.version().unwrap_or_default();
+    let table_version = match_result.table_version().unwrap_or_default();
     let table = match_result.table_name().unwrap_or_default();
     
     // Step 4: Validate data against the matched schema
@@ -112,14 +118,14 @@ pub fn validate_avro_ocf_smart(avro_data: &[u8]) -> ValidationResult {
                 valid: false,
                 record_count: None,
                 error_message: Some(format!("Failed to parse schema: {}", e)),
-                schema_version: Some(version),
+                table_version: Some(table_version),
                 table_name: Some(table),
             };
         }
     };
     
     let mut result = validate_with_schema(avro_data, &schema);
-    result.schema_version = Some(version);
+    result.table_version = Some(table_version);
     result.table_name = Some(table);
     result
 }
@@ -139,7 +145,7 @@ pub fn validate_avro_ocf(
                 valid: false,
                 record_count: None,
                 error_message: Some(format!("Failed to parse schema: {}", e)),
-                schema_version: None,
+                table_version: None,
                 table_name: None,
             };
         }
@@ -166,7 +172,7 @@ pub fn validate_avro_ocf_by_table(
             valid: false,
             record_count: None,
             error_message: Some(schema_json),
-            schema_version: None,
+            table_version: None,
             table_name: None,
         };
     }
@@ -179,7 +185,7 @@ pub fn validate_avro_ocf_by_table(
                 valid: false,
                 record_count: None,
                 error_message: Some(format!("Failed to parse schema: {}", e)),
-                schema_version: Some(version.to_string()),
+                table_version: None,
                 table_name: Some(table_name.to_string()),
             };
         }
@@ -187,7 +193,10 @@ pub fn validate_avro_ocf_by_table(
     
     let mut result = validate_with_schema(avro_data, &schema);
     result.table_name = Some(table_name.to_string());
-    result.schema_version = Some(version.to_string());
+    // Resolve table_version from schema registry
+    if let Some(schema_set) = schema_registry::get_schema_set_for_validation(version) {
+        result.table_version = Some(schema_set.table_version.clone());
+    }
     result
 }
 
@@ -200,7 +209,7 @@ fn validate_with_schema(avro_data: &[u8], schema: &Schema) -> ValidationResult {
                 valid: false,
                 record_count: None,
                 error_message: Some(format!("Failed to create Avro reader: {}", e)),
-                schema_version: None,
+                table_version: None,
                 table_name: None,
             };
         }
@@ -218,7 +227,7 @@ fn validate_with_schema(avro_data: &[u8], schema: &Schema) -> ValidationResult {
                     valid: false,
                     record_count: Some(count),
                     error_message: Some(format!("Invalid record at position {}: {}", count, e)),
-                    schema_version: None,
+                    table_version: None,
                     table_name: None,
                 };
             }
@@ -230,7 +239,7 @@ fn validate_with_schema(avro_data: &[u8], schema: &Schema) -> ValidationResult {
             valid: false,
             record_count: Some(0),
             error_message: Some("No records found in Avro file".to_string()),
-            schema_version: None,
+            table_version: None,
             table_name: None,
         };
     }
@@ -239,7 +248,7 @@ fn validate_with_schema(avro_data: &[u8], schema: &Schema) -> ValidationResult {
         valid: true,
         record_count: Some(count),
         error_message: None,
-        schema_version: None,
+        table_version: None,
         table_name: None,
     }
 }
@@ -298,9 +307,7 @@ fn extract_json_from_position(data: &[u8], start: usize) -> Option<String> {
     let mut in_string = false;
     let mut escape_next = false;
     
-    for i in start..data.len() {
-        let byte = data[i];
-        
+    for (offset, &byte) in data[start..].iter().enumerate() {
         if escape_next {
             escape_next = false;
             continue;
@@ -322,7 +329,7 @@ fn extract_json_from_position(data: &[u8], start: usize) -> Option<String> {
             } else if byte == b'}' {
                 depth -= 1;
                 if depth == 0 {
-                    end = i + 1;
+                    end = start + offset + 1;
                     break;
                 }
             }
@@ -351,19 +358,32 @@ mod tests {
     fn test_get_available_versions() {
         let versions = schema_registry::get_available_versions();
         assert!(!versions.is_empty());
-        assert!(versions.contains(&"v1".to_string()));
-        assert!(versions.contains(&"v2".to_string()));
+        #[cfg(feature = "schema_v0_4")]
+        assert!(versions.contains(&"v0_4".to_string()));
+        #[cfg(feature = "schema_v0_5")]
+        assert!(versions.contains(&"v0_5".to_string()));
+        #[cfg(feature = "schema_v0_6")]
+        assert!(versions.contains(&"v0_6".to_string()));
     }
 
     #[test]
-    fn test_get_available_schemas_v1() {
-        let schemas = schema_registry::get_available_schemas("v1");
+    #[cfg(feature = "schema_v0_4")]
+    fn test_get_available_schemas_v0_4() {
+        let schemas = schema_registry::get_available_schemas("v0_4");
         assert!(!schemas.is_empty());
     }
 
     #[test]
-    fn test_get_available_schemas_v2() {
-        let schemas = schema_registry::get_available_schemas("v2");
+    #[cfg(feature = "schema_v0_5")]
+    fn test_get_available_schemas_v0_5() {
+        let schemas = schema_registry::get_available_schemas("v0_5");
+        assert!(!schemas.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "schema_v0_6")]
+    fn test_get_available_schemas_v0_6() {
+        let schemas = schema_registry::get_available_schemas("v0_6");
         assert!(!schemas.is_empty());
     }
 }

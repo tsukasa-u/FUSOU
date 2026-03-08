@@ -1,4 +1,3 @@
-import { AuthProvider } from "../../utility/provider.tsx";
 import App from "../../pages/app.tsx";
 
 export default {
@@ -15,9 +14,7 @@ export const WithDecorator = {
   decorators: [
     (Story: any, context: any) => {
       return (
-        <AuthProvider>
-          <Story {...context.args} />
-        </AuthProvider>
+        <Story {...context.args} />
       );
     },
   ],

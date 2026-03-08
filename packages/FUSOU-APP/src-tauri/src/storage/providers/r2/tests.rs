@@ -196,7 +196,7 @@ mod tests {
         let valid_tags = vec![
             "period_001",
             "event-2024-01",
-            "master_data_v1",
+            "master_data_v0",
             "a",
         ];
 

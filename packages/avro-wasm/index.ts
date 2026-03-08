@@ -1,6 +1,6 @@
 /**
  * @fusou/avro-wasm - WebAssembly Avro OCF Validator
- * 
+ *
  * Provides strict schema validation using Rust's apache-avro
  * Optimized for Cloudflare Workers (481KB WASM)
  */
@@ -19,11 +19,11 @@ import init, {
   init_panic_hook,
   type ValidationResult,
   type SchemaMatchResult,
-} from './pkg/avro_wasm.js';
+} from "./pkg/avro_wasm.js";
 
 // Import WASM binary for Cloudflare Workers
 // @ts-ignore - WASM module import
-import wasmModule from './pkg/avro_wasm_bg.wasm';
+import wasmModule from "./pkg/avro_wasm_bg.wasm";
 
 let wasmInitialized = false;
 
@@ -35,7 +35,7 @@ export async function initWasm(): Promise<void> {
   if (wasmInitialized) {
     return;
   }
-  
+
   try {
     // For Cloudflare Workers, wasmModule is a WebAssembly.Module
     // For browsers, it would be a URL or ArrayBuffer
@@ -43,7 +43,7 @@ export async function initWasm(): Promise<void> {
     init_panic_hook();
     wasmInitialized = true;
   } catch (e) {
-    console.error('[avro-wasm] Failed to initialize WASM:', e);
+    console.error("[avro-wasm] Failed to initialize WASM:", e);
     throw e;
   }
 }
@@ -71,7 +71,7 @@ export interface AvroValidationResult {
   recordCount: number;
   errorMessage?: string;
   tableName?: string;
-  schemaVersion?: string;
+  tableVersion?: string;
 }
 
 /**
@@ -79,7 +79,7 @@ export interface AvroValidationResult {
  */
 export async function validateAvroOCF(
   data: Uint8Array,
-  schemaJson: string
+  schemaJson: string,
 ): Promise<AvroValidationResult> {
   await initWasm();
 
@@ -90,27 +90,34 @@ export async function validateAvroOCF(
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? undefined,
-    schemaVersion: result.schema_version ?? undefined,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
 /**
  * Validate Avro OCF with automatic canonical schema matching
  * This is the recommended function for strict validation of untrusted data
+ *
+ * @param data - The Avro OCF binary data
+ * @param hintTableVersion - Optional table_version hint from the client.
+ *   When schemas are identical across multiple versions (e.g., users on different
+ *   app versions), this hint disambiguates the correct version. Pass undefined
+ *   or omit if no hint is available.
  */
 export async function validateAvroOCFSmart(
-  data: Uint8Array
+  data: Uint8Array,
+  hintTableVersion?: string,
 ): Promise<AvroValidationResult> {
   await initWasm();
 
-  const result = wasm_validate_avro_ocf_smart(data);
+  const result = wasm_validate_avro_ocf_smart(data, hintTableVersion ?? "");
 
   return {
     valid: result.valid,
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? undefined,
-    schemaVersion: result.schema_version ?? undefined,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
@@ -120,7 +127,7 @@ export async function validateAvroOCFSmart(
 export async function validateAvroOCFByTable(
   data: Uint8Array,
   tableName: string,
-  version: string
+  version: string,
 ): Promise<AvroValidationResult> {
   await initWasm();
 
@@ -131,7 +138,7 @@ export async function validateAvroOCFByTable(
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? tableName,
-    schemaVersion: result.schema_version ?? version,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
@@ -144,13 +151,18 @@ export interface SchemaMatchInfo {
 
 /**
  * Match client schema against known canonical schemas
+ *
+ * @param schemaJson - The client's schema JSON
+ * @param hintTableVersion - Optional table_version hint to disambiguate
+ *   when multiple versions share identical canonical forms.
  */
 export async function matchClientSchema(
-  schemaJson: string
+  schemaJson: string,
+  hintTableVersion?: string,
 ): Promise<SchemaMatchInfo> {
   await initWasm();
 
-  const result = wasm_match_client_schema(schemaJson);
+  const result = wasm_match_client_schema(schemaJson, hintTableVersion ?? "");
 
   return {
     matched: result.matched,

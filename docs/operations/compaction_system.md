@@ -10,7 +10,6 @@ It replaces the legacy Supabase/Parquet-based compaction with an **Avro OCF** me
 ### Components
 
 1.  **FUSOU-WORKFLOW (Ingest & Archival)**
-
     - **Ingest**: Receives Avro slices via `POST /battle-data/upload`, buffers via Queue to DB.
     - **Buffer**: Writes strictly typed Avro blobs to `buffer_logs` tables in TiDB (primary) or D1 (fallback).
     - **Archival (Cron)**: Periodically merges buffered data into R2 and updates metadata.
@@ -27,18 +26,15 @@ It replaces the legacy Supabase/Parquet-based compaction with an **Avro OCF** me
 The `handleCron` function (`src/cron.ts`) performs the following steps:
 
 1.  **Fetch & Fallback**
-
     - Reads `buffer_logs` from TiDB.
     - If TiDB fails, falls back to reading from D1.
     - Gracefully handles failures to prevent data loss.
 
 2.  **Grouping**
-
-    - Groups data by `table_name`, `period_tag`, and `schema_version`.
+    - Groups data by `table_name`, `period_tag`, and `table_version`.
     - Further groups by `dataset_id` to handle multi-part uploads.
 
 3.  **Avro OCF Merging**
-
     - **Logic**: `mergeAvroOCF` / `mergeAvroOCFWithBoundaries` (`src/avro-merger.ts`).
     - **Strategy**: Concatenates multiple Avro OCF files into a single valid OCF file.
       - Preserves the header (Magic, Metadata, Sync Marker) from the first file.
@@ -47,13 +43,11 @@ The `handleCron` function (`src/cron.ts`) performs the following steps:
     - **Limit**: Merges up to 128MB per file (`MAX_FILE_SIZE`).
 
 4.  **Storage (R2)**
-
     - Uploads the merged file to `BATTLE_DATA_BUCKET`.
-    - Path: `{schemaVersion}/{periodTag}/{runTimestamp}/{tableName}-{indexStr}.avro`
-    - Metadata: Stores run info, block counts, and schema version.
+    - Path: `{tableVersion}/{periodTag}/{runTimestamp}/{tableName}-{indexStr}.avro`
+    - Metadata: Stores run info, block counts, and table version.
 
 5.  **Indexing (D1)**
-
     - **`archived_files`**: Registers the new R2 file.
     - **`block_indexes`**: specific byte-range offsets for each dataset within the merged file.
       - Allows efficient range-request reading of specific datasets later without downloading the whole file.
@@ -76,7 +70,7 @@ CREATE TABLE archived_files (
   file_path TEXT NOT NULL,
   file_size INTEGER,
   compression_codec TEXT,
-  schema_version TEXT,
+    table_version TEXT,
   created_at INTEGER,
   last_modified_at INTEGER
 );
@@ -90,7 +84,7 @@ Maps datasets to their byte ranges in R2 files.
 CREATE TABLE block_indexes (
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
-  schema_version TEXT,
+    table_version TEXT,
   period_tag TEXT,
   file_id INTEGER NOT NULL,
   start_byte INTEGER NOT NULL,

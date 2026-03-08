@@ -1,20 +1,22 @@
-#[cfg(feature = "schema_v1")]
+#[cfg(feature = "schema_v0_4")]
 pub const DATABASE_TABLE_VERSION: &str = "0.4";
 
-#[cfg(feature = "schema_v2")]
-pub const DATABASE_TABLE_VERSION: &str = "1.0";
+#[cfg(feature = "schema_v0_5")]
+pub const DATABASE_TABLE_VERSION: &str = "0.5";
 
-#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
-pub const DATABASE_TABLE_VERSION: &str = "0.0";
+// #[cfg(feature = "schema_v0_6")]
+// pub const DATABASE_TABLE_VERSION: &str = "0.6";
 
-#[cfg(feature = "schema_v1")]
-pub const SCHEMA_VERSION: &str = "v1";
-
-#[cfg(feature = "schema_v2")]
-pub const SCHEMA_VERSION: &str = "v2";
-
-#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
-pub const SCHEMA_VERSION: &str = "v0";
+#[cfg(not(any(
+    feature = "schema_v0_4",
+    feature = "schema_v0_5",
+    // feature = "schema_v0_6"
+)))]
+compile_error!(
+    "At least one schema version feature must be enabled (schema_v0_4, schema_v0_5, or schema_v0_6). \
+     Add e.g. `--features schema_v0_4` or use default features."
+);
+// pub const DATABASE_TABLE_VERSION: &str = "0.0";
 
 #[cfg(test)]
 mod tests {
@@ -42,28 +44,6 @@ mod tests {
             parts[1].parse::<u32>().is_ok(),
             "MINOR version must be a number, got '{}'",
             parts[1]
-        );
-    }
-
-    #[test]
-    fn test_schema_version_defined() {
-        // Ensure SCHEMA_VERSION is properly defined (feature gate enforces this)
-        let schema_v = SCHEMA_VERSION;
-        assert!(!schema_v.is_empty(), "SCHEMA_VERSION must not be empty");
-        assert!(
-            schema_v.starts_with('v'),
-            "SCHEMA_VERSION must start with 'v', got '{}'",
-            schema_v
-        );
-    }
-
-    #[test]
-    fn test_version_independence() {
-        // Verify that DATABASE_TABLE_VERSION and SCHEMA_VERSION are independent
-        // (both can be modified without affecting the other)
-        assert_ne!(
-            DATABASE_TABLE_VERSION, SCHEMA_VERSION,
-            "DATABASE_TABLE_VERSION and SCHEMA_VERSION should be independent formats"
         );
     }
 

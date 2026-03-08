@@ -1,9 +1,9 @@
 /**
  * TiDB Cloud Serverless Client
- * 
+ *
  * Usage (Option 1 - DATABASE_URL, recommended by PingCAP):
  * const client = createTiDBClientFromUrl(env.DATABASE_URL);
- * 
+ *
  * Usage (Option 2 - Separate params):
  * const client = createTiDBClient({
  *   host: env.TIDB_HOST,
@@ -11,11 +11,11 @@
  *   password: env.TIDB_PASSWORD,
  *   database: env.TIDB_DATABASE,
  * });
- * 
+ *
  * const result = await client.execute('SELECT * FROM buffer_logs WHERE dataset_id = ?', [datasetId]);
  */
 
-import { connect, Connection } from '@tidbcloud/serverless';
+import { connect, Connection } from "@tidbcloud/serverless";
 
 // ============================================================
 // Rate Limit Detection
@@ -28,7 +28,7 @@ import { connect, Connection } from '@tidbcloud/serverless';
  * - Throttling messages
  */
 const RATE_LIMIT_PATTERNS = [
-  /\b429\b/,                    // HTTP 429 status code (word boundary)
+  /\b429\b/, // HTTP 429 status code (word boundary)
   /too many requests/i,
   /rate.?limit/i,
   /throttl/i,
@@ -41,14 +41,14 @@ export interface RateLimitInfo {
   /** Whether the error is a rate limit error */
   isRateLimited: boolean;
   /** Detected rate limit type (if known) */
-  limitType?: 'api' | 'ru' | 'unknown';
+  limitType?: "api" | "ru" | "unknown";
   /** Original error message */
   message: string;
 }
 
 /**
  * Check if an error is a TiDB Cloud rate limit error
- * 
+ *
  * TiDB Cloud has two types of limits:
  * 1. API rate limit: 100 requests/minute per API key (HTTP 429)
  * 2. RU (Request Units) quota: Monthly compute budget for Serverless
@@ -57,22 +57,25 @@ export function isRateLimitError(error: unknown): RateLimitInfo {
   const message = error instanceof Error ? error.message : String(error);
   const code = (error as { code?: string | number })?.code;
   const status = (error as { status?: number })?.status;
-  
+
   // Check HTTP status code
-  if (status === 429 || code === 429 || code === '429') {
-    return { isRateLimited: true, limitType: 'api', message };
+  if (status === 429 || code === 429 || code === "429") {
+    return { isRateLimited: true, limitType: "api", message };
   }
-  
+
   // Check error message patterns
   for (const pattern of RATE_LIMIT_PATTERNS) {
     if (pattern.test(message)) {
       // Determine limit type from message
-      const limitType = /ru|request.?unit/i.test(message) ? 'ru' : 
-                       /429|api|request/i.test(message) ? 'api' : 'unknown';
+      const limitType = /ru|request.?unit/i.test(message)
+        ? "ru"
+        : /429|api|request/i.test(message)
+          ? "api"
+          : "unknown";
       return { isRateLimited: true, limitType, message };
     }
   }
-  
+
   return { isRateLimited: false, message };
 }
 
@@ -94,7 +97,9 @@ export function recordRateLimitEvent(info: RateLimitInfo): void {
       timestamp: Date.now(),
       info,
     };
-    console.warn(`[TiDB] Rate limit detected: ${info.limitType} - ${info.message}`);
+    console.warn(
+      `[TiDB] Rate limit detected: ${info.limitType} - ${info.message}`,
+    );
   }
 }
 
@@ -102,12 +107,14 @@ export function recordRateLimitEvent(info: RateLimitInfo): void {
  * Get the last rate limit event (if any, within last 5 minutes)
  */
 export function getLastRateLimitEvent(): typeof lastRateLimitEvent {
-  if (lastRateLimitEvent && Date.now() - lastRateLimitEvent.timestamp < 5 * 60 * 1000) {
+  if (
+    lastRateLimitEvent &&
+    Date.now() - lastRateLimitEvent.timestamp < 5 * 60 * 1000
+  ) {
     return lastRateLimitEvent;
   }
   return null;
 }
-
 
 export interface TiDBConfig {
   host: string;
@@ -121,7 +128,7 @@ export type TiDBConnection = Connection;
 /**
  * Create a TiDB Cloud Serverless connection from DATABASE_URL
  * Format: mysql://username:password@host/database
- * 
+ *
  * This is the recommended method per official PingCAP Cloudflare integration docs:
  * https://docs.pingcap.com/tidbcloud/integrate-tidbcloud-with-cloudflare/
  */
@@ -157,14 +164,19 @@ export function createTiDBClientFromEnv(env: {
   if (env.TIDB_KC_DB_URL) {
     return createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
   }
-  
+
   // Fallback to DATABASE_URL (official recommendation)
   if (env.DATABASE_URL) {
     return createTiDBClientFromUrl(env.DATABASE_URL);
   }
-  
+
   // Fallback to separate params
-  if (env.TIDB_HOST && env.TIDB_USERNAME && env.TIDB_PASSWORD && env.TIDB_DATABASE) {
+  if (
+    env.TIDB_HOST &&
+    env.TIDB_USERNAME &&
+    env.TIDB_PASSWORD &&
+    env.TIDB_DATABASE
+  ) {
     return createTiDBClient({
       host: env.TIDB_HOST,
       username: env.TIDB_USERNAME,
@@ -172,8 +184,10 @@ export function createTiDBClientFromEnv(env: {
       database: env.TIDB_DATABASE,
     });
   }
-  
-  throw new Error('TiDB configuration not found. Set TIDB_KC_DB_URL, DATABASE_URL, or TIDB_HOST/USERNAME/PASSWORD/DATABASE');
+
+  throw new Error(
+    "TiDB configuration not found. Set TIDB_KC_DB_URL, DATABASE_URL, or TIDB_HOST/USERNAME/PASSWORD/DATABASE",
+  );
 }
 
 // ============================================================
@@ -185,7 +199,7 @@ export interface BufferLogRow {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: Uint8Array;
   uploaded_by: string | null;
@@ -195,7 +209,7 @@ export interface InsertBufferLogParams {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: Uint8Array;
   uploaded_by?: string;
@@ -206,23 +220,23 @@ export interface InsertBufferLogParams {
  */
 export async function insertBufferLog(
   conn: TiDBConnection,
-  params: InsertBufferLogParams
+  params: InsertBufferLogParams,
 ): Promise<{ insertId: number }> {
   const result = await conn.execute(
     `INSERT INTO buffer_logs 
-     (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
+      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       params.dataset_id,
       params.table_name,
       params.period_tag,
-      params.schema_version,
+      params.table_version,
       params.timestamp,
       params.data,
       params.uploaded_by || null,
-    ]
+    ],
   );
-  
+
   // TiDB SDK returns FullResult for INSERT with insertId
   const insertId = (result as { insertId?: number }).insertId ?? 0;
   return { insertId };
@@ -232,14 +246,14 @@ export async function insertBufferLog(
  * Fetch all buffered data for archiving
  */
 export async function fetchBufferedData(
-  conn: TiDBConnection
+  conn: TiDBConnection,
 ): Promise<BufferLogRow[]> {
   const result = await conn.execute(
-    `SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    `SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
      FROM buffer_logs
-     ORDER BY timestamp ASC`
+     ORDER BY table_version, table_name, period_tag, dataset_id, id ASC`,
   );
-  
+
   // TiDB SDK: default returns array directly, fullResult:true returns object with rows
   // Handle both cases for safety
   if (Array.isArray(result)) {
@@ -260,30 +274,36 @@ export async function fetchHotData(
     table_name: string;
     from?: number;
     to?: number;
-  }
+    table_version?: string;
+  },
 ): Promise<BufferLogRow[]> {
   let sql = `
-    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
     FROM buffer_logs
     WHERE dataset_id = ? AND table_name = ?
   `;
-  
+
   const bindings: (string | number)[] = [params.dataset_id, params.table_name];
-  
+
+  if (params.table_version !== undefined) {
+    sql += " AND table_version = ?";
+    bindings.push(params.table_version);
+  }
+
   if (params.from !== undefined) {
-    sql += ' AND timestamp >= ?';
+    sql += " AND timestamp >= ?";
     bindings.push(params.from);
   }
-  
+
   if (params.to !== undefined) {
-    sql += ' AND timestamp <= ?';
+    sql += " AND timestamp <= ?";
     bindings.push(params.to);
   }
-  
-  sql += ' ORDER BY timestamp ASC';
-  
+
+  sql += " ORDER BY timestamp ASC";
+
   const result = await conn.execute(sql, bindings);
-  
+
   // TiDB SDK: default returns array directly, fullResult:true returns object with rows
   if (Array.isArray(result)) {
     return result as BufferLogRow[];
@@ -297,13 +317,12 @@ export async function fetchHotData(
  */
 export async function cleanupBuffer(
   conn: TiDBConnection,
-  maxId: number
+  maxId: number,
 ): Promise<{ rowsAffected: number }> {
-  const result = await conn.execute(
-    'DELETE FROM buffer_logs WHERE id <= ?',
-    [maxId]
-  );
-  
+  const result = await conn.execute("DELETE FROM buffer_logs WHERE id <= ?", [
+    maxId,
+  ]);
+
   // TiDB SDK returns FullResult with rowsAffected for DELETE
   const rowsAffected = (result as { rowsAffected?: number }).rowsAffected ?? 0;
   return { rowsAffected };
@@ -314,24 +333,26 @@ export async function cleanupBuffer(
  */
 export async function executeWithRetry<T>(
   fn: () => Promise<T>,
-  maxRetries = 3
+  maxRetries = 3,
 ): Promise<T> {
   for (let i = 0; i < maxRetries; i++) {
     try {
       return await fn();
     } catch (e: any) {
-      const isRetryable = 
-        e.code === 'LOCK_WRITE_CONFLICT' ||
-        e.message?.includes('connection') ||
-        e.message?.includes('timeout');
-      
+      const isRetryable =
+        e.code === "LOCK_WRITE_CONFLICT" ||
+        e.message?.includes("connection") ||
+        e.message?.includes("timeout");
+
       if (isRetryable && i < maxRetries - 1) {
         // Exponential backoff: 100ms, 200ms, 400ms
-        await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, i)));
+        await new Promise((resolve) =>
+          setTimeout(resolve, 100 * Math.pow(2, i)),
+        );
         continue;
       }
       throw e;
     }
   }
-  throw new Error('Unreachable');
+  throw new Error("Unreachable");
 }

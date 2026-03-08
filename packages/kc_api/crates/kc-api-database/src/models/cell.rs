@@ -7,6 +7,11 @@ use crate::models::battle::BattleId;
 use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
 
+#[cfg(feature = "schema_v0_5")]
+use crate::models::deck::OwnDeckId;
+#[cfg(feature = "schema_v0_5")]
+use crate::models::deck::OwnDeck;
+
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
@@ -29,6 +34,10 @@ pub struct Cells {
     pub cell_index: Vec<i32>,
     pub battle_index: Vec<i32>,
     pub battles: BattleId,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_deck_before_id: Option<OwnDeckId>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_deck_after_id: Option<OwnDeckId>,
 }
 
 impl Cells {
@@ -53,6 +62,26 @@ impl Cells {
                     battle_index,
                 )
             });
+        
+        #[cfg(feature = "schema_v0_5")]
+        let deck_id = data.clone().battles.values().find_map(|battle| battle.deck_id);
+        #[cfg(feature = "schema_v0_5")]
+        let new_f_deck_before_id = {
+            let uuid = Uuid::new_v7(ts);
+            let cashe = true;
+            deck_id
+                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe))
+                .map(|_| uuid)
+        };
+        #[cfg(feature = "schema_v0_5")]
+        let new_f_deck_after_id = {
+            let uuid = Uuid::new_v7(ts);
+            let cashe = false;
+            deck_id
+                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe))
+                .map(|_| uuid)
+        };
+
 
         let new_data = Cells {
             env_uuid,
@@ -70,6 +99,10 @@ impl Cells {
                 .map(|&battle_idx| battle_idx as i32)
                 .collect(),
             battles: new_battle,
+            #[cfg(feature = "schema_v0_5")]
+            f_deck_before_id: new_f_deck_before_id,
+            #[cfg(feature = "schema_v0_5")]
+            f_deck_after_id: new_f_deck_after_id,
         };
 
         table.cells.push(new_data);

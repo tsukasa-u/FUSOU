@@ -18,4 +18,4 @@ pub mod models;
 
 pub mod schema_version;
 
-pub use schema_version::{DATABASE_TABLE_VERSION, SCHEMA_VERSION};
+pub use schema_version::DATABASE_TABLE_VERSION;

@@ -4,6 +4,9 @@ import type {
   ComponentShipProps,
   ComponentShipModalProps,
   ComponentShipTableProps,
+  ComponentShipMstProps,
+  ComponentShipMstModalProps,
+  ComponentShipMstTableProps,
   ComponentColorBarProps,
   ComponentColorBarLabelProps,
   ComponentEquipmentProps,
@@ -52,6 +55,9 @@ declare module "solid-js" {
       "component-ship": ComponentShipProps & css_style_props;
       "component-ship-modal": ComponentShipModalProps & css_style_props;
       "component-ship-table": ComponentShipTableProps & css_style_props;
+      "component-ship-mst": ComponentShipMstProps & css_style_props;
+      "component-ship-mst-modal": ComponentShipMstModalProps & css_style_props;
+      "component-ship-mst-table": ComponentShipMstTableProps & css_style_props;
       "icon-caution-fill": IconCautionFillProps & css_style_props;
       "icon-equipment": IconEquipmentProps & css_style_props;
       "icon-fleet-number": IconFleetNumberProps & css_style_props;

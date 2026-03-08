@@ -6,11 +6,14 @@ use wasm_bindgen::prelude::*;
 // Embed pre-generated schema JSON files at compile time
 // These files are generated from kc-api-database models
 
-#[cfg(feature = "schema_v1")]
-static SCHEMA_V1_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v1.json");
+#[cfg(feature = "schema_v0_4")]
+static SCHEMA_V0_4_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v0_4.json");
 
-#[cfg(feature = "schema_v2")]
-static SCHEMA_V2_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v2.json");
+#[cfg(feature = "schema_v0_5")]
+static SCHEMA_V0_5_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v0_5.json");
+
+// #[cfg(feature = "schema_v0_6")]
+// static SCHEMA_V0_6_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v0_6.json");
 
 #[derive(Debug, Deserialize)]
 struct SchemaEntry {
@@ -68,24 +71,30 @@ fn load_schema_set(json_str: &str, version: &str) -> SchemaSet {
 
 fn get_schema_set(version: &str) -> Option<SchemaSet> {
     match version {
-        #[cfg(feature = "schema_v1")]
-        "v1" => Some(load_schema_set(SCHEMA_V1_JSON, "v1")),
-        #[cfg(feature = "schema_v2")]
-        "v2" => Some(load_schema_set(SCHEMA_V2_JSON, "v2")),
+        #[cfg(feature = "schema_v0_4")]
+        "v0_4" => Some(load_schema_set(SCHEMA_V0_4_JSON, "v0_4")),
+        #[cfg(feature = "schema_v0_5")]
+        "v0_5" => Some(load_schema_set(SCHEMA_V0_5_JSON, "v0_5")),
+        // #[cfg(feature = "schema_v0_6")]
+        // "v0_6" => Some(load_schema_set(SCHEMA_V0_6_JSON, "v0_6")),
         _ => None,
     }
 }
 
 fn get_all_schema_sets_internal() -> Vec<SchemaSet> {
     let mut sets = Vec::new();
-    #[cfg(feature = "schema_v1")]
-    if let Some(s) = get_schema_set("v1") {
+    #[cfg(feature = "schema_v0_4")]
+    if let Some(s) = get_schema_set("v0_4") {
         sets.push(s);
     }
-    #[cfg(feature = "schema_v2")]
-    if let Some(s) = get_schema_set("v2") {
+    #[cfg(feature = "schema_v0_5")]
+    if let Some(s) = get_schema_set("v0_5") {
         sets.push(s);
     }
+    // #[cfg(feature = "schema_v0_6")]
+    // if let Some(s) = get_schema_set("v0_6") {
+    //     sets.push(s);
+    // }
     sets
 }
 
@@ -94,6 +103,7 @@ fn get_all_schema_sets_internal() -> Vec<SchemaSet> {
 pub struct SchemaMatchResult {
     matched: bool,
     version: Option<String>,
+    table_version: Option<String>,
     table_name: Option<String>,
     error: Option<String>,
 }
@@ -111,6 +121,11 @@ impl SchemaMatchResult {
     }
 
     #[wasm_bindgen(getter)]
+    pub fn table_version(&self) -> Option<String> {
+        self.table_version.clone()
+    }
+
+    #[wasm_bindgen(getter)]
     pub fn table_name(&self) -> Option<String> {
         self.table_name.clone()
     }
@@ -124,11 +139,16 @@ impl SchemaMatchResult {
 /// Match client-provided OCF header schema against known schemas
 /// Returns the matched version and table name if found
 ///
-/// This function searches across ALL available schema versions (v1, v2, etc.)
+/// This function searches across ALL available schema versions
 /// to find a matching schema, enabling support for multiple API versions
 /// in a single binary.
+///
+/// `hint_table_version`: optional hint from the client's declared table_version.
+/// When multiple schema versions share the same canonical form (identical schemas),
+/// the hint is used to disambiguate and return the correct version.
+/// Pass an empty string to skip hint-based matching (backward compatible).
 #[wasm_bindgen]
-pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
+pub fn match_client_schema(schema_json: &str, hint_table_version: &str) -> SchemaMatchResult {
     // Parse the client schema
     let client_schema = match Schema::parse_str(schema_json) {
         Ok(s) => s,
@@ -136,6 +156,7 @@ pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
             return SchemaMatchResult {
                 matched: false,
                 version: None,
+                table_version: None,
                 table_name: None,
                 error: Some(format!("Failed to parse client schema: {}", e)),
             };
@@ -143,32 +164,60 @@ pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
     };
     let canonical_client = client_schema.canonical_form();
 
-    // Get all available schema sets (v1, v2, etc.)
+    // Get all available schema sets (v0_4, v0_5, v0_6, etc.)
     let all_schemas = get_all_schema_sets_internal();
+    let mut available_versions: Vec<String> = Vec::new();
+    let mut first_match: Option<SchemaMatchResult> = None;
 
     // Try to find a matching schema across all versions
-    for schema_set in all_schemas {
+    for schema_set in &all_schemas {
+        available_versions.push(format!("{}(table:{})", schema_set.version, schema_set.table_version));
         for table_schema in &schema_set.schemas {
             // Parse the server schema and get its canonical form
             if let Ok(server_schema) = Schema::parse_str(&table_schema.schema) {
                 let canonical_server = server_schema.canonical_form();
                 if canonical_server == canonical_client {
-                    return SchemaMatchResult {
+                    let result = SchemaMatchResult {
                         matched: true,
                         version: Some(schema_set.version.clone()),
+                        table_version: Some(schema_set.table_version.clone()),
                         table_name: Some(table_schema.table_name.clone()),
                         error: None,
                     };
+
+                    // If client provided a hint and this version matches, return immediately
+                    if !hint_table_version.is_empty()
+                        && schema_set.table_version == hint_table_version
+                    {
+                        return result;
+                    }
+
+                    // Store the first canonical match as fallback
+                    if first_match.is_none() {
+                        first_match = Some(result);
+                    }
+                    // Once we find ONE match per version, no need to check other tables
+                    // in the same version (they share the same table_version)
+                    break;
                 }
             }
         }
     }
 
+    // If hint didn't match any version but canonical form matched, return first match
+    if let Some(m) = first_match {
+        return m;
+    }
+
     SchemaMatchResult {
         matched: false,
         version: None,
+        table_version: None,
         table_name: None,
-        error: Some("Client schema does not match any known schema in any version".to_string()),
+        error: Some(format!(
+            "Client schema does not match any known schema. Available versions: {}",
+            available_versions.join(", ")
+        )),
     }
 }
 
@@ -176,7 +225,7 @@ pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
 #[wasm_bindgen]
 pub fn get_schema_for_version(
     table_name: &str,
-    version: &str, // "v1" or "v2"
+    version: &str, // "v0_4", "v0_5", "v0_6", etc.
 ) -> SchemaMatchResult {
     let schema_set = match get_schema_set(version) {
         Some(s) => s,
@@ -184,6 +233,7 @@ pub fn get_schema_for_version(
             return SchemaMatchResult {
                 matched: false,
                 version: None,
+                table_version: None,
                 table_name: None,
                 error: Some(format!("Unknown schema version: '{}'", version)),
             };
@@ -195,6 +245,7 @@ pub fn get_schema_for_version(
         SchemaMatchResult {
             matched: true,
             version: Some(version.to_string()),
+            table_version: Some(schema_set.table_version.clone()),
             table_name: Some(table_name.to_string()),
             error: None,
         }
@@ -202,6 +253,7 @@ pub fn get_schema_for_version(
         SchemaMatchResult {
             matched: false,
             version: None,
+            table_version: None,
             table_name: None,
             error: Some(format!(
                 "Table '{}' not found in version '{}'",
@@ -209,14 +261,6 @@ pub fn get_schema_for_version(
             )),
         }
     }
-}
-
-/// Parse schema JSON and return its canonical form
-/// This helps in schema comparison
-pub fn parse_schema_to_canonical(schema_json: &str) -> Result<String, String> {
-    let schema =
-        Schema::parse_str(schema_json).map_err(|e| format!("Failed to parse schema: {}", e))?;
-    Ok(schema.canonical_form())
 }
 
 /// Get all available table schemas across all versions
@@ -247,11 +291,14 @@ pub fn get_available_schemas(version: &str) -> Vec<String> {
 /// Get all available schema versions
 #[wasm_bindgen]
 pub fn get_available_versions() -> Vec<String> {
+    #[allow(unused_mut)]
     let mut versions = Vec::new();
-    #[cfg(feature = "schema_v1")]
-    versions.push("v1".to_string());
-    #[cfg(feature = "schema_v2")]
-    versions.push("v2".to_string());
+    #[cfg(feature = "schema_v0_4")]
+    versions.push("v0_4".to_string());
+    #[cfg(feature = "schema_v0_5")]
+    versions.push("v0_5".to_string());
+    #[cfg(feature = "schema_v0_6")]
+    versions.push("v0_6".to_string());
     versions
 }
 
@@ -266,10 +313,18 @@ pub fn get_schema_json(table_name: &str, version: &str) -> String {
                 table_name, version
             ),
         },
-        None => format!(
-            r#"{{"error":"Unknown version '{}'. Available versions: v1, v2"}}"#,
-            version
-        ),
+        None => {
+            let available = get_available_versions();
+            let available_str = if available.is_empty() {
+                "none".to_string()
+            } else {
+                available.join(", ")
+            };
+            format!(
+                r#"{{"error":"Unknown version '{}'. Available versions: {}"}}"#,
+                version, available_str
+            )
+        }
     }
 }
 
@@ -278,6 +333,4 @@ pub(crate) fn get_schema_set_for_validation(version: &str) -> Option<SchemaSet> 
     get_schema_set(version)
 }
 
-pub(crate) fn get_all_schema_sets_for_validation() -> Vec<SchemaSet> {
-    get_all_schema_sets_internal()
-}
+
