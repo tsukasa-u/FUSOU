@@ -32,6 +32,12 @@ function resolvePublicSiteUrl() {
 
 const publicSiteUrl = resolvePublicSiteUrl();
 
+// Vite の .env 読み込みは既存の process.env を上書きしないため、
+// ここで設定すれば import.meta.env.PUBLIC_SITE_URL にも正しい値が入る
+if (publicSiteUrl) {
+  process.env.PUBLIC_SITE_URL = publicSiteUrl;
+}
+
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
