@@ -297,8 +297,8 @@ pub fn get_available_versions() -> Vec<String> {
     versions.push("v0_4".to_string());
     #[cfg(feature = "schema_v0_5")]
     versions.push("v0_5".to_string());
-    #[cfg(feature = "schema_v0_6")]
-    versions.push("v0_6".to_string());
+    // #[cfg(feature = "schema_v0_6")]
+    // versions.push("v0_6".to_string());
     versions
 }
 
