@@ -8,7 +8,7 @@
     "generate:graph-data": "node scripts/convert-dot-to-reactflow.mjs && node scripts/convert-schema-to-reactflow.mjs",
     "generate:all": "pnpm run generate:rust-data && pnpm run generate:graph-data",
     "build": "pnpm --filter @fusou/avro-wasm run build && pnpm run generate:all && astro check && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
-    "build.no.keys": "pnpm --filter @fusou/avro-wasm run build && pnpm run generate:all && astro check && dotenvx run -f .env --verbose --overload -- astro build",
+    "build.no.keys": "pnpm --filter @fusou/avro-wasm run build && export PATH=\"$HOME/.cargo/bin:$PATH\" && pnpm run generate:all && astro check && dotenvx run -f .env --verbose --overload -- astro build",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
     "gen:licenses": "node ../../scripts/generate-licenses.js",
