@@ -123,6 +123,9 @@ export default defineConfig({
       "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
         process.env.DATASET_TOKEN_SECRET
       ),
+      "process.env.ASSET_BASE_URL": JSON.stringify(
+        process.env.ASSET_BASE_URL || ""
+      ),
     },
     resolve: {
       // @ts-ignore

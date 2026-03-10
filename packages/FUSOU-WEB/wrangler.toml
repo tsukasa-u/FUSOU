@@ -16,6 +16,11 @@ pages_build_output_dir = "dist"
 binding = "COMPACTION_WORKFLOW"
 service = "fusou-workflow"
 
+# ===== Public Asset Base URL (R2 custom domain) =====
+# Set ASSET_BASE_URL in Cloudflare Pages dashboard for production.
+# In local dev, leave unset so images are served via Hono proxy from local R2.
+# Production value: https://assets.fusou.dev
+
 # ===== R2 Bucket Bindings =====
 [[r2_buckets]]
 binding = "ASSET_SYNC_BUCKET"

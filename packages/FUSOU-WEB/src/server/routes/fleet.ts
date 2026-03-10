@@ -216,4 +216,136 @@ app.post("/snapshot", async (c) => {
   });
 });
 
+// GET /snapshot/:tag - Retrieve fleet snapshot from R2
+app.get("/snapshot/:tag", async (c) => {
+  const env = createEnvContext(c);
+  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+
+  if (!bucket) {
+    return c.json({ error: "Server misconfiguration" }, 500);
+  }
+
+  const tag = c.req.param("tag");
+  const datasetId = c.req.query("dataset_id");
+
+  if (!tag) {
+    return c.json({ error: "tag is required" }, 400);
+  }
+
+  if (!datasetId) {
+    return c.json({ error: "dataset_id is required" }, 400);
+  }
+
+  // Sanitize tag same way as upload
+  const safeTag = encodeURIComponent(tag.toLowerCase().trim());
+  const prefix = `fleets/${datasetId}/${safeTag}/`;
+
+  try {
+    const listed = await bucket.list({ prefix });
+    const objects = listed.objects || [];
+
+    if (objects.length === 0) {
+      return c.json({ error: "No snapshots found for this tag" }, 404);
+    }
+
+    // Sort by uploaded time descending to get the latest
+    const sorted = objects.sort((a: any, b: any) => {
+      const at = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+      const bt = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+      return bt - at;
+    });
+
+    const latestKey = sorted[0].key;
+    const object = await bucket.get(latestKey);
+
+    if (!object) {
+      return c.json({ error: "Failed to retrieve snapshot" }, 500);
+    }
+
+    // Decompress gzip
+    const compressed = await object.arrayBuffer();
+    let jsonText: string;
+    try {
+      const ds = new DecompressionStream("gzip");
+      const stream = new Response(compressed).body!.pipeThrough(ds);
+      jsonText = await new Response(stream).text();
+    } catch {
+      // Not gzip, try as plain text
+      jsonText = new TextDecoder().decode(compressed);
+    }
+
+    const data = JSON.parse(jsonText);
+    return c.json({
+      ok: true,
+      tag,
+      dataset_id: datasetId,
+      r2_key: latestKey,
+      snapshot: data,
+    });
+  } catch (err) {
+    console.error("[fleet-snapshot] GET error:", err);
+    return c.json({ error: "Failed to retrieve fleet snapshot" }, 500);
+  }
+});
+
+// GET /snapshots/list - List available fleet snapshot tags
+app.get("/snapshots/list", async (c) => {
+  const env = createEnvContext(c);
+  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+
+  if (!bucket) {
+    return c.json({ error: "Server misconfiguration" }, 500);
+  }
+
+  const datasetId = c.req.query("dataset_id");
+
+  if (!datasetId) {
+    return c.json({ error: "dataset_id is required" }, 400);
+  }
+
+  const prefix = `fleets/${datasetId}/`;
+
+  try {
+    const listed = await bucket.list({ prefix });
+    const objects = listed.objects || [];
+
+    // Group by tag (second path segment after dataset_id)
+    const tagMap = new Map<string, { key: string; uploaded: Date; size: number }>();
+    for (const obj of objects) {
+      const parts = obj.key.replace(prefix, "").split("/");
+      const tagName = decodeURIComponent(parts[0] || "");
+      if (!tagName) continue;
+
+      const existing = tagMap.get(tagName);
+      const objTime = obj.uploaded ? new Date(obj.uploaded).getTime() : 0;
+      const existingTime = existing?.uploaded ? new Date(existing.uploaded).getTime() : 0;
+
+      if (!existing || objTime > existingTime) {
+        tagMap.set(tagName, {
+          key: obj.key,
+          uploaded: obj.uploaded,
+          size: obj.size,
+        });
+      }
+    }
+
+    const tags = Array.from(tagMap.entries()).map(([name, info]) => ({
+      tag: name,
+      r2_key: info.key,
+      uploaded: info.uploaded,
+      size: info.size,
+    }));
+
+    return c.json({
+      ok: true,
+      dataset_id: datasetId,
+      count: tags.length,
+      tags,
+    });
+  } catch (err) {
+    console.error("[fleet-snapshot] list error:", err);
+    return c.json({ error: "Failed to list fleet snapshots" }, 500);
+  }
+});
+
 export default app;

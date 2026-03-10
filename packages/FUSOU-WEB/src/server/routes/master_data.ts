@@ -8,6 +8,7 @@ import {
 import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { ERROR_CODES, createErrorResponse } from "../error-codes";
+import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -758,6 +759,100 @@ app.post("/upload", async (c) => {
       }
     },
   });
+});
+
+/**
+ * GET /json - Public JSON endpoint: decode Avro from R2 and return as JSON
+ *
+ * Query params:
+ * - table_name: required (e.g. mst_ship, mst_slotitem)
+ * - table_version: optional (defaults to latest)
+ *
+ * No authentication required — master data is public reference data.
+ * Returns decoded JSON records with aggressive caching (immutable data).
+ */
+app.get("/json", async (c) => {
+  const env = createEnvContext(c);
+  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const bucket = env.runtime.MASTER_DATA_BUCKET;
+
+  if (!db || !bucket) {
+    return c.json({ error: "Master data storage not configured" }, 503);
+  }
+
+  const tableName = c.req.query("table_name");
+  const requestedVersion = c.req.query("table_version");
+
+  if (!tableName) {
+    return c.json({ error: "table_name is required" }, 400);
+  }
+
+  if (!ALLOWED_MASTER_TABLES.has(tableName)) {
+    return c.json(
+      {
+        error: `Invalid table_name. Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  try {
+    // Find latest completed period
+    let sql = `
+      SELECT period_tag, table_version, r2_keys
+      FROM master_data_index
+      WHERE upload_status = 'completed'
+    `;
+    const params: unknown[] = [];
+    if (requestedVersion) {
+      sql += " AND table_version = ?";
+      params.push(requestedVersion);
+    }
+    sql += " ORDER BY completed_at DESC LIMIT 1";
+
+    const record = await db
+      .prepare(sql)
+      .bind(...params)
+      .first<{ period_tag: string; table_version: string; r2_keys: string }>();
+
+    if (!record) {
+      return c.json({ error: "No master data available" }, 404);
+    }
+
+    const { period_tag, table_version } = record;
+
+    // Build R2 key
+    const r2Key = `master_data/${table_version}/${period_tag}/${tableName}.avro`;
+
+    // Fetch Avro binary from R2
+    const r2Object = await bucket.get(r2Key);
+    if (!r2Object) {
+      return c.json({ error: `Table ${tableName} not found in storage` }, 404);
+    }
+
+    // Read full body into ArrayBuffer, then decode
+    const arrayBuffer = await r2Object.arrayBuffer();
+    const avroBytes = new Uint8Array(arrayBuffer);
+    const records = decodeAvroOcfToJson(avroBytes);
+
+    return c.json(
+      {
+        table_name: tableName,
+        table_version,
+        period_tag,
+        count: records.length,
+        records,
+      },
+      200,
+      {
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        ...CORS_HEADERS,
+      },
+    );
+  } catch (err) {
+    console.error(`[master-data] Error decoding ${tableName}: ${String(err)}`);
+    return c.json({ error: "Failed to decode master data" }, 500);
+  }
 });
 
 /**
