@@ -294,6 +294,9 @@ importers:
       msgpackr:
         specifier: ^1.11.8
         version: 1.11.8
+      playwright:
+        specifier: ^1.57.0
+        version: 1.57.0
       tailwindcss:
         specifier: ^4.1.17
         version: 4.1.17

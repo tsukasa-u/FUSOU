@@ -62,6 +62,7 @@
     "astro": "^5.16.2",
     "astro-icon": "^1.1.5",
     "msgpackr": "^1.11.8",
+    "playwright": "^1.57.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "wrangler": "^4.59.1"

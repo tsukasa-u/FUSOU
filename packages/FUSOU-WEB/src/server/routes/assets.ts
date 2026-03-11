@@ -392,14 +392,10 @@ app.get("/ship-banner-map", async (c) => {
           .all();
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
-            // Extract ship ID from key: assets/kcs2/resources/ship/banner/0001_ver.png -> 1
             const match = row.key.match(/\/banner\/(\d{4})_/);
             if (match) {
               const shipId = String(parseInt(match[1], 10));
-              // Keep only the first (or latest) entry per ship
-              if (!banners[shipId]) {
-                banners[shipId] = row.key;
-              }
+              if (!banners[shipId]) banners[shipId] = row.key;
             }
           }
         }
@@ -418,31 +414,8 @@ app.get("/ship-banner-map", async (c) => {
         const match = obj.key.match(/\/banner\/(\d{4})_/);
         if (match) {
           const shipId = String(parseInt(match[1], 10));
-          if (!banners[shipId]) {
-            banners[shipId] = obj.key;
-          }
+          if (!banners[shipId]) banners[shipId] = obj.key;
         }
-      }
-    }
-
-    // Local dev: fetch full banner map from production when local data is sparse
-    if (envCtx.isDev && assetBaseUrl && Object.keys(banners).length < 100) {
-      try {
-        const prodApiBase = assetBaseUrl.replace(/^(https?:\/\/)assets\./, "$1");
-        const res = await fetch(`${prodApiBase}/api/asset-sync/ship-banner-map`, {
-          headers: { "Accept": "application/json" },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          const remote = (await res.json()) as { banners?: Record<string, string> };
-          if (remote.banners) {
-            for (const [id, key] of Object.entries(remote.banners)) {
-              if (!banners[id]) banners[id] = key;
-            }
-          }
-        }
-      } catch {
-        // Production API unavailable — continue with local data
       }
     }
 
@@ -493,9 +466,7 @@ app.get("/ship-card-map", async (c) => {
             const match = row.key.match(/\/card\/(\d{4})_/);
             if (match) {
               const shipId = String(parseInt(match[1], 10));
-              if (!cards[shipId]) {
-                cards[shipId] = row.key;
-              }
+              if (!cards[shipId]) cards[shipId] = row.key;
             }
           }
         }
@@ -504,6 +475,7 @@ app.get("/ship-card-map", async (c) => {
       }
     }
 
+    // Fallback: R2 list if D1 was empty
     if (Object.keys(cards).length === 0 && bucket) {
       const listed = await bucket.list({
         prefix: "assets/kcs2/resources/ship/card/",
@@ -513,31 +485,8 @@ app.get("/ship-card-map", async (c) => {
         const match = obj.key.match(/\/card\/(\d{4})_/);
         if (match) {
           const shipId = String(parseInt(match[1], 10));
-          if (!cards[shipId]) {
-            cards[shipId] = obj.key;
-          }
+          if (!cards[shipId]) cards[shipId] = obj.key;
         }
-      }
-    }
-
-    // Local dev: fetch from production when local data is sparse
-    if (envCtx.isDev && assetBaseUrl && Object.keys(cards).length < 100) {
-      try {
-        const prodApiBase = assetBaseUrl.replace(/^(https?:\/\/)assets\./, "$1");
-        const res = await fetch(`${prodApiBase}/api/asset-sync/ship-card-map`, {
-          headers: { "Accept": "application/json" },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          const remote = (await res.json()) as { cards?: Record<string, string> };
-          if (remote.cards) {
-            for (const [id, key] of Object.entries(remote.cards)) {
-              if (!cards[id]) cards[id] = key;
-            }
-          }
-        }
-      } catch {
-        // Production API unavailable
       }
     }
 
@@ -635,7 +584,7 @@ app.get("/ship-banner/:shipId", async (c) => {
   const prefix = `assets/kcs2/resources/ship/banner/${paddedId}_`;
 
   try {
-    // Try D1 lookup first, fall back to R2 list if D1 is unavailable
+    // Try local D1 lookup first, then R2 list
     let r2Key: string | null = null;
 
     if (db) {
@@ -646,15 +595,38 @@ app.get("/ship-banner/:shipId", async (c) => {
           .first() as { key: string } | null;
         if (result) r2Key = result.key;
       } catch {
-        // D1 not available (e.g. local dev without seeded asset index)
+        // D1 not available
       }
     }
 
-    // Fallback: R2 list with prefix
     if (!r2Key && bucket) {
       const listed = await bucket.list({ prefix, limit: 1 });
       if (listed.objects.length > 0) {
         r2Key = listed.objects[0].key;
+      }
+    }
+
+    // When R2 key found and ASSET_BASE_URL is set, serve from CDN
+    const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+    if (r2Key && assetBaseUrl) {
+      try {
+        const res = await fetch(`${assetBaseUrl}/${r2Key}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          const body = await res.arrayBuffer();
+          return new Response(body, {
+            status: 200,
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Length": String(body.byteLength),
+              "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800",
+              ...CORS_HEADERS,
+            },
+          });
+        }
+      } catch {
+        // CDN unavailable — fall through to direct R2
       }
     }
 
@@ -704,6 +676,7 @@ app.get("/ship-banner/:shipId", async (c) => {
 app.get("/weapon-icons", async (c) => {
   const envCtx = createEnvContext(c);
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -712,8 +685,34 @@ app.get("/weapon-icons", async (c) => {
   const r2Key = "assets/kcs2/img/common/common_icon_weapon.png";
 
   try {
+    // When ASSET_BASE_URL is set, fetch directly from CDN
+    const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+    if (assetBaseUrl) {
+      try {
+        const res = await fetch(`${assetBaseUrl}/${r2Key}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          const body = await res.arrayBuffer();
+          return new Response(body, {
+            status: 200,
+            headers: {
+              "Content-Type": "image/png",
+              "Content-Length": String(body.byteLength),
+              "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=604800, stale-while-revalidate=604800",
+              ...CORS_HEADERS,
+            },
+          });
+        }
+      } catch {
+        // CDN unavailable — fall through to local R2
+      }
+    }
+
+    // Fall back to local R2
     const ifNoneMatch = c.req.header("If-None-Match");
     const r2Object = await bucket.get(r2Key);
+
     if (!r2Object) {
       return new Response(null, { status: 404 });
     }
@@ -764,13 +763,26 @@ app.get("/weapon-icon-frames", async (c) => {
     const jsonKey = "assets/kcs2/img/common/common_icon_weapon.json";
     let atlasRaw: ArrayBuffer | null = null;
 
-    const r2Object = await bucket.get(jsonKey);
-    if (r2Object) {
-      atlasRaw = await r2Object.arrayBuffer();
-    } else if (assetBaseUrl) {
-      // Local R2 may not have the file — fetch from CDN instead
-      const cdnRes = await fetch(`${assetBaseUrl}/${jsonKey}`);
-      if (cdnRes.ok) atlasRaw = await cdnRes.arrayBuffer();
+    // When ASSET_BASE_URL is set, fetch directly from CDN
+    if (assetBaseUrl) {
+      try {
+        const res = await fetch(`${assetBaseUrl}/${jsonKey}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          atlasRaw = await res.arrayBuffer();
+        }
+      } catch {
+        // CDN unavailable — fall through to local R2
+      }
+    }
+
+    // Fall back to local R2
+    if (!atlasRaw) {
+      const r2Object = await bucket.get(jsonKey);
+      if (r2Object) {
+        atlasRaw = await r2Object.arrayBuffer();
+      }
     }
 
     if (!atlasRaw) {

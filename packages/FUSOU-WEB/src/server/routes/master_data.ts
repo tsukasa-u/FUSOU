@@ -797,7 +797,6 @@ app.get("/json", async (c) => {
   }
 
   try {
-    // Find latest completed period
     let sql = `
       SELECT period_tag, table_version, r2_keys
       FROM master_data_index
@@ -816,7 +815,17 @@ app.get("/json", async (c) => {
       .first() as { period_tag: string; table_version: string; r2_keys: string } | null;
 
     if (!record) {
-      return c.json({ error: "No master data available" }, 404);
+      return c.json(
+        {
+          table_name: tableName,
+          table_version: null,
+          period_tag: null,
+          count: 0,
+          records: [],
+        },
+        200,
+        { ...CORS_HEADERS },
+      );
     }
 
     const { period_tag, table_version } = record;
@@ -827,7 +836,17 @@ app.get("/json", async (c) => {
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);
     if (!r2Object) {
-      return c.json({ error: `Table ${tableName} not found in storage` }, 404);
+      return c.json(
+        {
+          table_name: tableName,
+          table_version,
+          period_tag,
+          count: 0,
+          records: [],
+        },
+        200,
+        { ...CORS_HEADERS },
+      );
     }
 
     // Read full body into ArrayBuffer, then decode
