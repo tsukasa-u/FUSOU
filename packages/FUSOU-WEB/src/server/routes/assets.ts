@@ -389,9 +389,9 @@ app.get("/ship-banner-map", async (c) => {
       try {
         const rows = await db
           .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/banner/%'")
-          .all<{ key: string }>();
+          .all();
         if (rows.results) {
-          for (const row of rows.results) {
+          for (const row of rows.results as { key: string }[]) {
             // Extract ship ID from key: assets/kcs2/resources/ship/banner/0001_ver.png -> 1
             const match = row.key.match(/\/banner\/(\d{4})_/);
             if (match) {
@@ -487,9 +487,9 @@ app.get("/ship-card-map", async (c) => {
       try {
         const rows = await db
           .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/card/%'")
-          .all<{ key: string }>();
+          .all();
         if (rows.results) {
-          for (const row of rows.results) {
+          for (const row of rows.results as { key: string }[]) {
             const match = row.key.match(/\/card\/(\d{4})_/);
             if (match) {
               const shipId = String(parseInt(match[1], 10));
@@ -579,10 +579,10 @@ app.get("/equip-image-map", async (c) => {
       .prepare(
         "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/slot/card/%' OR key LIKE 'assets/kcs2/resources/slot/item_up/%'",
       )
-      .all<{ key: string }>();
+      .all();
 
     if (rows.results) {
-      for (const row of rows.results) {
+      for (const row of rows.results as { key: string }[]) {
         const match = row.key.match(/\/slot\/(card|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
@@ -643,7 +643,7 @@ app.get("/ship-banner/:shipId", async (c) => {
         const result = await db
           .prepare("SELECT key FROM files WHERE key LIKE ? LIMIT 1")
           .bind(`${prefix}%`)
-          .first<{ key: string }>();
+          .first() as { key: string } | null;
         if (result) r2Key = result.key;
       } catch {
         // D1 not available (e.g. local dev without seeded asset index)

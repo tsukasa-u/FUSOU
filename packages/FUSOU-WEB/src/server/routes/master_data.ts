@@ -813,7 +813,7 @@ app.get("/json", async (c) => {
     const record = await db
       .prepare(sql)
       .bind(...params)
-      .first<{ period_tag: string; table_version: string; r2_keys: string }>();
+      .first() as { period_tag: string; table_version: string; r2_keys: string } | null;
 
     if (!record) {
       return c.json({ error: "No master data available" }, 404);

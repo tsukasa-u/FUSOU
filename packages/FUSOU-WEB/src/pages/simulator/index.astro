@@ -392,9 +392,10 @@ export const prerender = false;
     if (!hasMasterData) return;
     shipModalCb = cb;
     shipModalCurrentId = currentId;
-    const modal = document.getElementById("ship-select-modal") as HTMLDialogElement;
-    const search = document.getElementById("ship-modal-search") as HTMLInputElement;
-    const stype = document.getElementById("ship-modal-stype") as HTMLSelectElement;
+    const modal = document.getElementById("ship-select-modal");
+    const search = document.getElementById("ship-modal-search");
+    const stype = document.getElementById("ship-modal-stype");
+    if (!(modal instanceof HTMLDialogElement) || !(search instanceof HTMLInputElement) || !(stype instanceof HTMLSelectElement)) return;
     search.value = "";
     populateStypeFilter(stype);
     renderShipGrid("", "");
@@ -657,21 +658,19 @@ export const prerender = false;
   }
 
   // Ship modal event wiring
-  document.getElementById("ship-modal-search")?.addEventListener(
-    "input",
-    debounce(() => {
-      renderShipGrid(
-        (document.getElementById("ship-modal-search") as HTMLInputElement).value,
-        (document.getElementById("ship-modal-stype") as HTMLSelectElement).value,
-      );
-    }, 120),
-  );
-  document.getElementById("ship-modal-stype")?.addEventListener("change", () => {
-    renderShipGrid(
-      (document.getElementById("ship-modal-search") as HTMLInputElement).value,
-      (document.getElementById("ship-modal-stype") as HTMLSelectElement).value,
+  const shipSearchEl = document.getElementById("ship-modal-search");
+  const shipStypeEl = document.getElementById("ship-modal-stype");
+  if (shipSearchEl instanceof HTMLInputElement && shipStypeEl instanceof HTMLSelectElement) {
+    shipSearchEl.addEventListener(
+      "input",
+      debounce(() => {
+        renderShipGrid(shipSearchEl.value, shipStypeEl.value);
+      }, 120),
     );
-  });
+    shipStypeEl.addEventListener("change", () => {
+      renderShipGrid(shipSearchEl.value, shipStypeEl.value);
+    });
+  }
 
   // ==============================================================
   //  Equipment Selection Modal
@@ -680,9 +679,10 @@ export const prerender = false;
     if (!hasMasterData) return;
     equipModalCb = cb;
     equipModalCurrentId = currentId;
-    const modal = document.getElementById("equip-select-modal") as HTMLDialogElement;
-    const search = document.getElementById("equip-modal-search") as HTMLInputElement;
-    const typeFilter = document.getElementById("equip-modal-type") as HTMLSelectElement;
+    const modal = document.getElementById("equip-select-modal");
+    const search = document.getElementById("equip-modal-search");
+    const typeFilter = document.getElementById("equip-modal-type");
+    if (!(modal instanceof HTMLDialogElement) || !(search instanceof HTMLInputElement) || !(typeFilter instanceof HTMLSelectElement)) return;
     search.value = "";
     populateEquipTypeFilter(typeFilter);
     renderEquipGrid("", "");
@@ -961,21 +961,19 @@ export const prerender = false;
   }
 
   // Equip modal event wiring
-  document.getElementById("equip-modal-search")?.addEventListener(
-    "input",
-    debounce(() => {
-      renderEquipGrid(
-        (document.getElementById("equip-modal-search") as HTMLInputElement).value,
-        (document.getElementById("equip-modal-type") as HTMLSelectElement).value,
-      );
-    }, 120),
-  );
-  document.getElementById("equip-modal-type")?.addEventListener("change", () => {
-    renderEquipGrid(
-      (document.getElementById("equip-modal-search") as HTMLInputElement).value,
-      (document.getElementById("equip-modal-type") as HTMLSelectElement).value,
+  const equipSearchEl = document.getElementById("equip-modal-search");
+  const equipTypeEl = document.getElementById("equip-modal-type");
+  if (equipSearchEl instanceof HTMLInputElement && equipTypeEl instanceof HTMLSelectElement) {
+    equipSearchEl.addEventListener(
+      "input",
+      debounce(() => {
+        renderEquipGrid(equipSearchEl.value, equipTypeEl.value);
+      }, 120),
     );
-  });
+    equipTypeEl.addEventListener("change", () => {
+      renderEquipGrid(equipSearchEl.value, equipTypeEl.value);
+    });
+  }
 
   // Virtual scroll resize handler
   window.addEventListener("resize", () => {
