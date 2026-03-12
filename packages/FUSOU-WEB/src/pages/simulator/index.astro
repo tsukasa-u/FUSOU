@@ -121,6 +121,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
               <input type="text" id="ship-modal-search" placeholder="名前・IDで検索..." class="input input-bordered input-sm flex-1" autocomplete="off" />
               <select id="ship-modal-stype" class="select select-bordered select-sm w-32 sm:w-36"><option value="">全艦種</option></select>
             </div>
+            <div id="ship-modal-source-tabs" class="tabs tabs-boxed mt-2 hidden">
+              <button class="tab tab-sm tab-active" data-source="snapshot">スナップショット</button>
+              <button class="tab tab-sm" data-source="master">マスターデータ</button>
+            </div>
           </div>
           <div class="flex flex-1 min-h-0">
             <div class="flex-1 overflow-y-auto p-2 sm:p-3" id="ship-modal-grid"></div>
@@ -330,6 +334,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   let equipModalCb: ((id: number | null) => void) | null = null;
   let shipModalCurrentId: number | null = null;
   let equipModalCurrentId: number | null = null;
+  let shipModalSource: "snapshot" | "master" = "master";
 
   // ==============================================================
   //  Helpers
@@ -427,10 +432,29 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     if (!(modal instanceof HTMLDialogElement) || !(search instanceof HTMLInputElement) || !(stype instanceof HTMLSelectElement)) return;
     search.value = "";
     populateStypeFilter(stype);
+
+    // Show source tabs only when snapshot ships are loaded
+    const tabsEl = document.getElementById("ship-modal-source-tabs");
+    const hasSnapshot = Object.keys(snapshotShips).length > 0;
+    if (tabsEl) {
+      tabsEl.classList.toggle("hidden", !hasSnapshot);
+    }
+    shipModalSource = hasSnapshot ? "snapshot" : "master";
+    updateSourceTabs();
+
     renderShipGrid("", "");
     resetShipDetail();
     modal.showModal();
     requestAnimationFrame(() => search.focus());
+  }
+
+  function updateSourceTabs() {
+    const tabsEl = document.getElementById("ship-modal-source-tabs");
+    if (!tabsEl) return;
+    for (const btn of tabsEl.querySelectorAll("[data-source]")) {
+      const isActive = (btn as HTMLElement).dataset.source === shipModalSource;
+      btn.classList.toggle("tab-active", isActive);
+    }
   }
 
   function populateStypeFilter(select: HTMLSelectElement) {
@@ -531,7 +555,23 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     grid.innerHTML = "";
     cleanupShipVS();
 
-    let ships = Object.values(mstShips).sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
+    let ships: MstShipData[];
+
+    if (shipModalSource === "snapshot" && Object.keys(snapshotShips).length > 0) {
+      // Build MstShipData-like entries from snapshot ships (using master data for stats)
+      ships = Object.values(snapshotShips)
+        .map((ss) => {
+          const mst = mstShips[ss.shipId];
+          if (!mst) return null;
+          // Return master data enriched with snapshot level in name display
+          return { ...mst, _snapshotLevel: ss.level } as MstShipData & { _snapshotLevel?: number };
+        })
+        .filter((s): s is MstShipData => s != null)
+        .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
+    } else {
+      ships = Object.values(mstShips).sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
+    }
+
     if (stypeFilter) ships = ships.filter((s) => s.stype === parseInt(stypeFilter, 10));
     if (search) {
       const q = search.toLowerCase();
@@ -604,7 +644,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     textDiv.appendChild(nameDiv);
     const typeDiv = document.createElement("div");
     typeDiv.className = "text-[11px] text-base-content/40 leading-tight";
-    typeDiv.textContent = `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
+    const snLevel = (ship as MstShipData & { _snapshotLevel?: number })._snapshotLevel;
+    typeDiv.textContent = snLevel != null
+      ? `${STYPE_NAMES[ship.stype] ?? ""} Lv.${snLevel} #${ship.id}`
+      : `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
     textDiv.appendChild(typeDiv);
     item.appendChild(textDiv);
 
@@ -700,6 +743,21 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       renderShipGrid(shipSearchEl.value, shipStypeEl.value);
     });
   }
+
+  // Source tab switching (snapshot / master data)
+  document.getElementById("ship-modal-source-tabs")?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-source]") as HTMLElement | null;
+    if (!btn) return;
+    const src = btn.dataset.source as "snapshot" | "master";
+    if (src === shipModalSource) return;
+    shipModalSource = src;
+    updateSourceTabs();
+    const searchEl = document.getElementById("ship-modal-search");
+    const stypeEl = document.getElementById("ship-modal-stype");
+    const search = searchEl instanceof HTMLInputElement ? searchEl.value : "";
+    const stype = stypeEl instanceof HTMLSelectElement ? stypeEl.value : "";
+    renderShipGrid(search, stype);
+  });
 
   // ==============================================================
   //  Equipment Selection Modal
@@ -1653,21 +1711,159 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     renderAll();
   }
 
+  // Snapshot state — populated when a fleet snapshot is loaded
+  let snapshotShips: Record<number, { shipId: number; level: number; name: string; stype: number }> = {};
+  let snapshotSlotItems: Record<number, { slotitem_id: number; level: number; alv: number }> = {};
+
   // ==============================================================
   //  Fleet snapshot application
   // ==============================================================
   function applyFleetSnapshot(snapshot: Record<string, unknown>) {
-    const ships = (snapshot as { s3s?: unknown[] }).s3s ?? [];
-    for (let i = 0; i < Math.min(ships.length, 6); i++) {
-      const ship = ships[i] as Record<string, unknown> | null;
-      if (!ship) continue;
-      fleet1[i].shipId = (ship.s5d as number) ?? null;
-      const slots = (ship.s4s as unknown[]) ?? [];
-      for (let j = 0; j < Math.min(slots.length, 5); j++) {
-        const slot = slots[j] as Record<string, unknown> | null;
-        fleet1[i].equipIds[j] = slot ? ((slot.s9d as number) ?? null) : null;
+    const ships = (snapshot as { s3s?: Record<string, unknown>[] }).s3s ?? [];
+    const slotItems = (snapshot as { s8s?: Record<string, unknown>[] }).s8s ?? [];
+    const deckPorts = (snapshot as { d3k?: Record<string, unknown>[] }).d3k ?? [];
+
+    // Build slot item lookup: instance id → {slotitem_id, level, alv}
+    const slotItemMap: Record<number, { slotitem_id: number; level: number; alv: number }> = {};
+    for (const si of slotItems) {
+      const iid = si.i0d as number;
+      slotItemMap[iid] = {
+        slotitem_id: (si.s9d as number) ?? 0,
+        level: (si.l3l as number) ?? 0,
+        alv: (si.a1v as number) ?? 0,
+      };
+    }
+
+    // Build ship lookup: instance id → ship data
+    const shipMap: Record<number, Record<string, unknown>> = {};
+    for (const s of ships) {
+      shipMap[s.i0d as number] = s;
+    }
+
+    // Populate snapshotShips for ship selection modal
+    snapshotShips = {};
+    snapshotSlotItems = slotItemMap;
+    for (const s of ships) {
+      const masterShipId = (s.s5d as number) ?? 0;
+      const mst = mstShips[masterShipId];
+      snapshotShips[s.i0d as number] = {
+        shipId: masterShipId,
+        level: (s.l0v as number) ?? 1,
+        name: mst?.name ?? `Ship #${masterShipId}`,
+        stype: mst?.stype ?? 0,
+      };
+    }
+
+    // Helper: populate a fleet array from deck_port ship list
+    function populateFleet(fleet: FleetSlot[], shipIds: number[]) {
+      for (let i = 0; i < Math.min(shipIds.length, 6); i++) {
+        const instanceId = shipIds[i];
+        if (instanceId <= 0) {
+          fleet[i] = emptyFleetSlot();
+          continue;
+        }
+        const ship = shipMap[instanceId];
+        if (!ship) {
+          fleet[i] = emptyFleetSlot();
+          continue;
+        }
+
+        const masterShipId = (ship.s5d as number) ?? 0;
+        const slots = (ship.s2t as number[]) ?? [];
+        const slotCount = (ship.s5m as number) ?? slots.length;
+        const exSlotInstanceId = (ship.s5x as number) ?? 0;
+
+        const equipIds: (number | null)[] = [null, null, null, null, null];
+        const equipImprovement: number[] = [0, 0, 0, 0, 0];
+        const equipProficiency: number[] = [0, 0, 0, 0, 0];
+
+        for (let j = 0; j < Math.min(slots.length, 5); j++) {
+          const slotInstanceId = slots[j];
+          if (slotInstanceId <= 0) continue;
+          const si = slotItemMap[slotInstanceId];
+          if (!si) continue;
+          equipIds[j] = si.slotitem_id;
+          equipImprovement[j] = si.level;
+          equipProficiency[j] = si.alv;
+        }
+
+        let exSlotId: number | null = null;
+        let exSlotImprovement = 0;
+        if (exSlotInstanceId > 0) {
+          const exSi = slotItemMap[exSlotInstanceId];
+          if (exSi) {
+            exSlotId = exSi.slotitem_id;
+            exSlotImprovement = exSi.level;
+          }
+        }
+
+        fleet[i] = {
+          shipId: masterShipId,
+          shipLevel: (ship.l0v as number) ?? null,
+          equipIds,
+          equipImprovement,
+          equipProficiency,
+          exSlotId,
+          exSlotImprovement,
+        };
       }
     }
+
+    // Use deck_port data if available
+    if (deckPorts.length > 0) {
+      // Sort by id to get fleet1 (id=1), fleet2 (id=2), etc.
+      const sorted = [...deckPorts].sort((a, b) => ((a.i0d as number) ?? 0) - ((b.i0d as number) ?? 0));
+      if (sorted[0]) {
+        populateFleet(fleet1, (sorted[0].s3s as number[]) ?? []);
+      }
+      if (sorted[1]) {
+        populateFleet(fleet2, (sorted[1].s3s as number[]) ?? []);
+      }
+    } else {
+      // Legacy fallback: no deck_port data, assign first 6 ships by master ship_id
+      for (let i = 0; i < Math.min(ships.length, 6); i++) {
+        const ship = ships[i];
+        if (!ship) continue;
+        const masterShipId = (ship.s5d as number) ?? 0;
+        const slots = (ship.s2t as number[]) ?? [];
+
+        const equipIds: (number | null)[] = [null, null, null, null, null];
+        const equipImprovement: number[] = [0, 0, 0, 0, 0];
+        const equipProficiency: number[] = [0, 0, 0, 0, 0];
+
+        for (let j = 0; j < Math.min(slots.length, 5); j++) {
+          const slotInstanceId = slots[j];
+          if (slotInstanceId <= 0) continue;
+          const si = slotItemMap[slotInstanceId];
+          if (!si) continue;
+          equipIds[j] = si.slotitem_id;
+          equipImprovement[j] = si.level;
+          equipProficiency[j] = si.alv;
+        }
+
+        const exSlotInstanceId = (ship.s5x as number) ?? 0;
+        let exSlotId: number | null = null;
+        let exSlotImprovement = 0;
+        if (exSlotInstanceId > 0) {
+          const exSi = slotItemMap[exSlotInstanceId];
+          if (exSi) {
+            exSlotId = exSi.slotitem_id;
+            exSlotImprovement = exSi.level;
+          }
+        }
+
+        fleet1[i] = {
+          shipId: masterShipId,
+          shipLevel: (ship.l0v as number) ?? null,
+          equipIds,
+          equipImprovement,
+          equipProficiency,
+          exSlotId,
+          exSlotImprovement,
+        };
+      }
+    }
+
     renderAll();
   }
 

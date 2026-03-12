@@ -1,3 +1,4 @@
+use kc_api_interface::deck_port::DeckPort as InterfaceDeckPort;
 use kc_api_interface::ship::Ship as InterfaceShip;
 use kc_api_interface::ship::SpEffectItem as InterfaceSpEffectItem;
 use kc_api_interface::use_items::UseItem as InterfaceUseItem;
@@ -12,14 +13,26 @@ pub struct FleetSnapshot{
     pub use_items: Option<Vec<UseItem>>,
     #[serde(rename(serialize = "s8s"))]
     pub slot_items: Option<Vec<SlotItem>>,
+    #[serde(rename(serialize = "d8k"))]
+    pub deck_ports: Option<Vec<DeckPortSnapshot>>,
+    #[serde(rename(serialize = "c11g"))]
+    pub combined_flag: Option<i64>,
 }
 
 impl FleetSnapshot {
-    pub fn new(ships: Vec<InterfaceShip>, use_items: Vec<InterfaceUseItem>, slot_items: Vec<InterfaceSlotItem>) -> Self {
+    pub fn new(
+        ships: Vec<InterfaceShip>,
+        use_items: Vec<InterfaceUseItem>,
+        slot_items: Vec<InterfaceSlotItem>,
+        deck_ports: Vec<InterfaceDeckPort>,
+        combined_flag: Option<i64>,
+    ) -> Self {
         FleetSnapshot {
             ships: Some(ships.into_iter().map(Ship::from).collect()),
             use_items: Some(use_items.into_iter().map(UseItem::from).collect()),
             slot_items: Some(slot_items.into_iter().map(SlotItem::from).collect()),
+            deck_ports: Some(deck_ports.into_iter().map(DeckPortSnapshot::from).collect()),
+            combined_flag,
         }
     }
 }
@@ -181,6 +194,26 @@ impl From<InterfaceSlotItem> for SlotItem {
             // locked: slot_item.locked,
             level: slot_item.level,
             alv: slot_item.alv,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct DeckPortSnapshot {
+    #[serde(rename(serialize = "i0d"))]
+    pub id: i64,
+    #[serde(rename(serialize = "n2e"))]
+    pub name: String,
+    #[serde(rename(serialize = "s3s"))]
+    pub ships: Vec<i64>,
+}
+
+impl From<InterfaceDeckPort> for DeckPortSnapshot {
+    fn from(dp: InterfaceDeckPort) -> Self {
+        DeckPortSnapshot {
+            id: dp.id,
+            name: dp.name,
+            ships: dp.ship.unwrap_or_default(),
         }
     }
 }
