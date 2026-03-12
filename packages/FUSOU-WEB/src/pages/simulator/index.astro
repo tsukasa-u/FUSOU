@@ -127,7 +127,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             </div>
           </div>
           <div class="flex flex-1 min-h-0">
-            <div class="flex-1 overflow-y-auto p-2 sm:p-3" id="ship-modal-grid"></div>
+            <div class="w-20 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar" id="ship-modal-categories"></div>
+            <div class="relative flex-1 overflow-y-auto p-2 sm:p-3" id="ship-modal-grid"></div>
             <div class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block" id="ship-modal-detail">
               <p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>
             </div>
@@ -148,9 +149,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
               <input type="text" id="equip-modal-search" placeholder="装備名で検索..." class="input input-bordered input-sm flex-1" autocomplete="off" />
               <select id="equip-modal-type" class="select select-bordered select-sm w-32 sm:w-40"><option value="">全装備種</option></select>
             </div>
+            <div id="equip-modal-source-tabs" class="tabs tabs-boxed mt-2 hidden">
+              <button class="tab tab-sm tab-active" data-source="snapshot">スナップショット</button>
+              <button class="tab tab-sm" data-source="master">マスターデータ</button>
+            </div>
           </div>
           <div class="flex flex-1 min-h-0">
-            <div class="flex-1 overflow-y-auto p-2 sm:p-3" id="equip-modal-grid"></div>
+            <div class="w-24 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar" id="equip-modal-categories"></div>
+            <div class="relative flex-1 overflow-y-auto p-2 sm:p-3" id="equip-modal-grid"></div>
             <div class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block" id="equip-modal-detail">
               <p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>
             </div>
@@ -281,6 +287,26 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     93: "大型電探II", 94: "艦上偵察機II",
   };
 
+  const EQUIP_TYPE_SHORT: Record<number, string> = {
+    1: "小口径", 2: "中口径", 3: "大口径", 4: "副砲",
+    5: "魚雷", 6: "艦戦", 7: "艦爆", 8: "艦攻",
+    9: "艦偵", 10: "水偵", 11: "水爆",
+    12: "小電探", 13: "大電探", 14: "ソナー", 15: "爆雷",
+    17: "機関", 18: "対空弾", 19: "対艦弾",
+    21: "機銃", 22: "特潜", 23: "応急",
+    24: "舟艇", 25: "回転翼", 26: "対潜機",
+    27: "中装甲", 28: "大装甲", 29: "探照灯",
+    30: "輸送材", 31: "修理", 32: "潜水魚雷",
+    33: "照明弾", 34: "司令部", 35: "航空員", 36: "高射",
+    37: "対地", 38: "大口径II", 39: "水戦",
+    40: "大ソナー", 42: "飛行艇", 43: "糧食",
+    44: "補給", 45: "水上機", 46: "内火艇",
+    47: "陸攻", 48: "局戦", 49: "陸偵",
+    50: "輸送材", 51: "潜水装備", 56: "噴式爆",
+    57: "噴式攻", 58: "噴式偵",
+    93: "大電探II", 94: "艦偵II",
+  };
+
   // Equipment type[2] values that represent aircraft (can have proficiency)
   const AIRCRAFT_TYPES = new Set([
     6, 7, 8, 9, 10, 11, 25, 26, 39, 42, 45, 47, 48, 49, 56, 57, 58, 94,
@@ -335,6 +361,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   let shipModalCurrentId: number | null = null;
   let equipModalCurrentId: number | null = null;
   let shipModalSource: "snapshot" | "master" = "master";
+  let equipModalSource: "snapshot" | "master" = "master";
 
   // ==============================================================
   //  Helpers
@@ -474,10 +501,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   }
 
   // Virtual scroll constants
-  const SHIP_ROW_PITCH = 46; // ~44px item + 2px grid gap (auto-measured on first render)
+  const SHIP_ROW_PITCH = 46;
+  const HEADER_HEIGHT = 30;
   const VS_BUFFER = 10;
 
-  // Ship virtual scroll state
+  // ── Ship virtual scroll (flat, for filtered view) ──
   let _shipVS: {
     items: MstShipData[];
     spacer: HTMLElement;
@@ -491,17 +519,44 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   } | null = null;
   let _shipScrollRaf = 0;
 
+  // ── Ship grouped virtual scroll ──
+  type ShipGRow =
+    | { kind: "header"; stype: number }
+    | { kind: "items"; ships: MstShipData[] };
+  let _shipGVS: {
+    rows: ShipGRow[];
+    offsets: number[];
+    spacer: HTMLElement;
+    viewport: HTMLElement;
+    grid: HTMLElement;
+    cols: number;
+    rStart: number;
+    rEnd: number;
+    catOffsets: { stype: number; offset: number }[];
+  } | null = null;
+  let _shipGScrollRaf = 0;
+
   function cleanupShipVS() {
     if (_shipVS) {
       _shipVS.grid.removeEventListener("scroll", onShipScroll);
       if (_shipScrollRaf) { cancelAnimationFrame(_shipScrollRaf); _shipScrollRaf = 0; }
       _shipVS = null;
     }
+    if (_shipGVS) {
+      _shipGVS.grid.removeEventListener("scroll", onShipGScroll);
+      if (_shipGScrollRaf) { cancelAnimationFrame(_shipGScrollRaf); _shipGScrollRaf = 0; }
+      _shipGVS = null;
+    }
   }
 
   function onShipScroll() {
     if (!_shipScrollRaf) {
       _shipScrollRaf = requestAnimationFrame(() => { _shipScrollRaf = 0; syncShipVS(); });
+    }
+  }
+  function onShipGScroll() {
+    if (!_shipGScrollRaf) {
+      _shipGScrollRaf = requestAnimationFrame(() => { _shipGScrollRaf = 0; syncShipGVS(); });
     }
   }
 
@@ -550,6 +605,44 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     }
   }
 
+  function syncShipGVS() {
+    if (!_shipGVS) return;
+    const { rows, offsets, spacer, viewport, grid, cols } = _shipGVS;
+    const totalH = offsets[rows.length];
+    spacer.style.height = `${totalH}px`;
+    const spacerTop = spacer.offsetTop;
+    const scrollTop = Math.max(0, grid.scrollTop - spacerTop);
+    const viewH = grid.clientHeight;
+    // Binary search for first visible row
+    let lo = 0, hi = rows.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= scrollTop) lo = mid + 1; else hi = mid; }
+    const rStart = Math.max(0, lo - VS_BUFFER);
+    let rEnd = lo;
+    while (rEnd < rows.length && offsets[rEnd] < scrollTop + viewH) rEnd++;
+    rEnd = Math.min(rows.length, rEnd + VS_BUFFER);
+    if (rStart === _shipGVS.rStart && rEnd === _shipGVS.rEnd) return;
+    _shipGVS.rStart = rStart;
+    _shipGVS.rEnd = rEnd;
+    viewport.style.top = `${offsets[rStart]}px`;
+    viewport.innerHTML = "";
+    for (let i = rStart; i < rEnd; i++) {
+      const row = rows[i];
+      if (row.kind === "header") {
+        const h = document.createElement("div");
+        h.className = "bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center";
+        h.style.height = `${HEADER_HEIGHT}px`;
+        h.textContent = STYPE_NAMES[row.stype] ?? `Type ${row.stype}`;
+        viewport.appendChild(h);
+      } else {
+        const rd = document.createElement("div");
+        rd.style.height = `${SHIP_ROW_PITCH}px`;
+        if (cols > 1) { rd.style.display = "grid"; rd.style.gridTemplateColumns = "repeat(2,1fr)"; rd.style.gap = "2px"; }
+        for (const s of row.ships) rd.appendChild(createShipItem(s));
+        viewport.appendChild(rd);
+      }
+    }
+  }
+
   function renderShipGrid(search: string, stypeFilter: string) {
     const grid = document.getElementById("ship-modal-grid")!;
     grid.innerHTML = "";
@@ -558,13 +651,18 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     let ships: MstShipData[];
 
     if (shipModalSource === "snapshot" && Object.keys(snapshotShips).length > 0) {
-      // Build MstShipData-like entries from snapshot ships (using master data for stats)
-      ships = Object.values(snapshotShips)
-        .map((ss) => {
-          const mst = mstShips[ss.shipId];
+      // Group by (shipId, level) to show each variant separately with count
+      const variantMap = new Map<string, { shipId: number; level: number; name: string; stype: number; count: number }>();
+      for (const ss of Object.values(snapshotShips)) {
+        const key = `${ss.shipId}_${ss.level ?? 0}`;
+        const existing = variantMap.get(key);
+        if (existing) { existing.count++; } else { variantMap.set(key, { ...ss, count: 1 }); }
+      }
+      ships = [...variantMap.values()]
+        .map((v) => {
+          const mst = mstShips[v.shipId];
           if (!mst) return null;
-          // Return master data enriched with snapshot level in name display
-          return { ...mst, _snapshotLevel: ss.level } as MstShipData & { _snapshotLevel?: number };
+          return { ...mst, _snapshotLevel: v.level, _snapshotCount: v.count } as MstShipData & { _snapshotLevel?: number; _snapshotCount?: number };
         })
         .filter((s): s is MstShipData => s != null)
         .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
@@ -580,10 +678,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
     if (ships.length === 0) {
       grid.innerHTML = '<p class="text-sm text-base-content/30 text-center py-12">該当する艦娘が見つかりません</p>';
+      renderShipCategoryNav([]);
       return;
     }
 
-    // Clear option
+    // Clear option (outside virtual scroll, above spacer)
     if (shipModalCurrentId != null) {
       const clearItem = document.createElement("div");
       clearItem.className = "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
@@ -596,23 +695,93 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       grid.appendChild(clearItem);
     }
 
+    // Both grouped and filtered views use virtual scroll
     const cols = window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
-    const rowCount = Math.ceil(ships.length / cols);
-    const spacer = document.createElement("div");
-    spacer.style.position = "relative";
-    spacer.style.height = `${rowCount * SHIP_ROW_PITCH}px`;
 
-    const viewport = document.createElement("div");
-    viewport.className = "grid grid-cols-1 sm:grid-cols-2 gap-0.5";
-    viewport.style.position = "absolute";
-    viewport.style.left = "0";
-    viewport.style.right = "0";
-    spacer.appendChild(viewport);
-    grid.appendChild(spacer);
+    if (!stypeFilter) {
+      // Grouped by stype — variable-height virtual scroll
+      const groups = new Map<number, MstShipData[]>();
+      for (const s of ships) {
+        const arr = groups.get(s.stype);
+        if (arr) arr.push(s);
+        else groups.set(s.stype, [s]);
+      }
+      const sortedStypes = [...groups.keys()].sort((a, b) => a - b);
+      const rows: ShipGRow[] = [];
+      const catOffsets: { stype: number; offset: number }[] = [];
+      let totalH = 0;
+      for (const st of sortedStypes) {
+        catOffsets.push({ stype: st, offset: totalH });
+        rows.push({ kind: "header", stype: st });
+        totalH += HEADER_HEIGHT;
+        const items = groups.get(st)!;
+        for (let i = 0; i < items.length; i += cols) {
+          rows.push({ kind: "items", ships: items.slice(i, i + cols) });
+          totalH += SHIP_ROW_PITCH;
+        }
+      }
+      const offsets = new Array<number>(rows.length + 1);
+      offsets[0] = 0;
+      for (let i = 0; i < rows.length; i++) {
+        offsets[i + 1] = offsets[i] + (rows[i].kind === "header" ? HEADER_HEIGHT : SHIP_ROW_PITCH);
+      }
 
-    _shipVS = { items: ships, spacer, viewport, grid, cols, pitch: SHIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
-    grid.addEventListener("scroll", onShipScroll);
-    syncShipVS();
+      const spacer = document.createElement("div");
+      spacer.style.position = "relative";
+      spacer.style.height = `${totalH}px`;
+      const viewport = document.createElement("div");
+      viewport.style.cssText = "position:absolute;left:0;right:0;";
+      spacer.appendChild(viewport);
+      grid.appendChild(spacer);
+
+      _shipGVS = { rows, offsets, spacer, viewport, grid, cols, rStart: -1, rEnd: -1, catOffsets };
+      grid.addEventListener("scroll", onShipGScroll);
+      syncShipGVS();
+      renderShipCategoryNav(catOffsets);
+    } else {
+      // Single stype — flat grid virtual scroll
+      const rowCount = Math.ceil(ships.length / cols);
+      const spacer = document.createElement("div");
+      spacer.style.position = "relative";
+      spacer.style.height = `${rowCount * SHIP_ROW_PITCH}px`;
+
+      const viewport = document.createElement("div");
+      viewport.className = "grid grid-cols-1 sm:grid-cols-2 gap-0.5";
+      viewport.style.position = "absolute";
+      viewport.style.left = "0";
+      viewport.style.right = "0";
+      spacer.appendChild(viewport);
+      grid.appendChild(spacer);
+
+      _shipVS = { items: ships, spacer, viewport, grid, cols, pitch: SHIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
+      grid.addEventListener("scroll", onShipScroll);
+      syncShipVS();
+      renderShipCategoryNav([]);
+    }
+  }
+
+  function renderShipCategoryNav(
+    catOffsets: { stype: number; offset: number }[],
+  ) {
+    const nav = document.getElementById("ship-modal-categories");
+    if (!nav) return;
+    nav.innerHTML = "";
+    if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
+    nav.classList.remove("hidden"); nav.classList.add("sm:block");
+    for (const { stype, offset } of catOffsets) {
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content";
+      btn.textContent = STYPE_SHORT[stype] ?? STYPE_NAMES[stype] ?? `${stype}`;
+      btn.title = STYPE_NAMES[stype] ?? `Type ${stype}`;
+      btn.addEventListener("click", () => {
+        const grid = document.getElementById("ship-modal-grid");
+        if (!grid) return;
+        const spacer = grid.querySelector("div[style*='position: relative']") as HTMLElement | null;
+        const spacerTop = spacer ? spacer.offsetTop : 0;
+        grid.scrollTop = spacerTop + offset;
+      });
+      nav.appendChild(btn);
+    }
   }
 
   function createShipItem(ship: MstShipData): HTMLElement {
@@ -645,9 +814,12 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     const typeDiv = document.createElement("div");
     typeDiv.className = "text-[11px] text-base-content/40 leading-tight";
     const snLevel = (ship as MstShipData & { _snapshotLevel?: number })._snapshotLevel;
-    typeDiv.textContent = snLevel != null
+    const snShipCount = (ship as MstShipData & { _snapshotCount?: number })._snapshotCount;
+    let typeText = snLevel != null
       ? `${STYPE_NAMES[ship.stype] ?? ""} Lv.${snLevel} #${ship.id}`
       : `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
+    if (snShipCount != null && snShipCount > 1) typeText += ` ×${snShipCount}`;
+    typeDiv.textContent = typeText;
     textDiv.appendChild(typeDiv);
     item.appendChild(textDiv);
 
@@ -772,10 +944,28 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     if (!(modal instanceof HTMLDialogElement) || !(search instanceof HTMLInputElement) || !(typeFilter instanceof HTMLSelectElement)) return;
     search.value = "";
     populateEquipTypeFilter(typeFilter);
+
+    const tabsEl = document.getElementById("equip-modal-source-tabs");
+    const hasSnapshot = Object.keys(snapshotSlotItems).length > 0;
+    if (tabsEl) {
+      tabsEl.classList.toggle("hidden", !hasSnapshot);
+    }
+    equipModalSource = hasSnapshot ? "snapshot" : "master";
+    updateEquipSourceTabs();
+
     renderEquipGrid("", "");
     resetEquipDetail();
     modal.showModal();
     requestAnimationFrame(() => search.focus());
+  }
+
+  function updateEquipSourceTabs() {
+    const tabsEl = document.getElementById("equip-modal-source-tabs");
+    if (!tabsEl) return;
+    for (const btn of tabsEl.querySelectorAll("[data-source]")) {
+      const isActive = (btn as HTMLElement).dataset.source === equipModalSource;
+      btn.classList.toggle("tab-active", isActive);
+    }
   }
 
   function populateEquipTypeFilter(select: HTMLSelectElement) {
@@ -796,7 +986,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   }
 
   // Equip virtual scroll state
-  const EQUIP_ROW_PITCH = 45; // ~44px item + 1px gap (auto-measured on first render)
+  const EQUIP_ROW_PITCH = 45;
   let _equipVS: {
     items: MstSlotItemData[];
     spacer: HTMLElement;
@@ -809,17 +999,43 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   } | null = null;
   let _equipScrollRaf = 0;
 
+  // ── Equipment grouped virtual scroll ──
+  type EquipGRow =
+    | { kind: "header"; typeId: number }
+    | { kind: "item"; equip: MstSlotItemData };
+  let _equipGVS: {
+    rows: EquipGRow[];
+    offsets: number[];
+    spacer: HTMLElement;
+    viewport: HTMLElement;
+    grid: HTMLElement;
+    rStart: number;
+    rEnd: number;
+    catOffsets: { typeId: number; offset: number }[];
+  } | null = null;
+  let _equipGScrollRaf = 0;
+
   function cleanupEquipVS() {
     if (_equipVS) {
       _equipVS.grid.removeEventListener("scroll", onEquipScroll);
       if (_equipScrollRaf) { cancelAnimationFrame(_equipScrollRaf); _equipScrollRaf = 0; }
       _equipVS = null;
     }
+    if (_equipGVS) {
+      _equipGVS.grid.removeEventListener("scroll", onEquipGScroll);
+      if (_equipGScrollRaf) { cancelAnimationFrame(_equipGScrollRaf); _equipGScrollRaf = 0; }
+      _equipGVS = null;
+    }
   }
 
   function onEquipScroll() {
     if (!_equipScrollRaf) {
       _equipScrollRaf = requestAnimationFrame(() => { _equipScrollRaf = 0; syncEquipVS(); });
+    }
+  }
+  function onEquipGScroll() {
+    if (!_equipGScrollRaf) {
+      _equipGScrollRaf = requestAnimationFrame(() => { _equipGScrollRaf = 0; syncEquipGVS(); });
     }
   }
 
@@ -860,6 +1076,42 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     }
   }
 
+  function syncEquipGVS() {
+    if (!_equipGVS) return;
+    const { rows, offsets, spacer, viewport, grid } = _equipGVS;
+    const totalH = offsets[rows.length];
+    spacer.style.height = `${totalH}px`;
+    const spacerTop = spacer.offsetTop;
+    const scrollTop = Math.max(0, grid.scrollTop - spacerTop);
+    const viewH = grid.clientHeight;
+    let lo = 0, hi = rows.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= scrollTop) lo = mid + 1; else hi = mid; }
+    const rStart = Math.max(0, lo - VS_BUFFER);
+    let rEnd = lo;
+    while (rEnd < rows.length && offsets[rEnd] < scrollTop + viewH) rEnd++;
+    rEnd = Math.min(rows.length, rEnd + VS_BUFFER);
+    if (rStart === _equipGVS.rStart && rEnd === _equipGVS.rEnd) return;
+    _equipGVS.rStart = rStart;
+    _equipGVS.rEnd = rEnd;
+    viewport.style.top = `${offsets[rStart]}px`;
+    viewport.innerHTML = "";
+    for (let i = rStart; i < rEnd; i++) {
+      const row = rows[i];
+      if (row.kind === "header") {
+        const h = document.createElement("div");
+        h.className = "bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center";
+        h.style.height = `${HEADER_HEIGHT}px`;
+        h.textContent = EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`;
+        viewport.appendChild(h);
+      } else {
+        const rd = document.createElement("div");
+        rd.style.height = `${EQUIP_ROW_PITCH}px`;
+        rd.appendChild(createEquipItem(row.equip));
+        viewport.appendChild(rd);
+      }
+    }
+  }
+
   function createEquipItem(equip: MstSlotItemData): HTMLElement {
     const isSelected = equip.id === equipModalCurrentId;
     const item = document.createElement("div");
@@ -891,13 +1143,65 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     textDiv.appendChild(nameSpan);
     const typeSpan = document.createElement("div");
     typeSpan.className = "text-[11px] text-base-content/40 leading-tight";
+    const snLv = (equip as MstSlotItemData & { _snapshotLevel?: number })._snapshotLevel;
+    const snAlv = (equip as MstSlotItemData & { _snapshotAlv?: number })._snapshotAlv;
+    const snCount = (equip as MstSlotItemData & { _snapshotCount?: number })._snapshotCount;
     typeSpan.textContent = EQUIP_TYPE_NAMES[equip.type?.[2] ?? 0] ?? "";
+    if (snLv != null && snLv > 0) {
+      const impSpan = document.createElement("span");
+      impSpan.style.color = "#00897b";
+      impSpan.style.fontWeight = "bold";
+      impSpan.textContent = ` ★${snLv}`;
+      typeSpan.appendChild(impSpan);
+    }
+    if (snAlv != null && snAlv > 0) {
+      const profSpan = document.createElement("span");
+      const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
+      profSpan.style.fontWeight = "bold";
+      profSpan.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+      if (snAlv <= 3) profSpan.style.color = "#1976d2";
+      else if (snAlv <= 6) profSpan.style.color = "#f57c00";
+      else profSpan.style.color = "#e65100";
+      profSpan.textContent = ` ${profSymbols[snAlv] ?? ">>"}`;
+      typeSpan.appendChild(profSpan);
+    }
+    if (snCount != null && snCount > 1) {
+      const cntSpan = document.createElement("span");
+      cntSpan.style.color = "#6b7280";
+      cntSpan.textContent = ` ×${snCount}`;
+      typeSpan.appendChild(cntSpan);
+    }
     textDiv.appendChild(typeSpan);
     item.appendChild(textDiv);
 
     // Key stat badges
     const badges = document.createElement("div");
-    badges.className = "flex gap-1 shrink-0";
+    badges.className = "flex gap-1 shrink-0 flex-wrap justify-end";
+    if (snLv != null && snLv > 0) {
+      const lvBadge = document.createElement("span");
+      lvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
+      lvBadge.style.color = "#00897b";
+      lvBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+      lvBadge.textContent = `★${snLv}`;
+      badges.appendChild(lvBadge);
+    }
+    if (snAlv != null && snAlv > 0) {
+      const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
+      const alvBadge = document.createElement("span");
+      alvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
+      alvBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+      if (snAlv <= 3) alvBadge.style.color = "#1976d2";
+      else if (snAlv <= 6) alvBadge.style.color = "#f57c00";
+      else alvBadge.style.color = "#e65100";
+      alvBadge.textContent = profSymbols[snAlv] ?? ">>";
+      badges.appendChild(alvBadge);
+    }
+    if (snCount != null && snCount > 1) {
+      const cntBadge = document.createElement("span");
+      cntBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold bg-base-200/60 text-base-content/60";
+      cntBadge.textContent = `×${snCount}`;
+      badges.appendChild(cntBadge);
+    }
     const statPairs: [string, number][] = [];
     if (equip.houg) statPairs.push(["火", equip.houg]);
     if (equip.raig) statPairs.push(["雷", equip.raig]);
@@ -926,7 +1230,28 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     grid.innerHTML = "";
     cleanupEquipVS();
 
-    let items = Object.values(mstSlotItems).sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
+    let items: MstSlotItemData[];
+
+    if (equipModalSource === "snapshot" && Object.keys(snapshotSlotItems).length > 0) {
+      // Group by (slotitem_id, level, alv) to show each variant separately with count
+      const variantMap = new Map<string, { slotitem_id: number; level: number; alv: number; count: number }>();
+      for (const si of Object.values(snapshotSlotItems)) {
+        const key = `${si.slotitem_id}_${si.level ?? 0}_${si.alv ?? 0}`;
+        const existing = variantMap.get(key);
+        if (existing) { existing.count++; } else { variantMap.set(key, { slotitem_id: si.slotitem_id, level: si.level ?? 0, alv: si.alv ?? 0, count: 1 }); }
+      }
+      items = [...variantMap.values()]
+        .map((v) => {
+          const mst = mstSlotItems[v.slotitem_id];
+          if (!mst) return null;
+          return { ...mst, _snapshotLevel: v.level, _snapshotAlv: v.alv, _snapshotCount: v.count } as MstSlotItemData & { _snapshotLevel?: number; _snapshotAlv?: number; _snapshotCount?: number };
+        })
+        .filter((e): e is MstSlotItemData => e != null)
+        .sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
+    } else {
+      items = Object.values(mstSlotItems).sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
+    }
+
     if (typeFilter) {
       const ft = parseInt(typeFilter, 10);
       items = items.filter((e) => e.type?.[2] === ft);
@@ -938,10 +1263,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
     if (items.length === 0) {
       grid.innerHTML = '<p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>';
+      renderEquipCategoryNav([]);
       return;
     }
 
-    // Clear option
+    // Clear option (outside virtual scroll, above spacer)
     if (equipModalCurrentId != null) {
       const clearItem = document.createElement("div");
       clearItem.className = "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
@@ -954,18 +1280,87 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       grid.appendChild(clearItem);
     }
 
-    const spacer = document.createElement("div");
-    spacer.style.position = "relative";
-    spacer.style.height = `${items.length * EQUIP_ROW_PITCH}px`;
+    if (!typeFilter) {
+      // Grouped by type — variable-height virtual scroll
+      const groups = new Map<number, MstSlotItemData[]>();
+      for (const e of items) {
+        const t = e.type?.[2] ?? 0;
+        const arr = groups.get(t);
+        if (arr) arr.push(e);
+        else groups.set(t, [e]);
+      }
+      const sortedTypes = [...groups.keys()].sort((a, b) => a - b);
+      const rows: EquipGRow[] = [];
+      const catOffsets: { typeId: number; offset: number }[] = [];
+      let totalH = 0;
+      for (const t of sortedTypes) {
+        catOffsets.push({ typeId: t, offset: totalH });
+        rows.push({ kind: "header", typeId: t });
+        totalH += HEADER_HEIGHT;
+        for (const e of groups.get(t)!) {
+          rows.push({ kind: "item", equip: e });
+          totalH += EQUIP_ROW_PITCH;
+        }
+      }
+      const offsets = new Array<number>(rows.length + 1);
+      offsets[0] = 0;
+      for (let i = 0; i < rows.length; i++) {
+        offsets[i + 1] = offsets[i] + (rows[i].kind === "header" ? HEADER_HEIGHT : EQUIP_ROW_PITCH);
+      }
 
-    const viewport = document.createElement("div");
-    viewport.style.cssText = "position:absolute;left:0;right:0;display:flex;flex-direction:column;gap:1px;";
-    spacer.appendChild(viewport);
-    grid.appendChild(spacer);
+      const spacer = document.createElement("div");
+      spacer.style.position = "relative";
+      spacer.style.height = `${totalH}px`;
+      const viewport = document.createElement("div");
+      viewport.style.cssText = "position:absolute;left:0;right:0;";
+      spacer.appendChild(viewport);
+      grid.appendChild(spacer);
 
-    _equipVS = { items, spacer, viewport, grid, pitch: EQUIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
-    grid.addEventListener("scroll", onEquipScroll);
-    syncEquipVS();
+      _equipGVS = { rows, offsets, spacer, viewport, grid, rStart: -1, rEnd: -1, catOffsets };
+      grid.addEventListener("scroll", onEquipGScroll);
+      syncEquipGVS();
+      renderEquipCategoryNav(catOffsets);
+    } else {
+      // Single type — flat list, use virtual scroll
+      const spacer = document.createElement("div");
+      spacer.style.position = "relative";
+      spacer.style.height = `${items.length * EQUIP_ROW_PITCH}px`;
+
+      const viewport = document.createElement("div");
+      viewport.style.cssText = "position:absolute;left:0;right:0;display:flex;flex-direction:column;gap:1px;";
+      spacer.appendChild(viewport);
+      grid.appendChild(spacer);
+
+      _equipVS = { items, spacer, viewport, grid, pitch: EQUIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
+      grid.addEventListener("scroll", onEquipScroll);
+      syncEquipVS();
+      renderEquipCategoryNav([]);
+    }
+  }
+
+  function renderEquipCategoryNav(
+    catOffsets: { typeId: number; offset: number }[],
+  ) {
+    const nav = document.getElementById("equip-modal-categories");
+    if (!nav) return;
+    nav.innerHTML = "";
+    if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
+    nav.classList.remove("hidden"); nav.classList.add("sm:block");
+    nav.scrollTop = 0;
+    for (const { typeId, offset } of catOffsets) {
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content";
+      btn.textContent = EQUIP_TYPE_SHORT[typeId] ?? EQUIP_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
+      btn.title = EQUIP_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
+      btn.addEventListener("click", () => {
+        const grid = document.getElementById("equip-modal-grid");
+        if (!grid) return;
+        const spacer = grid.querySelector("div[style*='position: relative']") as HTMLElement | null;
+        const spacerTop = spacer ? spacer.offsetTop : 0;
+        grid.scrollTop = spacerTop + offset;
+      });
+      nav.appendChild(btn);
+    }
   }
 
   function renderEquipDetail(equip: MstSlotItemData) {
@@ -1062,10 +1457,25 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     });
   }
 
+  // Equip source tab switching (snapshot / master data)
+  document.getElementById("equip-modal-source-tabs")?.addEventListener("click", (e) => {
+    const btn = (e.target as HTMLElement).closest("[data-source]") as HTMLElement | null;
+    if (!btn) return;
+    const src = btn.dataset.source as "snapshot" | "master";
+    if (src === equipModalSource) return;
+    equipModalSource = src;
+    updateEquipSourceTabs();
+    const search = equipSearchEl instanceof HTMLInputElement ? equipSearchEl.value : "";
+    const type = equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
+    renderEquipGrid(search, type);
+  });
+
   // Virtual scroll resize handler
   window.addEventListener("resize", () => {
     if (_shipVS) { _shipVS.rStart = -1; _shipVS.measured = false; syncShipVS(); }
+    if (_shipGVS) { _shipGVS.rStart = -1; syncShipGVS(); }
     if (_equipVS) { _equipVS.rStart = -1; _equipVS.measured = false; syncEquipVS(); }
+    if (_equipGVS) { _equipGVS.rStart = -1; syncEquipGVS(); }
   });
 
   // ==============================================================
@@ -1721,7 +2131,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   function applyFleetSnapshot(snapshot: Record<string, unknown>) {
     const ships = (snapshot as { s3s?: Record<string, unknown>[] }).s3s ?? [];
     const slotItems = (snapshot as { s8s?: Record<string, unknown>[] }).s8s ?? [];
-    const deckPorts = (snapshot as { d3k?: Record<string, unknown>[] }).d3k ?? [];
+    const deckPorts = (snapshot as { d8k?: Record<string, unknown>[] }).d8k ?? [];
 
     // Build slot item lookup: instance id → {slotitem_id, level, alv}
     const slotItemMap: Record<number, { slotitem_id: number; level: number; alv: number }> = {};
@@ -2167,3 +2577,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   renderAll();
   loadMasterData();
 </script>
+
+<style is:global>
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+</style>
