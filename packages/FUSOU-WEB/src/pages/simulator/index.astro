@@ -505,9 +505,24 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   const HEADER_HEIGHT = 30;
   const VS_BUFFER = 10;
 
-  // ── Ship virtual scroll (flat, for filtered view) ──
-  let _shipVS: {
-    items: MstShipData[];
+  // ==============================================================
+  //  Shared Virtual Scroll Helpers
+  // ==============================================================
+
+  /** State shape shared by all grouped virtual scroll instances. */
+  interface GroupedVSState {
+    rows: unknown[];
+    offsets: number[];
+    spacer: HTMLElement;
+    viewport: HTMLElement;
+    grid: HTMLElement;
+    rStart: number;
+    rEnd: number;
+  }
+
+  /** State shape shared by all flat virtual scroll instances. */
+  interface FlatVSState {
+    items: unknown[];
     spacer: HTMLElement;
     viewport: HTMLElement;
     grid: HTMLElement;
@@ -516,37 +531,174 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     measured: boolean;
     rStart: number;
     rEnd: number;
-  } | null = null;
+  }
+
+  /**
+   * Core sync logic for grouped (variable-height) virtual scroll.
+   * Binary-searches for the first visible row and renders the visible window.
+   * Returns true if the viewport was updated, false if skipped (unchanged range).
+   */
+  function syncGroupedVS(
+    state: GroupedVSState,
+    renderRow: (row: any, index: number) => HTMLElement,
+  ): boolean {
+    const { rows, offsets, spacer, viewport, grid } = state;
+    const totalH = offsets[rows.length];
+    spacer.style.height = `${totalH}px`;
+    const spacerTop = spacer.offsetTop;
+    const scrollTop = Math.max(0, grid.scrollTop - spacerTop);
+    const viewH = grid.clientHeight;
+    let lo = 0, hi = rows.length;
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= scrollTop) lo = mid + 1; else hi = mid; }
+    const rStart = Math.max(0, lo - VS_BUFFER);
+    let rEnd = lo;
+    while (rEnd < rows.length && offsets[rEnd] < scrollTop + viewH) rEnd++;
+    rEnd = Math.min(rows.length, rEnd + VS_BUFFER);
+    if (rStart === state.rStart && rEnd === state.rEnd) return false;
+    state.rStart = rStart;
+    state.rEnd = rEnd;
+    viewport.style.top = `${offsets[rStart]}px`;
+    viewport.innerHTML = "";
+    for (let i = rStart; i < rEnd; i++) {
+      viewport.appendChild(renderRow(rows[i], i));
+    }
+    return true;
+  }
+
+  /**
+   * Core sync logic for flat (uniform-height) virtual scroll.
+   * Supports multi-column layouts via `state.cols`.
+   * Optionally recalculates responsive column count via `responsiveCols`.
+   * Returns true if the viewport was updated.
+   */
+  function syncFlatVS(
+    state: FlatVSState,
+    renderItem: (item: any) => HTMLElement,
+    responsiveCols?: () => number,
+  ): boolean {
+    if (responsiveCols) {
+      const newCols = responsiveCols();
+      if (newCols !== state.cols) {
+        state.cols = newCols;
+        state.measured = false;
+        state.rStart = -1;
+      }
+    }
+    const { items, spacer, viewport, grid, cols } = state;
+    const pitch = state.pitch;
+    const rc = Math.ceil(items.length / cols);
+    spacer.style.height = `${rc * pitch}px`;
+
+    const spacerTop = spacer.offsetTop;
+    const vis0 = Math.max(0, grid.scrollTop - spacerTop);
+    const vis1 = vis0 + grid.clientHeight;
+    const rStart = Math.max(0, Math.floor(vis0 / pitch) - VS_BUFFER);
+    const rEnd = Math.min(rc, Math.ceil(vis1 / pitch) + VS_BUFFER);
+    if (rStart === state.rStart && rEnd === state.rEnd) return false;
+    state.rStart = rStart;
+    state.rEnd = rEnd;
+
+    viewport.style.top = `${rStart * pitch}px`;
+    viewport.innerHTML = "";
+    const iEnd = Math.min(items.length, rEnd * cols);
+    for (let i = rStart * cols; i < iEnd; i++) {
+      viewport.appendChild(renderItem(items[i]));
+    }
+
+    // Auto-measure actual row pitch after first render
+    if (!state.measured && viewport.children.length > cols) {
+      const first = (viewport.children[0] as HTMLElement).getBoundingClientRect();
+      const second = (viewport.children[cols] as HTMLElement).getBoundingClientRect();
+      const actual = second.top - first.top;
+      if (actual > 0 && Math.abs(actual - pitch) > 1) {
+        state.pitch = actual;
+        state.rStart = -1;
+        syncFlatVS(state, renderItem, responsiveCols);
+        return true;
+      }
+      state.measured = true;
+    }
+    return true;
+  }
+
+  /** Create a category group header element. */
+  function createGroupHeader(text: string): HTMLElement {
+    const h = document.createElement("div");
+    h.className = "bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center";
+    h.style.height = `${HEADER_HEIGHT}px`;
+    h.textContent = text;
+    return h;
+  }
+
+  /** Create the spacer + viewport container pair used by all VS instances. */
+  function createVSContainer(): { spacer: HTMLElement; viewport: HTMLElement } {
+    const spacer = document.createElement("div");
+    spacer.style.position = "relative";
+    const viewport = document.createElement("div");
+    viewport.style.cssText = "position:absolute;left:0;right:0;";
+    spacer.appendChild(viewport);
+    return { spacer, viewport };
+  }
+
+  /** Render a category sidebar navigation. Generic for both ship and equip modals. */
+  function renderCategoryNav(
+    navId: string,
+    gridId: string,
+    catOffsets: { offset: number }[],
+    labelFn: (cat: any) => { text: string; title: string },
+  ): void {
+    const nav = document.getElementById(navId);
+    if (!nav) return;
+    nav.innerHTML = "";
+    if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
+    nav.classList.remove("hidden"); nav.classList.add("sm:block");
+    nav.scrollTop = 0;
+    for (const cat of catOffsets) {
+      const { text, title } = labelFn(cat);
+      const btn = document.createElement("button");
+      btn.className = "w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content";
+      btn.textContent = text;
+      btn.title = title;
+      btn.addEventListener("click", () => {
+        const grid = document.getElementById(gridId);
+        if (!grid) return;
+        const spacer = grid.querySelector("div[style*='position: relative']") as HTMLElement | null;
+        const spacerTop = spacer ? spacer.offsetTop : 0;
+        grid.scrollTop = spacerTop + cat.offset;
+      });
+      nav.appendChild(btn);
+    }
+  }
+
+  /** Cancel a RAF handle and remove a scroll listener. Returns 0 (for clearing the RAF variable). */
+  function cleanupSingleVS(
+    state: { grid: HTMLElement } | null,
+    handler: EventListener,
+    rafId: number,
+  ): number {
+    if (state) {
+      state.grid.removeEventListener("scroll", handler);
+      if (rafId) cancelAnimationFrame(rafId);
+    }
+    return 0;
+  }
+
+  // ── Ship virtual scroll (flat, for filtered view) ──
+  let _shipVS: (FlatVSState & { items: MstShipData[] }) | null = null;
   let _shipScrollRaf = 0;
 
   // ── Ship grouped virtual scroll ──
   type ShipGRow =
     | { kind: "header"; stype: number }
     | { kind: "items"; ships: MstShipData[] };
-  let _shipGVS: {
-    rows: ShipGRow[];
-    offsets: number[];
-    spacer: HTMLElement;
-    viewport: HTMLElement;
-    grid: HTMLElement;
-    cols: number;
-    rStart: number;
-    rEnd: number;
-    catOffsets: { stype: number; offset: number }[];
-  } | null = null;
+  let _shipGVS: (GroupedVSState & { rows: ShipGRow[]; cols: number }) | null = null;
   let _shipGScrollRaf = 0;
 
   function cleanupShipVS() {
-    if (_shipVS) {
-      _shipVS.grid.removeEventListener("scroll", onShipScroll);
-      if (_shipScrollRaf) { cancelAnimationFrame(_shipScrollRaf); _shipScrollRaf = 0; }
-      _shipVS = null;
-    }
-    if (_shipGVS) {
-      _shipGVS.grid.removeEventListener("scroll", onShipGScroll);
-      if (_shipGScrollRaf) { cancelAnimationFrame(_shipGScrollRaf); _shipGScrollRaf = 0; }
-      _shipGVS = null;
-    }
+    _shipScrollRaf = cleanupSingleVS(_shipVS, onShipScroll, _shipScrollRaf);
+    _shipVS = null;
+    _shipGScrollRaf = cleanupSingleVS(_shipGVS, onShipGScroll, _shipGScrollRaf);
+    _shipGVS = null;
   }
 
   function onShipScroll() {
@@ -560,87 +712,26 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     }
   }
 
+  const shipResponsiveCols = () => window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
+
   function syncShipVS() {
     if (!_shipVS) return;
-    const { items, spacer, viewport, grid } = _shipVS;
-    const newCols = window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
-    if (newCols !== _shipVS.cols) {
-      _shipVS.cols = newCols;
-      _shipVS.measured = false;
-      _shipVS.rStart = -1;
-    }
-    const cols = _shipVS.cols;
-    const pitch = _shipVS.pitch;
-    const rc = Math.ceil(items.length / cols);
-    spacer.style.height = `${rc * pitch}px`;
-
-    const spacerTop = spacer.offsetTop;
-    const vis0 = Math.max(0, grid.scrollTop - spacerTop);
-    const vis1 = vis0 + grid.clientHeight;
-    const rStart = Math.max(0, Math.floor(vis0 / pitch) - VS_BUFFER);
-    const rEnd = Math.min(rc, Math.ceil(vis1 / pitch) + VS_BUFFER);
-    if (rStart === _shipVS.rStart && rEnd === _shipVS.rEnd) return;
-    _shipVS.rStart = rStart;
-    _shipVS.rEnd = rEnd;
-
-    viewport.style.top = `${rStart * pitch}px`;
-    viewport.innerHTML = "";
-    const iEnd = Math.min(items.length, rEnd * cols);
-    for (let i = rStart * cols; i < iEnd; i++) {
-      viewport.appendChild(createShipItem(items[i]));
-    }
-
-    // Auto-measure actual row pitch after first render
-    if (!_shipVS.measured && viewport.children.length > cols) {
-      const first = (viewport.children[0] as HTMLElement).getBoundingClientRect();
-      const second = (viewport.children[cols] as HTMLElement).getBoundingClientRect();
-      const actual = second.top - first.top;
-      if (actual > 0 && Math.abs(actual - pitch) > 1) {
-        _shipVS.pitch = actual;
-        _shipVS.rStart = -1;
-        syncShipVS();
-        return;
-      }
-      _shipVS.measured = true;
-    }
+    syncFlatVS(_shipVS, createShipItem, shipResponsiveCols);
   }
 
   function syncShipGVS() {
     if (!_shipGVS) return;
-    const { rows, offsets, spacer, viewport, grid, cols } = _shipGVS;
-    const totalH = offsets[rows.length];
-    spacer.style.height = `${totalH}px`;
-    const spacerTop = spacer.offsetTop;
-    const scrollTop = Math.max(0, grid.scrollTop - spacerTop);
-    const viewH = grid.clientHeight;
-    // Binary search for first visible row
-    let lo = 0, hi = rows.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= scrollTop) lo = mid + 1; else hi = mid; }
-    const rStart = Math.max(0, lo - VS_BUFFER);
-    let rEnd = lo;
-    while (rEnd < rows.length && offsets[rEnd] < scrollTop + viewH) rEnd++;
-    rEnd = Math.min(rows.length, rEnd + VS_BUFFER);
-    if (rStart === _shipGVS.rStart && rEnd === _shipGVS.rEnd) return;
-    _shipGVS.rStart = rStart;
-    _shipGVS.rEnd = rEnd;
-    viewport.style.top = `${offsets[rStart]}px`;
-    viewport.innerHTML = "";
-    for (let i = rStart; i < rEnd; i++) {
-      const row = rows[i];
+    const { cols } = _shipGVS;
+    syncGroupedVS(_shipGVS, (row: ShipGRow) => {
       if (row.kind === "header") {
-        const h = document.createElement("div");
-        h.className = "bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center";
-        h.style.height = `${HEADER_HEIGHT}px`;
-        h.textContent = STYPE_NAMES[row.stype] ?? `Type ${row.stype}`;
-        viewport.appendChild(h);
-      } else {
-        const rd = document.createElement("div");
-        rd.style.height = `${SHIP_ROW_PITCH}px`;
-        if (cols > 1) { rd.style.display = "grid"; rd.style.gridTemplateColumns = "repeat(2,1fr)"; rd.style.gap = "2px"; }
-        for (const s of row.ships) rd.appendChild(createShipItem(s));
-        viewport.appendChild(rd);
+        return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
       }
-    }
+      const rd = document.createElement("div");
+      rd.style.height = `${SHIP_ROW_PITCH}px`;
+      if (cols > 1) { rd.style.display = "grid"; rd.style.gridTemplateColumns = "repeat(2,1fr)"; rd.style.gap = "2px"; }
+      for (const s of row.ships) rd.appendChild(createShipItem(s));
+      return rd;
+    });
   }
 
   function renderShipGrid(search: string, stypeFilter: string) {
@@ -726,31 +817,20 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         offsets[i + 1] = offsets[i] + (rows[i].kind === "header" ? HEADER_HEIGHT : SHIP_ROW_PITCH);
       }
 
-      const spacer = document.createElement("div");
-      spacer.style.position = "relative";
+      const { spacer, viewport } = createVSContainer();
       spacer.style.height = `${totalH}px`;
-      const viewport = document.createElement("div");
-      viewport.style.cssText = "position:absolute;left:0;right:0;";
-      spacer.appendChild(viewport);
       grid.appendChild(spacer);
 
-      _shipGVS = { rows, offsets, spacer, viewport, grid, cols, rStart: -1, rEnd: -1, catOffsets };
+      _shipGVS = { rows, offsets, spacer, viewport, grid, cols, rStart: -1, rEnd: -1 };
       grid.addEventListener("scroll", onShipGScroll);
       syncShipGVS();
       renderShipCategoryNav(catOffsets);
     } else {
       // Single stype — flat grid virtual scroll
       const rowCount = Math.ceil(ships.length / cols);
-      const spacer = document.createElement("div");
-      spacer.style.position = "relative";
+      const { spacer, viewport } = createVSContainer();
       spacer.style.height = `${rowCount * SHIP_ROW_PITCH}px`;
-
-      const viewport = document.createElement("div");
       viewport.className = "grid grid-cols-1 sm:grid-cols-2 gap-0.5";
-      viewport.style.position = "absolute";
-      viewport.style.left = "0";
-      viewport.style.right = "0";
-      spacer.appendChild(viewport);
       grid.appendChild(spacer);
 
       _shipVS = { items: ships, spacer, viewport, grid, cols, pitch: SHIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
@@ -763,25 +843,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   function renderShipCategoryNav(
     catOffsets: { stype: number; offset: number }[],
   ) {
-    const nav = document.getElementById("ship-modal-categories");
-    if (!nav) return;
-    nav.innerHTML = "";
-    if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
-    nav.classList.remove("hidden"); nav.classList.add("sm:block");
-    for (const { stype, offset } of catOffsets) {
-      const btn = document.createElement("button");
-      btn.className = "w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content";
-      btn.textContent = STYPE_SHORT[stype] ?? STYPE_NAMES[stype] ?? `${stype}`;
-      btn.title = STYPE_NAMES[stype] ?? `Type ${stype}`;
-      btn.addEventListener("click", () => {
-        const grid = document.getElementById("ship-modal-grid");
-        if (!grid) return;
-        const spacer = grid.querySelector("div[style*='position: relative']") as HTMLElement | null;
-        const spacerTop = spacer ? spacer.offsetTop : 0;
-        grid.scrollTop = spacerTop + offset;
-      });
-      nav.appendChild(btn);
-    }
+    renderCategoryNav("ship-modal-categories", "ship-modal-grid", catOffsets, (c: { stype: number }) => ({
+      text: STYPE_SHORT[c.stype] ?? STYPE_NAMES[c.stype] ?? `${c.stype}`,
+      title: STYPE_NAMES[c.stype] ?? `Type ${c.stype}`,
+    }));
   }
 
   function createShipItem(ship: MstShipData): HTMLElement {
@@ -987,45 +1052,21 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
   // Equip virtual scroll state
   const EQUIP_ROW_PITCH = 45;
-  let _equipVS: {
-    items: MstSlotItemData[];
-    spacer: HTMLElement;
-    viewport: HTMLElement;
-    grid: HTMLElement;
-    pitch: number;
-    measured: boolean;
-    rStart: number;
-    rEnd: number;
-  } | null = null;
+  let _equipVS: (FlatVSState & { items: MstSlotItemData[] }) | null = null;
   let _equipScrollRaf = 0;
 
   // ── Equipment grouped virtual scroll ──
   type EquipGRow =
     | { kind: "header"; typeId: number }
     | { kind: "item"; equip: MstSlotItemData };
-  let _equipGVS: {
-    rows: EquipGRow[];
-    offsets: number[];
-    spacer: HTMLElement;
-    viewport: HTMLElement;
-    grid: HTMLElement;
-    rStart: number;
-    rEnd: number;
-    catOffsets: { typeId: number; offset: number }[];
-  } | null = null;
+  let _equipGVS: (GroupedVSState & { rows: EquipGRow[] }) | null = null;
   let _equipGScrollRaf = 0;
 
   function cleanupEquipVS() {
-    if (_equipVS) {
-      _equipVS.grid.removeEventListener("scroll", onEquipScroll);
-      if (_equipScrollRaf) { cancelAnimationFrame(_equipScrollRaf); _equipScrollRaf = 0; }
-      _equipVS = null;
-    }
-    if (_equipGVS) {
-      _equipGVS.grid.removeEventListener("scroll", onEquipGScroll);
-      if (_equipGScrollRaf) { cancelAnimationFrame(_equipGScrollRaf); _equipGScrollRaf = 0; }
-      _equipGVS = null;
-    }
+    _equipScrollRaf = cleanupSingleVS(_equipVS, onEquipScroll, _equipScrollRaf);
+    _equipVS = null;
+    _equipGScrollRaf = cleanupSingleVS(_equipGVS, onEquipGScroll, _equipGScrollRaf);
+    _equipGVS = null;
   }
 
   function onEquipScroll() {
@@ -1041,75 +1082,20 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
   function syncEquipVS() {
     if (!_equipVS) return;
-    const { items, spacer, viewport, grid } = _equipVS;
-    const pitch = _equipVS.pitch;
-    const rc = items.length;
-    spacer.style.height = `${rc * pitch}px`;
-
-    const spacerTop = spacer.offsetTop;
-    const vis0 = Math.max(0, grid.scrollTop - spacerTop);
-    const vis1 = vis0 + grid.clientHeight;
-    const rStart = Math.max(0, Math.floor(vis0 / pitch) - VS_BUFFER);
-    const rEnd = Math.min(rc, Math.ceil(vis1 / pitch) + VS_BUFFER);
-    if (rStart === _equipVS.rStart && rEnd === _equipVS.rEnd) return;
-    _equipVS.rStart = rStart;
-    _equipVS.rEnd = rEnd;
-
-    viewport.style.top = `${rStart * pitch}px`;
-    viewport.innerHTML = "";
-    for (let i = rStart; i < rEnd; i++) {
-      viewport.appendChild(createEquipItem(items[i]));
-    }
-
-    // Auto-measure actual row pitch after first render
-    if (!_equipVS.measured && viewport.children.length > 1) {
-      const first = (viewport.children[0] as HTMLElement).getBoundingClientRect();
-      const second = (viewport.children[1] as HTMLElement).getBoundingClientRect();
-      const actual = second.top - first.top;
-      if (actual > 0 && Math.abs(actual - pitch) > 1) {
-        _equipVS.pitch = actual;
-        _equipVS.rStart = -1;
-        syncEquipVS();
-        return;
-      }
-      _equipVS.measured = true;
-    }
+    syncFlatVS(_equipVS, createEquipItem);
   }
 
   function syncEquipGVS() {
     if (!_equipGVS) return;
-    const { rows, offsets, spacer, viewport, grid } = _equipGVS;
-    const totalH = offsets[rows.length];
-    spacer.style.height = `${totalH}px`;
-    const spacerTop = spacer.offsetTop;
-    const scrollTop = Math.max(0, grid.scrollTop - spacerTop);
-    const viewH = grid.clientHeight;
-    let lo = 0, hi = rows.length;
-    while (lo < hi) { const mid = (lo + hi) >>> 1; if (offsets[mid + 1] <= scrollTop) lo = mid + 1; else hi = mid; }
-    const rStart = Math.max(0, lo - VS_BUFFER);
-    let rEnd = lo;
-    while (rEnd < rows.length && offsets[rEnd] < scrollTop + viewH) rEnd++;
-    rEnd = Math.min(rows.length, rEnd + VS_BUFFER);
-    if (rStart === _equipGVS.rStart && rEnd === _equipGVS.rEnd) return;
-    _equipGVS.rStart = rStart;
-    _equipGVS.rEnd = rEnd;
-    viewport.style.top = `${offsets[rStart]}px`;
-    viewport.innerHTML = "";
-    for (let i = rStart; i < rEnd; i++) {
-      const row = rows[i];
+    syncGroupedVS(_equipGVS, (row: EquipGRow) => {
       if (row.kind === "header") {
-        const h = document.createElement("div");
-        h.className = "bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center";
-        h.style.height = `${HEADER_HEIGHT}px`;
-        h.textContent = EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`;
-        viewport.appendChild(h);
-      } else {
-        const rd = document.createElement("div");
-        rd.style.height = `${EQUIP_ROW_PITCH}px`;
-        rd.appendChild(createEquipItem(row.equip));
-        viewport.appendChild(rd);
+        return createGroupHeader(EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`);
       }
-    }
+      const rd = document.createElement("div");
+      rd.style.height = `${EQUIP_ROW_PITCH}px`;
+      rd.appendChild(createEquipItem(row.equip));
+      return rd;
+    });
   }
 
   function createEquipItem(equip: MstSlotItemData): HTMLElement {
@@ -1308,30 +1294,22 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         offsets[i + 1] = offsets[i] + (rows[i].kind === "header" ? HEADER_HEIGHT : EQUIP_ROW_PITCH);
       }
 
-      const spacer = document.createElement("div");
-      spacer.style.position = "relative";
+      const { spacer, viewport } = createVSContainer();
       spacer.style.height = `${totalH}px`;
-      const viewport = document.createElement("div");
-      viewport.style.cssText = "position:absolute;left:0;right:0;";
-      spacer.appendChild(viewport);
       grid.appendChild(spacer);
 
-      _equipGVS = { rows, offsets, spacer, viewport, grid, rStart: -1, rEnd: -1, catOffsets };
+      _equipGVS = { rows, offsets, spacer, viewport, grid, rStart: -1, rEnd: -1 };
       grid.addEventListener("scroll", onEquipGScroll);
       syncEquipGVS();
       renderEquipCategoryNav(catOffsets);
     } else {
       // Single type — flat list, use virtual scroll
-      const spacer = document.createElement("div");
-      spacer.style.position = "relative";
+      const { spacer, viewport } = createVSContainer();
       spacer.style.height = `${items.length * EQUIP_ROW_PITCH}px`;
-
-      const viewport = document.createElement("div");
-      viewport.style.cssText = "position:absolute;left:0;right:0;display:flex;flex-direction:column;gap:1px;";
-      spacer.appendChild(viewport);
+      viewport.style.cssText += "display:flex;flex-direction:column;gap:1px;";
       grid.appendChild(spacer);
 
-      _equipVS = { items, spacer, viewport, grid, pitch: EQUIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
+      _equipVS = { items, spacer, viewport, grid, cols: 1, pitch: EQUIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
       grid.addEventListener("scroll", onEquipScroll);
       syncEquipVS();
       renderEquipCategoryNav([]);
@@ -1341,26 +1319,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   function renderEquipCategoryNav(
     catOffsets: { typeId: number; offset: number }[],
   ) {
-    const nav = document.getElementById("equip-modal-categories");
-    if (!nav) return;
-    nav.innerHTML = "";
-    if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
-    nav.classList.remove("hidden"); nav.classList.add("sm:block");
-    nav.scrollTop = 0;
-    for (const { typeId, offset } of catOffsets) {
-      const btn = document.createElement("button");
-      btn.className = "w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content";
-      btn.textContent = EQUIP_TYPE_SHORT[typeId] ?? EQUIP_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
-      btn.title = EQUIP_TYPE_NAMES[typeId] ?? `Type ${typeId}`;
-      btn.addEventListener("click", () => {
-        const grid = document.getElementById("equip-modal-grid");
-        if (!grid) return;
-        const spacer = grid.querySelector("div[style*='position: relative']") as HTMLElement | null;
-        const spacerTop = spacer ? spacer.offsetTop : 0;
-        grid.scrollTop = spacerTop + offset;
-      });
-      nav.appendChild(btn);
-    }
+    renderCategoryNav("equip-modal-categories", "equip-modal-grid", catOffsets, (c: { typeId: number }) => ({
+      text: EQUIP_TYPE_SHORT[c.typeId] ?? EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
+      title: EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
+    }));
   }
 
   function renderEquipDetail(equip: MstSlotItemData) {
