@@ -1,8 +1,33 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
 
 export const prerender = false;
+
+// --- SSR: Resolve access token from cookie session ---
+const cookies = Astro.cookies;
+const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+
+let safeAccessToken: string | null = null;
+
+const accessTokenCookie = cookies.get("sb-access-token");
+const refreshTokenCookie = cookies.get("sb-refresh-token");
+
+if (accessTokenCookie?.value && refreshTokenCookie?.value) {
+  try {
+    const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshTokenCookie.value,
+      access_token: accessTokenCookie.value,
+    });
+    if (session.data.session?.access_token) {
+      safeAccessToken = session.data.session.access_token;
+    }
+  } catch {
+    // Session invalid — user is not logged in
+  }
+}
 ---
 
 <PageLayout title="FUSOU - Fleet Simulator">
@@ -148,6 +173,10 @@ export const prerender = false;
     </div>
   </div>
 </PageLayout>
+
+<script is:inline define:vars={{ accessToken: safeAccessToken }}>
+  window.__fusouAccessToken = accessToken;
+</script>
 
 <script>
   // ==============================================================
@@ -1698,36 +1727,57 @@ export const prerender = false;
   // ==============================================================
 
   // R2 fleet load
+  const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
+
+  function authHeaders(): HeadersInit {
+    if (!_accessToken) return {};
+    return { Authorization: `Bearer ${_accessToken}` };
+  }
+
   document.getElementById("btn-load-fleet")?.addEventListener("click", async () => {
     const modal = document.getElementById("load-fleet-modal") as HTMLDialogElement;
     modal.showModal();
 
     const listContainer = document.getElementById("fleet-list-container")!;
+
+    if (!_accessToken) {
+      listContainer.innerHTML = '<p class="text-base-content/60 text-sm">この機能を利用するには<a href="/auth/signin" class="link link-primary">ログイン</a>が必要です</p>';
+      return;
+    }
+
     listContainer.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
 
     try {
-      const res = await fetch("/api/fleet/snapshots/list");
+      const res = await fetch("/api/fleet/snapshots/list", { headers: authHeaders() });
+      if (res.status === 401 || res.status === 403) {
+        const body = await res.json().catch(() => ({})) as { error?: string };
+        const msg = body.error ?? "認証エラー";
+        const escaped = msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        listContainer.innerHTML = `<p class="text-warning text-sm">${escaped}</p>`;
+        return;
+      }
       if (!res.ok) {
         listContainer.innerHTML = '<p class="text-error text-sm">読込に失敗しました</p>';
         return;
       }
-      const data = (await res.json()) as { tags: string[] };
+      const data = (await res.json()) as { ok: boolean; tags: { tag: string; r2_key: string; uploaded: string; size: number }[] };
       if (!data.tags || data.tags.length === 0) {
         listContainer.innerHTML = '<p class="text-base-content/40">保存された艦隊データがありません</p>';
         return;
       }
 
       listContainer.innerHTML = "";
-      for (const tag of data.tags) {
+      for (const entry of data.tags) {
         const btn = document.createElement("button");
-        btn.className = "btn btn-ghost btn-sm w-full justify-start";
-        btn.textContent = tag;
+        btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
+        const uploaded = entry.uploaded ? new Date(entry.uploaded).toLocaleString() : "";
+        btn.innerHTML = `<span class="flex-1 text-left">${entry.tag}</span><span class="text-xs text-base-content/40">${uploaded}</span>`;
         btn.addEventListener("click", async () => {
           try {
-            const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`);
+            const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`, { headers: authHeaders() });
             if (snapRes.ok) {
-              const snapshot = (await snapRes.json()) as Record<string, unknown>;
-              applyFleetSnapshot(snapshot);
+              const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
+              applyFleetSnapshot(result.snapshot);
               modal.close();
             } else {
               alert("スナップショットの読込に失敗しました");
@@ -1816,14 +1866,14 @@ export const prerender = false;
     }
 
     const fleetTag = params.get("fleet");
-    if (fleetTag) {
-      fetch(`/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`)
+    if (fleetTag && _accessToken) {
+      fetch(`/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`, { headers: authHeaders() })
         .then((r) => {
           if (!r.ok) throw new Error("Not found");
           return r.json();
         })
-        .then((snapshot) => {
-          applyFleetSnapshot(snapshot as Record<string, unknown>);
+        .then((result: any) => {
+          applyFleetSnapshot(result.snapshot as Record<string, unknown>);
         })
         .catch(() => {});
     }

@@ -244,13 +244,28 @@ app.post('/verify-ownership', async (c) => {
         }, 200);
       }
       
-      // If it's owned by a DIFFERENT user, that's a CONFLICT!
-      // Try to fetch owner email via Admin API
+      // If it's owned by a DIFFERENT user, check if the owner is anonymous
       let ownerEmail: string | null = null;
+      let isAnonymousOwner = false;
       try {
         const { data: ownerAdmin } = await supabaseAdmin.auth.admin.getUserById(ownerUserId);
         ownerEmail = ownerAdmin?.user?.email ?? null;
+        isAnonymousOwner = !!(ownerAdmin?.user?.is_anonymous);
       } catch (_) {}
+
+      // If the existing owner is an anonymous user, allow migration
+      if (isAnonymousOwner) {
+        console.log('[verify-ownership] Existing owner is anonymous - migration allowed:', {
+          member_id_hash,
+          current_user: userId,
+          anonymous_owner: ownerUserId,
+        });
+        return jsonResponse({
+          verified: false,
+          migrateable: true,
+          message: 'This member ID is currently linked to an anonymous session and can be migrated to your account.',
+        }, 200);
+      }
 
       console.warn('[verify-ownership] CONFLICT DETECTED:', {
         member_id_hash,

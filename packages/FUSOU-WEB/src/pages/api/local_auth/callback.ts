@@ -18,6 +18,9 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   const authCode = url.searchParams.get("code");
   const appOriginParam = url.searchParams.get("app_origin");
+  const rawMemberIdHash = url.searchParams.get("member_id_hash");
+  // Sanitize: member_id_hash must be a hex string (SHA-256 = 64 chars)
+  const memberIdHashParam = rawMemberIdHash && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHash) ? rawMemberIdHash : null;
   const provider = cookies.get("sb-local-provider")?.value;
   const runtimeEnv = (locals as any)?.runtime?.env || {};
 
@@ -56,6 +59,10 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   // Instead, store in temporary cookies that returnLocalApp will read
   cookies.set("sb-local-access-token", access_token, COOKIE_OPTIONS);
   cookies.set("sb-local-refresh-token", refresh_token, COOKIE_OPTIONS);
+  // expires_at is a Unix timestamp (seconds) from Supabase session
+  if (data.session.expires_at) {
+    cookies.set("sb-local-expires-at", String(data.session.expires_at), COOKIE_OPTIONS);
+  }
 
   console.log("✓ Set sb-local-access-token (for local app)");
   console.log("✓ Set sb-local-refresh-token (for local app)");
@@ -108,6 +115,9 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   const target = new URL("/auth/local/callback", url.origin);
   if (appOriginParam) {
     target.searchParams.set("app_origin", appOriginParam);
+  }
+  if (memberIdHashParam) {
+    target.searchParams.set("member_id_hash", memberIdHashParam);
   }
   return redirect(target.toString());
 };

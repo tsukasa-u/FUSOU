@@ -16,6 +16,7 @@ const accessToken = cookies.get("sb-local-access-token");
 const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
+const expiresAtCookie = cookies.get("sb-local-expires-at");
 
 // Get allowed origin using unified env API
 const envCtx = createEnvContext({ env: runtimeEnv });
@@ -105,7 +106,33 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
             console.warn("Member ID conflict check failed:", conflictCheckData);
             // Proceed anyway - let the app handle any issues
           } else {
-            console.log("[callback] No conflict - proceeding with auth");
+            // If migrateable (anonymous owner), call upsert to perform migration
+            if (conflictCheckData?.migrateable) {
+              console.log("[callback] Anonymous owner detected - performing auto-migration");
+              try {
+                const upsertResponse = await fetch(
+                  Astro.url.origin + "/api/user/member-map/upsert",
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${accessToken.value}`,
+                    },
+                    body: JSON.stringify({ member_id_hash: memberIdHash }),
+                  }
+                );
+                const upsertData = (await upsertResponse.json()) as any;
+                if (upsertResponse.ok) {
+                  console.log("[callback] Auto-migration successful:", upsertData?.action);
+                } else {
+                  console.error("[callback] Auto-migration failed:", upsertData);
+                }
+              } catch (upsertError) {
+                console.error("[callback] Auto-migration error:", upsertError);
+              }
+            } else {
+              console.log("[callback] No conflict - proceeding with auth");
+            }
           }
         } catch (checkError) {
           console.error("Error checking member_id_hash conflict:", checkError);
@@ -127,7 +154,8 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
         "&supabase_access_token=" +
         accessToken.value +
         "&supabase_refresh_token=" +
-        refreshToken.value;
+        refreshToken.value +
+        (expiresAtCookie?.value ? "&expires_at=" + expiresAtCookie.value : "");
 
       const candidateHref = `fusou://auth?${return_params}`;
 
@@ -171,6 +199,7 @@ cookies.delete("sb-local-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider-token", { path: "/" });
 cookies.delete("sb-local-provider-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider", { path: "/" });
+cookies.delete("sb-local-expires-at", { path: "/" });
 ---
 
 <Layout title="Account Setup - Link Game to Social Account">

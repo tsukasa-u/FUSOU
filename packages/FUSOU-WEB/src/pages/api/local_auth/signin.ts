@@ -38,6 +38,7 @@ export const POST: APIRoute = async ({
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)
   const appOriginFormParam = formData.get("app_origin")?.toString() || appOriginParam;
+  const memberIdHash = formData.get("member_id_hash")?.toString();
 
   const validProviders = ["google"];
 
@@ -55,6 +56,9 @@ export const POST: APIRoute = async ({
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
+  }
+  if (memberIdHash) {
+    callbackUrl.searchParams.set("member_id_hash", memberIdHash);
   }
 
   // Open Redirect protection: Validate callback URL

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
+import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
-import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
+import { createEnvContext, getEnv, extractBearer, validateJWT, resolveSupabaseConfig, validateDatasetToken } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
@@ -8,6 +10,99 @@ import {
   SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
+
+/**
+ * 認証情報から dataset_id (member_id_hash) を解決する。
+ * 優先順位:
+ *   1. Authorization: Bearer <supabase_jwt> → user_member_map 参照
+ *   2. X-Dataset-Token → JWT ペイロードの dataset_id
+ *
+ * @returns { datasetId: string } on success, or { error: string, status: number } on failure
+ */
+async function resolveDatasetId(c: any): Promise<
+  | { ok: true; datasetId: string }
+  | { ok: false; error: string; status: ContentfulStatusCode }
+> {
+  const env = createEnvContext(c);
+
+  // 1. Bearer JWT → user_member_map
+  const authHeader = c.req.header("Authorization");
+  const accessToken = extractBearer(authHeader);
+  if (accessToken) {
+    const user = await validateJWT(accessToken);
+    if (!user?.id) {
+      console.warn("[fleet] JWT validation failed for provided access token");
+      return { ok: false, error: "Invalid or expired access token", status: 401 };
+    }
+
+    console.log(`[fleet] Resolving dataset_id for user: id=${user.id}, email=${user.email ?? "n/a"}`);
+
+    const envCtx = createEnvContext(c);
+    const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
+    if (!url || !serviceRoleKey) {
+      console.error("[fleet] Supabase configuration missing for user_member_map lookup");
+      return { ok: false, error: "Server misconfiguration", status: 500 };
+    }
+
+    // Match the exact createClient pattern used by user.ts (no extra auth options)
+    const supabaseAdmin = createClient(url, serviceRoleKey);
+
+    try {
+      const { data: mapping, error } = await supabaseAdmin
+        .from("user_member_map")
+        .select("member_id_hash, user_id, created_at")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error("[fleet] user_member_map lookup error:", {
+          user_id: user.id,
+          error: error.message,
+          code: error.code,
+          details: error.details,
+        });
+        return { ok: false, error: "Failed to resolve dataset", status: 500 };
+      }
+
+      console.log("[fleet] user_member_map lookup result:", {
+        user_id: user.id,
+        found: !!mapping,
+        member_id_hash: mapping?.member_id_hash ? `${mapping.member_id_hash.slice(0, 8)}...` : null,
+      });
+
+      if (!mapping?.member_id_hash) {
+        return {
+          ok: false,
+          error: "No game account linked to this FUSOU account. Please link your game account via FUSOU-APP first.",
+          status: 403,
+        };
+      }
+
+      return { ok: true, datasetId: mapping.member_id_hash };
+    } catch (err) {
+      console.error("[fleet] Unexpected error in user_member_map query:", err);
+      return { ok: false, error: "Failed to resolve dataset", status: 500 };
+    }
+  }
+
+  // 2. X-Dataset-Token → dataset_id from JWT payload
+  const datasetTokenHeader = c.req.header("X-Dataset-Token");
+  if (datasetTokenHeader) {
+    const secret = getEnv(env, "DATASET_TOKEN_SECRET");
+    if (!secret) {
+      console.error("[fleet] DATASET_TOKEN_SECRET not configured");
+      return { ok: false, error: "Server misconfiguration", status: 500 };
+    }
+    const validated = await validateDatasetToken(datasetTokenHeader, secret);
+    if (!validated) {
+      return { ok: false, error: "Invalid or expired dataset_token", status: 401 };
+    }
+    console.log(`[fleet] dataset_id resolved from X-Dataset-Token: ${validated.dataset_id.slice(0, 8)}...`);
+    return { ok: true, datasetId: validated.dataset_id };
+  }
+
+  return { ok: false, error: "Authentication required. Please sign in first.", status: 401 };
+}
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -226,15 +321,13 @@ app.get("/snapshot/:tag", async (c) => {
   }
 
   const tag = c.req.param("tag");
-  const datasetId = c.req.query("dataset_id");
-
   if (!tag) {
     return c.json({ error: "tag is required" }, 400);
   }
 
-  if (!datasetId) {
-    return c.json({ error: "dataset_id is required" }, 400);
-  }
+  const resolved = await resolveDatasetId(c);
+  if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+  const datasetId = resolved.datasetId;
 
   // Sanitize tag same way as upload
   const safeTag = encodeURIComponent(tag.toLowerCase().trim());
@@ -297,11 +390,9 @@ app.get("/snapshots/list", async (c) => {
     return c.json({ error: "Server misconfiguration" }, 500);
   }
 
-  const datasetId = c.req.query("dataset_id");
-
-  if (!datasetId) {
-    return c.json({ error: "dataset_id is required" }, 400);
-  }
+  const resolved = await resolveDatasetId(c);
+  if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+  const datasetId = resolved.datasetId;
 
   const prefix = `fleets/${datasetId}/`;
 
