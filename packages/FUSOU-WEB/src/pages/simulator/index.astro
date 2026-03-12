@@ -1464,6 +1464,16 @@ export const prerender = false;
         idxLabel.textContent = String(i + 1);
         row.appendChild(idxLabel);
 
+        if (equip) {
+          const iconNum = equip.type?.[3] ?? 0;
+          row.appendChild(createWeaponIconEl(iconNum, 16));
+        } else {
+          const blank = document.createElement("div");
+          blank.style.cssText = "width:16px;height:16px";
+          blank.className = "shrink-0";
+          row.appendChild(blank);
+        }
+
         const eqName = document.createElement("span");
         eqName.className = `truncate flex-1 ${equip ? "text-base-content/70" : "text-base-content/20 italic"}`;
         eqName.textContent = equip?.name ?? "—";
