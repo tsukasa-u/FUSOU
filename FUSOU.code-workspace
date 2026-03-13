@@ -34,6 +34,9 @@
       "path": "packages/fusou-datasets"
     },
     {
+      "path": "packages/equip_synergy_detector"
+    },
+    {
       "path": "docs"
     },
     {

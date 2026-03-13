@@ -80,3 +80,5 @@ wheels/
 *.egg
 
 packages/fusou-datasets/venv/
+
+packages/FUSOU-WEB/.seed-assets-tmp/
