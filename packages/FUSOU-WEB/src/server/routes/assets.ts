@@ -827,4 +827,73 @@ app.get("/weapon-icon-frames", async (c) => {
   }
 });
 
+/**
+ * GET /image-proxy?url=... - proxy remote image through same origin
+ *
+ * Used by client-side deck image export to avoid browser-side CORS restrictions
+ * when html-to-image fetches external card/banner URLs.
+ */
+app.get("/image-proxy", async (c) => {
+  const envCtx = createEnvContext(c);
+  const rawUrl = c.req.query("url") || "";
+  if (!rawUrl) {
+    return c.json({ error: "Missing url parameter" }, 400);
+  }
+
+  let target: URL;
+  try {
+    target = new URL(rawUrl);
+  } catch {
+    return c.json({ error: "Invalid url" }, 400);
+  }
+
+  if (target.protocol !== "https:") {
+    return c.json({ error: "Only https URL is allowed" }, 400);
+  }
+
+  const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+  if (assetBaseUrl) {
+    try {
+      const allowed = new URL(assetBaseUrl);
+      if (target.host !== allowed.host) {
+        return c.json({ error: "Host is not allowed" }, 403);
+      }
+    } catch {
+      return c.json({ error: "Server configuration error" }, 500);
+    }
+  }
+
+  try {
+    const upstream = await fetch(target.toString(), {
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        "Accept": "image/*,*/*;q=0.8",
+      },
+    });
+
+    if (!upstream.ok) {
+      return c.json({ error: `Upstream error: ${upstream.status}` }, 502);
+    }
+
+    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    if (!contentType.startsWith("image/")) {
+      return c.json({ error: "Upstream resource is not an image" }, 415);
+    }
+
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": contentType,
+        "Content-Length": String(body.byteLength),
+        "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800",
+        ...CORS_HEADERS,
+      },
+    });
+  } catch (err) {
+    console.error("[asset-sync] image-proxy error:", err);
+    return c.json({ error: "Failed to fetch image" }, 500);
+  }
+});
+
 export default app;

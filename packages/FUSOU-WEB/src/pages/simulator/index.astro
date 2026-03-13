@@ -54,6 +54,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             エクスポート
           </button>
+          <button id="btn-save-image" class="btn btn-ghost btn-sm gap-1.5">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4l2-2h6l2 2h4v12H3V7zm9 10a4 4 0 100-8 4 4 0 000 8z"/></svg>
+            画像保存
+          </button>
           <button id="btn-share" class="btn btn-primary btn-sm gap-1.5">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
             共有
@@ -61,16 +65,17 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         </div>
       </div>
 
+      <div id="deck-capture-area">
       <!-- Status -->
-      <div id="data-status" class="alert alert-info mb-5 py-2">
+      <div id="data-status" class="alert alert-info mb-5 py-2 hidden">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
         <span id="data-status-text" class="text-sm">マスターデータ読込中...</span>
       </div>
 
       <!-- Fleets -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+      <div id="fleet-sections" class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
         <!-- Fleet 1 -->
-        <section class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
+        <section id="fleet-1-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
           <div class="px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b border-base-200">
             <div class="flex items-center gap-2">
               <span class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold">1</span>
@@ -83,7 +88,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         </section>
 
         <!-- Fleet 2 -->
-        <section class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
+        <section id="fleet-2-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
           <div class="px-4 py-3 bg-gradient-to-r from-secondary/5 to-transparent border-b border-base-200">
             <div class="flex items-center gap-2">
               <span class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold">2</span>
@@ -97,7 +102,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       </div>
 
       <!-- Air Base -->
-      <section class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden mb-5">
+      <section id="airbase-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden mb-5">
         <div class="px-4 py-3 bg-gradient-to-r from-accent/5 to-transparent border-b border-base-200">
           <div class="flex items-center gap-2">
             <span class="w-6 h-6 rounded-md bg-accent/15 text-accent flex items-center justify-center text-xs font-bold">基</span>
@@ -108,6 +113,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="air-bases"></div>
         </div>
       </section>
+      </div>
 
       <!-- Ship Selection Modal -->
       <dialog id="ship-select-modal" class="modal modal-bottom sm:modal-middle">
@@ -179,6 +185,57 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
       </dialog>
 
+      <!-- Save Image Modal -->
+      <dialog id="save-image-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-4">画像保存設定</h3>
+          <div class="space-y-3 text-sm">
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">保存対象</span></label>
+              <div class="flex flex-wrap gap-3">
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="both" checked />
+                  <span class="label-text">第1+第2艦隊</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="fleet1" />
+                  <span class="label-text">第1艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="fleet2" />
+                  <span class="label-text">第2艦隊のみ</span>
+                </label>
+              </div>
+            </div>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input id="saveimg-include-airbase" type="checkbox" class="checkbox checkbox-sm" checked />
+              <span class="label-text">基地航空隊を含める</span>
+            </label>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input id="saveimg-transparent-bg" type="checkbox" class="checkbox checkbox-sm" />
+              <span class="label-text">背景を透過（PNG）</span>
+            </label>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">画質倍率</span></label>
+              <select id="saveimg-scale" class="select select-bordered select-sm">
+                <option value="1">標準 (x1)</option>
+                <option value="2" selected>高画質 (x2)</option>
+                <option value="3">超高画質 (x3)</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">ファイル名</span></label>
+              <input id="saveimg-filename" type="text" class="input input-bordered input-sm" value="fleet-deck" />
+            </div>
+          </div>
+          <div class="modal-action">
+            <button id="btn-save-image-confirm" type="button" class="btn btn-primary btn-sm">PNGで保存</button>
+            <form method="dialog"><button class="btn btn-ghost btn-sm">キャンセル</button></form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+      </dialog>
+
       <input type="file" id="import-file-input" accept=".json" class="hidden" />
     </div>
   </div>
@@ -189,6 +246,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 </script>
 
 <script>
+  import { toBlob as htmlToImageToBlob } from "html-to-image";
+
   // ==============================================================
   //  Types
   // ==============================================================
@@ -2680,6 +2739,381 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     a.download = "fleet-composition.json";
     a.click();
     URL.revokeObjectURL(url);
+  });
+
+  // Save deck area as image (PNG)
+  type HtmlToImageToBlobFn = (el: HTMLElement, opts?: Record<string, unknown>) => Promise<Blob | null>;
+  const toBlobImpl = htmlToImageToBlob as unknown as HtmlToImageToBlobFn;
+  const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+
+  function hasUrlResource(v: string | null | undefined): boolean {
+    if (!v) return false;
+    return v.includes("url(");
+  }
+
+  function hasHashUrlResource(v: string | null | undefined): boolean {
+    if (!v) return false;
+    return v.includes("url(#") || v.includes("url(\"#") || v.includes("url('#");
+  }
+
+  function sanitizeFileName(name: string): string {
+    const n = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-");
+    return n || "fleet-deck";
+  }
+
+  interface CaptureStats {
+    totalImages: number;
+    externalImages: number;
+    proxiedImages: number;
+    cacheHitImages: number;
+    cacheMissImages: number;
+    proxyFetchImages: number;
+    hiddenImages: number;
+    sanitizedStyleNodes: number;
+  }
+
+  interface SaveImageDiagnostics extends CaptureStats {
+    attempt: number;
+    safeMode: boolean;
+    usedProxyOption: boolean;
+    hideExternalOption: boolean;
+    elapsedMs: number;
+    success: boolean;
+    note?: string;
+  }
+
+  function emptyCaptureStats(): CaptureStats {
+    return {
+      totalImages: 0,
+      externalImages: 0,
+      proxiedImages: 0,
+      cacheHitImages: 0,
+      cacheMissImages: 0,
+      proxyFetchImages: 0,
+      hiddenImages: 0,
+      sanitizedStyleNodes: 0,
+    };
+  }
+
+  function addCaptureStats(base: CaptureStats, extra: CaptureStats): CaptureStats {
+    return {
+      totalImages: base.totalImages + extra.totalImages,
+      externalImages: base.externalImages + extra.externalImages,
+      proxiedImages: base.proxiedImages + extra.proxiedImages,
+      cacheHitImages: base.cacheHitImages + extra.cacheHitImages,
+      cacheMissImages: base.cacheMissImages + extra.cacheMissImages,
+      proxyFetchImages: base.proxyFetchImages + extra.proxyFetchImages,
+      hiddenImages: base.hiddenImages + extra.hiddenImages,
+      sanitizedStyleNodes: base.sanitizedStyleNodes + extra.sanitizedStyleNodes,
+    };
+  }
+
+  function renderSaveDiagnostics(diag: SaveImageDiagnostics): string {
+    return [
+      `結果: ${diag.success ? "成功" : "失敗"}`,
+      `試行: ${diag.attempt}回目${diag.safeMode ? " (safe mode)" : ""}`,
+      `オプション: proxy=${diag.usedProxyOption ? "ON" : "OFF"}, 外部画像除外=${diag.hideExternalOption ? "ON" : "OFF"}`,
+      `画像: 総数 ${diag.totalImages}, 外部 ${diag.externalImages}, proxy変換 ${diag.proxiedImages}, 非表示 ${diag.hiddenImages}`,
+      `キャッシュ: hit ${diag.cacheHitImages}, miss ${diag.cacheMissImages}, proxy取得 ${diag.proxyFetchImages}`,
+      `スタイル無効化ノード: ${diag.sanitizedStyleNodes}`,
+      `処理時間: ${diag.elapsedMs}ms`,
+      diag.note ? `備考: ${diag.note}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
+    const title = `[save-image][diag] ${diag.success ? "success" : "failed"} attempt=${diag.attempt}${diag.safeMode ? " safe" : ""}`;
+    console.groupCollapsed(title);
+    console.info(renderSaveDiagnostics(diag));
+    console.table({
+      totalImages: diag.totalImages,
+      externalImages: diag.externalImages,
+      proxiedImages: diag.proxiedImages,
+      cacheHitImages: diag.cacheHitImages,
+      cacheMissImages: diag.cacheMissImages,
+      proxyFetchImages: diag.proxyFetchImages,
+      hiddenImages: diag.hiddenImages,
+      sanitizedStyleNodes: diag.sanitizedStyleNodes,
+      proxyOption: diag.usedProxyOption,
+      hideExternalOption: diag.hideExternalOption,
+      elapsedMs: diag.elapsedMs,
+    });
+    console.groupEnd();
+  }
+
+  const externalImageBlobCache = new Map<string, string>();
+
+  async function fetchProxyImageAsBlobUrl(absUrl: string): Promise<string | null> {
+    const proxied = `/api/asset-sync/image-proxy?url=${encodeURIComponent(absUrl)}`;
+    try {
+      const res = await fetch(proxied, { cache: "force-cache" });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      externalImageBlobCache.set(absUrl, blobUrl);
+      return blobUrl;
+    } catch {
+      return null;
+    }
+  }
+
+  async function getCachedExternalBlobUrl(absUrl: string, stats?: CaptureStats): Promise<string | null> {
+    const cached = externalImageBlobCache.get(absUrl);
+    if (cached) {
+      if (stats) stats.cacheHitImages += 1;
+      return cached;
+    }
+    if (stats) {
+      stats.cacheMissImages += 1;
+      stats.proxyFetchImages += 1;
+    }
+    return fetchProxyImageAsBlobUrl(absUrl);
+  }
+
+  async function prewarmVisibleExternalImageCache(root: ParentNode) {
+    const targets = new Set<string>();
+    root.querySelectorAll("img").forEach((img) => {
+      if (!(img instanceof HTMLImageElement)) return;
+      const srcAttr = img.currentSrc || img.getAttribute("src") || "";
+      if (!srcAttr) return;
+      try {
+        const u = new URL(srcAttr, window.location.href);
+        if (u.origin !== window.location.origin) targets.add(u.toString());
+      } catch {
+        // ignore invalid src values
+      }
+    });
+    if (targets.size === 0) return;
+    await Promise.all(Array.from(targets, (u) => getCachedExternalBlobUrl(u)));
+  }
+
+  async function buildCaptureNode(opts: { includeAirBase: boolean; fleetTarget: "both" | "fleet1" | "fleet2"; transparentBackground?: boolean; hideExternalImages: boolean; useImageProxy?: boolean; safeMode?: boolean }): Promise<{ host: HTMLElement; node: HTMLElement; stats: CaptureStats } | null> {
+    const src = document.getElementById("deck-capture-area");
+    if (!(src instanceof HTMLElement)) return null;
+    const stats = emptyCaptureStats();
+
+    const host = document.createElement("div");
+    host.style.position = "fixed";
+    host.style.left = "-10000px";
+    host.style.top = "0";
+    host.style.zIndex = "-1";
+
+    const clone = src.cloneNode(true) as HTMLElement;
+    clone.style.width = `${src.getBoundingClientRect().width}px`;
+    clone.style.background = opts.transparentBackground ? "transparent" : "#eceff3";
+    clone.style.padding = "0";
+
+    clone.querySelector("#data-status")?.remove();
+    if (!opts.includeAirBase) clone.querySelector("#airbase-section")?.remove();
+    if (opts.fleetTarget === "fleet1") clone.querySelector("#fleet-2-section")?.remove();
+    if (opts.fleetTarget === "fleet2") clone.querySelector("#fleet-1-section")?.remove();
+
+    const tasks: Promise<void>[] = [];
+    clone.querySelectorAll("*").forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      const st = node.style;
+      const cs = window.getComputedStyle(node);
+
+      // Prevent html-to-image from trying to fetch url(#...) pseudo-resources or external sprites.
+      const bgImage = st.backgroundImage || "";
+      const bg = st.background || "";
+      const filter = st.filter || "";
+      const maskImage = (st as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage || st.maskImage || "";
+      const cBgImage = cs.backgroundImage || "";
+      const cFilter = cs.filter || "";
+      const cMaskImage = cs.maskImage || "";
+      const cWebkitMaskImage = (cs as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage || "";
+      const cClipPath = cs.clipPath || "";
+      if (
+        hasUrlResource(bgImage) ||
+        hasUrlResource(bg) ||
+        hasUrlResource(filter) ||
+        hasUrlResource(maskImage) ||
+        hasHashUrlResource(cBgImage) ||
+        hasHashUrlResource(cFilter) ||
+        hasHashUrlResource(cMaskImage) ||
+        hasHashUrlResource(cWebkitMaskImage) ||
+        hasHashUrlResource(cClipPath)
+      ) {
+        stats.sanitizedStyleNodes += 1;
+        st.backgroundImage = "none";
+        st.background = st.backgroundColor || "transparent";
+        st.filter = "none";
+        st.maskImage = "none";
+        (st as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage = "none";
+        st.clipPath = "none";
+      }
+
+      if (opts.safeMode) {
+        st.backdropFilter = "none";
+        (st as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter = "none";
+      }
+
+      if (node instanceof HTMLImageElement) {
+        stats.totalImages += 1;
+        const srcAttr = node.currentSrc || node.getAttribute("src") || "";
+        let isExternal = false;
+        let absSrc = "";
+        try {
+          const u = new URL(srcAttr, window.location.href);
+          absSrc = u.toString();
+          isExternal = u.origin !== window.location.origin;
+        } catch {
+          isExternal = true;
+        }
+        if (isExternal) stats.externalImages += 1;
+
+        // Optional: rewrite external image URLs to cached blob URL fetched via same-origin proxy.
+        if (opts.useImageProxy && isExternal && absSrc) {
+          tasks.push((async () => {
+            const blobUrl = await getCachedExternalBlobUrl(absSrc, stats);
+            if (blobUrl) {
+              node.src = blobUrl;
+              stats.proxiedImages += 1;
+            }
+          })());
+        }
+        if ((opts.hideExternalImages || opts.safeMode) && isExternal) {
+          node.removeAttribute("src");
+          node.style.visibility = "hidden";
+          stats.hiddenImages += 1;
+        }
+      }
+    });
+
+    if (tasks.length > 0) await Promise.all(tasks);
+
+    host.appendChild(clone);
+    document.body.appendChild(host);
+    return { host, node: clone, stats };
+  }
+
+  document.getElementById("btn-save-image")?.addEventListener("click", () => {
+    const modal = document.getElementById("save-image-modal");
+    const captureRoot = document.getElementById("deck-capture-area");
+    if (captureRoot) {
+      // Best effort prewarm: fill cache while user reviews options so save-time requests are reduced.
+      prewarmVisibleExternalImageCache(captureRoot).catch(() => {});
+    }
+    if (modal instanceof HTMLDialogElement) modal.showModal();
+  });
+
+  document.getElementById("btn-save-image-confirm")?.addEventListener("click", async () => {
+    const btn = document.getElementById("btn-save-image-confirm");
+    const modal = document.getElementById("save-image-modal");
+    if (!(btn instanceof HTMLButtonElement)) return;
+
+    const fleetTarget = ((document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null)?.value ?? "both") as "both" | "fleet1" | "fleet2";
+    const includeAirBase = (document.getElementById("saveimg-include-airbase") as HTMLInputElement | null)?.checked ?? true;
+    const transparentBackground = (document.getElementById("saveimg-transparent-bg") as HTMLInputElement | null)?.checked ?? false;
+    const hideExternalImages = false;
+    const useImageProxy = true;
+    const scaleRaw = parseInt((document.getElementById("saveimg-scale") as HTMLSelectElement | null)?.value ?? "2", 10);
+    const scale = Math.max(1, Math.min(3, Number.isFinite(scaleRaw) ? scaleRaw : 2));
+    const fileBase = sanitizeFileName((document.getElementById("saveimg-filename") as HTMLInputElement | null)?.value ?? "fleet-deck");
+
+    const prevDisabled = btn.disabled;
+    const prevText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "保存中...";
+
+    let host: HTMLElement | null = null;
+    let aggregatedStats = emptyCaptureStats();
+    const startedAt = performance.now();
+    let attempt = 1;
+    let safeModeUsed = false;
+    try {
+      const prepared = await buildCaptureNode({ includeAirBase, fleetTarget, transparentBackground, hideExternalImages, useImageProxy });
+      if (!prepared) throw new Error("capture target missing");
+      host = prepared.host;
+      aggregatedStats = addCaptureStats(aggregatedStats, prepared.stats);
+
+      let blob: Blob | null = null;
+      let primaryError: unknown = null;
+
+      try {
+        const renderOpts: Record<string, unknown> = {
+          pixelRatio: scale,
+          cacheBust: false,
+          skipFonts: true,
+          imagePlaceholder: TRANSPARENT_PIXEL,
+        };
+        if (!transparentBackground) renderOpts.backgroundColor = "#eceff3";
+        blob = await toBlobImpl(prepared.node, renderOpts);
+      } catch (e) {
+        primaryError = e;
+      }
+
+      // Retry once in strict safe mode if primary render failed.
+      if (!blob) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        logSaveImageDiagnostics({
+          ...aggregatedStats,
+          attempt: 1,
+          safeMode: false,
+          usedProxyOption: useImageProxy,
+          hideExternalOption: hideExternalImages,
+          elapsedMs,
+          success: false,
+          note: `1回目失敗のため safe mode 再試行 (target=${fleetTarget})`,
+        });
+        if (host && host.parentElement) host.parentElement.removeChild(host);
+        const retry = await buildCaptureNode({ includeAirBase, fleetTarget, transparentBackground, hideExternalImages: true, useImageProxy: true, safeMode: true });
+        if (!retry) throw (primaryError ?? new Error("capture target missing"));
+        host = retry.host;
+        aggregatedStats = addCaptureStats(aggregatedStats, retry.stats);
+        attempt = 2;
+        safeModeUsed = true;
+        const retryRenderOpts: Record<string, unknown> = {
+          pixelRatio: Math.min(2, scale),
+          cacheBust: false,
+          skipFonts: true,
+          imagePlaceholder: TRANSPARENT_PIXEL,
+          filter: (n: Node) => !(n instanceof HTMLImageElement),
+        };
+        if (!transparentBackground) retryRenderOpts.backgroundColor = "#eceff3";
+        blob = await toBlobImpl(retry.node, retryRenderOpts);
+      }
+      if (!blob) throw new Error("png conversion failed");
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${fileBase}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      logSaveImageDiagnostics({
+        ...aggregatedStats,
+        attempt,
+        safeMode: safeModeUsed,
+        usedProxyOption: useImageProxy,
+        hideExternalOption: hideExternalImages,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        success: true,
+        note: `target=${fleetTarget}`,
+      });
+      if (modal instanceof HTMLDialogElement) modal.close();
+    } catch (err) {
+      console.error("[save-image] failed", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      logSaveImageDiagnostics({
+        ...aggregatedStats,
+        attempt,
+        safeMode: safeModeUsed,
+        usedProxyOption: useImageProxy,
+        hideExternalOption: hideExternalImages,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        success: false,
+        note: `target=${fleetTarget}; ${msg}`,
+      });
+      alert(`画像保存に失敗しました。\n${msg}\nCORS制限のため外部画像は自動除外で保存されます。`);
+    } finally {
+      if (host && host.parentElement) host.parentElement.removeChild(host);
+      btn.disabled = prevDisabled;
+      if (prevText != null) btn.textContent = prevText;
+    }
   });
 
   // Share
