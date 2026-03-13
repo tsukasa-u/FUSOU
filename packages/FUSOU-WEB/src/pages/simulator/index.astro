@@ -231,6 +231,24 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     [key: string]: number | undefined;
   }
 
+  // Equipment bonus / synergy data types
+  interface EquipEffect {
+    ships: number[];
+    b: Record<string, number>;
+    l?: Record<string, number>;
+    c2?: Record<string, number>;
+    c3?: Record<string, number>;
+  }
+  interface CrossEffect {
+    ships: number[];
+    items: [number, number];
+    synergy: Record<string, number>;
+  }
+  interface SlotItemEffectsData {
+    effects: Record<string, EquipEffect[]>;
+    cross_effects: Record<string, CrossEffect[]>;
+  }
+
   interface FleetSlot {
     shipId: number | null;
     shipLevel: number | null;
@@ -240,6 +258,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     exSlotId: number | null;
     exSlotImprovement: number;    // 0-10
     statOverrides?: StatOverrides;
+    /** Snapshot instance stats (current values including modernization). */
+    instanceStats?: Record<string, number>;
   }
 
   // ==============================================================
@@ -326,6 +346,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   let mstSlotItems: Record<number, MstSlotItemData> = {};
   let hasMasterData = false;
 
+  // Equipment bonus / synergy data
+  let slotItemEffects: SlotItemEffectsData | null = null;
+
+  // Equipment modal target context (which ship/slot is being edited)
+  let equipModalTargetShipId: number | null = null;
+  let equipModalTargetSlot: FleetSlot | null = null;
+  let equipModalTargetSlotIdx: number = -1; // 0-4 for regular slots, -1 for ex slot
+
   // Banner image URL map: shipId -> R2 key
   let bannerMap: Record<string, string> = {};
   // Card image URL map: shipId -> R2 key (full character illustrations)
@@ -372,6 +400,109 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       clearTimeout(timer);
       timer = window.setTimeout(() => fn(...args), ms);
     };
+  }
+
+  // ── Equipment bonus calculation ──────────────────────────────
+  const STAT_KEYS = ["houg", "raig", "tyku", "souk", "kaih", "tais", "saku", "baku", "houm", "leng"] as const;
+
+  /**
+   * Compute total equipment bonus for a ship given its loadout.
+   * Returns per-stat bonus values (single-item + pairwise synergy).
+   */
+  function computeEquipBonuses(
+    shipId: number,
+    equipIds: (number | null)[],
+    exSlotId: number | null,
+  ): Record<string, number> {
+    const bonuses: Record<string, number> = {};
+    if (!slotItemEffects) return bonuses;
+
+    // Gather all equipped item IDs (including ex slot)
+    const allIds: number[] = [];
+    for (const id of equipIds) { if (id != null) allIds.push(id); }
+    if (exSlotId != null) allIds.push(exSlotId);
+    if (allIds.length === 0) return bonuses;
+
+    // Count each item
+    const itemCounts: Record<number, number> = {};
+    for (const id of allIds) itemCounts[id] = (itemCounts[id] || 0) + 1;
+
+    // Single-item bonuses
+    for (const idStr of Object.keys(itemCounts)) {
+      const id = parseInt(idStr, 10);
+      const count = itemCounts[id];
+      const entries = slotItemEffects.effects[id];
+      if (!entries) continue;
+
+      for (const entry of entries) {
+        if (!entry.ships.includes(shipId)) continue;
+        // Determine total bonus for this item count
+        let src: Record<string, number>;
+        if (count >= 3 && entry.c3) {
+          src = entry.c3;
+        } else if (count >= 2 && entry.c2) {
+          src = entry.c2;
+          // For count > 2 when c3 is not available, add extra individual bonuses
+          if (count > 2) {
+            for (const k of STAT_KEYS) {
+              const extra = (entry.b[k] || 0) * (count - 2);
+              if (extra) bonuses[k] = (bonuses[k] || 0) + extra;
+            }
+          }
+        } else {
+          src = {};
+          for (const k of STAT_KEYS) {
+            const v = (entry.b[k] || 0) * count;
+            if (v) src[k] = v;
+          }
+        }
+        for (const [k, v] of Object.entries(src)) {
+          if (v) bonuses[k] = (bonuses[k] || 0) + v;
+        }
+        break;
+      }
+    }
+
+    // Cross-item synergy bonuses (pairwise)
+    const uniqueIds = Object.keys(itemCounts).map(Number);
+    for (let i = 0; i < uniqueIds.length; i++) {
+      for (let j = i + 1; j < uniqueIds.length; j++) {
+        const a = Math.min(uniqueIds[i], uniqueIds[j]);
+        const b = Math.max(uniqueIds[i], uniqueIds[j]);
+        const entries = slotItemEffects.cross_effects[`${a}:${b}`];
+        if (!entries) continue;
+        for (const entry of entries) {
+          if (!entry.ships.includes(shipId)) continue;
+          for (const [k, v] of Object.entries(entry.synergy)) {
+            if (v) bonuses[k] = (bonuses[k] || 0) + v;
+          }
+          break;
+        }
+      }
+    }
+
+    return bonuses;
+  }
+
+  /**
+   * Compute equipment sum for a ship slot (raw equip stats, no bonuses).
+   */
+  function computeEquipSum(
+    equipIds: (number | null)[],
+    exSlotId: number | null,
+  ): Record<string, number> {
+    const sums: Record<string, number> = {};
+    const ids = [...equipIds];
+    if (exSlotId != null) ids.push(exSlotId);
+    for (const id of ids) {
+      if (id == null) continue;
+      const eq = mstSlotItems[id];
+      if (!eq) continue;
+      for (const k of ["houg", "raig", "tyku", "tais", "baku", "saku", "houm", "souk"] as const) {
+        if (eq[k]) sums[k] = (sums[k] || 0) + eq[k];
+      }
+    }
+    return sums;
   }
 
   /**
@@ -1397,6 +1528,76 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     }
 
     panel.appendChild(grid);
+
+    // ── Equipment Bonus Section (when ship context is available) ──
+    if (slotItemEffects && equipModalTargetShipId != null && equipModalTargetSlot) {
+      const shipId = equipModalTargetShipId;
+      const targetSlot = equipModalTargetSlot;
+      const targetIdx = equipModalTargetSlotIdx;
+      const shipData = mstShips[shipId];
+
+      // Build a hypothetical loadout with this equip in the target slot
+      const testEquipIds = [...targetSlot.equipIds];
+      let testExSlotId = targetSlot.exSlotId;
+      if (targetIdx >= 0) {
+        testEquipIds[targetIdx] = equip.id;
+      } else {
+        testExSlotId = equip.id;
+      }
+
+      // Compute bonus with this item vs. without
+      const bonusWith = computeEquipBonuses(shipId, testEquipIds, testExSlotId);
+      const testEquipIdsWithout = [...targetSlot.equipIds];
+      let testExSlotIdWithout = targetSlot.exSlotId;
+      if (targetIdx >= 0) {
+        testEquipIdsWithout[targetIdx] = null;
+      } else {
+        testExSlotIdWithout = null;
+      }
+      const bonusWithout = computeEquipBonuses(shipId, testEquipIdsWithout, testExSlotIdWithout);
+
+      // Delta = contribution of this item to the total bonus
+      const delta: Record<string, number> = {};
+      const bonusKeys = new Set([...Object.keys(bonusWith), ...Object.keys(bonusWithout)]);
+      for (const k of bonusKeys) {
+        const d = (bonusWith[k] || 0) - (bonusWithout[k] || 0);
+        if (d !== 0) delta[k] = d;
+      }
+
+      if (Object.keys(delta).length > 0) {
+        const STAT_JP: Record<string, string> = {
+          houg: "火力", raig: "雷装", tyku: "対空", souk: "装甲",
+          kaih: "回避", tais: "対潜", saku: "索敵", baku: "爆装", houm: "命中", leng: "射程",
+        };
+
+        const section = document.createElement("div");
+        section.className = "mt-4 pt-3 border-t border-base-200";
+
+        const sectionTitle = document.createElement("div");
+        sectionTitle.className = "text-[11px] font-bold text-warning/80 mb-2 flex items-center gap-1";
+        sectionTitle.innerHTML = `<span class="text-warning">★</span>装備ボーナス${shipData ? ` (${shipData.name})` : ""}`;
+        section.appendChild(sectionTitle);
+
+        const bonusGrid = document.createElement("div");
+        bonusGrid.className = "divide-y divide-base-200";
+        for (const [k, v] of Object.entries(delta)) {
+          const label = STAT_JP[k] ?? k;
+          const row = document.createElement("div");
+          row.className = "flex justify-between py-1 text-sm";
+          const l = document.createElement("span");
+          l.className = "text-base-content/50";
+          l.textContent = label;
+          const val = document.createElement("span");
+          val.className = `font-mono font-medium ${v > 0 ? "text-warning" : "text-error"}`;
+          val.textContent = `${v > 0 ? "+" : ""}${v}`;
+          row.appendChild(l);
+          row.appendChild(val);
+          bonusGrid.appendChild(row);
+        }
+        section.appendChild(bonusGrid);
+        panel.appendChild(section);
+      }
+    }
   }
 
   function resetEquipDetail() {
@@ -1478,6 +1679,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
             fleet[idx].exSlotId = null;
             fleet[idx].exSlotImprovement = 0;
+            delete fleet[idx].instanceStats;
             renderFleetSlots(containerId, fleet);
           });
         });
@@ -1538,6 +1740,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
           fleet[idx].exSlotId = null;
           fleet[idx].exSlotImprovement = 0;
+          delete fleet[idx].instanceStats;
           renderFleetSlots(containerId, fleet);
         });
         header.appendChild(clearBtn);
@@ -1551,6 +1754,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
               fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
               fleet[idx].exSlotId = null;
               fleet[idx].exSlotImprovement = 0;
+              delete fleet[idx].instanceStats;
             }
             renderFleetSlots(containerId, fleet);
           });
@@ -1658,6 +1862,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           if (isActive) {
             const eqIdx = i;
             eqRow.addEventListener("click", () => {
+              equipModalTargetShipId = slot.shipId;
+              equipModalTargetSlot = slot;
+              equipModalTargetSlotIdx = eqIdx;
               openEquipModal(slot.equipIds[eqIdx], (id) => {
                 fleet[idx].equipIds[eqIdx] = id;
                 renderFleetSlots(containerId, fleet);
@@ -1723,6 +1930,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         }
 
         exRow.addEventListener("click", () => {
+          equipModalTargetShipId = slot.shipId;
+          equipModalTargetSlot = slot;
+          equipModalTargetSlotIdx = -1;
           openEquipModal(slot.exSlotId, (id) => {
             fleet[idx].exSlotId = id;
             renderFleetSlots(containerId, fleet);
@@ -1734,41 +1944,48 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         if (!slot.statOverrides) slot.statOverrides = {};
         const overrides = slot.statOverrides!;
 
+        // Compute equipment bonuses + equip stat sums
+        const equipBonuses = slot.shipId != null
+          ? computeEquipBonuses(slot.shipId, slot.equipIds, slot.exSlotId)
+          : {};
+        const equipSums = computeEquipSum(slot.equipIds, slot.exSlotId);
+
         // Each stat: [label, key, baseVal, maxVal, isNumeric]
+        // When instanceStats exists (snapshot mode), prefer it over master data for base values.
+        // instanceStats stores naked (equipment-stripped) values.
         type StatDef = [string, string, number | null, number | null, boolean];
+        const ist = slot.instanceStats;
         const RANGE_NAMES: Record<number, string> = { 0: "—", 1: "短", 2: "中", 3: "長", 4: "超長", 5: "超長+" };
         const leftStats: StatDef[] = [
           ["耐久", "taik", ship.taik?.[0] ?? null, ship.taik?.[1] ?? null, true],
-          ["装甲", "souk", ship.souk?.[0] ?? null, ship.souk?.[1] ?? null, true],
-          ["回避", "kaih", null, null, true],
+          ["装甲", "souk", ist?.souk ?? ship.souk?.[0] ?? null, ship.souk?.[1] ?? null, true],
+          ["回避", "kaih", ist?.kaih ?? null, null, true],
           ["搭載", "maxeq", ship.maxeq ? ship.maxeq.slice(0, slotCount).reduce((a: number, b: number) => a + b, 0) : null, null, true],
           ["速力", "soku", ship.soku, 20, false],
           ["射程", "leng", ship.leng, 5, false],
         ];
         const rightStats: StatDef[] = [
-          ["火力", "houg", ship.houg?.[0] ?? null, ship.houg?.[1] ?? null, true],
-          ["雷装", "raig", ship.raig?.[0] ?? null, ship.raig?.[1] ?? null, true],
-          ["対空", "tyku", ship.tyku?.[0] ?? null, ship.tyku?.[1] ?? null, true],
-          ["対潜", "tais", ship.tais?.[0] ?? null, ship.tais?.[1] ?? null, true],
-          ["索敵", "saku", null, null, true],
-          ["運", "luck", ship.luck?.[0] ?? null, ship.luck?.[1] ?? null, true],
+          ["火力", "houg", ist?.houg ?? ship.houg?.[0] ?? null, ship.houg?.[1] ?? null, true],
+          ["雷装", "raig", ist?.raig ?? ship.raig?.[0] ?? null, ship.raig?.[1] ?? null, true],
+          ["対空", "tyku", ist?.tyku ?? ship.tyku?.[0] ?? null, ship.tyku?.[1] ?? null, true],
+          ["対潜", "tais", ist?.tais ?? ship.tais?.[0] ?? null, ship.tais?.[1] ?? null, true],
+          ["索敵", "saku", ist?.saku ?? null, null, true],
+          ["運", "luck", ist?.luck ?? ship.luck?.[0] ?? null, ship.luck?.[1] ?? null, true],
         ];
 
         const statsGrid = document.createElement("div");
         statsGrid.className =
-          "grid grid-cols-[auto_0.5rem_auto] gap-x-0 gap-y-0 px-1.5 py-0.5 text-[11px] border-t border-base-200/50 leading-none w-fit";
+          "grid grid-cols-[5.9rem_0.25rem_5.9rem] gap-x-0 gap-y-0 px-1.5 py-0 text-[10px] border-t border-base-200/50 leading-none w-fit";
 
         function formatStatVal(key: string, base: number | null, max: number | null, isNumeric: boolean): string {
           const ov = overrides[key];
-          if (ov != null) {
-            if (!isNumeric && key === "soku") return SPEED_NAMES[ov] ?? String(ov);
-            if (!isNumeric && key === "leng") return RANGE_NAMES[ov] ?? String(ov);
-            return String(ov);
-          }
-          if (base == null) return "—";
-          if (!isNumeric && key === "soku") return SPEED_NAMES[base] ?? String(base);
-          if (!isNumeric && key === "leng") return RANGE_NAMES[base] ?? String(base);
-          return String(base);
+          const baseVal = ov ?? base;
+          if (baseVal == null) return "—";
+          const eqContrib = (equipSums[key] || 0) + (equipBonuses[key] || 0);
+          const total = baseVal + eqContrib;
+          if (!isNumeric && key === "soku") return SPEED_NAMES[total] ?? String(total);
+          if (!isNumeric && key === "leng") return RANGE_NAMES[total] ?? String(total);
+          return String(total);
         }
 
         function currentNumericVal(key: string, base: number | null): number {
@@ -1777,17 +1994,17 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
         function createStatCell(label: string, key: string, base: number | null, max: number | null, isNumeric: boolean): HTMLElement {
           const cell = document.createElement("div");
-          cell.className = "flex items-center gap-0 group/stat h-[16px]";
+          cell.className = "grid grid-cols-[1.25rem_1fr_1.5rem] items-center gap-0 group/stat h-[14px] w-[5.9rem]";
 
           // Label
           const lb = document.createElement("span");
-          lb.className = "text-base-content/40 font-medium w-6 shrink-0 text-[10px]";
+          lb.className = "text-base-content/40 font-medium text-[10px]";
           lb.textContent = label;
           cell.appendChild(lb);
 
           // Value container (holds display + controls)
           const valWrap = document.createElement("div");
-          valWrap.className = "flex items-center gap-0 justify-end";
+          valWrap.className = "flex items-center gap-0 justify-end min-w-0";
 
           // Minus button
           const minusBtn = document.createElement("button");
@@ -1808,7 +2025,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
           // Value display
           const vl = document.createElement("span");
-          vl.className = "font-mono text-base-content/70 text-right tabular-nums w-[2rem] cursor-pointer hover:text-primary transition-colors text-[10px]" + (overrides[key] != null ? " text-primary/80 font-bold" : "");
+          vl.className = "font-mono text-base-content/70 text-right tabular-nums w-[1.55rem] cursor-pointer hover:text-primary transition-colors text-[10px]" + (overrides[key] != null ? " text-primary/80 font-bold" : "");
           vl.textContent = formatStatVal(key, base, max, isNumeric);
           vl.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -1816,7 +2033,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             // Inline edit
             const input = document.createElement("input");
             input.type = "number";
-            input.className = "w-[2rem] h-[14px] text-[10px] font-mono text-right border border-primary/40 rounded px-0.5 bg-base-100 outline-none focus:border-primary";
+            input.className = "w-[1.55rem] h-[14px] text-[10px] font-mono text-right border border-primary/40 rounded px-0.5 bg-base-100 outline-none focus:border-primary";
             input.value = String(currentNumericVal(key, base));
             input.min = String(base ?? 0);
             if (max != null) input.max = String(max);
@@ -1857,6 +2074,34 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           valWrap.appendChild(plusBtn);
 
           cell.appendChild(valWrap);
+
+          // Equipment contribution indicator + breakdown tooltip
+          const eqStatVal = equipSums[key] || 0;
+          const bonusVal = equipBonuses[key] || 0;
+          const totalBonus = eqStatVal + bonusVal;
+          const bonusEl = document.createElement("span");
+          bonusEl.className = "text-[10px] font-mono font-semibold tabular-nums leading-none w-[1.5rem] text-left pl-[1px]";
+          if (totalBonus !== 0) {
+            // Tooltip on main value: show breakdown
+            const bv = currentNumericVal(key, base);
+            vl.title = `素: ${bv}` +
+              (eqStatVal ? `, 装備: ${eqStatVal > 0 ? "+" : ""}${eqStatVal}` : "") +
+              (bonusVal ? `, ボーナス: ${bonusVal > 0 ? "+" : ""}${bonusVal}` : "");
+            // Parenthesized indicator showing equipment contribution
+            const sign = totalBonus > 0 ? "+" : "";
+            bonusEl.textContent = `${sign}${totalBonus}`;
+            // Use muted tones that blend with the card design while remaining legible on artwork.
+            bonusEl.style.color = totalBonus > 0 ? "#b45309" : "#c2410c";
+            bonusEl.style.textShadow = "none";
+            if (bonusVal !== 0) {
+              bonusEl.title = `装備: ${eqStatVal > 0 ? "+" : ""}${eqStatVal}, ボーナス: ${bonusVal > 0 ? "+" : ""}${bonusVal}`;
+            }
+          } else {
+            // Keep empty placeholder so row width and alignment stay identical.
+            bonusEl.textContent = "";
+          }
+          cell.appendChild(bonusEl);
+
           return cell;
         }
 
@@ -1883,6 +2128,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
                 fleet[idx].exSlotId = null;
                 fleet[idx].exSlotImprovement = 0;
+                delete fleet[idx].instanceStats;
               }
               renderFleetSlots(containerId, fleet);
             });
@@ -2014,6 +2260,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
         const slotIdx = i;
         row.addEventListener("click", () => {
+          equipModalTargetShipId = null;
+          equipModalTargetSlot = null;
+          equipModalTargetSlotIdx = -1;
           openEquipModal(base.equipIds[slotIdx], (id) => {
             airBases[bIdx].equipIds[slotIdx] = id;
             renderAirBases();
@@ -2177,6 +2426,20 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           equipProficiency,
           exSlotId,
           exSlotImprovement,
+          instanceStats: (() => {
+            // Snapshot stats include equipment — subtract equip contribution to get naked base
+            const snapEqSum = computeEquipSum(equipIds, exSlotId);
+            return {
+              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0),
+              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0),
+              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0),
+              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0),
+              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0),
+              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0),
+              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0),
+              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0),
+            };
+          })(),
         };
       }
     }
@@ -2232,6 +2495,19 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           equipProficiency,
           exSlotId,
           exSlotImprovement,
+          instanceStats: (() => {
+            const snapEqSum = computeEquipSum(equipIds, exSlotId);
+            return {
+              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0),
+              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0),
+              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0),
+              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0),
+              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0),
+              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0),
+              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0),
+              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0),
+            };
+          })(),
         };
       }
     }
@@ -2452,13 +2728,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   // ==============================================================
   async function loadMasterData() {
     try {
-      const [shipRes, equipRes, bannerRes, cardRes, equipImgRes, iconFrameRes] = await Promise.all([
+      const [shipRes, equipRes, bannerRes, cardRes, equipImgRes, iconFrameRes, synergyRes] = await Promise.all([
         fetch("/api/master-data/json?table_name=mst_ship"),
         fetch("/api/master-data/json?table_name=mst_slotitem"),
         fetch("/api/asset-sync/ship-banner-map"),
         fetch("/api/asset-sync/ship-card-map"),
         fetch("/api/asset-sync/equip-image-map"),
         fetch("/api/asset-sync/weapon-icon-frames"),
+        fetch("/data/slot_item_effects.json"),
       ]);
 
       if (shipRes.ok) {
@@ -2522,6 +2799,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         spriteSheetUrl = assetBaseUrl
           ? `${assetBaseUrl}/${pngKey}`
           : "/api/asset-sync/weapon-icons";
+      }
+
+      if (synergyRes.ok) {
+        const synData = (await synergyRes.json()) as SlotItemEffectsData;
+        if (synData.effects && synData.cross_effects) {
+          slotItemEffects = synData;
+        }
       }
     } catch {
       // Server unavailable
