@@ -159,7 +159,8 @@ export function initIOEvents() {
       try {
         const shorterBase = (window as any).__fusouUrlShorterBase as string | undefined;
         if (shorterBase) {
-          const res = await fetch(`${shorterBase}/api/shorten`, {
+          const normalizedShorterBase = shorterBase.trim().replace(/\/+$/, "");
+          const res = await fetch(`${normalizedShorterBase}/api/shorten`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: longUrl }),
