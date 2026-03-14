@@ -34,155 +34,352 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1440px] mx-auto px-4 py-6">
-
       <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-end md:justify-between mb-5 gap-3">
+      <div
+        class="flex flex-col md:flex-row md:items-end md:justify-between mb-5 gap-3"
+      >
         <div>
           <h1 class="text-2xl font-bold tracking-tight">編成シミュレータ</h1>
-          <p class="text-sm text-base-content/50 mt-0.5">艦隊編成を組み立てて確認・共有</p>
+          <p class="text-sm text-base-content/50 mt-0.5">
+            艦隊編成を組み立てて確認・共有
+          </p>
         </div>
         <div class="flex gap-1.5 flex-wrap">
           <button id="btn-load-fleet" class="btn btn-ghost btn-sm gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              ></path></svg
+            >
             R2読込
           </button>
           <button id="btn-import" class="btn btn-ghost btn-sm gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+              ></path></svg
+            >
             インポート
           </button>
           <button id="btn-export" class="btn btn-ghost btn-sm gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+              ></path></svg
+            >
             エクスポート
           </button>
           <button id="btn-save-image" class="btn btn-ghost btn-sm gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4l2-2h6l2 2h4v12H3V7zm9 10a4 4 0 100-8 4 4 0 000 8z"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 7h4l2-2h6l2 2h4v12H3V7zm9 10a4 4 0 100-8 4 4 0 000 8z"
+              ></path></svg
+            >
             画像保存
           </button>
           <button id="btn-share" class="btn btn-primary btn-sm gap-1.5">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+              ></path></svg
+            >
             共有
           </button>
         </div>
       </div>
 
       <div id="deck-capture-area">
-      <!-- Status -->
-      <div id="data-status" class="alert alert-info mb-5 py-2 hidden">
-        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="stroke-current shrink-0 w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-        <span id="data-status-text" class="text-sm">マスターデータ読込中...</span>
-      </div>
+        <!-- Status -->
+        <div id="data-status" class="alert alert-info mb-5 py-2 hidden">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-5 h-5"
+            ><path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path></svg
+          >
+          <span id="data-status-text" class="text-sm"
+            >マスターデータ読込中...</span
+          >
+        </div>
 
-      <!-- Fleets -->
-      <div id="fleet-sections" class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-        <!-- Fleet 1 -->
-        <section id="fleet-1-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
-          <div class="px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b border-base-200">
+        <!-- Fleets -->
+        <div
+          id="fleet-sections"
+          class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5"
+        >
+          <!-- Fleet 1 -->
+          <section
+            id="fleet-1-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold"
+                  >1</span
+                >
+                <h3 class="font-semibold text-sm">第1艦隊</h3>
+              </div>
+            </div>
+            <div class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-1-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 2 -->
+          <section
+            id="fleet-2-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-secondary/5 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center gap-2">
+                <span
+                  class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold"
+                  >2</span
+                >
+                <h3 class="font-semibold text-sm">
+                  第2艦隊 <span class="font-normal text-base-content/40"
+                    >(連合)</span>
+                </h3>
+              </div>
+            </div>
+            <div class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-2-slots"
+              >
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Air Base -->
+        <section
+          id="airbase-section"
+          class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden mb-5"
+        >
+          <div
+            class="px-4 py-3 bg-gradient-to-r from-accent/5 to-transparent border-b border-base-200"
+          >
             <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold">1</span>
-              <h3 class="font-semibold text-sm">第1艦隊</h3>
+              <span
+                class="w-6 h-6 rounded-md bg-accent/15 text-accent flex items-center justify-center text-xs font-bold"
+                >基</span
+              >
+              <h3 class="font-semibold text-sm">基地航空隊</h3>
             </div>
           </div>
           <div class="p-3">
-            <div class="grid grid-cols-2 gap-2" id="fleet-1-slots"></div>
-          </div>
-        </section>
-
-        <!-- Fleet 2 -->
-        <section id="fleet-2-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden">
-          <div class="px-4 py-3 bg-gradient-to-r from-secondary/5 to-transparent border-b border-base-200">
-            <div class="flex items-center gap-2">
-              <span class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold">2</span>
-              <h3 class="font-semibold text-sm">第2艦隊 <span class="font-normal text-base-content/40">(連合)</span></h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="air-bases">
             </div>
           </div>
-          <div class="p-3">
-            <div class="grid grid-cols-2 gap-2" id="fleet-2-slots"></div>
-          </div>
         </section>
-      </div>
-
-      <!-- Air Base -->
-      <section id="airbase-section" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden mb-5">
-        <div class="px-4 py-3 bg-gradient-to-r from-accent/5 to-transparent border-b border-base-200">
-          <div class="flex items-center gap-2">
-            <span class="w-6 h-6 rounded-md bg-accent/15 text-accent flex items-center justify-center text-xs font-bold">基</span>
-            <h3 class="font-semibold text-sm">基地航空隊</h3>
-          </div>
-        </div>
-        <div class="p-3">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="air-bases"></div>
-        </div>
-      </section>
       </div>
 
       <!-- Ship Selection Modal -->
       <dialog id="ship-select-modal" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl">
+        <div
+          class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl"
+        >
           <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
             <div class="flex items-center justify-between mb-3">
               <h3 class="font-bold text-lg">艦娘を選択</h3>
-              <form method="dialog"><button class="btn btn-ghost btn-sm btn-circle">✕</button></form>
+              <form method="dialog">
+                <button class="btn btn-ghost btn-sm btn-circle">✕</button>
+              </form>
             </div>
             <div class="flex gap-2">
-              <input type="text" id="ship-modal-search" placeholder="名前・IDで検索..." class="input input-bordered input-sm flex-1" autocomplete="off" />
-              <select id="ship-modal-stype" class="select select-bordered select-sm w-32 sm:w-36"><option value="">全艦種</option></select>
+              <input
+                type="text"
+                id="ship-modal-search"
+                placeholder="名前・IDで検索..."
+                class="input input-bordered input-sm flex-1"
+                autocomplete="off"
+              />
+              <select
+                id="ship-modal-stype"
+                class="select select-bordered select-sm w-32 sm:w-36"
+                ><option value="">全艦種</option></select
+              >
             </div>
-            <div id="ship-modal-source-tabs" class="tabs tabs-boxed mt-2 hidden">
-              <button class="tab tab-sm tab-active" data-source="snapshot">スナップショット</button>
-              <button class="tab tab-sm" data-source="master">マスターデータ</button>
+            <div
+              id="ship-modal-source-tabs"
+              class="tabs tabs-boxed mt-2 hidden"
+            >
+              <button class="tab tab-sm tab-active" data-source="snapshot"
+                >スナップショット</button
+              >
+              <button class="tab tab-sm" data-source="master"
+                >マスターデータ</button
+              >
             </div>
           </div>
           <div class="flex flex-1 min-h-0">
-            <div class="w-20 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar" id="ship-modal-categories"></div>
-            <div class="relative flex-1 overflow-y-auto p-2 sm:p-3" id="ship-modal-grid"></div>
-            <div class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block" id="ship-modal-detail">
-              <p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>
+            <div
+              class="w-20 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar"
+              id="ship-modal-categories"
+            >
+            </div>
+            <div
+              class="relative flex-1 overflow-y-auto p-2 sm:p-3"
+              id="ship-modal-grid"
+            >
+            </div>
+            <div
+              class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block"
+              id="ship-modal-detail"
+            >
+              <p class="text-sm text-base-content/30 text-center pt-10">
+                艦娘にカーソルを合わせると<br />詳細が表示されます
+              </p>
             </div>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
       <!-- Equipment Selection Modal -->
-      <dialog id="equip-select-modal" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl">
+      <dialog
+        id="equip-select-modal"
+        class="modal modal-bottom sm:modal-middle"
+      >
+        <div
+          class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl"
+        >
           <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
             <div class="flex items-center justify-between mb-3">
               <h3 class="font-bold text-lg">装備を選択</h3>
-              <form method="dialog"><button class="btn btn-ghost btn-sm btn-circle">✕</button></form>
+              <form method="dialog">
+                <button class="btn btn-ghost btn-sm btn-circle">✕</button>
+              </form>
             </div>
             <div class="flex gap-2">
-              <input type="text" id="equip-modal-search" placeholder="装備名で検索..." class="input input-bordered input-sm flex-1" autocomplete="off" />
-              <select id="equip-modal-type" class="select select-bordered select-sm w-32 sm:w-40"><option value="">全装備種</option></select>
+              <input
+                type="text"
+                id="equip-modal-search"
+                placeholder="装備名で検索..."
+                class="input input-bordered input-sm flex-1"
+                autocomplete="off"
+              />
+              <select
+                id="equip-modal-type"
+                class="select select-bordered select-sm w-32 sm:w-40"
+                ><option value="">全装備種</option></select
+              >
             </div>
-            <div id="equip-modal-source-tabs" class="tabs tabs-boxed mt-2 hidden">
-              <button class="tab tab-sm tab-active" data-source="snapshot">スナップショット</button>
-              <button class="tab tab-sm" data-source="master">マスターデータ</button>
+            <div
+              id="equip-modal-source-tabs"
+              class="tabs tabs-boxed mt-2 hidden"
+            >
+              <button class="tab tab-sm tab-active" data-source="snapshot"
+                >スナップショット</button
+              >
+              <button class="tab tab-sm" data-source="master"
+                >マスターデータ</button
+              >
             </div>
           </div>
           <div class="flex flex-1 min-h-0">
-            <div class="w-24 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar" id="equip-modal-categories"></div>
-            <div class="relative flex-1 overflow-y-auto p-2 sm:p-3" id="equip-modal-grid"></div>
-            <div class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block" id="equip-modal-detail">
-              <p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>
+            <div
+              class="w-24 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar"
+              id="equip-modal-categories"
+            >
+            </div>
+            <div
+              class="relative flex-1 overflow-y-auto p-2 sm:p-3"
+              id="equip-modal-grid"
+            >
+            </div>
+            <div
+              class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block"
+              id="equip-modal-detail"
+            >
+              <p class="text-sm text-base-content/30 text-center pt-10">
+                装備にカーソルを合わせると<br />詳細が表示されます
+              </p>
             </div>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
       <!-- Load Fleet Modal -->
       <dialog id="load-fleet-modal" class="modal">
         <div class="modal-box rounded-xl">
           <h3 class="font-bold text-lg mb-4">R2から艦隊データを読込</h3>
-          <div id="fleet-list-container" class="space-y-2 max-h-80 overflow-y-auto">
+          <div
+            id="fleet-list-container"
+            class="space-y-2 max-h-80 overflow-y-auto"
+          >
             <span class="loading loading-spinner loading-sm"></span>
           </div>
           <div class="modal-action">
-            <form method="dialog"><button class="btn btn-ghost btn-sm">閉じる</button></form>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">閉じる</button>
+            </form>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
       <!-- Save Image Modal -->
@@ -191,49 +388,96 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           <h3 class="font-bold text-lg mb-4">画像保存設定</h3>
           <div class="space-y-3 text-sm">
             <div class="form-control">
-              <label class="label py-1"><span class="label-text">保存対象</span></label>
+              <label class="label py-1"
+                ><span class="label-text">保存対象</span></label
+              >
               <div class="flex flex-wrap gap-3">
                 <label class="label cursor-pointer gap-2 py-0">
-                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="both" checked />
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="both"
+                    checked
+                  />
                   <span class="label-text">第1+第2艦隊</span>
                 </label>
                 <label class="label cursor-pointer gap-2 py-0">
-                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="fleet1" />
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet1"
+                  />
                   <span class="label-text">第1艦隊のみ</span>
                 </label>
                 <label class="label cursor-pointer gap-2 py-0">
-                  <input type="radio" name="saveimg-fleet-target" class="radio radio-sm" value="fleet2" />
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet2"
+                  />
                   <span class="label-text">第2艦隊のみ</span>
                 </label>
               </div>
             </div>
             <label class="label cursor-pointer justify-start gap-2 py-0">
-              <input id="saveimg-include-airbase" type="checkbox" class="checkbox checkbox-sm" checked />
+              <input
+                id="saveimg-include-airbase"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                checked
+              />
               <span class="label-text">基地航空隊を含める</span>
             </label>
             <label class="label cursor-pointer justify-start gap-2 py-0">
-              <input id="saveimg-transparent-bg" type="checkbox" class="checkbox checkbox-sm" />
+              <input
+                id="saveimg-transparent-bg"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+              />
               <span class="label-text">背景を透過（PNG）</span>
             </label>
             <div class="form-control">
-              <label class="label py-1"><span class="label-text">画質倍率</span></label>
-              <select id="saveimg-scale" class="select select-bordered select-sm">
+              <label class="label py-1"
+                ><span class="label-text">画質倍率</span></label
+              >
+              <select
+                id="saveimg-scale"
+                class="select select-bordered select-sm"
+              >
                 <option value="1">標準 (x1)</option>
                 <option value="2" selected>高画質 (x2)</option>
                 <option value="3">超高画質 (x3)</option>
               </select>
             </div>
             <div class="form-control">
-              <label class="label py-1"><span class="label-text">ファイル名</span></label>
-              <input id="saveimg-filename" type="text" class="input input-bordered input-sm" value="fleet-deck" />
+              <label class="label py-1"
+                ><span class="label-text">ファイル名</span></label
+              >
+              <input
+                id="saveimg-filename"
+                type="text"
+                class="input input-bordered input-sm"
+                value="fleet-deck"
+              />
             </div>
           </div>
           <div class="modal-action">
-            <button id="btn-save-image-confirm" type="button" class="btn btn-primary btn-sm">PNGで保存</button>
-            <form method="dialog"><button class="btn btn-ghost btn-sm">キャンセル</button></form>
+            <button
+              id="btn-save-image-confirm"
+              type="button"
+              class="btn btn-primary btn-sm">PNGで保存</button
+            >
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">キャンセル</button>
+            </form>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
       <input type="file" id="import-file-input" accept=".json" class="hidden" />
@@ -272,6 +516,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 </script>
 
 <style is:global>
-  .hide-scrollbar::-webkit-scrollbar { display: none; }
-  .hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
 </style>
