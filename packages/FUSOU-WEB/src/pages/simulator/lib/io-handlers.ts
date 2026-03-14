@@ -147,12 +147,32 @@ export function initIOEvents() {
     URL.revokeObjectURL(url);
   });
 
-  // Share
+  // Share (with URL shortening)
   document.getElementById("btn-share")?.addEventListener("click", async () => {
     try {
       const payload = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
       const encoded = btoa(JSON.stringify(payload));
-      const shareUrl = `${window.location.origin}/simulator?data=${encoded}`;
+      const longUrl = `${window.location.origin}/simulator?data=${encoded}`;
+
+      // Try to shorten via FUSOU-URL-SHORTER worker
+      let shareUrl = longUrl;
+      try {
+        const shorterBase = (window as any).__fusouUrlShorterBase as string | undefined;
+        if (shorterBase) {
+          const res = await fetch(`${shorterBase}/api/shorten`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: longUrl }),
+          });
+          if (res.ok) {
+            const data = await res.json() as { shortUrl: string };
+            shareUrl = data.shortUrl;
+          }
+        }
+      } catch {
+        // Fallback to long URL if shortener is unavailable
+      }
+
       await navigator.clipboard.writeText(shareUrl);
       alert("共有URLをクリップボードにコピーしました");
     } catch {
