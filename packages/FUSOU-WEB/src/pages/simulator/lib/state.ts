@@ -2,7 +2,17 @@
 // All runtime state that was previously module-scoped `let` variables.
 // Exported as a single object so modules can read/write the same values.
 
-import type { MstShipData, MstSlotItemData, SlotItemEffectsData, FleetSlot, AirBaseSlot } from "./types";
+import type {
+  MstShipData,
+  MstSlotItemData,
+  SlotItemEffectsData,
+  FleetSlot,
+  AirBaseSlot,
+  MstStypeData,
+  MstEquipShipData,
+  MstEquipExslotShipData,
+  MstEquipLimitExslotData,
+} from "./types";
 import { emptyFleetSlot, emptyAirBase } from "./types";
 
 export const state = {
@@ -46,6 +56,24 @@ export const state = {
   equipModalTargetSlotIdx: -1,
 
   // Snapshot data
-  snapshotShips: {} as Record<number, { shipId: number; level: number; name: string; stype: number }>,
-  snapshotSlotItems: {} as Record<number, { slotitem_id: number; level: number; alv: number }>,
+  snapshotShips: {} as Record<
+    number,
+    { shipId: number; level: number; name: string; stype: number }
+  >,
+  snapshotSlotItems: {} as Record<
+    number,
+    { slotitem_id: number; level: number; alv: number }
+  >,
+
+  // Equipment filtering master data
+  /** stype id → equip_type map (default allowed equip types per ship type) */
+  mstStypes: {} as Record<number, MstStypeData>,
+  /** Set of equipment IDs allowed in exslot */
+  equipExslotSet: new Set<number>() as Set<number>,
+  /** ship_id → per-ship equipment type overrides */
+  mstEquipShip: {} as Record<number, MstEquipShipData>,
+  /** equip_id → exslot ship restrictions */
+  mstEquipExslotShip: {} as Record<number, MstEquipExslotShipData>,
+  /** ship_id → exslot equipment limits */
+  mstEquipLimitExslot: {} as Record<number, MstEquipLimitExslotData>,
 };

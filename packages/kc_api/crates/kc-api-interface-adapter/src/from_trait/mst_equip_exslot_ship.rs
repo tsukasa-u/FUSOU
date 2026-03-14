@@ -13,8 +13,8 @@ impl From<HashMap<String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShi
             HashMap::<String, MstEquipExslotShip>::with_capacity(equip_ships.len());
         for (idx, equip_ship) in equip_ships {
             equip_ship_map.insert(
-                idx,
-                InterfaceWrapper::<MstEquipExslotShip>::from(equip_ship).unwrap(),
+                idx.clone(),
+                InterfaceWrapper::<MstEquipExslotShip>::from((idx, equip_ship)).unwrap(),
             );
         }
         Self(MstEquipExslotShips {
@@ -23,11 +23,14 @@ impl From<HashMap<String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShi
     }
 }
 
-impl From<kcapi_main::api_start2::get_data::ApiMstEquipExslotShip>
+impl From<(String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShip)>
     for InterfaceWrapper<MstEquipExslotShip>
 {
-    fn from(equip_ship: kcapi_main::api_start2::get_data::ApiMstEquipExslotShip) -> Self {
+    fn from(
+        (idx, equip_ship): (String, kcapi_main::api_start2::get_data::ApiMstEquipExslotShip),
+    ) -> Self {
         Self(MstEquipExslotShip {
+            slotitem_id: idx.parse::<i32>().unwrap_or(0),
             ship_ids: equip_ship.api_ship_ids.map(|map| {
                 map.into_iter()
                     .map(|(key, value)| (key, value as i32))
@@ -47,3 +50,5 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipExslotShip>
         })
     }
 }
+
+

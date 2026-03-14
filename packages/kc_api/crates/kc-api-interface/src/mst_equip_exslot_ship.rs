@@ -25,6 +25,7 @@ pub struct MstEquipExslotShips {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslotShip {
+    pub slotitem_id: i32,
     pub ship_ids: Option<HashMap<String, i32>>,
     pub stypes: Option<HashMap<String, i32>>,
     pub ctypes: Option<HashMap<String, i32>>,

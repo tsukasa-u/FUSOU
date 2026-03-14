@@ -25,6 +25,7 @@ pub struct MstEquipLimitExslots {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipLimitExslot {
+    pub ship_id: i32,
     pub equip: Vec<i32>,
 }
 

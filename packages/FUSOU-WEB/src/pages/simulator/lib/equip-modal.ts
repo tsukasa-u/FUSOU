@@ -4,11 +4,17 @@ import { state } from "./state";
 import type { MstSlotItemData } from "./types";
 import { EQUIP_TYPE_NAMES, EQUIP_TYPE_SHORT } from "./constants";
 import { debounce, equipImageUrl, computeEquipBonuses } from "./equip-calc";
+import { filterForNormalSlot, filterForExslot } from "./equip-filter";
 import type { FlatVSState, GroupedVSState } from "./virtual-scroll";
 import {
-  EQUIP_ROW_PITCH, HEADER_HEIGHT,
-  syncFlatVS, syncGroupedVS,
-  createGroupHeader, createVSContainer, renderCategoryNav, cleanupSingleVS,
+  EQUIP_ROW_PITCH,
+  HEADER_HEIGHT,
+  syncFlatVS,
+  syncGroupedVS,
+  createGroupHeader,
+  createVSContainer,
+  renderCategoryNav,
+  cleanupSingleVS,
 } from "./virtual-scroll";
 
 // ── Equip virtual scroll state ──
@@ -23,19 +29,29 @@ let _equipGScrollRaf = 0;
 
 function onEquipScroll() {
   if (!_equipScrollRaf) {
-    _equipScrollRaf = requestAnimationFrame(() => { _equipScrollRaf = 0; syncEquipVS(); });
+    _equipScrollRaf = requestAnimationFrame(() => {
+      _equipScrollRaf = 0;
+      syncEquipVS();
+    });
   }
 }
 function onEquipGScroll() {
   if (!_equipGScrollRaf) {
-    _equipGScrollRaf = requestAnimationFrame(() => { _equipGScrollRaf = 0; syncEquipGVS(); });
+    _equipGScrollRaf = requestAnimationFrame(() => {
+      _equipGScrollRaf = 0;
+      syncEquipGVS();
+    });
   }
 }
 
 function cleanupEquipVS() {
   _equipScrollRaf = cleanupSingleVS(_equipVS, onEquipScroll, _equipScrollRaf);
   _equipVS = null;
-  _equipGScrollRaf = cleanupSingleVS(_equipGVS, onEquipGScroll, _equipGScrollRaf);
+  _equipGScrollRaf = cleanupSingleVS(
+    _equipGVS,
+    onEquipGScroll,
+    _equipGScrollRaf,
+  );
   _equipGVS = null;
 }
 
@@ -48,7 +64,9 @@ function syncEquipGVS() {
   if (!_equipGVS) return;
   syncGroupedVS(_equipGVS, (row: EquipGRow) => {
     if (row.kind === "header") {
-      return createGroupHeader(EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`);
+      return createGroupHeader(
+        EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`,
+      );
     }
     const rd = document.createElement("div");
     rd.style.height = `${EQUIP_ROW_PITCH}px`;
@@ -57,14 +75,22 @@ function syncEquipGVS() {
   });
 }
 
-export function openEquipModal(currentId: number | null, cb: (id: number | null) => void) {
+export function openEquipModal(
+  currentId: number | null,
+  cb: (id: number | null) => void,
+) {
   if (!state.hasMasterData) return;
   state.equipModalCb = cb;
   state.equipModalCurrentId = currentId;
   const modal = document.getElementById("equip-select-modal");
   const search = document.getElementById("equip-modal-search");
   const typeFilter = document.getElementById("equip-modal-type");
-  if (!(modal instanceof HTMLDialogElement) || !(search instanceof HTMLInputElement) || !(typeFilter instanceof HTMLSelectElement)) return;
+  if (
+    !(modal instanceof HTMLDialogElement) ||
+    !(search instanceof HTMLInputElement) ||
+    !(typeFilter instanceof HTMLSelectElement)
+  )
+    return;
   search.value = "";
   populateEquipTypeFilter(typeFilter);
 
@@ -86,7 +112,8 @@ function updateEquipSourceTabs() {
   const tabsEl = document.getElementById("equip-modal-source-tabs");
   if (!tabsEl) return;
   for (const btn of Array.from(tabsEl.querySelectorAll("[data-source]"))) {
-    const isActive = (btn as HTMLElement).dataset.source === state.equipModalSource;
+    const isActive =
+      (btn as HTMLElement).dataset.source === state.equipModalSource;
     btn.classList.toggle("tab-active", isActive);
   }
 }
@@ -97,7 +124,8 @@ function populateEquipTypeFilter(select: HTMLSelectElement) {
   const types = new Map<number, string>();
   for (const e of Object.values(state.mstSlotItems)) {
     const t = e.type?.[2];
-    if (t != null && !types.has(t)) types.set(t, EQUIP_TYPE_NAMES[t] ?? `Type ${t}`);
+    if (t != null && !types.has(t))
+      types.set(t, EQUIP_TYPE_NAMES[t] ?? `Type ${t}`);
   }
   for (const [id, name] of [...types.entries()].sort((a, b) => a[0] - b[0])) {
     const opt = document.createElement("option");
@@ -112,7 +140,9 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   const isSelected = equip.id === state.equipModalCurrentId;
   const item = document.createElement("div");
   item.className = `flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
-    isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-primary/8 active:bg-primary/15"
+    isSelected
+      ? "bg-primary/15 ring-1 ring-primary/30"
+      : "hover:bg-primary/8 active:bg-primary/15"
   }`;
 
   const iconNum = equip.type?.[3] ?? 0;
@@ -138,9 +168,12 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   textDiv.appendChild(nameSpan);
   const typeSpan = document.createElement("div");
   typeSpan.className = "text-[11px] text-base-content/40 leading-tight";
-  const snLv = (equip as MstSlotItemData & { _snapshotLevel?: number })._snapshotLevel;
-  const snAlv = (equip as MstSlotItemData & { _snapshotAlv?: number })._snapshotAlv;
-  const snCount = (equip as MstSlotItemData & { _snapshotCount?: number })._snapshotCount;
+  const snLv = (equip as MstSlotItemData & { _snapshotLevel?: number })
+    ._snapshotLevel;
+  const snAlv = (equip as MstSlotItemData & { _snapshotAlv?: number })
+    ._snapshotAlv;
+  const snCount = (equip as MstSlotItemData & { _snapshotCount?: number })
+    ._snapshotCount;
   typeSpan.textContent = EQUIP_TYPE_NAMES[equip.type?.[2] ?? 0] ?? "";
   if (snLv != null && snLv > 0) {
     const impSpan = document.createElement("span");
@@ -153,7 +186,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
     const profSpan = document.createElement("span");
     const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
     profSpan.style.fontWeight = "bold";
-    profSpan.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+    profSpan.style.textShadow =
+      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
     if (snAlv <= 3) profSpan.style.color = "#1976d2";
     else if (snAlv <= 6) profSpan.style.color = "#f57c00";
     else profSpan.style.color = "#e65100";
@@ -176,7 +210,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
     const lvBadge = document.createElement("span");
     lvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
     lvBadge.style.color = "#00897b";
-    lvBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+    lvBadge.style.textShadow =
+      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
     lvBadge.textContent = `★${snLv}`;
     badges.appendChild(lvBadge);
   }
@@ -184,7 +219,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
     const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
     const alvBadge = document.createElement("span");
     alvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
-    alvBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
+    alvBadge.style.textShadow =
+      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
     if (snAlv <= 3) alvBadge.style.color = "#1976d2";
     else if (snAlv <= 6) alvBadge.style.color = "#f57c00";
     else alvBadge.style.color = "#e65100";
@@ -193,7 +229,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   }
   if (snCount != null && snCount > 1) {
     const cntBadge = document.createElement("span");
-    cntBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold bg-base-200/60 text-base-content/60";
+    cntBadge.className =
+      "text-[10px] px-1 py-0.5 rounded font-mono font-bold bg-base-200/60 text-base-content/60";
     cntBadge.textContent = `×${snCount}`;
     badges.appendChild(cntBadge);
   }
@@ -215,7 +252,9 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   item.addEventListener("click", () => {
     state.equipModalCb?.(equip.id);
     state.equipModalCb = null;
-    (document.getElementById("equip-select-modal") as HTMLDialogElement).close();
+    (
+      document.getElementById("equip-select-modal") as HTMLDialogElement
+    ).close();
   });
   return item;
 }
@@ -227,23 +266,63 @@ function renderEquipGrid(search: string, typeFilter: string) {
 
   let items: MstSlotItemData[];
 
-  if (state.equipModalSource === "snapshot" && Object.keys(state.snapshotSlotItems).length > 0) {
-    const variantMap = new Map<string, { slotitem_id: number; level: number; alv: number; count: number }>();
+  if (
+    state.equipModalSource === "snapshot" &&
+    Object.keys(state.snapshotSlotItems).length > 0
+  ) {
+    const variantMap = new Map<
+      string,
+      { slotitem_id: number; level: number; alv: number; count: number }
+    >();
     for (const si of Object.values(state.snapshotSlotItems)) {
       const key = `${si.slotitem_id}_${si.level ?? 0}_${si.alv ?? 0}`;
       const existing = variantMap.get(key);
-      if (existing) { existing.count++; } else { variantMap.set(key, { slotitem_id: si.slotitem_id, level: si.level ?? 0, alv: si.alv ?? 0, count: 1 }); }
+      if (existing) {
+        existing.count++;
+      } else {
+        variantMap.set(key, {
+          slotitem_id: si.slotitem_id,
+          level: si.level ?? 0,
+          alv: si.alv ?? 0,
+          count: 1,
+        });
+      }
     }
     items = [...variantMap.values()]
       .map((v) => {
         const mst = state.mstSlotItems[v.slotitem_id];
         if (!mst) return null;
-        return { ...mst, _snapshotLevel: v.level, _snapshotAlv: v.alv, _snapshotCount: v.count } as MstSlotItemData & { _snapshotLevel?: number; _snapshotAlv?: number; _snapshotCount?: number };
+        return {
+          ...mst,
+          _snapshotLevel: v.level,
+          _snapshotAlv: v.alv,
+          _snapshotCount: v.count,
+        } as MstSlotItemData & {
+          _snapshotLevel?: number;
+          _snapshotAlv?: number;
+          _snapshotCount?: number;
+        };
       })
       .filter((e): e is MstSlotItemData => e != null)
       .sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
   } else {
-    items = Object.values(state.mstSlotItems).sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
+    items = Object.values(state.mstSlotItems).sort(
+      (a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id),
+    );
+  }
+
+  // Apply ship-based equipment filter
+  const isExslot = state.equipModalTargetSlotIdx === -1;
+  if (isExslot) {
+    const filtered = filterForExslot(
+      state.equipModalTargetShipId,
+      state.equipModalTargetSlot?.shipLevel ?? null,
+      items,
+    );
+    if (filtered) items = filtered;
+  } else {
+    const filtered = filterForNormalSlot(state.equipModalTargetShipId, items);
+    if (filtered) items = filtered;
   }
 
   if (typeFilter) {
@@ -252,23 +331,29 @@ function renderEquipGrid(search: string, typeFilter: string) {
   }
   if (search) {
     const q = search.toLowerCase();
-    items = items.filter((e) => e.name.toLowerCase().includes(q) || String(e.id).includes(q));
+    items = items.filter(
+      (e) => e.name.toLowerCase().includes(q) || String(e.id).includes(q),
+    );
   }
 
   if (items.length === 0) {
-    grid.innerHTML = '<p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>';
+    grid.innerHTML =
+      '<p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>';
     renderEquipCategoryNav([]);
     return;
   }
 
   if (state.equipModalCurrentId != null) {
     const clearItem = document.createElement("div");
-    clearItem.className = "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+    clearItem.className =
+      "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
     clearItem.textContent = "✕ 装備を外す";
     clearItem.addEventListener("click", () => {
       state.equipModalCb?.(null);
       state.equipModalCb = null;
-      (document.getElementById("equip-select-modal") as HTMLDialogElement).close();
+      (
+        document.getElementById("equip-select-modal") as HTMLDialogElement
+      ).close();
     });
     grid.appendChild(clearItem);
   }
@@ -297,7 +382,9 @@ function renderEquipGrid(search: string, typeFilter: string) {
     const offsets = new Array<number>(rows.length + 1);
     offsets[0] = 0;
     for (let i = 0; i < rows.length; i++) {
-      offsets[i + 1] = offsets[i] + (rows[i].kind === "header" ? HEADER_HEIGHT : EQUIP_ROW_PITCH);
+      offsets[i + 1] =
+        offsets[i] +
+        (rows[i].kind === "header" ? HEADER_HEIGHT : EQUIP_ROW_PITCH);
     }
 
     const { spacer, viewport } = createVSContainer();
@@ -314,18 +401,38 @@ function renderEquipGrid(search: string, typeFilter: string) {
     viewport.style.cssText += "display:flex;flex-direction:column;gap:1px;";
     grid.appendChild(spacer);
 
-    _equipVS = { items, spacer, viewport, grid, cols: 1, pitch: EQUIP_ROW_PITCH, measured: false, rStart: -1, rEnd: -1 };
+    _equipVS = {
+      items,
+      spacer,
+      viewport,
+      grid,
+      cols: 1,
+      pitch: EQUIP_ROW_PITCH,
+      measured: false,
+      rStart: -1,
+      rEnd: -1,
+    };
     grid.addEventListener("scroll", onEquipScroll);
     syncEquipVS();
     renderEquipCategoryNav([]);
   }
 }
 
-function renderEquipCategoryNav(catOffsets: { typeId: number; offset: number }[]) {
-  renderCategoryNav("equip-modal-categories", "equip-modal-grid", catOffsets, (c: { typeId: number }) => ({
-    text: EQUIP_TYPE_SHORT[c.typeId] ?? EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
-    title: EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
-  }));
+function renderEquipCategoryNav(
+  catOffsets: { typeId: number; offset: number }[],
+) {
+  renderCategoryNav(
+    "equip-modal-categories",
+    "equip-modal-grid",
+    catOffsets,
+    (c: { typeId: number }) => ({
+      text:
+        EQUIP_TYPE_SHORT[c.typeId] ??
+        EQUIP_TYPE_NAMES[c.typeId] ??
+        `Type ${c.typeId}`,
+      title: EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
+    }),
+  );
 }
 
 function renderEquipDetail(equip: MstSlotItemData) {
@@ -335,13 +442,16 @@ function renderEquipDetail(equip: MstSlotItemData) {
   const imgSrc = equipImageUrl(equip.id);
   if (imgSrc) {
     const imgWrap = document.createElement("div");
-    imgWrap.className = "w-full aspect-[1.6] bg-base-200 rounded-lg overflow-hidden mb-3 flex items-center justify-center";
+    imgWrap.className =
+      "w-full aspect-[1.6] bg-base-200 rounded-lg overflow-hidden mb-3 flex items-center justify-center";
     const img = document.createElement("img");
     img.src = imgSrc;
     img.alt = equip.name;
     img.className = "max-w-full max-h-full object-contain";
     img.loading = "lazy";
-    img.onerror = function () { imgWrap.remove(); };
+    img.onerror = function () {
+      imgWrap.remove();
+    };
     imgWrap.appendChild(img);
     panel.appendChild(imgWrap);
   }
@@ -401,7 +511,11 @@ function renderEquipDetail(equip: MstSlotItemData) {
   panel.appendChild(grid);
 
   // ── Equipment Bonus Section (when ship context is available) ──
-  if (state.slotItemEffects && state.equipModalTargetShipId != null && state.equipModalTargetSlot) {
+  if (
+    state.slotItemEffects &&
+    state.equipModalTargetShipId != null &&
+    state.equipModalTargetSlot
+  ) {
     const shipId = state.equipModalTargetShipId;
     const targetSlot = state.equipModalTargetSlot;
     const targetIdx = state.equipModalTargetSlotIdx;
@@ -438,7 +552,10 @@ function renderEquipDetail(equip: MstSlotItemData) {
     );
 
     const delta: Record<string, number> = {};
-    const bonusKeys = new Set([...Object.keys(bonusWith), ...Object.keys(bonusWithout)]);
+    const bonusKeys = new Set([
+      ...Object.keys(bonusWith),
+      ...Object.keys(bonusWithout),
+    ]);
     for (const k of bonusKeys) {
       const d = (bonusWith[k] || 0) - (bonusWithout[k] || 0);
       if (d !== 0) delta[k] = d;
@@ -446,15 +563,24 @@ function renderEquipDetail(equip: MstSlotItemData) {
 
     if (Object.keys(delta).length > 0) {
       const STAT_JP: Record<string, string> = {
-        houg: "火力", raig: "雷装", tyku: "対空", souk: "装甲",
-        kaih: "回避", tais: "対潜", saku: "索敵", baku: "爆装", houm: "命中", leng: "射程",
+        houg: "火力",
+        raig: "雷装",
+        tyku: "対空",
+        souk: "装甲",
+        kaih: "回避",
+        tais: "対潜",
+        saku: "索敵",
+        baku: "爆装",
+        houm: "命中",
+        leng: "射程",
       };
 
       const section = document.createElement("div");
       section.className = "mt-4 pt-3 border-t border-base-200";
 
       const sectionTitle = document.createElement("div");
-      sectionTitle.className = "text-[11px] font-bold text-warning/80 mb-2 flex items-center gap-1";
+      sectionTitle.className =
+        "text-[11px] font-bold text-warning/80 mb-2 flex items-center gap-1";
       sectionTitle.innerHTML = `<span class="text-warning">★</span>装備ボーナス${shipData ? ` (${shipData.name})` : ""}`;
       section.appendChild(sectionTitle);
 
@@ -489,7 +615,10 @@ function resetEquipDetail() {
 export function initEquipModalEvents() {
   const equipSearchEl = document.getElementById("equip-modal-search");
   const equipTypeEl = document.getElementById("equip-modal-type");
-  if (equipSearchEl instanceof HTMLInputElement && equipTypeEl instanceof HTMLSelectElement) {
+  if (
+    equipSearchEl instanceof HTMLInputElement &&
+    equipTypeEl instanceof HTMLSelectElement
+  ) {
     equipSearchEl.addEventListener(
       "input",
       debounce(() => {
@@ -501,21 +630,34 @@ export function initEquipModalEvents() {
     });
   }
 
-  document.getElementById("equip-modal-source-tabs")?.addEventListener("click", (e) => {
-    const btn = (e.target as HTMLElement).closest("[data-source]") as HTMLElement | null;
-    if (!btn) return;
-    const src = btn.dataset.source as "snapshot" | "master";
-    if (src === state.equipModalSource) return;
-    state.equipModalSource = src;
-    updateEquipSourceTabs();
-    const search = equipSearchEl instanceof HTMLInputElement ? equipSearchEl.value : "";
-    const type = equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
-    renderEquipGrid(search, type);
-  });
+  document
+    .getElementById("equip-modal-source-tabs")
+    ?.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest(
+        "[data-source]",
+      ) as HTMLElement | null;
+      if (!btn) return;
+      const src = btn.dataset.source as "snapshot" | "master";
+      if (src === state.equipModalSource) return;
+      state.equipModalSource = src;
+      updateEquipSourceTabs();
+      const search =
+        equipSearchEl instanceof HTMLInputElement ? equipSearchEl.value : "";
+      const type =
+        equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
+      renderEquipGrid(search, type);
+    });
 }
 
 /** Invalidate equip virtual scroll on resize. */
 export function handleResizeEquip() {
-  if (_equipVS) { _equipVS.rStart = -1; _equipVS.measured = false; syncEquipVS(); }
-  if (_equipGVS) { _equipGVS.rStart = -1; syncEquipGVS(); }
+  if (_equipVS) {
+    _equipVS.rStart = -1;
+    _equipVS.measured = false;
+    syncEquipVS();
+  }
+  if (_equipGVS) {
+    _equipGVS.rStart = -1;
+    syncEquipGVS();
+  }
 }

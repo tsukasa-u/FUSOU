@@ -9,7 +9,7 @@
       "table_name": "mst_slot_items"
     },
     {
-      "schema": "{\"type\":\"record\",\"name\":\"MstEquipExslotShip\",\"fields\":[{\"name\":\"ship_ids\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"stypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"ctypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"req_level\",\"type\":\"int\"}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipExslotShip\",\"fields\":[{\"name\":\"slotitem_id\",\"type\":\"int\"},{\"name\":\"ship_ids\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"stypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"ctypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"req_level\",\"type\":\"int\"}]}",
       "table_name": "mst_equip_exslot_ships"
     },
     {
@@ -17,7 +17,7 @@
       "table_name": "mst_equip_exslot"
     },
     {
-      "schema": "{\"type\":\"record\",\"name\":\"MstEquipLimitExslot\",\"fields\":[{\"name\":\"equip\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipLimitExslot\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
       "table_name": "mst_equip_limit_exslot"
     },
     {
@@ -25,7 +25,7 @@
       "table_name": "mst_slotitem_equip_types"
     },
     {
-      "schema": "{\"type\":\"record\",\"name\":\"MstEquipShip\",\"fields\":[{\"name\":\"equip_type\",\"type\":{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipShip\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip_type\",\"type\":{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}}]}",
       "table_name": "mst_equip_ships"
     },
     {

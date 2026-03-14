@@ -99,5 +99,50 @@ export function emptyFleetSlot(): FleetSlot {
 }
 
 export function emptyAirBase(): AirBaseSlot {
-  return { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] };
+  return {
+    equipIds: [null, null, null, null],
+    equipImprovement: [0, 0, 0, 0],
+    equipProficiency: [0, 0, 0, 0],
+  };
+}
+
+// ── Master data types for equipment filtering ──
+
+/** api_mst_stype — ship type with default equippable equipment types */
+export interface MstStypeData {
+  id: number;
+  sortno: number;
+  name: string;
+  /** Keys: equipment type ID (string), Values: 1=allowed, 0=disallowed */
+  equip_type: Record<string, number>;
+}
+
+/** api_mst_equip_ship — per-ship equipment type overrides */
+export interface MstEquipShipData {
+  ship_id: number;
+  /** Keys: equipment type ID (string), Values: allowed equipment IDs or null */
+  equip_type: Record<string, number[] | null>;
+}
+
+/** api_mst_equip_exslot — equipment ID allowed in reinforcement expansion slot */
+export interface MstEquipExslotData {
+  equip: number;
+}
+
+/** api_mst_equip_exslot_ship — per-equipment exslot ship restrictions */
+export interface MstEquipExslotShipData {
+  slotitem_id: number;
+  /** Keys: ship IDs (string), Values: 1=allowed */
+  ship_ids: Record<string, number> | null;
+  /** Keys: ship type IDs (string), Values: 1=allowed */
+  stypes: Record<string, number> | null;
+  /** Keys: ship class IDs (string), Values: 1=allowed */
+  ctypes: Record<string, number> | null;
+  req_level: number;
+}
+
+/** api_mst_equip_limit_exslot — per-ship exslot equipment limits */
+export interface MstEquipLimitExslotData {
+  ship_id: number;
+  equip: number[];
 }

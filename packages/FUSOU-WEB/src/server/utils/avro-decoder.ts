@@ -90,7 +90,12 @@ function parseHeaderSchemaAndCodec(header: Uint8Array): {
     const schema = schemaJsonStr ? JSON.parse(schemaJsonStr) : null;
     return { schema, codec: codecStr, syncMarker, bodyOffset: offset };
   } catch {
-    return { schema: null, codec: codecStr, syncMarker: null, bodyOffset: offset };
+    return {
+      schema: null,
+      codec: codecStr,
+      syncMarker: null,
+      bodyOffset: offset,
+    };
   }
 }
 
@@ -102,7 +107,7 @@ function decodeValue(
   buffer: Uint8Array,
   offset: number,
   type: string,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { value: any; offset: number } {
   switch (type) {
     case "boolean":
@@ -143,7 +148,7 @@ function decodeComplexValue(
   offset: number,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type: any,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { value: any; offset: number } {
   if (typeof type === "string") {
     return decodeValue(buffer, offset, type);
@@ -162,6 +167,13 @@ function decodeComplexValue(
     if (type.type === "array") {
       return decodeArray(buffer, offset, type.items);
     }
+    if (type.type === "map") {
+      return decodeMap(buffer, offset, type.values);
+    }
+    if (type.type === "record" && type.fields) {
+      const r = decodeRecord(buffer, offset, type);
+      return { value: r.record, offset: r.offset };
+    }
     if (type.type === "string") {
       return decodeValue(buffer, offset, "string");
     }
@@ -175,7 +187,7 @@ function decodeArray(
   offset: number,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   itemsType: any,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { value: any[]; offset: number } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: any[] = [];
@@ -211,11 +223,42 @@ function decodeArray(
   return { value: result, offset: pos };
 }
 
+function decodeMap(
+  buffer: Uint8Array,
+  offset: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  valuesType: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): { value: Record<string, any>; offset: number } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: Record<string, any> = {};
+  let pos = offset;
+  while (true) {
+    const countInfo = decodeLong(buffer, pos);
+    pos = countInfo.offset;
+    let count = countInfo.value;
+    if (count === 0) break;
+    if (count < 0) {
+      const sizeInfo = decodeLong(buffer, pos);
+      pos = sizeInfo.offset;
+      count = -count;
+    }
+    for (let i = 0; i < count; i++) {
+      const key = decodeString(buffer, pos);
+      pos = key.offset;
+      const val = decodeComplexValue(buffer, pos, valuesType);
+      pos = val.offset;
+      result[key.value] = val.value;
+    }
+  }
+  return { value: result, offset: pos };
+}
+
 function decodeRecord(
   buffer: Uint8Array,
   offset: number,
   schema: AvroSchema,
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): { record: any; offset: number } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const out: any = {};
@@ -239,7 +282,9 @@ export function decodeAvroOcfToJson(avroBytes: Uint8Array): any[] {
     throw new Error("Failed to parse Avro schema from header");
   }
   if (codec && codec !== "null") {
-    throw new Error(`Unsupported Avro codec: ${codec}. Only null codec is supported.`);
+    throw new Error(
+      `Unsupported Avro codec: ${codec}. Only null codec is supported.`,
+    );
   }
 
   const body = avroBytes.slice(bodyOffset);
