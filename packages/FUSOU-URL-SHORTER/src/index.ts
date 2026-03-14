@@ -70,10 +70,20 @@ app.use("*", async (c, next) => {
 app.use("/api/*", async (c, next) => {
   const origin = c.req.header("Origin") ?? "";
   const referer = c.req.header("Referer") ?? "";
+  const path = c.req.path;
   const origins = allowedOrigins(c.env);
 
-  // Allow requests with no Origin header only when they also lack Referer
-  // (e.g. direct curl / health-checks). For browser requests both are present.
+  // Allow requests with no Origin/Referer only for a dedicated health endpoint.
+  // This prevents unauthenticated abuse of stateful API routes like /api/shorten.
+  if (!origin && !referer) {
+    if (path === "/api/health") {
+      await next();
+      return;
+    }
+    return c.json({ error: "Forbidden" }, 403);
+  }
+
+  // For browser or other clients that send Origin/Referer, enforce allowed origins.
   if (origin) {
     if (!origins.includes(origin)) {
       return c.json({ error: "Forbidden" }, 403);
