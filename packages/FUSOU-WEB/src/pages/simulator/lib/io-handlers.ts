@@ -152,7 +152,7 @@ export function initIOEvents() {
     try {
       const payload = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
       const encoded = btoa(JSON.stringify(payload));
-      const longUrl = `${window.location.origin}/simulator?data=${encoded}`;
+      const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 
       // Try to shorten via FUSOU-URL-SHORTER worker
       let shareUrl = longUrl;
