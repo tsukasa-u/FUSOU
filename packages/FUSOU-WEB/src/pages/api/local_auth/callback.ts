@@ -15,14 +15,16 @@ import {
 // };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
   const appOriginParam = url.searchParams.get("app_origin");
   const rawMemberIdHash = url.searchParams.get("member_id_hash");
   // Sanitize: member_id_hash must be a hex string (SHA-256 = 64 chars)
-  const memberIdHashParam = rawMemberIdHash && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHash) ? rawMemberIdHash : null;
+  const memberIdHashParam =
+    rawMemberIdHash && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHash)
+      ? rawMemberIdHash
+      : null;
   const provider = cookies.get("sb-local-provider")?.value;
-  const runtimeEnv = (locals as any)?.runtime?.env || {};
 
   if (!authCode) {
     console.error("No authorization code provided");
@@ -30,7 +32,9 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   }
 
   // Supabase PKCE flow handles state validation internally
-  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+  // Must use same client config as sign-in handler (no runtimeEnv)
+  // to ensure the PKCE code_verifier storage key matches
+  const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
@@ -61,7 +65,11 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   cookies.set("sb-local-refresh-token", refresh_token, COOKIE_OPTIONS);
   // expires_at is a Unix timestamp (seconds) from Supabase session
   if (data.session.expires_at) {
-    cookies.set("sb-local-expires-at", String(data.session.expires_at), COOKIE_OPTIONS);
+    cookies.set(
+      "sb-local-expires-at",
+      String(data.session.expires_at),
+      COOKIE_OPTIONS,
+    );
   }
 
   console.log("✓ Set sb-local-access-token (for local app)");
@@ -72,7 +80,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
     cookies.set(
       "sb-local-provider-refresh-token",
       provider_refresh_token,
-      COOKIE_OPTIONS
+      COOKIE_OPTIONS,
     );
     console.log("✓ Set local provider tokens");
   } else {
