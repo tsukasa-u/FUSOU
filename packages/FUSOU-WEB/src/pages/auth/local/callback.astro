@@ -173,13 +173,13 @@ if (refreshToken?.value && accessToken?.value) {
       // Keep the href for display/copy even if validation fails; redirect stays gated by validation
       return_href = candidateHref;
 
-      // Validate the Tauri custom protocol URL
+      // Validate the desktop app custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
         // Desktop app detected - set return URL for app redirect
         if (isFromTauriApp) {
           isDesktopApp = true;
-          // Return URL to app with auth status and params
-          app_return_url = `tauri://auth-complete?${return_params}`;
+          // Reuse the validated fusou:// return URL to avoid scheme mismatch.
+          app_return_url = candidateHref;
         }
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
@@ -453,7 +453,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
             </button>
             <a
               id="app-return-link"
-              href="tauri://auth-complete?status=success"
+              href="fusou://auth?status=success"
               class="btn btn-ghost w-full border border-base-300"
             >
               ← Return to App
@@ -547,7 +547,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           // Set manual return-to-app link even when app detection is missing
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
-            const base = appReturnUrl || "fusou://auth-complete";
+            const base = appReturnUrl || "fusou://auth";
             const href =
               base + (base.includes("?") ? "&" : "?") + "status=success";
             appReturnLink.setAttribute("href", href);
