@@ -32,13 +32,13 @@ function allowedOrigins(env: Bindings): string[] {
     .filter(Boolean);
 }
 
-/** Generate a unique 8-char key, retrying on collision. */
+/** Generate a unique 16-char key, retrying on collision. */
 async function createKey(kv: KVNamespace, url: string, depth = 0): Promise<string> {
   if (depth > 5) {
     throw new Error("Failed to generate unique key after retries");
   }
-  const uuid = crypto.randomUUID();
-  const key = uuid.replace(/-/g, "").substring(0, 8);
+  const uuid = crypto.randomUUID().replace(/-/g, "");
+  const key = uuid.substring(0, 16);
   const existing = await kv.get(key);
   if (existing) {
     return createKey(kv, url, depth + 1);
