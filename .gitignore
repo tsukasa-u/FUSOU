@@ -70,6 +70,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+!packages/FUSOU-WEB/src/**/lib/
+!packages/equip_synergy_detector/lib/
 lib64/
 parts/
 sdist/
