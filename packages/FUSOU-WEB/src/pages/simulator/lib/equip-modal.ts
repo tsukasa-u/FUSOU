@@ -53,6 +53,14 @@ function isAirBaseEquipTarget(): boolean {
   );
 }
 
+function getEquipTypeName(typeId: number): string {
+  return (
+    state.mstSlotItemEquipTypes[typeId]?.name ??
+    EQUIP_TYPE_NAMES[typeId] ??
+    `Type ${typeId}`
+  );
+}
+
 function onEquipScroll() {
   if (!_equipScrollRaf) {
     _equipScrollRaf = requestAnimationFrame(() => {
@@ -90,9 +98,7 @@ function syncEquipGVS() {
   if (!_equipGVS) return;
   syncGroupedVS(_equipGVS, (row: EquipGRow) => {
     if (row.kind === "header") {
-      return createGroupHeader(
-        EQUIP_TYPE_NAMES[row.typeId] ?? `Type ${row.typeId}`,
-      );
+      return createGroupHeader(getEquipTypeName(row.typeId));
     }
     const rd = document.createElement("div");
     rd.style.height = `${EQUIP_ROW_PITCH}px`;
@@ -171,7 +177,7 @@ function populateEquipTypeFilter(
   for (const e of sourceItems) {
     const t = e.type?.[2];
     if (t != null && !types.has(t))
-      types.set(t, EQUIP_TYPE_NAMES[t] ?? `Type ${t}`);
+      types.set(t, getEquipTypeName(t));
   }
   for (const [id, name] of [...types.entries()].sort((a, b) => a[0] - b[0])) {
     const opt = document.createElement("option");
@@ -220,7 +226,7 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
     ._snapshotAlv;
   const snCount = (equip as MstSlotItemData & { _snapshotCount?: number })
     ._snapshotCount;
-  typeSpan.textContent = EQUIP_TYPE_NAMES[equip.type?.[2] ?? 0] ?? "";
+  typeSpan.textContent = getEquipTypeName(equip.type?.[2] ?? 0);
   if (snLv != null && snLv > 0) {
     const impSpan = document.createElement("span");
     impSpan.style.color = "#00897b";
@@ -484,9 +490,8 @@ function renderEquipCategoryNav(
     (c: { typeId: number }) => ({
       text:
         EQUIP_TYPE_SHORT[c.typeId] ??
-        EQUIP_TYPE_NAMES[c.typeId] ??
-        `Type ${c.typeId}`,
-      title: EQUIP_TYPE_NAMES[c.typeId] ?? `Type ${c.typeId}`,
+        getEquipTypeName(c.typeId),
+      title: getEquipTypeName(c.typeId),
     }),
   );
 }
@@ -519,7 +524,7 @@ function renderEquipDetail(equip: MstSlotItemData) {
 
   const typeBadge = document.createElement("span");
   typeBadge.className = "badge badge-sm badge-outline mb-4";
-  typeBadge.textContent = `${EQUIP_TYPE_NAMES[equip.type?.[2]] ?? ""} #${equip.id}`;
+  typeBadge.textContent = `${getEquipTypeName(equip.type?.[2] ?? 0)} #${equip.id}`;
   panel.appendChild(typeBadge);
 
   const statsDef: [string, number][] = [

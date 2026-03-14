@@ -5,6 +5,7 @@
 import type {
   MstShipData,
   MstSlotItemData,
+  MstSlotItemEquipTypeData,
   SlotItemEffectsData,
   FleetSlot,
   AirBaseSlot,
@@ -19,6 +20,7 @@ export const state = {
   // Master data
   mstShips: {} as Record<number, MstShipData>,
   mstSlotItems: {} as Record<number, MstSlotItemData>,
+  mstSlotItemEquipTypes: {} as Record<number, MstSlotItemEquipTypeData>,
   hasMasterData: false,
 
   // Equipment bonus / synergy data

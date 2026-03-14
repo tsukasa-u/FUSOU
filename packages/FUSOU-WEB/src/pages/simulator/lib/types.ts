@@ -44,6 +44,12 @@ export interface MstSlotItemData {
   distance: number | null;
 }
 
+/** api_mst_slotitem_equiptype — equipment category master */
+export interface MstSlotItemEquipTypeData {
+  id: number;
+  name: string;
+}
+
 export interface StatOverrides {
   [key: string]: number | undefined;
 }

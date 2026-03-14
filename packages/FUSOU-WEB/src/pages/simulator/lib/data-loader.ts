@@ -4,6 +4,7 @@ import { state } from "./state";
 import type {
   MstShipData,
   MstSlotItemData,
+  MstSlotItemEquipTypeData,
   SlotItemEffectsData,
   MstStypeData,
   MstEquipExslotData,
@@ -206,6 +207,28 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
   }
 
+  // Optional: equipment type master for category display
+  const equipTypeObj =
+    (obj.mst_slotitem_equiptypes as unknown) ??
+    (obj.mst_slotitem_equiptype as unknown);
+  if (equipTypeObj && typeof equipTypeObj === "object") {
+    if (Array.isArray(equipTypeObj)) {
+      for (const v of equipTypeObj) {
+        if (v && typeof v === "object" && "id" in v && "name" in v) {
+          const rec = v as MstSlotItemEquipTypeData;
+          state.mstSlotItemEquipTypes[rec.id] = rec;
+        }
+      }
+    } else {
+      for (const [k, v] of Object.entries(equipTypeObj as Record<string, unknown>)) {
+        if (v && typeof v === "object" && "name" in v) {
+          const rec = v as MstSlotItemEquipTypeData;
+          state.mstSlotItemEquipTypes[Number(k)] = { ...rec, id: Number(k) };
+        }
+      }
+    }
+  }
+
   if (obj.ships && !obj.mst_ships) {
     loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
   }
@@ -258,6 +281,7 @@ export async function loadMasterData(renderAll: () => void) {
     equipImageData,
     iconFrameData,
     synergyData,
+    equipTypeData,
     stypeData,
     equipExslotData,
     equipShipData,
@@ -295,6 +319,10 @@ export async function loadMasterData(renderAll: () => void) {
     fetchJsonSafe<SlotItemEffectsData>(
       "/data/slot_item_effects.json",
       "slot_item_effects",
+    ),
+    fetchJsonSafe<{ records: MstSlotItemEquipTypeData[] }>(
+      "/api/master-data/json?table_name=mst_slotitem_equiptype",
+      "mst_slotitem_equiptype",
     ),
     fetchJsonSafe<{ records: MstStypeData[] }>(
       "/api/master-data/json?table_name=mst_stype",
@@ -386,6 +414,14 @@ export async function loadMasterData(renderAll: () => void) {
     state.slotItemEffects = synergyData;
   }
 
+  if (equipTypeData?.records) {
+    for (const t of equipTypeData.records) {
+      if (t && t.id != null && t.name) {
+        state.mstSlotItemEquipTypes[t.id] = t;
+      }
+    }
+  }
+
   // ── Equipment filtering tables ──
   if (stypeData?.records) {
     for (const s of stypeData.records) {
@@ -426,6 +462,7 @@ export async function loadMasterData(renderAll: () => void) {
   console.info("[simulator] master data load summary", {
     ships: Object.keys(state.mstShips).length,
     equips: Object.keys(state.mstSlotItems).length,
+    equipTypes: Object.keys(state.mstSlotItemEquipTypes).length,
     stypes: Object.keys(state.mstStypes).length,
     equipShip: Object.keys(state.mstEquipShip).length,
   });
