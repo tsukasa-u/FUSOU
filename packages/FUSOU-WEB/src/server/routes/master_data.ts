@@ -809,10 +809,14 @@ app.get("/json", async (c) => {
     }
     sql += " ORDER BY completed_at DESC LIMIT 1";
 
-    const record = await db
+    const record = (await db
       .prepare(sql)
       .bind(...params)
-      .first() as { period_tag: string; table_version: string; r2_keys: string } | null;
+      .first()) as {
+      period_tag: string;
+      table_version: string;
+      r2_keys: string;
+    } | null;
 
     if (!record) {
       return c.json(

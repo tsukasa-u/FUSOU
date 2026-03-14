@@ -289,7 +289,14 @@ app.post("/member-map/upsert", async (c) => {
 
       // Case 3a: Same email → duplicate Supabase accounts (e.g., re-signup via OAuth)
       // Allow remapping since verified email proves same person
-      if (currentEmail && existingEmail === currentEmail) {
+      const existingEmailNormalized = existingEmail.trim().toLowerCase();
+      const currentEmailNormalized = currentEmail.trim().toLowerCase();
+
+      if (
+        currentEmailNormalized &&
+        existingEmailNormalized &&
+        existingEmailNormalized === currentEmailNormalized
+      ) {
         console.log(
           "[/user/member-map/upsert] Same email, different user_id - remapping:",
           {

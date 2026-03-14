@@ -44,7 +44,9 @@ let app_return_url: string | null = null; // URL to return to app
 
 const providerValue = provider?.value ?? "google";
 
-if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
+// Provider refresh token is optional. Supabase session tokens are the only
+// required credentials for returning auth state to the desktop app.
+if (refreshToken?.value && accessToken?.value) {
   try {
     const sessionResult = await supabase.auth.setSession({
       refresh_token: refreshToken.value,
@@ -65,7 +67,7 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
       if (memberIdHash) {
         console.log(
           "[callback] Checking member_id_hash conflict:",
-          memberIdHash
+          memberIdHash,
         );
         try {
           const conflictCheckResponse = await fetch(
@@ -79,7 +81,7 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
               body: JSON.stringify({
                 member_id_hash: memberIdHash,
               }),
-            }
+            },
           );
 
           const conflictCheckData = (await conflictCheckResponse.json()) as any;
@@ -94,11 +96,11 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
             conflictCheckResponse.status === 409
           ) {
             console.log(
-              "[callback] CONFLICT DETECTED - redirecting to conflict page"
+              "[callback] CONFLICT DETECTED - redirecting to conflict page",
             );
             // Redirect to conflict resolution page with member_id_hash
             return Astro.redirect(
-              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`
+              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
             );
           }
 
@@ -108,7 +110,9 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
           } else {
             // If migrateable (anonymous owner), call upsert to perform migration
             if (conflictCheckData?.migrateable) {
-              console.log("[callback] Anonymous owner detected - performing auto-migration");
+              console.log(
+                "[callback] Anonymous owner detected - performing auto-migration",
+              );
               try {
                 const upsertResponse = await fetch(
                   Astro.url.origin + "/api/user/member-map/upsert",
@@ -119,13 +123,19 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
                       Authorization: `Bearer ${accessToken.value}`,
                     },
                     body: JSON.stringify({ member_id_hash: memberIdHash }),
-                  }
+                  },
                 );
                 const upsertData = (await upsertResponse.json()) as any;
                 if (upsertResponse.ok) {
-                  console.log("[callback] Auto-migration successful:", upsertData?.action);
+                  console.log(
+                    "[callback] Auto-migration successful:",
+                    upsertData?.action,
+                  );
                 } else {
-                  console.error("[callback] Auto-migration failed:", upsertData);
+                  console.error(
+                    "[callback] Auto-migration failed:",
+                    upsertData,
+                  );
                 }
               } catch (upsertError) {
                 console.error("[callback] Auto-migration error:", upsertError);
@@ -140,22 +150,23 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
         }
       } else {
         console.warn(
-          "[callback] No member_id_hash provided in query params - skipping conflict check"
+          "[callback] No member_id_hash provided in query params - skipping conflict check",
         );
       }
 
-      // Generate return parameters regardless of DB insert success
-      // This allows users to manually copy tokens even if DB fails
-      return_params =
-        "provider_refresh_token=" +
-        providerRefreshToken.value +
-        "&provider=" +
-        providerValue +
-        "&supabase_access_token=" +
-        accessToken.value +
-        "&supabase_refresh_token=" +
-        refreshToken.value +
-        (expiresAtCookie?.value ? "&expires_at=" + expiresAtCookie.value : "");
+      // Generate return parameters regardless of DB insert success.
+      // This allows users to manually copy tokens even if DB fails.
+      const returnQuery = new URLSearchParams();
+      if (providerRefreshToken?.value) {
+        returnQuery.set("provider_refresh_token", providerRefreshToken.value);
+      }
+      returnQuery.set("provider", providerValue);
+      returnQuery.set("supabase_access_token", accessToken.value);
+      returnQuery.set("supabase_refresh_token", refreshToken.value);
+      if (expiresAtCookie?.value) {
+        returnQuery.set("expires_at", expiresAtCookie.value);
+      }
+      return_params = returnQuery.toString();
 
       const candidateHref = `fusou://auth?${return_params}`;
 
@@ -186,7 +197,9 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   }
 } else {
   // No tokens present - show warning
-  console.warn("Missing required cookies. Cannot proceed with authentication.");
+  console.warn(
+    "Missing required Supabase session cookies. Cannot proceed with authentication.",
+  );
   error_message = "Missing required authentication cookies";
   set_session_error_flag = true;
   return_href_missing_flag = true;
@@ -547,27 +560,27 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               // App is primary action
               dashboardBtn.classList.remove(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
               dashboardBtn.classList.add("btn-ghost", "border-base-300");
 
               appReturnLink.classList.remove("btn-ghost", "border-base-300");
               appReturnLink.classList.add(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
             } else {
               // Web is primary action
               dashboardBtn.classList.add(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
               dashboardBtn.classList.remove("btn-ghost", "border-base-300");
 
               appReturnLink.classList.add("btn-ghost", "border-base-300");
               appReturnLink.classList.remove(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
             }
           }
