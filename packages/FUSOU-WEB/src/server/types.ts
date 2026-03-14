@@ -29,6 +29,7 @@ export type Bindings = {
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
   ASSET_BASE_URL?: string; // R2 custom domain base URL (e.g. https://assets.fusou.dev)
+  URL_SHORTER_BASE?: string; // Base URL of the FUSOU-URL-SHORTER service (e.g. https://s.fusou.dev)
   
   // Queues
   COMPACTION_QUEUE: Queue;

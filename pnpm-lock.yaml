@@ -27,7 +27,7 @@ importers:
         version: 5.8.2
       wrangler:
         specifier: ^4.51.0
-        version: 4.59.1(@cloudflare/workers-types@4.20251128.0)
+        version: 4.59.1(@cloudflare/workers-types@4.20260313.1)
 
   packages/FUSOU-APP:
     dependencies:
@@ -167,6 +167,28 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@25.3.5)(@vitest/browser@3.2.4)(jiti@2.6.1)(jsdom@25.0.1)(lightningcss@1.30.2)(terser@5.46.0)(yaml@2.8.1)
+
+  packages/FUSOU-URL-SHORTER:
+    dependencies:
+      '@hono/zod-validator':
+        specifier: ^0.5.0
+        version: 0.5.0(hono@4.12.4)(zod@3.25.76)
+      hono:
+        specifier: ^4.7.0
+        version: 4.12.4
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20260111.0
+        version: 4.20260313.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      wrangler:
+        specifier: ^4.51.0
+        version: 4.59.1(@cloudflare/workers-types@4.20260313.1)
 
   packages/FUSOU-WEB:
     dependencies:
@@ -758,6 +780,9 @@ packages:
 
   '@cloudflare/workers-types@4.20251128.0':
     resolution: {integrity: sha512-gQxQvxLRsFb+mDlaBKGoJwEHWt+ox9telZZEuRMbNUAD6v78XYqZepTI4yPDdKhkRTlqYcDqDhIdAI3HrsGk7w==}
+
+  '@cloudflare/workers-types@4.20260313.1':
+    resolution: {integrity: sha512-jMEeX3RKfOSVqqXRKr/ulgglcTloeMzSH3FdzIfqJHtvc12/ELKd5Ldsg8ZHahKX/4eRxYdw3kbzb8jLXbq/jQ==}
 
   '@codemod/matchers@1.7.1':
     resolution: {integrity: sha512-umwQ17+Nb9iI1C1+dPIChlZLZ1grk3NYpXRvhhWGuE2VgiSSVUhAyIXfwLpHBkDsWRRgLvjcotg63HRvtmHAuQ==}
@@ -1406,6 +1431,12 @@ packages:
 
   '@github/catalyst@1.7.0':
     resolution: {integrity: sha512-qOAxrDdRZz9+v4y2WoAfh11rpRY/x4FRofPNmJyZFzAjubtzE3sCa/tAycWWufmQGoYiwwzL/qJBBgyg7avxPw==}
+
+  '@hono/zod-validator@0.5.0':
+    resolution: {integrity: sha512-ds5bW6DCgAnNHP33E3ieSbaZFd5dkV52ZjyaXtGoR06APFrCtzAsKZxTHwOrJNBdXsi0e5wNwo5L4nVEVnJUdg==}
+    peerDependencies:
+      hono: '>=3.9.0'
+      zod: ^3.19.1
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -6913,11 +6944,11 @@ snapshots:
     dependencies:
       '@astrojs/internal-helpers': 0.7.5
       '@astrojs/underscore-redirects': 1.0.0
-      '@cloudflare/workers-types': 4.20251128.0
+      '@cloudflare/workers-types': 4.20260313.1
       astro: 5.16.2(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.30.2)(rollup@4.59.0)(terser@5.46.0)(typescript@5.9.3)(yaml@2.8.1)
       tinyglobby: 0.2.15
       vite: 6.4.1(@types/node@25.3.5)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.46.0)(yaml@2.8.1)
-      wrangler: 4.50.0(@cloudflare/workers-types@4.20251128.0)
+      wrangler: 4.50.0(@cloudflare/workers-types@4.20260313.1)
     transitivePeerDependencies:
       - '@types/node'
       - bufferutil
@@ -7282,6 +7313,8 @@ snapshots:
     optional: true
 
   '@cloudflare/workers-types@4.20251128.0': {}
+
+  '@cloudflare/workers-types@4.20260313.1': {}
 
   '@codemod/matchers@1.7.1':
     dependencies:
@@ -7725,6 +7758,11 @@ snapshots:
   '@fortawesome/fontawesome-free@6.7.2': {}
 
   '@github/catalyst@1.7.0': {}
+
+  '@hono/zod-validator@0.5.0(hono@4.12.4)(zod@3.25.76)':
+    dependencies:
+      hono: 4.12.4
+      zod: 3.25.76
 
   '@humanfs/core@0.19.1': {}
 
@@ -13656,7 +13694,7 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20260111.0
       '@cloudflare/workerd-windows-64': 1.20260111.0
 
-  wrangler@4.50.0(@cloudflare/workers-types@4.20251128.0):
+  wrangler@4.50.0(@cloudflare/workers-types@4.20260313.1):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.0
       '@cloudflare/unenv-preset': 2.7.11(unenv@2.0.0-rc.24)(workerd@1.20251118.0)
@@ -13667,7 +13705,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20251118.0
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20251128.0
+      '@cloudflare/workers-types': 4.20260313.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil
@@ -13685,6 +13723,23 @@ snapshots:
       workerd: 1.20260111.0
     optionalDependencies:
       '@cloudflare/workers-types': 4.20251128.0
+      fsevents: 2.3.3
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
+  wrangler@4.59.1(@cloudflare/workers-types@4.20260313.1):
+    dependencies:
+      '@cloudflare/kv-asset-handler': 0.4.1
+      '@cloudflare/unenv-preset': 2.9.0(unenv@2.0.0-rc.24)(workerd@1.20260111.0)
+      blake3-wasm: 2.1.5
+      esbuild: 0.27.0
+      miniflare: 4.20260111.0
+      path-to-regexp: 6.3.0
+      unenv: 2.0.0-rc.24
+      workerd: 1.20260111.0
+    optionalDependencies:
+      '@cloudflare/workers-types': 4.20260313.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil

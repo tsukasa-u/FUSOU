@@ -17,8 +17,8 @@ binding = "COMPACTION_WORKFLOW"
 service = "fusou-workflow"
 
 # ===== Public Asset Base URL (R2 custom domain) =====
-# Set ASSET_BASE_URL in Cloudflare Pages dashboard for production.
-# In local dev, leave unset so images are served via Hono proxy from local R2.
+# ASSET_BASE_URL is managed in [vars] below.
+# Override in Cloudflare Pages dashboard if needed per environment.
 # Production value: https://assets.fusou.dev
 
 # ===== R2 Bucket Bindings =====
@@ -72,6 +72,19 @@ binding = "COMPACTION_QUEUE"
 [[queues.producers]]
 queue = "dev-kc-compaction-dlq"
 binding = "COMPACTION_DLQ"
+
+# ===== URL Shortener Service =====
+# Base URL of the FUSOU-URL-SHORTER worker.
+# Keep non-secret defaults here for local/dev. For production/preview, manage via
+# dotenvx/.env and Cloudflare Pages environment variable settings.
+# Example production value: https://s.fusou.dev
+[vars]
+# URL_SHORTER_BASE = "https://fusou-url-shorter.fusou.workers.dev"
+URL_SHORTER_BASE = "https://s.fusou.dev"
+PUBLIC_SITE_URL_PRODUCTION = "https://fusou.dev"
+PUBLIC_SITE_PREVIEW_BASE_DOMAIN = "fusou.pages.dev"
+PUBLIC_SITE_URL_FALLBACK = "https://dev.fusou.pages.dev"
+ASSET_BASE_URL = "https://assets.fusou.dev"
 
 # ===== Scheduled cron triggers =====
 # Note: Cloudflare Pages does not support scheduled functions via wrangler.toml
