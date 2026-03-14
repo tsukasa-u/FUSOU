@@ -3,6 +3,7 @@
 import { state } from "./state";
 import type { MstSlotItemData } from "./types";
 import {
+  AIRCRAFT_TYPES,
   EQUIP_TYPE_NAMES,
   EQUIP_TYPE_SHORT,
   ENEMY_ID_THRESHOLD,
@@ -42,6 +43,14 @@ function filterEquipsBySide(
     return equips.filter((e) => e.id >= ENEMY_ID_THRESHOLD);
   }
   return equips.filter((e) => e.id < ENEMY_ID_THRESHOLD);
+}
+
+function isAirBaseEquipTarget(): boolean {
+  return (
+    state.equipModalTargetShipId == null &&
+    state.equipModalTargetSlot == null &&
+    state.equipModalTargetSlotIdx === -1
+  );
 }
 
 function onEquipScroll() {
@@ -149,10 +158,17 @@ function populateEquipTypeFilter(
   const current = select.value;
   select.innerHTML = '<option value="">全装備種</option>';
   const types = new Map<number, string>();
-  for (const e of filterEquipsBySide(
+  let sourceItems = filterEquipsBySide(
     Object.values(state.mstSlotItems),
     sideFilter,
-  )) {
+  );
+  if (isAirBaseEquipTarget()) {
+    sourceItems = sourceItems.filter((e) =>
+      AIRCRAFT_TYPES.has(e.type?.[2] ?? -1),
+    );
+  }
+
+  for (const e of sourceItems) {
     const t = e.type?.[2];
     if (t != null && !types.has(t))
       types.set(t, EQUIP_TYPE_NAMES[t] ?? `Type ${t}`);
@@ -347,9 +363,13 @@ function renderEquipGrid(
 
   items = filterEquipsBySide(items, sideFilter);
 
+  if (isAirBaseEquipTarget()) {
+    items = items.filter((e) => AIRCRAFT_TYPES.has(e.type?.[2] ?? -1));
+  }
+
   // Apply ship-based equipment filter
   const isExslot = state.equipModalTargetSlotIdx === -1;
-  if (isExslot) {
+  if (isExslot && !isAirBaseEquipTarget()) {
     const filtered = filterForExslot(
       state.equipModalTargetShipId,
       state.equipModalTargetSlot?.shipLevel ?? null,
