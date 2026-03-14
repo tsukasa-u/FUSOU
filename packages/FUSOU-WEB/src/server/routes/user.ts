@@ -84,7 +84,7 @@ app.post("/member-map/upsert", async (c) => {
 
   try {
     // Get the authenticated user's ID from the JWT token
-    const currentUserId = supabaseUser.id;
+    const currentUserId = supabaseUser.id!;
 
     // Check if this member_id_hash already exists
     const { data: existingMapping, error: lookupError } = await supabaseAdmin
@@ -270,7 +270,22 @@ app.post("/member-map/upsert", async (c) => {
 
       // Case 3: Owned by a different SOCIAL user
       const existingEmail = existingUser?.email || "unknown";
-      const currentEmail = supabaseUser.email || "";
+
+      // Resolve current user's email: JWT payload may lack `email` (e.g., anonymous token)
+      // Fall back to Admin API lookup when JWT email is missing
+      let currentEmail = supabaseUser.email || "";
+      if (!currentEmail) {
+        try {
+          const { data: currentUserData } =
+            await supabaseAdmin.auth.admin.getUserById(currentUserId);
+          currentEmail = currentUserData?.user?.email || "";
+        } catch (e) {
+          console.warn(
+            "[/user/member-map/upsert] Failed to fetch current user email from Admin API:",
+            e,
+          );
+        }
+      }
 
       // Case 3a: Same email → duplicate Supabase accounts (e.g., re-signup via OAuth)
       // Allow remapping since verified email proves same person
