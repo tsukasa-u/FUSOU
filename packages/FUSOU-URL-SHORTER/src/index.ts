@@ -89,8 +89,12 @@ app.use("/api/*", async (c, next) => {
       return c.json({ error: "Forbidden" }, 403);
     }
   } else if (referer) {
-    const refOrigin = new URL(referer).origin;
-    if (!origins.includes(refOrigin)) {
+    try {
+      const refOrigin = new URL(referer).origin;
+      if (!origins.includes(refOrigin)) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+    } catch {
       return c.json({ error: "Forbidden" }, 403);
     }
   }
