@@ -37,6 +37,9 @@
       "path": "packages/equip_synergy_detector",
     },
     {
+      "path": "packages/FUSOU-URL-SHORTER",
+    },
+    {
       "path": "docs",
     },
     {
