@@ -2,7 +2,14 @@ import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
-import { createEnvContext, getEnv, extractBearer, validateJWT, resolveSupabaseConfig, validateDatasetToken } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  extractBearer,
+  validateJWT,
+  resolveSupabaseConfig,
+  validateDatasetToken,
+} from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
@@ -19,7 +26,9 @@ import { handleTwoStageUpload } from "../utils/upload";
  *
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
  */
-async function resolveDatasetId(c: any): Promise<
+async function resolveDatasetId(
+  c: any,
+): Promise<
   | { ok: true; datasetId: string }
   | { ok: false; error: string; status: ContentfulStatusCode }
 > {
@@ -32,15 +41,23 @@ async function resolveDatasetId(c: any): Promise<
     const user = await validateJWT(accessToken);
     if (!user?.id) {
       console.warn("[fleet] JWT validation failed for provided access token");
-      return { ok: false, error: "Invalid or expired access token", status: 401 };
+      return {
+        ok: false,
+        error: "Invalid or expired access token",
+        status: 401,
+      };
     }
 
-    console.log(`[fleet] Resolving dataset_id for user: id=${user.id}, email=${user.email ?? "n/a"}`);
+    console.log(
+      `[fleet] Resolving dataset_id for user: id=${user.id}, email=${user.email ?? "n/a"}`,
+    );
 
     const envCtx = createEnvContext(c);
     const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
     if (!url || !serviceRoleKey) {
-      console.error("[fleet] Supabase configuration missing for user_member_map lookup");
+      console.error(
+        "[fleet] Supabase configuration missing for user_member_map lookup",
+      );
       return { ok: false, error: "Server misconfiguration", status: 500 };
     }
 
@@ -67,13 +84,16 @@ async function resolveDatasetId(c: any): Promise<
       console.log("[fleet] user_member_map lookup result:", {
         user_id: user.id,
         found: !!mapping,
-        member_id_hash: mapping?.member_id_hash ? `${mapping.member_id_hash.slice(0, 8)}...` : null,
+        member_id_hash: mapping?.member_id_hash
+          ? `${mapping.member_id_hash.slice(0, 8)}...`
+          : null,
       });
 
       if (!mapping?.member_id_hash) {
         return {
           ok: false,
-          error: "No game account linked to this FUSOU account. Please link your game account via FUSOU-APP first.",
+          error:
+            "No game account linked to this FUSOU account. Please link your game account via FUSOU-APP first.",
           status: 403,
         };
       }
@@ -95,13 +115,23 @@ async function resolveDatasetId(c: any): Promise<
     }
     const validated = await validateDatasetToken(datasetTokenHeader, secret);
     if (!validated) {
-      return { ok: false, error: "Invalid or expired dataset_token", status: 401 };
+      return {
+        ok: false,
+        error: "Invalid or expired dataset_token",
+        status: 401,
+      };
     }
-    console.log(`[fleet] dataset_id resolved from X-Dataset-Token: ${validated.dataset_id.slice(0, 8)}...`);
+    console.log(
+      `[fleet] dataset_id resolved from X-Dataset-Token: ${validated.dataset_id.slice(0, 8)}...`,
+    );
     return { ok: true, datasetId: validated.dataset_id };
   }
 
-  return { ok: false, error: "Authentication required. Please sign in first.", status: 401 };
+  return {
+    ok: false,
+    error: "Authentication required. Please sign in first.",
+    status: 401,
+  };
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -128,36 +158,45 @@ app.post("/snapshot", async (c) => {
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _userId) => {
       // Validate dataset_token if provided
-      const datasetTokenHeader = c.req.header('X-Dataset-Token');
-      const datasetTokenBody = typeof body?.dataset_token === 'string' ? body.dataset_token.trim() : '';
+      const datasetTokenHeader = c.req.header("X-Dataset-Token");
+      const datasetTokenBody =
+        typeof body?.dataset_token === "string"
+          ? body.dataset_token.trim()
+          : "";
       const datasetToken = datasetTokenHeader || datasetTokenBody;
 
       if (datasetToken) {
-        const datasetTokenSecret = getEnv(env, 'DATASET_TOKEN_SECRET');
+        const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
         if (!datasetTokenSecret) {
-          console.error('[fleet-snapshot] DATASET_TOKEN_SECRET not configured');
-          return c.json({ error: 'Server configuration error' }, 500);
+          console.error("[fleet-snapshot] DATASET_TOKEN_SECRET not configured");
+          return c.json({ error: "Server configuration error" }, 500);
         }
 
-        const validatedToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+        const validatedToken = await validateDatasetToken(
+          datasetToken,
+          datasetTokenSecret,
+        );
         if (!validatedToken) {
-          console.warn('[fleet-snapshot] Invalid or expired dataset_token');
-          return c.json({ error: 'Invalid or expired dataset_token' }, 401);
+          console.warn("[fleet-snapshot] Invalid or expired dataset_token");
+          return c.json({ error: "Invalid or expired dataset_token" }, 401);
         }
 
         // Verify dataset_id matches token
-        const requestedDatasetId = typeof body?.dataset_id === 'string' ? body.dataset_id.trim() : '';
+        const requestedDatasetId =
+          typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
         if (requestedDatasetId !== validatedToken.dataset_id) {
           console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
-          return c.json({ error: 'dataset_id does not match token' }, 403);
+          return c.json({ error: "dataset_id does not match token" }, 403);
         }
 
         console.log(`[fleet-snapshot] dataset_token validated successfully`);
       }
 
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
-      const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-      const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+      const datasetId =
+        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      const contentHash =
+        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
 
       if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
@@ -194,7 +233,10 @@ app.post("/snapshot", async (c) => {
     },
     executionProcessor: async (tokenPayload, data, user) => {
       const tag = tokenPayload.tag;
-      const datasetId = typeof tokenPayload?.dataset_id === "string" ? tokenPayload.dataset_id.trim() : "";
+      const datasetId =
+        typeof tokenPayload?.dataset_id === "string"
+          ? tokenPayload.dataset_id.trim()
+          : "";
       const ownerId = user?.id;
 
       if (!tag) {
@@ -202,7 +244,10 @@ app.post("/snapshot", async (c) => {
       }
 
       if (!datasetId) {
-        return c.json({ error: "Invalid token payload (missing dataset_id)" }, 400);
+        return c.json(
+          { error: "Invalid token payload (missing dataset_id)" },
+          400,
+        );
       }
 
       if (!ownerId) {
@@ -257,7 +302,10 @@ app.post("/snapshot", async (c) => {
       }
 
       // Generate filename with hash
-      const hashBuf = await crypto.subtle.digest("SHA-256", compressed.slice(0));
+      const hashBuf = await crypto.subtle.digest(
+        "SHA-256",
+        compressed.slice(0),
+      );
       const hashHex = Array.from(new Uint8Array(hashBuf as ArrayBuffer))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
@@ -289,7 +337,9 @@ app.post("/snapshot", async (c) => {
           return bt - at;
         });
         const toKeep = new Set(
-          sorted.slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1)).map((o: any) => o.key),
+          sorted
+            .slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1))
+            .map((o: any) => o.key),
         );
         // Ensure the just-uploaded file is always kept
         toKeep.add(fileName);
@@ -401,7 +451,10 @@ app.get("/snapshots/list", async (c) => {
     const objects = listed.objects || [];
 
     // Group by tag (second path segment after dataset_id)
-    const tagMap = new Map<string, { key: string; uploaded: Date; size: number }>();
+    const tagMap = new Map<
+      string,
+      { key: string; uploaded: Date; size: number }
+    >();
     for (const obj of objects) {
       const parts = obj.key.replace(prefix, "").split("/");
       const tagName = decodeURIComponent(parts[0] || "");
@@ -409,7 +462,9 @@ app.get("/snapshots/list", async (c) => {
 
       const existing = tagMap.get(tagName);
       const objTime = obj.uploaded ? new Date(obj.uploaded).getTime() : 0;
-      const existingTime = existing?.uploaded ? new Date(existing.uploaded).getTime() : 0;
+      const existingTime = existing?.uploaded
+        ? new Date(existing.uploaded).getTime()
+        : 0;
 
       if (!existing || objTime > existingTime) {
         tagMap.set(tagName, {

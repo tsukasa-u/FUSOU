@@ -10,6 +10,42 @@
 import { state } from "./state";
 import type { MstSlotItemData } from "./types";
 
+type NormalSlotRule = {
+  allowedTypes: Set<number>;
+  itemAllowListByType: Map<number, Set<number>>;
+};
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
+  const shipOverride = state.mstEquipShip[shipId];
+  if (!shipOverride) return null;
+
+  const allowedTypes = new Set<number>();
+  const itemAllowListByType = new Map<number, Set<number>>();
+
+  // Current format: map of type_id -> null or allowed equipment IDs.
+  for (const [typeIdStr, value] of Object.entries(shipOverride.equip_type)) {
+    const typeId = Number(typeIdStr);
+    if (!Number.isFinite(typeId)) continue;
+
+    allowedTypes.add(typeId);
+
+    if (Array.isArray(value)) {
+      const allowItemSet = new Set<number>();
+      for (const itemId of value) {
+        if (!isFiniteNumber(itemId)) continue;
+        allowItemSet.add(itemId);
+      }
+      itemAllowListByType.set(typeId, allowItemSet);
+    }
+  }
+
+  return allowedTypes.size > 0 ? { allowedTypes, itemAllowListByType } : null;
+}
+
 /**
  * Get the set of allowed equipment type IDs (type[2]) for a ship in normal slots.
  *
@@ -17,35 +53,32 @@ import type { MstSlotItemData } from "./types";
  *  1. mst_equip_ship per-ship override (if entry exists for this ship)
  *  2. mst_stype default for the ship's stype
  */
-function getAllowedEquipTypes(shipId: number): Set<number> | null {
+function getNormalSlotRule(shipId: number): NormalSlotRule | null {
   const ship = state.mstShips[shipId];
   if (!ship) return null;
 
   // Per-ship override from mst_equip_ship
-  const shipOverride = state.mstEquipShip[shipId];
-  if (shipOverride) {
-    const allowed = new Set<number>();
-    for (const [typeIdStr, value] of Object.entries(shipOverride.equip_type)) {
-      // value is an array of specific equipment IDs, or null meaning default for that type
-      // If the key exists (regardless of value), this equipment type is allowed
-      if (value !== undefined) {
-        allowed.add(Number(typeIdStr));
-      }
-    }
-    if (allowed.size > 0) return allowed;
-  }
+  const shipRule = parseShipOverrideRule(shipId);
+  if (shipRule) return shipRule;
 
   // Default from mst_stype
   const stypeData = state.mstStypes[ship.stype];
   if (!stypeData) return null;
 
-  const allowed = new Set<number>();
+  const allowedTypes = new Set<number>();
   for (const [typeIdStr, flag] of Object.entries(stypeData.equip_type)) {
     if (flag === 1) {
-      allowed.add(Number(typeIdStr));
+      const typeId = Number(typeIdStr);
+      if (!Number.isFinite(typeId)) continue;
+      allowedTypes.add(typeId);
     }
   }
-  return allowed.size > 0 ? allowed : null;
+
+  if (allowedTypes.size === 0) return null;
+  return {
+    allowedTypes,
+    itemAllowListByType: new Map<number, Set<number>>(),
+  };
 }
 
 /**
@@ -120,12 +153,17 @@ export function filterForNormalSlot(
   const hasEquipShipData = Object.keys(state.mstEquipShip).length > 0;
   if (!hasStypeData && !hasEquipShipData) return null;
 
-  const allowed = getAllowedEquipTypes(shipId);
-  if (!allowed) return null;
+  const rule = getNormalSlotRule(shipId);
+  if (!rule) return null;
 
   return items.filter((e) => {
     const equipType = e.type?.[2];
-    return equipType != null && allowed.has(equipType);
+    if (equipType == null || !rule.allowedTypes.has(equipType)) return false;
+
+    const allowItems = rule.itemAllowListByType.get(equipType);
+    if (!allowItems) return true;
+
+    return allowItems.has(e.id);
   });
 }
 

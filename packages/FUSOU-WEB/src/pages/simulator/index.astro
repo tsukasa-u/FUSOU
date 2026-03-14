@@ -193,7 +193,8 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 >
                 <h3 class="font-semibold text-sm">
                   第2艦隊 <span class="font-normal text-base-content/40"
-                    >(連合)</span>
+                    >(連合)</span
+                  >
                 </h3>
               </div>
             </div>
@@ -250,6 +251,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 class="input input-bordered input-sm flex-1"
                 autocomplete="off"
               />
+              <select
+                id="ship-modal-side"
+                class="select select-bordered select-sm w-28 sm:w-32"
+              >
+                <option value="ally">味方のみ</option>
+                <option value="enemy">敵のみ</option>
+                <option value="all">全て</option>
+              </select>
               <select
                 id="ship-modal-stype"
                 class="select select-bordered select-sm w-32 sm:w-36"
@@ -317,6 +326,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 class="input input-bordered input-sm flex-1"
                 autocomplete="off"
               />
+              <select
+                id="equip-modal-side"
+                class="select select-bordered select-sm w-28 sm:w-32"
+              >
+                <option value="ally">味方のみ</option>
+                <option value="enemy">敵のみ</option>
+                <option value="all">全て</option>
+              </select>
               <select
                 id="equip-modal-type"
                 class="select select-bordered select-sm w-32 sm:w-40"

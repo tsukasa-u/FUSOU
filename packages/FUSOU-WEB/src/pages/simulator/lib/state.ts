@@ -49,6 +49,8 @@ export const state = {
   equipModalCurrentId: null as number | null,
   shipModalSource: "master" as "snapshot" | "master",
   equipModalSource: "master" as "snapshot" | "master",
+  shipModalSideFilter: "ally" as "ally" | "enemy" | "all",
+  equipModalSideFilter: "ally" as "ally" | "enemy" | "all",
 
   // Equipment modal target context
   equipModalTargetShipId: null as number | null,

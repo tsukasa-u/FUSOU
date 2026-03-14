@@ -2,7 +2,11 @@
 
 import { state } from "./state";
 import type { MstSlotItemData } from "./types";
-import { EQUIP_TYPE_NAMES, EQUIP_TYPE_SHORT } from "./constants";
+import {
+  EQUIP_TYPE_NAMES,
+  EQUIP_TYPE_SHORT,
+  ENEMY_ID_THRESHOLD,
+} from "./constants";
 import { debounce, equipImageUrl, computeEquipBonuses } from "./equip-calc";
 import { filterForNormalSlot, filterForExslot } from "./equip-filter";
 import type { FlatVSState, GroupedVSState } from "./virtual-scroll";
@@ -26,6 +30,19 @@ let _equipVS: (FlatVSState & { items: MstSlotItemData[] }) | null = null;
 let _equipScrollRaf = 0;
 let _equipGVS: (GroupedVSState & { rows: EquipGRow[] }) | null = null;
 let _equipGScrollRaf = 0;
+
+type SideFilter = "ally" | "enemy" | "all";
+
+function filterEquipsBySide(
+  equips: MstSlotItemData[],
+  sideFilter: SideFilter,
+): MstSlotItemData[] {
+  if (sideFilter === "all") return equips;
+  if (sideFilter === "enemy") {
+    return equips.filter((e) => e.id >= ENEMY_ID_THRESHOLD);
+  }
+  return equips.filter((e) => e.id < ENEMY_ID_THRESHOLD);
+}
 
 function onEquipScroll() {
   if (!_equipScrollRaf) {
@@ -82,17 +99,24 @@ export function openEquipModal(
   if (!state.hasMasterData) return;
   state.equipModalCb = cb;
   state.equipModalCurrentId = currentId;
+  if (currentId != null) {
+    state.equipModalSideFilter =
+      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally";
+  }
   const modal = document.getElementById("equip-select-modal");
   const search = document.getElementById("equip-modal-search");
+  const side = document.getElementById("equip-modal-side");
   const typeFilter = document.getElementById("equip-modal-type");
   if (
     !(modal instanceof HTMLDialogElement) ||
     !(search instanceof HTMLInputElement) ||
+    !(side instanceof HTMLSelectElement) ||
     !(typeFilter instanceof HTMLSelectElement)
   )
     return;
   search.value = "";
-  populateEquipTypeFilter(typeFilter);
+  side.value = state.equipModalSideFilter;
+  populateEquipTypeFilter(typeFilter, state.equipModalSideFilter);
 
   const tabsEl = document.getElementById("equip-modal-source-tabs");
   const hasSnapshot = Object.keys(state.snapshotSlotItems).length > 0;
@@ -102,7 +126,7 @@ export function openEquipModal(
   state.equipModalSource = hasSnapshot ? "snapshot" : "master";
   updateEquipSourceTabs();
 
-  renderEquipGrid("", "");
+  renderEquipGrid("", "", state.equipModalSideFilter);
   resetEquipDetail();
   modal.showModal();
   requestAnimationFrame(() => search.focus());
@@ -118,11 +142,17 @@ function updateEquipSourceTabs() {
   }
 }
 
-function populateEquipTypeFilter(select: HTMLSelectElement) {
+function populateEquipTypeFilter(
+  select: HTMLSelectElement,
+  sideFilter: SideFilter,
+) {
   const current = select.value;
   select.innerHTML = '<option value="">全装備種</option>';
   const types = new Map<number, string>();
-  for (const e of Object.values(state.mstSlotItems)) {
+  for (const e of filterEquipsBySide(
+    Object.values(state.mstSlotItems),
+    sideFilter,
+  )) {
     const t = e.type?.[2];
     if (t != null && !types.has(t))
       types.set(t, EQUIP_TYPE_NAMES[t] ?? `Type ${t}`);
@@ -259,7 +289,11 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   return item;
 }
 
-function renderEquipGrid(search: string, typeFilter: string) {
+function renderEquipGrid(
+  search: string,
+  typeFilter: string,
+  sideFilter: SideFilter,
+) {
   const grid = document.getElementById("equip-modal-grid")!;
   grid.innerHTML = "";
   cleanupEquipVS();
@@ -310,6 +344,8 @@ function renderEquipGrid(search: string, typeFilter: string) {
       (a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id),
     );
   }
+
+  items = filterEquipsBySide(items, sideFilter);
 
   // Apply ship-based equipment filter
   const isExslot = state.equipModalTargetSlotIdx === -1;
@@ -614,19 +650,38 @@ function resetEquipDetail() {
 /** Wire up DOM event listeners for the equip modal. Call once at init time. */
 export function initEquipModalEvents() {
   const equipSearchEl = document.getElementById("equip-modal-search");
+  const equipSideEl = document.getElementById("equip-modal-side");
   const equipTypeEl = document.getElementById("equip-modal-type");
   if (
     equipSearchEl instanceof HTMLInputElement &&
+    equipSideEl instanceof HTMLSelectElement &&
     equipTypeEl instanceof HTMLSelectElement
   ) {
     equipSearchEl.addEventListener(
       "input",
       debounce(() => {
-        renderEquipGrid(equipSearchEl.value, equipTypeEl.value);
+        renderEquipGrid(
+          equipSearchEl.value,
+          equipTypeEl.value,
+          equipSideEl.value as SideFilter,
+        );
       }, 120),
     );
+    equipSideEl.addEventListener("change", () => {
+      state.equipModalSideFilter = equipSideEl.value as SideFilter;
+      populateEquipTypeFilter(equipTypeEl, state.equipModalSideFilter);
+      renderEquipGrid(
+        equipSearchEl.value,
+        equipTypeEl.value,
+        state.equipModalSideFilter,
+      );
+    });
     equipTypeEl.addEventListener("change", () => {
-      renderEquipGrid(equipSearchEl.value, equipTypeEl.value);
+      renderEquipGrid(
+        equipSearchEl.value,
+        equipTypeEl.value,
+        equipSideEl.value as SideFilter,
+      );
     });
   }
 
@@ -643,9 +698,13 @@ export function initEquipModalEvents() {
       updateEquipSourceTabs();
       const search =
         equipSearchEl instanceof HTMLInputElement ? equipSearchEl.value : "";
+      const side =
+        equipSideEl instanceof HTMLSelectElement
+          ? (equipSideEl.value as SideFilter)
+          : state.equipModalSideFilter;
       const type =
         equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
-      renderEquipGrid(search, type);
+      renderEquipGrid(search, type, side);
     });
 }
 
