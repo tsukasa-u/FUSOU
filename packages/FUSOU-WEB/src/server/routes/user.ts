@@ -86,6 +86,48 @@ app.post("/member-map/upsert", async (c) => {
     // Get the authenticated user's ID from the JWT token
     const currentUserId = supabaseUser.id!;
 
+    // Baseline app/cloud flow uses anonymous sessions. In that state,
+    // upserting social ownership is not meaningful and causes noisy conflicts.
+    const { data: currentUserData, error: currentUserError } =
+      await supabaseAdmin.auth.admin.getUserById(currentUserId);
+
+    if (currentUserError) {
+      console.error("[/user/member-map/upsert] Failed to fetch current user:", {
+        user_id: currentUserId,
+        error: currentUserError.message,
+        code: currentUserError.code,
+      });
+      return c.json(
+        {
+          error: "USER_FETCH_FAILED",
+          message: "Failed to verify current user session",
+          details: currentUserError.message,
+        },
+        500,
+      );
+    }
+
+    const currentUser = currentUserData?.user;
+    const isAnonymousCurrentUser = Boolean(
+      currentUser?.is_anonymous && !currentUser?.email,
+    );
+
+    if (isAnonymousCurrentUser) {
+      console.info("[/user/member-map/upsert] Skipped for anonymous session", {
+        user_id: currentUserId,
+        member_id_hash: memberIdHash,
+      });
+      return c.json(
+        {
+          ok: true,
+          action: "skipped_anonymous_session",
+          message:
+            "Anonymous session detected. Ownership upsert is deferred until social sign-in.",
+        },
+        200,
+      );
+    }
+
     // Check if this member_id_hash already exists
     const { data: existingMapping, error: lookupError } = await supabaseAdmin
       .from("user_member_map")
