@@ -283,6 +283,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     saku: number;
     houm: number;
     souk: number;
+    kaih?: number;
+    houk?: number;
+    luck?: number;
+    leng?: number;
+    soku?: number;
     distance: number | null;
   }
 
@@ -472,40 +477,61 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     shipId: number,
     equipIds: (number | null)[],
     exSlotId: number | null,
+    equipImprovements: number[],
+    exSlotImprovement: number,
   ): Record<string, number> {
     const bonuses: Record<string, number> = {};
     if (!slotItemEffects) return bonuses;
 
-    // Gather all equipped item IDs (including ex slot)
-    const allIds: number[] = [];
-    for (const id of equipIds) { if (id != null) allIds.push(id); }
-    if (exSlotId != null) allIds.push(exSlotId);
-    if (allIds.length === 0) return bonuses;
+    // Gather all equipped items with improvement levels (including ex slot)
+    const allItems: { id: number; improvement: number }[] = [];
+    for (let i = 0; i < equipIds.length; i++) {
+      const id = equipIds[i];
+      if (id == null) continue;
+      allItems.push({ id, improvement: equipImprovements[i] || 0 });
+    }
+    if (exSlotId != null) allItems.push({ id: exSlotId, improvement: exSlotImprovement || 0 });
+    if (allItems.length === 0) return bonuses;
 
-    // Count each item
-    const itemCounts: Record<number, number> = {};
-    for (const id of allIds) itemCounts[id] = (itemCounts[id] || 0) + 1;
+    // Group by item ID to obtain count and per-copy improvements
+    const itemGroups: Record<number, number[]> = {};
+    for (const item of allItems) {
+      if (!itemGroups[item.id]) itemGroups[item.id] = [];
+      itemGroups[item.id].push(item.improvement);
+    }
 
     // Single-item bonuses
-    for (const idStr of Object.keys(itemCounts)) {
+    for (const idStr of Object.keys(itemGroups)) {
       const id = parseInt(idStr, 10);
-      const count = itemCounts[id];
+      const levels = itemGroups[id];
+      const count = levels.length;
       const entries = slotItemEffects.effects[id];
       if (!entries) continue;
 
       for (const entry of entries) {
         if (!entry.ships.includes(shipId)) continue;
+
         // Determine total bonus for this item count
         let src: Record<string, number>;
-        if (count >= 3 && entry.c3) {
-          src = entry.c3;
+        if (count === 1) {
+          const hasStar10 = levels.some((lv) => lv >= 10);
+          src = hasStar10 && entry.l ? entry.l : entry.b;
+        } else if (count >= 3 && entry.c3) {
+          src = { ...entry.c3 };
+          // c3 is the total at exactly 3 copies; add linear extras beyond that.
+          if (count > 3) {
+            for (const k of STAT_KEYS) {
+              const extra = (entry.b[k] || 0) * (count - 3);
+              if (extra) src[k] = (src[k] || 0) + extra;
+            }
+          }
         } else if (count >= 2 && entry.c2) {
-          src = entry.c2;
-          // For count > 2 when c3 is not available, add extra individual bonuses
+          src = { ...entry.c2 };
+          // c2 is the total at exactly 2 copies; add linear extras beyond that.
           if (count > 2) {
             for (const k of STAT_KEYS) {
               const extra = (entry.b[k] || 0) * (count - 2);
-              if (extra) bonuses[k] = (bonuses[k] || 0) + extra;
+              if (extra) src[k] = (src[k] || 0) + extra;
             }
           }
         } else {
@@ -523,7 +549,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     }
 
     // Cross-item synergy bonuses (pairwise)
-    const uniqueIds = Object.keys(itemCounts).map(Number);
+    const uniqueIds = Object.keys(itemGroups).map(Number);
     for (let i = 0; i < uniqueIds.length; i++) {
       for (let j = i + 1; j < uniqueIds.length; j++) {
         const a = Math.min(uniqueIds[i], uniqueIds[j]);
@@ -557,8 +583,19 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       if (id == null) continue;
       const eq = mstSlotItems[id];
       if (!eq) continue;
-      for (const k of ["houg", "raig", "tyku", "tais", "baku", "saku", "houm", "souk"] as const) {
-        if (eq[k]) sums[k] = (sums[k] || 0) + eq[k];
+      for (const k of ["houg", "raig", "tyku", "tais", "baku", "saku", "houm", "souk", "luck", "soku"] as const) {
+        const v = eq[k] || 0;
+        if (v) sums[k] = (sums[k] || 0) + v;
+      }
+
+      // 回避はデータソースにより kaih / houk のどちらかで来るため両対応
+      const eqKaih = eq.kaih ?? eq.houk ?? 0;
+      if (eqKaih) sums.kaih = (sums.kaih || 0) + eqKaih;
+
+      // 射程は加算値ではなく、装備側の最大射程カテゴリを採用する
+      const eqLeng = eq.leng || 0;
+      if (eqLeng) {
+        sums.leng = Math.max(sums.leng || 0, eqLeng);
       }
     }
     return sums;
@@ -1605,7 +1642,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       }
 
       // Compute bonus with this item vs. without
-      const bonusWith = computeEquipBonuses(shipId, testEquipIds, testExSlotId);
+      const bonusWith = computeEquipBonuses(
+        shipId,
+        testEquipIds,
+        testExSlotId,
+        targetSlot.equipImprovement,
+        targetSlot.exSlotImprovement,
+      );
       const testEquipIdsWithout = [...targetSlot.equipIds];
       let testExSlotIdWithout = targetSlot.exSlotId;
       if (targetIdx >= 0) {
@@ -1613,7 +1656,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       } else {
         testExSlotIdWithout = null;
       }
-      const bonusWithout = computeEquipBonuses(shipId, testEquipIdsWithout, testExSlotIdWithout);
+      const bonusWithout = computeEquipBonuses(
+        shipId,
+        testEquipIdsWithout,
+        testExSlotIdWithout,
+        targetSlot.equipImprovement,
+        targetSlot.exSlotImprovement,
+      );
 
       // Delta = contribution of this item to the total bonus
       const delta: Record<string, number> = {};
@@ -2005,7 +2054,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
         // Compute equipment bonuses + equip stat sums
         const equipBonuses = slot.shipId != null
-          ? computeEquipBonuses(slot.shipId, slot.equipIds, slot.exSlotId)
+          ? computeEquipBonuses(
+            slot.shipId,
+            slot.equipIds,
+            slot.exSlotId,
+            slot.equipImprovement,
+            slot.exSlotImprovement,
+          )
           : {};
         const equipSums = computeEquipSum(slot.equipIds, slot.exSlotId);
 
@@ -2040,8 +2095,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           const ov = overrides[key];
           const baseVal = ov ?? base;
           if (baseVal == null) return "—";
-          const eqContrib = (equipSums[key] || 0) + (equipBonuses[key] || 0);
-          const total = baseVal + eqContrib;
+
+          // 射程は「艦素射程」と「装備最大射程」の高い方を土台にし、ボーナス分を加える
+          const bonusContrib = equipBonuses[key] || 0;
+          const total = key === "leng"
+            ? Math.max(baseVal, equipSums.leng || 0) + bonusContrib
+            : baseVal + (equipSums[key] || 0) + bonusContrib;
+
           if (!isNumeric && key === "soku") return SPEED_NAMES[total] ?? String(total);
           if (!isNumeric && key === "leng") return RANGE_NAMES[total] ?? String(total);
           return String(total);
@@ -2137,14 +2197,17 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           // Equipment contribution indicator + breakdown tooltip
           const eqStatVal = equipSums[key] || 0;
           const bonusVal = equipBonuses[key] || 0;
-          const totalBonus = eqStatVal + bonusVal;
+          const baseForDisplay = currentNumericVal(key, base);
+          const effectiveEqDelta = key === "leng"
+            ? Math.max(baseForDisplay, eqStatVal) - baseForDisplay
+            : eqStatVal;
+          const totalBonus = effectiveEqDelta + bonusVal;
           const bonusEl = document.createElement("span");
           bonusEl.className = "text-[10px] font-mono font-semibold tabular-nums leading-none w-[1.5rem] text-left pl-[1px]";
           if (totalBonus !== 0) {
             // Tooltip on main value: show breakdown
-            const bv = currentNumericVal(key, base);
-            vl.title = `素: ${bv}` +
-              (eqStatVal ? `, 装備: ${eqStatVal > 0 ? "+" : ""}${eqStatVal}` : "") +
+            vl.title = `素: ${baseForDisplay}` +
+              (effectiveEqDelta ? `, 装備: ${effectiveEqDelta > 0 ? "+" : ""}${effectiveEqDelta}` : "") +
               (bonusVal ? `, ボーナス: ${bonusVal > 0 ? "+" : ""}${bonusVal}` : "");
             // Parenthesized indicator showing equipment contribution
             const sign = totalBonus > 0 ? "+" : "";
@@ -2153,7 +2216,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             bonusEl.style.color = totalBonus > 0 ? "#b45309" : "#c2410c";
             bonusEl.style.textShadow = "none";
             if (bonusVal !== 0) {
-              bonusEl.title = `装備: ${eqStatVal > 0 ? "+" : ""}${eqStatVal}, ボーナス: ${bonusVal > 0 ? "+" : ""}${bonusVal}`;
+              bonusEl.title = `装備: ${effectiveEqDelta > 0 ? "+" : ""}${effectiveEqDelta}, ボーナス: ${bonusVal > 0 ? "+" : ""}${bonusVal}`;
             }
           } else {
             // Keep empty placeholder so row width and alignment stay identical.
@@ -2344,6 +2407,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   // ==============================================================
   //  Master data import from JSON
   // ==============================================================
+  function normalizeMstSlotItem(raw: MstSlotItemData): MstSlotItemData {
+    // Some sources use `houk` for evasion. Normalize to `kaih` for internal calculations.
+    if (raw.kaih == null && raw.houk != null) {
+      return { ...raw, kaih: raw.houk };
+    }
+    return raw;
+  }
+
   function loadMasterDataFromJson(json: unknown) {
     if (typeof json !== "object" || json === null) return;
     const obj = json as Record<string, unknown>;
@@ -2368,13 +2439,14 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       if (Array.isArray(obj.mst_slot_items)) {
         for (const v of obj.mst_slot_items) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
-            mstSlotItems[(v as MstSlotItemData).id] = v as MstSlotItemData;
+            const item = normalizeMstSlotItem(v as MstSlotItemData);
+            mstSlotItems[item.id] = item;
           }
         }
       } else {
         for (const [k, v] of Object.entries(obj.mst_slot_items as Record<string, unknown>)) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
-            mstSlotItems[Number(k)] = v as MstSlotItemData;
+            mstSlotItems[Number(k)] = normalizeMstSlotItem(v as MstSlotItemData);
           }
         }
       }
@@ -2486,17 +2558,25 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           exSlotId,
           exSlotImprovement,
           instanceStats: (() => {
-            // Snapshot stats include equipment — subtract equip contribution to get naked base
+            // Snapshot stats include equipment and equip bonuses.
+            // Subtract both to derive the naked base so later recalculation does not double-count bonuses.
             const snapEqSum = computeEquipSum(equipIds, exSlotId);
+            const snapBonus = computeEquipBonuses(
+              masterShipId,
+              equipIds,
+              exSlotId,
+              equipImprovement,
+              exSlotImprovement,
+            );
             return {
-              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0),
-              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0),
-              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0),
-              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0),
-              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0),
-              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0),
-              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0),
-              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0),
+              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0) - (snapBonus.houg || 0),
+              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0) - (snapBonus.raig || 0),
+              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0) - (snapBonus.tyku || 0),
+              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0) - (snapBonus.souk || 0),
+              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0) - (snapBonus.kaih || 0),
+              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0) - (snapBonus.tais || 0),
+              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0) - (snapBonus.saku || 0),
+              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0) - (snapBonus.luck || 0),
             };
           })(),
         };
@@ -2556,15 +2636,22 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           exSlotImprovement,
           instanceStats: (() => {
             const snapEqSum = computeEquipSum(equipIds, exSlotId);
+            const snapBonus = computeEquipBonuses(
+              masterShipId,
+              equipIds,
+              exSlotId,
+              equipImprovement,
+              exSlotImprovement,
+            );
             return {
-              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0),
-              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0),
-              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0),
-              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0),
-              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0),
-              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0),
-              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0),
-              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0),
+              houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0) - (snapBonus.houg || 0),
+              raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0) - (snapBonus.raig || 0),
+              tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0) - (snapBonus.tyku || 0),
+              souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0) - (snapBonus.souk || 0),
+              kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0) - (snapBonus.kaih || 0),
+              tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0) - (snapBonus.tais || 0),
+              saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0) - (snapBonus.saku || 0),
+              luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0) - (snapBonus.luck || 0),
             };
           })(),
         };
@@ -2870,7 +2957,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     return fetchProxyImageAsBlobUrl(absUrl);
   }
 
-  async function prewarmVisibleExternalImageCache(root: ParentNode) {
+  async function prewarmVisibleExternalImageCache(root: Pick<Element, "querySelectorAll">) {
     const targets = new Set<string>();
     root.querySelectorAll("img").forEach((img) => {
       if (!(img instanceof HTMLImageElement)) return;
@@ -3185,7 +3272,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         const equipData = (await equipRes.json()) as { records: MstSlotItemData[] };
         if (equipData.records) {
           for (const e of equipData.records) {
-            if (e && e.id != null && e.name) mstSlotItems[e.id] = e;
+            if (e && e.id != null && e.name) mstSlotItems[e.id] = normalizeMstSlotItem(e);
           }
         }
       }
