@@ -624,20 +624,34 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
   /** Create a weapon sprite icon element */
   function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
-    const el = document.createElement("div");
-    el.style.width = `${size}px`;
-    el.style.height = `${size}px`;
-    el.className = "shrink-0";
     const frame = weaponIconFrames[iconNum];
     if (frame && spriteSheetUrl) {
       const [fx, fy, fw, fh] = frame;
       const scaleX = size / fw;
       const scaleY = size / fh;
-      el.style.backgroundImage = `url('${spriteSheetUrl}')`;
-      el.style.backgroundPosition = `-${fx * scaleX}px -${fy * scaleY}px`;
-      el.style.backgroundSize = `${spriteSheetW * scaleX}px ${spriteSheetH * scaleY}px`;
-      el.style.backgroundRepeat = "no-repeat";
+      // Use <img> with object-fit tricks so html-to-image can embed it via the
+      // same proxy pipeline used for ship card images (background-image is not
+      // reliably embedded by html-to-image when the URL is external/same-origin).
+      const wrapper = document.createElement("div");
+      wrapper.className = "shrink-0 overflow-hidden";
+      wrapper.style.width = `${size}px`;
+      wrapper.style.height = `${size}px`;
+      const img = document.createElement("img");
+      img.src = spriteSheetUrl;
+      img.alt = "";
+      img.style.width = `${spriteSheetW * scaleX}px`;
+      img.style.height = `${spriteSheetH * scaleY}px`;
+      img.style.marginLeft = `-${fx * scaleX}px`;
+      img.style.marginTop = `-${fy * scaleY}px`;
+      img.style.maxWidth = "none";
+      img.style.display = "block";
+      wrapper.appendChild(img);
+      return wrapper;
     }
+    const el = document.createElement("div");
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.className = "shrink-0";
     return el;
   }
 
@@ -2843,6 +2857,12 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     return v.includes("url(#") || v.includes("url(\"#") || v.includes("url('#");
   }
 
+  /** Extract the first URL value from a CSS url(...) expression, or null if not found. */
+  function extractCssUrl(v: string): string | null {
+    const m = v.match(/url\(\s*['"]?([^'")\s]+)['"]?\s*\)/);
+    return m?.[1] ?? null;
+  }
+
   function sanitizeFileName(name: string): string {
     const n = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-");
     return n || "fleet-deck";
@@ -2970,6 +2990,21 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         // ignore invalid src values
       }
     });
+    // Also prewarm inline background-image URLs that are genuine external http/https resources.
+    // Skip data URIs (already inlined) and same-origin URLs (no CORS issues).
+    root.querySelectorAll<HTMLElement>("*").forEach((el) => {
+      if (!(el instanceof HTMLElement)) return;
+      const bgImage = el.style.backgroundImage;
+      if (!bgImage) return;
+      const rawUrl = extractCssUrl(bgImage);
+      if (!rawUrl || rawUrl.startsWith("#") || rawUrl.startsWith("data:")) return;
+      try {
+        const u = new URL(rawUrl, window.location.href);
+        if (u.origin !== window.location.origin) targets.add(u.toString());
+      } catch {
+        // ignore invalid url values
+      }
+    });
     if (targets.size === 0) return;
     await Promise.all(Array.from(targets, (u) => getCachedExternalBlobUrl(u)));
   }
@@ -3011,8 +3046,26 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       const cMaskImage = cs.maskImage || "";
       const cWebkitMaskImage = (cs as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage || "";
       const cClipPath = cs.clipPath || "";
+
+      // Inline background-image with a real http/https URL (e.g. CDN asset not inlined as data URI):
+      // replace with a same-origin blob URL so html-to-image can embed it correctly.
+      // Data URIs and same-origin relative URLs are handled natively by html-to-image.
+      const bgImageUrl = bgImage ? extractCssUrl(bgImage) : null;
+      const bgImageIsInlineExternal = !!(bgImageUrl &&
+        (bgImageUrl.startsWith("http://") || bgImageUrl.startsWith("https://")));
+      if (bgImageIsInlineExternal) {
+        const rawUrl = bgImageUrl!;
+        tasks.push((async () => {
+          try {
+            const absUrl = new URL(rawUrl, window.location.href).toString();
+            const blobUrl = await getCachedExternalBlobUrl(absUrl, stats);
+            if (blobUrl) node.style.backgroundImage = bgImage.replace(rawUrl, blobUrl);
+          } catch { /* leave as-is on error */ }
+        })());
+      }
+
       if (
-        hasUrlResource(bgImage) ||
+        (hasUrlResource(bgImage) && !bgImageIsInlineExternal) ||
         hasUrlResource(bg) ||
         hasUrlResource(filter) ||
         hasUrlResource(maskImage) ||
@@ -3023,7 +3076,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         hasHashUrlResource(cClipPath)
       ) {
         stats.sanitizedStyleNodes += 1;
-        st.backgroundImage = "none";
+        if (!bgImageIsInlineExternal) st.backgroundImage = "none";
         st.background = st.backgroundColor || "transparent";
         st.filter = "none";
         st.maskImage = "none";
@@ -3315,11 +3368,25 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           spriteSheetW = atlas.meta.size.w ?? 0;
           spriteSheetH = atlas.meta.size.h ?? 0;
         }
-        // Build sprite sheet URL from assetBaseUrl or fallback to proxy endpoint
+        // Always fetch the sprite via same-origin endpoint and inline as a data URI
+        // so background-image works in html-to-image export without CORS issues.
         const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
-        spriteSheetUrl = assetBaseUrl
-          ? `${assetBaseUrl}/${pngKey}`
-          : "/api/asset-sync/weapon-icons";
+        try {
+          const pngRes = await fetch("/api/asset-sync/weapon-icons");
+          if (pngRes.ok) {
+            const pngBlob = await pngRes.blob();
+            spriteSheetUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.onerror = reject;
+              reader.readAsDataURL(pngBlob);
+            });
+          } else {
+            spriteSheetUrl = assetBaseUrl ? `${assetBaseUrl}/${pngKey}` : "/api/asset-sync/weapon-icons";
+          }
+        } catch {
+          spriteSheetUrl = assetBaseUrl ? `${assetBaseUrl}/${pngKey}` : "/api/asset-sync/weapon-icons";
+        }
       }
 
       if (synergyRes.ok) {
