@@ -200,6 +200,7 @@ export function injectEnv(locals: any): Bindings {
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
     COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
+    SHORTENER_SERVICE: ctx.runtime.SHORTENER_SERVICE,
   };
 }
 

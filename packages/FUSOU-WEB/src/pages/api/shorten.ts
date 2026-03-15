@@ -2,15 +2,12 @@ import type { APIRoute } from "astro";
 import { createEnvContext, getEnv } from "@/server/utils";
 
 export const POST: APIRoute = async ({ request, locals }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+  const runtimeEnv = locals?.runtime?.env || {};
+  const envCtx = createEnvContext({ env: runtimeEnv });
   const shorterBase = getEnv(envCtx, "PUBLIC_URL_SHORTER_BASE")?.trim();
-
-  if (!shorterBase) {
-    return new Response(
-      JSON.stringify({ error: "Server misconfiguration: PUBLIC_URL_SHORTER_BASE is not set" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
-    );
-  }
+  const shortenerService = runtimeEnv.SHORTENER_SERVICE as
+    | Fetcher
+    | undefined;
 
   // Same-origin protection for state-changing request.
   const originHeader = request.headers.get("Origin");
@@ -42,11 +39,40 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   }
 
-  const upstream = await fetch(`${shorterBase.replace(/\/+$/, "")}/api/shorten`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  });
+  let upstream: Response;
+  try {
+    if (shortenerService) {
+      upstream = await shortenerService.fetch("https://shortener.internal/api/shorten", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+    } else {
+      if (!shorterBase) {
+        return new Response(
+          JSON.stringify({
+            error:
+              "Server misconfiguration: SHORTENER_SERVICE or PUBLIC_URL_SHORTER_BASE is required",
+          }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      upstream = await fetch(`${shorterBase.replace(/\/+$/, "")}/api/shorten`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+    }
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: "Shortener upstream request failed",
+        detail: error instanceof Error ? error.message : String(error),
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   const upstreamText = await upstream.text();
   return new Response(upstreamText, {

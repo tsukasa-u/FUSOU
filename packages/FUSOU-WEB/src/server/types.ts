@@ -40,6 +40,7 @@ export type Bindings = {
 
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
+  SHORTENER_SERVICE?: Fetcher;
 
   // KV for caching (optional)
   DATA_LOADER_CACHE_KV?: KVNamespace;

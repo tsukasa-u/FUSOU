@@ -16,6 +16,10 @@ pages_build_output_dir = "dist"
 binding = "COMPACTION_WORKFLOW"
 service = "fusou-workflow"
 
+[[services]]
+binding = "SHORTENER_SERVICE"
+service = "fusou-url-shorter"
+
 # ===== Public Asset Base URL (R2 custom domain) =====
 # ASSET_BASE_URL is managed in [vars] below.
 # Override in Cloudflare Pages dashboard if needed per environment.
