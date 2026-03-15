@@ -4,11 +4,10 @@ compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
 
 # ===== Custom Domain =====
-# Requires: DNS CNAME record  s.fusou.dev → fusou-url-shorter.<account>.workers.dev
-# Add the CNAME in Cloudflare DNS dashboard, then uncomment below:
-# [routes]
-# route = "s.fusou.dev/*"
-# zone_name = "fusou.dev"
+[[routes]]
+pattern = "s.fusou.dev"
+zone_name = "fusou.dev"
+custom_domain = true
 
 # ===== KV Namespace Bindings =====
 # Create KV namespace with:
