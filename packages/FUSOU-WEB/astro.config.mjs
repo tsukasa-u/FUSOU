@@ -133,15 +133,15 @@ export default defineConfig({
         process.env.SUPABASE_SECRET_KEY,
       ),
       "process.env.PUBLIC_SITE_URL": JSON.stringify(effectivePublicSiteUrl),
-      "process.env.PUBLIC_SITE_URL_PRODUCTION": JSON.stringify(
-        process.env.PUBLIC_SITE_URL_PRODUCTION,
-      ),
-      "process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN": JSON.stringify(
-        process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN,
-      ),
-      "process.env.PUBLIC_SITE_URL_FALLBACK": JSON.stringify(
-        process.env.PUBLIC_SITE_URL_FALLBACK,
-      ),
+      // "process.env.PUBLIC_SITE_URL_PRODUCTION": JSON.stringify(
+      //   process.env.PUBLIC_SITE_URL_PRODUCTION,
+      // ),
+      // "process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN": JSON.stringify(
+      //   process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN,
+      // ),
+      // "process.env.PUBLIC_SITE_URL_FALLBACK": JSON.stringify(
+      //   process.env.PUBLIC_SITE_URL_FALLBACK,
+      // ),
       "process.env.URL_SHORTER_BASE": JSON.stringify(
         process.env.URL_SHORTER_BASE || "",
       ),
