@@ -12,63 +12,52 @@ import rehypeMermaid from "rehype-mermaid";
 
 /**
  * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
- * 優先順位: 平文の環境変数 → CF_PAGES_BRANCH から算出 → フォールバック
+ * 優先順位: 平文の環境変数 → Cloudflare組み込みのデプロイURL
  */
 function resolvePublicSiteUrl() {
   // 1) 明示指定を最優先（dotenvx / Cloudflare env）
   const envVal = process.env.PUBLIC_SITE_URL;
   if (envVal && !envVal.startsWith("encrypted:")) return envVal;
 
-  // 2) CF_PAGES_BRANCH がある = Cloudflare Pages 上のビルド → ブランチから算出
+  // 2) Cloudflare Pages 上のビルドは組み込みURLを使用
   const branch = process.env.CF_PAGES_BRANCH;
+  const deploymentUrl = process.env.CF_PAGES_URL;
   const productionSiteUrl = process.env.PUBLIC_SITE_URL_PRODUCTION;
-  const previewBaseDomain = process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN;
-  const fallbackSiteUrl = process.env.PUBLIC_SITE_URL_FALLBACK;
 
   if (branch) {
     if (branch === "main") {
-      if (!productionSiteUrl) {
-        throw new Error(
-          "PUBLIC_SITE_URL_PRODUCTION is required for main branch builds",
-        );
+      if (productionSiteUrl && !productionSiteUrl.startsWith("encrypted:")) {
+        return productionSiteUrl;
       }
-      return productionSiteUrl;
+      if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+        return deploymentUrl;
+      }
+      return undefined;
     }
 
-    if (!previewBaseDomain) {
-      throw new Error(
-        "PUBLIC_SITE_PREVIEW_BASE_DOMAIN is required for preview branch builds",
-      );
+    if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+      return deploymentUrl;
     }
 
-    const sanitized = branch
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-
-    if (!sanitized) {
-      throw new Error(
-        "CF_PAGES_BRANCH produced an empty sanitized hostname label",
-      );
-    }
-
-    return `https://${sanitized}.${previewBaseDomain}`;
+    return undefined;
   }
 
-  return fallbackSiteUrl;
+  if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+    return deploymentUrl;
+  }
+
+  return undefined;
 }
 
 const publicSiteUrl = resolvePublicSiteUrl();
 const isCloudflareBuild = Boolean(process.env.CF_PAGES_BRANCH);
 const isStrictEnv = isCloudflareBuild || Boolean(process.env.CI);
 
-let effectivePublicSiteUrl =
-  publicSiteUrl || process.env.PUBLIC_SITE_URL_FALLBACK;
+let effectivePublicSiteUrl = publicSiteUrl;
 if (!effectivePublicSiteUrl) {
   if (isStrictEnv) {
     throw new Error(
-      "PUBLIC_SITE_URL (or PUBLIC_SITE_URL_FALLBACK) is required in CI/Cloudflare builds",
+      "PUBLIC_SITE_URL (or CF_PAGES_URL on Pages) is required in CI/Cloudflare builds",
     );
   } else {
     // Local CLI usage (astro check/dev) can safely fall back.
@@ -133,15 +122,6 @@ export default defineConfig({
         process.env.SUPABASE_SECRET_KEY,
       ),
       "process.env.PUBLIC_SITE_URL": JSON.stringify(effectivePublicSiteUrl),
-      // "process.env.PUBLIC_SITE_URL_PRODUCTION": JSON.stringify(
-      //   process.env.PUBLIC_SITE_URL_PRODUCTION,
-      // ),
-      // "process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN": JSON.stringify(
-      //   process.env.PUBLIC_SITE_PREVIEW_BASE_DOMAIN,
-      // ),
-      // "process.env.PUBLIC_SITE_URL_FALLBACK": JSON.stringify(
-      //   process.env.PUBLIC_SITE_URL_FALLBACK,
-      // ),
       "process.env.URL_SHORTER_BASE": JSON.stringify(
         process.env.URL_SHORTER_BASE || "",
       ),
