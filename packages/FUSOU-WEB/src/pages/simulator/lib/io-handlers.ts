@@ -154,14 +154,7 @@ export function initIOEvents() {
       const encoded = btoa(JSON.stringify(payload));
       const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 
-      const shorterBase = (window as any).__fusouUrlShorterBase as string | undefined;
-      if (!shorterBase) {
-        alert("短縮URL設定エラー: PUBLIC_URL_SHORTER_BASE が未設定です");
-        return;
-      }
-
-      const normalizedShorterBase = shorterBase.trim().replace(/\/+$/, "");
-      const res = await fetch(`${normalizedShorterBase}/api/shorten`, {
+      const res = await fetch("/api/shorten", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: longUrl }),
