@@ -606,30 +606,6 @@ app.get("/ship-banner/:shipId", async (c) => {
       }
     }
 
-    // When R2 key found and ASSET_BASE_URL is set, serve from CDN
-    const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
-    if (r2Key && assetBaseUrl) {
-      try {
-        const res = await fetch(`${assetBaseUrl}/${r2Key}`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          const body = await res.arrayBuffer();
-          return new Response(body, {
-            status: 200,
-            headers: {
-              "Content-Type": "image/png",
-              "Content-Length": String(body.byteLength),
-              "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800",
-              ...CORS_HEADERS,
-            },
-          });
-        }
-      } catch {
-        // CDN unavailable — fall through to direct R2
-      }
-    }
-
     if (!r2Key) {
       return new Response(null, { status: 404 });
     }
@@ -676,7 +652,6 @@ app.get("/ship-banner/:shipId", async (c) => {
 app.get("/weapon-icons", async (c) => {
   const envCtx = createEnvContext(c);
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -685,31 +660,6 @@ app.get("/weapon-icons", async (c) => {
   const r2Key = "assets/kcs2/img/common/common_icon_weapon.png";
 
   try {
-    // When ASSET_BASE_URL is set, fetch directly from CDN
-    const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
-    if (assetBaseUrl) {
-      try {
-        const res = await fetch(`${assetBaseUrl}/${r2Key}`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          const body = await res.arrayBuffer();
-          return new Response(body, {
-            status: 200,
-            headers: {
-              "Content-Type": "image/png",
-              "Content-Length": String(body.byteLength),
-              "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=604800, stale-while-revalidate=604800",
-              ...CORS_HEADERS,
-            },
-          });
-        }
-      } catch {
-        // CDN unavailable — fall through to local R2
-      }
-    }
-
-    // Fall back to local R2
     const ifNoneMatch = c.req.header("If-None-Match");
     const r2Object = await bucket.get(r2Key);
 
@@ -753,7 +703,6 @@ app.get("/weapon-icons", async (c) => {
 app.get("/weapon-icon-frames", async (c) => {
   const envCtx = createEnvContext(c);
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -761,33 +710,11 @@ app.get("/weapon-icon-frames", async (c) => {
 
   try {
     const jsonKey = "assets/kcs2/img/common/common_icon_weapon.json";
-    let atlasRaw: ArrayBuffer | null = null;
-
-    // When ASSET_BASE_URL is set, fetch directly from CDN
-    if (assetBaseUrl) {
-      try {
-        const res = await fetch(`${assetBaseUrl}/${jsonKey}`, {
-          signal: AbortSignal.timeout(5000),
-        });
-        if (res.ok) {
-          atlasRaw = await res.arrayBuffer();
-        }
-      } catch {
-        // CDN unavailable — fall through to local R2
-      }
-    }
-
-    // Fall back to local R2
-    if (!atlasRaw) {
-      const r2Object = await bucket.get(jsonKey);
-      if (r2Object) {
-        atlasRaw = await r2Object.arrayBuffer();
-      }
-    }
-
-    if (!atlasRaw) {
+    const r2Object = await bucket.get(jsonKey);
+    if (!r2Object) {
       return c.json({ error: "Sprite atlas not found" }, 404);
     }
+    const atlasRaw = await r2Object.arrayBuffer();
 
     const cacheControl = envCtx.isDev
       ? "no-store"
@@ -832,6 +759,15 @@ app.get("/weapon-icon-frames", async (c) => {
  *
  * Used by client-side deck image export to avoid browser-side CORS restrictions
  * when html-to-image fetches external card/banner URLs.
+ *
+ * On Cloudflare Pages the ASSET_SYNC_BUCKET R2 binding serves the same content
+ * as ASSET_BASE_URL. Accessing R2 directly (no network hop) is mandatory to
+ * avoid ERR_QUIC_PROTOCOL_ERROR / ERR_CONNECTION_RESET that occur when a Worker
+ * makes an outbound HTTP/3 fetch to assets.fusou.dev while the browser is still
+ * holding the QUIC stream open.
+ *
+ * Fallback to HTTP fetch is kept for local dev where the local R2 emulator may
+ * not have the asset yet.
  */
 app.get("/image-proxy", async (c) => {
   const envCtx = createEnvContext(c);
@@ -863,12 +799,50 @@ app.get("/image-proxy", async (c) => {
     }
   }
 
+  const cacheControl = envCtx.isDev
+    ? "no-store"
+    : "public, max-age=86400, stale-while-revalidate=604800";
+
+  // ── R2 direct access (primary path on Cloudflare Pages) ──────────────────
+  // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.
+  // Using the binding avoids an outbound HTTP request and all associated QUIC issues.
+  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  if (bucket) {
+    const r2Key = target.pathname.replace(/^\//, "");
+    if (!r2Key) {
+      return c.json({ error: "Invalid path" }, 400);
+    }
+    // Derive content-type from extension; all KCS2 game assets are images.
+    const ext = r2Key.split(".").pop()?.toLowerCase() ?? "";
+    const contentType = SAFE_MIME_BY_EXTENSION[ext] ?? "image/png";
+    if (!contentType.startsWith("image/")) {
+      return c.json({ error: "Resource is not an image" }, 415);
+    }
+    try {
+      const r2Object = await bucket.get(r2Key);
+      if (r2Object) {
+        return new Response(r2Object.body, {
+          status: 200,
+          headers: {
+            "Content-Type": contentType,
+            "Cache-Control": cacheControl,
+            ...CORS_HEADERS,
+          },
+        });
+      }
+      // Object not found in R2 (e.g. local dev emulator doesn't have it yet) —
+      // fall through to HTTP fetch below.
+    } catch (err) {
+      console.error("[asset-sync] image-proxy R2 error:", err);
+      // Fall through to HTTP fetch.
+    }
+  }
+
+  // ── HTTP fetch fallback (local dev / R2 miss) ─────────────────────────────
   try {
     const upstream = await fetch(target.toString(), {
       signal: AbortSignal.timeout(10000),
-      headers: {
-        "Accept": "image/*,*/*;q=0.8",
-      },
+      headers: { "Accept": "image/*,*/*;q=0.8" },
     });
 
     if (!upstream.ok) {
@@ -880,13 +854,11 @@ app.get("/image-proxy", async (c) => {
       return c.json({ error: "Upstream resource is not an image" }, 415);
     }
 
-    // Stream the body instead of buffering with arrayBuffer() to avoid
-    // Cloudflare Worker memory/CPU limits that can cause ERR_QUIC_PROTOCOL_ERROR.
     return new Response(upstream.body, {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800",
+        "Cache-Control": cacheControl,
         ...CORS_HEADERS,
       },
     });
