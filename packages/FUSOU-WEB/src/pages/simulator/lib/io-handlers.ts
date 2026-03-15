@@ -212,7 +212,10 @@ export function initIOEvents() {
 
       if (!res.ok || !data.ok) {
         console.warn("URL shortener normalized error:", res.status, data);
-        alert(data.error || "短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
+        const message = [data.error, data.detail]
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .join("\n");
+        alert(message || "短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
         return;
       }
 

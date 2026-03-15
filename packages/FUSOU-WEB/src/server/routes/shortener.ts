@@ -134,6 +134,7 @@ app.post("/", async (c) => {
     {
       ok: false,
       error: "SHORTENER_SERVICE request failed",
+      detail: attempt.detail || attempt.error || "Unknown upstream failure",
       attempts: [attempt],
     },
     502,
