@@ -101,24 +101,32 @@ function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
   console.groupEnd();
 }
 
-const externalImageBlobCache = new Map<string, string>();
+// Cache external images as data URIs so html-to-image can embed them directly.
+// Blob URLs require html-to-image to re-fetch them which can fail silently and
+// fall back to TRANSPARENT_PIXEL; data URIs are inlined without any re-fetch.
+const externalImageDataUrlCache = new Map<string, string>();
 
-async function fetchProxyImageAsBlobUrl(absUrl: string): Promise<string | null> {
+async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> {
   const proxied = `/api/asset-sync/image-proxy?url=${encodeURIComponent(absUrl)}`;
   try {
     const res = await fetch(proxied, { cache: "force-cache" });
     if (!res.ok) return null;
     const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    externalImageBlobCache.set(absUrl, blobUrl);
-    return blobUrl;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    externalImageDataUrlCache.set(absUrl, dataUrl);
+    return dataUrl;
   } catch {
     return null;
   }
 }
 
-async function getCachedExternalBlobUrl(absUrl: string, stats?: CaptureStats): Promise<string | null> {
-  const cached = externalImageBlobCache.get(absUrl);
+async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): Promise<string | null> {
+  const cached = externalImageDataUrlCache.get(absUrl);
   if (cached) {
     if (stats) stats.cacheHitImages += 1;
     return cached;
@@ -127,7 +135,7 @@ async function getCachedExternalBlobUrl(absUrl: string, stats?: CaptureStats): P
     stats.cacheMissImages += 1;
     stats.proxyFetchImages += 1;
   }
-  return fetchProxyImageAsBlobUrl(absUrl);
+  return fetchProxyImageAsDataUrl(absUrl);
 }
 
 export async function prewarmVisibleExternalImageCache(root: Pick<Element, "querySelectorAll">) {
@@ -153,7 +161,7 @@ export async function prewarmVisibleExternalImageCache(root: Pick<Element, "quer
     } catch { /* ignore */ }
   });
   if (targets.size === 0) return;
-  await Promise.all(Array.from(targets, (u) => getCachedExternalBlobUrl(u)));
+  await Promise.all(Array.from(targets, (u) => getCachedExternalDataUrl(u)));
 }
 
 async function buildCaptureNode(opts: {
@@ -208,8 +216,8 @@ async function buildCaptureNode(opts: {
       tasks.push((async () => {
         try {
           const absUrl = new URL(rawUrl, window.location.href).toString();
-          const blobUrl = await getCachedExternalBlobUrl(absUrl, stats);
-          if (blobUrl) node.style.backgroundImage = bgImage.replace(rawUrl, blobUrl);
+          const dataUrl = await getCachedExternalDataUrl(absUrl, stats);
+          if (dataUrl) node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
         } catch { /* leave as-is */ }
       })());
     }
@@ -255,9 +263,9 @@ async function buildCaptureNode(opts: {
 
       if (opts.useImageProxy && isExternal && absSrc) {
         tasks.push((async () => {
-          const blobUrl = await getCachedExternalBlobUrl(absSrc, stats);
-          if (blobUrl) {
-            node.src = blobUrl;
+          const dataUrl = await getCachedExternalDataUrl(absSrc, stats);
+          if (dataUrl) {
+            node.src = dataUrl;
             stats.proxiedImages += 1;
           }
         })());
