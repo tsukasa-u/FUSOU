@@ -168,9 +168,15 @@ export function initIOEvents() {
           if (res.ok) {
             const data = await res.json() as { shortUrl: string };
             shareUrl = data.shortUrl;
+          } else {
+            const errorText = await res.text().catch(() => "");
+            console.warn("URL shortener request failed:", res.status, errorText);
           }
+        } else {
+          console.warn("URL_SHORTER_BASE is empty; fallback to long URL");
         }
-      } catch {
+      } catch (error) {
+        console.warn("URL shortener unavailable; fallback to long URL", error);
         // Fallback to long URL if shortener is unavailable
       }
 
