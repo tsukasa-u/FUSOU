@@ -2,15 +2,14 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { createEnvContext, getEnv } from "@/server/utils";
+import { getClientEnv } from "@/utility/clientEnv";
 
 export const prerender = false;
 
 // --- SSR: Resolve access token from cookie session ---
 const cookies = Astro.cookies;
 const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
-const envCtx = createEnvContext({ env: runtimeEnv });
-const urlShorterBase: string = getEnv(envCtx, "URL_SHORTER_BASE")?.trim() ?? "";
+const urlShorterBase: string = getClientEnv("URL_SHORTER_BASE");
 
 let safeAccessToken: string | null = null;
 

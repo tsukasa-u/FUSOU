@@ -11,6 +11,7 @@
 
 import { createClient, RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
+import { getRequiredClientEnv } from "@/utility/clientEnv";
 
 // Lazy-initialized Supabase client (deferred to avoid errors during astro check)
 let _supabase: SupabaseClient | null = null;
@@ -20,14 +21,8 @@ function getSupabase(): SupabaseClient {
     return _supabase;
   }
   
-  const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-  const supabaseKey = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error(
-      "Supabase configuration is missing: PUBLIC_SUPABASE_URL and PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-    );
-  }
+  const supabaseUrl = getRequiredClientEnv("PUBLIC_SUPABASE_URL");
+  const supabaseKey = getRequiredClientEnv("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
   
   _supabase = createClient(supabaseUrl, supabaseKey);
   return _supabase;

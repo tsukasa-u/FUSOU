@@ -1,3 +1,5 @@
+import { getRequiredClientEnv } from "@/utility/clientEnv";
+
 /**
  * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
  * Please use anonymous authentication instead.
@@ -63,7 +65,7 @@ export interface RefreshTokenResponse {
  * Please use anonymous authentication instead.
  */
 export async function refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
-  const url_origin = import.meta.env.PUBLIC_SITE_URL;
+  const url_origin = getRequiredClientEnv("PUBLIC_SITE_URL");
   // const url_origin = process.env.PUBLIC_SITE_URL;
   let response = await fetch(url_origin + "/api/auth/google/refresh_token", {
     method: "POST",

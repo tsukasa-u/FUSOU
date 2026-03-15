@@ -1,11 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import { getRequiredClientEnv } from "@/utility/clientEnv";
 
 // This file is used only for chartPage
 // You should delete this file in the future
 
 export const supabase = createClient(
-  import.meta.env.PUBLIC_SUPABASE_URL,
-  import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  getRequiredClientEnv("PUBLIC_SUPABASE_URL"),
+  getRequiredClientEnv("PUBLIC_SUPABASE_PUBLISHABLE_KEY"),
   {
     auth: {
       flowType: "pkce",
