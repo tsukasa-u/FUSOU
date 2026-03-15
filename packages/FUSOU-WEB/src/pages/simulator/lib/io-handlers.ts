@@ -13,6 +13,37 @@ function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${_accessToken}` };
 }
 
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  // Preferred modern API (requires secure context + user gesture)
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Continue to legacy fallback.
+    }
+  }
+
+  // Legacy fallback for browsers where Clipboard API is unavailable/blocked.
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (ok) return true;
+  } catch {
+    // Fall through to manual prompt guidance.
+  }
+
+  return false;
+}
+
 export function loadFromUrl() {
   const params = new URLSearchParams(window.location.search);
 
@@ -149,11 +180,12 @@ export function initIOEvents() {
 
   // Share (with URL shortening)
   document.getElementById("btn-share")?.addEventListener("click", async () => {
-    try {
-      const payload = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
-      const encoded = btoa(JSON.stringify(payload));
-      const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
+    const payload = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
+    const encoded = btoa(JSON.stringify(payload));
+    const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 
+    let shortUrl = "";
+    try {
       const res = await fetch("/api/shorten", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -167,11 +199,26 @@ export function initIOEvents() {
         return;
       }
 
-      const data = await res.json() as { shortUrl: string };
-      await navigator.clipboard.writeText(data.shortUrl);
-      alert("共有URLをクリップボードにコピーしました");
-    } catch {
-      alert("クリップボードへのコピーに失敗しました");
+      const data = await res.json() as { shortUrl?: string };
+      shortUrl = (data.shortUrl ?? "").trim();
+      if (!shortUrl) {
+        console.warn("URL shortener response missing shortUrl:", data);
+        alert("短縮URL応答が不正です。時間をおいて再度お試しください。");
+        return;
+      }
+    } catch (error) {
+      console.warn("URL shortener request threw:", error);
+      alert("短縮URLの生成に失敗しました。ネットワーク状態を確認してください。");
+      return;
     }
+
+    const copied = await copyTextWithFallback(shortUrl);
+    if (copied) {
+      alert("共有URLをクリップボードにコピーしました");
+      return;
+    }
+
+    // Last-resort manual copy guidance.
+    window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", shortUrl);
   });
 }
