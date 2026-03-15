@@ -12,40 +12,67 @@ import rehypeMermaid from "rehype-mermaid";
 
 /**
  * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
- * 優先順位: 平文の環境変数 → CF_PAGES_BRANCH から算出 → フォールバック
+ * 優先順位: 平文の環境変数 → Cloudflare組み込みのデプロイURL
  */
 function resolvePublicSiteUrl() {
-  // CF_PAGES_BRANCH がある = Cloudflare Pages 上のビルド → ブランチから算出
-  const branch = process.env.CF_PAGES_BRANCH;
-  if (branch) {
-    if (branch === "main") return "https://fusou.dev";
-    const sanitized = branch
-      .toLowerCase()
-      .replace(/[^a-z0-9-]/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-|-$/g, "");
-    return `https://${sanitized}.fusou.pages.dev`;
-  }
-
-  // ローカルビルド: dotenvx で復号済みの平文を使用
+  // 1) 明示指定を最優先（dotenvx / Cloudflare env）
   const envVal = process.env.PUBLIC_SITE_URL;
   if (envVal && !envVal.startsWith("encrypted:")) return envVal;
+
+  // 2) Cloudflare Pages 上のビルドは組み込みURLを使用
+  const branch = process.env.CF_PAGES_BRANCH;
+  const deploymentUrl = process.env.CF_PAGES_URL;
+  const productionSiteUrl = process.env.PUBLIC_SITE_URL_PRODUCTION;
+
+  if (branch) {
+    if (branch === "main") {
+      if (productionSiteUrl && !productionSiteUrl.startsWith("encrypted:")) {
+        return productionSiteUrl;
+      }
+      if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+        return deploymentUrl;
+      }
+      return undefined;
+    }
+
+    if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+      return deploymentUrl;
+    }
+
+    return undefined;
+  }
+
+  if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
+    return deploymentUrl;
+  }
 
   return undefined;
 }
 
 const publicSiteUrl = resolvePublicSiteUrl();
+const isCloudflareBuild = Boolean(process.env.CF_PAGES_BRANCH);
+const isStrictEnv = isCloudflareBuild || Boolean(process.env.CI);
+
+let effectivePublicSiteUrl = publicSiteUrl;
+if (!effectivePublicSiteUrl) {
+  if (isStrictEnv) {
+    throw new Error(
+      "PUBLIC_SITE_URL (or CF_PAGES_URL on Pages) is required in CI/Cloudflare builds",
+    );
+  } else {
+    // Local CLI usage (astro check/dev) can safely fall back.
+    effectivePublicSiteUrl = "http://localhost:4321/";
+  }
+}
 
 // Vite の .env 読み込みは既存の process.env を上書きしないため、
 // ここで設定すれば import.meta.env.PUBLIC_SITE_URL にも正しい値が入る
-if (publicSiteUrl) {
-  process.env.PUBLIC_SITE_URL = publicSiteUrl;
-}
+process.env.PUBLIC_SITE_URL = effectivePublicSiteUrl;
 
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
-  site: publicSiteUrl || "https://dev.fusou.pages.dev/",
+  site: effectivePublicSiteUrl,
   // @ts-ignore
   integrations: [
     sitemap(),
@@ -94,7 +121,13 @@ export default defineConfig({
       "process.env.SUPABASE_SECRET_KEY": JSON.stringify(
         process.env.SUPABASE_SECRET_KEY,
       ),
-      "process.env.PUBLIC_SITE_URL": JSON.stringify(publicSiteUrl),
+      "process.env.PUBLIC_SITE_URL": JSON.stringify(effectivePublicSiteUrl),
+      "process.env.URL_SHORTER_BASE": JSON.stringify(
+        process.env.URL_SHORTER_BASE || "",
+      ),
+      "process.env.ASSET_BASE_URL": JSON.stringify(
+        process.env.ASSET_BASE_URL || "",
+      ),
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN,
       ),
@@ -122,9 +155,6 @@ export default defineConfig({
       "process.env.RESEND_API_KEY": JSON.stringify(process.env.RESEND_API_KEY),
       "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
         process.env.DATASET_TOKEN_SECRET,
-      ),
-      "process.env.ASSET_BASE_URL": JSON.stringify(
-        process.env.ASSET_BASE_URL || "",
       ),
     },
     resolve: {
