@@ -143,7 +143,8 @@ export async function prewarmVisibleExternalImageCache(root: Pick<Element, "quer
   root.querySelectorAll("img").forEach((img) => {
     if (!(img instanceof HTMLImageElement)) return;
     const srcAttr = img.currentSrc || img.getAttribute("src") || "";
-    if (!srcAttr) return;
+    // data: URLs are already inlined — skip them entirely.
+    if (!srcAttr || srcAttr.startsWith("data:")) return;
     try {
       const u = new URL(srcAttr, window.location.href);
       if (u.origin !== window.location.origin) targets.add(u.toString());
@@ -258,12 +259,19 @@ async function buildCaptureNode(opts: {
       const srcAttr = node.currentSrc || node.getAttribute("src") || "";
       let isExternal = false;
       let absSrc = "";
-      try {
-        const u = new URL(srcAttr, window.location.href);
-        absSrc = u.toString();
-        isExternal = u.origin !== window.location.origin;
-      } catch {
-        isExternal = true;
+      // data: URLs are already inlined — new URL() gives origin="null" which
+      // would be mis-classified as external and sent through the proxy (failing).
+      if (srcAttr.startsWith("data:")) {
+        // Already a data URL: nothing to fetch, html-to-image embeds it as-is.
+        isExternal = false;
+      } else {
+        try {
+          const u = new URL(srcAttr, window.location.href);
+          absSrc = u.toString();
+          isExternal = u.origin !== window.location.origin;
+        } catch {
+          isExternal = true;
+        }
       }
       if (isExternal) stats.externalImages += 1;
 
