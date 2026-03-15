@@ -25,7 +25,7 @@ id = "31a07cd58974448597868e98668a23b1"
 # Comma-separated list of allowed origins.
 # Example: "https://fusou.pages.dev,https://dev.fusou.pages.dev,https://view-on-web.fusou.pages.dev"
 [vars]
-ALLOWED_ORIGINS = "https://fusou.dev,https://s.fusou.dev,https://fusou.pages.dev,https://*.fusou.pages.dev"
+ALLOWED_ORIGINS = "https://fusou.dev,https://www.fusou.dev,https://s.fusou.dev,https://fusou.pages.dev,https://*.fusou.pages.dev"
 # OGP image used for link previews (recommend PNG/JPG/WebP for Twitter/X compatibility)
 OGP_IMAGE_URL = "https://fusou.dev/favicon.svg"
 

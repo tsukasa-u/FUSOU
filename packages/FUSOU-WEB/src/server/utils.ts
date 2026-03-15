@@ -179,7 +179,6 @@ export function injectEnv(locals: any): Bindings {
     MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
     MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
     ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
-    PUBLIC_URL_SHORTER_BASE: getEnv(ctx, "PUBLIC_URL_SHORTER_BASE")!,
     // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
     SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,

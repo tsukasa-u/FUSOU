@@ -32,7 +32,6 @@ export type Bindings = {
   PUBLIC_SITE_PREVIEW_BASE_DOMAIN?: string; // For generating absolute URLs in preview (e.g. *.pages.dev)
   PUBLIC_SITE_URL_FALLBACK?: string; // Fallback site URL if preview domain is not detected
   ASSET_BASE_URL?: string; // R2 custom domain base URL (e.g. https://assets.fusou.dev)
-  PUBLIC_URL_SHORTER_BASE?: string; // Base URL of the FUSOU-URL-SHORTER service (e.g. https://s.fusou.dev)
 
   // Queues
   COMPACTION_QUEUE: Queue;
@@ -40,7 +39,7 @@ export type Bindings = {
 
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
-  SHORTENER_SERVICE?: Fetcher;
+  SHORTENER_SERVICE: Fetcher;
 
   // KV for caching (optional)
   DATA_LOADER_CACHE_KV?: KVNamespace;

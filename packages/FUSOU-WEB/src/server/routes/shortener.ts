@@ -1,15 +1,86 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
-import { createEnvContext, getEnv } from "@/server/utils";
+import { createEnvContext } from "@/server/utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+type UpstreamAttempt = {
+  source: "service-binding";
+  ok: boolean;
+  shortUrl?: string;
+  status?: number;
+  error?: string;
+  detail?: string;
+};
+
+async function requestShortener(
+  fetcher: () => Promise<Response>,
+): Promise<UpstreamAttempt> {
+  let response: Response;
+  try {
+    response = await fetcher();
+  } catch (error) {
+    return {
+      source: "service-binding",
+      ok: false,
+      error: "Shortener upstream request failed",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const text = await response.text();
+  if (response.ok && text.trim() === "Hello world") {
+    return {
+      source: "service-binding",
+      ok: false,
+      status: response.status,
+      error: "Shortener upstream appears misconfigured",
+      detail:
+        "Received placeholder response 'Hello world'. Verify SHORTENER_SERVICE points to fusou-url-shorter and the worker is deployed.",
+    };
+  }
+
+  let json: Record<string, unknown> | null = null;
+  try {
+    json = JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    return {
+      source: "service-binding",
+      ok: false,
+      status: response.status,
+      error: "Shortener upstream error",
+      detail:
+        typeof json?.error === "string" ? json.error : text.slice(0, 300),
+    };
+  }
+
+  const shortUrl =
+    json && typeof json.shortUrl === "string" ? json.shortUrl.trim() : "";
+  if (!shortUrl) {
+    return {
+      source: "service-binding",
+      ok: false,
+      status: response.status,
+      error: "Shortener upstream response format invalid",
+      detail: text.slice(0, 300),
+    };
+  }
+
+  return {
+    source: "service-binding",
+    ok: true,
+    status: response.status,
+    shortUrl,
+  };
+}
+
 app.post("/", async (c) => {
   const envCtx = createEnvContext(c);
-  const shorterBase = getEnv(envCtx, "PUBLIC_URL_SHORTER_BASE")?.trim();
-  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
-    | Fetcher
-    | undefined;
+  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as Fetcher | undefined;
 
   const originHeader = c.req.header("Origin");
   if (originHeader) {
@@ -17,6 +88,16 @@ app.post("/", async (c) => {
     if (originHeader !== currentOrigin) {
       return c.json({ ok: false, error: "Invalid request origin" }, 403);
     }
+  }
+
+  if (!shortenerService) {
+    return c.json(
+      {
+        ok: false,
+        error: "Server misconfiguration: SHORTENER_SERVICE is required",
+      },
+      500,
+    );
   }
 
   let body: unknown;
@@ -41,120 +122,22 @@ app.post("/", async (c) => {
     body: JSON.stringify({ url }),
   };
 
-  let upstream: Response | null = null;
-  let bindingError: unknown = null;
+  const attempt = await requestShortener(() =>
+    shortenerService.fetch("https://shortener.internal/api/shorten", requestInit),
+  );
 
-  if (shortenerService) {
-    try {
-      upstream = await shortenerService.fetch(
-        "https://shortener.internal/api/shorten",
-        requestInit,
-      );
-    } catch (error) {
-      bindingError = error;
-      console.warn("SHORTENER_SERVICE fetch failed, trying URL fallback", error);
-    }
+  if (attempt.ok) {
+    return c.json({ ok: true, shortUrl: attempt.shortUrl }, 200);
   }
 
-  if (!upstream) {
-    if (!shorterBase) {
-      if (bindingError) {
-        return c.json(
-          {
-            ok: false,
-            error:
-              "Server misconfiguration: SHORTENER_SERVICE failed and PUBLIC_URL_SHORTER_BASE is not set",
-            detail:
-              bindingError instanceof Error
-                ? bindingError.message
-                : String(bindingError),
-          },
-          502,
-        );
-      }
-
-      return c.json(
-        {
-          ok: false,
-          error:
-            "Server misconfiguration: SHORTENER_SERVICE or PUBLIC_URL_SHORTER_BASE is required",
-        },
-        500,
-      );
-    }
-
-    try {
-      upstream = await fetch(
-        `${shorterBase.replace(/\/+$/, "")}/api/shorten`,
-        requestInit,
-      );
-    } catch (error) {
-      return c.json(
-        {
-          ok: false,
-          error: "Shortener upstream request failed",
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        502,
-      );
-    }
-  }
-
-  const upstreamText = await upstream.text();
-  if (upstream.ok && upstreamText.trim() === "Hello world") {
-    return c.json(
-      {
-        ok: false,
-        error: "Shortener upstream appears misconfigured",
-        detail:
-          "Received placeholder response 'Hello world'. Verify SHORTENER_SERVICE points to fusou-url-shorter and the worker is deployed.",
-      },
-      502,
-    );
-  }
-
-  let upstreamJson: Record<string, unknown> | null = null;
-  try {
-    upstreamJson = JSON.parse(upstreamText) as Record<string, unknown>;
-  } catch {
-    upstreamJson = null;
-  }
-
-  if (!upstream.ok) {
-    return new Response(
-      JSON.stringify({
-        ok: false,
-        error: "Shortener upstream error",
-        status: upstream.status,
-        detail:
-          typeof upstreamJson?.error === "string"
-            ? upstreamJson.error
-            : upstreamText.slice(0, 300),
-      }),
-      {
-        status: upstream.status,
-        headers: { "Content-Type": "application/json" },
-      },
-    );
-  }
-
-  const shortUrl =
-    upstreamJson && typeof upstreamJson.shortUrl === "string"
-      ? upstreamJson.shortUrl.trim()
-      : "";
-
-  if (!shortUrl) {
-    return c.json(
-      {
-        ok: false,
-        error: "Shortener upstream response format invalid",
-        detail: upstreamText.slice(0, 300),
-      },
-      502,
-    );
-  }
-
-  return c.json({ ok: true, shortUrl }, 200);
+  return c.json(
+    {
+      ok: false,
+      error: "SHORTENER_SERVICE request failed",
+      attempts: [attempt],
+    },
+    502,
+  );
 });
 
 export default app;

@@ -1,8 +1,7 @@
 type ClientEnvName =
   | "PUBLIC_SUPABASE_URL"
   | "PUBLIC_SUPABASE_PUBLISHABLE_KEY"
-  | "PUBLIC_SITE_URL"
-  | "PUBLIC_URL_SHORTER_BASE";
+  | "PUBLIC_SITE_URL";
 
 const clientEnv = import.meta.env as Record<string, string | undefined>;
 

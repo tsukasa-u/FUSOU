@@ -49,18 +49,7 @@ function resolvePublicSiteUrl() {
   return undefined;
 }
 
-/**
- * URL shortener base URL resolution.
- * Priority: PUBLIC_URL_SHORTER_BASE
- */
-function resolveUrlShorterBase() {
-  const value = process.env.PUBLIC_URL_SHORTER_BASE;
-  if (!value || value.startsWith("encrypted:")) return undefined;
-  return value.trim().replace(/\/+$/, "");
-}
-
 const publicSiteUrl = resolvePublicSiteUrl();
-const urlShorterBase = resolveUrlShorterBase();
 const isCloudflareBuild = Boolean(process.env.CF_PAGES_BRANCH);
 const isStrictEnv = isCloudflareBuild || Boolean(process.env.CI);
 
@@ -79,14 +68,6 @@ if (!effectivePublicSiteUrl) {
 // Vite の .env 読み込みは既存の process.env を上書きしないため、
 // ここで設定すれば import.meta.env.PUBLIC_SITE_URL にも正しい値が入る
 process.env.PUBLIC_SITE_URL = effectivePublicSiteUrl;
-
-if (!urlShorterBase && isStrictEnv) {
-  throw new Error(
-    "PUBLIC_URL_SHORTER_BASE is required in CI/Cloudflare builds",
-  );
-}
-
-process.env.PUBLIC_URL_SHORTER_BASE = urlShorterBase || "";
 
 // https://astro.build/config
 // @ts-ignore
@@ -141,9 +122,6 @@ export default defineConfig({
         process.env.SUPABASE_SECRET_KEY,
       ),
       "process.env.PUBLIC_SITE_URL": JSON.stringify(effectivePublicSiteUrl),
-      "process.env.PUBLIC_URL_SHORTER_BASE": JSON.stringify(
-        process.env.PUBLIC_URL_SHORTER_BASE,
-      ),
       "process.env.ASSET_BASE_URL": JSON.stringify(
         process.env.ASSET_BASE_URL || "",
       ),
