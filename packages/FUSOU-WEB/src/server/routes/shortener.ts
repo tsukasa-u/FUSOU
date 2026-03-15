@@ -33,7 +33,11 @@ app.post("/", async (c) => {
 
   const requestInit: RequestInit = {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Origin: new URL(c.req.url).origin,
+      Referer: c.req.url,
+    },
     body: JSON.stringify({ url }),
   };
 
@@ -97,6 +101,18 @@ app.post("/", async (c) => {
   }
 
   const upstreamText = await upstream.text();
+  if (upstream.ok && upstreamText.trim() === "Hello world") {
+    return c.json(
+      {
+        ok: false,
+        error: "Shortener upstream appears misconfigured",
+        detail:
+          "Received placeholder response 'Hello world'. Verify SHORTENER_SERVICE points to fusou-url-shorter and the worker is deployed.",
+      },
+      502,
+    );
+  }
+
   let upstreamJson: Record<string, unknown> | null = null;
   try {
     upstreamJson = JSON.parse(upstreamText) as Record<string, unknown>;
