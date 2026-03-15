@@ -73,19 +73,6 @@ binding = "COMPACTION_QUEUE"
 queue = "dev-kc-compaction-dlq"
 binding = "COMPACTION_DLQ"
 
-# ===== URL Shortener Service =====
-# Base URL of the FUSOU-URL-SHORTER worker.
-# Keep non-secret defaults here for local/dev. For production/preview, manage via
-# dotenvx/.env and Cloudflare Pages environment variable settings.
-# Example production value: https://s.fusou.dev
-[vars]
-# URL_SHORTER_BASE = "https://fusou-url-shorter.fusou.workers.dev"
-URL_SHORTER_BASE = "https://s.fusou.dev"
-PUBLIC_SITE_URL_PRODUCTION = "https://fusou.dev"
-PUBLIC_SITE_PREVIEW_BASE_DOMAIN = "fusou.pages.dev"
-PUBLIC_SITE_URL_FALLBACK = "https://dev.fusou.pages.dev"
-ASSET_BASE_URL = "https://assets.fusou.dev"
-
 # ===== Scheduled cron triggers =====
 # Note: Cloudflare Pages does not support scheduled functions via wrangler.toml
 # Alternative approaches:

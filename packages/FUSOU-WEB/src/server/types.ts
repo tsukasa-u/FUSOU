@@ -15,7 +15,7 @@ export type Bindings = {
   BATTLE_DATA_BUCKET: R2BucketBinding;
   MASTER_DATA_BUCKET: R2BucketBinding;
   MASTER_DATA_INDEX_DB: D1Database;
-  
+
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
   SUPABASE_SECRET_KEY: string;
@@ -28,16 +28,19 @@ export type Bindings = {
   DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
+  PUBLIC_SITE_URL_PRODUCTION?: string; // For generating absolute URLs in production
+  PUBLIC_SITE_PREVIEW_BASE_DOMAIN?: string; // For generating absolute URLs in preview (e.g. *.pages.dev)
+  PUBLIC_SITE_URL_FALLBACK?: string; // Fallback site URL if preview domain is not detected
   ASSET_BASE_URL?: string; // R2 custom domain base URL (e.g. https://assets.fusou.dev)
   URL_SHORTER_BASE?: string; // Base URL of the FUSOU-URL-SHORTER service (e.g. https://s.fusou.dev)
-  
+
   // Queues
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
-  
+
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
-  
+
   // KV for caching (optional)
   DATA_LOADER_CACHE_KV?: KVNamespace;
 };
@@ -47,7 +50,7 @@ export type R2BucketBinding = {
   list(options?: R2ListOptions): Promise<R2ListResponse>;
   get(
     key: string,
-    options?: { range?: { offset: number; length?: number } }
+    options?: { range?: { offset: number; length?: number } },
   ): Promise<R2ObjectBody | null>;
   put(
     key: string,
@@ -58,7 +61,7 @@ export type R2BucketBinding = {
       | string
       | Blob
       | null,
-    options?: BucketPutOptions
+    options?: BucketPutOptions,
   ): Promise<R2ObjectLike | null>;
   delete?(key: string): Promise<void>;
 };

@@ -28,13 +28,17 @@ function resolvePublicSiteUrl() {
   if (branch) {
     if (branch === "main") {
       if (!productionSiteUrl) {
-        throw new Error("PUBLIC_SITE_URL_PRODUCTION is required for main branch builds");
+        throw new Error(
+          "PUBLIC_SITE_URL_PRODUCTION is required for main branch builds",
+        );
       }
       return productionSiteUrl;
     }
 
     if (!previewBaseDomain) {
-      throw new Error("PUBLIC_SITE_PREVIEW_BASE_DOMAIN is required for preview branch builds");
+      throw new Error(
+        "PUBLIC_SITE_PREVIEW_BASE_DOMAIN is required for preview branch builds",
+      );
     }
 
     const sanitized = branch
@@ -44,7 +48,9 @@ function resolvePublicSiteUrl() {
       .replace(/^-|-$/g, "");
 
     if (!sanitized) {
-      throw new Error("CF_PAGES_BRANCH produced an empty sanitized hostname label");
+      throw new Error(
+        "CF_PAGES_BRANCH produced an empty sanitized hostname label",
+      );
     }
 
     return `https://${sanitized}.${previewBaseDomain}`;
@@ -57,11 +63,12 @@ const publicSiteUrl = resolvePublicSiteUrl();
 const isCloudflareBuild = Boolean(process.env.CF_PAGES_BRANCH);
 const isStrictEnv = isCloudflareBuild || Boolean(process.env.CI);
 
-let effectivePublicSiteUrl = publicSiteUrl || process.env.PUBLIC_SITE_URL_FALLBACK;
+let effectivePublicSiteUrl =
+  publicSiteUrl || process.env.PUBLIC_SITE_URL_FALLBACK;
 if (!effectivePublicSiteUrl) {
   if (isStrictEnv) {
     throw new Error(
-      "PUBLIC_SITE_URL (or PUBLIC_SITE_URL_FALLBACK) is required in CI/Cloudflare builds"
+      "PUBLIC_SITE_URL (or PUBLIC_SITE_URL_FALLBACK) is required in CI/Cloudflare builds",
     );
   } else {
     // Local CLI usage (astro check/dev) can safely fall back.
@@ -135,6 +142,12 @@ export default defineConfig({
       "process.env.PUBLIC_SITE_URL_FALLBACK": JSON.stringify(
         process.env.PUBLIC_SITE_URL_FALLBACK,
       ),
+      "process.env.URL_SHORTER_BASE": JSON.stringify(
+        process.env.URL_SHORTER_BASE || "",
+      ),
+      "process.env.ASSET_BASE_URL": JSON.stringify(
+        process.env.ASSET_BASE_URL || "",
+      ),
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN,
       ),
@@ -162,12 +175,6 @@ export default defineConfig({
       "process.env.RESEND_API_KEY": JSON.stringify(process.env.RESEND_API_KEY),
       "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
         process.env.DATASET_TOKEN_SECRET,
-      ),
-      "process.env.URL_SHORTER_BASE": JSON.stringify(
-        process.env.URL_SHORTER_BASE || "",
-      ),
-      "process.env.ASSET_BASE_URL": JSON.stringify(
-        process.env.ASSET_BASE_URL || "",
       ),
     },
     resolve: {
