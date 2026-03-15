@@ -200,13 +200,6 @@ export function initIOEvents() {
         body: JSON.stringify({ url: longUrl }),
       });
 
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "");
-        console.warn("URL shortener request failed:", res.status, errorText);
-        alert("短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
-        return;
-      }
-
       const responseText = await res.text();
       let data: ShortenApiResponse | null = null;
       try {
@@ -218,7 +211,7 @@ export function initIOEvents() {
       }
 
       if (!res.ok || !data.ok) {
-        console.warn("URL shortener normalized error:", data);
+        console.warn("URL shortener normalized error:", res.status, data);
         alert(data.error || "短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
         return;
       }

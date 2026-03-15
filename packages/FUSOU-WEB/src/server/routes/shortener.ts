@@ -27,44 +27,69 @@ app.post("/", async (c) => {
     return c.json({ ok: false, error: "url is required" }, 400);
   }
 
-  let upstream: Response;
-  try {
-    if (shortenerService) {
+  const requestInit: RequestInit = {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  };
+
+  let upstream: Response | null = null;
+  let bindingError: unknown = null;
+
+  if (shortenerService) {
+    try {
       upstream = await shortenerService.fetch(
         "https://shortener.internal/api/shorten",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
-        },
+        requestInit,
       );
-    } else {
-      if (!shorterBase) {
+    } catch (error) {
+      bindingError = error;
+      console.warn("SHORTENER_SERVICE fetch failed, trying URL fallback", error);
+    }
+  }
+
+  if (!upstream) {
+    if (!shorterBase) {
+      if (bindingError) {
         return c.json(
           {
             ok: false,
             error:
-              "Server misconfiguration: SHORTENER_SERVICE or PUBLIC_URL_SHORTER_BASE is required",
+              "Server misconfiguration: SHORTENER_SERVICE failed and PUBLIC_URL_SHORTER_BASE is not set",
+            detail:
+              bindingError instanceof Error
+                ? bindingError.message
+                : String(bindingError),
           },
-          500,
+          502,
         );
       }
 
-      upstream = await fetch(`${shorterBase.replace(/\/+$/, "")}/api/shorten`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
+      return c.json(
+        {
+          ok: false,
+          error:
+            "Server misconfiguration: SHORTENER_SERVICE or PUBLIC_URL_SHORTER_BASE is required",
+        },
+        500,
+      );
     }
-  } catch (error) {
-    return c.json(
-      {
-        ok: false,
-        error: "Shortener upstream request failed",
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      502,
-    );
+
+    try {
+      upstream = await fetch(
+        `${shorterBase.replace(/\/+$/, "")}/api/shorten`,
+        requestInit,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          ok: false,
+          error: "Shortener upstream request failed",
+          detail: error instanceof Error ? error.message : String(error),
+        },
+        502,
+      );
+    }
   }
 
   const upstreamText = await upstream.text();
