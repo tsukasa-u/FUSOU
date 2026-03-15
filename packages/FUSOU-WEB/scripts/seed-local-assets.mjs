@@ -42,6 +42,23 @@ const ASSET_TYPES = {
   slot_item_up: { proxySubpath: "kcs2/resources/slot/item_up",   r2Prefix: "assets/kcs2/resources/slot/item_up" },
 };
 
+/**
+ * Fixed single-file assets that live directly at PROXY_DATA_DIR/<srcPath>
+ * (no date-subdir layer).  key=type name, value={ srcPath, r2Key, contentType }
+ */
+const SINGLE_FILE_ASSETS = {
+  weapon_icon_png: {
+    srcPath: "kcs2/img/common/common_icon_weapon.png",
+    r2Key:   "assets/kcs2/img/common/common_icon_weapon.png",
+    contentType: "image/png",
+  },
+  weapon_icon_json: {
+    srcPath: "kcs2/img/common/common_icon_weapon.json",
+    r2Key:   "assets/kcs2/img/common/common_icon_weapon.json",
+    contentType: "application/json",
+  },
+};
+
 function run(cmd) {
   return execSync(cmd, { encoding: "utf8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "pipe"] });
 }
@@ -76,8 +93,26 @@ function collectFiles(proxySubpath) {
   return fileMap;
 }
 
-async function seedAssetType(type, config, limit) {
-  const { proxySubpath, r2Prefix } = config;
+async function seedSingleFile(type, config) {
+  const { srcPath, r2Key, contentType } = config;
+  const filePath = join(PROXY_DATA_DIR, srcPath);
+  console.log(`\n--- Seeding single file: ${type} ---`);
+  if (!existsSync(filePath)) {
+    console.log(`  Not found: ${filePath} — skipping.`);
+    return 0;
+  }
+  process.stdout.write(`  ${srcPath}...`);
+  try {
+    run(`npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "${contentType}"`);
+    console.log(" OK");
+    return 1;
+  } catch (e) {
+    console.log(` ERROR: ${e.message}`);
+    return 0;
+  }
+}
+
+async function seedAssetType(type, config, limit) {  const { proxySubpath, r2Prefix } = config;
   console.log(`\n--- Seeding ${type} images ---`);
 
   // Collect from PROXY-DATA
@@ -124,18 +159,14 @@ async function main() {
   const typeIdx = process.argv.indexOf("--type");
   const typeFilter = typeIdx >= 0 ? process.argv[typeIdx + 1] : null;
 
-  if (typeFilter && !ASSET_TYPES[typeFilter]) {
-    console.error(`Unknown type: ${typeFilter}. Available: ${Object.keys(ASSET_TYPES).join(", ")}`);
+  const allTypes = { ...ASSET_TYPES, ...SINGLE_FILE_ASSETS };
+  if (typeFilter && !allTypes[typeFilter]) {
+    console.error(`Unknown type: ${typeFilter}. Available: ${Object.keys(allTypes).join(", ")}`);
     process.exit(1);
   }
 
-  const typesToSeed = typeFilter
-    ? { [typeFilter]: ASSET_TYPES[typeFilter] }
-    : ASSET_TYPES;
-
   console.log("=== Local Asset Seeder (from PROXY-DATA) ===");
   console.log(`Source: ${PROXY_DATA_DIR}`);
-  console.log(`Types:  ${Object.keys(typesToSeed).join(", ")}`);
   if (limit) console.log(`Limit:  ${limit} per type`);
 
   if (!existsSync(PROXY_DATA_DIR)) {
@@ -152,12 +183,25 @@ async function main() {
   console.log("  Schema ready.");
 
   let totalSeeded = 0;
-  for (const [type, config] of Object.entries(typesToSeed)) {
+
+  // Batch (multi-file) asset types
+  const batchTypes = typeFilter
+    ? (ASSET_TYPES[typeFilter] ? { [typeFilter]: ASSET_TYPES[typeFilter] } : {})
+    : ASSET_TYPES;
+  for (const [type, config] of Object.entries(batchTypes)) {
     totalSeeded += await seedAssetType(type, config, limit);
   }
 
+  // Single-file asset types
+  const singleTypes = typeFilter
+    ? (SINGLE_FILE_ASSETS[typeFilter] ? { [typeFilter]: SINGLE_FILE_ASSETS[typeFilter] } : {})
+    : SINGLE_FILE_ASSETS;
+  for (const [type, config] of Object.entries(singleTypes)) {
+    totalSeeded += await seedSingleFile(type, config);
+  }
+
   console.log();
-  console.log(`Done! Seeded ${totalSeeded} total images to local R2 & D1.`);
+  console.log(`Done! Seeded ${totalSeeded} total files to local R2 & D1.`);
 }
 
 main().catch((e) => {
