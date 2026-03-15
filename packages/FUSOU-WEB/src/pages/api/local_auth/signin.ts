@@ -7,33 +7,25 @@ import {
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
-import { createEnvContext, getEnv } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
   cookies,
   redirect,
-  locals,
 }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
   const currentUrl = new URL(request.url);
   const appOriginParam = currentUrl.searchParams.get("app_origin");
 
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
-  const providedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
-  if (!providedOrigin) {
-    return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
-      status: 500,
-    });
-  }
+  const requestOrigin = currentUrl.origin;
 
   // CSRF protection: Validate Origin/Referer header
-  if (!validateOrigin(request, providedOrigin)) {
+  if (!validateOrigin(request, requestOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }
 
   const formData = await request.formData();
-  const url_origin = providedOrigin;
+  const url_origin = requestOrigin;
 
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)
@@ -62,7 +54,7 @@ export const POST: APIRoute = async ({
   }
 
   // Open Redirect protection: Validate callback URL
-  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+  if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {
     return new Response("Invalid callback URL", { status: 400 });
   }
 

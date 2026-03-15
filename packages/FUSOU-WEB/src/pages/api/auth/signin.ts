@@ -6,7 +6,7 @@ import {
   validateRedirectUrl,
   sanitizeErrorMessage,
 } from "@/utility/security";
-import { createEnvContext, getEnv } from "@/server/utils";
+import { createEnvContext } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
@@ -15,21 +15,15 @@ export const POST: APIRoute = async ({
   locals,
 }) => {
   const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
-  const providedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
-
-  if (!providedOrigin) {
-    return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
-      status: 500,
-    });
-  }
+  const requestOrigin = new URL(request.url).origin;
 
   // CSRF protection: Validate Origin/Referer header
-  if (!validateOrigin(request, providedOrigin)) {
+  if (!validateOrigin(request, requestOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }
 
   const formData = await request.formData();
-  const url_origin = providedOrigin;
+  const url_origin = requestOrigin;
 
   const provider = formData.get("provider")?.toString();
 
@@ -48,7 +42,7 @@ export const POST: APIRoute = async ({
   const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
 
   // Open Redirect protection: Validate callback URL
-  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+  if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {
     return new Response("Invalid callback URL", { status: 400 });
   }
 

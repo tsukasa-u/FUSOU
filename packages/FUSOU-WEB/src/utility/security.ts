@@ -46,8 +46,8 @@ export function validateRedirectUrl(
       return false;
     }
 
-    // Check host matches exactly
-    if (url.host !== allowed.host) {
+    // Check full origin matches exactly (scheme + host + port)
+    if (url.origin !== allowed.origin) {
       return false;
     }
 
@@ -68,24 +68,41 @@ export function validateRedirectUrl(
  */
 export function validateOrigin(
   request: Request,
-  allowedOrigin: string
+  allowedOrigins: string | string[]
 ): boolean {
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
 
   try {
-    const allowed = new URL(allowedOrigin);
+    const originList = Array.isArray(allowedOrigins)
+      ? allowedOrigins
+      : [allowedOrigins];
+    const allowedOriginSet = new Set(
+      originList
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return null;
+        }
+      })
+      .filter((origin): origin is string => Boolean(origin)),
+    );
+
+    if (allowedOriginSet.size === 0) {
+      return false;
+    }
 
     // Check Origin header first (more reliable)
     if (origin) {
       const originUrl = new URL(origin);
-      return originUrl.host === allowed.host;
+      return allowedOriginSet.has(originUrl.origin);
     }
 
     // Fallback to Referer header
     if (referer) {
       const refererUrl = new URL(referer);
-      return refererUrl.host === allowed.host;
+      return allowedOriginSet.has(refererUrl.origin);
     }
 
     // No origin or referer header - reject for security
