@@ -44,6 +44,14 @@ async function copyTextWithFallback(text: string): Promise<boolean> {
   return false;
 }
 
+type ShortenApiResponse = {
+  ok: boolean;
+  shortUrl?: string;
+  error?: string;
+  detail?: string;
+  status?: number;
+};
+
 export function loadFromUrl() {
   const params = new URLSearchParams(window.location.search);
 
@@ -199,7 +207,22 @@ export function initIOEvents() {
         return;
       }
 
-      const data = await res.json() as { shortUrl?: string };
+      const responseText = await res.text();
+      let data: ShortenApiResponse | null = null;
+      try {
+        data = JSON.parse(responseText) as ShortenApiResponse;
+      } catch {
+        console.warn("URL shortener response is not JSON:", responseText.slice(0, 300));
+        alert("短縮URL応答の形式が不正です。時間をおいて再度お試しください。");
+        return;
+      }
+
+      if (!res.ok || !data.ok) {
+        console.warn("URL shortener normalized error:", data);
+        alert(data.error || "短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
+        return;
+      }
+
       shortUrl = (data.shortUrl ?? "").trim();
       if (!shortUrl) {
         console.warn("URL shortener response missing shortUrl:", data);
