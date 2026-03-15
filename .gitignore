@@ -84,3 +84,5 @@ wheels/
 packages/fusou-datasets/venv/
 
 packages/FUSOU-WEB/.seed-assets-tmp/
+
+packages/FUSOU-WEB/supabase/
