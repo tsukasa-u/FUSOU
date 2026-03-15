@@ -81,13 +81,11 @@ async function requestShortener(
 app.post("/", async (c) => {
   const envCtx = createEnvContext(c);
   const shortenerService = envCtx.runtime.SHORTENER_SERVICE as Fetcher | undefined;
+  const currentOrigin = new URL(c.req.url).origin;
 
   const originHeader = c.req.header("Origin");
-  if (originHeader) {
-    const currentOrigin = new URL(c.req.url).origin;
-    if (originHeader !== currentOrigin) {
-      return c.json({ ok: false, error: "Invalid request origin" }, 403);
-    }
+  if (originHeader && originHeader !== currentOrigin) {
+    return c.json({ ok: false, error: "Invalid request origin" }, 403);
   }
 
   if (!shortenerService) {
@@ -116,7 +114,7 @@ app.post("/", async (c) => {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Origin: new URL(c.req.url).origin,
+      Origin: currentOrigin,
       Referer: c.req.url,
     },
     body: JSON.stringify({ url }),

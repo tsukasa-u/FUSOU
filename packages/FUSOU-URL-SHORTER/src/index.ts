@@ -14,6 +14,10 @@ type Bindings = {
   URL_KV: KVNamespace;
   /** Comma-separated allowed origins (set via wrangler.toml / dashboard) */
   ALLOWED_ORIGINS: string;
+  /** Public base URL of this worker (e.g. https://s.fusou.dev).
+   *  Required when called via service binding because c.req.url returns
+   *  https://shortener.internal/... which is not publicly reachable. */
+  BASE_URL: string;
   /** Public OGP image URL for social previews */
   OGP_IMAGE_URL?: string;
 };
@@ -178,7 +182,8 @@ app.post("/api/shorten", shortenValidator, async (c) => {
   }
 
   const key = await createKey(c.env.URL_KV, url);
-  const shortUrl = new URL(`/${key}`, c.req.url).toString();
+  const base = c.env.BASE_URL.replace(/\/$/, "");
+  const shortUrl = `${base}/${key}`;
   return c.json({ key, shortUrl });
 });
 

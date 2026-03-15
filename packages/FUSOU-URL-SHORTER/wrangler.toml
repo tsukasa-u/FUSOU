@@ -26,6 +26,10 @@ id = "31a07cd58974448597868e98668a23b1"
 # Example: "https://fusou.pages.dev,https://dev.fusou.pages.dev,https://view-on-web.fusou.pages.dev"
 [vars]
 ALLOWED_ORIGINS = "https://fusou.dev,https://www.fusou.dev,https://s.fusou.dev,https://fusou.pages.dev,https://*.fusou.pages.dev"
+# Public base URL of this worker used to build short URLs.
+# Must be set to the actual public origin so that service-binding callers receive
+# a publicly reachable URL instead of https://shortener.internal/...
+BASE_URL = "https://s.fusou.dev"
 # OGP image used for link previews (recommend PNG/JPG/WebP for Twitter/X compatibility)
 OGP_IMAGE_URL = "https://fusou.dev/favicon.svg"
 

@@ -90,4 +90,3 @@ binding = "COMPACTION_DLQ"
 #
 # Option 3: Manual Trigger
 #   Call the endpoint manually when needed for testing
-
