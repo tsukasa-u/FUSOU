@@ -1,11 +1,15 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.post("/", async (c) => {
-  const shorterBase = c.env.PUBLIC_URL_SHORTER_BASE?.trim();
-  const shortenerService = c.env.SHORTENER_SERVICE;
+  const envCtx = createEnvContext(c);
+  const shorterBase = getEnv(envCtx, "PUBLIC_URL_SHORTER_BASE")?.trim();
+  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
+    | Fetcher
+    | undefined;
 
   const originHeader = c.req.header("Origin");
   if (originHeader) {
