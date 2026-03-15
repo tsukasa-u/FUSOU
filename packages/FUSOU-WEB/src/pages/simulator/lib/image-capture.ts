@@ -217,7 +217,13 @@ async function buildCaptureNode(opts: {
         try {
           const absUrl = new URL(rawUrl, window.location.href).toString();
           const dataUrl = await getCachedExternalDataUrl(absUrl, stats);
-          if (dataUrl) node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
+          if (dataUrl) {
+            node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
+          } else {
+            // Proxy failed: clear to prevent html-to-image from fetching the
+            // external URL directly (which would be CORS-blocked).
+            node.style.backgroundImage = "none";
+          }
         } catch { /* leave as-is */ }
       })());
     }
@@ -267,6 +273,11 @@ async function buildCaptureNode(opts: {
           if (dataUrl) {
             node.src = dataUrl;
             stats.proxiedImages += 1;
+          } else {
+            // Proxy failed: replace with transparent placeholder to prevent
+            // html-to-image from falling back to the external URL (CORS-blocked).
+            node.src = TRANSPARENT_PIXEL;
+            stats.hiddenImages += 1;
           }
         })());
       }

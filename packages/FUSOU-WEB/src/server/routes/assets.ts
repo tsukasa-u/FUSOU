@@ -880,12 +880,12 @@ app.get("/image-proxy", async (c) => {
       return c.json({ error: "Upstream resource is not an image" }, 415);
     }
 
-    const body = await upstream.arrayBuffer();
-    return new Response(body, {
+    // Stream the body instead of buffering with arrayBuffer() to avoid
+    // Cloudflare Worker memory/CPU limits that can cause ERR_QUIC_PROTOCOL_ERROR.
+    return new Response(upstream.body, {
       status: 200,
       headers: {
         "Content-Type": contentType,
-        "Content-Length": String(body.byteLength),
         "Cache-Control": envCtx.isDev ? "no-store" : "public, max-age=86400, stale-while-revalidate=604800",
         ...CORS_HEADERS,
       },
