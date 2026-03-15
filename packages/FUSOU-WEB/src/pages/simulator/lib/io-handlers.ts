@@ -154,33 +154,28 @@ export function initIOEvents() {
       const encoded = btoa(JSON.stringify(payload));
       const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 
-      // Try to shorten via FUSOU-URL-SHORTER worker
-      let shareUrl = longUrl;
-      try {
-        const shorterBase = (window as any).__fusouUrlShorterBase as string | undefined;
-        if (shorterBase) {
-          const normalizedShorterBase = shorterBase.trim().replace(/\/+$/, "");
-          const res = await fetch(`${normalizedShorterBase}/api/shorten`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: longUrl }),
-          });
-          if (res.ok) {
-            const data = await res.json() as { shortUrl: string };
-            shareUrl = data.shortUrl;
-          } else {
-            const errorText = await res.text().catch(() => "");
-            console.warn("URL shortener request failed:", res.status, errorText);
-          }
-        } else {
-          console.warn("URL_SHORTER_BASE is empty; fallback to long URL");
-        }
-      } catch (error) {
-        console.warn("URL shortener unavailable; fallback to long URL", error);
-        // Fallback to long URL if shortener is unavailable
+      const shorterBase = (window as any).__fusouUrlShorterBase as string | undefined;
+      if (!shorterBase) {
+        alert("短縮URL設定エラー: PUBLIC_URL_SHORTER_BASE が未設定です");
+        return;
       }
 
-      await navigator.clipboard.writeText(shareUrl);
+      const normalizedShorterBase = shorterBase.trim().replace(/\/+$/, "");
+      const res = await fetch(`${normalizedShorterBase}/api/shorten`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: longUrl }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        console.warn("URL shortener request failed:", res.status, errorText);
+        alert("短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
+        return;
+      }
+
+      const data = await res.json() as { shortUrl: string };
+      await navigator.clipboard.writeText(data.shortUrl);
       alert("共有URLをクリップボードにコピーしました");
     } catch {
       alert("クリップボードへのコピーに失敗しました");
