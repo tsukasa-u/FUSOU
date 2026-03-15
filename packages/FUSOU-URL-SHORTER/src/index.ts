@@ -19,6 +19,7 @@ type Bindings = {
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
+const SHORT_KEY_LENGTH = 16;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,13 +33,43 @@ function allowedOrigins(env: Bindings): string[] {
     .filter(Boolean);
 }
 
+/** Match origin against exact entries or wildcard host entries (e.g. https://*.fusou.pages.dev). */
+function isOriginAllowed(origin: string, patterns: string[]): boolean {
+  if (!origin) return false;
+  let originUrl: URL;
+  try {
+    originUrl = new URL(origin);
+  } catch {
+    return false;
+  }
+
+  return patterns.some((pattern) => {
+    if (pattern === origin) return true;
+
+    if (!pattern.includes("*")) return false;
+
+    let patternUrl: URL;
+    try {
+      patternUrl = new URL(pattern.replace("*.", "placeholder."));
+    } catch {
+      return false;
+    }
+
+    if (patternUrl.protocol !== originUrl.protocol) return false;
+    const wildcardHost = patternUrl.hostname.replace("placeholder.", "");
+    if (!wildcardHost) return false;
+
+    return originUrl.hostname.endsWith(`.${wildcardHost}`);
+  });
+}
+
 /** Generate a unique 16-char key, retrying on collision. */
 async function createKey(kv: KVNamespace, url: string, depth = 0): Promise<string> {
   if (depth > 5) {
     throw new Error("Failed to generate unique key after retries");
   }
   const uuid = crypto.randomUUID().replace(/-/g, "");
-  const key = uuid.substring(0, 16);
+  const key = uuid.substring(0, SHORT_KEY_LENGTH);
   const existing = await kv.get(key);
   if (existing) {
     return createKey(kv, url, depth + 1);
@@ -55,7 +86,10 @@ async function createKey(kv: KVNamespace, url: string, depth = 0): Promise<strin
 app.use("*", async (c, next) => {
   const origins = allowedOrigins(c.env);
   const corsMiddleware = cors({
-    origin: origins,
+    origin: (origin) => {
+      if (!origin) return "";
+      return isOriginAllowed(origin, origins) ? origin : "";
+    },
     allowMethods: ["GET", "POST", "OPTIONS"],
     allowHeaders: ["Content-Type"],
     maxAge: 86400,
@@ -85,13 +119,13 @@ app.use("/api/*", async (c, next) => {
 
   // For browser or other clients that send Origin/Referer, enforce allowed origins.
   if (origin) {
-    if (!origins.includes(origin)) {
+    if (!isOriginAllowed(origin, origins)) {
       return c.json({ error: "Forbidden" }, 403);
     }
   } else if (referer) {
     try {
       const refOrigin = new URL(referer).origin;
-      if (!origins.includes(refOrigin)) {
+      if (!isOriginAllowed(refOrigin, origins)) {
         return c.json({ error: "Forbidden" }, 403);
       }
     } catch {
@@ -139,7 +173,7 @@ app.post("/api/shorten", shortenValidator, async (c) => {
   // Hostname must be one of the FUSOU allowed origins (defense-in-depth against
   // open-redirect if the origin gate is somehow bypassed)
   const urlHost = new URL(url).origin;
-  if (!allowedOrigins(c.env).includes(urlHost)) {
+  if (!isOriginAllowed(urlHost, allowedOrigins(c.env))) {
     return c.json({ error: "URL hostname is not an allowed FUSOU domain" }, 403);
   }
 
@@ -239,7 +273,7 @@ function buildOgpHtml(
 // GET /:key — redirect (browser) or OGP HTML (bot)
 // ---------------------------------------------------------------------------
 
-app.get("/:key{[0-9a-f]{8}}", async (c) => {
+app.get(`/:key{[0-9a-f]{${SHORT_KEY_LENGTH}}}`, async (c) => {
   const key = c.req.param("key");
   const originalUrl = await c.env.URL_KV.get(key);
 
