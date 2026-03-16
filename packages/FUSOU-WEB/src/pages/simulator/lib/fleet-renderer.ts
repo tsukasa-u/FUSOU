@@ -6,6 +6,7 @@ import { STYPE_SHORT, SPEED_NAMES, AIRCRAFT_TYPES, RANGE_NAMES } from "./constan
 import { bannerUrl, cardUrl, createWeaponIconEl, computeEquipBonuses, computeEquipSum } from "./equip-calc";
 import { openShipModal } from "./ship-modal";
 import { openEquipModal } from "./equip-modal";
+import { prefetchExternalUrlForExport } from "./image-capture";
 
 export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
   const container = document.getElementById(containerId)!;
@@ -53,6 +54,9 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       const cardImg = document.createElement("img");
       cardImg.src = cardUrl(slot.shipId!);
       cardImg.alt = ship.name;
+        // Warm the data-URL export cache in the background so the first save
+        // does not require a round-trip to R2 via the image-proxy endpoint.
+        prefetchExternalUrlForExport(cardImg.src);
       cardImg.className = "absolute inset-0 w-full h-full object-contain object-right pointer-events-none select-none";
       cardImg.loading = "lazy";
       cardImg.onerror = function () {

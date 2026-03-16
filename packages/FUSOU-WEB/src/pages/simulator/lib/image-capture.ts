@@ -138,6 +138,22 @@ async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): P
   return fetchProxyImageAsDataUrl(absUrl);
 }
 
+/**
+ * Start a background proxy fetch so the data-URL is ready in cache before
+ * the user opens the save dialog.  Call this whenever an external image is
+ * added to the visible fleet (e.g. ship card, banner).  The fetch is
+ * fire-and-forget; duplicates and same-origin URLs are silently ignored.
+ */
+export function prefetchExternalUrlForExport(absUrl: string): void {
+  if (!absUrl || absUrl.startsWith("data:") || externalImageDataUrlCache.has(absUrl)) return;
+  try {
+    const u = new URL(absUrl, window.location.href);
+    if (u.origin === window.location.origin) return; // same-origin: no proxy needed
+    if (u.protocol !== "https:") return;             // proxy only accepts https
+  } catch { return; }
+  fetchProxyImageAsDataUrl(absUrl).catch(() => {});
+}
+
 export async function prewarmVisibleExternalImageCache(root: Pick<Element, "querySelectorAll">) {
   const targets = new Set<string>();
   root.querySelectorAll("img").forEach((img) => {
