@@ -4,10 +4,10 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
 ---
 
 <div
-  class=`navbar border-base-300 border-b z-10 fixed top-0 left-0 ${css_filled}`
+  class=`navbar border-base-300 border-b z-50 fixed top-0 left-0 ${css_filled}`
 >
-  <div class="flex w-full max-w-[1440px] mx-auto px-8">
-    <div class="flex-1 content-center">
+  <div class="flex w-full max-w-[1440px] mx-auto px-4 sm:px-8 py-1 flex-wrap items-center gap-1 sm:gap-2">
+    <div class="flex items-center gap-1 min-w-0">
       <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
       <div class="tooltip tooltip-bottom" data-tip="GitHub">
         <a
@@ -29,7 +29,7 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           >
         </a>
       </div>
-      <div class="tooltip tooltip-bottom " data-tip="Rust Docs">
+      <div class="tooltip tooltip-bottom" data-tip="Rust Docs">
         <a
           class="btn btn-ghost"
           href="https://tsukasa-u.github.io/FUSOU/"
@@ -51,14 +51,37 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
         </a>
       </div>
     </div>
-    <div class="flex-none">
-      <ul class="menu menu-horizontal px-1">
-        <li><a href="/battles">Battles</a></li>
-        <li><a href="/simulator">Simulator</a></li>
-        <li><a href="/docs">Docs</a></li>
-        <li class="max-sm:hidden"><a href="/dashboard">Sign In</a></li>
-        <li class="max-sm:hidden"><a href="/download">Download</a></li>
-      </ul>
+    <div class="flex items-center gap-1 sm:gap-2 ml-auto w-full sm:w-auto justify-end">
+      <div class="tooltip tooltip-bottom sm:tooltip-bottom" data-tip="Battles">
+        <a class="btn btn-ghost btn-sm" href="/battles" aria-label="Battles">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M11.3 1.046a.75.75 0 011.06 0l6.594 6.594a.75.75 0 010 1.06l-2.122 2.122a.75.75 0 01-1.06 0l-5.534-5.534a.75.75 0 010-1.06L11.3 1.046zM9.177 5.29a.75.75 0 010 1.06l-6.93 6.93a2.25 2.25 0 000 3.182l1.06 1.06a2.25 2.25 0 003.182 0l6.93-6.93a.75.75 0 00-1.06-1.06L5.429 16.46a.75.75 0 01-1.06 0l-1.06-1.06a.75.75 0 010-1.06l6.93-6.93a.75.75 0 000-1.06.75.75 0 00-1.06 0z" clip-rule="evenodd" /></svg>
+          <span class="hidden sm:inline">Battles</span>
+        </a>
+      </div>
+      <div class="tooltip tooltip-bottom" data-tip="Simulator">
+        <a class="btn btn-ghost btn-sm" href="/simulator" aria-label="Simulator">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M2 4.75A1.75 1.75 0 013.75 3h12.5A1.75 1.75 0 0118 4.75v7.5A1.75 1.75 0 0116.25 14H3.75A1.75 1.75 0 012 12.25v-7.5z" /><path d="M6 16.5a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 016 16.5z" /></svg>
+          <span class="hidden sm:inline">Simulator</span>
+        </a>
+      </div>
+      <div class="tooltip tooltip-bottom" data-tip="Docs">
+        <a class="btn btn-ghost btn-sm" href="/docs" aria-label="Docs">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M4.25 2A2.25 2.25 0 002 4.25v11.5A2.25 2.25 0 004.25 18h11.5A2.25 2.25 0 0018 15.75V6.561a2.25 2.25 0 00-.659-1.591l-2.31-2.31A2.25 2.25 0 0013.44 2H4.25z" /><path d="M10 6.5a.75.75 0 01.75.75v5a.75.75 0 01-1.5 0v-5A.75.75 0 0110 6.5zM10 14.5a.875.875 0 100 1.75.875.875 0 000-1.75z" /></svg>
+          <span class="hidden sm:inline">Docs</span>
+        </a>
+      </div>
+      <div class="tooltip tooltip-bottom" data-tip="Sign In">
+        <a class="btn btn-ghost btn-sm" href="/dashboard" aria-label="Sign In">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5v1.256A4.5 4.5 0 003.5 12v3A2.5 2.5 0 006 17.5h8a2.5 2.5 0 002.5-2.5v-3A4.5 4.5 0 0015 8.256V7a5 5 0 00-5-5z" /></svg>
+          <span class="hidden sm:inline">Sign In</span>
+        </a>
+      </div>
+      <div class="tooltip tooltip-bottom" data-tip="Download">
+        <a class="btn btn-ghost btn-sm" href="/download" aria-label="Download">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a.75.75 0 01.75.75v7.19l1.72-1.72a.75.75 0 111.06 1.06l-3 3a.75.75 0 01-1.06 0l-3-3a.75.75 0 111.06-1.06l1.72 1.72V2.75A.75.75 0 0110 2z" /><path d="M3.5 13.5a.75.75 0 01.75.75v1a1 1 0 001 1h9.5a1 1 0 001-1v-1a.75.75 0 011.5 0v1A2.5 2.5 0 0115.25 17h-9.5A2.5 2.5 0 013.25 15.25v-1a.75.75 0 01.75-.75z" /></svg>
+          <span class="hidden sm:inline">Download</span>
+        </a>
+      </div>
     </div>
   </div>
 </div>
