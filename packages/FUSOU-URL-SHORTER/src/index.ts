@@ -18,13 +18,10 @@ type Bindings = {
    *  Required when called via service binding because c.req.url returns
    *  https://shortener.internal/... which is not publicly reachable. */
   BASE_URL: string;
-  /** Public OGP image URL for social previews */
-  OGP_IMAGE_URL?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 const SHORT_KEY_LENGTH = 16;
-const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 
 type SnapshotPayload = {
   snapshotShips?: Record<string, unknown>;
@@ -230,37 +227,21 @@ function parseStoredShareRecord(raw: string): { originalUrl: string; snapshotPay
   return { originalUrl: raw, snapshotPayload: null };
 }
 
-function buildSnapshotBootstrapHtml(
-  originalUrl: string,
-  snapshotPayload: SnapshotPayload,
-): string {
-  const targetUrlLiteral = JSON.stringify(originalUrl).replace(/</g, "\\u003c");
-  const snapshotLiteral = JSON.stringify(snapshotPayload).replace(/</g, "\\u003c");
-  const safeOriginalUrl = escHtml(originalUrl);
+// ---------------------------------------------------------------------------
+// GET /internal/snapshot/:key — service-binding-only endpoint for FUSOU-WEB
+// Returns the stored record (originalUrl + snapshotPayload) as JSON so that
+// the FUSOU-WEB same-origin /s/:key route can bootstrap sessionStorage safely.
+// ---------------------------------------------------------------------------
 
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>FUSOU - Redirecting</title>
-  <meta http-equiv="refresh" content="0;url=${safeOriginalUrl}" />
-</head>
-<body>
-  <p>リダイレクト中… <a href="${safeOriginalUrl}">こちら</a>をクリックしてください。</p>
-  <script>
-    try {
-      const targetUrl = ${targetUrlLiteral};
-      const payload = ${snapshotLiteral};
-      sessionStorage.setItem(${JSON.stringify(SHARED_SNAPSHOT_SESSION_KEY)}, JSON.stringify(payload));
-      location.replace(targetUrl);
-    } catch {
-      location.replace(${targetUrlLiteral});
-    }
-  </script>
-</body>
-</html>`;
-}
+app.get(`/internal/snapshot/:key{[0-9a-f]{${SHORT_KEY_LENGTH}}}`, async (c) => {
+  const key = c.req.param("key");
+  const storedValue = await c.env.URL_KV.get(key);
+  if (!storedValue) {
+    return c.json({ error: "Not found" }, 404);
+  }
+  const { originalUrl, snapshotPayload } = parseStoredShareRecord(storedValue);
+  return c.json({ originalUrl, snapshotPayload: snapshotPayload ?? null });
+});
 
 function buildNotFoundHtml(): string {
   return `<!DOCTYPE html>
@@ -397,17 +378,6 @@ function buildNotFoundHtml(): string {
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// OGP helpers
-// ---------------------------------------------------------------------------
-
-/** Known crawler / preview bot User-Agents. */
-const BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
-
-function isBot(ua: string): boolean {
-  return BOT_UA.test(ua);
-}
-
 /** Escape characters that are special in HTML attribute values. */
 function escHtml(s: string): string {
   return s
@@ -417,126 +387,12 @@ function escHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-/**
- * Decode the ?data= base64 param and count ships/airbases.
- * Returns a human-readable description, or falls back gracefully.
- */
-function buildDescription(dataParam: string): string {
-  try {
-    const decoded = atob(dataParam);
-    const fleet = JSON.parse(decoded) as {
-      fleet1?: Array<{ shipId: number | null }>;
-      fleet2?: Array<{ shipId: number | null }>;
-      fleet3?: Array<{ shipId: number | null }>;
-      fleet4?: Array<{ shipId: number | null }>;
-      airBases?: Array<{ equipIds: (number | null)[] }>;
-    };
-
-    const fleetCounts = [
-      fleet.fleet1?.filter((s) => s.shipId !== null).length ?? 0,
-      fleet.fleet2?.filter((s) => s.shipId !== null).length ?? 0,
-      fleet.fleet3?.filter((s) => s.shipId !== null).length ?? 0,
-      fleet.fleet4?.filter((s) => s.shipId !== null).length ?? 0,
-    ];
-
-    const fleetLabels = ["第一艦隊", "第二艦隊", "第三艦隊", "第四艦隊"];
-    const parts: string[] = [];
-    for (let i = 0; i < fleetCounts.length; i++) {
-      if (fleetCounts[i] > 0) {
-        parts.push(`${fleetLabels[i]}: ${fleetCounts[i]}隻`);
-      }
-    }
-
-    const airBaseParts: string[] = [];
-    (fleet.airBases ?? []).forEach((base, idx) => {
-      const equipCount = (base.equipIds ?? []).filter((id) => id !== null).length;
-      if (equipCount > 0) {
-        airBaseParts.push(`${idx + 1}基地:${equipCount}/4`);
-      }
-    });
-    if (airBaseParts.length > 0) {
-      parts.push(`基地航空隊: ${airBaseParts.join(", ")}`);
-    }
-
-    return parts.length > 0 ? parts.join(" / ") : "艦隊編成を確認する";
-  } catch {
-    return "艦隊編成を確認する";
-  }
-}
-
-/**
- * @param shortUrl  - the canonical short URL (og:url)
- * @param originalUrl - the long simulator URL to redirect to
- * @param description - fleet summary text
- * @param ogImageUrl - OGP image URL
- */
-function buildOgpHtml(
-  shortUrl: string,
-  originalUrl: string,
-  description: string,
-  ogImageUrl: string
-): string {
-  const safeShortUrl = escHtml(shortUrl);
-  const safeOriginalUrl = escHtml(originalUrl);
-  const safeDesc = escHtml(description);
-  const safeOgpImage = escHtml(ogImageUrl);
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="FUSOU" />
-  <meta property="og:title" content="FUSOU 編成シミュレータ - 共有編成" />
-  <meta property="og:description" content="${safeDesc}" />
-  <meta property="og:url" content="${safeShortUrl}" />
-  <meta property="og:image" content="${safeOgpImage}" />
-  <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="FUSOU 編成シミュレータ - 共有編成" />
-  <meta name="twitter:description" content="${safeDesc}" />
-  <meta http-equiv="refresh" content="0;url=${safeOriginalUrl}" />
-</head>
-<body>
-  <p>リダイレクト中… <a href="${safeOriginalUrl}">こちら</a>をクリックしてください。</p>
-</body>
-</html>`;
-}
-
 // ---------------------------------------------------------------------------
-// GET /:key — redirect (browser) or OGP HTML (bot)
+// GET /:key — disabled public path (same-origin /s/:key is canonical)
 // ---------------------------------------------------------------------------
 
 app.get(`/:key{[0-9a-f]{${SHORT_KEY_LENGTH}}}`, async (c) => {
-  const key = c.req.param("key");
-  const storedValue = await c.env.URL_KV.get(key);
-
-  if (!storedValue) {
-    return c.html(buildNotFoundHtml(), 404);
-  }
-
-  const { originalUrl, snapshotPayload } = parseStoredShareRecord(storedValue);
-
-  const ua = c.req.header("User-Agent") ?? "";
-  if (!isBot(ua)) {
-    if (snapshotPayload) {
-      return c.html(buildSnapshotBootstrapHtml(originalUrl, snapshotPayload));
-    }
-    return c.redirect(originalUrl, 302);
-  }
-
-  // Bot path: decode fleet data and return OGP HTML
-  let description = "艦隊編成を確認する";
-  try {
-    const dataParam = new URL(originalUrl).searchParams.get("data");
-    if (dataParam) {
-      description = buildDescription(dataParam);
-    }
-  } catch {
-    // malformed URL — use fallback description
-  }
-
-  const shortUrl = new URL(`/${key}`, c.req.url).toString();
-  const ogImageUrl = c.env.OGP_IMAGE_URL?.trim() || "https://fusou.dev/favicon.svg";
-  return c.html(buildOgpHtml(shortUrl, originalUrl, description, ogImageUrl));
+  return c.html(buildNotFoundHtml(), 404);
 });
 
 // ---------------------------------------------------------------------------

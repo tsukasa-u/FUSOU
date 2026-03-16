@@ -7,7 +7,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 type UpstreamAttempt = {
   source: "service-binding";
   ok: boolean;
-  shortUrl?: string;
+  key?: string;
   status?: number;
   error?: string;
   detail?: string;
@@ -63,9 +63,8 @@ async function requestShortener(
     };
   }
 
-  const shortUrl =
-    json && typeof json.shortUrl === "string" ? json.shortUrl.trim() : "";
-  if (!shortUrl) {
+  const key = json && typeof json.key === "string" ? json.key.trim() : "";
+  if (!key) {
     return {
       source: "service-binding",
       ok: false,
@@ -78,8 +77,8 @@ async function requestShortener(
   return {
     source: "service-binding",
     ok: true,
+    key,
     status: response.status,
-    shortUrl,
   };
 }
 
@@ -135,8 +134,8 @@ app.post("/", async (c) => {
     shortenerService.fetch("https://shortener.internal/api/shorten", requestInit),
   );
 
-  if (attempt.ok) {
-    return c.json({ ok: true, shortUrl: attempt.shortUrl }, 200);
+  if (attempt.ok && attempt.key) {
+    return c.json({ ok: true, shortUrl: `${currentOrigin}/s/${attempt.key}` }, 200);
   }
 
   return c.json(

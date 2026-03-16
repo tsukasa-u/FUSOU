@@ -39,6 +39,8 @@ export type Bindings = {
 
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
+  // /internal/* endpoints are protected by Cloudflare service binding network
+  // isolation (only reachable via https://shortener.internal, not the public internet).
   SHORTENER_SERVICE: Fetcher;
 
   // KV for caching (optional)
