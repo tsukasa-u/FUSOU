@@ -197,70 +197,82 @@ export function applyExportedFleet(data: Record<string, unknown>) {
     for (let i = 0; i < 6; i++) fleet[i] = emptyFleetSlot();
   });
 
-  if (Array.isArray(data.fleet1)) {
-    for (let i = 0; i < Math.min(data.fleet1.length, 6); i++) {
-      const slot = data.fleet1[i] as FleetSlot;
-      if (slot) {
-        state.fleet1[i] = {
-          shipId: slot.shipId ?? null,
-          shipLevel: slot.shipLevel ?? null,
-          equipIds: slot.equipIds ?? [null, null, null, null, null],
-          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
-          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
-          exSlotId: slot.exSlotId ?? null,
-          exSlotImprovement: slot.exSlotImprovement ?? 0,
-        };
-      }
+  state.snapshotShips = {};
+  state.snapshotSlotItems = {};
+
+  function pickNumericRecord(input: unknown): Record<string, number> | undefined {
+    if (!input || typeof input !== "object") return undefined;
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+      if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  function applyFleetArray(src: unknown, dst: FleetSlot[]) {
+    if (!Array.isArray(src)) return;
+    for (let i = 0; i < Math.min(src.length, 6); i++) {
+      const slot = src[i] as FleetSlot;
+      if (!slot) continue;
+
+      const statOverrides = pickNumericRecord((slot as FleetSlot).statOverrides);
+      const instanceStats = pickNumericRecord((slot as FleetSlot).instanceStats);
+
+      dst[i] = {
+        shipId: slot.shipId ?? null,
+        shipLevel: slot.shipLevel ?? null,
+        equipIds: slot.equipIds ?? [null, null, null, null, null],
+        equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
+        equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
+        exSlotId: slot.exSlotId ?? null,
+        exSlotImprovement: slot.exSlotImprovement ?? 0,
+        ...(statOverrides ? { statOverrides } : {}),
+        ...(instanceStats ? { instanceStats } : {}),
+      };
     }
   }
-  if (Array.isArray(data.fleet2)) {
-    for (let i = 0; i < Math.min(data.fleet2.length, 6); i++) {
-      const slot = data.fleet2[i] as FleetSlot;
-      if (slot) {
-        state.fleet2[i] = {
-          shipId: slot.shipId ?? null,
-          shipLevel: slot.shipLevel ?? null,
-          equipIds: slot.equipIds ?? [null, null, null, null, null],
-          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
-          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
-          exSlotId: slot.exSlotId ?? null,
-          exSlotImprovement: slot.exSlotImprovement ?? 0,
-        };
-      }
+
+  applyFleetArray(data.fleet1, state.fleet1);
+  applyFleetArray(data.fleet2, state.fleet2);
+  applyFleetArray(data.fleet3, state.fleet3);
+  applyFleetArray(data.fleet4, state.fleet4);
+
+  if (data.snapshotShips && typeof data.snapshotShips === "object") {
+    for (const [k, v] of Object.entries(data.snapshotShips as Record<string, unknown>)) {
+      const rec = v as Record<string, unknown>;
+      const iid = Number(k);
+      if (!Number.isFinite(iid)) continue;
+      const shipId = Number(rec.shipId ?? 0);
+      const level = Number(rec.level ?? 1);
+      const stype = Number(rec.stype ?? 0);
+      const name = typeof rec.name === "string" ? rec.name : `Ship #${shipId}`;
+      if (!Number.isFinite(shipId)) continue;
+      state.snapshotShips[iid] = {
+        shipId,
+        level: Number.isFinite(level) ? level : 1,
+        name,
+        stype: Number.isFinite(stype) ? stype : 0,
+      };
     }
   }
-  if (Array.isArray(data.fleet3)) {
-    for (let i = 0; i < Math.min(data.fleet3.length, 6); i++) {
-      const slot = data.fleet3[i] as FleetSlot;
-      if (slot) {
-        state.fleet3[i] = {
-          shipId: slot.shipId ?? null,
-          shipLevel: slot.shipLevel ?? null,
-          equipIds: slot.equipIds ?? [null, null, null, null, null],
-          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
-          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
-          exSlotId: slot.exSlotId ?? null,
-          exSlotImprovement: slot.exSlotImprovement ?? 0,
-        };
-      }
+
+  if (data.snapshotSlotItems && typeof data.snapshotSlotItems === "object") {
+    for (const [k, v] of Object.entries(data.snapshotSlotItems as Record<string, unknown>)) {
+      const rec = v as Record<string, unknown>;
+      const iid = Number(k);
+      if (!Number.isFinite(iid)) continue;
+      const slotitem_id = Number(rec.slotitem_id ?? 0);
+      const level = Number(rec.level ?? 0);
+      const alv = Number(rec.alv ?? 0);
+      if (!Number.isFinite(slotitem_id)) continue;
+      state.snapshotSlotItems[iid] = {
+        slotitem_id,
+        level: Number.isFinite(level) ? level : 0,
+        alv: Number.isFinite(alv) ? alv : 0,
+      };
     }
   }
-  if (Array.isArray(data.fleet4)) {
-    for (let i = 0; i < Math.min(data.fleet4.length, 6); i++) {
-      const slot = data.fleet4[i] as FleetSlot;
-      if (slot) {
-        state.fleet4[i] = {
-          shipId: slot.shipId ?? null,
-          shipLevel: slot.shipLevel ?? null,
-          equipIds: slot.equipIds ?? [null, null, null, null, null],
-          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
-          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
-          exSlotId: slot.exSlotId ?? null,
-          exSlotImprovement: slot.exSlotImprovement ?? 0,
-        };
-      }
-    }
-  }
+
   if (Array.isArray(data.airBases)) {
     for (let i = 0; i < Math.min(data.airBases.length, 3); i++) {
       const base = data.airBases[i] as { equipIds: (number | null)[]; equipImprovement?: number[]; equipProficiency?: number[] };

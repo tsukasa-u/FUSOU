@@ -52,14 +52,140 @@ type ShortenApiResponse = {
   status?: number;
 };
 
+type ShareOptions = {
+  includeAirBases: boolean;
+  includeDetailedStats: boolean;
+  includeSnapshotData: boolean;
+};
+
+const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
+
+function encodePayloadBase64(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+function decodePayloadBase64(data: string): unknown {
+  // v2 UTF-8-safe decode path
+  try {
+    const binary = atob(data);
+    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+    const json = new TextDecoder().decode(bytes);
+    return JSON.parse(json);
+  } catch {
+    // Backward compatibility: older links used direct atob(JSON)
+    return JSON.parse(atob(data));
+  }
+}
+
+function pickNumericRecord(input: unknown): Record<string, number> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+function serializeFleetForShare(fleet: FleetSlot[], includeDetailedStats: boolean): FleetSlot[] {
+  return fleet.map((slot) => {
+    const row: FleetSlot = {
+      shipId: slot.shipId ?? null,
+      shipLevel: slot.shipLevel ?? null,
+      equipIds: [...(slot.equipIds ?? [null, null, null, null, null])],
+      equipImprovement: [...(slot.equipImprovement ?? [0, 0, 0, 0, 0])],
+      equipProficiency: [...(slot.equipProficiency ?? [0, 0, 0, 0, 0])],
+      exSlotId: slot.exSlotId ?? null,
+      exSlotImprovement: slot.exSlotImprovement ?? 0,
+    };
+
+    if (includeDetailedStats) {
+      const statOverrides = pickNumericRecord(slot.statOverrides);
+      const instanceStats = pickNumericRecord(slot.instanceStats);
+      if (statOverrides) row.statOverrides = statOverrides;
+      if (instanceStats) row.instanceStats = instanceStats;
+    }
+
+    return row;
+  });
+}
+
+function buildSharePayload(opts: ShareOptions) {
+  const payload: Record<string, unknown> = {
+    v: 2,
+    fleet1: serializeFleetForShare(state.fleet1, opts.includeDetailedStats),
+    fleet2: serializeFleetForShare(state.fleet2, opts.includeDetailedStats),
+    fleet3: serializeFleetForShare(state.fleet3, opts.includeDetailedStats),
+    fleet4: serializeFleetForShare(state.fleet4, opts.includeDetailedStats),
+    shareOptions: opts,
+  };
+
+  if (opts.includeAirBases) {
+    payload.airBases = state.airBases.map((base) => ({
+      equipIds: [...(base.equipIds ?? [null, null, null, null])],
+      equipImprovement: [...(base.equipImprovement ?? [0, 0, 0, 0])],
+      equipProficiency: [...(base.equipProficiency ?? [0, 0, 0, 0])],
+    }));
+  }
+
+  return payload;
+}
+
+function buildSnapshotPayloadForShare() {
+  return {
+    snapshotShips: state.snapshotShips,
+    snapshotSlotItems: state.snapshotSlotItems,
+  };
+}
+
+function getShareOptions(): ShareOptions {
+  const includeAirBasesEl = document.getElementById("share-include-airbase") as HTMLInputElement | null;
+  const includeDetailedStatsEl = document.getElementById("share-include-detailed-stats") as HTMLInputElement | null;
+  const includeSnapshotDataEl = document.getElementById("share-include-snapshot") as HTMLInputElement | null;
+
+  return {
+    includeAirBases: includeAirBasesEl?.checked ?? true,
+    includeDetailedStats: includeDetailedStatsEl?.checked ?? true,
+    includeSnapshotData: includeSnapshotDataEl?.checked ?? false,
+  };
+}
+
 export function loadFromUrl() {
   const params = new URLSearchParams(window.location.search);
+  let sharedSnapshotPayload: Record<string, unknown> | null = null;
+
+  try {
+    const rawSnapshotPayload = sessionStorage.getItem(SHARED_SNAPSHOT_SESSION_KEY);
+    if (rawSnapshotPayload) {
+      const parsed = JSON.parse(rawSnapshotPayload);
+      if (parsed && typeof parsed === "object") {
+        sharedSnapshotPayload = parsed as Record<string, unknown>;
+      }
+      sessionStorage.removeItem(SHARED_SNAPSHOT_SESSION_KEY);
+    }
+  } catch {
+    // Ignore malformed session payload and continue.
+  }
 
   const data = params.get("data");
   if (data) {
     try {
-      const parsed = JSON.parse(atob(data));
-      applyExportedFleet(parsed);
+      const parsed = decodePayloadBase64(data);
+      if (parsed && typeof parsed === "object") {
+        const merged = parsed as Record<string, unknown>;
+        if (sharedSnapshotPayload) {
+          if (sharedSnapshotPayload.snapshotShips && !merged.snapshotShips) {
+            merged.snapshotShips = sharedSnapshotPayload.snapshotShips;
+          }
+          if (sharedSnapshotPayload.snapshotSlotItems && !merged.snapshotSlotItems) {
+            merged.snapshotSlotItems = sharedSnapshotPayload.snapshotSlotItems;
+          }
+        }
+        applyExportedFleet(merged);
+      }
     } catch {
       // Invalid data param
     }
@@ -81,6 +207,9 @@ export function loadFromUrl() {
 
 /** Wire up all I/O-related event listeners. Call once at init time. */
 export function initIOEvents() {
+  const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
+  const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
+
   // R2 fleet load
   document.getElementById("btn-load-fleet")?.addEventListener("click", async () => {
     const modal = document.getElementById("load-fleet-modal") as HTMLDialogElement;
@@ -193,15 +322,30 @@ export function initIOEvents() {
   });
 
   // Share (with URL shortening)
-  document.getElementById("btn-share")?.addEventListener("click", async () => {
-    const payload = {
-      fleet1: state.fleet1,
-      fleet2: state.fleet2,
-      fleet3: state.fleet3,
-      fleet4: state.fleet4,
-      airBases: state.airBases,
-    };
-    const encoded = btoa(JSON.stringify(payload));
+  document.getElementById("btn-share")?.addEventListener("click", () => {
+    if (!shareModal) return;
+    const includeSnapshotDataEl = document.getElementById("share-include-snapshot") as HTMLInputElement | null;
+    const snapshotHintEl = document.getElementById("share-snapshot-hint");
+    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+    if (includeSnapshotDataEl) {
+      includeSnapshotDataEl.checked = hasSnapshot;
+      includeSnapshotDataEl.disabled = !hasSnapshot;
+    }
+    if (snapshotHintEl) {
+      snapshotHintEl.textContent = hasSnapshot
+        ? "スナップショット情報を共有に含めます。"
+        : "この編成にはスナップショット情報がないため選択できません。";
+    }
+    shareModal.showModal();
+  });
+
+  shareConfirmBtn?.addEventListener("click", async () => {
+    const opts = getShareOptions();
+    const payload = buildSharePayload(opts);
+    const snapshotPayload = opts.includeSnapshotData
+      ? buildSnapshotPayloadForShare()
+      : undefined;
+    const encoded = encodePayloadBase64(payload);
     const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 
     let shortUrl = "";
@@ -209,7 +353,7 @@ export function initIOEvents() {
       const res = await fetch("/api/shorten", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: longUrl }),
+        body: JSON.stringify({ url: longUrl, snapshotPayload }),
       });
 
       const responseText = await res.text();
@@ -245,11 +389,13 @@ export function initIOEvents() {
 
     const copied = await copyTextWithFallback(shortUrl);
     if (copied) {
+      shareModal?.close();
       alert("共有URLをクリップボードにコピーしました");
       return;
     }
 
     // Last-resort manual copy guidance.
+    shareModal?.close();
     window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", shortUrl);
   });
 }

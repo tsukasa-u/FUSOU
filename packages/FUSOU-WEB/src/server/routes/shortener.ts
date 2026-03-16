@@ -13,6 +13,11 @@ type UpstreamAttempt = {
   detail?: string;
 };
 
+type SnapshotPayload = {
+  snapshotShips?: Record<string, unknown>;
+  snapshotSlotItems?: Record<string, unknown>;
+};
+
 async function requestShortener(
   fetcher: () => Promise<Response>,
 ): Promise<UpstreamAttempt> {
@@ -106,6 +111,7 @@ app.post("/", async (c) => {
   }
 
   const url = (body as { url?: unknown })?.url;
+  const snapshotPayload = (body as { snapshotPayload?: unknown })?.snapshotPayload;
   if (typeof url !== "string" || url.length === 0) {
     return c.json({ ok: false, error: "url is required" }, 400);
   }
@@ -117,7 +123,12 @@ app.post("/", async (c) => {
       Origin: currentOrigin,
       Referer: c.req.url,
     },
-    body: JSON.stringify({ url }),
+    body: JSON.stringify({
+      url,
+      ...(snapshotPayload && typeof snapshotPayload === "object"
+        ? { snapshotPayload: snapshotPayload as SnapshotPayload }
+        : {}),
+    }),
   };
 
   const attempt = await requestShortener(() =>
