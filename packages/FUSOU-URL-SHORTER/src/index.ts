@@ -217,19 +217,36 @@ function buildDescription(dataParam: string): string {
     const fleet = JSON.parse(decoded) as {
       fleet1?: Array<{ shipId: number | null }>;
       fleet2?: Array<{ shipId: number | null }>;
+      fleet3?: Array<{ shipId: number | null }>;
+      fleet4?: Array<{ shipId: number | null }>;
       airBases?: Array<{ equipIds: (number | null)[] }>;
     };
 
-    const count1 = fleet.fleet1?.filter((s) => s.shipId !== null).length ?? 0;
-    const count2 = fleet.fleet2?.filter((s) => s.shipId !== null).length ?? 0;
-    const countAb = fleet.airBases?.filter((b) =>
-      b.equipIds.some((id) => id !== null)
-    ).length ?? 0;
+    const fleetCounts = [
+      fleet.fleet1?.filter((s) => s.shipId !== null).length ?? 0,
+      fleet.fleet2?.filter((s) => s.shipId !== null).length ?? 0,
+      fleet.fleet3?.filter((s) => s.shipId !== null).length ?? 0,
+      fleet.fleet4?.filter((s) => s.shipId !== null).length ?? 0,
+    ];
 
+    const fleetLabels = ["第一艦隊", "第二艦隊", "第三艦隊", "第四艦隊"];
     const parts: string[] = [];
-    if (count1 > 0) parts.push(`第一艦隊: ${count1}隻`);
-    if (count2 > 0) parts.push(`第二艦隊: ${count2}隻`);
-    if (countAb > 0) parts.push(`基地航空隊: ${countAb}中隊`);
+    for (let i = 0; i < fleetCounts.length; i++) {
+      if (fleetCounts[i] > 0) {
+        parts.push(`${fleetLabels[i]}: ${fleetCounts[i]}隻`);
+      }
+    }
+
+    const airBaseParts: string[] = [];
+    (fleet.airBases ?? []).forEach((base, idx) => {
+      const equipCount = (base.equipIds ?? []).filter((id) => id !== null).length;
+      if (equipCount > 0) {
+        airBaseParts.push(`${idx + 1}基地:${equipCount}/4`);
+      }
+    });
+    if (airBaseParts.length > 0) {
+      parts.push(`基地航空隊: ${airBaseParts.join(", ")}`);
+    }
 
     return parts.length > 0 ? parts.join(" / ") : "艦隊編成を確認する";
   } catch {

@@ -230,6 +230,7 @@ async function buildCaptureNode(opts: {
   clone.style.padding = "0";
 
   clone.querySelector("#data-status")?.remove();
+  clone.querySelectorAll("[id^='fleet-'][id$='-toggle']").forEach((el) => el.remove());
   const fleetSections = clone.querySelector("#fleet-sections") as HTMLElement | null;
   const fleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
     fleet1: clone.querySelector("#fleet-1-section") as HTMLElement | null,
