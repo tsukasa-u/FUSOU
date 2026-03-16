@@ -65,7 +65,9 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       card.appendChild(cardImg);
 
       const leftCol = document.createElement("div");
-      leftCol.className = "relative z-10 flex flex-col w-2/3";
+      leftCol.className = "relative z-10 flex flex-col";
+      // Slightly narrower than previous 2/3 so equipment rows look denser.
+      leftCol.style.width = "62%";
       leftCol.style.background = "linear-gradient(to right, var(--color-base-100) 75%, transparent 100%)";
 
       // Header row

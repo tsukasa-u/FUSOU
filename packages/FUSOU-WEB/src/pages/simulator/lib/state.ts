@@ -42,6 +42,14 @@ export const state = {
   // Fleet state
   fleet1: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleet2: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
+  fleet3: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
+  fleet4: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
+  fleetSectionCollapsed: {
+    1: false,
+    2: true,
+    3: true,
+    4: true,
+  } as Record<number, boolean>,
   airBases: Array.from({ length: 3 }, emptyAirBase) as AirBaseSlot[],
 
   // Modal callbacks and state

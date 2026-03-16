@@ -157,7 +157,7 @@ export function initIOEvents() {
       try {
         const json = JSON.parse(reader.result as string);
 
-        if (json.fleet1 || json.fleet2 || json.airBases) {
+        if (json.fleet1 || json.fleet2 || json.fleet3 || json.fleet4 || json.airBases) {
           applyExportedFleet(json);
         } else if (json.mst_ships || json.mst_slot_items || json.ships || json.equipments) {
           loadMasterDataFromJson(json, renderAll);
@@ -176,7 +176,13 @@ export function initIOEvents() {
 
   // Export
   document.getElementById("btn-export")?.addEventListener("click", () => {
-    const data = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
+    const data = {
+      fleet1: state.fleet1,
+      fleet2: state.fleet2,
+      fleet3: state.fleet3,
+      fleet4: state.fleet4,
+      airBases: state.airBases,
+    };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -188,7 +194,13 @@ export function initIOEvents() {
 
   // Share (with URL shortening)
   document.getElementById("btn-share")?.addEventListener("click", async () => {
-    const payload = { fleet1: state.fleet1, fleet2: state.fleet2, airBases: state.airBases };
+    const payload = {
+      fleet1: state.fleet1,
+      fleet2: state.fleet2,
+      fleet3: state.fleet3,
+      fleet4: state.fleet4,
+      airBases: state.airBases,
+    };
     const encoded = btoa(JSON.stringify(payload));
     const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
 

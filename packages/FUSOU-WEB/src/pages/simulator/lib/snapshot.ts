@@ -8,6 +8,12 @@ import { renderAll } from "./airbase-renderer";
 import { loadMasterDataFromJson } from "./data-loader";
 
 export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
+  // Reset all fleets first so loading a smaller/older snapshot does not leave
+  // stale ships in fleet3/fleet4 (or trailing slots in any fleet).
+  [state.fleet1, state.fleet2, state.fleet3, state.fleet4].forEach((fleet) => {
+    for (let i = 0; i < 6; i++) fleet[i] = emptyFleetSlot();
+  });
+
   const ships = (snapshot as { s3s?: Record<string, unknown>[] }).s3s ?? [];
   const slotItems = (snapshot as { s8s?: Record<string, unknown>[] }).s8s ?? [];
   const deckPorts = (snapshot as { d8k?: Record<string, unknown>[] }).d8k ?? [];
@@ -130,6 +136,12 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
     if (sorted[1]) {
       populateFleet(state.fleet2, (sorted[1].s3s as number[]) ?? []);
     }
+    if (sorted[2]) {
+      populateFleet(state.fleet3, (sorted[2].s3s as number[]) ?? []);
+    }
+    if (sorted[3]) {
+      populateFleet(state.fleet4, (sorted[3].s3s as number[]) ?? []);
+    }
   } else {
     // Legacy fallback
     for (let i = 0; i < Math.min(ships.length, 6); i++) {
@@ -180,6 +192,11 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 }
 
 export function applyExportedFleet(data: Record<string, unknown>) {
+  // Same reset policy as snapshot load: imported data should be authoritative.
+  [state.fleet1, state.fleet2, state.fleet3, state.fleet4].forEach((fleet) => {
+    for (let i = 0; i < 6; i++) fleet[i] = emptyFleetSlot();
+  });
+
   if (Array.isArray(data.fleet1)) {
     for (let i = 0; i < Math.min(data.fleet1.length, 6); i++) {
       const slot = data.fleet1[i] as FleetSlot;
@@ -201,6 +218,38 @@ export function applyExportedFleet(data: Record<string, unknown>) {
       const slot = data.fleet2[i] as FleetSlot;
       if (slot) {
         state.fleet2[i] = {
+          shipId: slot.shipId ?? null,
+          shipLevel: slot.shipLevel ?? null,
+          equipIds: slot.equipIds ?? [null, null, null, null, null],
+          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
+          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
+          exSlotId: slot.exSlotId ?? null,
+          exSlotImprovement: slot.exSlotImprovement ?? 0,
+        };
+      }
+    }
+  }
+  if (Array.isArray(data.fleet3)) {
+    for (let i = 0; i < Math.min(data.fleet3.length, 6); i++) {
+      const slot = data.fleet3[i] as FleetSlot;
+      if (slot) {
+        state.fleet3[i] = {
+          shipId: slot.shipId ?? null,
+          shipLevel: slot.shipLevel ?? null,
+          equipIds: slot.equipIds ?? [null, null, null, null, null],
+          equipImprovement: slot.equipImprovement ?? [0, 0, 0, 0, 0],
+          equipProficiency: slot.equipProficiency ?? [0, 0, 0, 0, 0],
+          exSlotId: slot.exSlotId ?? null,
+          exSlotImprovement: slot.exSlotImprovement ?? 0,
+        };
+      }
+    }
+  }
+  if (Array.isArray(data.fleet4)) {
+    for (let i = 0; i < Math.min(data.fleet4.length, 6); i++) {
+      const slot = data.fleet4[i] as FleetSlot;
+      if (slot) {
+        state.fleet4[i] = {
           shipId: slot.shipId ?? null,
           shipLevel: slot.shipLevel ?? null,
           equipIds: slot.equipIds ?? [null, null, null, null, null],

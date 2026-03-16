@@ -161,15 +161,24 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             <div
               class="px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b border-base-200"
             >
-              <div class="flex items-center gap-2">
-                <span
-                  class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold"
-                  >1</span
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold"
+                    >1</span
+                  >
+                  <h3 class="font-semibold text-sm">第1艦隊</h3>
+                </div>
+                <button
+                  id="fleet-1-toggle"
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="折りたたみ"
+                >折りたたむ</button
                 >
-                <h3 class="font-semibold text-sm">第1艦隊</h3>
               </div>
             </div>
-            <div class="p-3">
+            <div id="fleet-1-body" class="p-3">
               <div
                 class="grid grid-cols-1 sm:grid-cols-2 gap-2"
                 id="fleet-1-slots"
@@ -186,22 +195,99 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             <div
               class="px-4 py-3 bg-gradient-to-r from-secondary/5 to-transparent border-b border-base-200"
             >
-              <div class="flex items-center gap-2">
-                <span
-                  class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold"
-                  >2</span
-                >
-                <h3 class="font-semibold text-sm">
-                  第2艦隊 <span class="font-normal text-base-content/40"
-                    >(連合)</span
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold"
+                    >2</span
                   >
-                </h3>
+                  <h3 class="font-semibold text-sm">
+                    第2艦隊 <span class="font-normal text-base-content/40"
+                      >(連合)</span
+                    >
+                  </h3>
+                </div>
+                <button
+                  id="fleet-2-toggle"
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="折りたたみ"
+                >折りたたむ</button
+                >
               </div>
             </div>
-            <div class="p-3">
+            <div id="fleet-2-body" class="p-3">
               <div
                 class="grid grid-cols-1 sm:grid-cols-2 gap-2"
                 id="fleet-2-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 3 -->
+          <section
+            id="fleet-3-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-info/10 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-info/20 text-info flex items-center justify-center text-xs font-bold"
+                    >3</span
+                  >
+                  <h3 class="font-semibold text-sm">第3艦隊</h3>
+                </div>
+                <button
+                  id="fleet-3-toggle"
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="折りたたみ"
+                >折りたたむ</button
+                >
+              </div>
+            </div>
+            <div id="fleet-3-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-3-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 4 -->
+          <section
+            id="fleet-4-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-warning/10 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-warning/20 text-warning flex items-center justify-center text-xs font-bold"
+                    >4</span
+                  >
+                  <h3 class="font-semibold text-sm">第4艦隊</h3>
+                </div>
+                <button
+                  id="fleet-4-toggle"
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  title="折りたたみ"
+                >折りたたむ</button
+                >
+              </div>
+            </div>
+            <div id="fleet-4-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-4-slots"
               >
               </div>
             </div>
@@ -436,6 +522,33 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                     value="fleet2"
                   />
                   <span class="label-text">第2艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet3"
+                  />
+                  <span class="label-text">第3艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet4"
+                  />
+                  <span class="label-text">第4艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="airbase"
+                  />
+                  <span class="label-text">航空基地のみ</span>
                 </label>
               </div>
             </div>

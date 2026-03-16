@@ -6,6 +6,49 @@ import { createWeaponIconEl } from "./equip-calc";
 import { openEquipModal } from "./equip-modal";
 import { renderFleetSlots } from "./fleet-renderer";
 
+function hasAnyShipInFleet(fleet: typeof state.fleet1): boolean {
+  return fleet.some((slot) => slot.shipId != null);
+}
+
+function syncFleetSectionUi() {
+  const fleetPairs: Array<[number, typeof state.fleet1]> = [
+    [1, state.fleet1],
+    [2, state.fleet2],
+    [3, state.fleet3],
+    [4, state.fleet4],
+  ];
+
+  for (const [index, fleet] of fleetPairs) {
+    const body = document.getElementById(`fleet-${index}-body`) as HTMLElement | null;
+    const toggle = document.getElementById(`fleet-${index}-toggle`) as HTMLButtonElement | null;
+    if (!body || !toggle) continue;
+
+    // Auto-expand when the fleet gets a ship for easier editing.
+    if (hasAnyShipInFleet(fleet)) {
+      state.fleetSectionCollapsed[index] = false;
+    }
+
+    const collapsed = !!state.fleetSectionCollapsed[index];
+    body.style.display = collapsed ? "none" : "block";
+    toggle.textContent = collapsed ? "展開" : "折りたたむ";
+    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+}
+
+let fleetToggleBound = false;
+function ensureFleetSectionToggleHandlers() {
+  if (fleetToggleBound) return;
+  [1, 2, 3, 4].forEach((index) => {
+    const toggle = document.getElementById(`fleet-${index}-toggle`) as HTMLButtonElement | null;
+    if (!toggle) return;
+    toggle.addEventListener("click", () => {
+      state.fleetSectionCollapsed[index] = !state.fleetSectionCollapsed[index];
+      syncFleetSectionUi();
+    });
+  });
+  fleetToggleBound = true;
+}
+
 export function renderAirBases() {
   const container = document.getElementById("air-bases")!;
   container.innerHTML = "";
@@ -137,7 +180,11 @@ export function renderAirBases() {
 }
 
 export function renderAll() {
+  ensureFleetSectionToggleHandlers();
   renderFleetSlots("fleet-1-slots", state.fleet1);
   renderFleetSlots("fleet-2-slots", state.fleet2);
+  renderFleetSlots("fleet-3-slots", state.fleet3);
+  renderFleetSlots("fleet-4-slots", state.fleet4);
+  syncFleetSectionUi();
   renderAirBases();
 }

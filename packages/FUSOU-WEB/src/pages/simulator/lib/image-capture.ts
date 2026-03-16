@@ -183,7 +183,7 @@ export async function prewarmVisibleExternalImageCache(root: Pick<Element, "quer
 
 async function buildCaptureNode(opts: {
   includeAirBase: boolean;
-  fleetTarget: "both" | "fleet1" | "fleet2";
+  fleetTarget: "both" | "fleet1" | "fleet2" | "fleet3" | "fleet4" | "airbase";
   transparentBackground?: boolean;
   hideExternalImages: boolean;
   useImageProxy?: boolean;
@@ -193,6 +193,31 @@ async function buildCaptureNode(opts: {
   if (!(src instanceof HTMLElement)) return null;
   const stats = emptyCaptureStats();
 
+  const originalFleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
+    fleet1: src.querySelector("#fleet-1-section") as HTMLElement | null,
+    fleet2: src.querySelector("#fleet-2-section") as HTMLElement | null,
+    fleet3: src.querySelector("#fleet-3-section") as HTMLElement | null,
+    fleet4: src.querySelector("#fleet-4-section") as HTMLElement | null,
+  };
+  const originalAirbaseSection = src.querySelector("#airbase-section") as HTMLElement | null;
+  const measureWidth = (el: HTMLElement | null): number => {
+    if (!el) return 0;
+    return Math.ceil(el.getBoundingClientRect().width);
+  };
+  const srcWidth = Math.ceil(src.getBoundingClientRect().width);
+  let captureWidth = srcWidth;
+  if (opts.fleetTarget === "airbase") {
+    captureWidth = Math.max(measureWidth(originalAirbaseSection), 1);
+  } else if (opts.fleetTarget !== "both") {
+    const fleetWidth = measureWidth(originalFleetSectionMap[opts.fleetTarget]);
+    if (opts.includeAirBase) {
+      captureWidth = Math.max(fleetWidth, measureWidth(originalAirbaseSection), 1);
+    } else {
+      captureWidth = Math.max(fleetWidth, 1);
+    }
+  }
+  if (captureWidth <= 0) captureWidth = srcWidth;
+
   const host = document.createElement("div");
   host.style.position = "fixed";
   host.style.left = "-10000px";
@@ -200,14 +225,42 @@ async function buildCaptureNode(opts: {
   host.style.zIndex = "-1";
 
   const clone = src.cloneNode(true) as HTMLElement;
-  clone.style.width = `${src.getBoundingClientRect().width}px`;
+  clone.style.width = `${captureWidth}px`;
   clone.style.background = opts.transparentBackground ? "transparent" : "#eceff3";
   clone.style.padding = "0";
 
   clone.querySelector("#data-status")?.remove();
-  if (!opts.includeAirBase) clone.querySelector("#airbase-section")?.remove();
-  if (opts.fleetTarget === "fleet1") clone.querySelector("#fleet-2-section")?.remove();
-  if (opts.fleetTarget === "fleet2") clone.querySelector("#fleet-1-section")?.remove();
+  const fleetSections = clone.querySelector("#fleet-sections") as HTMLElement | null;
+  const fleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
+    fleet1: clone.querySelector("#fleet-1-section") as HTMLElement | null,
+    fleet2: clone.querySelector("#fleet-2-section") as HTMLElement | null,
+    fleet3: clone.querySelector("#fleet-3-section") as HTMLElement | null,
+    fleet4: clone.querySelector("#fleet-4-section") as HTMLElement | null,
+  };
+  const airbaseSection = clone.querySelector("#airbase-section") as HTMLElement | null;
+
+  if (opts.fleetTarget === "airbase") {
+    fleetSections?.remove();
+    if (airbaseSection) airbaseSection.style.marginBottom = "0";
+  } else {
+    if (!opts.includeAirBase) airbaseSection?.remove();
+    if (opts.fleetTarget !== "both") {
+      const fleetKeys: Array<"fleet1" | "fleet2" | "fleet3" | "fleet4"> = ["fleet1", "fleet2", "fleet3", "fleet4"];
+      for (const key of fleetKeys) {
+        if (key !== opts.fleetTarget) fleetSectionMap[key]?.remove();
+      }
+    }
+
+    // When only one fleet is captured, collapse 2-column grid to 1-column.
+    if (opts.fleetTarget !== "both" && fleetSections) {
+      fleetSections.classList.remove("lg:grid-cols-2");
+      fleetSections.style.gridTemplateColumns = "minmax(0, 1fr)";
+    }
+    // Avoid trailing empty strip when airbase section is excluded.
+    if (!opts.includeAirBase && fleetSections) {
+      fleetSections.style.marginBottom = "0";
+    }
+  }
 
   const tasks: Promise<void>[] = [];
   clone.querySelectorAll("*").forEach((node) => {
@@ -336,8 +389,9 @@ export function initImageCaptureEvents() {
     const modal = document.getElementById("save-image-modal");
     if (!(btn instanceof HTMLButtonElement)) return;
 
-    const fleetTarget = ((document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null)?.value ?? "both") as "both" | "fleet1" | "fleet2";
-    const includeAirBase = (document.getElementById("saveimg-include-airbase") as HTMLInputElement | null)?.checked ?? true;
+    const fleetTarget = ((document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null)?.value ?? "both") as "both" | "fleet1" | "fleet2" | "fleet3" | "fleet4" | "airbase";
+    const includeAirBaseChecked = (document.getElementById("saveimg-include-airbase") as HTMLInputElement | null)?.checked ?? true;
+    const includeAirBase = fleetTarget === "airbase" ? true : includeAirBaseChecked;
     const transparentBackground = (document.getElementById("saveimg-transparent-bg") as HTMLInputElement | null)?.checked ?? false;
     const hideExternalImages = false;
     const useImageProxy = true;
