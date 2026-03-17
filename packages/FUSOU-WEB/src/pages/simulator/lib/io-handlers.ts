@@ -73,8 +73,10 @@ type ShareOptions = {
 
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 const WORKSPACE_MEMO_MAX_LENGTH = 300;
+const WORKSPACE_COLLAPSED_VISIBLE_COUNT = 6;
 let _isSnapshotPlayground = false;
 let _playgroundDraft: Record<string, unknown> | null = null;
+let _workspaceListExpanded = false;
 
 function encodePayloadBase64(payload: unknown): string {
   const json = JSON.stringify(payload);
@@ -428,6 +430,7 @@ function renderWorkspacePanel() {
   const ws = getWorkspace();
   const playgroundHost = document.getElementById("workspace-playground-entry");
   const list = document.getElementById("workspace-entry-list");
+  const listFooter = document.getElementById("workspace-entry-list-footer");
   const empty = document.getElementById("workspace-empty");
   const count = document.getElementById("workspace-count");
 
@@ -444,8 +447,21 @@ function renderWorkspacePanel() {
     if (empty) empty.style.display = "none";
   }
 
+  if (ws.entries.length <= WORKSPACE_COLLAPSED_VISIBLE_COUNT) {
+    _workspaceListExpanded = false;
+  }
+
   playgroundHost.innerHTML = "";
   list.innerHTML = "";
+  if (listFooter) listFooter.innerHTML = "";
+
+  const activeIndex = ws.activeId ? ws.entries.findIndex((entry) => entry.id === ws.activeId) : -1;
+  const shouldAutoExpandForActive = activeIndex >= WORKSPACE_COLLAPSED_VISIBLE_COUNT;
+  const isExpanded = _workspaceListExpanded || shouldAutoExpandForActive;
+  const visibleEntries = isExpanded
+    ? ws.entries
+    : ws.entries.slice(0, WORKSPACE_COLLAPSED_VISIBLE_COUNT);
+  const hiddenCount = Math.max(0, ws.entries.length - visibleEntries.length);
 
   const playgroundChip = document.createElement("div");
   const isPlaygroundActive = ws.activeId === null;
@@ -482,7 +498,7 @@ function renderWorkspacePanel() {
   });
   playgroundHost.appendChild(playgroundChip);
 
-  for (const entry of ws.entries) {
+  for (const entry of visibleEntries) {
     const isActive = entry.id === ws.activeId;
 
     const chip = document.createElement("div");
@@ -591,6 +607,30 @@ function renderWorkspacePanel() {
     });
 
     list.appendChild(chip);
+  }
+
+  if (listFooter && ws.entries.length > WORKSPACE_COLLAPSED_VISIBLE_COUNT) {
+    const footerWrap = document.createElement("div");
+    footerWrap.className = "flex items-center justify-between gap-2";
+
+    const footerText = document.createElement("span");
+    footerText.className = "text-xs text-base-content/55";
+    footerText.textContent = isExpanded
+      ? `${ws.entries.length}件を表示中`
+      : `${visibleEntries.length}件を表示中 / あと${hiddenCount}件`;
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "btn btn-ghost btn-xs";
+    toggleBtn.textContent = isExpanded ? "折りたたむ" : `さらに表示 (${hiddenCount})`;
+    toggleBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
+    toggleBtn.addEventListener("click", () => {
+      _workspaceListExpanded = !isExpanded;
+      renderWorkspacePanel();
+    });
+
+    footerWrap.appendChild(footerText);
+    footerWrap.appendChild(toggleBtn);
+    listFooter.appendChild(footerWrap);
   }
 }
 
