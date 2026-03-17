@@ -6,13 +6,15 @@ export interface ViewerEntry {
   name: string;
   memo: string;
   /** Source type — used for deduplication and badge display. */
-  sourceType: "shareKey" | "simulatorUrl";
-  /** Stable identifier for this source (e.g. 16-char short key, fleet tag, or base URL). */
+  sourceType: "shareKey" | "simulatorUrl" | "ownDeck";
+  /** Stable identifier for this source (e.g. short key, simulator URL, or own deck tag). */
   sourceValue: string;
   payloadKind: "exportedFleet" | "fleetSnapshot";
   payload: unknown;
   updatedAt: number;
   pinned: boolean;
+  /** When true, addEntry dedup will not overwrite payload/name (e.g. R2 re-read won't clobber). */
+  locked?: boolean;
 }
 
 export interface ViewerWorkspace {
@@ -32,9 +34,15 @@ export function loadWorkspace(): ViewerWorkspace {
     const ws = parsed as ViewerWorkspace;
     ws.entries = (ws.entries ?? []).map((entry) => ({
       ...entry,
+      sourceType: (entry as { sourceType?: unknown }).sourceType === "snapshotTag"
+        ? "ownDeck"
+        : ((entry as { sourceType?: ViewerEntry["sourceType"] }).sourceType ?? "simulatorUrl"),
       memo: typeof (entry as { memo?: unknown }).memo === "string"
         ? (entry as { memo?: string }).memo ?? ""
         : "",
+      locked: typeof (entry as { locked?: unknown }).locked === "boolean"
+        ? (entry as { locked?: boolean }).locked ?? false
+        : false,
     }));
     return ws;
   } catch {
@@ -77,10 +85,14 @@ export function addEntry(
 ): ViewerEntry {
   const existing = findBySource(entry.sourceType, entry.sourceValue);
   if (existing) {
-    existing.payload = entry.payload;
+    if (!existing.locked) {
+      existing.payload = entry.payload;
+      if (entry.name) existing.name = entry.name;
+    }
+    if (entry.memo || !existing.memo) {
+      existing.memo = entry.memo;
+    }
     existing.updatedAt = Date.now();
-    if (entry.name) existing.name = entry.name;
-    existing.memo = entry.memo;
     _ws.entries = [existing, ..._ws.entries.filter((e) => e.id !== existing.id)];
     saveWorkspace(_ws);
     return existing;
@@ -96,6 +108,7 @@ export function addEntry(
     payload: entry.payload,
     updatedAt: Date.now(),
     pinned: entry.pinned ?? false,
+    locked: entry.locked ?? false,
   };
 
   let entries = [newEntry, ..._ws.entries];
@@ -126,9 +139,11 @@ export function upsertEntry(
 
   if (duplicate) {
     duplicate.name = entry.name;
+    duplicate.memo = entry.memo;
     duplicate.payloadKind = entry.payloadKind;
     duplicate.payload = entry.payload;
     duplicate.pinned = entry.pinned;
+    duplicate.locked = entry.locked ?? false;
     duplicate.updatedAt = Date.now();
     _ws.entries = [
       duplicate,
@@ -144,11 +159,13 @@ export function upsertEntry(
   const target = _ws.entries.find((current) => current.id === entry.id);
   if (target) {
     target.name = entry.name;
+    target.memo = entry.memo;
     target.sourceType = entry.sourceType;
     target.sourceValue = entry.sourceValue;
     target.payloadKind = entry.payloadKind;
     target.payload = entry.payload;
     target.pinned = entry.pinned;
+    target.locked = entry.locked ?? false;
     target.updatedAt = Date.now();
     _ws.entries = [target, ..._ws.entries.filter((current) => current.id !== target.id)];
     saveWorkspace(_ws);
@@ -169,6 +186,14 @@ export function removeEntry(id: string): void {
 export function setActive(id: string): void {
   if (_ws.entries.some((e) => e.id === id)) {
     _ws.activeId = id;
+    saveWorkspace(_ws);
+  }
+}
+
+export function toggleLock(id: string): void {
+  const entry = _ws.entries.find((e) => e.id === id);
+  if (entry) {
+    entry.locked = !entry.locked;
     saveWorkspace(_ws);
   }
 }

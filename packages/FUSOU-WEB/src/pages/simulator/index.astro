@@ -139,7 +139,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 d="M12 4v16m8-8H4"
               ></path></svg
             >
-            共有を追加
+            URLを追加
           </button>
         </div>
       </div>
@@ -149,11 +149,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
       >
         <div class="flex items-center justify-between gap-2 mb-2">
-          <h2 class="text-sm font-semibold">共有ワークスペース</h2>
+          <h2 class="text-sm font-semibold">ワークスペース</h2>
           <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
         </div>
         <p id="workspace-empty" class="text-sm text-base-content/50">
-          共有URLを追加すると、ページ遷移せずに編成を切り替えられます。
+          他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。
         </p>
         <div id="workspace-entry-list" class="space-y-2"></div>
       </section>
@@ -497,7 +497,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       <!-- Load Fleet Modal -->
       <dialog id="load-fleet-modal" class="modal">
         <div class="modal-box rounded-xl">
-          <h3 class="font-bold text-lg mb-4">R2から艦隊データを読込</h3>
+          <h3 class="font-bold text-lg mb-2">R2から自分のデッキを読込</h3>
+          <p class="text-xs text-base-content/60 mb-4">
+            選択したデッキはワークスペースに追加されます。
+          </p>
           <div
             id="fleet-list-container"
             class="space-y-2 max-h-80 overflow-y-auto"
@@ -704,9 +707,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       <!-- Workspace Add Modal -->
       <dialog id="workspace-add-modal" class="modal">
         <div class="modal-box rounded-xl">
-          <h3 id="workspace-modal-title" class="font-bold text-lg mb-2">共有ワークスペースに追加</h3>
+          <h3 id="workspace-modal-title" class="font-bold text-lg mb-2">ワークスペースにURLを追加</h3>
           <p id="workspace-modal-description" class="text-xs text-base-content/60 mb-4">
-            共有URL（/s/xxxx or /simulator?data=...）を追加できます。
+            共有URL（/s/xxxx or /simulator?data=...）を追加できます。URLを空欄のまま保存すると、現在の編成を自分のデッキとして追加します。
           </p>
 
           <div class="space-y-3 text-sm">

@@ -10,6 +10,7 @@ import {
   upsertEntry,
   removeEntry,
   setActive,
+  toggleLock,
   getWorkspace,
   type ViewerEntry,
 } from "./viewer-workspace";
@@ -171,6 +172,67 @@ function applyViewerEntry(entry: ViewerEntry): void {
   }
 }
 
+function saveCurrentStateToEntry(entry: ViewerEntry): void {
+  if (entry.sourceType !== "ownDeck") return;
+
+  const payload = buildSharePayload({
+    includeAirBases: true,
+    includeDetailedStats: true,
+    includeSnapshotData: false,
+  });
+  const snapshotPayload = buildSnapshotPayloadForShare();
+  const mergedPayload = {
+    ...payload,
+    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
+    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
+  };
+
+  upsertEntry({
+    id: entry.id,
+    name: entry.name,
+    memo: entry.memo,
+    sourceType: entry.sourceType,
+    sourceValue: entry.sourceValue,
+    payloadKind: "exportedFleet",
+    payload: mergedPayload,
+    pinned: entry.pinned,
+    locked: entry.locked ?? false,
+  });
+}
+
+function createOwnDeckFromCurrentState(name: string, memo: string): ViewerEntry {
+  const payload = buildSharePayload({
+    includeAirBases: true,
+    includeDetailedStats: true,
+    includeSnapshotData: false,
+  });
+  const snapshotPayload = buildSnapshotPayloadForShare();
+  const mergedPayload = {
+    ...payload,
+    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
+    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
+  };
+
+  return addEntry({
+    name: name || `自分のデッキ ${new Date().toLocaleString()}`,
+    memo,
+    sourceType: "ownDeck",
+    sourceValue: `playground:${crypto.randomUUID()}`,
+    payloadKind: "exportedFleet",
+    payload: mergedPayload,
+    pinned: false,
+    locked: false,
+  });
+}
+
+function saveActiveOwnDeckIfNeeded(): void {
+  const activeId = getWorkspace().activeId;
+  if (!activeId) return;
+  const activeEntry = getWorkspaceEntryById(activeId);
+  if (!activeEntry || activeEntry.sourceType !== "ownDeck") return;
+  saveCurrentStateToEntry(activeEntry);
+}
+
 function getWorkspaceModalElements() {
   return {
     modal: document.getElementById("workspace-add-modal") as HTMLDialogElement | null,
@@ -183,17 +245,24 @@ function getWorkspaceModalElements() {
   };
 }
 
+function getWorkspaceEntryById(id: string): ViewerEntry | null {
+  return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
+}
+
 function resetWorkspaceModal(): void {
   const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
     getWorkspaceModalElements();
   if (modal) delete modal.dataset.editEntryId;
-  if (title) title.textContent = "共有ワークスペースに追加";
+  if (title) title.textContent = "ワークスペースにURLを追加";
   if (description) {
-    description.textContent = "共有URL（/s/xxxx or /simulator?data=...）を追加できます。";
+    description.textContent = "共有URL（/s/xxxx or /simulator?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
   }
   if (labelInput) labelInput.value = "";
   if (memoInput) memoInput.value = "";
-  if (shareInput) shareInput.value = "";
+  if (shareInput) {
+    shareInput.value = "";
+    shareInput.disabled = false;
+  }
   if (confirmBtn) confirmBtn.textContent = "追加して切り替え";
 }
 
@@ -203,19 +272,28 @@ function openWorkspaceEditModal(entry: ViewerEntry): void {
   if (!modal) return;
 
   modal.dataset.editEntryId = entry.id;
-  if (title) title.textContent = "共有ワークスペースを編集";
-  if (description) {
-    description.textContent = "表示名を更新できます。保存するとこの項目へ切り替えます。";
-  }
+  if (title) title.textContent = "ワークスペース項目を編集";
   if (labelInput) labelInput.value = entry.name;
   if (memoInput) memoInput.value = entry.memo ?? "";
   if (shareInput) {
-    shareInput.value =
-      entry.sourceType === "shareKey"
-        ? entry.sourceValue
-        : entry.sourceType === "simulatorUrl"
+    if (entry.sourceType === "ownDeck") {
+      shareInput.value = "";
+      shareInput.disabled = true;
+      if (description) {
+        description.textContent = "自分のデッキ項目です。表示名とメモを更新できます。";
+      }
+    } else {
+      shareInput.value =
+        entry.sourceType === "shareKey"
           ? entry.sourceValue
-          : "";
+          : entry.sourceType === "simulatorUrl"
+            ? entry.sourceValue
+            : "";
+      shareInput.disabled = false;
+      if (description) {
+        description.textContent = "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。";
+      }
+    }
   }
   if (confirmBtn) confirmBtn.textContent = "保存して切り替え";
   modal.showModal();
@@ -267,8 +345,20 @@ function renderWorkspacePanel() {
     textBlock.appendChild(memoSpan);
 
     const badge = document.createElement("span");
-    badge.className = "badge badge-sm badge-ghost shrink-0";
-    badge.textContent = "URL";
+    badge.className = "badge badge-sm shrink-0 " + (entry.locked ? "badge-warning" : "badge-ghost");
+    badge.textContent = entry.sourceType === "ownDeck" ? "DECK" : "URL";
+
+    const lockBtn = document.createElement("button");
+    lockBtn.className = "btn btn-ghost btn-xs shrink-0";
+    lockBtn.textContent = entry.locked ? "🔒" : "🔓";
+    lockBtn.title = entry.locked
+      ? "ロック中：R2再読込で上書きされません。クリックで解除"
+      : "ロック解除中：R2再読込で上書きされます。クリックでロック";
+    lockBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleLock(entry.id);
+      renderWorkspacePanel();
+    });
 
     const editBtn = document.createElement("button");
     editBtn.className = "btn btn-ghost btn-xs shrink-0";
@@ -291,10 +381,16 @@ function renderWorkspacePanel() {
 
     chip.appendChild(textBlock);
     chip.appendChild(badge);
+    chip.appendChild(lockBtn);
     chip.appendChild(editBtn);
     chip.appendChild(delBtn);
 
     chip.addEventListener("click", () => {
+      const activeId = getWorkspace().activeId;
+      if (activeId && activeId !== entry.id) {
+        const currentEntry = getWorkspaceEntryById(activeId);
+        if (currentEntry) saveCurrentStateToEntry(currentEntry);
+      }
       setActive(entry.id);
       applyViewerEntry(entry);
       renderWorkspacePanel();
@@ -362,6 +458,10 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
   const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
 
+  window.addEventListener("beforeunload", () => {
+    saveActiveOwnDeckIfNeeded();
+  });
+
   // R2 fleet load
   document.getElementById("btn-load-fleet")?.addEventListener("click", async () => {
     const modal = document.getElementById("load-fleet-modal") as HTMLDialogElement;
@@ -406,7 +506,18 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
             const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`, { headers: authHeaders() });
             if (snapRes.ok) {
               const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
-              applyFleetSnapshot(result.snapshot);
+              const wsEntry = addEntry({
+                name: entry.tag,
+                memo: "",
+                sourceType: "ownDeck",
+                sourceValue: entry.tag,
+                payloadKind: "fleetSnapshot",
+                payload: result.snapshot,
+                pinned: false,
+              });
+              setActive(wsEntry.id);
+              applyViewerEntry(wsEntry);
+              renderWorkspacePanel();
               modal.close();
             } else {
               alert("スナップショットの読込に失敗しました");
@@ -572,8 +683,44 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       const memoRaw = memoInput?.value.trim() ?? "";
       const memo = memoRaw.slice(0, WORKSPACE_MEMO_MAX_LENGTH);
       const shareUrl = shareInput?.value.trim() ?? "";
+      const editingEntry = editingEntryId ? getWorkspaceEntryById(editingEntryId) : null;
+
+      if (editingEntry?.sourceType === "ownDeck") {
+        let payloadSource = editingEntry;
+        if (getWorkspace().activeId === editingEntry.id) {
+          saveCurrentStateToEntry(editingEntry);
+          payloadSource = getWorkspaceEntryById(editingEntry.id) ?? editingEntry;
+        }
+
+        const updated = upsertEntry({
+          id: payloadSource.id,
+          name: label || payloadSource.name,
+          memo,
+          sourceType: payloadSource.sourceType,
+          sourceValue: payloadSource.sourceValue,
+          payloadKind: payloadSource.payloadKind,
+          payload: payloadSource.payload,
+          pinned: payloadSource.pinned,
+          locked: payloadSource.locked ?? false,
+        });
+        setActive(updated.id);
+        applyViewerEntry(updated);
+        renderWorkspacePanel();
+        modal?.close();
+        resetWorkspaceModal();
+        return;
+      }
 
       if (!shareUrl) {
+        if (!editingEntryId) {
+          const entry = createOwnDeckFromCurrentState(label, memo);
+          setActive(entry.id);
+          applyViewerEntry(entry);
+          renderWorkspacePanel();
+          modal?.close();
+          resetWorkspaceModal();
+          return;
+        }
         alert("共有URLを入力してください");
         return;
       }
