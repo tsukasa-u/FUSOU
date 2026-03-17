@@ -249,6 +249,44 @@ function getWorkspaceEntryById(id: string): ViewerEntry | null {
   return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
 }
 
+function getCoverageText(entry: ViewerEntry): string {
+  const payload = entry.payload as Record<string, unknown>;
+
+  const fleetLabels: string[] = [];
+  if (entry.payloadKind === "fleetSnapshot") {
+    const decks = Array.isArray(payload.d8k) ? (payload.d8k as Record<string, unknown>[]) : [];
+    for (let i = 0; i < Math.min(decks.length, 4); i++) {
+      const shipIds = Array.isArray(decks[i]?.s3s) ? (decks[i]?.s3s as number[]) : [];
+      if (shipIds.some((id) => typeof id === "number" && id > 0)) fleetLabels.push(`F${i + 1}`);
+    }
+    return `艦隊:${fleetLabels.join(",") || "-"} / 基地:${"-"}`;
+  }
+
+  for (const idx of [1, 2, 3, 4]) {
+    const fleet = payload[`fleet${idx}`];
+    const rows = Array.isArray(fleet) ? (fleet as Record<string, unknown>[]) : [];
+    const hasShip = rows.some((row) => typeof row?.shipId === "number" && row.shipId > 0);
+    if (hasShip) fleetLabels.push(`F${idx}`);
+  }
+
+  const airBases = Array.isArray(payload.airBases) ? (payload.airBases as Record<string, unknown>[]) : [];
+  let maxAirBaseIndex = 0;
+  for (let i = 0; i < airBases.length; i++) {
+    const equipIds = Array.isArray(airBases[i]?.equipIds) ? (airBases[i]?.equipIds as Array<number | null>) : [];
+    const hasEquip = equipIds.some((id) => typeof id === "number" && id > 0);
+    if (hasEquip) maxAirBaseIndex = i + 1;
+  }
+
+  return `艦隊:${fleetLabels.join(",") || "-"} / 基地:${maxAirBaseIndex > 0 ? `A1-A${maxAirBaseIndex}` : "-"}`;
+}
+
+function buildLockIconSvg(locked: boolean): string {
+  if (locked) {
+    return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+  }
+  return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 10h4v10H5V10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
 function resetWorkspaceModal(): void {
   const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
     getWorkspaceModalElements();
@@ -340,9 +378,17 @@ function renderWorkspacePanel() {
 
     const memoSpan = document.createElement("div");
     memoSpan.className = "text-xs text-base-content/65 mt-0.5 whitespace-pre-wrap break-words";
-    memoSpan.textContent = entry.memo?.trim() ? entry.memo : "メモなし";
+    memoSpan.textContent = entry.memo?.trim() ?? "";
+
+    const coverageSpan = document.createElement("div");
+    coverageSpan.className = "text-[11px] text-base-content/55 mt-0.5";
+    coverageSpan.textContent = getCoverageText(entry);
+
     textBlock.appendChild(nameSpan);
-    textBlock.appendChild(memoSpan);
+    if (memoSpan.textContent) {
+      textBlock.appendChild(memoSpan);
+    }
+    textBlock.appendChild(coverageSpan);
 
     const badge = document.createElement("span");
     badge.className = "badge badge-sm shrink-0 " + (entry.locked ? "badge-warning" : "badge-ghost");
@@ -350,10 +396,11 @@ function renderWorkspacePanel() {
 
     const lockBtn = document.createElement("button");
     lockBtn.className = "btn btn-ghost btn-xs shrink-0";
-    lockBtn.textContent = entry.locked ? "🔒" : "🔓";
+    lockBtn.innerHTML = buildLockIconSvg(Boolean(entry.locked));
     lockBtn.title = entry.locked
       ? "ロック中：R2再読込で上書きされません。クリックで解除"
       : "ロック解除中：R2再読込で上書きされます。クリックでロック";
+    lockBtn.setAttribute("aria-label", entry.locked ? "ロック中" : "ロック解除中");
     lockBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       toggleLock(entry.id);
@@ -669,6 +716,18 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       "workspace-add-modal",
     ) as HTMLDialogElement | null;
     modal?.showModal();
+  });
+
+  // ── Workspace: quick add current composition ──
+  document.getElementById("btn-workspace-add-current")?.addEventListener("click", () => {
+    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+    const entry = createOwnDeckFromCurrentState(
+      hasSnapshot ? `自分のデッキ（R2由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
+      "",
+    );
+    setActive(entry.id);
+    applyViewerEntry(entry);
+    renderWorkspacePanel();
   });
 
   // ── Workspace: confirm add ──
