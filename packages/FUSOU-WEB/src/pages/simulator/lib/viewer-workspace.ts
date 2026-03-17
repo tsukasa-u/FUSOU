@@ -191,6 +191,13 @@ export function setActive(id: string): void {
   }
 }
 
+export function clearActive(): void {
+  if (_ws.activeId !== null) {
+    _ws.activeId = null;
+    saveWorkspace(_ws);
+  }
+}
+
 export function toggleLock(id: string): void {
   const entry = _ws.entries.find((e) => e.id === id);
   if (entry) {
