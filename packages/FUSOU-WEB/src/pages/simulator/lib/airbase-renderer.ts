@@ -6,6 +6,8 @@ import { createWeaponIconEl } from "./equip-calc";
 import { openEquipModal } from "./equip-modal";
 import { renderFleetSlots } from "./fleet-renderer";
 
+const isReadOnly = () => state.isWorkspaceReadOnly;
+
 function hasAnyShipInFleet(fleet: typeof state.fleet1): boolean {
   return fleet.some((slot) => slot.shipId != null);
 }
@@ -120,6 +122,7 @@ export function renderAirBases() {
           profBadge.title = `熟練度${profLevel} (クリックで変更)`;
           profBadge.addEventListener("click", (e) => {
             e.stopPropagation();
+            if (isReadOnly()) return;
             const cur = state.airBases[bIdx].equipProficiency[i] ?? 0;
             state.airBases[bIdx].equipProficiency[i] = cur >= 7 ? 0 : cur + 1;
             renderAirBases();
@@ -147,6 +150,7 @@ export function renderAirBases() {
         impBadge.title = `改修Lv${impLevel} (クリックで変更)`;
         impBadge.addEventListener("click", (e) => {
           e.stopPropagation();
+          if (isReadOnly()) return;
           const cur = state.airBases[bIdx].equipImprovement[i] ?? 0;
           state.airBases[bIdx].equipImprovement[i] = cur >= 10 ? 0 : cur + 1;
           renderAirBases();
@@ -163,6 +167,7 @@ export function renderAirBases() {
 
       const slotIdx = i;
       row.addEventListener("click", () => {
+        if (isReadOnly()) return;
         state.equipModalTargetShipId = null;
         state.equipModalTargetSlot = null;
         state.equipModalTargetSlotIdx = -1;

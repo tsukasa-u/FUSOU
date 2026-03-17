@@ -244,6 +244,7 @@ function renderShipGrid(
       "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
     clearItem.textContent = "✕ 選択を解除";
     clearItem.addEventListener("click", () => {
+      if (state.isWorkspaceReadOnly) return;
       state.shipModalCb?.(null);
       state.shipModalCb = null;
       (
@@ -386,6 +387,7 @@ function createShipItem(ship: MstShipData): HTMLElement {
 
   item.addEventListener("mouseenter", () => renderShipDetail(ship));
   item.addEventListener("click", () => {
+    if (state.isWorkspaceReadOnly) return;
     state.shipModalCb?.(ship.id);
     state.shipModalCb = null;
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();

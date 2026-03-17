@@ -302,6 +302,7 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
 
   item.addEventListener("mouseenter", () => renderEquipDetail(equip));
   item.addEventListener("click", () => {
+    if (state.isWorkspaceReadOnly) return;
     state.equipModalCb?.(equip.id);
     state.equipModalCb = null;
     (
@@ -411,6 +412,7 @@ function renderEquipGrid(
       "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
     clearItem.textContent = "✕ 装備を外す";
     clearItem.addEventListener("click", () => {
+      if (state.isWorkspaceReadOnly) return;
       state.equipModalCb?.(null);
       state.equipModalCb = null;
       (

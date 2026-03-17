@@ -1,12 +1,14 @@
 // ── Fleet Rendering ──
 
 import { state } from "./state";
-import type { FleetSlot, StatOverrides } from "./types";
+import type { FleetSlot } from "./types";
 import { STYPE_SHORT, SPEED_NAMES, AIRCRAFT_TYPES, RANGE_NAMES } from "./constants";
-import { bannerUrl, cardUrl, createWeaponIconEl, computeEquipBonuses, computeEquipSum } from "./equip-calc";
+import { cardUrl, createWeaponIconEl, computeEquipBonuses, computeEquipSum } from "./equip-calc";
 import { openShipModal } from "./ship-modal";
 import { openEquipModal } from "./equip-modal";
 import { prefetchExternalUrlForExport } from "./image-capture";
+
+const isReadOnly = () => state.isWorkspaceReadOnly;
 
 export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
   const container = document.getElementById(containerId)!;
@@ -36,6 +38,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       card.appendChild(hint);
 
       card.addEventListener("click", () => {
+        if (isReadOnly()) return;
         openShipModal(null, (id) => {
           fleet[idx].shipId = id;
           fleet[idx].equipIds = [null, null, null, null, null];
@@ -101,6 +104,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       clearBtn.textContent = "✕";
       clearBtn.addEventListener("click", (e) => {
         e.stopPropagation();
+        if (isReadOnly()) return;
         fleet[idx].shipId = null;
         fleet[idx].equipIds = [null, null, null, null, null];
         fleet[idx].equipImprovement = [0, 0, 0, 0, 0];
@@ -190,6 +194,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
             profBadge.title = `熟練度${profLevel} (クリックで変更)`;
             profBadge.addEventListener("click", (e) => {
               e.stopPropagation();
+              if (isReadOnly()) return;
               const cur = fleet[idx].equipProficiency[i] ?? 0;
               fleet[idx].equipProficiency[i] = cur >= 7 ? 0 : cur + 1;
               renderFleetSlots(containerId, fleet);
@@ -217,6 +222,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
           impBadge.title = `改修Lv${impLevel} (クリックで変更)`;
           impBadge.addEventListener("click", (e) => {
             e.stopPropagation();
+            if (isReadOnly()) return;
             const cur = fleet[idx].equipImprovement[i] ?? 0;
             fleet[idx].equipImprovement[i] = cur >= 10 ? 0 : cur + 1;
             renderFleetSlots(containerId, fleet);
@@ -286,6 +292,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         exImpBadge.title = `改修Lv${exImpLevel} (クリックで変更)`;
         exImpBadge.addEventListener("click", (e) => {
           e.stopPropagation();
+          if (isReadOnly()) return;
           const cur = fleet[idx].exSlotImprovement ?? 0;
           fleet[idx].exSlotImprovement = cur >= 10 ? 0 : cur + 1;
           renderFleetSlots(containerId, fleet);
@@ -378,6 +385,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         minusBtn.textContent = "−";
         minusBtn.addEventListener("click", (e) => {
           e.stopPropagation();
+          if (isReadOnly()) return;
           if (base == null && overrides[key] == null) return;
           const cur = currentNumericVal(key, base);
           const minVal = base ?? 0;
@@ -394,6 +402,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         vl.textContent = formatStatVal(key, base, max, isNumeric);
         vl.addEventListener("click", (e) => {
           e.stopPropagation();
+          if (isReadOnly()) return;
           if (base == null && overrides[key] == null) return;
           const input = document.createElement("input");
           input.type = "number";
@@ -425,6 +434,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         plusBtn.textContent = "+";
         plusBtn.addEventListener("click", (e) => {
           e.stopPropagation();
+          if (isReadOnly()) return;
           if (base == null && overrides[key] == null) return;
           const cur = currentNumericVal(key, base);
           const maxVal = max ?? 9999;

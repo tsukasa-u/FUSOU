@@ -323,11 +323,10 @@ function syncLockedEditState(): void {
   const active = activeId ? getWorkspaceEntryById(activeId) : null;
   const locked = Boolean(active?.locked);
   const lockedMessage = "ロック中のため編集できません";
+  state.isWorkspaceReadOnly = locked;
 
   const deckCaptureArea = document.getElementById("deck-capture-area") as HTMLElement | null;
   if (deckCaptureArea) {
-    deckCaptureArea.style.pointerEvents = locked ? "none" : "";
-    deckCaptureArea.style.opacity = locked ? "0.55" : "";
     deckCaptureArea.title = locked ? lockedMessage : "";
   }
 
@@ -345,12 +344,10 @@ function syncLockedEditState(): void {
     modeBadge.title = locked ? lockedMessage : "";
   }
 
-  if (locked) {
-    const shipModal = document.getElementById("ship-modal") as HTMLDialogElement | null;
-    const equipModal = document.getElementById("equip-modal") as HTMLDialogElement | null;
-    if (shipModal?.open) shipModal.close();
-    if (equipModal?.open) equipModal.close();
-  }
+  const shipGrid = document.getElementById("ship-modal-grid") as HTMLElement | null;
+  const equipGrid = document.getElementById("equip-modal-grid") as HTMLElement | null;
+  if (shipGrid) shipGrid.title = locked ? lockedMessage : "";
+  if (equipGrid) equipGrid.title = locked ? lockedMessage : "";
 }
 
 function resetWorkspaceModal(): void {

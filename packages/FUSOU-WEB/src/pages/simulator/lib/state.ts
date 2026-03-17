@@ -77,6 +77,9 @@ export const state = {
     { slotitem_id: number; level: number; alv: number }
   >,
 
+  // UI guard: true when active workspace entry is locked and edits must be blocked.
+  isWorkspaceReadOnly: false,
+
   // Equipment filtering master data
   /** stype id → equip_type map (default allowed equip types per ship type) */
   mstStypes: {} as Record<number, MstStypeData>,
