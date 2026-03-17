@@ -175,6 +175,12 @@ function rememberCurrentPlayground(): void {
   _playgroundDraft = buildCurrentPlaygroundPayload();
 }
 
+function rememberPlaygroundBeforeWorkspaceSwitch(): void {
+  if (getWorkspace().activeId === null) {
+    rememberCurrentPlayground();
+  }
+}
+
 function applyPlaygroundDraftOrBlank(): void {
   if (_playgroundDraft) {
     applyExportedFleet(_playgroundDraft);
@@ -219,6 +225,7 @@ function applyViewerEntry(entry: ViewerEntry): void {
 
 function saveCurrentStateToEntry(entry: ViewerEntry): void {
   if (entry.sourceType !== "ownDeck") return;
+  if (entry.locked) return;
 
   const mergedPayload = buildCurrentPlaygroundPayload();
 
@@ -267,37 +274,6 @@ function getWorkspaceEntryById(id: string): ViewerEntry | null {
   return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
 }
 
-function getCoverageText(entry: ViewerEntry): string {
-  const payload = entry.payload as Record<string, unknown>;
-
-  const fleetLabels: string[] = [];
-  if (entry.payloadKind === "fleetSnapshot") {
-    const decks = Array.isArray(payload.d8k) ? (payload.d8k as Record<string, unknown>[]) : [];
-    for (let i = 0; i < Math.min(decks.length, 4); i++) {
-      const shipIds = Array.isArray(decks[i]?.s3s) ? (decks[i]?.s3s as number[]) : [];
-      if (shipIds.some((id) => typeof id === "number" && id > 0)) fleetLabels.push(`F${i + 1}`);
-    }
-    return `艦隊:${fleetLabels.join(",") || "-"} / 基地:${"-"}`;
-  }
-
-  for (const idx of [1, 2, 3, 4]) {
-    const fleet = payload[`fleet${idx}`];
-    const rows = Array.isArray(fleet) ? (fleet as Record<string, unknown>[]) : [];
-    const hasShip = rows.some((row) => typeof row?.shipId === "number" && row.shipId > 0);
-    if (hasShip) fleetLabels.push(`F${idx}`);
-  }
-
-  const airBases = Array.isArray(payload.airBases) ? (payload.airBases as Record<string, unknown>[]) : [];
-  let maxAirBaseIndex = 0;
-  for (let i = 0; i < airBases.length; i++) {
-    const equipIds = Array.isArray(airBases[i]?.equipIds) ? (airBases[i]?.equipIds as Array<number | null>) : [];
-    const hasEquip = equipIds.some((id) => typeof id === "number" && id > 0);
-    if (hasEquip) maxAirBaseIndex = i + 1;
-  }
-
-  return `艦隊:${fleetLabels.join(",") || "-"} / 基地:${maxAirBaseIndex > 0 ? `A1-A${maxAirBaseIndex}` : "-"}`;
-}
-
 function buildLockIconSvg(locked: boolean): string {
   if (locked) {
     return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
@@ -336,10 +312,45 @@ function renderWorkspaceModeIndicator(): void {
     return;
   }
   const typeLabel = active.sourceType === "ownDeck" ? "DECK" : "URL";
-  el.textContent = `WORKSPACE: ${typeLabel}`;
+  el.textContent = active.locked ? `WORKSPACE: ${typeLabel} (LOCKED)` : `WORKSPACE: ${typeLabel}`;
   el.className = active.sourceType === "ownDeck"
     ? "badge badge-sm badge-success"
     : "badge badge-sm badge-accent";
+}
+
+function syncLockedEditState(): void {
+  const activeId = getWorkspace().activeId;
+  const active = activeId ? getWorkspaceEntryById(activeId) : null;
+  const locked = Boolean(active?.locked);
+  const lockedMessage = "ロック中のため編集できません";
+
+  const deckCaptureArea = document.getElementById("deck-capture-area") as HTMLElement | null;
+  if (deckCaptureArea) {
+    deckCaptureArea.style.pointerEvents = locked ? "none" : "";
+    deckCaptureArea.style.opacity = locked ? "0.55" : "";
+    deckCaptureArea.title = locked ? lockedMessage : "";
+  }
+
+  const blockingButtons = ["btn-load-fleet", "btn-import"];
+  for (const id of blockingButtons) {
+    const btn = document.getElementById(id) as HTMLButtonElement | null;
+    if (btn) {
+      btn.disabled = locked;
+      btn.title = locked ? lockedMessage : "";
+    }
+  }
+
+  const modeBadge = document.getElementById("workspace-mode-status") as HTMLElement | null;
+  if (modeBadge) {
+    modeBadge.title = locked ? lockedMessage : "";
+  }
+
+  if (locked) {
+    const shipModal = document.getElementById("ship-modal") as HTMLDialogElement | null;
+    const equipModal = document.getElementById("equip-modal") as HTMLDialogElement | null;
+    if (shipModal?.open) shipModal.close();
+    if (equipModal?.open) equipModal.close();
+  }
 }
 
 function resetWorkspaceModal(): void {
@@ -352,11 +363,14 @@ function resetWorkspaceModal(): void {
   }
   if (labelInput) labelInput.value = "";
   if (memoInput) memoInput.value = "";
+  if (labelInput) labelInput.disabled = false;
+  if (memoInput) memoInput.disabled = false;
   if (shareInput) {
     shareInput.value = "";
     shareInput.disabled = false;
   }
   if (confirmBtn) confirmBtn.textContent = "追加して切り替え";
+  if (confirmBtn) confirmBtn.disabled = false;
 }
 
 function openWorkspaceEditModal(entry: ViewerEntry): void {
@@ -368,12 +382,16 @@ function openWorkspaceEditModal(entry: ViewerEntry): void {
   if (title) title.textContent = "ワークスペース項目を編集";
   if (labelInput) labelInput.value = entry.name;
   if (memoInput) memoInput.value = entry.memo ?? "";
+  if (labelInput) labelInput.disabled = Boolean(entry.locked);
+  if (memoInput) memoInput.disabled = Boolean(entry.locked);
   if (shareInput) {
     if (entry.sourceType === "ownDeck") {
       shareInput.value = "";
       shareInput.disabled = true;
       if (description) {
-        description.textContent = "自分のデッキ項目です。表示名とメモを更新できます。";
+        description.textContent = entry.locked
+          ? "ロック中のデッキは編集できません。"
+          : "自分のデッキ項目です。表示名とメモを更新できます。";
       }
     } else {
       shareInput.value =
@@ -384,11 +402,16 @@ function openWorkspaceEditModal(entry: ViewerEntry): void {
             : "";
       shareInput.disabled = false;
       if (description) {
-        description.textContent = "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。";
+        description.textContent = entry.locked
+          ? "ロック中の項目は編集できません。"
+          : "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。";
       }
     }
   }
-  if (confirmBtn) confirmBtn.textContent = "保存して切り替え";
+  if (confirmBtn) {
+    confirmBtn.textContent = "保存して切り替え";
+    confirmBtn.disabled = Boolean(entry.locked);
+  }
   modal.showModal();
 }
 
@@ -402,6 +425,7 @@ function renderWorkspacePanel() {
   if (!list) return;
 
   renderWorkspaceModeIndicator();
+  syncLockedEditState();
 
   if (count) count.textContent = `${ws.entries.length}件`;
 
@@ -476,15 +500,10 @@ function renderWorkspacePanel() {
     memoSpan.className = "text-xs text-base-content/65 mt-0.5 whitespace-pre-wrap break-words";
     memoSpan.textContent = entry.memo?.trim() ?? "";
 
-    const coverageSpan = document.createElement("div");
-    coverageSpan.className = "text-[11px] text-base-content/55 mt-0.5";
-    coverageSpan.textContent = getCoverageText(entry);
-
     textBlock.appendChild(nameSpan);
     if (memoSpan.textContent) {
       textBlock.appendChild(memoSpan);
     }
-    textBlock.appendChild(coverageSpan);
 
     const badge = document.createElement("span");
     badge.className = "badge badge-sm shrink-0 " + (entry.locked ? "badge-warning" : "badge-ghost");
@@ -493,7 +512,7 @@ function renderWorkspacePanel() {
     const lockBtn = document.createElement("button");
     lockBtn.className = "btn btn-ghost btn-xs shrink-0";
     lockBtn.innerHTML = buildLockIconSvg(Boolean(entry.locked));
-    lockBtn.style.color = entry.locked ? "hsl(var(--wa))" : "hsl(var(--bc) / 0.55)";
+    lockBtn.style.color = entry.locked ? "hsl(var(--er))" : "hsl(var(--su))";
     lockBtn.title = entry.locked
       ? "ロック中：R2再読込で上書きされません。クリックで解除"
       : "ロック解除中：R2再読込で上書きされます。クリックでロック";
@@ -507,9 +526,11 @@ function renderWorkspacePanel() {
     const editBtn = document.createElement("button");
     editBtn.className = "btn btn-ghost btn-xs shrink-0";
     editBtn.textContent = "編集";
-    editBtn.title = "編集";
+    editBtn.title = entry.locked ? "ロック中は編集できません" : "編集";
+    editBtn.disabled = Boolean(entry.locked);
     editBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      if (entry.locked) return;
       openWorkspaceEditModal(entry);
     });
 
@@ -529,6 +550,7 @@ function renderWorkspacePanel() {
     dupBtn.title = "この項目を複製";
     dupBtn.addEventListener("click", (e) => {
       e.stopPropagation();
+      rememberPlaygroundBeforeWorkspaceSwitch();
       const duplicated = duplicateEntry(entry.id);
       if (!duplicated) return;
       setActive(duplicated.id);
@@ -834,6 +856,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   // ── Workspace: quick add current composition ──
   document.getElementById("btn-workspace-add-current")?.addEventListener("click", () => {
     if (!_isSnapshotPlayground) return;
+    rememberPlaygroundBeforeWorkspaceSwitch();
     const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
     const entry = createOwnDeckFromCurrentState(
       hasSnapshot ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
@@ -860,6 +883,11 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       const editingEntry = editingEntryId ? getWorkspaceEntryById(editingEntryId) : null;
 
       if (editingEntry?.sourceType === "ownDeck") {
+        if (editingEntry.locked) {
+          alert("ロック中のデッキは編集できません");
+          return;
+        }
+        rememberPlaygroundBeforeWorkspaceSwitch();
         let payloadSource = editingEntry;
         if (getWorkspace().activeId === editingEntry.id) {
           saveCurrentStateToEntry(editingEntry);
@@ -888,6 +916,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
       if (!shareUrl) {
         if (!editingEntryId) {
+          rememberPlaygroundBeforeWorkspaceSwitch();
           const entry = createOwnDeckFromCurrentState(label, memo);
           setActive(entry.id);
           applyViewerEntry(entry);
@@ -930,6 +959,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
             payload: resolved.payload,
             pinned: false,
           });
+          rememberPlaygroundBeforeWorkspaceSwitch();
           setActive(entry.id);
           applyViewerEntry(entry);
           setSnapshotPlaygroundMode(false);
