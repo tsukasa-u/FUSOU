@@ -1,21 +1,35 @@
 // ── Fleet Rendering ──
 
-import { state } from "./state";
 import type { FleetSlot } from "./types";
 import { STYPE_SHORT, SPEED_NAMES, AIRCRAFT_TYPES, RANGE_NAMES } from "./constants";
 import { cardUrl, createWeaponIconEl, computeEquipBonuses, computeEquipSum } from "./equip-calc";
 import { openShipModal } from "./ship-modal";
 import { openEquipModal } from "./equip-modal";
 import { prefetchExternalUrlForExport } from "./image-capture";
+import {
+  assignShipToFleetSlot,
+  cycleFleetEquipProficiency,
+  cycleFleetEquipImprovement,
+  cycleFleetExslotImprovement,
+  ensureFleetStatOverrides,
+  setEquipModalTargetForFleet,
+  setFleetEquip,
+  setFleetExslotEquip,
+} from "./simulator-mutations";
+import {
+  getMasterShip,
+  getMasterSlotItem,
+  isWorkspaceReadOnly,
+} from "./simulator-selectors";
 
-const isReadOnly = () => state.isWorkspaceReadOnly;
+const isReadOnly = () => isWorkspaceReadOnly();
 
 export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
   const container = document.getElementById(containerId)!;
   container.innerHTML = "";
 
   fleet.forEach((slot, idx) => {
-    const ship = slot.shipId != null ? state.mstShips[slot.shipId] : null;
+    const ship = slot.shipId != null ? getMasterShip(slot.shipId) : null;
     const slotCount = ship?.slot_num ?? 4;
 
     const card = document.createElement("div");
@@ -40,13 +54,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       card.addEventListener("click", () => {
         if (isReadOnly()) return;
         openShipModal(null, (id) => {
-          fleet[idx].shipId = id;
-          fleet[idx].equipIds = [null, null, null, null, null];
-          fleet[idx].equipImprovement = [0, 0, 0, 0, 0];
-          fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
-          fleet[idx].exSlotId = null;
-          fleet[idx].exSlotImprovement = 0;
-          delete fleet[idx].instanceStats;
+          assignShipToFleetSlot(fleet[idx], id);
           renderFleetSlots(containerId, fleet);
         });
       });
@@ -105,13 +113,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       clearBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (isReadOnly()) return;
-        fleet[idx].shipId = null;
-        fleet[idx].equipIds = [null, null, null, null, null];
-        fleet[idx].equipImprovement = [0, 0, 0, 0, 0];
-        fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
-        fleet[idx].exSlotId = null;
-        fleet[idx].exSlotImprovement = 0;
-        delete fleet[idx].instanceStats;
+        assignShipToFleetSlot(fleet[idx], null);
         renderFleetSlots(containerId, fleet);
       });
       header.appendChild(clearBtn);
@@ -119,13 +121,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       header.addEventListener("click", () => {
         openShipModal(slot.shipId, (id) => {
           if (id !== slot.shipId) {
-            fleet[idx].shipId = id;
-            fleet[idx].equipIds = [null, null, null, null, null];
-            fleet[idx].equipImprovement = [0, 0, 0, 0, 0];
-            fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
-            fleet[idx].exSlotId = null;
-            fleet[idx].exSlotImprovement = 0;
-            delete fleet[idx].instanceStats;
+            assignShipToFleetSlot(fleet[idx], id);
           }
           renderFleetSlots(containerId, fleet);
         });
@@ -138,7 +134,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
 
       for (let i = 0; i < 5; i++) {
         const isActive = i < slotCount;
-        const equip = isActive && slot.equipIds[i] != null ? state.mstSlotItems[slot.equipIds[i]!] : null;
+        const equip = isActive && slot.equipIds[i] != null ? getMasterSlotItem(slot.equipIds[i]!) : null;
         const eqRow = document.createElement("div");
         eqRow.className =
           "flex items-center gap-1 px-1.5 py-[2px] text-[11px] cursor-pointer hover:bg-base-200/30 transition-colors";
@@ -195,8 +191,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
             profBadge.addEventListener("click", (e) => {
               e.stopPropagation();
               if (isReadOnly()) return;
-              const cur = fleet[idx].equipProficiency[i] ?? 0;
-              fleet[idx].equipProficiency[i] = cur >= 7 ? 0 : cur + 1;
+              cycleFleetEquipProficiency(fleet[idx], i);
               renderFleetSlots(containerId, fleet);
             });
             eqRow.appendChild(profBadge);
@@ -223,8 +218,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
           impBadge.addEventListener("click", (e) => {
             e.stopPropagation();
             if (isReadOnly()) return;
-            const cur = fleet[idx].equipImprovement[i] ?? 0;
-            fleet[idx].equipImprovement[i] = cur >= 10 ? 0 : cur + 1;
+            cycleFleetEquipImprovement(fleet[idx], i);
             renderFleetSlots(containerId, fleet);
           });
           eqRow.appendChild(impBadge);
@@ -233,11 +227,9 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         if (isActive) {
           const eqIdx = i;
           eqRow.addEventListener("click", () => {
-            state.equipModalTargetShipId = slot.shipId;
-            state.equipModalTargetSlot = slot;
-            state.equipModalTargetSlotIdx = eqIdx;
+            setEquipModalTargetForFleet(slot, eqIdx);
             openEquipModal(slot.equipIds[eqIdx], (id) => {
-              fleet[idx].equipIds[eqIdx] = id;
+              setFleetEquip(fleet[idx], eqIdx, id);
               renderFleetSlots(containerId, fleet);
             });
           });
@@ -256,7 +248,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       exLabel.className = "text-[9px] text-warning/60 font-bold shrink-0 w-3 text-center";
       exLabel.textContent = "補";
       exRow.appendChild(exLabel);
-      const exEquip = slot.exSlotId != null ? state.mstSlotItems[slot.exSlotId] : null;
+      const exEquip = slot.exSlotId != null ? getMasterSlotItem(slot.exSlotId) : null;
       if (exEquip) {
         const exIconNum = exEquip.type?.[3] ?? 0;
         exRow.appendChild(createWeaponIconEl(exIconNum, 16));
@@ -293,27 +285,23 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         exImpBadge.addEventListener("click", (e) => {
           e.stopPropagation();
           if (isReadOnly()) return;
-          const cur = fleet[idx].exSlotImprovement ?? 0;
-          fleet[idx].exSlotImprovement = cur >= 10 ? 0 : cur + 1;
+          cycleFleetExslotImprovement(fleet[idx]);
           renderFleetSlots(containerId, fleet);
         });
         exRow.appendChild(exImpBadge);
       }
 
       exRow.addEventListener("click", () => {
-        state.equipModalTargetShipId = slot.shipId;
-        state.equipModalTargetSlot = slot;
-        state.equipModalTargetSlotIdx = -1;
+        setEquipModalTargetForFleet(slot, -1);
         openEquipModal(slot.exSlotId, (id) => {
-          fleet[idx].exSlotId = id;
+          setFleetExslotEquip(fleet[idx], id);
           renderFleetSlots(containerId, fleet);
         });
       });
       leftCol.appendChild(exRow);
 
       // Stats grid
-      if (!slot.statOverrides) slot.statOverrides = {};
-      const overrides = slot.statOverrides!;
+      const overrides = ensureFleetStatOverrides(slot);
 
       const equipBonuses = slot.shipId != null
         ? computeEquipBonuses(
@@ -491,13 +479,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
         if (e.target === cardImg) {
           openShipModal(slot.shipId, (id) => {
             if (id !== slot.shipId) {
-              fleet[idx].shipId = id;
-              fleet[idx].equipIds = [null, null, null, null, null];
-              fleet[idx].equipImprovement = [0, 0, 0, 0, 0];
-              fleet[idx].equipProficiency = [0, 0, 0, 0, 0];
-              fleet[idx].exSlotId = null;
-              fleet[idx].exSlotImprovement = 0;
-              delete fleet[idx].instanceStats;
+              assignShipToFleetSlot(fleet[idx], id);
             }
             renderFleetSlots(containerId, fleet);
           });

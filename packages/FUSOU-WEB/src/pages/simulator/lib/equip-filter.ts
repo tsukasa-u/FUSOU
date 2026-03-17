@@ -7,8 +7,16 @@
 //   mst_equip_exslot_ship  — per-equipment exslot ship/stype/ctype restrictions
 //   mst_equip_limit_exslot — per-ship exslot equipment limits
 
-import { state } from "./state";
 import type { MstSlotItemData } from "./types";
+import {
+  getBaseExslotEquipCount,
+  getMasterEquipExslotShip,
+  getMasterEquipLimitExslot,
+  getMasterEquipShipMap,
+  getMasterShip,
+  getMasterStypes,
+  hasBaseExslotEquipId,
+} from "./simulator-selectors";
 
 type NormalSlotRule = {
   allowedTypes: Set<number>;
@@ -20,7 +28,7 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
-  const shipOverride = state.mstEquipShip[shipId];
+  const shipOverride = getMasterEquipShipMap()[shipId];
   if (!shipOverride) return null;
 
   const allowedTypes = new Set<number>();
@@ -54,7 +62,7 @@ function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
  *  2. mst_stype default for the ship's stype
  */
 function getNormalSlotRule(shipId: number): NormalSlotRule | null {
-  const ship = state.mstShips[shipId];
+  const ship = getMasterShip(shipId);
   if (!ship) return null;
 
   // Per-ship override from mst_equip_ship
@@ -62,7 +70,7 @@ function getNormalSlotRule(shipId: number): NormalSlotRule | null {
   if (shipRule) return shipRule;
 
   // Default from mst_stype
-  const stypeData = state.mstStypes[ship.stype];
+  const stypeData = getMasterStypes()[ship.stype];
   if (!stypeData) return null;
 
   const allowedTypes = new Set<number>();
@@ -97,13 +105,13 @@ function canEquipInExslot(
   equipId: number,
 ): boolean {
   // Must be in base exslot list
-  if (!state.equipExslotSet.has(equipId)) return false;
+  if (!hasBaseExslotEquipId(equipId)) return false;
 
-  const ship = state.mstShips[shipId];
+  const ship = getMasterShip(shipId);
   if (!ship) return false;
 
   // Check per-equipment ship restrictions
-  const exslotShipData = state.mstEquipExslotShip[equipId];
+  const exslotShipData = getMasterEquipExslotShip(equipId);
   if (exslotShipData) {
     // Level check
     if (
@@ -130,7 +138,7 @@ function canEquipInExslot(
   }
 
   // Check per-ship exslot limits
-  const limitData = state.mstEquipLimitExslot[shipId];
+  const limitData = getMasterEquipLimitExslot(shipId);
   if (limitData) {
     // If limit data exists for this ship, only equipments in the list are allowed
     if (!limitData.equip.includes(equipId)) return false;
@@ -149,8 +157,8 @@ export function filterForNormalSlot(
 ): MstSlotItemData[] | null {
   if (shipId == null) return null;
 
-  const hasStypeData = Object.keys(state.mstStypes).length > 0;
-  const hasEquipShipData = Object.keys(state.mstEquipShip).length > 0;
+  const hasStypeData = Object.keys(getMasterStypes()).length > 0;
+  const hasEquipShipData = Object.keys(getMasterEquipShipMap()).length > 0;
   if (!hasStypeData && !hasEquipShipData) return null;
 
   const rule = getNormalSlotRule(shipId);
@@ -177,7 +185,7 @@ export function filterForExslot(
   items: MstSlotItemData[],
 ): MstSlotItemData[] | null {
   if (shipId == null) return null;
-  if (state.equipExslotSet.size === 0) return null;
+  if (getBaseExslotEquipCount() === 0) return null;
 
   return items.filter((e) => canEquipInExslot(shipId, shipLevel, e.id));
 }
@@ -187,6 +195,6 @@ export function filterForExslot(
  */
 export function hasEquipFilterData(): boolean {
   return (
-    Object.keys(state.mstStypes).length > 0 || state.equipExslotSet.size > 0
+    Object.keys(getMasterStypes()).length > 0 || getBaseExslotEquipCount() > 0
   );
 }

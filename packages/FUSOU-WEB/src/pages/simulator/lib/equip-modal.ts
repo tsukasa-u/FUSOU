@@ -1,6 +1,5 @@
 // ── Equipment Selection Modal ──
 
-import { state } from "./state";
 import type { MstSlotItemData } from "./types";
 import {
   AIRCRAFT_TYPES,
@@ -21,6 +20,30 @@ import {
   renderCategoryNav,
   cleanupSingleVS,
 } from "./virtual-scroll";
+import {
+  beginEquipModalSession,
+  consumeEquipModalCallback,
+  setEquipModalSideFilter,
+  setEquipModalSource,
+} from "./simulator-mutations";
+import {
+  getEquipModalCurrentId,
+  getEquipModalSideFilter,
+  getEquipModalSource,
+  getEquipModalTarget,
+  getMasterEquipTypeName,
+  getMasterShip,
+  getMasterSlotItem,
+  getMasterSlotItems,
+  getSlotItemEffects,
+  getSnapshotSlotItems,
+  getSpriteSheetMeta,
+  getWeaponIconFrame,
+  hasMasterData,
+  hasSnapshotSlotItems,
+  isAirBaseEquipModalTarget,
+  isWorkspaceReadOnly,
+} from "./simulator-selectors";
 
 // ── Equip virtual scroll state ──
 type EquipGRow =
@@ -46,16 +69,12 @@ function filterEquipsBySide(
 }
 
 function isAirBaseEquipTarget(): boolean {
-  return (
-    state.equipModalTargetShipId == null &&
-    state.equipModalTargetSlot == null &&
-    state.equipModalTargetSlotIdx === -1
-  );
+  return isAirBaseEquipModalTarget();
 }
 
 function getEquipTypeName(typeId: number): string {
   return (
-    state.mstSlotItemEquipTypes[typeId]?.name ??
+    getMasterEquipTypeName(typeId) ??
     EQUIP_TYPE_NAMES[typeId] ??
     `Type ${typeId}`
   );
@@ -109,7 +128,7 @@ function syncEquipGVS() {
 
 /** Return the MstSlotItemData for the currently selected equip from the active VS state (snapshot-enriched if available), falling back to master data. */
 function findCurrentEquipInVS(): MstSlotItemData | null {
-  const id = state.equipModalCurrentId;
+  const id = getEquipModalCurrentId();
   if (id == null) return null;
   if (_equipGVS) {
     for (const row of (_equipGVS.rows as EquipGRow[])) {
@@ -119,12 +138,12 @@ function findCurrentEquipInVS(): MstSlotItemData | null {
     const item = (_equipVS.items as MstSlotItemData[]).find((e) => e.id === id);
     if (item) return item;
   }
-  return state.mstSlotItems[id] ?? null;
+  return getMasterSlotItem(id);
 }
 
 /** Scroll the equip grid so the currently selected equip row is visible (call after showModal). */
 function scrollToCurrentEquipInVS(): void {
-  const id = state.equipModalCurrentId;
+  const id = getEquipModalCurrentId();
   if (id == null) return;
   if (_equipGVS) {
     const rowIdx = (_equipGVS.rows as EquipGRow[]).findIndex(
@@ -150,12 +169,12 @@ export function openEquipModal(
   currentId: number | null,
   cb: (id: number | null) => void,
 ) {
-  if (!state.hasMasterData) return;
-  state.equipModalCb = cb;
-  state.equipModalCurrentId = currentId;
+  if (!hasMasterData()) return;
+  beginEquipModalSession(currentId, cb);
   if (currentId != null) {
-    state.equipModalSideFilter =
-      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally";
+    setEquipModalSideFilter(
+      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally",
+    );
   }
   const modal = document.getElementById("equip-select-modal");
   const search = document.getElementById("equip-modal-search");
@@ -169,20 +188,20 @@ export function openEquipModal(
   )
     return;
   search.value = "";
-  side.value = state.equipModalSideFilter;
-  populateEquipTypeFilter(typeFilter, state.equipModalSideFilter);
+  side.value = getEquipModalSideFilter();
+  populateEquipTypeFilter(typeFilter, getEquipModalSideFilter());
 
   const tabsEl = document.getElementById("equip-modal-source-tabs");
-  const hasSnapshot = Object.keys(state.snapshotSlotItems).length > 0;
+  const hasSnapshot = hasSnapshotSlotItems();
   if (tabsEl) {
     tabsEl.classList.toggle("hidden", !hasSnapshot);
   }
-  state.equipModalSource = hasSnapshot ? "snapshot" : "master";
+  setEquipModalSource(hasSnapshot ? "snapshot" : "master");
   updateEquipSourceTabs();
 
-  renderEquipGrid("", "", state.equipModalSideFilter);
+  renderEquipGrid("", "", getEquipModalSideFilter());
   const autoShowEquip =
-    state.isWorkspaceReadOnly && state.equipModalCurrentId != null
+    isWorkspaceReadOnly() && getEquipModalCurrentId() != null
       ? findCurrentEquipInVS()
       : null;
   if (autoShowEquip) {
@@ -205,7 +224,7 @@ function updateEquipSourceTabs() {
   if (!tabsEl) return;
   for (const btn of Array.from(tabsEl.querySelectorAll("[data-source]"))) {
     const isActive =
-      (btn as HTMLElement).dataset.source === state.equipModalSource;
+      (btn as HTMLElement).dataset.source === getEquipModalSource();
     btn.classList.toggle("tab-active", isActive);
   }
 }
@@ -218,7 +237,7 @@ function populateEquipTypeFilter(
   select.innerHTML = '<option value="">全装備種</option>';
   const types = new Map<number, string>();
   let sourceItems = filterEquipsBySide(
-    Object.values(state.mstSlotItems),
+    Object.values(getMasterSlotItems()),
     sideFilter,
   );
   if (isAirBaseEquipTarget()) {
@@ -242,7 +261,7 @@ function populateEquipTypeFilter(
 }
 
 function createEquipItem(equip: MstSlotItemData): HTMLElement {
-  const isSelected = equip.id === state.equipModalCurrentId;
+  const isSelected = equip.id === getEquipModalCurrentId();
   const item = document.createElement("div");
   item.className = `flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
     isSelected
@@ -251,16 +270,17 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   }`;
 
   const iconNum = equip.type?.[3] ?? 0;
-  const frame = state.weaponIconFrames[iconNum];
+  const frame = getWeaponIconFrame(iconNum);
+  const spriteSheet = getSpriteSheetMeta();
   const iconEl = document.createElement("div");
   iconEl.className = "w-6 h-6 shrink-0 rounded";
-  if (frame && state.spriteSheetUrl) {
+  if (frame && spriteSheet.url) {
     const [fx, fy, fw, fh] = frame;
     const scaleX = 24 / fw;
     const scaleY = 24 / fh;
-    iconEl.style.backgroundImage = `url('${state.spriteSheetUrl}')`;
+    iconEl.style.backgroundImage = `url('${spriteSheet.url}')`;
     iconEl.style.backgroundPosition = `-${fx * scaleX}px -${fy * scaleY}px`;
-    iconEl.style.backgroundSize = `${state.spriteSheetW * scaleX}px ${state.spriteSheetH * scaleY}px`;
+    iconEl.style.backgroundSize = `${spriteSheet.width * scaleX}px ${spriteSheet.height * scaleY}px`;
     iconEl.style.backgroundRepeat = "no-repeat";
   }
   item.appendChild(iconEl);
@@ -355,9 +375,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
 
   item.addEventListener("mouseenter", () => renderEquipDetail(equip));
   item.addEventListener("click", () => {
-    if (state.isWorkspaceReadOnly) return;
-    state.equipModalCb?.(equip.id);
-    state.equipModalCb = null;
+    if (isWorkspaceReadOnly()) return;
+    consumeEquipModalCallback(equip.id);
     (
       document.getElementById("equip-select-modal") as HTMLDialogElement
     ).close();
@@ -377,14 +396,14 @@ function renderEquipGrid(
   let items: MstSlotItemData[];
 
   if (
-    state.equipModalSource === "snapshot" &&
-    Object.keys(state.snapshotSlotItems).length > 0
+    getEquipModalSource() === "snapshot" &&
+    hasSnapshotSlotItems()
   ) {
     const variantMap = new Map<
       string,
       { slotitem_id: number; level: number; alv: number; count: number }
     >();
-    for (const si of Object.values(state.snapshotSlotItems)) {
+    for (const si of Object.values(getSnapshotSlotItems())) {
       const key = `${si.slotitem_id}_${si.level ?? 0}_${si.alv ?? 0}`;
       const existing = variantMap.get(key);
       if (existing) {
@@ -400,7 +419,7 @@ function renderEquipGrid(
     }
     items = [...variantMap.values()]
       .map((v) => {
-        const mst = state.mstSlotItems[v.slotitem_id];
+        const mst = getMasterSlotItem(v.slotitem_id);
         if (!mst) return null;
         return {
           ...mst,
@@ -416,7 +435,7 @@ function renderEquipGrid(
       .filter((e): e is MstSlotItemData => e != null)
       .sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
   } else {
-    items = Object.values(state.mstSlotItems).sort(
+    items = Object.values(getMasterSlotItems()).sort(
       (a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id),
     );
   }
@@ -428,16 +447,17 @@ function renderEquipGrid(
   }
 
   // Apply ship-based equipment filter
-  const isExslot = state.equipModalTargetSlotIdx === -1;
+  const equipTarget = getEquipModalTarget();
+  const isExslot = equipTarget.slotIdx === -1;
   if (isExslot && !isAirBaseEquipTarget()) {
     const filtered = filterForExslot(
-      state.equipModalTargetShipId,
-      state.equipModalTargetSlot?.shipLevel ?? null,
+      equipTarget.shipId,
+      equipTarget.slot?.shipLevel ?? null,
       items,
     );
     if (filtered) items = filtered;
   } else {
-    const filtered = filterForNormalSlot(state.equipModalTargetShipId, items);
+    const filtered = filterForNormalSlot(equipTarget.shipId, items);
     if (filtered) items = filtered;
   }
 
@@ -459,15 +479,14 @@ function renderEquipGrid(
     return;
   }
 
-  if (state.equipModalCurrentId != null) {
+  if (getEquipModalCurrentId() != null) {
     const clearItem = document.createElement("div");
     clearItem.className =
       "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
     clearItem.textContent = "✕ 装備を外す";
     clearItem.addEventListener("click", () => {
-      if (state.isWorkspaceReadOnly) return;
-      state.equipModalCb?.(null);
-      state.equipModalCb = null;
+      if (isWorkspaceReadOnly()) return;
+      consumeEquipModalCallback(null);
       (
         document.getElementById("equip-select-modal") as HTMLDialogElement
       ).close();
@@ -627,15 +646,12 @@ function renderEquipDetail(equip: MstSlotItemData) {
   panel.appendChild(grid);
 
   // ── Equipment Bonus Section (when ship context is available) ──
-  if (
-    state.slotItemEffects &&
-    state.equipModalTargetShipId != null &&
-    state.equipModalTargetSlot
-  ) {
-    const shipId = state.equipModalTargetShipId;
-    const targetSlot = state.equipModalTargetSlot;
-    const targetIdx = state.equipModalTargetSlotIdx;
-    const shipData = state.mstShips[shipId];
+  const equipTarget = getEquipModalTarget();
+  if (getSlotItemEffects() && equipTarget.shipId != null && equipTarget.slot) {
+    const shipId = equipTarget.shipId;
+    const targetSlot = equipTarget.slot;
+    const targetIdx = equipTarget.slotIdx;
+    const shipData = getMasterShip(shipId);
 
     const testEquipIds = [...targetSlot.equipIds];
     let testExSlotId = targetSlot.exSlotId;
@@ -748,12 +764,12 @@ export function initEquipModalEvents() {
       }, 120),
     );
     equipSideEl.addEventListener("change", () => {
-      state.equipModalSideFilter = equipSideEl.value as SideFilter;
-      populateEquipTypeFilter(equipTypeEl, state.equipModalSideFilter);
+      setEquipModalSideFilter(equipSideEl.value as SideFilter);
+      populateEquipTypeFilter(equipTypeEl, getEquipModalSideFilter());
       renderEquipGrid(
         equipSearchEl.value,
         equipTypeEl.value,
-        state.equipModalSideFilter,
+        getEquipModalSideFilter(),
       );
     });
     equipTypeEl.addEventListener("change", () => {
@@ -773,15 +789,15 @@ export function initEquipModalEvents() {
       ) as HTMLElement | null;
       if (!btn) return;
       const src = btn.dataset.source as "snapshot" | "master";
-      if (src === state.equipModalSource) return;
-      state.equipModalSource = src;
+      if (src === getEquipModalSource()) return;
+      setEquipModalSource(src);
       updateEquipSourceTabs();
       const search =
         equipSearchEl instanceof HTMLInputElement ? equipSearchEl.value : "";
       const side =
         equipSideEl instanceof HTMLSelectElement
           ? (equipSideEl.value as SideFilter)
-          : state.equipModalSideFilter;
+          : getEquipModalSideFilter();
       const type =
         equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
       renderEquipGrid(search, type, side);

@@ -1,6 +1,5 @@
 // ── Ship Selection Modal ──
 
-import { state } from "./state";
 import type { MstShipData } from "./types";
 import {
   STYPE_NAMES,
@@ -20,6 +19,23 @@ import {
   renderCategoryNav,
   cleanupSingleVS,
 } from "./virtual-scroll";
+import {
+  beginShipModalSession,
+  consumeShipModalCallback,
+  setShipModalSideFilter,
+  setShipModalSource,
+} from "./simulator-mutations";
+import {
+  getMasterShip,
+  getMasterShips,
+  getShipModalCurrentId,
+  getShipModalSideFilter,
+  getShipModalSource,
+  getSnapshotShips,
+  hasMasterData,
+  hasSnapshotShips,
+  isWorkspaceReadOnly,
+} from "./simulator-selectors";
 
 // ── Ship virtual scroll (flat, for filtered view) ──
 type ShipGRow =
@@ -98,7 +114,7 @@ function syncShipGVS() {
 
 /** Find the current ship from the active VS cache (snapshot-enriched when available). */
 function findCurrentShipInVS(): MstShipData | null {
-  const id = state.shipModalCurrentId;
+  const id = getShipModalCurrentId();
   if (id == null) return null;
   if (_shipGVS) {
     for (const row of _shipGVS.rows as ShipGRow[]) {
@@ -111,12 +127,12 @@ function findCurrentShipInVS(): MstShipData | null {
     const found = (_shipVS.items as MstShipData[]).find((s) => s.id === id);
     if (found) return found;
   }
-  return state.mstShips[id] ?? null;
+  return getMasterShip(id);
 }
 
 /** Scroll ship grid to the current ship row (call after showModal). */
 function scrollToCurrentShipInVS(): void {
-  const id = state.shipModalCurrentId;
+  const id = getShipModalCurrentId();
   if (id == null) return;
   if (_shipGVS) {
     const rowIdx = (_shipGVS.rows as ShipGRow[]).findIndex(
@@ -144,12 +160,12 @@ export function openShipModal(
   currentId: number | null,
   cb: (id: number | null) => void,
 ) {
-  if (!state.hasMasterData) return;
-  state.shipModalCb = cb;
-  state.shipModalCurrentId = currentId;
+  if (!hasMasterData()) return;
+  beginShipModalSession(currentId, cb);
   if (currentId != null) {
-    state.shipModalSideFilter =
-      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally";
+    setShipModalSideFilter(
+      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally",
+    );
   }
   const modal = document.getElementById("ship-select-modal");
   const search = document.getElementById("ship-modal-search");
@@ -163,20 +179,20 @@ export function openShipModal(
   )
     return;
   search.value = "";
-  side.value = state.shipModalSideFilter;
-  populateStypeFilter(stype, state.shipModalSideFilter);
+  side.value = getShipModalSideFilter();
+  populateStypeFilter(stype, getShipModalSideFilter());
 
   const tabsEl = document.getElementById("ship-modal-source-tabs");
-  const hasSnapshot = Object.keys(state.snapshotShips).length > 0;
+  const hasSnapshot = hasSnapshotShips();
   if (tabsEl) {
     tabsEl.classList.toggle("hidden", !hasSnapshot);
   }
-  state.shipModalSource = hasSnapshot ? "snapshot" : "master";
+  setShipModalSource(hasSnapshot ? "snapshot" : "master");
   updateSourceTabs();
 
-  renderShipGrid("", "", state.shipModalSideFilter);
+  renderShipGrid("", "", getShipModalSideFilter());
   const autoShowShip =
-    state.isWorkspaceReadOnly && state.shipModalCurrentId != null
+    isWorkspaceReadOnly() && getShipModalCurrentId() != null
       ? findCurrentShipInVS()
       : null;
   if (autoShowShip) {
@@ -199,7 +215,7 @@ function updateSourceTabs() {
   if (!tabsEl) return;
   for (const btn of Array.from(tabsEl.querySelectorAll("[data-source]"))) {
     const isActive =
-      (btn as HTMLElement).dataset.source === state.shipModalSource;
+      (btn as HTMLElement).dataset.source === getShipModalSource();
     btn.classList.toggle("tab-active", isActive);
   }
 }
@@ -212,7 +228,7 @@ function populateStypeFilter(
   select.innerHTML = '<option value="">全艦種</option>';
   const stypes = new Set<number>();
   for (const s of filterShipsBySide(
-    Object.values(state.mstShips),
+    Object.values(getMasterShips()),
     sideFilter,
   )) {
     if (s.stype >= 1 && s.stype <= 22) stypes.add(s.stype);
@@ -238,8 +254,8 @@ function renderShipGrid(
   let ships: MstShipData[];
 
   if (
-    state.shipModalSource === "snapshot" &&
-    Object.keys(state.snapshotShips).length > 0
+    getShipModalSource() === "snapshot" &&
+    hasSnapshotShips()
   ) {
     const variantMap = new Map<
       string,
@@ -251,7 +267,7 @@ function renderShipGrid(
         count: number;
       }
     >();
-    for (const ss of Object.values(state.snapshotShips)) {
+    for (const ss of Object.values(getSnapshotShips())) {
       const key = `${ss.shipId}_${ss.level ?? 0}`;
       const existing = variantMap.get(key);
       if (existing) {
@@ -262,7 +278,7 @@ function renderShipGrid(
     }
     ships = [...variantMap.values()]
       .map((v) => {
-        const mst = state.mstShips[v.shipId];
+        const mst = getMasterShip(v.shipId);
         if (!mst) return null;
         return {
           ...mst,
@@ -273,7 +289,7 @@ function renderShipGrid(
       .filter((s): s is MstShipData => s != null)
       .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
   } else {
-    ships = Object.values(state.mstShips).sort(
+    ships = Object.values(getMasterShips()).sort(
       (a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id),
     );
   }
@@ -296,15 +312,14 @@ function renderShipGrid(
     return;
   }
 
-  if (state.shipModalCurrentId != null) {
+  if (getShipModalCurrentId() != null) {
     const clearItem = document.createElement("div");
     clearItem.className =
       "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
     clearItem.textContent = "✕ 選択を解除";
     clearItem.addEventListener("click", () => {
-      if (state.isWorkspaceReadOnly) return;
-      state.shipModalCb?.(null);
-      state.shipModalCb = null;
+      if (isWorkspaceReadOnly()) return;
+      consumeShipModalCallback(null);
       (
         document.getElementById("ship-select-modal") as HTMLDialogElement
       ).close();
@@ -399,7 +414,7 @@ function renderShipCategoryNav(
 }
 
 function createShipItem(ship: MstShipData): HTMLElement {
-  const isSelected = ship.id === state.shipModalCurrentId;
+  const isSelected = ship.id === getShipModalCurrentId();
   const item = document.createElement("div");
   item.className = `flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
     isSelected
@@ -445,9 +460,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
 
   item.addEventListener("mouseenter", () => renderShipDetail(ship));
   item.addEventListener("click", () => {
-    if (state.isWorkspaceReadOnly) return;
-    state.shipModalCb?.(ship.id);
-    state.shipModalCb = null;
+    if (isWorkspaceReadOnly()) return;
+    consumeShipModalCallback(ship.id);
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
   });
 
@@ -541,12 +555,12 @@ export function initShipModalEvents() {
       }, 120),
     );
     shipSideEl.addEventListener("change", () => {
-      state.shipModalSideFilter = shipSideEl.value as SideFilter;
-      populateStypeFilter(shipStypeEl, state.shipModalSideFilter);
+      setShipModalSideFilter(shipSideEl.value as SideFilter);
+      populateStypeFilter(shipStypeEl, getShipModalSideFilter());
       renderShipGrid(
         shipSearchEl.value,
         shipStypeEl.value,
-        state.shipModalSideFilter,
+        getShipModalSideFilter(),
       );
     });
     shipStypeEl.addEventListener("change", () => {
@@ -566,8 +580,8 @@ export function initShipModalEvents() {
       ) as HTMLElement | null;
       if (!btn) return;
       const src = btn.dataset.source as "snapshot" | "master";
-      if (src === state.shipModalSource) return;
-      state.shipModalSource = src;
+      if (src === getShipModalSource()) return;
+      setShipModalSource(src);
       updateSourceTabs();
       const searchEl = document.getElementById("ship-modal-search");
       const sideEl = document.getElementById("ship-modal-side");
@@ -576,7 +590,7 @@ export function initShipModalEvents() {
       const side =
         sideEl instanceof HTMLSelectElement
           ? (sideEl.value as SideFilter)
-          : state.shipModalSideFilter;
+          : getShipModalSideFilter();
       const stype = stypeEl instanceof HTMLSelectElement ? stypeEl.value : "";
       renderShipGrid(search, stype, side);
     });

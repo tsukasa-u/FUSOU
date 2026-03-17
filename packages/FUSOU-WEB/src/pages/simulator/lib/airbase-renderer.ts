@@ -1,24 +1,35 @@
 // ── Air Base Rendering ──
 
-import { state } from "./state";
+import type { FleetSlot } from "./types";
 import { AIRCRAFT_TYPES } from "./constants";
 import { createWeaponIconEl } from "./equip-calc";
 import { openEquipModal } from "./equip-modal";
 import { renderFleetSlots } from "./fleet-renderer";
+import {
+  cycleAirBaseEquipImprovement,
+  cycleAirBaseEquipProficiency,
+  setAirBaseEquip,
+  setEquipModalTargetForAirBase,
+  setFleetSectionCollapsed,
+  toggleFleetSectionCollapsed,
+} from "./simulator-mutations";
+import {
+  getAirBaseState,
+  getFleetState,
+  getMasterSlotItem,
+  isFleetSectionCollapsed,
+  isWorkspaceReadOnly,
+} from "./simulator-selectors";
 
-const isReadOnly = () => state.isWorkspaceReadOnly;
+const isReadOnly = () => isWorkspaceReadOnly();
 
-function hasAnyShipInFleet(fleet: typeof state.fleet1): boolean {
+function hasAnyShipInFleet(fleet: FleetSlot[]): boolean {
   return fleet.some((slot) => slot.shipId != null);
 }
 
 function syncFleetSectionUi() {
-  const fleetPairs: Array<[number, typeof state.fleet1]> = [
-    [1, state.fleet1],
-    [2, state.fleet2],
-    [3, state.fleet3],
-    [4, state.fleet4],
-  ];
+  const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
+  const fleetPairs: Array<[number, FleetSlot[]]> = [[1, fleet1], [2, fleet2], [3, fleet3], [4, fleet4]];
 
   for (const [index, fleet] of fleetPairs) {
     const body = document.getElementById(`fleet-${index}-body`) as HTMLElement | null;
@@ -27,10 +38,10 @@ function syncFleetSectionUi() {
 
     // Auto-expand when the fleet gets a ship for easier editing.
     if (hasAnyShipInFleet(fleet)) {
-      state.fleetSectionCollapsed[index] = false;
+      setFleetSectionCollapsed(index, false);
     }
 
-    const collapsed = !!state.fleetSectionCollapsed[index];
+    const collapsed = isFleetSectionCollapsed(index);
     body.style.display = collapsed ? "none" : "block";
     toggle.textContent = collapsed ? "展開" : "折りたたむ";
     toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
@@ -44,7 +55,7 @@ function ensureFleetSectionToggleHandlers() {
     const toggle = document.getElementById(`fleet-${index}-toggle`) as HTMLButtonElement | null;
     if (!toggle) return;
     toggle.addEventListener("click", () => {
-      state.fleetSectionCollapsed[index] = !state.fleetSectionCollapsed[index];
+      toggleFleetSectionCollapsed(index);
       syncFleetSectionUi();
     });
   });
@@ -55,7 +66,8 @@ export function renderAirBases() {
   const container = document.getElementById("air-bases")!;
   container.innerHTML = "";
 
-  state.airBases.forEach((base, bIdx) => {
+  const airBases = getAirBaseState();
+  airBases.forEach((base, bIdx) => {
     const card = document.createElement("div");
     card.className = "border border-base-200 rounded-lg overflow-hidden";
 
@@ -68,7 +80,7 @@ export function renderAirBases() {
     slotsDiv.className = "divide-y divide-base-200/50";
 
     for (let i = 0; i < 4; i++) {
-      const equip = base.equipIds[i] != null ? state.mstSlotItems[base.equipIds[i]!] : null;
+      const equip = base.equipIds[i] != null ? getMasterSlotItem(base.equipIds[i]!) : null;
       const row = document.createElement("div");
       row.className = "flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer hover:bg-base-200/40 transition-colors";
 
@@ -123,8 +135,7 @@ export function renderAirBases() {
           profBadge.addEventListener("click", (e) => {
             e.stopPropagation();
             if (isReadOnly()) return;
-            const cur = state.airBases[bIdx].equipProficiency[i] ?? 0;
-            state.airBases[bIdx].equipProficiency[i] = cur >= 7 ? 0 : cur + 1;
+            cycleAirBaseEquipProficiency(airBases[bIdx], i);
             renderAirBases();
           });
           row.appendChild(profBadge);
@@ -151,8 +162,7 @@ export function renderAirBases() {
         impBadge.addEventListener("click", (e) => {
           e.stopPropagation();
           if (isReadOnly()) return;
-          const cur = state.airBases[bIdx].equipImprovement[i] ?? 0;
-          state.airBases[bIdx].equipImprovement[i] = cur >= 10 ? 0 : cur + 1;
+          cycleAirBaseEquipImprovement(airBases[bIdx], i);
           renderAirBases();
         });
         row.appendChild(impBadge);
@@ -168,11 +178,9 @@ export function renderAirBases() {
       const slotIdx = i;
       row.addEventListener("click", () => {
         if (isReadOnly()) return;
-        state.equipModalTargetShipId = null;
-        state.equipModalTargetSlot = null;
-        state.equipModalTargetSlotIdx = -1;
+        setEquipModalTargetForAirBase();
         openEquipModal(base.equipIds[slotIdx], (id) => {
-          state.airBases[bIdx].equipIds[slotIdx] = id;
+          setAirBaseEquip(airBases[bIdx], slotIdx, id);
           renderAirBases();
         });
       });
@@ -185,11 +193,12 @@ export function renderAirBases() {
 }
 
 export function renderAll() {
+  const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
   ensureFleetSectionToggleHandlers();
-  renderFleetSlots("fleet-1-slots", state.fleet1);
-  renderFleetSlots("fleet-2-slots", state.fleet2);
-  renderFleetSlots("fleet-3-slots", state.fleet3);
-  renderFleetSlots("fleet-4-slots", state.fleet4);
+  renderFleetSlots("fleet-1-slots", fleet1);
+  renderFleetSlots("fleet-2-slots", fleet2);
+  renderFleetSlots("fleet-3-slots", fleet3);
+  renderFleetSlots("fleet-4-slots", fleet4);
   syncFleetSectionUi();
   renderAirBases();
 }

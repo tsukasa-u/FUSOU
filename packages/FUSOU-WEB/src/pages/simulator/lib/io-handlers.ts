@@ -1,6 +1,5 @@
 // ── I/O event handlers: import, export, share, load from URL, fleet load ──
 
-import { state } from "./state";
 import { renderAll } from "./airbase-renderer";
 import { loadMasterDataFromJson } from "./data-loader";
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
@@ -11,6 +10,7 @@ import {
   removeEntry,
   duplicateEntry,
   updateEntryData,
+  getActive,
   setActive,
   clearActive,
   toggleLock,
@@ -18,6 +18,15 @@ import {
   type ViewerEntry,
 } from "./viewer-workspace";
 import { resolveShareInput } from "./share-resolver";
+import {
+  setWorkspaceReadOnly,
+} from "./simulator-mutations";
+import {
+  getAirBaseState,
+  getFleetState,
+  getSnapshotShareState,
+  hasSnapshotData,
+} from "./simulator-selectors";
 
 const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
 
@@ -27,33 +36,14 @@ function authHeaders(): HeadersInit {
 }
 
 async function copyTextWithFallback(text: string): Promise<boolean> {
-  // Preferred modern API (requires secure context + user gesture)
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // Continue to legacy fallback.
+      return false;
     }
   }
-
-  // Legacy fallback for browsers where Clipboard API is unavailable/blocked.
-  try {
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "fixed";
-    textarea.style.top = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(textarea);
-    if (ok) return true;
-  } catch {
-    // Fall through to manual prompt guidance.
-  }
-
   return false;
 }
 
@@ -132,17 +122,18 @@ function serializeFleetForShare(fleet: FleetSlot[], includeDetailedStats: boolea
 }
 
 function buildSharePayload(opts: ShareOptions) {
+  const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
   const payload: Record<string, unknown> = {
     v: 2,
-    fleet1: serializeFleetForShare(state.fleet1, opts.includeDetailedStats),
-    fleet2: serializeFleetForShare(state.fleet2, opts.includeDetailedStats),
-    fleet3: serializeFleetForShare(state.fleet3, opts.includeDetailedStats),
-    fleet4: serializeFleetForShare(state.fleet4, opts.includeDetailedStats),
+    fleet1: serializeFleetForShare(fleet1, opts.includeDetailedStats),
+    fleet2: serializeFleetForShare(fleet2, opts.includeDetailedStats),
+    fleet3: serializeFleetForShare(fleet3, opts.includeDetailedStats),
+    fleet4: serializeFleetForShare(fleet4, opts.includeDetailedStats),
     shareOptions: opts,
   };
 
   if (opts.includeAirBases) {
-    payload.airBases = state.airBases.map((base) => ({
+    payload.airBases = getAirBaseState().map((base) => ({
       equipIds: [...(base.equipIds ?? [null, null, null, null])],
       equipImprovement: [...(base.equipImprovement ?? [0, 0, 0, 0])],
       equipProficiency: [...(base.equipProficiency ?? [0, 0, 0, 0])],
@@ -153,10 +144,7 @@ function buildSharePayload(opts: ShareOptions) {
 }
 
 function buildSnapshotPayloadForShare() {
-  return {
-    snapshotShips: state.snapshotShips,
-    snapshotSlotItems: state.snapshotSlotItems,
-  };
+  return getSnapshotShareState();
 }
 
 function buildCurrentPlaygroundPayload(): Record<string, unknown> {
@@ -177,17 +165,14 @@ function rememberCurrentPlayground(): void {
   _playgroundDraft = buildCurrentPlaygroundPayload();
 }
 
-function rememberPlaygroundBeforeWorkspaceSwitch(): void {
-  if (getWorkspace().activeId === null) {
-    rememberCurrentPlayground();
-  }
+function getActiveWorkspaceEntry(): ViewerEntry | null {
+  return getActive();
 }
 
 function applyPlaygroundDraftOrBlank(): void {
   if (_playgroundDraft) {
     applyExportedFleet(_playgroundDraft);
-    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
-    setSnapshotPlaygroundMode(hasSnapshot);
+    setSnapshotPlaygroundMode(hasSnapshotData());
     return;
   }
 
@@ -203,6 +188,38 @@ function applyPlaygroundDraftOrBlank(): void {
     ],
   });
   setSnapshotPlaygroundMode(false);
+}
+
+function finalizePlaygroundLoad(snapshotMode: boolean = hasSnapshotData(), rerender = false): void {
+  clearActive();
+  _playgroundDraft = buildCurrentPlaygroundPayload();
+  setSnapshotPlaygroundMode(snapshotMode);
+  if (rerender) renderWorkspacePanel();
+}
+
+function activateWorkspaceEntry(entry: ViewerEntry, rememberPlayground = true): void {
+  const activeEntry = getActiveWorkspaceEntry();
+
+  if (activeEntry && activeEntry.id !== entry.id) {
+    saveCurrentStateToEntry(activeEntry);
+  } else if (!activeEntry && rememberPlayground) {
+    rememberCurrentPlayground();
+  }
+
+  setActive(entry.id);
+  applyViewerEntry(entry);
+  setSnapshotPlaygroundMode(false);
+  renderWorkspacePanel();
+}
+
+function switchToPlayground(): void {
+  const activeEntry = getActiveWorkspaceEntry();
+  if (activeEntry) {
+    saveCurrentStateToEntry(activeEntry);
+  }
+  clearActive();
+  applyPlaygroundDraftOrBlank();
+  renderWorkspacePanel();
 }
 
 function getShareOptions(): ShareOptions {
@@ -253,9 +270,7 @@ function createOwnDeckFromCurrentState(name: string, memo: string): ViewerEntry 
 }
 
 function saveActiveOwnDeckIfNeeded(): void {
-  const activeId = getWorkspace().activeId;
-  if (!activeId) return;
-  const activeEntry = getWorkspaceEntryById(activeId);
+  const activeEntry = getActiveWorkspaceEntry();
   if (!activeEntry || activeEntry.sourceType !== "ownDeck") return;
   saveCurrentStateToEntry(activeEntry);
 }
@@ -336,7 +351,7 @@ function syncLockedEditState(): void {
   const active = activeId ? getWorkspaceEntryById(activeId) : null;
   const locked = Boolean(active?.locked);
   const lockedMessage = "ロック中のため編集できません";
-  state.isWorkspaceReadOnly = locked;
+  setWorkspaceReadOnly(locked);
 
   const deckCaptureArea = document.getElementById("deck-capture-area") as HTMLElement | null;
   if (deckCaptureArea) {
@@ -487,14 +502,7 @@ function renderWorkspacePanel() {
 
   playgroundChip.appendChild(playgroundText);
   playgroundChip.addEventListener("click", () => {
-    const activeId = getWorkspace().activeId;
-    if (activeId) {
-      const currentEntry = getWorkspaceEntryById(activeId);
-      if (currentEntry) saveCurrentStateToEntry(currentEntry);
-    }
-    clearActive();
-    applyPlaygroundDraftOrBlank();
-    renderWorkspacePanel();
+    switchToPlayground();
   });
   playgroundHost.appendChild(playgroundChip);
 
@@ -575,13 +583,9 @@ function renderWorkspacePanel() {
     dupBtn.title = "この項目を複製";
     dupBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      rememberPlaygroundBeforeWorkspaceSwitch();
       const duplicated = duplicateEntry(entry.id);
       if (!duplicated) return;
-      setActive(duplicated.id);
-      applyViewerEntry(duplicated);
-      setSnapshotPlaygroundMode(false);
-      renderWorkspacePanel();
+      activateWorkspaceEntry(duplicated);
     });
 
     chip.appendChild(textBlock);
@@ -593,17 +597,7 @@ function renderWorkspacePanel() {
     chip.appendChild(delBtn);
 
     chip.addEventListener("click", () => {
-      const activeId = getWorkspace().activeId;
-      if (activeId && activeId !== entry.id) {
-        const currentEntry = getWorkspaceEntryById(activeId);
-        if (currentEntry) saveCurrentStateToEntry(currentEntry);
-      } else if (!activeId) {
-        rememberCurrentPlayground();
-      }
-      setActive(entry.id);
-      applyViewerEntry(entry);
-      setSnapshotPlaygroundMode(false);
-      renderWorkspacePanel();
+      activateWorkspaceEntry(entry);
     });
 
     list.appendChild(chip);
@@ -667,8 +661,7 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
         }
         applyExportedFleet(merged);
         _playgroundDraft = merged;
-        const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
-        setSnapshotPlaygroundMode(hasSnapshot);
+        setSnapshotPlaygroundMode(hasSnapshotData());
         clearActive();
         return null;
       }
@@ -687,8 +680,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
-  const hasInitialSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
-  setSnapshotPlaygroundMode(hasInitialSnapshot);
+  setSnapshotPlaygroundMode(hasSnapshotData());
 
   window.addEventListener("beforeunload", () => {
     saveActiveOwnDeckIfNeeded();
@@ -739,10 +731,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
             if (snapRes.ok) {
               const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
               applyFleetSnapshot(result.snapshot);
-              clearActive();
-              setSnapshotPlaygroundMode(true);
-              _playgroundDraft = buildCurrentPlaygroundPayload();
-              renderWorkspacePanel();
+              finalizePlaygroundLoad(true, true);
               modal.close();
             } else {
               alert("スナップショットの読込に失敗しました");
@@ -776,17 +765,12 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
         if (json.fleet1 || json.fleet2 || json.fleet3 || json.fleet4 || json.airBases) {
           applyExportedFleet(json);
-          clearActive();
-          const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
-          setSnapshotPlaygroundMode(hasSnapshot);
-          _playgroundDraft = buildCurrentPlaygroundPayload();
+          finalizePlaygroundLoad(hasSnapshotData(), true);
         } else if (json.mst_ships || json.mst_slot_items || json.ships || json.equipments) {
           loadMasterDataFromJson(json, renderAll);
         } else if (json.s3s) {
           applyFleetSnapshot(json);
-          clearActive();
-          setSnapshotPlaygroundMode(true);
-          _playgroundDraft = buildCurrentPlaygroundPayload();
+          finalizePlaygroundLoad(true, true);
         } else {
           alert("認識できないJSONフォーマットです");
         }
@@ -800,12 +784,13 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
   // Export
   document.getElementById("btn-export")?.addEventListener("click", () => {
+    const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
     const data = {
-      fleet1: state.fleet1,
-      fleet2: state.fleet2,
-      fleet3: state.fleet3,
-      fleet4: state.fleet4,
-      airBases: state.airBases,
+      fleet1,
+      fleet2,
+      fleet3,
+      fleet4,
+      airBases: getAirBaseState(),
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -821,7 +806,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     if (!shareModal) return;
     const includeSnapshotDataEl = document.getElementById("share-include-snapshot") as HTMLInputElement | null;
     const snapshotHintEl = document.getElementById("share-snapshot-hint");
-    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+    const hasSnapshot = hasSnapshotData();
     if (includeSnapshotDataEl) {
       includeSnapshotDataEl.checked = hasSnapshot;
       includeSnapshotDataEl.disabled = !hasSnapshot;
@@ -905,17 +890,12 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
   // ── Workspace: quick add current composition ──
   document.getElementById("btn-workspace-add-current")?.addEventListener("click", () => {
-    if (!_isSnapshotPlayground) return;
-    rememberPlaygroundBeforeWorkspaceSwitch();
-    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+    const hasSnapshot = hasSnapshotData();
     const entry = createOwnDeckFromCurrentState(
       hasSnapshot ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
       "",
     );
-    setActive(entry.id);
-    applyViewerEntry(entry);
-    setSnapshotPlaygroundMode(false);
-    renderWorkspacePanel();
+    activateWorkspaceEntry(entry);
   });
 
   // ── Workspace: confirm add ──
@@ -937,7 +917,6 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           alert("ロック中のデッキは編集できません");
           return;
         }
-        rememberPlaygroundBeforeWorkspaceSwitch();
         let payloadSource = editingEntry;
         if (getWorkspace().activeId === editingEntry.id) {
           saveCurrentStateToEntry(editingEntry);
@@ -955,10 +934,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           pinned: payloadSource.pinned,
           locked: payloadSource.locked ?? false,
         });
-        setActive(updated.id);
-        applyViewerEntry(updated);
-        setSnapshotPlaygroundMode(false);
-        renderWorkspacePanel();
+        activateWorkspaceEntry(updated);
         modal?.close();
         resetWorkspaceModal();
         return;
@@ -966,12 +942,8 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
       if (!shareUrl) {
         if (!editingEntryId) {
-          rememberPlaygroundBeforeWorkspaceSwitch();
           const entry = createOwnDeckFromCurrentState(label, memo);
-          setActive(entry.id);
-          applyViewerEntry(entry);
-          setSnapshotPlaygroundMode(false);
-          renderWorkspacePanel();
+          activateWorkspaceEntry(entry);
           modal?.close();
           resetWorkspaceModal();
           return;
@@ -1009,11 +981,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
             payload: resolved.payload,
             pinned: false,
           });
-          rememberPlaygroundBeforeWorkspaceSwitch();
-          setActive(entry.id);
-          applyViewerEntry(entry);
-          setSnapshotPlaygroundMode(false);
-          renderWorkspacePanel();
+          activateWorkspaceEntry(entry);
           modal?.close();
           resetWorkspaceModal();
         }
