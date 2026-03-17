@@ -810,6 +810,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
         });
         setActive(updated.id);
         applyViewerEntry(updated);
+        setSnapshotPlaygroundMode(false);
         renderWorkspacePanel();
         modal?.close();
         resetWorkspaceModal();
@@ -862,6 +863,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           });
           setActive(entry.id);
           applyViewerEntry(entry);
+          setSnapshotPlaygroundMode(false);
           renderWorkspacePanel();
           modal?.close();
           resetWorkspaceModal();
