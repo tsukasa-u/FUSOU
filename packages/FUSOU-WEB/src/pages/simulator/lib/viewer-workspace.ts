@@ -87,6 +87,7 @@ export function addEntry(
   if (existing) {
     if (!existing.locked) {
       existing.payload = entry.payload;
+      existing.payloadKind = entry.payloadKind;
       if (entry.name) existing.name = entry.name;
     }
     if (entry.memo || !existing.memo) {
