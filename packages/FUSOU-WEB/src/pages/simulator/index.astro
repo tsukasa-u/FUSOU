@@ -125,6 +125,24 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             >
             共有
           </button>
+        </div>
+      </div>
+
+      <section
+        id="shared-workspace-panel"
+        class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
+      >
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold">ワークスペース</h2>
+            <span id="workspace-mode-status" class="badge badge-sm badge-outline">PLAYGROUND</span>
+          </div>
+          <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
+        </div>
+        <p id="workspace-empty" class="text-sm text-base-content/50">
+          他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。
+        </p>
+        <div class="flex gap-1.5 flex-wrap my-3">
           <button id="btn-workspace-add" class="btn btn-outline btn-sm gap-1.5">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -158,22 +176,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             現在編成を追加
           </button>
         </div>
-      </div>
-
-      <section
-        id="shared-workspace-panel"
-        class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
-      >
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <div class="flex items-center gap-2">
-            <h2 class="text-sm font-semibold">ワークスペース</h2>
-            <span id="workspace-mode-status" class="badge badge-sm badge-outline">PLAYGROUND</span>
-          </div>
-          <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
-        </div>
-        <p id="workspace-empty" class="text-sm text-base-content/50">
-          他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。
-        </p>
         <div id="workspace-entry-list" class="space-y-2"></div>
       </section>
 

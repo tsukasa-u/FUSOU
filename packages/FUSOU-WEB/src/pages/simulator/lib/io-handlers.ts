@@ -285,10 +285,21 @@ function setSnapshotPlaygroundMode(enabled: boolean): void {
   _isSnapshotPlayground = enabled;
   const btn = document.getElementById("btn-workspace-add-current") as HTMLButtonElement | null;
   if (!btn) return;
-  btn.disabled = !enabled;
-  btn.title = enabled
-    ? "現在の編成をワークスペースへ追加"
-    : "スナップショット読込後のplaygroundでのみ利用できます";
+  const isPlayground = getWorkspace().activeId === null;
+  btn.disabled = !isPlayground;
+  btn.title = isPlayground
+    ? "現在のplayground編成をワークスペースへ追加"
+    : "playgroundでのみ利用できます";
+}
+
+function hasSnapshotLink(entry: ViewerEntry): boolean {
+  if (entry.payloadKind === "fleetSnapshot") return true;
+  const payload = entry.payload as Record<string, unknown>;
+  const snapshotShips = payload.snapshotShips;
+  const snapshotSlotItems = payload.snapshotSlotItems;
+  const hasShips = !!snapshotShips && typeof snapshotShips === "object" && Object.keys(snapshotShips).length > 0;
+  const hasItems = !!snapshotSlotItems && typeof snapshotSlotItems === "object" && Object.keys(snapshotSlotItems).length > 0;
+  return hasShips || hasItems;
 }
 
 function renderWorkspaceModeIndicator(): void {
@@ -456,12 +467,7 @@ function renderWorkspacePanel() {
   playgroundText.appendChild(playgroundName);
   playgroundText.appendChild(playgroundDesc);
 
-  const playgroundBadge = document.createElement("span");
-  playgroundBadge.className = "badge badge-sm badge-info shrink-0";
-  playgroundBadge.textContent = "PLAY";
-
   playgroundChip.appendChild(playgroundText);
-  playgroundChip.appendChild(playgroundBadge);
   playgroundChip.addEventListener("click", () => {
     const activeId = getWorkspace().activeId;
     if (activeId) {
@@ -505,6 +511,10 @@ function renderWorkspacePanel() {
     const badge = document.createElement("span");
     badge.className = "badge badge-sm shrink-0 " + (entry.locked ? "badge-warning" : "badge-ghost");
     badge.textContent = entry.sourceType === "ownDeck" ? "DECK" : "URL";
+
+    const snapshotBadge = document.createElement("span");
+    snapshotBadge.className = "badge badge-sm shrink-0 " + (hasSnapshotLink(entry) ? "badge-info" : "badge-ghost");
+    snapshotBadge.textContent = hasSnapshotLink(entry) ? "SNAP" : "NO-SNAP";
 
     const lockBtn = document.createElement("button");
     lockBtn.className = "btn btn-ghost btn-xs shrink-0";
@@ -558,6 +568,7 @@ function renderWorkspacePanel() {
 
     chip.appendChild(textBlock);
     chip.appendChild(badge);
+    chip.appendChild(snapshotBadge);
     chip.appendChild(lockBtn);
     chip.appendChild(dupBtn);
     chip.appendChild(editBtn);
