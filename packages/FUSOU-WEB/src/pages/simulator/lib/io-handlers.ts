@@ -9,6 +9,7 @@ import {
   addEntry,
   upsertEntry,
   removeEntry,
+  duplicateEntry,
   setActive,
   toggleLock,
   getWorkspace,
@@ -70,6 +71,7 @@ type ShareOptions = {
 
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 const WORKSPACE_MEMO_MAX_LENGTH = 300;
+let _isR2SnapshotPlayground = false;
 
 function encodePayloadBase64(payload: unknown): string {
   const json = JSON.stringify(payload);
@@ -287,6 +289,22 @@ function buildLockIconSvg(locked: boolean): string {
   return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 10h4v10H5V10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
+function setR2SnapshotPlaygroundMode(enabled: boolean): void {
+  _isR2SnapshotPlayground = enabled;
+  const btn = document.getElementById("btn-workspace-add-current") as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.disabled = !enabled;
+  btn.title = enabled
+    ? "現在の編成をワークスペースへ追加"
+    : "R2スナップショット読込後のplaygroundでのみ利用できます";
+}
+
+function isEntryR2SnapshotBased(entry: ViewerEntry): boolean {
+  if (entry.payloadKind !== "fleetSnapshot") return false;
+  if (entry.sourceType !== "ownDeck") return false;
+  return !(entry.sourceValue.startsWith("playground:") || entry.sourceValue.startsWith("duplicate:"));
+}
+
 function resetWorkspaceModal(): void {
   const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
     getWorkspaceModalElements();
@@ -397,6 +415,7 @@ function renderWorkspacePanel() {
     const lockBtn = document.createElement("button");
     lockBtn.className = "btn btn-ghost btn-xs shrink-0";
     lockBtn.innerHTML = buildLockIconSvg(Boolean(entry.locked));
+    lockBtn.style.color = entry.locked ? "hsl(var(--wa))" : "hsl(var(--bc) / 0.55)";
     lockBtn.title = entry.locked
       ? "ロック中：R2再読込で上書きされません。クリックで解除"
       : "ロック解除中：R2再読込で上書きされます。クリックでロック";
@@ -426,9 +445,24 @@ function renderWorkspacePanel() {
       renderWorkspacePanel();
     });
 
+    const dupBtn = document.createElement("button");
+    dupBtn.className = "btn btn-ghost btn-xs shrink-0";
+    dupBtn.textContent = "複製";
+    dupBtn.title = "この項目を複製";
+    dupBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const duplicated = duplicateEntry(entry.id);
+      if (!duplicated) return;
+      setActive(duplicated.id);
+      applyViewerEntry(duplicated);
+      setR2SnapshotPlaygroundMode(isEntryR2SnapshotBased(duplicated));
+      renderWorkspacePanel();
+    });
+
     chip.appendChild(textBlock);
     chip.appendChild(badge);
     chip.appendChild(lockBtn);
+    chip.appendChild(dupBtn);
     chip.appendChild(editBtn);
     chip.appendChild(delBtn);
 
@@ -440,6 +474,7 @@ function renderWorkspacePanel() {
       }
       setActive(entry.id);
       applyViewerEntry(entry);
+      setR2SnapshotPlaygroundMode(isEntryR2SnapshotBased(entry));
       renderWorkspacePanel();
     });
 
@@ -479,6 +514,7 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
           }
         }
         applyExportedFleet(merged);
+        setR2SnapshotPlaygroundMode(false);
         const sourceValue = `${window.location.origin}/simulator?data=${encodeURIComponent(data)}`;
         const entry = addEntry({
           name: "共有URL（現在）",
@@ -504,6 +540,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
 export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
   const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
+
+  setR2SnapshotPlaygroundMode(false);
 
   window.addEventListener("beforeunload", () => {
     saveActiveOwnDeckIfNeeded();
@@ -564,6 +602,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
               });
               setActive(wsEntry.id);
               applyViewerEntry(wsEntry);
+              setR2SnapshotPlaygroundMode(true);
               renderWorkspacePanel();
               modal.close();
             } else {
@@ -598,10 +637,12 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
         if (json.fleet1 || json.fleet2 || json.fleet3 || json.fleet4 || json.airBases) {
           applyExportedFleet(json);
+          setR2SnapshotPlaygroundMode(false);
         } else if (json.mst_ships || json.mst_slot_items || json.ships || json.equipments) {
           loadMasterDataFromJson(json, renderAll);
         } else if (json.s3s) {
           applyFleetSnapshot(json);
+          setR2SnapshotPlaygroundMode(false);
         } else {
           alert("認識できないJSONフォーマットです");
         }
@@ -720,6 +761,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
   // ── Workspace: quick add current composition ──
   document.getElementById("btn-workspace-add-current")?.addEventListener("click", () => {
+    if (!_isR2SnapshotPlayground) return;
     const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
     const entry = createOwnDeckFromCurrentState(
       hasSnapshot ? `自分のデッキ（R2由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
@@ -727,6 +769,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     );
     setActive(entry.id);
     applyViewerEntry(entry);
+    setR2SnapshotPlaygroundMode(false);
     renderWorkspacePanel();
   });
 
@@ -775,6 +818,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           const entry = createOwnDeckFromCurrentState(label, memo);
           setActive(entry.id);
           applyViewerEntry(entry);
+          setR2SnapshotPlaygroundMode(false);
           renderWorkspacePanel();
           modal?.close();
           resetWorkspaceModal();

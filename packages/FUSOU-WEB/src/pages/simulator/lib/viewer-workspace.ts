@@ -198,6 +198,28 @@ export function toggleLock(id: string): void {
   }
 }
 
+export function duplicateEntry(id: string): ViewerEntry | null {
+  const src = _ws.entries.find((e) => e.id === id);
+  if (!src) return null;
+
+  const duplicated: ViewerEntry = {
+    ...src,
+    id: crypto.randomUUID(),
+    name: `${src.name} コピー`,
+    sourceType: "ownDeck",
+    sourceValue: `duplicate:${crypto.randomUUID()}`,
+    updatedAt: Date.now(),
+    locked: false,
+  };
+
+  _ws.entries = [duplicated, ..._ws.entries];
+  if (_ws.entries.length > MAX_ENTRIES) {
+    _ws.entries = _ws.entries.slice(0, MAX_ENTRIES);
+  }
+  saveWorkspace(_ws);
+  return duplicated;
+}
+
 export function getActive(): ViewerEntry | null {
   if (!_ws.activeId) return null;
   return _ws.entries.find((e) => e.id === _ws.activeId) ?? null;
