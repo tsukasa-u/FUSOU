@@ -10,6 +10,7 @@ import {
   upsertEntry,
   removeEntry,
   duplicateEntry,
+  updateEntryData,
   setActive,
   clearActive,
   toggleLock,
@@ -190,16 +191,9 @@ function saveCurrentStateToEntry(entry: ViewerEntry): void {
     ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
   };
 
-  upsertEntry({
-    id: entry.id,
-    name: entry.name,
-    memo: entry.memo,
-    sourceType: entry.sourceType,
-    sourceValue: entry.sourceValue,
+  updateEntryData(entry.id, {
     payloadKind: "exportedFleet",
     payload: mergedPayload,
-    pinned: entry.pinned,
-    locked: entry.locked ?? false,
   });
 }
 
@@ -300,6 +294,33 @@ function setSnapshotPlaygroundMode(enabled: boolean): void {
     : "スナップショット読込後のplaygroundでのみ利用できます";
 }
 
+function renderWorkspaceModeIndicator(): void {
+  const el = document.getElementById("workspace-mode-status");
+  if (!el) return;
+  const activeId = getWorkspace().activeId;
+  if (!activeId) {
+    if (_isSnapshotPlayground) {
+      el.textContent = "PLAYGROUND (SNAPSHOT)";
+      el.className = "badge badge-sm badge-info";
+    } else {
+      el.textContent = "PLAYGROUND";
+      el.className = "badge badge-sm badge-ghost";
+    }
+    return;
+  }
+  const active = getWorkspaceEntryById(activeId);
+  if (!active) {
+    el.textContent = "PLAYGROUND";
+    el.className = "badge badge-sm badge-ghost";
+    return;
+  }
+  const typeLabel = active.sourceType === "ownDeck" ? "DECK" : "URL";
+  el.textContent = `WORKSPACE: ${typeLabel}`;
+  el.className = active.sourceType === "ownDeck"
+    ? "badge badge-sm badge-success"
+    : "badge badge-sm badge-accent";
+}
+
 function resetWorkspaceModal(): void {
   const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
     getWorkspaceModalElements();
@@ -358,6 +379,8 @@ function renderWorkspacePanel() {
   const count = document.getElementById("workspace-count");
 
   if (!list) return;
+
+  renderWorkspaceModeIndicator();
 
   if (count) count.textContent = `${ws.entries.length}件`;
 
@@ -536,6 +559,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
   const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
 
+  clearActive();
   setSnapshotPlaygroundMode(false);
 
   window.addEventListener("beforeunload", () => {

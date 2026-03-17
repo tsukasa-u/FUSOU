@@ -206,6 +206,19 @@ export function toggleLock(id: string): void {
   }
 }
 
+export function updateEntryData(
+  id: string,
+  data: Pick<ViewerEntry, "payloadKind" | "payload">,
+): ViewerEntry | null {
+  const entry = _ws.entries.find((e) => e.id === id);
+  if (!entry) return null;
+  entry.payloadKind = data.payloadKind;
+  entry.payload = data.payload;
+  entry.updatedAt = Date.now();
+  saveWorkspace(_ws);
+  return entry;
+}
+
 export function duplicateEntry(id: string): ViewerEntry | null {
   const src = _ws.entries.find((e) => e.id === id);
   if (!src) return null;

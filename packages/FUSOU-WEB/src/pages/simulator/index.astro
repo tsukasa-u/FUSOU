@@ -165,7 +165,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
       >
         <div class="flex items-center justify-between gap-2 mb-2">
-          <h2 class="text-sm font-semibold">ワークスペース</h2>
+          <div class="flex items-center gap-2">
+            <h2 class="text-sm font-semibold">ワークスペース</h2>
+            <span id="workspace-mode-status" class="badge badge-sm badge-outline">PLAYGROUND</span>
+          </div>
           <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
         </div>
         <p id="workspace-empty" class="text-sm text-base-content/50">
