@@ -96,6 +96,50 @@ function syncShipGVS() {
   });
 }
 
+/** Find the current ship from the active VS cache (snapshot-enriched when available). */
+function findCurrentShipInVS(): MstShipData | null {
+  const id = state.shipModalCurrentId;
+  if (id == null) return null;
+  if (_shipGVS) {
+    for (const row of _shipGVS.rows as ShipGRow[]) {
+      if (row.kind === "items") {
+        const found = row.ships.find((s) => s.id === id);
+        if (found) return found;
+      }
+    }
+  } else if (_shipVS) {
+    const found = (_shipVS.items as MstShipData[]).find((s) => s.id === id);
+    if (found) return found;
+  }
+  return state.mstShips[id] ?? null;
+}
+
+/** Scroll ship grid to the current ship row (call after showModal). */
+function scrollToCurrentShipInVS(): void {
+  const id = state.shipModalCurrentId;
+  if (id == null) return;
+  if (_shipGVS) {
+    const rowIdx = (_shipGVS.rows as ShipGRow[]).findIndex(
+      (row) => row.kind === "items" && row.ships.some((s) => s.id === id),
+    );
+    if (rowIdx < 0) return;
+    const offset = _shipGVS.offsets[rowIdx];
+    const spacerTop = _shipGVS.spacer.offsetTop;
+    _shipGVS.grid.scrollTop = spacerTop + offset;
+    syncShipGVS();
+    return;
+  }
+
+  if (_shipVS) {
+    const itemIdx = (_shipVS.items as MstShipData[]).findIndex((s) => s.id === id);
+    if (itemIdx < 0) return;
+    const rowIdx = Math.floor(itemIdx / _shipVS.cols);
+    const spacerTop = _shipVS.spacer.offsetTop;
+    _shipVS.grid.scrollTop = spacerTop + rowIdx * _shipVS.pitch;
+    syncShipVS();
+  }
+}
+
 export function openShipModal(
   currentId: number | null,
   cb: (id: number | null) => void,
@@ -131,9 +175,23 @@ export function openShipModal(
   updateSourceTabs();
 
   renderShipGrid("", "", state.shipModalSideFilter);
-  resetShipDetail();
+  const autoShowShip =
+    state.isWorkspaceReadOnly && state.shipModalCurrentId != null
+      ? findCurrentShipInVS()
+      : null;
+  if (autoShowShip) {
+    renderShipDetail(autoShowShip);
+  } else {
+    resetShipDetail();
+  }
   modal.showModal();
-  requestAnimationFrame(() => search.focus());
+  requestAnimationFrame(() => {
+    if (autoShowShip) {
+      scrollToCurrentShipInVS();
+    } else {
+      search.focus();
+    }
+  });
 }
 
 function updateSourceTabs() {

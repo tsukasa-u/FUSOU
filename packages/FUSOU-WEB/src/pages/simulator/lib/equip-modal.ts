@@ -107,6 +107,45 @@ function syncEquipGVS() {
   });
 }
 
+/** Return the MstSlotItemData for the currently selected equip from the active VS state (snapshot-enriched if available), falling back to master data. */
+function findCurrentEquipInVS(): MstSlotItemData | null {
+  const id = state.equipModalCurrentId;
+  if (id == null) return null;
+  if (_equipGVS) {
+    for (const row of (_equipGVS.rows as EquipGRow[])) {
+      if (row.kind === "item" && row.equip.id === id) return row.equip;
+    }
+  } else if (_equipVS) {
+    const item = (_equipVS.items as MstSlotItemData[]).find((e) => e.id === id);
+    if (item) return item;
+  }
+  return state.mstSlotItems[id] ?? null;
+}
+
+/** Scroll the equip grid so the currently selected equip row is visible (call after showModal). */
+function scrollToCurrentEquipInVS(): void {
+  const id = state.equipModalCurrentId;
+  if (id == null) return;
+  if (_equipGVS) {
+    const rowIdx = (_equipGVS.rows as EquipGRow[]).findIndex(
+      (r) => r.kind === "item" && r.equip.id === id,
+    );
+    if (rowIdx < 0) return;
+    const offset = _equipGVS.offsets[rowIdx];
+    const spacerTop = _equipGVS.spacer.offsetTop;
+    _equipGVS.grid.scrollTop = spacerTop + offset;
+    syncEquipGVS();
+  } else if (_equipVS) {
+    const itemIdx = (_equipVS.items as MstSlotItemData[]).findIndex(
+      (e) => e.id === id,
+    );
+    if (itemIdx < 0) return;
+    const spacerTop = _equipVS.spacer.offsetTop;
+    _equipVS.grid.scrollTop = spacerTop + itemIdx * _equipVS.pitch;
+    syncEquipVS();
+  }
+}
+
 export function openEquipModal(
   currentId: number | null,
   cb: (id: number | null) => void,
@@ -142,9 +181,23 @@ export function openEquipModal(
   updateEquipSourceTabs();
 
   renderEquipGrid("", "", state.equipModalSideFilter);
-  resetEquipDetail();
+  const autoShowEquip =
+    state.isWorkspaceReadOnly && state.equipModalCurrentId != null
+      ? findCurrentEquipInVS()
+      : null;
+  if (autoShowEquip) {
+    renderEquipDetail(autoShowEquip);
+  } else {
+    resetEquipDetail();
+  }
   modal.showModal();
-  requestAnimationFrame(() => search.focus());
+  requestAnimationFrame(() => {
+    if (autoShowEquip) {
+      scrollToCurrentEquipInVS();
+    } else {
+      search.focus();
+    }
+  });
 }
 
 function updateEquipSourceTabs() {
