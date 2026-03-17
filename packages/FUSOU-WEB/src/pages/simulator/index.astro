@@ -176,7 +176,16 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             現在編成を追加
           </button>
         </div>
-        <div id="workspace-entry-list" class="space-y-2"></div>
+        <div id="workspace-playground-entry" class="space-y-2"></div>
+        <div class="mt-3 border-t border-base-300/60 pt-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-medium tracking-wide text-base-content/60">保存済み</span>
+            <span class="text-[11px] text-base-content/45">一覧のみスクロールします</span>
+          </div>
+          <div class="max-h-[28rem] overflow-y-auto pr-1">
+            <div id="workspace-entry-list" class="space-y-2"></div>
+          </div>
+        </div>
       </section>
 
       <div id="deck-capture-area">

@@ -426,11 +426,12 @@ function openWorkspaceEditModal(entry: ViewerEntry): void {
 /** Render the shared workspace panel chips from current workspace state. */
 function renderWorkspacePanel() {
   const ws = getWorkspace();
+  const playgroundHost = document.getElementById("workspace-playground-entry");
   const list = document.getElementById("workspace-entry-list");
   const empty = document.getElementById("workspace-empty");
   const count = document.getElementById("workspace-count");
 
-  if (!list) return;
+  if (!playgroundHost || !list) return;
 
   renderWorkspaceModeIndicator();
   syncLockedEditState();
@@ -443,6 +444,7 @@ function renderWorkspacePanel() {
     if (empty) empty.style.display = "none";
   }
 
+  playgroundHost.innerHTML = "";
   list.innerHTML = "";
 
   const playgroundChip = document.createElement("div");
@@ -478,7 +480,7 @@ function renderWorkspacePanel() {
     applyPlaygroundDraftOrBlank();
     renderWorkspacePanel();
   });
-  list.appendChild(playgroundChip);
+  playgroundHost.appendChild(playgroundChip);
 
   for (const entry of ws.entries) {
     const isActive = entry.id === ws.activeId;
