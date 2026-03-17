@@ -5,6 +5,14 @@ import { renderAll } from "./airbase-renderer";
 import { loadMasterDataFromJson } from "./data-loader";
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
 import type { FleetSlot } from "./types";
+import {
+  addEntry,
+  removeEntry,
+  setActive,
+  getWorkspace,
+  type ViewerEntry,
+} from "./viewer-workspace";
+import { resolveShareInput } from "./share-resolver";
 
 const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
 
@@ -153,7 +161,81 @@ function getShareOptions(): ShareOptions {
   };
 }
 
-export function loadFromUrl() {
+/** Render the shared workspace panel chips from current workspace state. */
+function renderWorkspacePanel() {
+  const ws = getWorkspace();
+  const list = document.getElementById("workspace-entry-list");
+  const empty = document.getElementById("workspace-empty");
+  const count = document.getElementById("workspace-count");
+
+  if (!list) return;
+
+  if (count) count.textContent = `${ws.entries.length}件`;
+
+  if (ws.entries.length === 0) {
+    if (empty) empty.style.display = "";
+    list.innerHTML = "";
+    return;
+  }
+
+  if (empty) empty.style.display = "none";
+  list.innerHTML = "";
+
+  for (const entry of ws.entries) {
+    const isActive = entry.id === ws.activeId;
+
+    const chip = document.createElement("div");
+    chip.className = [
+      "flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
+      isActive
+        ? "border-primary bg-primary/10"
+        : "border-base-300/60 hover:border-primary/40",
+    ].join(" ");
+    chip.dataset.entryId = entry.id;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "flex-1 truncate";
+    nameSpan.textContent = entry.name;
+
+    const badge = document.createElement("span");
+    badge.className = "badge badge-sm badge-ghost shrink-0";
+    badge.textContent =
+      entry.sourceType === "shareKey"
+        ? "URL"
+        : entry.sourceType === "r2Tag"
+          ? "R2"
+          : "URL";
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn btn-ghost btn-xs shrink-0";
+    delBtn.textContent = "×";
+    delBtn.title = "削除";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      removeEntry(entry.id);
+      renderWorkspacePanel();
+    });
+
+    chip.appendChild(nameSpan);
+    chip.appendChild(badge);
+    chip.appendChild(delBtn);
+
+    chip.addEventListener("click", () => {
+      setActive(entry.id);
+      const payload = entry.payload;
+      if (entry.payloadKind === "exportedFleet") {
+        applyExportedFleet(payload as Record<string, unknown>);
+      } else {
+        applyFleetSnapshot(payload as Record<string, unknown>);
+      }
+      renderWorkspacePanel();
+    });
+
+    list.appendChild(chip);
+  }
+}
+
+export async function loadFromUrl(): Promise<ViewerEntry | null> {
   const params = new URLSearchParams(window.location.search);
   let sharedSnapshotPayload: Record<string, unknown> | null = null;
 
@@ -185,6 +267,17 @@ export function loadFromUrl() {
           }
         }
         applyExportedFleet(merged);
+        const sourceValue = `${window.location.origin}/simulator?data=${encodeURIComponent(data)}`;
+        const entry = addEntry({
+          name: "共有URL（現在）",
+          sourceType: "simulatorUrl",
+          sourceValue,
+          payloadKind: "exportedFleet",
+          payload: merged,
+          pinned: false,
+        });
+        setActive(entry.id);
+        return entry;
       }
     } catch {
       // Invalid data param
@@ -193,20 +286,37 @@ export function loadFromUrl() {
 
   const fleetTag = params.get("fleet");
   if (fleetTag && _accessToken) {
-    fetch(`/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`, { headers: authHeaders() })
-      .then((r) => {
-        if (!r.ok) throw new Error("Not found");
-        return r.json();
-      })
-      .then((result: any) => {
-        applyFleetSnapshot(result.snapshot as Record<string, unknown>);
-      })
-      .catch(() => {});
+    try {
+      const r = await fetch(
+        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
+        { headers: authHeaders() },
+      );
+      if (!r.ok) throw new Error("Not found");
+      const result = (await r.json()) as {
+        ok: boolean;
+        snapshot: Record<string, unknown>;
+      };
+      applyFleetSnapshot(result.snapshot);
+      const entry = addEntry({
+        name: fleetTag,
+        sourceType: "r2Tag",
+        sourceValue: fleetTag,
+        payloadKind: "fleetSnapshot",
+        payload: result.snapshot,
+        pinned: false,
+      });
+      setActive(entry.id);
+      return entry;
+    } catch {
+      // Fleet load failed — continue.
+    }
   }
+
+  return null;
 }
 
 /** Wire up all I/O-related event listeners. Call once at init time. */
-export function initIOEvents() {
+export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
   const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
 
@@ -398,4 +508,112 @@ export function initIOEvents() {
     shareModal?.close();
     window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", shortUrl);
   });
+
+  // ── Workspace: open add modal ──
+  document.getElementById("btn-workspace-add")?.addEventListener("click", () => {
+    const modal = document.getElementById(
+      "workspace-add-modal",
+    ) as HTMLDialogElement | null;
+    modal?.showModal();
+  });
+
+  // ── Workspace: confirm add ──
+  document
+    .getElementById("btn-workspace-add-confirm")
+    ?.addEventListener("click", async () => {
+      const modal = document.getElementById(
+        "workspace-add-modal",
+      ) as HTMLDialogElement | null;
+      const labelInput = document.getElementById(
+        "workspace-entry-label",
+      ) as HTMLInputElement | null;
+      const shareInput = document.getElementById(
+        "workspace-share-input",
+      ) as HTMLInputElement | null;
+      const fleetTagInput = document.getElementById(
+        "workspace-fleet-tag-input",
+      ) as HTMLInputElement | null;
+      const confirmBtn = document.getElementById(
+        "btn-workspace-add-confirm",
+      ) as HTMLButtonElement | null;
+
+      const label = labelInput?.value.trim() ?? "";
+      const shareUrl = shareInput?.value.trim() ?? "";
+      const fleetTag = fleetTagInput?.value.trim() ?? "";
+
+      if (!shareUrl && !fleetTag) {
+        alert("共有URLまたは保存タグを入力してください");
+        return;
+      }
+
+      if (confirmBtn) confirmBtn.disabled = true;
+
+      try {
+        if (shareUrl) {
+          const resolved = await resolveShareInput(shareUrl);
+          if (!resolved.ok) {
+            alert(resolved.error);
+            return;
+          }
+          const entry = addEntry({
+            name: label || resolved.sourceValue.slice(0, 40),
+            sourceType: resolved.sourceType,
+            sourceValue: resolved.sourceValue,
+            payloadKind: resolved.payloadKind,
+            payload: resolved.payload,
+            pinned: false,
+          });
+          setActive(entry.id);
+          if (resolved.payloadKind === "exportedFleet") {
+            applyExportedFleet(resolved.payload as Record<string, unknown>);
+          } else {
+            applyFleetSnapshot(resolved.payload as Record<string, unknown>);
+          }
+          renderWorkspacePanel();
+          modal?.close();
+          if (labelInput) labelInput.value = "";
+          if (shareInput) shareInput.value = "";
+        } else if (fleetTag) {
+          if (!_accessToken) {
+            alert("この機能を利用するにはログインが必要です");
+            return;
+          }
+          const res = await fetch(
+            `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
+            { headers: authHeaders() },
+          );
+          if (!res.ok) {
+            alert(
+              res.status === 404
+                ? "このタグは見つかりません"
+                : "読込に失敗しました",
+            );
+            return;
+          }
+          const result = (await res.json()) as {
+            ok: boolean;
+            snapshot: Record<string, unknown>;
+          };
+          const entry = addEntry({
+            name: label || fleetTag,
+            sourceType: "r2Tag",
+            sourceValue: fleetTag,
+            payloadKind: "fleetSnapshot",
+            payload: result.snapshot,
+            pinned: false,
+          });
+          setActive(entry.id);
+          applyFleetSnapshot(result.snapshot);
+          renderWorkspacePanel();
+          modal?.close();
+          if (labelInput) labelInput.value = "";
+          if (fleetTagInput) fleetTagInput.value = "";
+        }
+      } finally {
+        if (confirmBtn) confirmBtn.disabled = false;
+      }
+    });
+
+  // ── Workspace: initial render ──
+  renderWorkspacePanel();
 }

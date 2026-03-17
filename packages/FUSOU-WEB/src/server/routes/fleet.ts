@@ -494,4 +494,49 @@ app.get("/snapshots/list", async (c) => {
   }
 });
 
+// DELETE /snapshot/:tag - Delete all fleet snapshots for a tag
+app.delete("/snapshot/:tag", async (c) => {
+  const env = createEnvContext(c);
+  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+
+  if (!bucket || typeof bucket.delete !== "function") {
+    return c.json({ error: "Server misconfiguration" }, 500);
+  }
+
+  const tag = c.req.param("tag");
+  if (!tag) {
+    return c.json({ error: "tag is required" }, 400);
+  }
+
+  const resolved = await resolveDatasetId(c);
+  if (!resolved.ok) return c.json({ error: resolved.error }, resolved.status);
+  const datasetId = resolved.datasetId;
+
+  const safeTag = encodeURIComponent(tag.toLowerCase().trim());
+  const prefix = `fleets/${datasetId}/${safeTag}/`;
+
+  try {
+    const listed = await bucket.list({ prefix });
+    const objects = listed.objects || [];
+
+    if (objects.length === 0) {
+      return c.json({ ok: true, deleted: 0, tag, dataset_id: datasetId });
+    }
+
+    for (const obj of objects) {
+      await bucket.delete(obj.key);
+    }
+
+    return c.json({
+      ok: true,
+      deleted: objects.length,
+      tag,
+      dataset_id: datasetId,
+    });
+  } catch (err) {
+    console.error("[fleet-snapshot] delete error:", err);
+    return c.json({ error: "Failed to delete fleet snapshot" }, 500);
+  }
+});
+
 export default app;

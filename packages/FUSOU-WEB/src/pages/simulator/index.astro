@@ -125,8 +125,38 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
             >
             共有
           </button>
+          <button id="btn-workspace-add" class="btn btn-outline btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 4v16m8-8H4"
+              ></path></svg
+            >
+            共有を追加
+          </button>
         </div>
       </div>
+
+      <section
+        id="shared-workspace-panel"
+        class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
+      >
+        <div class="flex items-center justify-between gap-2 mb-2">
+          <h2 class="text-sm font-semibold">共有ワークスペース</h2>
+          <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
+        </div>
+        <p id="workspace-empty" class="text-sm text-base-content/50">
+          共有URLまたは保存タグを追加すると、ページ遷移せずに編成を切り替えられます。
+        </p>
+        <div id="workspace-entry-list" class="space-y-2"></div>
+      </section>
 
       <div id="deck-capture-area">
         <!-- Status -->
@@ -671,6 +701,74 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         </form>
       </dialog>
 
+      <!-- Workspace Add Modal -->
+      <dialog id="workspace-add-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-2">共有ワークスペースに追加</h3>
+          <p class="text-xs text-base-content/60 mb-4">
+            共有URL（/s/xxxx or /simulator?data=...）または保存タグを追加できます。
+          </p>
+
+          <div class="space-y-3 text-sm">
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">表示名（任意）</span></label
+              >
+              <input
+                id="workspace-entry-label"
+                type="text"
+                class="input input-bordered input-sm"
+                placeholder="例: 友軍A / E-5破砕編成"
+              />
+            </div>
+
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">共有URL or キー</span></label
+              >
+              <input
+                id="workspace-share-input"
+                type="text"
+                class="input input-bordered input-sm"
+                placeholder="https://fusou.dev/s/xxxxxxxxxxxxxxxx"
+              />
+              <p class="text-xs text-base-content/50 mt-1">
+                キーだけ（16桁hex）でも追加できます。
+              </p>
+            </div>
+
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">保存タグ（任意）</span></label
+              >
+              <input
+                id="workspace-fleet-tag-input"
+                type="text"
+                class="input input-bordered input-sm"
+                placeholder="例: event-e5-main"
+              />
+              <p class="text-xs text-base-content/50 mt-1">
+                こちらを使う場合はログイン済みである必要があります。
+              </p>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button
+              id="btn-workspace-add-confirm"
+              type="button"
+              class="btn btn-primary btn-sm"
+            >追加して切り替え</button>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">キャンセル</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
       <input type="file" id="import-file-input" accept=".json" class="hidden" />
     </div>
   </div>
@@ -692,18 +790,19 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   initShipModalEvents();
   initEquipModalEvents();
   initImageCaptureEvents();
-  initIOEvents();
-
   window.addEventListener("resize", () => {
     handleResizeShip();
     handleResizeEquip();
   });
 
   // Init
-  updateDataStatus();
-  loadFromUrl();
-  renderAll();
-  loadMasterData(renderAll);
+  (async () => {
+    updateDataStatus();
+    const initialWorkspaceSeed = await loadFromUrl();
+    renderAll();
+    initIOEvents(initialWorkspaceSeed);
+    loadMasterData(renderAll);
+  })();
 </script>
 
 <style is:global>
