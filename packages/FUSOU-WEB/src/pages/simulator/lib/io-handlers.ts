@@ -518,7 +518,7 @@ function renderWorkspacePanel() {
     nameSpan.textContent = entry.name;
 
     const memoSpan = document.createElement("div");
-    memoSpan.className = "text-xs text-base-content/65 mt-0.5 whitespace-pre-wrap break-words";
+    memoSpan.className = "text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden";
     memoSpan.textContent = entry.memo?.trim() ?? "";
 
     textBlock.appendChild(nameSpan);
