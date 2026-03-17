@@ -74,6 +74,7 @@ type ShareOptions = {
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 const WORKSPACE_MEMO_MAX_LENGTH = 300;
 let _isSnapshotPlayground = false;
+let _playgroundDraft: Record<string, unknown> | null = null;
 
 function encodePayloadBase64(payload: unknown): string {
   const json = JSON.stringify(payload);
@@ -156,6 +157,46 @@ function buildSnapshotPayloadForShare() {
   };
 }
 
+function buildCurrentPlaygroundPayload(): Record<string, unknown> {
+  const payload = buildSharePayload({
+    includeAirBases: true,
+    includeDetailedStats: true,
+    includeSnapshotData: false,
+  });
+  const snapshotPayload = buildSnapshotPayloadForShare();
+  return {
+    ...payload,
+    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
+    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
+  };
+}
+
+function rememberCurrentPlayground(): void {
+  _playgroundDraft = buildCurrentPlaygroundPayload();
+}
+
+function applyPlaygroundDraftOrBlank(): void {
+  if (_playgroundDraft) {
+    applyExportedFleet(_playgroundDraft);
+    const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+    setSnapshotPlaygroundMode(hasSnapshot);
+    return;
+  }
+
+  applyExportedFleet({
+    fleet1: [],
+    fleet2: [],
+    fleet3: [],
+    fleet4: [],
+    airBases: [
+      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
+      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
+      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
+    ],
+  });
+  setSnapshotPlaygroundMode(false);
+}
+
 function getShareOptions(): ShareOptions {
   const includeAirBasesEl = document.getElementById("share-include-airbase") as HTMLInputElement | null;
   const includeDetailedStatsEl = document.getElementById("share-include-detailed-stats") as HTMLInputElement | null;
@@ -179,17 +220,7 @@ function applyViewerEntry(entry: ViewerEntry): void {
 function saveCurrentStateToEntry(entry: ViewerEntry): void {
   if (entry.sourceType !== "ownDeck") return;
 
-  const payload = buildSharePayload({
-    includeAirBases: true,
-    includeDetailedStats: true,
-    includeSnapshotData: false,
-  });
-  const snapshotPayload = buildSnapshotPayloadForShare();
-  const mergedPayload = {
-    ...payload,
-    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
-    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
-  };
+  const mergedPayload = buildCurrentPlaygroundPayload();
 
   updateEntryData(entry.id, {
     payloadKind: "exportedFleet",
@@ -198,17 +229,7 @@ function saveCurrentStateToEntry(entry: ViewerEntry): void {
 }
 
 function createOwnDeckFromCurrentState(name: string, memo: string): ViewerEntry {
-  const payload = buildSharePayload({
-    includeAirBases: true,
-    includeDetailedStats: true,
-    includeSnapshotData: false,
-  });
-  const snapshotPayload = buildSnapshotPayloadForShare();
-  const mergedPayload = {
-    ...payload,
-    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
-    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
-  };
+  const mergedPayload = buildCurrentPlaygroundPayload();
 
   return addEntry({
     name: name || `自分のデッキ ${new Date().toLocaleString()}`,
@@ -300,10 +321,10 @@ function renderWorkspaceModeIndicator(): void {
   const activeId = getWorkspace().activeId;
   if (!activeId) {
     if (_isSnapshotPlayground) {
-      el.textContent = "PLAYGROUND (SNAPSHOT)";
+      el.textContent = "PLAYGROUND: SNAPSHOT";
       el.className = "badge badge-sm badge-info";
     } else {
-      el.textContent = "PLAYGROUND";
+      el.textContent = "PLAYGROUND: BLANK";
       el.className = "badge badge-sm badge-ghost";
     }
     return;
@@ -386,12 +407,51 @@ function renderWorkspacePanel() {
 
   if (ws.entries.length === 0) {
     if (empty) empty.style.display = "";
-    list.innerHTML = "";
-    return;
+  } else {
+    if (empty) empty.style.display = "none";
   }
 
-  if (empty) empty.style.display = "none";
   list.innerHTML = "";
+
+  const playgroundChip = document.createElement("div");
+  const isPlaygroundActive = ws.activeId === null;
+  playgroundChip.className = [
+    "flex items-start gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
+    isPlaygroundActive
+      ? "border-info bg-info/10"
+      : "border-base-300/60 hover:border-info/50",
+  ].join(" ");
+
+  const playgroundText = document.createElement("div");
+  playgroundText.className = "flex-1 min-w-0";
+  const playgroundName = document.createElement("div");
+  playgroundName.className = "truncate font-medium";
+  playgroundName.textContent = "Playground";
+  const playgroundDesc = document.createElement("div");
+  playgroundDesc.className = "text-[11px] text-base-content/55 mt-0.5";
+  playgroundDesc.textContent = _isSnapshotPlayground
+    ? "スナップショットを反映した作業中の編成"
+    : "白紙状態から編成を作成する作業領域";
+  playgroundText.appendChild(playgroundName);
+  playgroundText.appendChild(playgroundDesc);
+
+  const playgroundBadge = document.createElement("span");
+  playgroundBadge.className = "badge badge-sm badge-info shrink-0";
+  playgroundBadge.textContent = "PLAY";
+
+  playgroundChip.appendChild(playgroundText);
+  playgroundChip.appendChild(playgroundBadge);
+  playgroundChip.addEventListener("click", () => {
+    const activeId = getWorkspace().activeId;
+    if (activeId) {
+      const currentEntry = getWorkspaceEntryById(activeId);
+      if (currentEntry) saveCurrentStateToEntry(currentEntry);
+    }
+    clearActive();
+    applyPlaygroundDraftOrBlank();
+    renderWorkspacePanel();
+  });
+  list.appendChild(playgroundChip);
 
   for (const entry of ws.entries) {
     const isActive = entry.id === ws.activeId;
@@ -489,6 +549,8 @@ function renderWorkspacePanel() {
       if (activeId && activeId !== entry.id) {
         const currentEntry = getWorkspaceEntryById(activeId);
         if (currentEntry) saveCurrentStateToEntry(currentEntry);
+      } else if (!activeId) {
+        rememberCurrentPlayground();
       }
       setActive(entry.id);
       applyViewerEntry(entry);
@@ -532,19 +594,11 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
           }
         }
         applyExportedFleet(merged);
-        setSnapshotPlaygroundMode(false);
-        const sourceValue = `${window.location.origin}/simulator?data=${encodeURIComponent(data)}`;
-        const entry = addEntry({
-          name: "共有URL（現在）",
-          memo: "",
-          sourceType: "simulatorUrl",
-          sourceValue,
-          payloadKind: "exportedFleet",
-          payload: merged,
-          pinned: false,
-        });
-        setActive(entry.id);
-        return entry;
+        _playgroundDraft = merged;
+        const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+        setSnapshotPlaygroundMode(hasSnapshot);
+        clearActive();
+        return null;
       }
     } catch {
       // Invalid data param
@@ -560,7 +614,9 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
 
   clearActive();
-  setSnapshotPlaygroundMode(false);
+  _playgroundDraft = buildCurrentPlaygroundPayload();
+  const hasInitialSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
+  setSnapshotPlaygroundMode(hasInitialSnapshot);
 
   window.addEventListener("beforeunload", () => {
     saveActiveOwnDeckIfNeeded();
@@ -613,20 +669,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
               applyFleetSnapshot(result.snapshot);
               clearActive();
               setSnapshotPlaygroundMode(true);
-
-              const wsEntry = addEntry({
-                name: entry.tag,
-                memo: "",
-                sourceType: "ownDeck",
-                sourceValue: entry.tag,
-                payloadKind: "fleetSnapshot",
-                payload: result.snapshot,
-                pinned: false,
-              });
-              if (wsEntry.locked) {
-                // Keep the latest snapshot in playground even when locked entry is preserved in workspace.
-                clearActive();
-              }
+              _playgroundDraft = buildCurrentPlaygroundPayload();
               renderWorkspacePanel();
               modal.close();
             } else {
@@ -664,12 +707,14 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           clearActive();
           const hasSnapshot = Object.keys(state.snapshotShips).length > 0 || Object.keys(state.snapshotSlotItems).length > 0;
           setSnapshotPlaygroundMode(hasSnapshot);
+          _playgroundDraft = buildCurrentPlaygroundPayload();
         } else if (json.mst_ships || json.mst_slot_items || json.ships || json.equipments) {
           loadMasterDataFromJson(json, renderAll);
         } else if (json.s3s) {
           applyFleetSnapshot(json);
           clearActive();
           setSnapshotPlaygroundMode(true);
+          _playgroundDraft = buildCurrentPlaygroundPayload();
         } else {
           alert("認識できないJSONフォーマットです");
         }
