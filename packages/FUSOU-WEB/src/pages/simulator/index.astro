@@ -153,7 +153,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           <span id="workspace-count" class="text-xs text-base-content/50">0件</span>
         </div>
         <p id="workspace-empty" class="text-sm text-base-content/50">
-          共有URLまたは保存タグを追加すると、ページ遷移せずに編成を切り替えられます。
+          共有URLを追加すると、ページ遷移せずに編成を切り替えられます。
         </p>
         <div id="workspace-entry-list" class="space-y-2"></div>
       </section>
@@ -704,9 +704,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       <!-- Workspace Add Modal -->
       <dialog id="workspace-add-modal" class="modal">
         <div class="modal-box rounded-xl">
-          <h3 class="font-bold text-lg mb-2">共有ワークスペースに追加</h3>
-          <p class="text-xs text-base-content/60 mb-4">
-            共有URL（/s/xxxx or /simulator?data=...）または保存タグを追加できます。
+          <h3 id="workspace-modal-title" class="font-bold text-lg mb-2">共有ワークスペースに追加</h3>
+          <p id="workspace-modal-description" class="text-xs text-base-content/60 mb-4">
+            共有URL（/s/xxxx or /simulator?data=...）を追加できます。
           </p>
 
           <div class="space-y-3 text-sm">
@@ -724,6 +724,18 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
             <div class="form-control">
               <label class="label py-1"
+                ><span class="label-text">メモ（任意）</span></label
+              >
+              <textarea
+                id="workspace-entry-memo"
+                class="textarea textarea-bordered textarea-sm min-h-20"
+                maxlength="300"
+                placeholder="例: 対潜重視。夜戦火力が不足しがち"
+              ></textarea>
+            </div>
+
+            <div class="form-control">
+              <label class="label py-1"
                 ><span class="label-text">共有URL or キー</span></label
               >
               <input
@@ -734,21 +746,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
               />
               <p class="text-xs text-base-content/50 mt-1">
                 キーだけ（16桁hex）でも追加できます。
-              </p>
-            </div>
-
-            <div class="form-control">
-              <label class="label py-1"
-                ><span class="label-text">保存タグ（任意）</span></label
-              >
-              <input
-                id="workspace-fleet-tag-input"
-                type="text"
-                class="input input-bordered input-sm"
-                placeholder="例: event-e5-main"
-              />
-              <p class="text-xs text-base-content/50 mt-1">
-                こちらを使う場合はログイン済みである必要があります。
               </p>
             </div>
           </div>

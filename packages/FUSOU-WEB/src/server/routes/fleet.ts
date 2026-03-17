@@ -355,7 +355,7 @@ app.post("/snapshot", async (c) => {
       }
 
       return {
-        response: { ok: true, tag, dataset_id: datasetId, r2_key: fileName },
+        response: { ok: true, tag },
       };
     },
   });
@@ -421,8 +421,6 @@ app.get("/snapshot/:tag", async (c) => {
     return c.json({
       ok: true,
       tag,
-      dataset_id: datasetId,
-      r2_key: latestKey,
       snapshot: data,
     });
   } catch (err) {
@@ -477,14 +475,12 @@ app.get("/snapshots/list", async (c) => {
 
     const tags = Array.from(tagMap.entries()).map(([name, info]) => ({
       tag: name,
-      r2_key: info.key,
       uploaded: info.uploaded,
       size: info.size,
     }));
 
     return c.json({
       ok: true,
-      dataset_id: datasetId,
       count: tags.length,
       tags,
     });
@@ -520,7 +516,7 @@ app.delete("/snapshot/:tag", async (c) => {
     const objects = listed.objects || [];
 
     if (objects.length === 0) {
-      return c.json({ ok: true, deleted: 0, tag, dataset_id: datasetId });
+      return c.json({ ok: true, deleted: 0, tag });
     }
 
     for (const obj of objects) {
@@ -531,7 +527,6 @@ app.delete("/snapshot/:tag", async (c) => {
       ok: true,
       deleted: objects.length,
       tag,
-      dataset_id: datasetId,
     });
   } catch (err) {
     console.error("[fleet-snapshot] delete error:", err);

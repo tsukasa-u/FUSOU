@@ -4,8 +4,9 @@
 export interface ViewerEntry {
   id: string;
   name: string;
+  memo: string;
   /** Source type — used for deduplication and badge display. */
-  sourceType: "shareKey" | "simulatorUrl" | "r2Tag" | "manual";
+  sourceType: "shareKey" | "simulatorUrl";
   /** Stable identifier for this source (e.g. 16-char short key, fleet tag, or base URL). */
   sourceValue: string;
   payloadKind: "exportedFleet" | "fleetSnapshot";
@@ -28,7 +29,14 @@ export function loadWorkspace(): ViewerWorkspace {
     if (!raw) return { activeId: null, entries: [] };
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return { activeId: null, entries: [] };
-    return parsed as ViewerWorkspace;
+    const ws = parsed as ViewerWorkspace;
+    ws.entries = (ws.entries ?? []).map((entry) => ({
+      ...entry,
+      memo: typeof (entry as { memo?: unknown }).memo === "string"
+        ? (entry as { memo?: string }).memo ?? ""
+        : "",
+    }));
+    return ws;
   } catch {
     return { activeId: null, entries: [] };
   }
@@ -72,6 +80,7 @@ export function addEntry(
     existing.payload = entry.payload;
     existing.updatedAt = Date.now();
     if (entry.name) existing.name = entry.name;
+    existing.memo = entry.memo;
     _ws.entries = [existing, ..._ws.entries.filter((e) => e.id !== existing.id)];
     saveWorkspace(_ws);
     return existing;
@@ -80,6 +89,7 @@ export function addEntry(
   const newEntry: ViewerEntry = {
     id: entry.id ?? crypto.randomUUID(),
     name: entry.name,
+    memo: entry.memo,
     sourceType: entry.sourceType,
     sourceValue: entry.sourceValue,
     payloadKind: entry.payloadKind,
@@ -103,6 +113,49 @@ export function addEntry(
   _ws.entries = entries;
   saveWorkspace(_ws);
   return newEntry;
+}
+
+export function upsertEntry(
+  entry: Omit<ViewerEntry, "updatedAt">,
+): ViewerEntry {
+  const duplicate = _ws.entries.find(
+    (current) => current.id !== entry.id
+      && current.sourceType === entry.sourceType
+      && current.sourceValue === entry.sourceValue,
+  );
+
+  if (duplicate) {
+    duplicate.name = entry.name;
+    duplicate.payloadKind = entry.payloadKind;
+    duplicate.payload = entry.payload;
+    duplicate.pinned = entry.pinned;
+    duplicate.updatedAt = Date.now();
+    _ws.entries = [
+      duplicate,
+      ..._ws.entries.filter((current) => current.id !== duplicate.id && current.id !== entry.id),
+    ];
+    if (_ws.activeId === entry.id || _ws.activeId === duplicate.id) {
+      _ws.activeId = duplicate.id;
+    }
+    saveWorkspace(_ws);
+    return duplicate;
+  }
+
+  const target = _ws.entries.find((current) => current.id === entry.id);
+  if (target) {
+    target.name = entry.name;
+    target.sourceType = entry.sourceType;
+    target.sourceValue = entry.sourceValue;
+    target.payloadKind = entry.payloadKind;
+    target.payload = entry.payload;
+    target.pinned = entry.pinned;
+    target.updatedAt = Date.now();
+    _ws.entries = [target, ..._ws.entries.filter((current) => current.id !== target.id)];
+    saveWorkspace(_ws);
+    return target;
+  }
+
+  return addEntry(entry);
 }
 
 export function removeEntry(id: string): void {
