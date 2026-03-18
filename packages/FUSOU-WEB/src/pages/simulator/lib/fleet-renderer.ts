@@ -60,7 +60,7 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
       });
     } else {
       // ---- Filled slot (game-style card) ----
-      card.className = "rounded-lg overflow-hidden border border-base-300/60 bg-base-100 group/card relative";
+      card.className = "rounded-lg overflow-hidden border border-base-300/60 bg-base-100 group/card relative max-w-sm";
 
       const cardImg = document.createElement("img");
       cardImg.src = cardUrl(slot.shipId!);
@@ -77,7 +77,6 @@ export function renderFleetSlots(containerId: string, fleet: FleetSlot[]) {
 
       const leftCol = document.createElement("div");
       leftCol.className = "relative z-10 flex flex-col";
-      // Slightly narrower than previous 2/3 so equipment rows look denser.
       leftCol.style.width = "62%";
       leftCol.style.background = "linear-gradient(to right, var(--color-base-100) 75%, transparent 100%)";
 
