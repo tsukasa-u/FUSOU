@@ -1,8 +1,16 @@
-// ── I/O event handlers: import, export, share, load from URL, fleet load ──
+// ── I/O event handlers: import, share, load from URL, fleet load ──
 
 import { renderAll } from "./airbase-renderer";
 import { loadMasterDataFromJson } from "./data-loader";
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
+import {
+  stripSvdataPrefix,
+  detectResponseKind,
+  convertPortToSnapshot,
+  convertRequireInfoToSnapshot,
+  convertGetDataToMasterData,
+  mergeSnapshots,
+} from "./api-response-parser";
 import type { FleetSlot } from "./types";
 import {
   addEntry,
@@ -673,6 +681,161 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
   return null;
 }
 
+// ── API Response Paste Dialog ──
+
+interface ApiPasteCallbacks {
+  onApplyExportedFleet(json: Record<string, unknown>): void;
+  onApplySnapshot(json: Record<string, unknown>): void;
+  onLoadMasterData(json: Record<string, unknown>): void;
+}
+
+function initApiPasteDialog(cb: ApiPasteCallbacks): void {
+  const modal = document.getElementById("api-paste-modal") as HTMLDialogElement | null;
+
+  const portTextarea = document.getElementById("api-paste-port") as HTMLTextAreaElement | null;
+  const requireTextarea = document.getElementById("api-paste-require") as HTMLTextAreaElement | null;
+  const masterTextarea = document.getElementById("api-paste-master") as HTMLTextAreaElement | null;
+
+  function setFieldMessage(
+    section: "port" | "require" | "master",
+    msg: string,
+    kind: "info" | "success" | "error" = "info",
+  ): void {
+    const el = document.getElementById(`api-paste-message-${section}`);
+    if (!el) return;
+    el.textContent = msg;
+    el.className = `text-xs mt-1 min-h-[1.2em] ${
+      kind === "success" ? "text-success" : kind === "error" ? "text-error" : "text-base-content/60"
+    }`;
+  }
+
+  function setBadge(section: "port" | "require" | "master", text: string, success: boolean): void {
+    const badge = document.getElementById(`api-paste-status-${section}`);
+    if (!badge) return;
+    badge.textContent = text;
+    badge.className = success ? "badge badge-success badge-sm" : "badge badge-ghost badge-sm";
+  }
+
+  function tryParseJson(textarea: HTMLTextAreaElement | null, section: "port" | "require" | "master"): Record<string, unknown> | null {
+    const raw = textarea?.value ?? "";
+    if (!raw.trim()) return null; // empty is not an error — just skip
+    try {
+      return JSON.parse(stripSvdataPrefix(raw));
+    } catch {
+      setFieldMessage(section, "JSONのパースに失敗しました", "error");
+      return null;
+    }
+  }
+
+  function resetAll(): void {
+    if (portTextarea) portTextarea.value = "";
+    if (requireTextarea) requireTextarea.value = "";
+    if (masterTextarea) masterTextarea.value = "";
+    for (const s of ["port", "require", "master"] as const) {
+      setFieldMessage(s, "");
+      setBadge(s, "未読込", false);
+    }
+  }
+
+  // Open dialog
+  document.getElementById("btn-import")?.addEventListener("click", () => {
+    if (!modal) return;
+    modal.showModal();
+  });
+
+  // Apply — parse all non-empty textareas at once
+  document.getElementById("btn-api-paste-apply")?.addEventListener("click", () => {
+    // Clear previous messages
+    for (const s of ["port", "require", "master"] as const) setFieldMessage(s, "");
+
+    let hadError = false;
+
+    // --- master data (getData) ---
+    const masterJson = tryParseJson(masterTextarea, "master");
+    if (masterJson) {
+      const kind = detectResponseKind(masterJson);
+      if (kind === "getData") {
+        cb.onLoadMasterData(convertGetDataToMasterData(masterJson));
+        setBadge("master", "読込済み", true);
+        setFieldMessage("master", "マスターデータを読み込みました", "success");
+        if (masterTextarea) masterTextarea.value = "";
+      } else if (masterJson.mst_ships || masterJson.mst_slot_items || masterJson.ships || masterJson.equipments) {
+        cb.onLoadMasterData(masterJson);
+        setBadge("master", "読込済み", true);
+        setFieldMessage("master", "マスターデータを読み込みました", "success");
+        if (masterTextarea) masterTextarea.value = "";
+      } else {
+        setFieldMessage("master", "api_start2/getData のレスポンスではありません", "error");
+        hadError = true;
+      }
+    }
+
+    // --- port ---
+    const portJson = tryParseJson(portTextarea, "port");
+    if (portJson) {
+      const kind = detectResponseKind(portJson);
+      if (kind === "port") {
+        // Normal port response — needs require_info too
+        const reqJson = tryParseJson(requireTextarea, "require");
+        if (reqJson) {
+          const reqKind = detectResponseKind(reqJson);
+          if (reqKind === "requireInfo") {
+            const portSnap = convertPortToSnapshot(portJson);
+            const reqSnap = convertRequireInfoToSnapshot(reqJson);
+            const snapshot = mergeSnapshots(portSnap, reqSnap);
+            cb.onApplySnapshot(snapshot);
+            setBadge("port", `${portSnap.s3s.length}隻 / ${portSnap.d8k.length}艦隊`, true);
+            setBadge("require", `${reqSnap.s8s.length}件`, true);
+            setFieldMessage("port", "編成に反映しました", "success");
+            setFieldMessage("require", "編成に反映しました", "success");
+            if (portTextarea) portTextarea.value = "";
+            if (requireTextarea) requireTextarea.value = "";
+          } else {
+            setFieldMessage("require", "api_get_member/require_info のレスポンスではありません", "error");
+            hadError = true;
+          }
+        } else if (!requireTextarea?.value.trim()) {
+          setFieldMessage("require", "port と合わせて require_info も貼り付けてください", "error");
+          hadError = true;
+        } else {
+          hadError = true; // parse error already set by tryParseJson
+        }
+      } else if (portJson.fleet1 || portJson.fleet2 || portJson.fleet3 || portJson.fleet4 || portJson.airBases) {
+        cb.onApplyExportedFleet(portJson);
+        setBadge("port", "反映済み", true);
+        setFieldMessage("port", "エクスポート済み編成を反映しました", "success");
+        if (portTextarea) portTextarea.value = "";
+      } else if (portJson.s3s) {
+        cb.onApplySnapshot(portJson);
+        setBadge("port", "反映済み", true);
+        setFieldMessage("port", "スナップショットを反映しました", "success");
+        if (portTextarea) portTextarea.value = "";
+      } else {
+        setFieldMessage("port", "api_port/port のレスポンスではありません", "error");
+        hadError = true;
+      }
+    }
+
+    // --- require_info only (no port) ---
+    if (!portJson && requireTextarea?.value.trim()) {
+      const reqJson = tryParseJson(requireTextarea, "require");
+      if (reqJson) {
+        setFieldMessage("require", "require_info 単体では反映できません。port も貼り付けてください", "error");
+        hadError = true;
+      }
+    }
+
+    if (!hadError && !portJson && !masterJson) {
+      setFieldMessage("port", "いずれかのテキストエリアにデータを貼り付けてください", "info");
+    }
+  });
+
+  // Reset
+  document.getElementById("btn-api-paste-reset")?.addEventListener("click", () => {
+    resetAll();
+  });
+}
+
 /** Wire up all I/O-related event listeners. Call once at init time. */
 export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
@@ -747,58 +910,18 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     }
   });
 
-  // JSON Import
-  const fileInput = document.getElementById("import-file-input") as HTMLInputElement;
-
-  document.getElementById("btn-import")?.addEventListener("click", () => {
-    fileInput.click();
-  });
-
-  fileInput?.addEventListener("change", () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const json = JSON.parse(reader.result as string);
-
-        if (json.fleet1 || json.fleet2 || json.fleet3 || json.fleet4 || json.airBases) {
-          applyExportedFleet(json);
-          finalizePlaygroundLoad(hasSnapshotData(), true);
-        } else if (json.mst_ships || json.mst_slot_items || json.ships || json.equipments) {
-          loadMasterDataFromJson(json, renderAll);
-        } else if (json.s3s) {
-          applyFleetSnapshot(json);
-          finalizePlaygroundLoad(true, true);
-        } else {
-          alert("認識できないJSONフォーマットです");
-        }
-      } catch (e) {
-        alert(`JSONの読込に失敗しました: ${e}`);
-      }
-      fileInput.value = "";
-    };
-    reader.readAsText(file);
-  });
-
-  // Export
-  document.getElementById("btn-export")?.addEventListener("click", () => {
-    const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
-    const data = {
-      fleet1,
-      fleet2,
-      fleet3,
-      fleet4,
-      airBases: getAirBaseState(),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "fleet-composition.json";
-    a.click();
-    URL.revokeObjectURL(url);
+  initApiPasteDialog({
+    onApplyExportedFleet(json) {
+      applyExportedFleet(json);
+      finalizePlaygroundLoad(hasSnapshotData(), true);
+    },
+    onApplySnapshot(json) {
+      applyFleetSnapshot(json);
+      finalizePlaygroundLoad(true, true);
+    },
+    onLoadMasterData(json) {
+      loadMasterDataFromJson(json, renderAll);
+    },
   });
 
   // Share (with URL shortening)

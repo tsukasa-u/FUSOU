@@ -42,6 +42,10 @@ export interface MstSlotItemData {
   leng?: number;
   soku?: number;
   distance: number | null;
+  /** 迎撃 (Interception) — computed: api_houk when type[2]==48, else 0 */
+  geigeki?: number;
+  /** 対爆 (Anti-Bomber) — computed: api_houm when type[2]==48, else 0 */
+  taibaku?: number;
 }
 
 /** api_mst_slotitem_equiptype — equipment category master */

@@ -72,26 +72,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="2"
-                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
               ></path></svg
             >
-            インポート
-          </button>
-          <button id="btn-export" class="btn btn-ghost btn-sm gap-1.5">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              ><path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              ></path></svg
-            >
-            エクスポート
+            APIレスポンス貼り付け
           </button>
           <button id="btn-save-image" class="btn btn-ghost btn-sm gap-1.5">
             <svg
@@ -790,7 +774,77 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
         </form>
       </dialog>
 
-      <input type="file" id="import-file-input" accept=".json" class="hidden" />
+      <!-- API Response Paste Dialog -->
+      <dialog id="api-paste-modal" class="modal">
+        <div class="modal-box max-w-2xl">
+          <h3 class="font-bold text-lg mb-2">APIレスポンス貼り付け</h3>
+          <p class="text-sm text-base-content/60 mb-4">
+            各エンドポイントのレスポンスJSONを貼り付けてください。<code class="text-xs">svdata=</code>プレフィックス付きでも使用可能です。
+          </p>
+
+          <!-- port -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-port">
+                <code class="text-xs">api_port/port</code>
+                <span class="text-base-content/50 ml-1">艦娘・編成</span>
+              </label>
+              <span id="api-paste-status-port" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-port"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_port/port のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-port" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <!-- require_info -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-require">
+                <code class="text-xs">api_get_member/require_info</code>
+                <span class="text-base-content/50 ml-1">装備</span>
+              </label>
+              <span id="api-paste-status-require" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-require"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_get_member/require_info のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-require" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <!-- getData -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-master">
+                <code class="text-xs">api_start2/getData</code>
+                <span class="text-base-content/50 ml-1">マスターデータ</span>
+              </label>
+              <span id="api-paste-status-master" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-master"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_start2/getData のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-master" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <div class="modal-action">
+            <button id="btn-api-paste-apply" class="btn btn-success btn-sm">編成に反映</button>
+            <button id="btn-api-paste-reset" class="btn btn-ghost btn-sm">リセット</button>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">閉じる</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
     </div>
   </div>
 </PageLayout>

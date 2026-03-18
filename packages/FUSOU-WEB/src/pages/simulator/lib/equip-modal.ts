@@ -609,7 +609,11 @@ function renderEquipDetail(equip: MstSlotItemData) {
     ["爆装", equip.baku],
     ["索敵", equip.saku],
     ["命中", equip.houm],
+    ["回避", equip.kaih ?? equip.houk ?? 0],
     ["装甲", equip.souk],
+    ["射程", equip.leng ?? 0],
+    ["対爆", equip.taibaku ?? 0],
+    ["迎撃", equip.geigeki ?? 0],
   ];
 
   const grid = document.createElement("div");
