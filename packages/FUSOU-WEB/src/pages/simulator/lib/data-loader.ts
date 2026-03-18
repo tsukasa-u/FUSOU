@@ -21,6 +21,7 @@ import {
   setSpriteSheetUrl,
   setWeaponIconFrame,
 } from "./simulator-mutations";
+import { beginBulkLoad, endBulkLoad } from "./state";
 import { getAssetBaseUrl, getMasterDataCounts } from "./simulator-selectors";
 import type {
   MstShipData,
@@ -187,6 +188,8 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   if (typeof json !== "object" || json === null) return;
   const obj = json as Record<string, unknown>;
 
+  beginBulkLoad();
+
   if (obj.mst_ships && typeof obj.mst_ships === "object") {
     if (Array.isArray(obj.mst_ships)) {
       for (const v of obj.mst_ships) {
@@ -260,6 +263,7 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   loadEquipFilterFromJson(obj);
 
   updateDataStatus();
+  endBulkLoad("all");
   renderAll();
 }
 
@@ -293,6 +297,7 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
 }
 
 export async function loadMasterData(renderAll: () => void) {
+  beginBulkLoad();
   const [
     shipData,
     equipData,
@@ -483,5 +488,6 @@ export async function loadMasterData(renderAll: () => void) {
   console.info("[simulator] master data load summary", getMasterDataCounts());
 
   updateDataStatus();
+  endBulkLoad("all");
   renderAll();
 }

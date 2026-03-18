@@ -2,6 +2,8 @@
 // All runtime state that was previously module-scoped `let` variables.
 // Exported as a single object so modules can read/write the same values.
 
+import { atom } from "nanostores";
+
 import type {
   MstShipData,
   MstSlotItemData,
@@ -15,6 +17,102 @@ import type {
   MstEquipLimitExslotData,
 } from "./types";
 import { emptyFleetSlot, emptyAirBase } from "./types";
+
+// Cross-framework reactive revision stores.
+// Any runtime state mutation should call `markSimulatorStateDirty`.
+export type SimulatorDirtyScope = "fleet" | "airbase" | "all";
+
+export const simulatorFleetRevision = atom(0);
+export const simulatorAirbaseRevision = atom(0);
+
+let dirtyQueued = false;
+let pendingFleetDirty = false;
+let pendingAirbaseDirty = false;
+// When bulkLoadDepth > 0, dirty notifications are suppressed and coalesced
+// into a single "all" notification emitted by endBulkLoad().
+let bulkLoadDepth = 0;
+let bulkPendingFleet = false;
+let bulkPendingAirbase = false;
+
+/**
+ * Suppress individual dirty notifications during bulk data loads (e.g. loading
+ * master data from R2/JSON). Calls can be nested; the outermost endBulkLoad()
+ * fires the final consolidated notification.
+ */
+export function beginBulkLoad(): void {
+  bulkLoadDepth++;
+}
+
+export function endBulkLoad(scope: SimulatorDirtyScope = "all"): void {
+  if (bulkLoadDepth > 0) bulkLoadDepth--;
+
+  if (scope === "fleet" || scope === "all") bulkPendingFleet = true;
+  if (scope === "airbase" || scope === "all") bulkPendingAirbase = true;
+
+  if (bulkLoadDepth === 0) {
+    const fs = bulkPendingFleet;
+    const as = bulkPendingAirbase;
+    bulkPendingFleet = false;
+    bulkPendingAirbase = false;
+    if (fs) markSimulatorStateDirty("fleet");
+    if (as) markSimulatorStateDirty("airbase");
+  }
+}
+
+export function markSimulatorStateDirty(scope: SimulatorDirtyScope = "all"): void {
+  // During a bulk load, accumulate the scope but don't trigger a rerender yet.
+  if (bulkLoadDepth > 0) {
+    if (scope === "fleet" || scope === "all") bulkPendingFleet = true;
+    if (scope === "airbase" || scope === "all") bulkPendingAirbase = true;
+    return;
+  }
+
+  if (scope === "fleet" || scope === "all") pendingFleetDirty = true;
+  if (scope === "airbase" || scope === "all") pendingAirbaseDirty = true;
+
+  if (dirtyQueued) return;
+  dirtyQueued = true;
+  queueMicrotask(() => {
+    dirtyQueued = false;
+
+    if (pendingFleetDirty) {
+      pendingFleetDirty = false;
+      simulatorFleetRevision.set(simulatorFleetRevision.get() + 1);
+    }
+    if (pendingAirbaseDirty) {
+      pendingAirbaseDirty = false;
+      simulatorAirbaseRevision.set(simulatorAirbaseRevision.get() + 1);
+    }
+  });
+}
+
+export function onSimulatorStateDirty(cb: () => void): () => void;
+export function onSimulatorStateDirty(scope: SimulatorDirtyScope | SimulatorDirtyScope[], cb: () => void): () => void;
+export function onSimulatorStateDirty(
+  scopeOrCb: SimulatorDirtyScope | SimulatorDirtyScope[] | (() => void),
+  maybeCb?: () => void,
+): () => void {
+  const cb = typeof scopeOrCb === "function" ? scopeOrCb : maybeCb;
+  if (!cb) return () => {};
+
+  const scopes = typeof scopeOrCb === "function"
+    ? ["fleet", "airbase"] as SimulatorDirtyScope[]
+    : Array.isArray(scopeOrCb)
+      ? scopeOrCb
+      : [scopeOrCb];
+
+  const unsubscribers: Array<() => void> = [];
+  if (scopes.includes("fleet") || scopes.includes("all")) {
+    unsubscribers.push(simulatorFleetRevision.subscribe(() => cb()));
+  }
+  if (scopes.includes("airbase") || scopes.includes("all")) {
+    unsubscribers.push(simulatorAirbaseRevision.subscribe(() => cb()));
+  }
+
+  return () => {
+    unsubscribers.forEach((unsub) => unsub());
+  };
+}
 
 export const state = {
   // Master data
