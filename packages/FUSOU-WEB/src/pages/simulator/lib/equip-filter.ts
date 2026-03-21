@@ -236,7 +236,6 @@ export function filterForNormalSlot(
  */
 export function filterForExslot(
   shipId: number | null,
-  _shipLevel: number | null,
   items: MstSlotItemData[],
 ): MstSlotItemData[] | null {
   if (shipId == null) return null;

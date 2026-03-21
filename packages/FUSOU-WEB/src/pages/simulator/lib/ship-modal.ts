@@ -19,20 +19,17 @@ import type { Component } from "solid-js";
 import { render } from "solid-js/web";
 import { VList } from "virtua/solid";
 import {
-  applyShipSelectionToFleetSlot,
   beginShipModalSession,
   consumeShipModalCallback,
   setShipModalSideFilter,
   setShipModalSource,
 } from "./simulator-mutations";
 import {
-  getFleetState,
   getMasterShip,
   getMasterShips,
   getShipModalCurrentId,
   getShipModalSideFilter,
   getShipModalSource,
-  getShipModalTarget,
   getSnapshotShips,
   hasMasterData,
   hasSnapshotShips,
@@ -338,20 +335,6 @@ function createShipClearItem(): HTMLElement {
     if (isWorkspaceReadOnly()) return;
     const selection = { id: null, level: null };
     consumeShipModalCallback(selection);
-    const target = getShipModalTarget();
-    if (target.fleetIndex != null && target.shipSlotIndex != null) {
-      const fleets = getFleetState();
-      const fleet =
-        target.fleetIndex === 1
-          ? fleets.fleet1
-          : target.fleetIndex === 2
-          ? fleets.fleet2
-          : target.fleetIndex === 3
-          ? fleets.fleet3
-          : fleets.fleet4;
-      const slot = fleet[target.shipSlotIndex] ?? null;
-      if (slot) applyShipSelectionToFleetSlot(slot, selection);
-    }
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
   });
   return clearItem;
@@ -428,20 +411,6 @@ function createShipItem(ship: MstShipData): HTMLElement {
       level: (ship as MstShipData & { _snapshotLevel?: number })._snapshotLevel,
     };
     consumeShipModalCallback(selection);
-    const target = getShipModalTarget();
-    if (target.fleetIndex != null && target.shipSlotIndex != null) {
-      const fleets = getFleetState();
-      const fleet =
-        target.fleetIndex === 1
-          ? fleets.fleet1
-          : target.fleetIndex === 2
-          ? fleets.fleet2
-          : target.fleetIndex === 3
-          ? fleets.fleet3
-          : fleets.fleet4;
-      const slot = fleet[target.shipSlotIndex] ?? null;
-      if (slot) applyShipSelectionToFleetSlot(slot, selection);
-    }
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
   });
 

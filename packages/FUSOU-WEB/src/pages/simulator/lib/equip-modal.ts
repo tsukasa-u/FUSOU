@@ -25,9 +25,6 @@ import type { Component } from "solid-js";
 import { render } from "solid-js/web";
 import { VList } from "virtua/solid";
 import {
-  applyAirBaseEquipSelection,
-  applyFleetEquipSelection,
-  applyFleetExslotSelection,
   beginEquipModalSession,
   consumeEquipModalCallback,
   setEquipModalSideFilter,
@@ -387,16 +384,6 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
       alv: getCandidateAlv(equip),
     };
     consumeEquipModalCallback(selection);
-    const target = getEquipModalTarget();
-    if (target.kind === "fleet" && target.slot) {
-      if (target.slotIdx >= 0) {
-        applyFleetEquipSelection(target.slot, target.slotIdx, selection);
-      } else {
-        applyFleetExslotSelection(target.slot, selection);
-      }
-    } else if (target.kind === "airbase" && target.airBase && target.slotIdx >= 0) {
-      applyAirBaseEquipSelection(target.airBase, target.slotIdx, selection);
-    }
     (
       document.getElementById("equip-select-modal") as HTMLDialogElement
     ).close();
@@ -472,7 +459,6 @@ function renderEquipGrid(
   if (isExslot && !isAirBaseEquipTarget()) {
     const filtered = filterForExslot(
       equipTarget.shipId,
-      equipTarget.slot?.shipLevel ?? null,
       items,
     );
     if (filtered) items = filtered;
@@ -595,16 +581,6 @@ function createEquipClearItem(): HTMLElement {
     if (isWorkspaceReadOnly()) return;
     const selection = { id: null, level: 0, alv: 0 };
     consumeEquipModalCallback(selection);
-    const target = getEquipModalTarget();
-    if (target.kind === "fleet" && target.slot) {
-      if (target.slotIdx >= 0) {
-        applyFleetEquipSelection(target.slot, target.slotIdx, selection);
-      } else {
-        applyFleetExslotSelection(target.slot, selection);
-      }
-    } else if (target.kind === "airbase" && target.airBase && target.slotIdx >= 0) {
-      applyAirBaseEquipSelection(target.airBase, target.slotIdx, selection);
-    }
     (document.getElementById("equip-select-modal") as HTMLDialogElement).close();
   });
   return clearItem;

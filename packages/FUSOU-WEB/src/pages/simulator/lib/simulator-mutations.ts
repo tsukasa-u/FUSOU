@@ -24,6 +24,14 @@ import type {
 
 export * from "./simulator-selectors";
 
+function clampInt(value: number | null | undefined, min: number, max: number, fallback: number): number {
+  if (value == null || !Number.isFinite(value)) return fallback;
+  const n = Math.trunc(value);
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
 export function assignShipToFleetSlot(slot: FleetSlot, shipId: number | null): void {
   slot.shipId = shipId;
   if (shipId == null) slot.shipLevel = null;
@@ -44,7 +52,7 @@ export function applyShipSelectionToFleetSlot(
   if (selection.id == null) {
     slot.shipLevel = null;
   } else if (selection.level !== undefined) {
-    slot.shipLevel = selection.level ?? null;
+    slot.shipLevel = clampInt(selection.level, 1, 180, 1);
   }
   slot.equipIds = [null, null, null, null, null];
   slot.equipImprovement = [0, 0, 0, 0, 0];
@@ -83,8 +91,10 @@ export function applyFleetEquipSelection(
   selection: EquipSelection,
 ): void {
   slot.equipIds[equipIdx] = selection.id;
-  slot.equipImprovement[equipIdx] = selection.id == null ? 0 : selection.level ?? 0;
-  slot.equipProficiency[equipIdx] = selection.id == null ? 0 : selection.alv ?? 0;
+  slot.equipImprovement[equipIdx] =
+    selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
+  slot.equipProficiency[equipIdx] =
+    selection.id == null ? 0 : clampInt(selection.alv, 0, 7, 0);
   markSimulatorStateDirty("fleet");
 }
 
@@ -105,7 +115,8 @@ export function applyFleetExslotSelection(
   selection: EquipSelection,
 ): void {
   slot.exSlotId = selection.id;
-  slot.exSlotImprovement = selection.id == null ? 0 : selection.level ?? 0;
+  slot.exSlotImprovement =
+    selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
   markSimulatorStateDirty("fleet");
 }
 
@@ -173,8 +184,10 @@ export function applyAirBaseEquipSelection(
   selection: EquipSelection,
 ): void {
   base.equipIds[equipIdx] = selection.id;
-  base.equipImprovement[equipIdx] = selection.id == null ? 0 : selection.level ?? 0;
-  base.equipProficiency[equipIdx] = selection.id == null ? 0 : selection.alv ?? 0;
+  base.equipImprovement[equipIdx] =
+    selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
+  base.equipProficiency[equipIdx] =
+    selection.id == null ? 0 : clampInt(selection.alv, 0, 7, 0);
   markSimulatorStateDirty("airbase");
 }
 
@@ -222,9 +235,15 @@ export function setShipModalSource(source: ShipModalSource): void {
 
 export function consumeShipModalCallback(selection: ShipSelection): boolean {
   const cb = state.shipModalCb;
-  if (cb) cb(selection);
   state.shipModalCb = null;
-  return cb != null;
+  if (!cb) return false;
+  try {
+    cb(selection);
+    return true;
+  } catch (error) {
+    console.error("[simulator] ship modal callback failed", error);
+    return false;
+  }
 }
 
 export function beginEquipModalSession(
@@ -245,9 +264,15 @@ export function setEquipModalSource(source: EquipModalSource): void {
 
 export function consumeEquipModalCallback(selection: EquipSelection): boolean {
   const cb = state.equipModalCb;
-  if (cb) cb(selection);
   state.equipModalCb = null;
-  return cb != null;
+  if (!cb) return false;
+  try {
+    cb(selection);
+    return true;
+  } catch (error) {
+    console.error("[simulator] equip modal callback failed", error);
+    return false;
+  }
 }
 
 export function resetAllFleets(): void {
