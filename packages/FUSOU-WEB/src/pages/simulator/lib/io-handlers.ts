@@ -26,6 +26,7 @@ import {
   type ViewerEntry,
 } from "./viewer-workspace";
 import { resolveShareInput } from "./share-resolver";
+import { decodePayloadBase64, pickNumericRecord } from "./payload-codec";
 import {
   setWorkspaceReadOnly,
 } from "./simulator-mutations";
@@ -82,28 +83,6 @@ function encodePayloadBase64(payload: unknown): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
-}
-
-function decodePayloadBase64(data: string): unknown {
-  // v2 UTF-8-safe decode path
-  try {
-    const binary = atob(data);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    return JSON.parse(json);
-  } catch {
-    // Backward compatibility: older links used direct atob(JSON)
-    return JSON.parse(atob(data));
-  }
-}
-
-function pickNumericRecord(input: unknown): Record<string, number> | undefined {
-  if (!input || typeof input !== "object") return undefined;
-  const out: Record<string, number> = {};
-  for (const [k, v] of Object.entries(input as Record<string, unknown>)) {
-    if (typeof v === "number" && Number.isFinite(v)) out[k] = v;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function serializeFleetForShare(fleet: FleetSlot[], includeDetailedStats: boolean): FleetSlot[] {
@@ -200,6 +179,9 @@ function applyPlaygroundDraftOrBlank(): void {
 
 function finalizePlaygroundLoad(snapshotMode: boolean = hasSnapshotData(), rerender = false): void {
   clearActive();
+  // Playground should always stay editable even if a locked workspace item was
+  // active immediately before loading.
+  setWorkspaceReadOnly(false);
   _playgroundDraft = buildCurrentPlaygroundPayload();
   setSnapshotPlaygroundMode(snapshotMode);
   if (rerender) renderWorkspacePanel();
@@ -226,6 +208,7 @@ function switchToPlayground(): void {
     saveCurrentStateToEntry(activeEntry);
   }
   clearActive();
+  setWorkspaceReadOnly(false);
   applyPlaygroundDraftOrBlank();
   renderWorkspacePanel();
 }

@@ -45,6 +45,22 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
           </p>
         </div>
         <div class="flex gap-1.5 flex-wrap">
+          <button id="btn-display-settings" class="btn btn-ghost btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
+              ></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9a3 3 0 100 6 3 3 0 000-6z"></path></svg
+            >
+            表示設定
+          </button>
           <button id="btn-load-fleet" class="btn btn-ghost btn-sm gap-1.5">
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -204,13 +220,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                   >
                   <h3 class="font-semibold text-sm">第1艦隊</h3>
                 </div>
-                <button
-                  id="fleet-1-toggle"
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  title="折りたたみ"
-                >折りたたむ</button
-                >
               </div>
             </div>
             <div id="fleet-1-body" class="p-3">
@@ -242,13 +251,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                     >
                   </h3>
                 </div>
-                <button
-                  id="fleet-2-toggle"
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  title="折りたたみ"
-                >折りたたむ</button
-                >
               </div>
             </div>
             <div id="fleet-2-body" class="p-3">
@@ -276,13 +278,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                   >
                   <h3 class="font-semibold text-sm">第3艦隊</h3>
                 </div>
-                <button
-                  id="fleet-3-toggle"
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  title="折りたたみ"
-                >折りたたむ</button
-                >
               </div>
             </div>
             <div id="fleet-3-body" class="p-3">
@@ -310,13 +305,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
                   >
                   <h3 class="font-semibold text-sm">第4艦隊</h3>
                 </div>
-                <button
-                  id="fleet-4-toggle"
-                  type="button"
-                  class="btn btn-ghost btn-xs"
-                  title="折りたたみ"
-                >折りたたむ</button
-                >
               </div>
             </div>
             <div id="fleet-4-body" class="p-3">
@@ -353,9 +341,9 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       </div>
 
       <!-- Ship Selection Modal -->
-      <dialog id="ship-select-modal" class="modal modal-bottom sm:modal-middle">
+      <dialog id="ship-select-modal" class="modal modal-bottom sm:modal-middle z-[1200]">
         <div
-          class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl"
+          class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]"
         >
           <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
             <div class="flex items-center justify-between mb-3">
@@ -427,10 +415,10 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       <!-- Equipment Selection Modal -->
       <dialog
         id="equip-select-modal"
-        class="modal modal-bottom sm:modal-middle"
+        class="modal modal-bottom sm:modal-middle z-[1200]"
       >
         <div
-          class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl"
+          class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]"
         >
           <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
             <div class="flex items-center justify-between mb-3">
@@ -500,6 +488,57 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       </dialog>
 
       <!-- Load Fleet Modal -->
+      <dialog id="display-settings-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-2">表示設定</h3>
+          <p class="text-xs text-base-content/60 mb-4">艦隊と基地航空隊の表示を切り替えます。</p>
+          <div class="space-y-3 text-sm">
+            <div class="grid grid-cols-2 gap-2">
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-1" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第1艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-2" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第2艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-3" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第3艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-4" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第4艦隊を表示</span>
+              </label>
+            </div>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input id="display-airbase" type="checkbox" class="checkbox checkbox-sm" checked />
+              <span class="label-text">基地航空隊を表示</span>
+            </label>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">艦隊内スロット配置</span></label>
+              <select id="display-fleet-slot-layout" class="select select-bordered select-sm w-40">
+                <option value="2x3" selected>2x3（縦長）</option>
+                <option value="3x2">3x2（横長）</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">表示する基地航空隊数</span></label>
+              <select id="display-airbase-count" class="select select-bordered select-sm w-36">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-action">
+            <button id="btn-display-settings-apply" type="button" class="btn btn-primary btn-sm">閉じる</button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+      </dialog>
+
       <dialog id="load-fleet-modal" class="modal">
         <div class="modal-box rounded-xl">
           <h3 class="font-bold text-lg mb-2">R2から自分のデッキを読込</h3>
@@ -854,7 +893,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 </script>
 
 <script>
-  import { renderAll } from "./lib/airbase-renderer";
+  import { initDisplaySettingsEvents, renderAll } from "./lib/airbase-renderer";
   import { updateDataStatus, loadMasterData } from "./lib/data-loader";
   import { initShipModalEvents, handleResizeShip } from "./lib/ship-modal";
   import { initEquipModalEvents, handleResizeEquip } from "./lib/equip-modal";
@@ -864,6 +903,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   // Event listeners
   initShipModalEvents();
   initEquipModalEvents();
+  initDisplaySettingsEvents();
   initImageCaptureEvents();
   window.addEventListener("resize", () => {
     handleResizeShip();

@@ -1,6 +1,6 @@
 // ── Centralized simulator state selectors (read-only access) ──
 
-import { state } from "./state";
+import { simulatorReadOnly, state } from "./state";
 import type {
   AirBaseSlot,
   FleetSlot,
@@ -16,21 +16,46 @@ export type EquipModalSource = "snapshot" | "master";
 export type SideFilter = "ally" | "enemy" | "all";
 
 export type EquipModalTarget = {
+  kind: "fleet" | "airbase" | null;
   shipId: number | null;
+  shipLevel: number | null;
   slot: FleetSlot | null;
+  airBase: AirBaseSlot | null;
+  fleetIndex: 1 | 2 | 3 | 4 | null;
+  shipSlotIndex: number | null;
+  airBaseIndex: number | null;
   slotIdx: number;
 };
 
-export function isFleetSectionCollapsed(index: number): boolean {
-  return Boolean(state.fleetSectionCollapsed[index]);
+export function isFleetSectionVisible(index: number): boolean {
+  return state.fleetSectionVisible[index] !== false;
+}
+
+export function isAirbaseSectionVisible(): boolean {
+  return state.airbaseSectionVisible !== false;
+}
+
+export function getVisibleAirbaseCount(): number {
+  const n = Number(state.visibleAirbaseCount ?? 3);
+  return Number.isFinite(n) ? Math.max(0, Math.min(3, Math.trunc(n))) : 3;
 }
 
 export function isWorkspaceReadOnly(): boolean {
-  return state.isWorkspaceReadOnly;
+  return simulatorReadOnly.get();
 }
 
 export function getShipModalCurrentId(): number | null {
   return state.shipModalCurrentId;
+}
+
+export function getShipModalTarget(): {
+  fleetIndex: 1 | 2 | 3 | 4 | null;
+  shipSlotIndex: number | null;
+} {
+  return {
+    fleetIndex: state.shipModalTargetFleetIndex,
+    shipSlotIndex: state.shipModalTargetShipSlotIndex,
+  };
 }
 
 export function getShipModalSideFilter(): SideFilter {
@@ -54,18 +79,51 @@ export function getEquipModalSource(): EquipModalSource {
 }
 
 export function getEquipModalTarget(): EquipModalTarget {
+  let slot: FleetSlot | null = null;
+  let airBase: AirBaseSlot | null = null;
+  let shipId: number | null = null;
+  let shipLevel: number | null = null;
+
+  if (
+    state.equipModalTargetKind === "fleet"
+    && state.equipModalTargetFleetIndex != null
+    && state.equipModalTargetShipSlotIndex != null
+  ) {
+    const fleets = getFleetState();
+    const fleet =
+      state.equipModalTargetFleetIndex === 1
+        ? fleets.fleet1
+        : state.equipModalTargetFleetIndex === 2
+        ? fleets.fleet2
+        : state.equipModalTargetFleetIndex === 3
+        ? fleets.fleet3
+        : fleets.fleet4;
+    slot = fleet[state.equipModalTargetShipSlotIndex] ?? null;
+    shipId = slot?.shipId ?? null;
+    shipLevel = slot?.shipLevel ?? null;
+  } else if (
+    state.equipModalTargetKind === "airbase"
+    && state.equipModalTargetAirBaseIndex != null
+  ) {
+    airBase = getAirBaseState()[state.equipModalTargetAirBaseIndex] ?? null;
+  }
+
   return {
-    shipId: state.equipModalTargetShipId,
-    slot: state.equipModalTargetSlot,
+    kind: state.equipModalTargetKind,
+    shipId,
+    shipLevel,
+    slot,
+    airBase,
+    fleetIndex: state.equipModalTargetFleetIndex,
+    shipSlotIndex: state.equipModalTargetShipSlotIndex,
+    airBaseIndex: state.equipModalTargetAirBaseIndex,
     slotIdx: state.equipModalTargetSlotIdx,
   };
 }
 
 export function isAirBaseEquipModalTarget(): boolean {
   return (
-    state.equipModalTargetShipId == null &&
-    state.equipModalTargetSlot == null &&
-    state.equipModalTargetSlotIdx === -1
+    state.equipModalTargetKind === "airbase"
   );
 }
 
@@ -132,8 +190,13 @@ export function getMasterEquipLimitExslot(shipId: number): MstEquipLimitExslotDa
   return state.mstEquipLimitExslot[shipId] ?? null;
 }
 
+export function hasBaseExslotEquipType(typeId: number): boolean {
+  return state.equipExslotSet.has(typeId);
+}
+
+// Backward-compatible alias kept for existing call sites.
 export function hasBaseExslotEquipId(slotItemId: number): boolean {
-  return state.equipExslotSet.has(slotItemId);
+  return hasBaseExslotEquipType(slotItemId);
 }
 
 export function getBaseExslotEquipCount(): number {

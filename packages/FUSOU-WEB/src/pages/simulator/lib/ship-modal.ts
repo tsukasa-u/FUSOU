@@ -8,45 +8,57 @@ import {
   ENEMY_ID_THRESHOLD,
 } from "./constants";
 import { debounce, bannerUrl } from "./equip-calc";
-import type { FlatVSState, GroupedVSState } from "./virtual-scroll";
 import {
   SHIP_ROW_PITCH,
   HEADER_HEIGHT,
-  syncFlatVS,
-  syncGroupedVS,
   createGroupHeader,
-  createVSContainer,
   renderCategoryNav,
-  cleanupSingleVS,
 } from "./virtual-scroll";
+import { createComponent } from "solid-js";
+import type { Component } from "solid-js";
+import { render } from "solid-js/web";
+import { VList } from "virtua/solid";
 import {
+  applyShipSelectionToFleetSlot,
   beginShipModalSession,
   consumeShipModalCallback,
   setShipModalSideFilter,
   setShipModalSource,
 } from "./simulator-mutations";
 import {
+  getFleetState,
   getMasterShip,
   getMasterShips,
   getShipModalCurrentId,
   getShipModalSideFilter,
   getShipModalSource,
+  getShipModalTarget,
   getSnapshotShips,
   hasMasterData,
   hasSnapshotShips,
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
 
-// ── Ship virtual scroll (flat, for filtered view) ──
-type ShipGRow =
+type ShipVRow =
+  | { kind: "clear" }
   | { kind: "header"; stype: number }
-  | { kind: "items"; ships: MstShipData[] };
+  | { kind: "item"; ship: MstShipData };
 
-let _shipVS: (FlatVSState & { items: MstShipData[] }) | null = null;
-let _shipScrollRaf = 0;
-let _shipGVS: (GroupedVSState & { rows: ShipGRow[]; cols: number }) | null =
-  null;
-let _shipGScrollRaf = 0;
+const SHIP_CLEAR_ROW_HEIGHT = 38;
+let _shipVirtuaDispose: (() => void) | null = null;
+const ShipVList = VList as unknown as Component<Record<string, unknown>>;
+let _shipModalVisibilityBound = false;
+
+function syncShipModalDisplay(modal: HTMLDialogElement): void {
+  modal.style.display = modal.open ? "grid" : "none";
+}
+
+function ensureShipModalVisibilityBinding(modal: HTMLDialogElement): void {
+  if (_shipModalVisibilityBound) return;
+  modal.addEventListener("close", () => syncShipModalDisplay(modal));
+  modal.addEventListener("cancel", () => syncShipModalDisplay(modal));
+  _shipModalVisibilityBound = true;
+}
 
 type SideFilter = "ally" | "enemy" | "all";
 
@@ -61,104 +73,38 @@ function filterShipsBySide(
   return ships.filter((s) => s.id < ENEMY_ID_THRESHOLD);
 }
 
-function onShipScroll() {
-  if (!_shipScrollRaf) {
-    _shipScrollRaf = requestAnimationFrame(() => {
-      _shipScrollRaf = 0;
-      syncShipVS();
-    });
-  }
-}
-function onShipGScroll() {
-  if (!_shipGScrollRaf) {
-    _shipGScrollRaf = requestAnimationFrame(() => {
-      _shipGScrollRaf = 0;
-      syncShipGVS();
-    });
-  }
-}
-
 function cleanupShipVS() {
-  _shipScrollRaf = cleanupSingleVS(_shipVS, onShipScroll, _shipScrollRaf);
-  _shipVS = null;
-  _shipGScrollRaf = cleanupSingleVS(_shipGVS, onShipGScroll, _shipGScrollRaf);
-  _shipGVS = null;
-}
-
-const shipResponsiveCols = () =>
-  window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
-
-function syncShipVS() {
-  if (!_shipVS) return;
-  syncFlatVS(_shipVS, createShipItem, shipResponsiveCols);
-}
-
-function syncShipGVS() {
-  if (!_shipGVS) return;
-  const { cols } = _shipGVS;
-  syncGroupedVS(_shipGVS, (row: ShipGRow) => {
-    if (row.kind === "header") {
-      return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
-    }
-    const rd = document.createElement("div");
-    rd.style.height = `${SHIP_ROW_PITCH}px`;
-    if (cols > 1) {
-      rd.style.display = "grid";
-      rd.style.gridTemplateColumns = "repeat(2,1fr)";
-      rd.style.gap = "2px";
-    }
-    for (const s of row.ships) rd.appendChild(createShipItem(s));
-    return rd;
-  });
+  if (_shipVirtuaDispose) {
+    _shipVirtuaDispose();
+    _shipVirtuaDispose = null;
+  }
 }
 
 /** Find the current ship from the active VS cache (snapshot-enriched when available). */
 function findCurrentShipInVS(): MstShipData | null {
   const id = getShipModalCurrentId();
   if (id == null) return null;
-  if (_shipGVS) {
-    for (const row of _shipGVS.rows as ShipGRow[]) {
-      if (row.kind === "items") {
-        const found = row.ships.find((s) => s.id === id);
-        if (found) return found;
-      }
-    }
-  } else if (_shipVS) {
-    const found = (_shipVS.items as MstShipData[]).find((s) => s.id === id);
-    if (found) return found;
-  }
+  // With library virtualization we don't keep a separate VS cache map.
+  // For current-id fallback, master data is sufficient.
   return getMasterShip(id);
 }
 
 /** Scroll ship grid to the current ship row (call after showModal). */
 function scrollToCurrentShipInVS(): void {
-  const id = getShipModalCurrentId();
-  if (id == null) return;
-  if (_shipGVS) {
-    const rowIdx = (_shipGVS.rows as ShipGRow[]).findIndex(
-      (row) => row.kind === "items" && row.ships.some((s) => s.id === id),
-    );
-    if (rowIdx < 0) return;
-    const offset = _shipGVS.offsets[rowIdx];
-    const spacerTop = _shipGVS.spacer.offsetTop;
-    _shipGVS.grid.scrollTop = spacerTop + offset;
-    syncShipGVS();
-    return;
-  }
+  const grid = document.getElementById("ship-modal-grid");
+  if (!(grid instanceof HTMLElement)) return;
 
-  if (_shipVS) {
-    const itemIdx = (_shipVS.items as MstShipData[]).findIndex((s) => s.id === id);
-    if (itemIdx < 0) return;
-    const rowIdx = Math.floor(itemIdx / _shipVS.cols);
-    const spacerTop = _shipVS.spacer.offsetTop;
-    _shipVS.grid.scrollTop = spacerTop + rowIdx * _shipVS.pitch;
-    syncShipVS();
-  }
+  // Selected row has ring classes in createShipItem.
+  const selected = grid.querySelector(
+    ".ring-1.ring-primary\\/30",
+  ) as HTMLElement | null;
+  if (!selected) return;
+  selected.scrollIntoView({ block: "center" });
 }
 
 export function openShipModal(
   currentId: number | null,
-  cb: (id: number | null) => void,
+  cb: (selection: { id: number | null; level?: number | null }) => void,
 ) {
   if (!hasMasterData()) return;
   beginShipModalSession(currentId, cb);
@@ -178,6 +124,8 @@ export function openShipModal(
     !(stype instanceof HTMLSelectElement)
   )
     return;
+  ensureShipModalVisibilityBinding(modal);
+  syncShipModalDisplay(modal);
   search.value = "";
   side.value = getShipModalSideFilter();
   populateStypeFilter(stype, getShipModalSideFilter());
@@ -192,7 +140,7 @@ export function openShipModal(
 
   renderShipGrid("", "", getShipModalSideFilter());
   const autoShowShip =
-    isWorkspaceReadOnly() && getShipModalCurrentId() != null
+    getShipModalCurrentId() != null
       ? findCurrentShipInVS()
       : null;
   if (autoShowShip) {
@@ -201,6 +149,7 @@ export function openShipModal(
     resetShipDetail();
   }
   modal.showModal();
+  syncShipModalDisplay(modal);
   requestAnimationFrame(() => {
     if (autoShowShip) {
       scrollToCurrentShipInVS();
@@ -312,22 +261,14 @@ function renderShipGrid(
     return;
   }
 
-  if (getShipModalCurrentId() != null) {
-    const clearItem = document.createElement("div");
-    clearItem.className =
-      "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
-    clearItem.textContent = "✕ 選択を解除";
-    clearItem.addEventListener("click", () => {
-      if (isWorkspaceReadOnly()) return;
-      consumeShipModalCallback(null);
-      (
-        document.getElementById("ship-select-modal") as HTMLDialogElement
-      ).close();
-    });
-    grid.appendChild(clearItem);
-  }
+  const rows: ShipVRow[] = [];
+  let catOffsets: { stype: number; offset: number }[] = [];
+  let virtualOffset = 0;
 
-  const cols = window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
+  if (getShipModalCurrentId() != null) {
+    rows.push({ kind: "clear" });
+    virtualOffset += SHIP_CLEAR_ROW_HEIGHT;
+  }
 
   if (!stypeFilter) {
     const groups = new Map<number, MstShipData[]>();
@@ -337,66 +278,83 @@ function renderShipGrid(
       else groups.set(s.stype, [s]);
     }
     const sortedStypes = [...groups.keys()].sort((a, b) => a - b);
-    const rows: ShipGRow[] = [];
-    const catOffsets: { stype: number; offset: number }[] = [];
-    let totalH = 0;
     for (const st of sortedStypes) {
-      catOffsets.push({ stype: st, offset: totalH });
+      catOffsets.push({ stype: st, offset: virtualOffset });
       rows.push({ kind: "header", stype: st });
-      totalH += HEADER_HEIGHT;
-      const items = groups.get(st)!;
-      for (let i = 0; i < items.length; i += cols) {
-        rows.push({ kind: "items", ships: items.slice(i, i + cols) });
-        totalH += SHIP_ROW_PITCH;
+      virtualOffset += HEADER_HEIGHT;
+      for (const ship of groups.get(st) ?? []) {
+        rows.push({ kind: "item", ship });
+        virtualOffset += SHIP_ROW_PITCH;
       }
     }
-    const offsets = new Array<number>(rows.length + 1);
-    offsets[0] = 0;
-    for (let i = 0; i < rows.length; i++) {
-      offsets[i + 1] =
-        offsets[i] +
-        (rows[i].kind === "header" ? HEADER_HEIGHT : SHIP_ROW_PITCH);
-    }
-
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${totalH}px`;
-    grid.appendChild(spacer);
-
-    _shipGVS = {
-      rows,
-      offsets,
-      spacer,
-      viewport,
-      grid,
-      cols,
-      rStart: -1,
-      rEnd: -1,
-    };
-    grid.addEventListener("scroll", onShipGScroll);
-    syncShipGVS();
-    renderShipCategoryNav(catOffsets);
   } else {
-    const rowCount = Math.ceil(ships.length / cols);
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${rowCount * SHIP_ROW_PITCH}px`;
-    viewport.className = "grid grid-cols-1 sm:grid-cols-2 gap-0.5";
-    grid.appendChild(spacer);
-
-    _shipVS = {
-      items: ships,
-      spacer,
-      viewport,
-      grid,
-      cols,
-      pitch: SHIP_ROW_PITCH,
-      measured: false,
-      rStart: -1,
-      rEnd: -1,
-    };
-    grid.addEventListener("scroll", onShipScroll);
-    syncShipVS();
-    renderShipCategoryNav([]);
+    for (const ship of ships) {
+      rows.push({ kind: "item", ship });
+    }
+    catOffsets = [];
   }
+
+  _shipVirtuaDispose = render(
+    () =>
+      createComponent(ShipVList, {
+        data: rows,
+        style: {
+          height: "100%",
+        },
+        class: "overflow-x-hidden",
+        children: (row: ShipVRow) => {
+          if (row.kind === "clear") {
+            const wrap = document.createElement("div");
+            wrap.style.height = `${SHIP_CLEAR_ROW_HEIGHT}px`;
+            wrap.style.boxSizing = "border-box";
+            wrap.appendChild(createShipClearItem());
+            return wrap;
+          }
+          if (row.kind === "header") {
+            return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
+          }
+          const wrap = document.createElement("div");
+          wrap.style.height = `${SHIP_ROW_PITCH}px`;
+          wrap.style.display = "flex";
+          wrap.style.alignItems = "center";
+          wrap.style.boxSizing = "border-box";
+          wrap.appendChild(createShipItem(row.ship));
+          return wrap;
+        },
+      }),
+    grid,
+  );
+  renderShipCategoryNav(catOffsets);
+}
+
+function createShipClearItem(): HTMLElement {
+  const clearItem = document.createElement("div");
+  clearItem.className =
+    "h-full flex items-center gap-2 px-3 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+  clearItem.textContent = "✕ 選択を解除";
+  clearItem.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isWorkspaceReadOnly()) return;
+    const selection = { id: null, level: null };
+    consumeShipModalCallback(selection);
+    const target = getShipModalTarget();
+    if (target.fleetIndex != null && target.shipSlotIndex != null) {
+      const fleets = getFleetState();
+      const fleet =
+        target.fleetIndex === 1
+          ? fleets.fleet1
+          : target.fleetIndex === 2
+          ? fleets.fleet2
+          : target.fleetIndex === 3
+          ? fleets.fleet3
+          : fleets.fleet4;
+      const slot = fleet[target.shipSlotIndex] ?? null;
+      if (slot) applyShipSelectionToFleetSlot(slot, selection);
+    }
+    (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
+  });
+  return clearItem;
 }
 
 function renderShipCategoryNav(
@@ -421,6 +379,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
       ? "bg-primary/15 ring-1 ring-primary/30"
       : "hover:bg-primary/8 active:bg-primary/15"
   }`;
+  item.style.height = `${SHIP_ROW_PITCH}px`;
+  item.style.boxSizing = "border-box";
 
   const imgWrap = document.createElement("div");
   imgWrap.className =
@@ -459,9 +419,29 @@ function createShipItem(ship: MstShipData): HTMLElement {
   item.appendChild(textDiv);
 
   item.addEventListener("mouseenter", () => renderShipDetail(ship));
-  item.addEventListener("click", () => {
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (isWorkspaceReadOnly()) return;
-    consumeShipModalCallback(ship.id);
+    const selection = {
+      id: ship.id,
+      level: (ship as MstShipData & { _snapshotLevel?: number })._snapshotLevel,
+    };
+    consumeShipModalCallback(selection);
+    const target = getShipModalTarget();
+    if (target.fleetIndex != null && target.shipSlotIndex != null) {
+      const fleets = getFleetState();
+      const fleet =
+        target.fleetIndex === 1
+          ? fleets.fleet1
+          : target.fleetIndex === 2
+          ? fleets.fleet2
+          : target.fleetIndex === 3
+          ? fleets.fleet3
+          : fleets.fleet4;
+      const slot = fleet[target.shipSlotIndex] ?? null;
+      if (slot) applyShipSelectionToFleetSlot(slot, selection);
+    }
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
   });
 
@@ -598,13 +578,6 @@ export function initShipModalEvents() {
 
 /** Invalidate ship virtual scroll on resize. */
 export function handleResizeShip() {
-  if (_shipVS) {
-    _shipVS.rStart = -1;
-    _shipVS.measured = false;
-    syncShipVS();
-  }
-  if (_shipGVS) {
-    _shipGVS.rStart = -1;
-    syncShipGVS();
-  }
+  // Keep API compatibility for resize hooks from index.astro.
+  // `virtua` handles visible-window recalculation internally.
 }

@@ -45,6 +45,7 @@
     "shared-ui": "workspace:*",
     "solid-chartjs": "^1.3.11",
     "solid-js": "^1.9.10",
+    "virtua": "^0.41.5",
     "uuid": "^9.0.0"
   },
   "devDependencies": {

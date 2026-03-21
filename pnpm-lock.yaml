@@ -270,6 +270,9 @@ importers:
       uuid:
         specifier: ^9.0.0
         version: 9.0.1
+      virtua:
+        specifier: ^0.41.5
+        version: 0.41.5(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(solid-js@1.9.10)
     devDependencies:
       '@astrojs/check':
         specifier: ^0.9.6

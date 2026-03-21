@@ -5,12 +5,14 @@
 import { atom } from "nanostores";
 
 import type {
+  AirBaseSlot,
+  FleetSlot,
   MstShipData,
   MstSlotItemData,
   MstSlotItemEquipTypeData,
   SlotItemEffectsData,
-  FleetSlot,
-  AirBaseSlot,
+  ShipSelection,
+  EquipSelection,
   MstStypeData,
   MstEquipShipData,
   MstEquipExslotShipData,
@@ -24,6 +26,47 @@ export type SimulatorDirtyScope = "fleet" | "airbase" | "all";
 
 export const simulatorFleetRevision = atom(0);
 export const simulatorAirbaseRevision = atom(0);
+export const simulatorReadOnly = atom(false);
+export const simulatorFleetState = atom({
+  fleet1: [] as FleetSlot[],
+  fleet2: [] as FleetSlot[],
+  fleet3: [] as FleetSlot[],
+  fleet4: [] as FleetSlot[],
+});
+export const simulatorAirbaseState = atom([] as AirBaseSlot[]);
+
+function cloneFleetSlot(slot: FleetSlot): FleetSlot {
+  return {
+    ...slot,
+    equipIds: [...slot.equipIds],
+    equipImprovement: [...slot.equipImprovement],
+    equipProficiency: [...slot.equipProficiency],
+    statOverrides: slot.statOverrides ? { ...slot.statOverrides } : undefined,
+    instanceStats: slot.instanceStats ? { ...slot.instanceStats } : undefined,
+  };
+}
+
+function cloneAirBaseSlot(base: AirBaseSlot): AirBaseSlot {
+  return {
+    ...base,
+    equipIds: [...base.equipIds],
+    equipImprovement: [...base.equipImprovement],
+    equipProficiency: [...base.equipProficiency],
+  };
+}
+
+function snapshotFleetState() {
+  return {
+    fleet1: state.fleet1.map(cloneFleetSlot),
+    fleet2: state.fleet2.map(cloneFleetSlot),
+    fleet3: state.fleet3.map(cloneFleetSlot),
+    fleet4: state.fleet4.map(cloneFleetSlot),
+  };
+}
+
+function snapshotAirbaseState() {
+  return state.airBases.map(cloneAirBaseSlot);
+}
 
 let dirtyQueued = false;
 let pendingFleetDirty = false;
@@ -77,10 +120,12 @@ export function markSimulatorStateDirty(scope: SimulatorDirtyScope = "all"): voi
 
     if (pendingFleetDirty) {
       pendingFleetDirty = false;
+      simulatorFleetState.set(snapshotFleetState());
       simulatorFleetRevision.set(simulatorFleetRevision.get() + 1);
     }
     if (pendingAirbaseDirty) {
       pendingAirbaseDirty = false;
+      simulatorAirbaseState.set(snapshotAirbaseState());
       simulatorAirbaseRevision.set(simulatorAirbaseRevision.get() + 1);
     }
   });
@@ -142,17 +187,19 @@ export const state = {
   fleet2: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleet3: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleet4: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
-  fleetSectionCollapsed: {
-    1: false,
+  fleetSectionVisible: {
+    1: true,
     2: true,
-    3: true,
-    4: true,
+    3: false,
+    4: false,
   } as Record<number, boolean>,
+  airbaseSectionVisible: true,
+  visibleAirbaseCount: 3,
   airBases: Array.from({ length: 3 }, emptyAirBase) as AirBaseSlot[],
 
   // Modal callbacks and state
-  shipModalCb: null as ((id: number | null) => void) | null,
-  equipModalCb: null as ((id: number | null) => void) | null,
+  shipModalCb: null as ((selection: ShipSelection) => void) | null,
+  equipModalCb: null as ((selection: EquipSelection) => void) | null,
   shipModalCurrentId: null as number | null,
   equipModalCurrentId: null as number | null,
   shipModalSource: "master" as "snapshot" | "master",
@@ -160,9 +207,15 @@ export const state = {
   shipModalSideFilter: "ally" as "ally" | "enemy" | "all",
   equipModalSideFilter: "ally" as "ally" | "enemy" | "all",
 
+  // Ship modal target context
+  shipModalTargetFleetIndex: null as 1 | 2 | 3 | 4 | null,
+  shipModalTargetShipSlotIndex: null as number | null,
+
   // Equipment modal target context
-  equipModalTargetShipId: null as number | null,
-  equipModalTargetSlot: null as FleetSlot | null,
+  equipModalTargetKind: null as "fleet" | "airbase" | null,
+  equipModalTargetFleetIndex: null as 1 | 2 | 3 | 4 | null,
+  equipModalTargetShipSlotIndex: null as number | null,
+  equipModalTargetAirBaseIndex: null as number | null,
   equipModalTargetSlotIdx: -1,
 
   // Snapshot data
@@ -181,12 +234,17 @@ export const state = {
   // Equipment filtering master data
   /** stype id → equip_type map (default allowed equip types per ship type) */
   mstStypes: {} as Record<number, MstStypeData>,
-  /** Set of equipment IDs allowed in exslot */
+  /** Set of equipment type[2] IDs allowed in exslot */
   equipExslotSet: new Set<number>() as Set<number>,
   /** ship_id → per-ship equipment type overrides */
   mstEquipShip: {} as Record<number, MstEquipShipData>,
   /** equip_id → exslot ship restrictions */
   mstEquipExslotShip: {} as Record<number, MstEquipExslotShipData>,
-  /** ship_id → exslot equipment limits */
+  /** ship_id → excluded exslot equipment type[2] IDs */
   mstEquipLimitExslot: {} as Record<number, MstEquipLimitExslotData>,
 };
+
+// Keep atom-backed UI guard aligned with initial mutable state snapshot.
+simulatorReadOnly.set(state.isWorkspaceReadOnly);
+simulatorFleetState.set(snapshotFleetState());
+simulatorAirbaseState.set(snapshotAirbaseState());

@@ -1,5 +1,6 @@
 // ── Share URL resolution: normalize any URL/key input to a fleet payload ──
 
+import { decodePayloadBase64 } from "./payload-codec";
 import type { ViewerEntry } from "./viewer-workspace";
 
 type ResolvedShare =
@@ -20,17 +21,6 @@ type ResolveApiResponse = {
   snapshotPayload?: Record<string, unknown> | null;
   error?: string;
 };
-
-function decodePayloadBase64(data: string): unknown {
-  try {
-    const binary = atob(data);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    return JSON.parse(json);
-  } catch {
-    return JSON.parse(atob(data));
-  }
-}
 
 /** Extract a 16-char hex key from a short URL or a bare key string. */
 function extractShortKey(input: string): string | null {

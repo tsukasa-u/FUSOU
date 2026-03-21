@@ -1,8 +1,9 @@
 // ── Centralized simulator state mutations ──
 
-import { markSimulatorStateDirty, state } from "./state";
+import { markSimulatorStateDirty, simulatorReadOnly, state } from "./state";
 import type {
   AirBaseSlot,
+  EquipSelection,
   FleetSlot,
   MstEquipExslotShipData,
   MstEquipLimitExslotData,
@@ -11,9 +12,10 @@ import type {
   MstSlotItemData,
   MstSlotItemEquipTypeData,
   MstStypeData,
+  ShipSelection,
   SlotItemEffectsData,
 } from "./types";
-import { emptyFleetSlot } from "./types";
+import { emptyAirBase, emptyFleetSlot } from "./types";
 import type {
   EquipModalSource,
   ShipModalSource,
@@ -24,6 +26,26 @@ export * from "./simulator-selectors";
 
 export function assignShipToFleetSlot(slot: FleetSlot, shipId: number | null): void {
   slot.shipId = shipId;
+  if (shipId == null) slot.shipLevel = null;
+  slot.equipIds = [null, null, null, null, null];
+  slot.equipImprovement = [0, 0, 0, 0, 0];
+  slot.equipProficiency = [0, 0, 0, 0, 0];
+  slot.exSlotId = null;
+  slot.exSlotImprovement = 0;
+  delete slot.instanceStats;
+  markSimulatorStateDirty("fleet");
+}
+
+export function applyShipSelectionToFleetSlot(
+  slot: FleetSlot,
+  selection: ShipSelection,
+): void {
+  slot.shipId = selection.id;
+  if (selection.id == null) {
+    slot.shipLevel = null;
+  } else if (selection.level !== undefined) {
+    slot.shipLevel = selection.level ?? null;
+  }
   slot.equipIds = [null, null, null, null, null];
   slot.equipImprovement = [0, 0, 0, 0, 0];
   slot.equipProficiency = [0, 0, 0, 0, 0];
@@ -46,7 +68,23 @@ export function cycleFleetEquipImprovement(slot: FleetSlot, equipIdx: number): v
 }
 
 export function setFleetEquip(slot: FleetSlot, equipIdx: number, equipId: number | null): void {
+  const changed = slot.equipIds[equipIdx] !== equipId;
   slot.equipIds[equipIdx] = equipId;
+  if (changed) {
+    slot.equipImprovement[equipIdx] = 0;
+    slot.equipProficiency[equipIdx] = 0;
+  }
+  markSimulatorStateDirty("fleet");
+}
+
+export function applyFleetEquipSelection(
+  slot: FleetSlot,
+  equipIdx: number,
+  selection: EquipSelection,
+): void {
+  slot.equipIds[equipIdx] = selection.id;
+  slot.equipImprovement[equipIdx] = selection.id == null ? 0 : selection.level ?? 0;
+  slot.equipProficiency[equipIdx] = selection.id == null ? 0 : selection.alv ?? 0;
   markSimulatorStateDirty("fleet");
 }
 
@@ -57,7 +95,17 @@ export function cycleFleetExslotImprovement(slot: FleetSlot): void {
 }
 
 export function setFleetExslotEquip(slot: FleetSlot, equipId: number | null): void {
+  if (slot.exSlotId !== equipId) slot.exSlotImprovement = 0;
   slot.exSlotId = equipId;
+  markSimulatorStateDirty("fleet");
+}
+
+export function applyFleetExslotSelection(
+  slot: FleetSlot,
+  selection: EquipSelection,
+): void {
+  slot.exSlotId = selection.id;
+  slot.exSlotImprovement = selection.id == null ? 0 : selection.level ?? 0;
   markSimulatorStateDirty("fleet");
 }
 
@@ -74,16 +122,27 @@ export function ensureFleetStatOverrides(slot: FleetSlot): NonNullable<FleetSlot
   return slot.statOverrides;
 }
 
-export function setEquipModalTargetForFleet(slot: FleetSlot, equipIdx: number): void {
-  state.equipModalTargetShipId = slot.shipId;
-  state.equipModalTargetSlot = slot;
+export function setEquipModalTargetForFleet(
+  fleetIndex: 1 | 2 | 3 | 4,
+  shipSlotIndex: number,
+  equipIdx: number,
+): void {
+  state.equipModalTargetKind = "fleet";
+  state.equipModalTargetFleetIndex = fleetIndex;
+  state.equipModalTargetShipSlotIndex = shipSlotIndex;
+  state.equipModalTargetAirBaseIndex = null;
   state.equipModalTargetSlotIdx = equipIdx;
 }
 
-export function setEquipModalTargetForAirBase(): void {
-  state.equipModalTargetShipId = null;
-  state.equipModalTargetSlot = null;
-  state.equipModalTargetSlotIdx = -1;
+export function setEquipModalTargetForAirBase(
+  airBaseIndex: number,
+  equipIdx: number,
+): void {
+  state.equipModalTargetKind = "airbase";
+  state.equipModalTargetFleetIndex = null;
+  state.equipModalTargetShipSlotIndex = null;
+  state.equipModalTargetAirBaseIndex = airBaseIndex;
+  state.equipModalTargetSlotIdx = equipIdx;
 }
 
 export function cycleAirBaseEquipProficiency(base: AirBaseSlot, equipIdx: number): void {
@@ -99,31 +158,58 @@ export function cycleAirBaseEquipImprovement(base: AirBaseSlot, equipIdx: number
 }
 
 export function setAirBaseEquip(base: AirBaseSlot, equipIdx: number, equipId: number | null): void {
+  const changed = base.equipIds[equipIdx] !== equipId;
   base.equipIds[equipIdx] = equipId;
+  if (changed) {
+    base.equipImprovement[equipIdx] = 0;
+    base.equipProficiency[equipIdx] = 0;
+  }
   markSimulatorStateDirty("airbase");
 }
 
-export function setFleetSectionCollapsed(index: number, collapsed: boolean): void {
-  state.fleetSectionCollapsed[index] = collapsed;
-  markSimulatorStateDirty("fleet");
+export function applyAirBaseEquipSelection(
+  base: AirBaseSlot,
+  equipIdx: number,
+  selection: EquipSelection,
+): void {
+  base.equipIds[equipIdx] = selection.id;
+  base.equipImprovement[equipIdx] = selection.id == null ? 0 : selection.level ?? 0;
+  base.equipProficiency[equipIdx] = selection.id == null ? 0 : selection.alv ?? 0;
+  markSimulatorStateDirty("airbase");
 }
 
-export function toggleFleetSectionCollapsed(index: number): void {
-  state.fleetSectionCollapsed[index] = !state.fleetSectionCollapsed[index];
-  markSimulatorStateDirty("fleet");
+export function setFleetSectionVisible(index: number, visible: boolean): void {
+  state.fleetSectionVisible[index] = visible;
+}
+
+export function setAirbaseSectionVisible(visible: boolean): void {
+  state.airbaseSectionVisible = visible;
+}
+
+export function setVisibleAirbaseCount(count: number): void {
+  const n = Number.isFinite(count) ? Math.trunc(count) : 3;
+  state.visibleAirbaseCount = Math.max(0, Math.min(3, n));
 }
 
 export function setWorkspaceReadOnly(readOnly: boolean): void {
   state.isWorkspaceReadOnly = readOnly;
-  markSimulatorStateDirty();
+  simulatorReadOnly.set(readOnly);
 }
 
 export function beginShipModalSession(
   currentId: number | null,
-  cb: (id: number | null) => void,
+  cb: (selection: ShipSelection) => void,
 ): void {
   state.shipModalCb = cb;
   state.shipModalCurrentId = currentId;
+}
+
+export function setShipModalTargetForFleet(
+  fleetIndex: 1 | 2 | 3 | 4,
+  shipSlotIndex: number,
+): void {
+  state.shipModalTargetFleetIndex = fleetIndex;
+  state.shipModalTargetShipSlotIndex = shipSlotIndex;
 }
 
 export function setShipModalSideFilter(sideFilter: SideFilter): void {
@@ -134,14 +220,16 @@ export function setShipModalSource(source: ShipModalSource): void {
   state.shipModalSource = source;
 }
 
-export function consumeShipModalCallback(id: number | null): void {
-  state.shipModalCb?.(id);
+export function consumeShipModalCallback(selection: ShipSelection): boolean {
+  const cb = state.shipModalCb;
+  if (cb) cb(selection);
   state.shipModalCb = null;
+  return cb != null;
 }
 
 export function beginEquipModalSession(
   currentId: number | null,
-  cb: (id: number | null) => void,
+  cb: (selection: EquipSelection) => void,
 ): void {
   state.equipModalCb = cb;
   state.equipModalCurrentId = currentId;
@@ -155,9 +243,11 @@ export function setEquipModalSource(source: EquipModalSource): void {
   state.equipModalSource = source;
 }
 
-export function consumeEquipModalCallback(id: number | null): void {
-  state.equipModalCb?.(id);
+export function consumeEquipModalCallback(selection: EquipSelection): boolean {
+  const cb = state.equipModalCb;
+  if (cb) cb(selection);
   state.equipModalCb = null;
+  return cb != null;
 }
 
 export function resetAllFleets(): void {
@@ -165,6 +255,13 @@ export function resetAllFleets(): void {
     for (let i = 0; i < 6; i++) fleet[i] = emptyFleetSlot();
   });
   markSimulatorStateDirty("fleet");
+}
+
+export function resetAllAirBases(): void {
+  for (let i = 0; i < 3; i++) {
+    state.airBases[i] = emptyAirBase();
+  }
+  markSimulatorStateDirty("airbase");
 }
 
 export function replaceFleetSlot(fleet: FleetSlot[], index: number, slot: FleetSlot): void {
@@ -180,14 +277,12 @@ export function replaceAirBaseSlot(index: number, base: AirBaseSlot): void {
 export function clearSnapshotData(): void {
   state.snapshotShips = {};
   state.snapshotSlotItems = {};
-  markSimulatorStateDirty();
 }
 
 export function replaceSnapshotSlotItems(
   slotItems: Record<number, { slotitem_id: number; level: number; alv: number }>,
 ): void {
   state.snapshotSlotItems = slotItems;
-  markSimulatorStateDirty();
 }
 
 export function setSnapshotShipRecord(
@@ -195,7 +290,6 @@ export function setSnapshotShipRecord(
   ship: { shipId: number; level: number; name: string; stype: number },
 ): void {
   state.snapshotShips[instanceId] = ship;
-  markSimulatorStateDirty();
 }
 
 export function setSnapshotSlotItemRecord(
@@ -203,7 +297,6 @@ export function setSnapshotSlotItemRecord(
   slotItem: { slotitem_id: number; level: number; alv: number },
 ): void {
   state.snapshotSlotItems[instanceId] = slotItem;
-  markSimulatorStateDirty();
 }
 
 export function setHasMasterData(hasMasterData: boolean): void {
