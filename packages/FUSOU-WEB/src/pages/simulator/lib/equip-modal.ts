@@ -83,8 +83,8 @@ function syncEquipModalDisplay(modal: HTMLDialogElement): void {
 
 function ensureEquipModalVisibilityBinding(modal: HTMLDialogElement): void {
   if (_equipModalVisibilityBound) return;
-  modal.addEventListener("close", () => syncEquipModalDisplay(modal));
-  modal.addEventListener("cancel", () => syncEquipModalDisplay(modal));
+  modal.addEventListener("close", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
+  modal.addEventListener("cancel", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
   _equipModalVisibilityBound = true;
 }
 
@@ -396,7 +396,8 @@ function renderEquipGrid(
   typeFilter: string,
   sideFilter: SideFilter,
 ) {
-  const grid = document.getElementById("equip-modal-grid")!;
+  const grid = document.getElementById("equip-modal-grid");
+  if (!(grid instanceof HTMLElement)) return;
   grid.innerHTML = "";
   cleanupEquipVS();
 
@@ -593,7 +594,7 @@ function renderEquipCategoryNav(
     "equip-modal-categories",
     "equip-modal-grid",
     catOffsets,
-    (c: { typeId: number }) => ({
+    (c) => ({
       text:
         EQUIP_TYPE_SHORT[c.typeId] ??
         getEquipTypeName(c.typeId),
@@ -603,7 +604,8 @@ function renderEquipCategoryNav(
 }
 
 function renderEquipDetail(equip: MstSlotItemData) {
-  const panel = document.getElementById("equip-modal-detail")!;
+  const panel = document.getElementById("equip-modal-detail");
+  if (!(panel instanceof HTMLElement)) return;
   panel.innerHTML = "";
 
   const imgSrc = equipImageUrl(equip.id);
@@ -780,8 +782,10 @@ function renderEquipDetail(equip: MstSlotItemData) {
 }
 
 function resetEquipDetail() {
-  document.getElementById("equip-modal-detail")!.innerHTML =
-    '<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>';
+  const panel = document.getElementById("equip-modal-detail");
+  if (panel instanceof HTMLElement) {
+    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>';
+  }
 }
 
 /** Wire up DOM event listeners for the equip modal. Call once at init time. */

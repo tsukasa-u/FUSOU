@@ -104,7 +104,18 @@ function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
 // Cache external images as data URIs so html-to-image can embed them directly.
 // Blob URLs require html-to-image to re-fetch them which can fail silently and
 // fall back to TRANSPARENT_PIXEL; data URIs are inlined without any re-fetch.
+// The cache is capped at IMAGE_CACHE_MAX entries; oldest entry is evicted when full
+// (Map preserves insertion order, so the first key is the oldest).
+const IMAGE_CACHE_MAX = 100;
 const externalImageDataUrlCache = new Map<string, string>();
+
+function setImageCache(url: string, dataUrl: string): void {
+  if (externalImageDataUrlCache.size >= IMAGE_CACHE_MAX) {
+    const oldest = externalImageDataUrlCache.keys().next().value;
+    if (oldest !== undefined) externalImageDataUrlCache.delete(oldest);
+  }
+  externalImageDataUrlCache.set(url, dataUrl);
+}
 
 function flashPressedEffect(btn: HTMLButtonElement): void {
   btn.style.transform = "translateY(1px) scale(0.98)";
@@ -145,7 +156,7 @@ async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> 
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-    externalImageDataUrlCache.set(absUrl, dataUrl);
+    setImageCache(absUrl, dataUrl);
     return dataUrl;
   } catch {
     return null;

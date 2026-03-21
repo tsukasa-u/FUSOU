@@ -52,8 +52,8 @@ function syncShipModalDisplay(modal: HTMLDialogElement): void {
 
 function ensureShipModalVisibilityBinding(modal: HTMLDialogElement): void {
   if (_shipModalVisibilityBound) return;
-  modal.addEventListener("close", () => syncShipModalDisplay(modal));
-  modal.addEventListener("cancel", () => syncShipModalDisplay(modal));
+  modal.addEventListener("close", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
+  modal.addEventListener("cancel", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
   _shipModalVisibilityBound = true;
 }
 
@@ -193,7 +193,8 @@ function renderShipGrid(
   stypeFilter: string,
   sideFilter: SideFilter,
 ) {
-  const grid = document.getElementById("ship-modal-grid")!;
+  const grid = document.getElementById("ship-modal-grid");
+  if (!(grid instanceof HTMLElement)) return;
   grid.innerHTML = "";
   cleanupShipVS();
 
@@ -347,7 +348,7 @@ function renderShipCategoryNav(
     "ship-modal-categories",
     "ship-modal-grid",
     catOffsets,
-    (c: { stype: number }) => ({
+    (c) => ({
       text: STYPE_SHORT[c.stype] ?? STYPE_NAMES[c.stype] ?? `${c.stype}`,
       title: STYPE_NAMES[c.stype] ?? `Type ${c.stype}`,
     }),
@@ -418,7 +419,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
 }
 
 function renderShipDetail(ship: MstShipData) {
-  const panel = document.getElementById("ship-modal-detail")!;
+  const panel = document.getElementById("ship-modal-detail");
+  if (!(panel instanceof HTMLElement)) return;
   panel.innerHTML = "";
 
   const bannerWrap = document.createElement("div");
@@ -479,8 +481,10 @@ function renderShipDetail(ship: MstShipData) {
 }
 
 function resetShipDetail() {
-  document.getElementById("ship-modal-detail")!.innerHTML =
-    '<p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>';
+  const panel = document.getElementById("ship-modal-detail");
+  if (panel instanceof HTMLElement) {
+    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>';
+  }
 }
 
 /** Wire up DOM event listeners for the ship modal. Call once at init time. */

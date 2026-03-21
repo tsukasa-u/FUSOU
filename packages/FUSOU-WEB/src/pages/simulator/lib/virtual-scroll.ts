@@ -12,11 +12,11 @@ export function createGroupHeader(text: string): HTMLElement {
   return h;
 }
 
-export function renderCategoryNav(
+export function renderCategoryNav<T extends { offset: number }>(
   navId: string,
   gridId: string,
-  catOffsets: { offset: number }[],
-  labelFn: (cat: any) => { text: string; title: string },
+  catOffsets: T[],
+  labelFn: (cat: T) => { text: string; title: string },
 ): void {
   const nav = document.getElementById(navId);
   if (!nav) return;

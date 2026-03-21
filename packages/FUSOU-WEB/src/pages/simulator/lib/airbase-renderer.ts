@@ -11,18 +11,12 @@ import {
   isFleetSectionVisible,
 } from "./simulator-selectors";
 import { rerenderSolidSimulator } from "../../../components/solid/simulator-renderer";
+import { debounce } from "./equip-calc";
 
 const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
 let displaySettingsLoaded = false;
 let settingsEventsBound = false;
 
-function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number) {
-  let timer: number | undefined;
-  return (...args: Parameters<T>) => {
-    if (timer !== undefined) window.clearTimeout(timer);
-    timer = window.setTimeout(() => fn(...args), ms);
-  };
-}
 
 type DisplaySettings = {
   fleets: Record<number, boolean>;
