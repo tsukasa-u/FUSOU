@@ -175,7 +175,7 @@ export const EQUIP_TYPE_SHORT: Record<number, string> = {
 
 /** Equipment type[2] values that represent aircraft (can have proficiency). */
 export const AIRCRAFT_TYPES = new Set([
-  6, 7, 8, 9, 10, 11, 25, 26, 39, 42, 45, 47, 48, 49, 56, 57, 58, 94,
+  6, 7, 8, 9, 10, 11, 25, 26, 39, 41, 42, 45, 47, 48, 49, 56, 57, 58, 94,
 ]);
 
 export const STAT_KEYS = [
