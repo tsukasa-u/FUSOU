@@ -13,6 +13,43 @@ export function decodePayloadBase64(data: string): unknown {
   }
 }
 
+export function decodePayloadBase64Safe(
+  data: string,
+): { ok: true; payload: unknown } | { ok: false; error: string } {
+  try {
+    return { ok: true, payload: decodePayloadBase64(data) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Base64 decode failed",
+    };
+  }
+}
+
+const PAYLOAD_TOPLEVEL_KEYS = new Set<string>([
+  "fleet1",
+  "fleet2",
+  "fleet3",
+  "fleet4",
+  "airBases",
+  "snapshotShips",
+  "snapshotSlotItems",
+  "s3s",
+  "s8s",
+  "d8k",
+  "masterData",
+]);
+
+export function isLikelySimulatorPayload(payload: unknown): payload is Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  const obj = payload as Record<string, unknown>;
+
+  for (const k of Object.keys(obj)) {
+    if (PAYLOAD_TOPLEVEL_KEYS.has(k)) return true;
+  }
+  return false;
+}
+
 export function pickNumericRecord(input: unknown): Record<string, number> | undefined {
   if (!input || typeof input !== "object") return undefined;
   const out: Record<string, number> = {};

@@ -1,6 +1,9 @@
 // ── Share URL resolution: normalize any URL/key input to a fleet payload ──
 
-import { decodePayloadBase64 } from "./payload-codec";
+import {
+  decodePayloadBase64Safe,
+  isLikelySimulatorPayload,
+} from "./payload-codec";
 import type { ViewerEntry } from "./viewer-workspace";
 
 type ResolvedShare =
@@ -50,8 +53,14 @@ function resolveSimulatorUrlDirectly(input: string): ResolvedShare | null {
     }
     const dataParam = parsed.searchParams.get("data");
     if (!dataParam) return null;
-    const payload = decodePayloadBase64(dataParam);
-    if (!payload || typeof payload !== "object") return null;
+    const decoded = decodePayloadBase64Safe(dataParam);
+    if (!decoded.ok) {
+      return { ok: false, error: `データの復元に失敗しました: ${decoded.error}` };
+    }
+    const payload = decoded.payload;
+    if (!isLikelySimulatorPayload(payload)) {
+      return { ok: false, error: "共有データの形式が不正です" };
+    }
     return {
       ok: true,
       payloadKind: "exportedFleet",
@@ -98,6 +107,10 @@ async function resolveViaApi(key: string): Promise<ResolvedShare> {
     if (data.snapshotPayload.snapshotSlotItems && !payload.snapshotSlotItems) {
       payload.snapshotSlotItems = data.snapshotPayload.snapshotSlotItems;
     }
+  }
+
+  if (!isLikelySimulatorPayload(payload)) {
+    return { ok: false, error: "共有データの形式が不正です" };
   }
 
   return {

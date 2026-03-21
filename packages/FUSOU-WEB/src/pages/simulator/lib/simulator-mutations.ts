@@ -1,6 +1,8 @@
 // ── Centralized simulator state mutations ──
 
 import { markSimulatorStateDirty, simulatorReadOnly, state } from "./state";
+import { AIRCRAFT_TYPES } from "./constants";
+import { filterForNormalSlot, getExslotSelectionRequirement } from "./equip-filter";
 import type {
   AirBaseSlot,
   EquipSelection,
@@ -21,6 +23,7 @@ import type {
   ShipModalSource,
   SideFilter,
 } from "./simulator-selectors";
+import { getMasterShip, getMasterSlotItem } from "./simulator-selectors";
 
 export * from "./simulator-selectors";
 
@@ -30,6 +33,14 @@ function clampInt(value: number | null | undefined, min: number, max: number, fa
   if (n < min) return min;
   if (n > max) return max;
   return n;
+}
+
+function isValidAirBaseEquipId(equipId: number): boolean {
+  const equip = getMasterSlotItem(equipId);
+  if (!equip) return false;
+  const type2 = equip.type?.[2] ?? -1;
+  if (!AIRCRAFT_TYPES.has(type2)) return false;
+  return (equip.distance ?? 0) > 0;
 }
 
 export function assignShipToFleetSlot(slot: FleetSlot, shipId: number | null): void {
@@ -90,6 +101,17 @@ export function applyFleetEquipSelection(
   equipIdx: number,
   selection: EquipSelection,
 ): void {
+  if (equipIdx < 0 || equipIdx >= 5) return;
+
+  if (selection.id != null) {
+    const shipId = slot.shipId;
+    const equip = getMasterSlotItem(selection.id);
+    if (!equip || shipId == null || getMasterShip(shipId) == null) return;
+
+    const filtered = filterForNormalSlot(shipId, [equip]);
+    if (filtered && filtered.length === 0) return;
+  }
+
   slot.equipIds[equipIdx] = selection.id;
   slot.equipImprovement[equipIdx] =
     selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
@@ -114,6 +136,14 @@ export function applyFleetExslotSelection(
   slot: FleetSlot,
   selection: EquipSelection,
 ): void {
+  if (selection.id != null) {
+    const shipId = slot.shipId;
+    const equip = getMasterSlotItem(selection.id);
+    if (!equip || shipId == null || getMasterShip(shipId) == null) return;
+
+    if (getExslotSelectionRequirement(shipId, equip) == null) return;
+  }
+
   slot.exSlotId = selection.id;
   slot.exSlotImprovement =
     selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
@@ -183,6 +213,9 @@ export function applyAirBaseEquipSelection(
   equipIdx: number,
   selection: EquipSelection,
 ): void {
+  if (equipIdx < 0 || equipIdx >= 4) return;
+  if (selection.id != null && !isValidAirBaseEquipId(selection.id)) return;
+
   base.equipIds[equipIdx] = selection.id;
   base.equipImprovement[equipIdx] =
     selection.id == null ? 0 : clampInt(selection.level, 0, 10, 0);
