@@ -2,16 +2,21 @@
 
 import {
   setAirbaseSectionVisible,
+  setCombinedFleetType,
   setFleetSectionVisible,
   setVisibleAirbaseCount,
 } from "./simulator-mutations";
 import {
+  getCombinedFleetType,
+  getFleetState,
   getVisibleAirbaseCount,
   isAirbaseSectionVisible,
   isFleetSectionVisible,
 } from "./simulator-selectors";
+import { validateCombinedFleet } from "./combined-fleet";
 import { rerenderSolidSimulator } from "../../../components/solid/simulator-renderer";
 import { debounce } from "./equip-calc";
+import { onSimulatorStateDirty } from "./state";
 
 const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
 let displaySettingsLoaded = false;
@@ -23,6 +28,7 @@ type DisplaySettings = {
   showAirbase: boolean;
   airbaseCount: number;
   fleetSlotLayout: "2x3" | "3x2";
+  combinedFleetType: 0 | 1 | 2 | 3;
 };
 
 const FLEET_SECTION_IDS = [1, 2, 3, 4] as const;
@@ -54,6 +60,11 @@ function readDisplaySettings(): DisplaySettings | null {
     const parsed = JSON.parse(raw) as Partial<DisplaySettings> & {
       singleFleetGrid3x2?: boolean;
     };
+    const rawCombined = parsed.combinedFleetType;
+    const combinedFleetType: 0 | 1 | 2 | 3 =
+      typeof rawCombined === "number" && [0, 1, 2, 3].includes(rawCombined)
+        ? (rawCombined as 0 | 1 | 2 | 3)
+        : 0;
     return {
       fleets: {
         1: parsed.fleets?.[1] !== false,
@@ -69,6 +80,7 @@ function readDisplaySettings(): DisplaySettings | null {
         parsed.fleetSlotLayout === "3x2" || parsed.singleFleetGrid3x2 === true
           ? "3x2"
           : "2x3",
+      combinedFleetType
     };
   } catch {
     return null;
@@ -87,6 +99,7 @@ function writeDisplaySettings(): void {
       showAirbase: isAirbaseSectionVisible(),
       airbaseCount: getVisibleAirbaseCount(),
       fleetSlotLayout: fleetSlotLayoutMode,
+      combinedFleetType: getCombinedFleetType()
     };
     localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(payload));
   } catch {
@@ -107,6 +120,7 @@ function loadDisplaySettingsOnce(): void {
     setAirbaseSectionVisible(true);
     setVisibleAirbaseCount(3);
     fleetSlotLayoutMode = "2x3";
+    setCombinedFleetType(0);
     return;
   }
   setFleetSectionVisible(1, settings.fleets[1]);
@@ -116,6 +130,7 @@ function loadDisplaySettingsOnce(): void {
   setAirbaseSectionVisible(settings.showAirbase);
   setVisibleAirbaseCount(settings.airbaseCount);
   fleetSlotLayoutMode = settings.fleetSlotLayout;
+  setCombinedFleetType(settings.combinedFleetType);
 }
 
 function syncDisplaySettingsControls(): void {
@@ -139,6 +154,11 @@ function syncDisplaySettingsControls(): void {
   const slotLayout = document.getElementById("display-fleet-slot-layout") as HTMLSelectElement | null;
   if (slotLayout) {
     slotLayout.value = fleetSlotLayoutMode;
+  }
+
+  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
+  if (combinedFleet) {
+    combinedFleet.value = String(getCombinedFleetType());
   }
 }
 
@@ -232,6 +252,50 @@ const applyDisplaySettingsUiOnResize = debounce(() => {
   applyDisplaySettingsUi();
 }, 80);
 
+function syncCombinedFleetUI(): void {
+  const combinedType = getCombinedFleetType();
+  const isCombined = combinedType > 0;
+  const combinedShort: Record<number, string> = { 1: "機動", 2: "水打", 3: "輸送" };
+
+  for (const fleetIdx of [1, 2, 3, 4] as const) {
+    const badge = document.getElementById(`fleet-${fleetIdx}-combined-badge`) as HTMLElement | null;
+    if (!badge) continue;
+    if (fleetIdx === 1 && isCombined) {
+      badge.textContent = combinedShort[combinedType] ?? "";
+      badge.hidden = false;
+    } else if (fleetIdx === 2 && isCombined) {
+      badge.textContent = "護衛";
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  const validationEl = document.getElementById("combined-fleet-validation") as HTMLElement | null;
+  const validationTextEl = document.getElementById("combined-fleet-validation-text") as HTMLElement | null;
+  if (!validationEl || !validationTextEl) return;
+
+  if (!isCombined) {
+    validationEl.classList.add("hidden");
+    validationTextEl.textContent = "";
+    return;
+  }
+
+  const fleets = getFleetState();
+  const result = validateCombinedFleet(combinedType, fleets.fleet1, fleets.fleet2);
+  if (result.ok) {
+    validationEl.classList.add("hidden");
+    validationTextEl.textContent = "";
+    return;
+  }
+
+  const parts: string[] = [];
+  if (result.mainErrors.length > 0) parts.push(`本隊: ${result.mainErrors.join(' / ')}`);
+  if (result.escortErrors.length > 0) parts.push(`護衛: ${result.escortErrors.join(' / ')}`);
+  validationTextEl.textContent = parts.join('  |  ');
+  validationEl.classList.remove("hidden");
+}
+
 function bindDisplaySettingsEvents(): void {
   if (settingsEventsBound) return;
   settingsEventsBound = true;
@@ -284,6 +348,27 @@ function bindDisplaySettingsEvents(): void {
     });
   }
 
+  // Combined fleet type selector
+  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
+  if (combinedFleet) {
+    combinedFleet.addEventListener("change", () => {
+      const newType = Math.max(0, Math.min(3, Number.parseInt(combinedFleet.value, 10) || 0)) as 0 | 1 | 2 | 3;
+      const isCombined = newType > 0;
+      setCombinedFleetType(newType);
+
+      // Auto-show fleet 2 when entering combined mode
+      if (isCombined && !isFleetSectionVisible(2)) {
+        setFleetSectionVisible(2, true);
+        const cb = document.getElementById("display-fleet-2") as HTMLInputElement | null;
+        if (cb) cb.checked = true;
+      }
+
+      syncCombinedFleetUI();
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
   document.getElementById("btn-display-settings-apply")?.addEventListener("click", () => {
     const modalEl = document.getElementById("display-settings-modal") as HTMLDialogElement | null;
     modalEl?.close();
@@ -292,11 +377,20 @@ function bindDisplaySettingsEvents(): void {
   window.addEventListener("resize", applyDisplaySettingsUiOnResize);
 }
 
+let combinedFleetUiSubscribed = false;
+
 export function initDisplaySettingsEvents(): void {
   loadDisplaySettingsOnce();
   bindDisplaySettingsEvents();
   syncDisplaySettingsControls();
   applyDisplaySettingsUi();
+  syncCombinedFleetUI();
+  if (!combinedFleetUiSubscribed) {
+    combinedFleetUiSubscribed = true;
+    onSimulatorStateDirty("fleet", () => {
+      syncCombinedFleetUI();
+    });
+  }
 }
 
 export function renderAirBases(): void {
@@ -309,4 +403,5 @@ export function renderAll(): void {
   loadDisplaySettingsOnce();
   rerenderSolidSimulator("all");
   applyDisplaySettingsUi();
+  syncCombinedFleetUI();
 }
