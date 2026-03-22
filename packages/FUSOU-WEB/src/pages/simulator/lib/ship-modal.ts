@@ -402,7 +402,7 @@ function renderShipCategoryNav(
 function createShipItem(ship: MstShipData): HTMLElement {
   const isSelected = ship.id === getShipModalCurrentId();
   const item = document.createElement("div");
-  item.className = `flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+  item.className = `w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${
     isSelected
       ? "bg-primary/15 ring-1 ring-primary/30"
       : "hover:bg-primary/8 active:bg-primary/15"
@@ -426,25 +426,59 @@ function createShipItem(ship: MstShipData): HTMLElement {
   item.appendChild(imgWrap);
 
   const textDiv = document.createElement("div");
-  textDiv.className = "min-w-0 flex-1";
+  textDiv.className = "min-w-0 flex-1 overflow-hidden";
+
   const nameDiv = document.createElement("div");
   nameDiv.className = "text-sm font-medium truncate leading-tight";
   nameDiv.textContent = ship.name;
   textDiv.appendChild(nameDiv);
+
   const typeDiv = document.createElement("div");
-  typeDiv.className = "text-[11px] text-base-content/40 leading-tight";
+  typeDiv.className = "grid grid-cols-[minmax(0,1fr)_3.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
+  const typeName = document.createElement("span");
+  typeName.className = "truncate";
   const snLevel = (ship as MstShipData & { _snapshotLevel?: number })
     ._snapshotLevel;
   const snShipCount = (ship as MstShipData & { _snapshotCount?: number })
     ._snapshotCount;
-  let typeText =
-    snLevel != null
-      ? `${STYPE_NAMES[ship.stype] ?? ""} Lv.${snLevel} #${ship.id}`
-      : `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
-  if (snShipCount != null && snShipCount > 1) typeText += ` ×${snShipCount}`;
-  typeDiv.textContent = typeText;
+  typeName.textContent = `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
+  typeDiv.appendChild(typeName);
+
+  const levelCol = document.createElement("span");
+  levelCol.className = "text-right font-mono";
+  if (snLevel != null && snLevel > 0) {
+    levelCol.classList.add("text-teal-700", "font-bold");
+    levelCol.textContent = `Lv${snLevel}`;
+  } else {
+    levelCol.classList.add("text-base-content/30");
+    levelCol.textContent = "";
+  }
+  typeDiv.appendChild(levelCol);
+
+  const countCol = document.createElement("span");
+  countCol.className = "text-right text-base-content/60 font-mono";
+  countCol.textContent = snShipCount != null && snShipCount > 1 ? `×${snShipCount}` : "";
+  if (snShipCount != null && snShipCount > 1) countCol.classList.add("font-bold");
+  else countCol.classList.add("text-base-content/30");
+  typeDiv.appendChild(countCol);
+
   textDiv.appendChild(typeDiv);
   item.appendChild(textDiv);
+
+  const badges = document.createElement("div");
+  badges.className = "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
+  const statPairs: [string, number][] = [];
+  if ((ship.houg?.[0] ?? 0) > 0) statPairs.push(["火", ship.houg?.[0] ?? 0]);
+  if ((ship.raig?.[0] ?? 0) > 0) statPairs.push(["雷", ship.raig?.[0] ?? 0]);
+  if ((ship.tyku?.[0] ?? 0) > 0) statPairs.push(["空", ship.tyku?.[0] ?? 0]);
+  if ((ship.tais?.[0] ?? 0) > 0) statPairs.push(["潜", ship.tais?.[0] ?? 0]);
+  for (const [lbl, val] of statPairs.slice(0, 2)) {
+    const badge = document.createElement("span");
+    badge.className = "text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success";
+    badge.textContent = `${lbl}+${val}`;
+    badges.appendChild(badge);
+  }
+  item.appendChild(badges);
 
   item.addEventListener("mouseenter", () => renderShipDetail(ship));
   item.addEventListener("click", (event) => {
@@ -496,14 +530,18 @@ function renderShipDetail(ship: MstShipData) {
   const stats: [string, string | number][] = [
     ["耐久", ship.taik?.[0] ?? "—"],
     ["装甲", ship.souk?.[0] ?? "—"],
+    ["回避", ship.kaih?.[0] ?? "—"],
+    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).reduce((sum, slot) => sum + slot, 0) : "—"],
+    ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
+    ["射程", ship.leng != null ? String(ship.leng) : "—"],
     ["火力", ship.houg?.[0] ?? "—"],
     ["雷装", ship.raig?.[0] ?? "—"],
     ["対空", ship.tyku?.[0] ?? "—"],
     ["対潜", ship.tais?.[0] ?? "—"],
+    ["索敵", ship.saku?.[0] ?? "—"],
     ["運", ship.luck?.[0] ?? "—"],
-    ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
     ["スロット数", ship.slot_num],
-    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
+    ["搭載内訳", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
   ];
 
   const grid = document.createElement("div");
@@ -516,7 +554,13 @@ function renderShipDetail(ship: MstShipData) {
     l.textContent = label;
     const v = document.createElement("span");
     v.className = "font-mono text-base-content/80 font-medium";
-    v.textContent = String(value);
+    if (label === "射程") {
+      const rangeMap: Record<number, string> = { 0: "無", 1: "短", 2: "中", 3: "長", 4: "超長", 5: "超長+" };
+      const numeric = typeof value === "number" ? value : Number(value);
+      v.textContent = Number.isFinite(numeric) ? (rangeMap[numeric] ?? String(value)) : String(value);
+    } else {
+      v.textContent = String(value);
+    }
     row.appendChild(l);
     row.appendChild(v);
     grid.appendChild(row);

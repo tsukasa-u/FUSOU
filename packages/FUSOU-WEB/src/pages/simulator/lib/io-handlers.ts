@@ -286,9 +286,9 @@ function getWorkspaceEntryById(id: string): ViewerEntry | null {
 
 function buildLockIconSvg(locked: boolean): string {
   if (locked) {
-    return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0v2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>';
+    return '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0v2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="2.2" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="2.2"/></svg>';
   }
-  return '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M15 10h4v10H5V10h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  return '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 10V8a5 5 0 0 1 9.4-2.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M15 10h4v10H5V10h7" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 }
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
@@ -333,7 +333,7 @@ function renderWorkspaceModeIndicator(): void {
     return;
   }
   const typeLabel = active.sourceType === "ownDeck" ? "DECK" : "URL";
-  el.textContent = active.locked ? `WORKSPACE: ${typeLabel} (LOCKED)` : `WORKSPACE: ${typeLabel}`;
+  el.textContent = `WORKSPACE: ${typeLabel}`;
   el.className = active.sourceType === "ownDeck"
     ? "badge badge-sm badge-success"
     : "badge badge-sm badge-accent";
@@ -474,7 +474,7 @@ function renderWorkspacePanel() {
   const playgroundChip = document.createElement("div");
   const isPlaygroundActive = ws.activeId === null;
   playgroundChip.className = [
-    "flex items-start gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
+    "flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
     isPlaygroundActive
       ? "border-info bg-info/10"
       : "border-base-300/60 hover:border-info/50",
@@ -504,7 +504,7 @@ function renderWorkspacePanel() {
 
     const chip = document.createElement("div");
     chip.className = [
-      "flex items-start gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
+      "flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
       isActive
         ? "border-primary bg-primary/10"
         : "border-base-300/60 hover:border-primary/40",
@@ -528,7 +528,7 @@ function renderWorkspacePanel() {
     }
 
     const badge = document.createElement("span");
-    badge.className = "badge badge-sm shrink-0 " + (entry.locked ? "badge-warning" : "badge-ghost");
+    badge.className = "badge badge-sm shrink-0 " + (entry.sourceType === "ownDeck" ? "badge-warning" : "badge-accent");
     badge.textContent = entry.sourceType === "ownDeck" ? "DECK" : "URL";
 
     const snapshotBadge = document.createElement("span");
@@ -536,9 +536,11 @@ function renderWorkspacePanel() {
     snapshotBadge.textContent = hasSnapshotLink(entry) ? "SNAP" : "NO-SNAP";
 
     const lockBtn = document.createElement("button");
-    lockBtn.className = "btn btn-ghost btn-xs shrink-0";
+    lockBtn.className = "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors";
     lockBtn.innerHTML = buildLockIconSvg(Boolean(entry.locked));
-    lockBtn.style.color = entry.locked ? "hsl(var(--er))" : "hsl(var(--su))";
+    lockBtn.style.color = entry.locked ? "#dc2626" : "#16a34a";
+    lockBtn.style.backgroundColor = entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)";
+    lockBtn.style.border = `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`;
     lockBtn.title = entry.locked
       ? "ロック中：R2再読込で上書きされません。クリックで解除"
       : "ロック解除中：R2再読込で上書きされます。クリックでロック";

@@ -186,6 +186,8 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
       raig: s.api_raig ?? null,
       tyku: s.api_tyku ?? null,
       tais: s.api_tais ?? null,
+      kaih: s.api_kaih ?? s.api_houk ?? null,
+      saku: s.api_saku ?? s.api_sakuteki ?? null,
       luck: s.api_luck ?? null,
       soku: s.api_soku ?? 0,
       leng: s.api_leng ?? 0,

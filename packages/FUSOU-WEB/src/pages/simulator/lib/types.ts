@@ -12,6 +12,8 @@ export interface MstShipData {
   raig: number[] | null;
   tyku: number[] | null;
   tais: number[] | null;
+  kaih?: number[] | null;
+  saku?: number[] | null;
   luck: number[] | null;
   soku: number;
   leng: number;

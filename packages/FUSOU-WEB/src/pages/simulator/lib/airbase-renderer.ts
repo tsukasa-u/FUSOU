@@ -255,13 +255,17 @@ const applyDisplaySettingsUiOnResize = debounce(() => {
 function syncCombinedFleetUI(): void {
   const combinedType = getCombinedFleetType();
   const isCombined = combinedType > 0;
-  const combinedShort: Record<number, string> = { 1: "機動", 2: "水打", 3: "輸送" };
+  const combinedLabel: Record<number, string> = {
+    1: "機動部隊",
+    2: "水上打撃部隊",
+    3: "輸送護衛部隊",
+  };
 
   for (const fleetIdx of [1, 2, 3, 4] as const) {
     const badge = document.getElementById(`fleet-${fleetIdx}-combined-badge`) as HTMLElement | null;
     if (!badge) continue;
     if (fleetIdx === 1 && isCombined) {
-      badge.textContent = combinedShort[combinedType] ?? "";
+      badge.textContent = combinedLabel[combinedType] ?? "";
       badge.hidden = false;
     } else if (fleetIdx === 2 && isCombined) {
       badge.textContent = "護衛";
