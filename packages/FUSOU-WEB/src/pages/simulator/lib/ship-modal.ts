@@ -7,6 +7,7 @@ import {
   SPEED_NAMES,
   ENEMY_ID_THRESHOLD,
 } from "./constants";
+import { canAssignShipWithoutWorseningCombinedRules } from "./combined-fleet";
 import { debounce, bannerUrl } from "./equip-calc";
 import {
   SHIP_ROW_PITCH,
@@ -25,9 +26,12 @@ import {
   setShipModalSource,
 } from "./simulator-mutations";
 import {
+  getCombinedFleetType,
+  getFleetState,
   getMasterShip,
   getMasterShips,
   getShipModalCurrentId,
+  getShipModalTarget,
   getShipModalSideFilter,
   getShipModalSource,
   getSnapshotShips,
@@ -37,14 +41,14 @@ import {
 } from "./simulator-selectors";
 
 type ShipVRow =
-  | { kind: "clear" }
   | { kind: "header"; stype: number }
   | { kind: "item"; ship: MstShipData };
 
-const SHIP_CLEAR_ROW_HEIGHT = 38;
 let _shipVirtuaDispose: (() => void) | null = null;
 const ShipVList = VList as unknown as Component<Record<string, unknown>>;
 let _shipModalVisibilityBound = false;
+let _shipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _currentShipRowIndex = -1;
 
 function syncShipModalDisplay(modal: HTMLDialogElement): void {
   modal.style.display = modal.open ? "grid" : "none";
@@ -70,6 +74,28 @@ function filterShipsBySide(
   return ships.filter((s) => s.id < ENEMY_ID_THRESHOLD);
 }
 
+function filterShipsByCombinedRules(ships: MstShipData[]): MstShipData[] {
+  const combinedType = getCombinedFleetType();
+  if (combinedType === 0) return ships;
+
+  const { fleetIndex, shipSlotIndex } = getShipModalTarget();
+  if ((fleetIndex !== 1 && fleetIndex !== 2) || shipSlotIndex == null) return ships;
+
+  const { fleet1, fleet2 } = getFleetState();
+  const currentId = getShipModalCurrentId();
+  return ships.filter((ship) => {
+    if (ship.id === currentId) return true;
+    return canAssignShipWithoutWorseningCombinedRules(
+      combinedType,
+      fleet1,
+      fleet2,
+      fleetIndex,
+      shipSlotIndex,
+      ship.id,
+    );
+  });
+}
+
 function cleanupShipVS() {
   if (_shipVirtuaDispose) {
     _shipVirtuaDispose();
@@ -86,17 +112,13 @@ function findCurrentShipInVS(): MstShipData | null {
   return getMasterShip(id);
 }
 
-/** Scroll ship grid to the current ship row (call after showModal). */
-function scrollToCurrentShipInVS(): void {
-  const grid = document.getElementById("ship-modal-grid");
-  if (!(grid instanceof HTMLElement)) return;
-
-  // Selected row has ring classes in createShipItem.
-  const selected = grid.querySelector(
-    ".ring-1.ring-primary\\/30",
-  ) as HTMLElement | null;
-  if (!selected) return;
-  selected.scrollIntoView({ block: "center" });
+function scheduleScrollToCurrentShip(attempt = 0): void {
+  if (_shipVListHandle && _currentShipRowIndex >= 0) {
+    _shipVListHandle.scrollToIndex(_currentShipRowIndex, { align: "center" });
+    return;
+  }
+  if (attempt >= 8) return;
+  window.setTimeout(() => { scheduleScrollToCurrentShip(attempt + 1); }, attempt < 2 ? 0 : 16);
 }
 
 export function openShipModal(
@@ -149,7 +171,7 @@ export function openShipModal(
   syncShipModalDisplay(modal);
   requestAnimationFrame(() => {
     if (autoShowShip) {
-      scrollToCurrentShipInVS();
+      scheduleScrollToCurrentShip();
     } else {
       search.focus();
     }
@@ -195,8 +217,34 @@ function renderShipGrid(
 ) {
   const grid = document.getElementById("ship-modal-grid");
   if (!(grid instanceof HTMLElement)) return;
+  const modal = document.getElementById("ship-select-modal");
+  if (!(modal instanceof HTMLDialogElement)) return;
+  grid.style.display = "flex";
+  grid.style.flexDirection = "column";
+  grid.style.minHeight = "0";
+  grid.style.overflowY = "hidden";
   grid.innerHTML = "";
   cleanupShipVS();
+
+  // Clear-selection button — always at the top of the grid, never scrolls away
+  if (getShipModalCurrentId() != null) {
+    const clearItem = document.createElement("div");
+    clearItem.className =
+      "shrink-0 flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+    clearItem.textContent = "✕ 選択を解除";
+    if (isWorkspaceReadOnly()) {
+      clearItem.style.opacity = "0.5";
+      clearItem.style.pointerEvents = "none";
+    } else {
+      clearItem.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        consumeShipModalCallback({ id: null, level: null });
+        modal.close();
+      });
+    }
+    grid.appendChild(clearItem);
+  }
 
   let ships: MstShipData[];
 
@@ -242,6 +290,7 @@ function renderShipGrid(
   }
 
   ships = filterShipsBySide(ships, sideFilter);
+  ships = filterShipsByCombinedRules(ships);
 
   if (stypeFilter)
     ships = ships.filter((s) => s.stype === parseInt(stypeFilter, 10));
@@ -253,8 +302,10 @@ function renderShipGrid(
   }
 
   if (ships.length === 0) {
-    grid.innerHTML =
-      '<p class="text-sm text-base-content/30 text-center py-12">該当する艦娘が見つかりません</p>';
+    const empty = document.createElement("p");
+    empty.className = "text-sm text-base-content/30 text-center py-12";
+    empty.textContent = "該当する艦娘が見つかりません";
+    grid.appendChild(empty);
     renderShipCategoryNav([]);
     return;
   }
@@ -262,11 +313,6 @@ function renderShipGrid(
   const rows: ShipVRow[] = [];
   let catOffsets: { stype: number; offset: number }[] = [];
   let virtualOffset = 0;
-
-  if (getShipModalCurrentId() != null) {
-    rows.push({ kind: "clear" });
-    virtualOffset += SHIP_CLEAR_ROW_HEIGHT;
-  }
 
   if (!stypeFilter) {
     const groups = new Map<number, MstShipData[]>();
@@ -292,22 +338,36 @@ function renderShipGrid(
     catOffsets = [];
   }
 
+  // Find the row index of the currently selected ship so scrollToIndex can jump directly to it.
+  const currentId = getShipModalCurrentId();
+  _currentShipRowIndex = -1;
+  if (currentId != null) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.kind === "item" && r.ship.id === currentId) {
+        _currentShipRowIndex = i;
+        break;
+      }
+    }
+  }
+  _shipVListHandle = null;
+
+  const vlistWrapper = document.createElement("div");
+  vlistWrapper.style.flex = "1";
+  vlistWrapper.style.minHeight = "0";
+  vlistWrapper.style.overflow = "hidden";
+  grid.appendChild(vlistWrapper);
+
   _shipVirtuaDispose = render(
     () =>
       createComponent(ShipVList, {
         data: rows,
+        ref: (handle: unknown) => { _shipVListHandle = handle as typeof _shipVListHandle; },
         style: {
           height: "100%",
         },
         class: "overflow-x-hidden",
         children: (row: ShipVRow) => {
-          if (row.kind === "clear") {
-            const wrap = document.createElement("div");
-            wrap.style.height = `${SHIP_CLEAR_ROW_HEIGHT}px`;
-            wrap.style.boxSizing = "border-box";
-            wrap.appendChild(createShipClearItem());
-            return wrap;
-          }
           if (row.kind === "header") {
             return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
           }
@@ -320,25 +380,9 @@ function renderShipGrid(
           return wrap;
         },
       }),
-    grid,
+    vlistWrapper,
   );
   renderShipCategoryNav(catOffsets);
-}
-
-function createShipClearItem(): HTMLElement {
-  const clearItem = document.createElement("div");
-  clearItem.className =
-    "h-full flex items-center gap-2 px-3 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
-  clearItem.textContent = "✕ 選択を解除";
-  clearItem.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (isWorkspaceReadOnly()) return;
-    const selection = { id: null, level: null };
-    consumeShipModalCallback(selection);
-    (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
-  });
-  return clearItem;
 }
 
 function renderShipCategoryNav(
@@ -546,6 +590,11 @@ export function initShipModalEvents() {
           : getShipModalSideFilter();
       const stype = stypeEl instanceof HTMLSelectElement ? stypeEl.value : "";
       renderShipGrid(search, stype, side);
+      if (getShipModalCurrentId() != null) {
+        requestAnimationFrame(() => {
+          scheduleScrollToCurrentShip();
+        });
+      }
     });
 }
 
