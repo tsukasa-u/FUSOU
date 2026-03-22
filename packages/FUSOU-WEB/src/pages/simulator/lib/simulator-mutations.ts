@@ -1,6 +1,6 @@
 // ── Centralized simulator state mutations ──
 
-import { markSimulatorStateDirty, simulatorReadOnly, state } from "./state";
+import { markSimulatorStateDirty, simulatorReadOnly, simulatorCombinedFleetType, state } from "./state";
 import { AIRCRAFT_TYPES } from "./constants";
 import { filterForNormalSlot, getExslotSelectionRequirement } from "./equip-filter";
 import type {
@@ -26,6 +26,15 @@ import type {
 import { getMasterShip, getMasterSlotItem } from "./simulator-selectors";
 
 export * from "./simulator-selectors";
+
+export function setCombinedFleetType(type: 0 | 1 | 2 | 3): void {
+  state.combinedFleetType = type;
+  simulatorCombinedFleetType.set(type);
+}
+
+export function setFleetFormation(fleetIndex: 1 | 2 | 3 | 4, formationId: number): void {
+  state.fleetFormations[fleetIndex] = Math.max(0, Math.trunc(formationId));
+}
 
 function clampInt(value: number | null | undefined, min: number, max: number, fallback: number): number {
   if (value == null || !Number.isFinite(value)) return fallback;

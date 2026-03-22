@@ -282,3 +282,11 @@ export function getSnapshotShareState(): {
     snapshotSlotItems: state.snapshotSlotItems,
   };
 }
+
+export function getCombinedFleetType(): 0 | 1 | 2 | 3 {
+  return state.combinedFleetType;
+}
+
+export function getFleetFormation(fleetIndex: 1 | 2 | 3 | 4): number {
+  return state.fleetFormations[fleetIndex] ?? 0;
+}

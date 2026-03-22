@@ -27,6 +27,8 @@ export type SimulatorDirtyScope = "fleet" | "airbase" | "all";
 export const simulatorFleetRevision = atom(0);
 export const simulatorAirbaseRevision = atom(0);
 export const simulatorReadOnly = atom(false);
+/** 0=通常, 1=機動部隊, 2=水上打撃部隊, 3=輸送護衛部隊 */
+export const simulatorCombinedFleetType = atom<0 | 1 | 2 | 3>(0);
 export const simulatorFleetState = atom({
   fleet1: [] as FleetSlot[],
   fleet2: [] as FleetSlot[],
@@ -182,6 +184,11 @@ export const state = {
   equipCardMap: {} as Record<string, string>,
   equipItemUpMap: {} as Record<string, string>,
 
+  // Combined fleet type: 0=通常, 1=機動部隊, 2=水上打撃部隊, 3=輸送護衛部隊
+  combinedFleetType: 0 as 0 | 1 | 2 | 3,
+  // Per-fleet selected formation ID (0 = none)
+  fleetFormations: { 1: 0, 2: 0, 3: 0, 4: 0 } as Record<1 | 2 | 3 | 4, number>,
+
   // Fleet state
   fleet1: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
   fleet2: Array.from({ length: 6 }, emptyFleetSlot) as FleetSlot[],
@@ -246,5 +253,6 @@ export const state = {
 
 // Keep atom-backed UI guard aligned with initial mutable state snapshot.
 simulatorReadOnly.set(state.isWorkspaceReadOnly);
+simulatorCombinedFleetType.set(state.combinedFleetType);
 simulatorFleetState.set(snapshotFleetState());
 simulatorAirbaseState.set(snapshotAirbaseState());

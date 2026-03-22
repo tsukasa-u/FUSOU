@@ -38,6 +38,7 @@ const PAYLOAD_TOPLEVEL_KEYS = new Set<string>([
   "s8s",
   "d8k",
   "masterData",
+  "combinedFleetType",
 ]);
 
 export function isLikelySimulatorPayload(payload: unknown): payload is Record<string, unknown> {

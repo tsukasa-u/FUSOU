@@ -13,6 +13,8 @@ import {
   replaceSnapshotSlotItems,
   resetAllAirBases,
   resetAllFleets,
+  setCombinedFleetType,
+  setFleetFormation,
   setSnapshotShipRecord,
   setSnapshotSlotItemRecord,
 } from "./simulator-mutations";
@@ -205,6 +207,17 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
     endBulkLoad("all");
   }
 
+  // Apply combined fleet type from c11g (api_combined_flag)
+  const rawC11g = (snapshot as Record<string, unknown>).c11g;
+  const combinedType = (typeof rawC11g === "number" && [0, 1, 2, 3].includes(rawC11g))
+    ? (rawC11g as 0 | 1 | 2 | 3)
+    : 0;
+  setCombinedFleetType(combinedType);
+  setFleetFormation(1, 0);
+  setFleetFormation(2, 0);
+  setFleetFormation(3, 0);
+  setFleetFormation(4, 0);
+
   renderAll();
 }
 
@@ -299,6 +312,27 @@ export function applyExportedFleet(data: Record<string, unknown>) {
   }
   } finally {
     endBulkLoad("all");
+  }
+
+  // Apply combined fleet type
+  const rawCombined = data.combinedFleetType;
+  const combinedType = (typeof rawCombined === "number" && [0, 1, 2, 3].includes(rawCombined))
+    ? (rawCombined as 0 | 1 | 2 | 3)
+    : 0;
+  setCombinedFleetType(combinedType);
+
+  // Apply per-fleet formation selections
+  if (data.fleetFormations && typeof data.fleetFormations === "object") {
+    const fms = data.fleetFormations as Record<string, unknown>;
+    for (const k of [1, 2, 3, 4] as const) {
+      const v = fms[String(k)];
+      setFleetFormation(k, (typeof v === "number" && Number.isFinite(v)) ? Math.trunc(v) : 0);
+    }
+  } else {
+    setFleetFormation(1, 0);
+    setFleetFormation(2, 0);
+    setFleetFormation(3, 0);
+    setFleetFormation(4, 0);
   }
 
   renderAll();

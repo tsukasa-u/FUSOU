@@ -32,6 +32,7 @@ import {
 } from "./simulator-mutations";
 import {
   getAirBaseState,
+  getCombinedFleetType,
   getFleetState,
   getSnapshotShareState,
   hasSnapshotData,
@@ -117,6 +118,7 @@ function buildSharePayload(opts: ShareOptions) {
     fleet3: serializeFleetForShare(fleet3, opts.includeDetailedStats),
     fleet4: serializeFleetForShare(fleet4, opts.includeDetailedStats),
     shareOptions: opts,
+    combinedFleetType: getCombinedFleetType(),
   };
 
   if (opts.includeAirBases) {

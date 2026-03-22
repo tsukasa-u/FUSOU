@@ -199,3 +199,29 @@ export const RANGE_NAMES: Record<number, string> = {
   4: "超長",
   5: "超長+",
 };
+
+/** Normal (single-fleet) formation options */
+export const NORMAL_FORMATIONS = [
+  { id: 1, name: "単縦陣" },
+  { id: 2, name: "複縦陣" },
+  { id: 3, name: "輪形陣" },
+  { id: 4, name: "梯形陣" },
+  { id: 5, name: "単横陣" },
+  { id: 6, name: "警戒陣" },
+] as const;
+
+/** Combined-fleet formation options (警戒航行序列) */
+export const COMBINED_FORMATIONS = [
+  { id: 11, name: "第一警戒航行序列" },
+  { id: 12, name: "第二警戒航行序列" },
+  { id: 13, name: "第三警戒航行序列" },
+  { id: 14, name: "第四警戒航行序列" },
+] as const;
+
+/** Combined fleet type options (0 = normal, 1 = 機動部隊, 2 = 水上打撃部隊, 3 = 輸送護衛部隊) */
+export const COMBINED_FLEET_TYPES = [
+  { id: 0 as 0, name: "通常艦隊", shortName: "" },
+  { id: 1 as 1, name: "機動部隊", shortName: "機動" },
+  { id: 2 as 2, name: "水上打撃部隊", shortName: "水打" },
+  { id: 3 as 3, name: "輸送護衛部隊", shortName: "輸送" },
+] as const;
