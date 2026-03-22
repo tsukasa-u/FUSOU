@@ -50,7 +50,6 @@ import {
 } from "./simulator-selectors";
 
 type EquipVRow =
-  | { kind: "clear" }
   | { kind: "header"; typeId: number }
   | { kind: "item"; equip: MstSlotItemData };
 
@@ -72,10 +71,11 @@ function getCandidateAlv(equip: MstSlotItemData): number {
   return Math.max(0, e._snapshotAlv ?? e._requiredAlv ?? 0);
 }
 
-const EQUIP_CLEAR_ROW_HEIGHT = 38;
 let _equipVirtuaDispose: (() => void) | null = null;
 const EquipVList = VList as unknown as Component<Record<string, unknown>>;
 let _equipModalVisibilityBound = false;
+let _equipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _currentEquipRowIndex = -1;
 
 function syncEquipModalDisplay(modal: HTMLDialogElement): void {
   modal.style.display = modal.open ? "grid" : "none";
@@ -138,16 +138,13 @@ function findCurrentEquipInVS(): MstSlotItemData | null {
 }
 
 /** Scroll the equip grid so the currently selected equip row is visible (call after showModal). */
-function scrollToCurrentEquipInVS(): void {
-  const grid = document.getElementById("equip-modal-grid");
-  if (!(grid instanceof HTMLElement)) return;
-
-  // Selected row has ring classes in createEquipItem.
-  const selected = grid.querySelector(
-    ".ring-1.ring-primary\\/30",
-  ) as HTMLElement | null;
-  if (!selected) return;
-  selected.scrollIntoView({ block: "center" });
+function scheduleScrollToCurrentEquip(attempt = 0): void {
+  if (_equipVListHandle && _currentEquipRowIndex >= 0) {
+    _equipVListHandle.scrollToIndex(_currentEquipRowIndex, { align: "center" });
+    return;
+  }
+  if (attempt >= 8) return;
+  window.setTimeout(() => { scheduleScrollToCurrentEquip(attempt + 1); }, attempt < 2 ? 0 : 16);
 }
 
 export function openEquipModal(
@@ -200,7 +197,7 @@ export function openEquipModal(
   syncEquipModalDisplay(modal);
   requestAnimationFrame(() => {
     if (autoShowEquip) {
-      scrollToCurrentEquipInVS();
+      scheduleScrollToCurrentEquip();
     } else {
       search.focus();
     }
@@ -398,8 +395,34 @@ function renderEquipGrid(
 ) {
   const grid = document.getElementById("equip-modal-grid");
   if (!(grid instanceof HTMLElement)) return;
+  const modal = document.getElementById("equip-select-modal");
+  if (!(modal instanceof HTMLDialogElement)) return;
+  grid.style.display = "flex";
+  grid.style.flexDirection = "column";
+  grid.style.minHeight = "0";
+  grid.style.overflowY = "hidden";
   grid.innerHTML = "";
   cleanupEquipVS();
+
+  // Clear-selection button — always at the top of the grid, never scrolls away
+  if (getEquipModalCurrentId() != null) {
+    const clearItem = document.createElement("div");
+    clearItem.className =
+      "shrink-0 flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+    clearItem.textContent = "✕ 装備を外す";
+    if (isWorkspaceReadOnly()) {
+      clearItem.style.opacity = "0.5";
+      clearItem.style.pointerEvents = "none";
+    } else {
+      clearItem.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        consumeEquipModalCallback({ id: null, level: 0, alv: 0 });
+        modal.close();
+      });
+    }
+    grid.appendChild(clearItem);
+  }
 
   let items: MstSlotItemData[];
 
@@ -500,8 +523,10 @@ function renderEquipGrid(
   }
 
   if (items.length === 0) {
-    grid.innerHTML =
-      '<p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>';
+    const empty = document.createElement("p");
+    empty.className = "text-sm text-base-content/30 text-center py-12";
+    empty.textContent = "該当する装備が見つかりません";
+    grid.appendChild(empty);
     renderEquipCategoryNav([]);
     return;
   }
@@ -509,11 +534,6 @@ function renderEquipGrid(
   const rows: EquipVRow[] = [];
   let catOffsets: { typeId: number; offset: number }[] = [];
   let virtualOffset = 0;
-
-  if (getEquipModalCurrentId() != null) {
-    rows.push({ kind: "clear" });
-    virtualOffset += EQUIP_CLEAR_ROW_HEIGHT;
-  }
 
   if (!typeFilter) {
     const groups = new Map<number, MstSlotItemData[]>();
@@ -540,22 +560,36 @@ function renderEquipGrid(
     catOffsets = [];
   }
 
+  // Find the row index of the currently selected equip so scrollToIndex can jump directly to it.
+  const currentEquipId = getEquipModalCurrentId();
+  _currentEquipRowIndex = -1;
+  if (currentEquipId != null) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.kind === "item" && r.equip.id === currentEquipId) {
+        _currentEquipRowIndex = i;
+        break;
+      }
+    }
+  }
+  _equipVListHandle = null;
+
+  const vlistWrapper = document.createElement("div");
+  vlistWrapper.style.flex = "1";
+  vlistWrapper.style.minHeight = "0";
+  vlistWrapper.style.overflow = "hidden";
+  grid.appendChild(vlistWrapper);
+
   _equipVirtuaDispose = render(
     () =>
       createComponent(EquipVList, {
         data: rows,
+        ref: (handle: unknown) => { _equipVListHandle = handle as typeof _equipVListHandle; },
         style: {
           height: "100%",
         },
         class: "overflow-x-hidden",
         children: (row: EquipVRow) => {
-          if (row.kind === "clear") {
-            const wrap = document.createElement("div");
-            wrap.style.height = `${EQUIP_CLEAR_ROW_HEIGHT}px`;
-            wrap.style.boxSizing = "border-box";
-            wrap.appendChild(createEquipClearItem());
-            return wrap;
-          }
           if (row.kind === "header") return createGroupHeader(getEquipTypeName(row.typeId));
           const wrap = document.createElement("div");
           wrap.style.height = `${EQUIP_ROW_PITCH}px`;
@@ -566,25 +600,9 @@ function renderEquipGrid(
           return wrap;
         },
       }),
-    grid,
+    vlistWrapper,
   );
   renderEquipCategoryNav(catOffsets);
-}
-
-function createEquipClearItem(): HTMLElement {
-  const clearItem = document.createElement("div");
-  clearItem.className =
-    "h-full flex items-center gap-2 px-3 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
-  clearItem.textContent = "✕ 装備を外す";
-  clearItem.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (isWorkspaceReadOnly()) return;
-    const selection = { id: null, level: 0, alv: 0 };
-    consumeEquipModalCallback(selection);
-    (document.getElementById("equip-select-modal") as HTMLDialogElement).close();
-  });
-  return clearItem;
 }
 
 function renderEquipCategoryNav(
@@ -846,6 +864,11 @@ export function initEquipModalEvents() {
       const type =
         equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
       renderEquipGrid(search, type, side);
+      if (getEquipModalCurrentId() != null) {
+        requestAnimationFrame(() => {
+          scheduleScrollToCurrentEquip();
+        });
+      }
     });
 }
 
