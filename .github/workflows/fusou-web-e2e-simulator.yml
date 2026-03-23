@@ -19,6 +19,7 @@ jobs:
     env:
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
       PLAYWRIGHT_REUSE_SERVER: "false"
+      PUBLIC_SITE_URL: http://127.0.0.1:4401
 
     steps:
       - name: Checkout
