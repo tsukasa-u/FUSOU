@@ -7,25 +7,35 @@ import {
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
   cookies,
   redirect,
+  locals,
 }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
   const currentUrl = new URL(request.url);
   const appOriginParam = currentUrl.searchParams.get("app_origin");
 
-  const requestOrigin = currentUrl.origin;
+  // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
+  // Fall back to the request-derived origin only when no canonical URL is configured (local dev).
+  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+  const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
+  if (!siteUrl && import.meta.env.PROD) {
+    console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured in production");
+    return new Response("Server misconfiguration", { status: 500 });
+  }
+  const canonicalOrigin = siteUrl || currentUrl.origin;
 
-  // CSRF protection: Validate Origin/Referer header
-  if (!validateOrigin(request, requestOrigin)) {
+  // CSRF protection: Validate Origin/Referer header against canonical origin
+  if (!validateOrigin(request, canonicalOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }
 
   const formData = await request.formData();
-  const url_origin = requestOrigin;
+  const url_origin = canonicalOrigin;
 
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)

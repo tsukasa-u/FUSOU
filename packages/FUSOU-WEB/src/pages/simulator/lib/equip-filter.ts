@@ -3,9 +3,9 @@
 // Uses the following master data tables:
 //   mst_stype           — default allowed equipment types per ship type
 //   mst_equip_ship      — per-ship overrides for allowed equipment types
-//   mst_equip_exslot    — base list of equipment IDs allowed in exslot
+//   mst_equip_exslot    — base list of equipment type[2] IDs allowed in exslot
 //   mst_equip_exslot_ship  — per-equipment exslot ship/stype/ctype restrictions
-//   mst_equip_limit_exslot — per-ship exslot equipment limits
+//   mst_equip_limit_exslot — per-ship excluded exslot equipment type[2] IDs
 
 import type { MstSlotItemData } from "./types";
 import {
@@ -15,12 +15,17 @@ import {
   getMasterEquipShipMap,
   getMasterShip,
   getMasterStypes,
-  hasBaseExslotEquipId,
+  hasBaseExslotEquipType,
 } from "./simulator-selectors";
 
 type NormalSlotRule = {
   allowedTypes: Set<number>;
   itemAllowListByType: Map<number, Set<number>>;
+};
+
+export type EquipSelectionRequirement = {
+  level: number;
+  alv: number;
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -93,35 +98,64 @@ function getNormalSlotRule(shipId: number): NormalSlotRule | null {
  * Check whether a specific equipment can be placed in a ship's exslot.
  *
  * Logic:
- *  1. Equipment must be in the base exslot list (mst_equip_exslot)
- *  2. If mst_equip_exslot_ship has a record for this equipment,
- *     the ship must match by ship_id, stype, or ctype, and meet req_level
- *  3. If mst_equip_limit_exslot has a record for this ship,
- *     the equipment must be in the allowed list
+ *  1. Enforce normal-slot compatibility from mst_equip_ship/mst_stype.
+ *  2. For exslot base rule, use equipment type[2]:
+ *     - type must be in mst_equip_exslot
+ *     - type must NOT be listed in mst_equip_limit_exslot for the ship
+ *  3. Independently, mst_equip_exslot_ship can allow specific equipment IDs
+ *     for matching ship/stype/ctype (optionally with snapshot improvement level).
+ *  4. Item is allowed when either base-type rule or per-equipment exslot-ship rule passes.
  */
 function canEquipInExslot(
   shipId: number,
-  shipLevel: number | null,
-  equipId: number,
+  equip: MstSlotItemData,
 ): boolean {
-  // Must be in base exslot list
-  if (!hasBaseExslotEquipId(equipId)) return false;
+  return getExslotSelectionRequirement(shipId, equip) != null;
+}
+
+/**
+ * Return the minimum required improvement/proficiency values to equip in exslot.
+ * Returns null when the item is not equippable in exslot for the target ship.
+ */
+export function getExslotSelectionRequirement(
+  shipId: number | null,
+  equip: MstSlotItemData,
+): EquipSelectionRequirement | null {
+  if (shipId == null) return null;
 
   const ship = getMasterShip(shipId);
-  if (!ship) return false;
+  if (!ship) return null;
 
-  // Check per-equipment ship restrictions
+  // Ship-side compatibility from mst_equip_ship / mst_stype.
+  const equipId = equip.id;
+  const equipType = equip.type?.[2] ?? null;
+  if (equipType == null) return null;
+
+  const normalRule = getNormalSlotRule(shipId);
+  let inShipCompat = false;
+  if (normalRule) {
+    if (normalRule.allowedTypes.has(equipType)) {
+      const allowItems = normalRule.itemAllowListByType.get(equipType);
+      inShipCompat = !allowItems || allowItems.has(equipId);
+    }
+  }
+
+  // Respect ship-side compatibility when filter master data exists.
+  if (normalRule && !inShipCompat) return null;
+
+  // Base exslot type rule with per-ship excluded type list.
+  const inBaseTypeList = hasBaseExslotEquipType(equipType);
+  const limitData = getMasterEquipLimitExslot(shipId);
+  const blockedTypeSet = new Set((limitData?.equip ?? []).map(Number));
+  const allowByBaseType = inBaseTypeList && !blockedTypeSet.has(equipType);
+
+  // Per-equipment exslot-ship explicit rule.
+  let allowByExslotShip = false;
+  let requiredLevelByExslotShip = 0;
+  let requiredAlvByExslotShip = 0;
   const exslotShipData = getMasterEquipExslotShip(equipId);
   if (exslotShipData) {
-    // Level check
-    if (
-      exslotShipData.req_level > 0 &&
-      (shipLevel ?? 0) < exslotShipData.req_level
-    ) {
-      return false;
-    }
-
-    // Ship must match at least one condition: ship_id, stype, or ctype
+    // Ship must match at least one condition: ship_id, stype, or ctype.
     const matchShipId =
       exslotShipData.ship_ids != null &&
       String(shipId) in exslotShipData.ship_ids;
@@ -132,19 +166,40 @@ function canEquipInExslot(
       exslotShipData.ctypes != null &&
       String(ship.ctype) in exslotShipData.ctypes;
 
-    if (!matchShipId && !matchStype && !matchCtype) {
-      return false;
+    if (matchShipId || matchStype || matchCtype) {
+      // In raw game UI this uses inventory item improvement level.
+      // For master-only rows, improvement is unknown, so we do not reject.
+      const snapshotLevel =
+        (equip as MstSlotItemData & { _snapshotLevel?: number })._snapshotLevel;
+      const snapshotAlv =
+        (equip as MstSlotItemData & { _snapshotAlv?: number })._snapshotAlv;
+      const reqLevel = Math.max(0, Number(exslotShipData.req_level ?? 0));
+      const reqAlv = Math.max(
+        0,
+        Number(exslotShipData.req_alv ?? 0),
+      );
+      if (
+        (snapshotLevel == null || snapshotLevel >= reqLevel) &&
+        (snapshotAlv == null || snapshotAlv >= reqAlv)
+      ) {
+        allowByExslotShip = true;
+        requiredLevelByExslotShip = reqLevel;
+        requiredAlvByExslotShip = reqAlv;
+      }
     }
   }
 
-  // Check per-ship exslot limits
-  const limitData = getMasterEquipLimitExslot(shipId);
-  if (limitData) {
-    // If limit data exists for this ship, only equipments in the list are allowed
-    if (!limitData.equip.includes(equipId)) return false;
+  if (!allowByBaseType && !allowByExslotShip) return null;
+
+  // Base exslot type route has no additional level/alv requirement.
+  if (allowByBaseType) {
+    return { level: 0, alv: 0 };
   }
 
-  return true;
+  return {
+    level: requiredLevelByExslotShip,
+    alv: requiredAlvByExslotShip,
+  };
 }
 
 /**
@@ -181,13 +236,12 @@ export function filterForNormalSlot(
  */
 export function filterForExslot(
   shipId: number | null,
-  shipLevel: number | null,
   items: MstSlotItemData[],
 ): MstSlotItemData[] | null {
   if (shipId == null) return null;
   if (getBaseExslotEquipCount() === 0) return null;
 
-  return items.filter((e) => canEquipInExslot(shipId, shipLevel, e.id));
+  return items.filter((e) => canEquipInExslot(shipId, e));
 }
 
 /**

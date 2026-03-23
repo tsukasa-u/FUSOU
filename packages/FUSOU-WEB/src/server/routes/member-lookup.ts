@@ -256,9 +256,9 @@ app.post('/verify-ownership', async (c) => {
       // If the existing owner is an anonymous user, allow migration
       if (isAnonymousOwner) {
         console.log('[verify-ownership] Existing owner is anonymous - migration allowed:', {
-          member_id_hash,
-          current_user: userId,
-          anonymous_owner: ownerUserId,
+          member_id_hash: member_id_hash ? member_id_hash.slice(0, 8) + '...' : null,
+          current_user: userId ? userId.slice(0, 8) + '...' : null,
+          anonymous_owner: ownerUserId ? ownerUserId.slice(0, 8) + '...' : null,
         });
         return jsonResponse({
           verified: false,
@@ -268,10 +268,9 @@ app.post('/verify-ownership', async (c) => {
       }
 
       console.warn('[verify-ownership] CONFLICT DETECTED:', {
-        member_id_hash,
-        current_user: userId,
-        existing_owner: ownerUserId,
-        existing_email: ownerEmail,
+        member_id_hash: member_id_hash ? member_id_hash.slice(0, 8) + '...' : null,
+        current_user: userId ? userId.slice(0, 8) + '...' : null,
+        existing_owner: ownerUserId ? ownerUserId.slice(0, 8) + '...' : null,
       });
       
       return jsonResponse({
@@ -281,7 +280,7 @@ app.post('/verify-ownership', async (c) => {
     }
 
     // member_id_hash is not owned by anyone yet, safe to use
-    console.log('[verify-ownership] No conflict - member_id_hash is available:', member_id_hash);
+    console.log('[verify-ownership] No conflict - member_id_hash is available:', member_id_hash ? member_id_hash.slice(0, 8) + '...' : null);
     return jsonResponse({
       verified: false,
       message: 'This member ID is not linked to any account yet. You can link it now.',

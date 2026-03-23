@@ -7,18 +7,18 @@ import {
   SPEED_NAMES,
   ENEMY_ID_THRESHOLD,
 } from "./constants";
+import { canAssignShipWithoutWorseningCombinedRules } from "./combined-fleet";
 import { debounce, bannerUrl } from "./equip-calc";
-import type { FlatVSState, GroupedVSState } from "./virtual-scroll";
 import {
   SHIP_ROW_PITCH,
   HEADER_HEIGHT,
-  syncFlatVS,
-  syncGroupedVS,
   createGroupHeader,
-  createVSContainer,
   renderCategoryNav,
-  cleanupSingleVS,
 } from "./virtual-scroll";
+import { createComponent } from "solid-js";
+import type { Component } from "solid-js";
+import { render } from "solid-js/web";
+import { VList } from "virtua/solid";
 import {
   beginShipModalSession,
   consumeShipModalCallback,
@@ -26,9 +26,12 @@ import {
   setShipModalSource,
 } from "./simulator-mutations";
 import {
+  getCombinedFleetType,
+  getFleetState,
   getMasterShip,
   getMasterShips,
   getShipModalCurrentId,
+  getShipModalTarget,
   getShipModalSideFilter,
   getShipModalSource,
   getSnapshotShips,
@@ -37,16 +40,26 @@ import {
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
 
-// ── Ship virtual scroll (flat, for filtered view) ──
-type ShipGRow =
+type ShipVRow =
   | { kind: "header"; stype: number }
-  | { kind: "items"; ships: MstShipData[] };
+  | { kind: "item"; ship: MstShipData };
 
-let _shipVS: (FlatVSState & { items: MstShipData[] }) | null = null;
-let _shipScrollRaf = 0;
-let _shipGVS: (GroupedVSState & { rows: ShipGRow[]; cols: number }) | null =
-  null;
-let _shipGScrollRaf = 0;
+let _shipVirtuaDispose: (() => void) | null = null;
+const ShipVList = VList as unknown as Component<Record<string, unknown>>;
+let _shipModalVisibilityBound = false;
+let _shipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _currentShipRowIndex = -1;
+
+function syncShipModalDisplay(modal: HTMLDialogElement): void {
+  modal.style.display = modal.open ? "grid" : "none";
+}
+
+function ensureShipModalVisibilityBinding(modal: HTMLDialogElement): void {
+  if (_shipModalVisibilityBound) return;
+  modal.addEventListener("close", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
+  modal.addEventListener("cancel", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
+  _shipModalVisibilityBound = true;
+}
 
 type SideFilter = "ally" | "enemy" | "all";
 
@@ -61,104 +74,56 @@ function filterShipsBySide(
   return ships.filter((s) => s.id < ENEMY_ID_THRESHOLD);
 }
 
-function onShipScroll() {
-  if (!_shipScrollRaf) {
-    _shipScrollRaf = requestAnimationFrame(() => {
-      _shipScrollRaf = 0;
-      syncShipVS();
-    });
-  }
-}
-function onShipGScroll() {
-  if (!_shipGScrollRaf) {
-    _shipGScrollRaf = requestAnimationFrame(() => {
-      _shipGScrollRaf = 0;
-      syncShipGVS();
-    });
-  }
+function filterShipsByCombinedRules(ships: MstShipData[]): MstShipData[] {
+  const combinedType = getCombinedFleetType();
+  if (combinedType === 0) return ships;
+
+  const { fleetIndex, shipSlotIndex } = getShipModalTarget();
+  if ((fleetIndex !== 1 && fleetIndex !== 2) || shipSlotIndex == null) return ships;
+
+  const { fleet1, fleet2 } = getFleetState();
+  const currentId = getShipModalCurrentId();
+  return ships.filter((ship) => {
+    if (ship.id === currentId) return true;
+    return canAssignShipWithoutWorseningCombinedRules(
+      combinedType,
+      fleet1,
+      fleet2,
+      fleetIndex,
+      shipSlotIndex,
+      ship.id,
+    );
+  });
 }
 
 function cleanupShipVS() {
-  _shipScrollRaf = cleanupSingleVS(_shipVS, onShipScroll, _shipScrollRaf);
-  _shipVS = null;
-  _shipGScrollRaf = cleanupSingleVS(_shipGVS, onShipGScroll, _shipGScrollRaf);
-  _shipGVS = null;
-}
-
-const shipResponsiveCols = () =>
-  window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
-
-function syncShipVS() {
-  if (!_shipVS) return;
-  syncFlatVS(_shipVS, createShipItem, shipResponsiveCols);
-}
-
-function syncShipGVS() {
-  if (!_shipGVS) return;
-  const { cols } = _shipGVS;
-  syncGroupedVS(_shipGVS, (row: ShipGRow) => {
-    if (row.kind === "header") {
-      return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
-    }
-    const rd = document.createElement("div");
-    rd.style.height = `${SHIP_ROW_PITCH}px`;
-    if (cols > 1) {
-      rd.style.display = "grid";
-      rd.style.gridTemplateColumns = "repeat(2,1fr)";
-      rd.style.gap = "2px";
-    }
-    for (const s of row.ships) rd.appendChild(createShipItem(s));
-    return rd;
-  });
+  if (_shipVirtuaDispose) {
+    _shipVirtuaDispose();
+    _shipVirtuaDispose = null;
+  }
 }
 
 /** Find the current ship from the active VS cache (snapshot-enriched when available). */
 function findCurrentShipInVS(): MstShipData | null {
   const id = getShipModalCurrentId();
   if (id == null) return null;
-  if (_shipGVS) {
-    for (const row of _shipGVS.rows as ShipGRow[]) {
-      if (row.kind === "items") {
-        const found = row.ships.find((s) => s.id === id);
-        if (found) return found;
-      }
-    }
-  } else if (_shipVS) {
-    const found = (_shipVS.items as MstShipData[]).find((s) => s.id === id);
-    if (found) return found;
-  }
+  // With library virtualization we don't keep a separate VS cache map.
+  // For current-id fallback, master data is sufficient.
   return getMasterShip(id);
 }
 
-/** Scroll ship grid to the current ship row (call after showModal). */
-function scrollToCurrentShipInVS(): void {
-  const id = getShipModalCurrentId();
-  if (id == null) return;
-  if (_shipGVS) {
-    const rowIdx = (_shipGVS.rows as ShipGRow[]).findIndex(
-      (row) => row.kind === "items" && row.ships.some((s) => s.id === id),
-    );
-    if (rowIdx < 0) return;
-    const offset = _shipGVS.offsets[rowIdx];
-    const spacerTop = _shipGVS.spacer.offsetTop;
-    _shipGVS.grid.scrollTop = spacerTop + offset;
-    syncShipGVS();
+function scheduleScrollToCurrentShip(attempt = 0): void {
+  if (_shipVListHandle && _currentShipRowIndex >= 0) {
+    _shipVListHandle.scrollToIndex(_currentShipRowIndex, { align: "center" });
     return;
   }
-
-  if (_shipVS) {
-    const itemIdx = (_shipVS.items as MstShipData[]).findIndex((s) => s.id === id);
-    if (itemIdx < 0) return;
-    const rowIdx = Math.floor(itemIdx / _shipVS.cols);
-    const spacerTop = _shipVS.spacer.offsetTop;
-    _shipVS.grid.scrollTop = spacerTop + rowIdx * _shipVS.pitch;
-    syncShipVS();
-  }
+  if (attempt >= 8) return;
+  window.setTimeout(() => { scheduleScrollToCurrentShip(attempt + 1); }, attempt < 2 ? 0 : 16);
 }
 
 export function openShipModal(
   currentId: number | null,
-  cb: (id: number | null) => void,
+  cb: (selection: { id: number | null; level?: number | null }) => void,
 ) {
   if (!hasMasterData()) return;
   beginShipModalSession(currentId, cb);
@@ -178,6 +143,8 @@ export function openShipModal(
     !(stype instanceof HTMLSelectElement)
   )
     return;
+  ensureShipModalVisibilityBinding(modal);
+  syncShipModalDisplay(modal);
   search.value = "";
   side.value = getShipModalSideFilter();
   populateStypeFilter(stype, getShipModalSideFilter());
@@ -192,7 +159,7 @@ export function openShipModal(
 
   renderShipGrid("", "", getShipModalSideFilter());
   const autoShowShip =
-    isWorkspaceReadOnly() && getShipModalCurrentId() != null
+    getShipModalCurrentId() != null
       ? findCurrentShipInVS()
       : null;
   if (autoShowShip) {
@@ -201,9 +168,10 @@ export function openShipModal(
     resetShipDetail();
   }
   modal.showModal();
+  syncShipModalDisplay(modal);
   requestAnimationFrame(() => {
     if (autoShowShip) {
-      scrollToCurrentShipInVS();
+      scheduleScrollToCurrentShip();
     } else {
       search.focus();
     }
@@ -247,9 +215,36 @@ function renderShipGrid(
   stypeFilter: string,
   sideFilter: SideFilter,
 ) {
-  const grid = document.getElementById("ship-modal-grid")!;
+  const grid = document.getElementById("ship-modal-grid");
+  if (!(grid instanceof HTMLElement)) return;
+  const modal = document.getElementById("ship-select-modal");
+  if (!(modal instanceof HTMLDialogElement)) return;
+  grid.style.display = "flex";
+  grid.style.flexDirection = "column";
+  grid.style.minHeight = "0";
+  grid.style.overflowY = "hidden";
   grid.innerHTML = "";
   cleanupShipVS();
+
+  // Clear-selection button — always at the top of the grid, never scrolls away
+  if (getShipModalCurrentId() != null) {
+    const clearItem = document.createElement("div");
+    clearItem.className =
+      "shrink-0 flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+    clearItem.textContent = "✕ 選択を解除";
+    if (isWorkspaceReadOnly()) {
+      clearItem.style.opacity = "0.5";
+      clearItem.style.pointerEvents = "none";
+    } else {
+      clearItem.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        consumeShipModalCallback({ id: null, level: null });
+        modal.close();
+      });
+    }
+    grid.appendChild(clearItem);
+  }
 
   let ships: MstShipData[];
 
@@ -295,6 +290,7 @@ function renderShipGrid(
   }
 
   ships = filterShipsBySide(ships, sideFilter);
+  ships = filterShipsByCombinedRules(ships);
 
   if (stypeFilter)
     ships = ships.filter((s) => s.stype === parseInt(stypeFilter, 10));
@@ -306,28 +302,17 @@ function renderShipGrid(
   }
 
   if (ships.length === 0) {
-    grid.innerHTML =
-      '<p class="text-sm text-base-content/30 text-center py-12">該当する艦娘が見つかりません</p>';
+    const empty = document.createElement("p");
+    empty.className = "text-sm text-base-content/30 text-center py-12";
+    empty.textContent = "該当する艦娘が見つかりません";
+    grid.appendChild(empty);
     renderShipCategoryNav([]);
     return;
   }
 
-  if (getShipModalCurrentId() != null) {
-    const clearItem = document.createElement("div");
-    clearItem.className =
-      "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
-    clearItem.textContent = "✕ 選択を解除";
-    clearItem.addEventListener("click", () => {
-      if (isWorkspaceReadOnly()) return;
-      consumeShipModalCallback(null);
-      (
-        document.getElementById("ship-select-modal") as HTMLDialogElement
-      ).close();
-    });
-    grid.appendChild(clearItem);
-  }
-
-  const cols = window.matchMedia("(min-width: 640px)").matches ? 2 : 1;
+  const rows: ShipVRow[] = [];
+  let catOffsets: { stype: number; offset: number }[] = [];
+  let virtualOffset = 0;
 
   if (!stypeFilter) {
     const groups = new Map<number, MstShipData[]>();
@@ -337,66 +322,67 @@ function renderShipGrid(
       else groups.set(s.stype, [s]);
     }
     const sortedStypes = [...groups.keys()].sort((a, b) => a - b);
-    const rows: ShipGRow[] = [];
-    const catOffsets: { stype: number; offset: number }[] = [];
-    let totalH = 0;
     for (const st of sortedStypes) {
-      catOffsets.push({ stype: st, offset: totalH });
+      catOffsets.push({ stype: st, offset: virtualOffset });
       rows.push({ kind: "header", stype: st });
-      totalH += HEADER_HEIGHT;
-      const items = groups.get(st)!;
-      for (let i = 0; i < items.length; i += cols) {
-        rows.push({ kind: "items", ships: items.slice(i, i + cols) });
-        totalH += SHIP_ROW_PITCH;
+      virtualOffset += HEADER_HEIGHT;
+      for (const ship of groups.get(st) ?? []) {
+        rows.push({ kind: "item", ship });
+        virtualOffset += SHIP_ROW_PITCH;
       }
     }
-    const offsets = new Array<number>(rows.length + 1);
-    offsets[0] = 0;
-    for (let i = 0; i < rows.length; i++) {
-      offsets[i + 1] =
-        offsets[i] +
-        (rows[i].kind === "header" ? HEADER_HEIGHT : SHIP_ROW_PITCH);
-    }
-
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${totalH}px`;
-    grid.appendChild(spacer);
-
-    _shipGVS = {
-      rows,
-      offsets,
-      spacer,
-      viewport,
-      grid,
-      cols,
-      rStart: -1,
-      rEnd: -1,
-    };
-    grid.addEventListener("scroll", onShipGScroll);
-    syncShipGVS();
-    renderShipCategoryNav(catOffsets);
   } else {
-    const rowCount = Math.ceil(ships.length / cols);
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${rowCount * SHIP_ROW_PITCH}px`;
-    viewport.className = "grid grid-cols-1 sm:grid-cols-2 gap-0.5";
-    grid.appendChild(spacer);
-
-    _shipVS = {
-      items: ships,
-      spacer,
-      viewport,
-      grid,
-      cols,
-      pitch: SHIP_ROW_PITCH,
-      measured: false,
-      rStart: -1,
-      rEnd: -1,
-    };
-    grid.addEventListener("scroll", onShipScroll);
-    syncShipVS();
-    renderShipCategoryNav([]);
+    for (const ship of ships) {
+      rows.push({ kind: "item", ship });
+    }
+    catOffsets = [];
   }
+
+  // Find the row index of the currently selected ship so scrollToIndex can jump directly to it.
+  const currentId = getShipModalCurrentId();
+  _currentShipRowIndex = -1;
+  if (currentId != null) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.kind === "item" && r.ship.id === currentId) {
+        _currentShipRowIndex = i;
+        break;
+      }
+    }
+  }
+  _shipVListHandle = null;
+
+  const vlistWrapper = document.createElement("div");
+  vlistWrapper.style.flex = "1";
+  vlistWrapper.style.minHeight = "0";
+  vlistWrapper.style.overflow = "hidden";
+  grid.appendChild(vlistWrapper);
+
+  _shipVirtuaDispose = render(
+    () =>
+      createComponent(ShipVList, {
+        data: rows,
+        ref: (handle: unknown) => { _shipVListHandle = handle as typeof _shipVListHandle; },
+        style: {
+          height: "100%",
+        },
+        class: "overflow-x-hidden",
+        children: (row: ShipVRow) => {
+          if (row.kind === "header") {
+            return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
+          }
+          const wrap = document.createElement("div");
+          wrap.style.height = `${SHIP_ROW_PITCH}px`;
+          wrap.style.display = "flex";
+          wrap.style.alignItems = "center";
+          wrap.style.boxSizing = "border-box";
+          wrap.appendChild(createShipItem(row.ship));
+          return wrap;
+        },
+      }),
+    vlistWrapper,
+  );
+  renderShipCategoryNav(catOffsets);
 }
 
 function renderShipCategoryNav(
@@ -406,7 +392,7 @@ function renderShipCategoryNav(
     "ship-modal-categories",
     "ship-modal-grid",
     catOffsets,
-    (c: { stype: number }) => ({
+    (c) => ({
       text: STYPE_SHORT[c.stype] ?? STYPE_NAMES[c.stype] ?? `${c.stype}`,
       title: STYPE_NAMES[c.stype] ?? `Type ${c.stype}`,
     }),
@@ -416,11 +402,13 @@ function renderShipCategoryNav(
 function createShipItem(ship: MstShipData): HTMLElement {
   const isSelected = ship.id === getShipModalCurrentId();
   const item = document.createElement("div");
-  item.className = `flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+  item.className = `w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${
     isSelected
       ? "bg-primary/15 ring-1 ring-primary/30"
       : "hover:bg-primary/8 active:bg-primary/15"
   }`;
+  item.style.height = `${SHIP_ROW_PITCH}px`;
+  item.style.boxSizing = "border-box";
 
   const imgWrap = document.createElement("div");
   imgWrap.className =
@@ -438,30 +426,70 @@ function createShipItem(ship: MstShipData): HTMLElement {
   item.appendChild(imgWrap);
 
   const textDiv = document.createElement("div");
-  textDiv.className = "min-w-0 flex-1";
+  textDiv.className = "min-w-0 flex-1 overflow-hidden";
+
   const nameDiv = document.createElement("div");
   nameDiv.className = "text-sm font-medium truncate leading-tight";
   nameDiv.textContent = ship.name;
   textDiv.appendChild(nameDiv);
+
   const typeDiv = document.createElement("div");
-  typeDiv.className = "text-[11px] text-base-content/40 leading-tight";
+  typeDiv.className = "grid grid-cols-[minmax(0,1fr)_3.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
+  const typeName = document.createElement("span");
+  typeName.className = "truncate";
   const snLevel = (ship as MstShipData & { _snapshotLevel?: number })
     ._snapshotLevel;
   const snShipCount = (ship as MstShipData & { _snapshotCount?: number })
     ._snapshotCount;
-  let typeText =
-    snLevel != null
-      ? `${STYPE_NAMES[ship.stype] ?? ""} Lv.${snLevel} #${ship.id}`
-      : `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
-  if (snShipCount != null && snShipCount > 1) typeText += ` ×${snShipCount}`;
-  typeDiv.textContent = typeText;
+  typeName.textContent = `${STYPE_NAMES[ship.stype] ?? ""} #${ship.id}`;
+  typeDiv.appendChild(typeName);
+
+  const levelCol = document.createElement("span");
+  levelCol.className = "text-right font-mono";
+  if (snLevel != null && snLevel > 0) {
+    levelCol.classList.add("text-teal-700", "font-bold");
+    levelCol.textContent = `Lv${snLevel}`;
+  } else {
+    levelCol.classList.add("text-base-content/30");
+    levelCol.textContent = "";
+  }
+  typeDiv.appendChild(levelCol);
+
+  const countCol = document.createElement("span");
+  countCol.className = "text-right text-base-content/60 font-mono";
+  countCol.textContent = snShipCount != null && snShipCount > 1 ? `×${snShipCount}` : "";
+  if (snShipCount != null && snShipCount > 1) countCol.classList.add("font-bold");
+  else countCol.classList.add("text-base-content/30");
+  typeDiv.appendChild(countCol);
+
   textDiv.appendChild(typeDiv);
   item.appendChild(textDiv);
 
+  const badges = document.createElement("div");
+  badges.className = "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
+  const statPairs: [string, number][] = [];
+  if ((ship.houg?.[0] ?? 0) > 0) statPairs.push(["火", ship.houg?.[0] ?? 0]);
+  if ((ship.raig?.[0] ?? 0) > 0) statPairs.push(["雷", ship.raig?.[0] ?? 0]);
+  if ((ship.tyku?.[0] ?? 0) > 0) statPairs.push(["空", ship.tyku?.[0] ?? 0]);
+  if ((ship.tais?.[0] ?? 0) > 0) statPairs.push(["潜", ship.tais?.[0] ?? 0]);
+  for (const [lbl, val] of statPairs.slice(0, 2)) {
+    const badge = document.createElement("span");
+    badge.className = "text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success";
+    badge.textContent = `${lbl}+${val}`;
+    badges.appendChild(badge);
+  }
+  item.appendChild(badges);
+
   item.addEventListener("mouseenter", () => renderShipDetail(ship));
-  item.addEventListener("click", () => {
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (isWorkspaceReadOnly()) return;
-    consumeShipModalCallback(ship.id);
+    const selection = {
+      id: ship.id,
+      level: (ship as MstShipData & { _snapshotLevel?: number })._snapshotLevel,
+    };
+    consumeShipModalCallback(selection);
     (document.getElementById("ship-select-modal") as HTMLDialogElement).close();
   });
 
@@ -469,7 +497,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
 }
 
 function renderShipDetail(ship: MstShipData) {
-  const panel = document.getElementById("ship-modal-detail")!;
+  const panel = document.getElementById("ship-modal-detail");
+  if (!(panel instanceof HTMLElement)) return;
   panel.innerHTML = "";
 
   const bannerWrap = document.createElement("div");
@@ -501,14 +530,18 @@ function renderShipDetail(ship: MstShipData) {
   const stats: [string, string | number][] = [
     ["耐久", ship.taik?.[0] ?? "—"],
     ["装甲", ship.souk?.[0] ?? "—"],
+    ["回避", ship.kaih?.[0] ?? "—"],
+    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).reduce((sum, slot) => sum + slot, 0) : "—"],
+    ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
+    ["射程", ship.leng != null ? String(ship.leng) : "—"],
     ["火力", ship.houg?.[0] ?? "—"],
     ["雷装", ship.raig?.[0] ?? "—"],
     ["対空", ship.tyku?.[0] ?? "—"],
     ["対潜", ship.tais?.[0] ?? "—"],
+    ["索敵", ship.saku?.[0] ?? "—"],
     ["運", ship.luck?.[0] ?? "—"],
-    ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
     ["スロット数", ship.slot_num],
-    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
+    ["搭載内訳", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
   ];
 
   const grid = document.createElement("div");
@@ -521,7 +554,13 @@ function renderShipDetail(ship: MstShipData) {
     l.textContent = label;
     const v = document.createElement("span");
     v.className = "font-mono text-base-content/80 font-medium";
-    v.textContent = String(value);
+    if (label === "射程") {
+      const rangeMap: Record<number, string> = { 0: "無", 1: "短", 2: "中", 3: "長", 4: "超長", 5: "超長+" };
+      const numeric = typeof value === "number" ? value : Number(value);
+      v.textContent = Number.isFinite(numeric) ? (rangeMap[numeric] ?? String(value)) : String(value);
+    } else {
+      v.textContent = String(value);
+    }
     row.appendChild(l);
     row.appendChild(v);
     grid.appendChild(row);
@@ -530,8 +569,10 @@ function renderShipDetail(ship: MstShipData) {
 }
 
 function resetShipDetail() {
-  document.getElementById("ship-modal-detail")!.innerHTML =
-    '<p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>';
+  const panel = document.getElementById("ship-modal-detail");
+  if (panel instanceof HTMLElement) {
+    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>';
+  }
 }
 
 /** Wire up DOM event listeners for the ship modal. Call once at init time. */
@@ -593,18 +634,16 @@ export function initShipModalEvents() {
           : getShipModalSideFilter();
       const stype = stypeEl instanceof HTMLSelectElement ? stypeEl.value : "";
       renderShipGrid(search, stype, side);
+      if (getShipModalCurrentId() != null) {
+        requestAnimationFrame(() => {
+          scheduleScrollToCurrentShip();
+        });
+      }
     });
 }
 
 /** Invalidate ship virtual scroll on resize. */
 export function handleResizeShip() {
-  if (_shipVS) {
-    _shipVS.rStart = -1;
-    _shipVS.measured = false;
-    syncShipVS();
-  }
-  if (_shipGVS) {
-    _shipGVS.rStart = -1;
-    syncShipGVS();
-  }
+  // Keep API compatibility for resize hooks from index.astro.
+  // `virtua` handles visible-window recalculation internally.
 }

@@ -6,20 +6,24 @@ import {
   EQUIP_TYPE_NAMES,
   EQUIP_TYPE_SHORT,
   ENEMY_ID_THRESHOLD,
+  RANGE_NAMES,
 } from "./constants";
 import { debounce, equipImageUrl, computeEquipBonuses } from "./equip-calc";
-import { filterForNormalSlot, filterForExslot } from "./equip-filter";
-import type { FlatVSState, GroupedVSState } from "./virtual-scroll";
+import {
+  filterForNormalSlot,
+  filterForExslot,
+  getExslotSelectionRequirement,
+} from "./equip-filter";
 import {
   EQUIP_ROW_PITCH,
   HEADER_HEIGHT,
-  syncFlatVS,
-  syncGroupedVS,
   createGroupHeader,
-  createVSContainer,
   renderCategoryNav,
-  cleanupSingleVS,
 } from "./virtual-scroll";
+import { createComponent } from "solid-js";
+import type { Component } from "solid-js";
+import { render } from "solid-js/web";
+import { VList } from "virtua/solid";
 import {
   beginEquipModalSession,
   consumeEquipModalCallback,
@@ -45,15 +49,44 @@ import {
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
 
-// ── Equip virtual scroll state ──
-type EquipGRow =
+type EquipVRow =
   | { kind: "header"; typeId: number }
   | { kind: "item"; equip: MstSlotItemData };
 
-let _equipVS: (FlatVSState & { items: MstSlotItemData[] }) | null = null;
-let _equipScrollRaf = 0;
-let _equipGVS: (GroupedVSState & { rows: EquipGRow[] }) | null = null;
-let _equipGScrollRaf = 0;
+type EquipRuntimeMeta = MstSlotItemData & {
+  _snapshotLevel?: number;
+  _snapshotAlv?: number;
+  _snapshotCount?: number;
+  _requiredLevel?: number;
+  _requiredAlv?: number;
+};
+
+function getCandidateLevel(equip: MstSlotItemData): number {
+  const e = equip as EquipRuntimeMeta;
+  return Math.max(0, e._snapshotLevel ?? e._requiredLevel ?? 0);
+}
+
+function getCandidateAlv(equip: MstSlotItemData): number {
+  const e = equip as EquipRuntimeMeta;
+  return Math.max(0, e._snapshotAlv ?? e._requiredAlv ?? 0);
+}
+
+let _equipVirtuaDispose: (() => void) | null = null;
+const EquipVList = VList as unknown as Component<Record<string, unknown>>;
+let _equipModalVisibilityBound = false;
+let _equipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _currentEquipRowIndex = -1;
+
+function syncEquipModalDisplay(modal: HTMLDialogElement): void {
+  modal.style.display = modal.open ? "grid" : "none";
+}
+
+function ensureEquipModalVisibilityBinding(modal: HTMLDialogElement): void {
+  if (_equipModalVisibilityBound) return;
+  modal.addEventListener("close", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
+  modal.addEventListener("cancel", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
+  _equipModalVisibilityBound = true;
+}
 
 type SideFilter = "ally" | "enemy" | "all";
 
@@ -72,6 +105,14 @@ function isAirBaseEquipTarget(): boolean {
   return isAirBaseEquipModalTarget();
 }
 
+function isValidAirBaseItem(e: MstSlotItemData): boolean {
+  const type2 = e.type?.[2] ?? -1;
+  if (!AIRCRAFT_TYPES.has(type2)) return false;
+  // Airbase sortie radius must be defined and positive.
+  const dist = e.distance ?? 0;
+  return dist > 0;
+}
+
 function getEquipTypeName(typeId: number): string {
   return (
     getMasterEquipTypeName(typeId) ??
@@ -80,94 +121,35 @@ function getEquipTypeName(typeId: number): string {
   );
 }
 
-function onEquipScroll() {
-  if (!_equipScrollRaf) {
-    _equipScrollRaf = requestAnimationFrame(() => {
-      _equipScrollRaf = 0;
-      syncEquipVS();
-    });
-  }
-}
-function onEquipGScroll() {
-  if (!_equipGScrollRaf) {
-    _equipGScrollRaf = requestAnimationFrame(() => {
-      _equipGScrollRaf = 0;
-      syncEquipGVS();
-    });
-  }
-}
-
 function cleanupEquipVS() {
-  _equipScrollRaf = cleanupSingleVS(_equipVS, onEquipScroll, _equipScrollRaf);
-  _equipVS = null;
-  _equipGScrollRaf = cleanupSingleVS(
-    _equipGVS,
-    onEquipGScroll,
-    _equipGScrollRaf,
-  );
-  _equipGVS = null;
-}
-
-function syncEquipVS() {
-  if (!_equipVS) return;
-  syncFlatVS(_equipVS, createEquipItem);
-}
-
-function syncEquipGVS() {
-  if (!_equipGVS) return;
-  syncGroupedVS(_equipGVS, (row: EquipGRow) => {
-    if (row.kind === "header") {
-      return createGroupHeader(getEquipTypeName(row.typeId));
-    }
-    const rd = document.createElement("div");
-    rd.style.height = `${EQUIP_ROW_PITCH}px`;
-    rd.appendChild(createEquipItem(row.equip));
-    return rd;
-  });
+  if (_equipVirtuaDispose) {
+    _equipVirtuaDispose();
+    _equipVirtuaDispose = null;
+  }
 }
 
 /** Return the MstSlotItemData for the currently selected equip from the active VS state (snapshot-enriched if available), falling back to master data. */
 function findCurrentEquipInVS(): MstSlotItemData | null {
   const id = getEquipModalCurrentId();
   if (id == null) return null;
-  if (_equipGVS) {
-    for (const row of (_equipGVS.rows as EquipGRow[])) {
-      if (row.kind === "item" && row.equip.id === id) return row.equip;
-    }
-  } else if (_equipVS) {
-    const item = (_equipVS.items as MstSlotItemData[]).find((e) => e.id === id);
-    if (item) return item;
-  }
+  // With library virtualization we don't keep a separate VS cache map.
+  // For current-id fallback, master data is sufficient.
   return getMasterSlotItem(id);
 }
 
 /** Scroll the equip grid so the currently selected equip row is visible (call after showModal). */
-function scrollToCurrentEquipInVS(): void {
-  const id = getEquipModalCurrentId();
-  if (id == null) return;
-  if (_equipGVS) {
-    const rowIdx = (_equipGVS.rows as EquipGRow[]).findIndex(
-      (r) => r.kind === "item" && r.equip.id === id,
-    );
-    if (rowIdx < 0) return;
-    const offset = _equipGVS.offsets[rowIdx];
-    const spacerTop = _equipGVS.spacer.offsetTop;
-    _equipGVS.grid.scrollTop = spacerTop + offset;
-    syncEquipGVS();
-  } else if (_equipVS) {
-    const itemIdx = (_equipVS.items as MstSlotItemData[]).findIndex(
-      (e) => e.id === id,
-    );
-    if (itemIdx < 0) return;
-    const spacerTop = _equipVS.spacer.offsetTop;
-    _equipVS.grid.scrollTop = spacerTop + itemIdx * _equipVS.pitch;
-    syncEquipVS();
+function scheduleScrollToCurrentEquip(attempt = 0): void {
+  if (_equipVListHandle && _currentEquipRowIndex >= 0) {
+    _equipVListHandle.scrollToIndex(_currentEquipRowIndex, { align: "center" });
+    return;
   }
+  if (attempt >= 8) return;
+  window.setTimeout(() => { scheduleScrollToCurrentEquip(attempt + 1); }, attempt < 2 ? 0 : 16);
 }
 
 export function openEquipModal(
   currentId: number | null,
-  cb: (id: number | null) => void,
+  cb: (selection: { id: number | null; level?: number; alv?: number }) => void,
 ) {
   if (!hasMasterData()) return;
   beginEquipModalSession(currentId, cb);
@@ -187,6 +169,8 @@ export function openEquipModal(
     !(typeFilter instanceof HTMLSelectElement)
   )
     return;
+  ensureEquipModalVisibilityBinding(modal);
+  syncEquipModalDisplay(modal);
   search.value = "";
   side.value = getEquipModalSideFilter();
   populateEquipTypeFilter(typeFilter, getEquipModalSideFilter());
@@ -201,7 +185,7 @@ export function openEquipModal(
 
   renderEquipGrid("", "", getEquipModalSideFilter());
   const autoShowEquip =
-    isWorkspaceReadOnly() && getEquipModalCurrentId() != null
+    getEquipModalCurrentId() != null
       ? findCurrentEquipInVS()
       : null;
   if (autoShowEquip) {
@@ -210,9 +194,10 @@ export function openEquipModal(
     resetEquipDetail();
   }
   modal.showModal();
+  syncEquipModalDisplay(modal);
   requestAnimationFrame(() => {
     if (autoShowEquip) {
-      scrollToCurrentEquipInVS();
+      scheduleScrollToCurrentEquip();
     } else {
       search.focus();
     }
@@ -241,9 +226,7 @@ function populateEquipTypeFilter(
     sideFilter,
   );
   if (isAirBaseEquipTarget()) {
-    sourceItems = sourceItems.filter((e) =>
-      AIRCRAFT_TYPES.has(e.type?.[2] ?? -1),
-    );
+    sourceItems = sourceItems.filter((e) => isValidAirBaseItem(e));
   }
 
   for (const e of sourceItems) {
@@ -263,17 +246,19 @@ function populateEquipTypeFilter(
 function createEquipItem(equip: MstSlotItemData): HTMLElement {
   const isSelected = equip.id === getEquipModalCurrentId();
   const item = document.createElement("div");
-  item.className = `flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+  item.className = `w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${
     isSelected
       ? "bg-primary/15 ring-1 ring-primary/30"
       : "hover:bg-primary/8 active:bg-primary/15"
   }`;
+  item.style.height = `${EQUIP_ROW_PITCH}px`;
+  item.style.boxSizing = "border-box";
 
   const iconNum = equip.type?.[3] ?? 0;
   const frame = getWeaponIconFrame(iconNum);
   const spriteSheet = getSpriteSheetMeta();
   const iconEl = document.createElement("div");
-  iconEl.className = "w-6 h-6 shrink-0 rounded";
+  iconEl.className = "w-6 h-6 rounded";
   if (frame && spriteSheet.url) {
     const [fx, fy, fw, fh] = frame;
     const scaleX = 24 / fw;
@@ -286,97 +271,116 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   item.appendChild(iconEl);
 
   const textDiv = document.createElement("div");
-  textDiv.className = "min-w-0 flex-1";
+  textDiv.className = "min-w-0 flex-1 overflow-hidden";
   const nameSpan = document.createElement("div");
-  nameSpan.className = "text-sm truncate leading-tight";
+  nameSpan.className = "text-sm truncate leading-tight font-medium";
   nameSpan.textContent = equip.name;
   textDiv.appendChild(nameSpan);
-  const typeSpan = document.createElement("div");
-  typeSpan.className = "text-[11px] text-base-content/40 leading-tight";
-  const snLv = (equip as MstSlotItemData & { _snapshotLevel?: number })
-    ._snapshotLevel;
-  const snAlv = (equip as MstSlotItemData & { _snapshotAlv?: number })
-    ._snapshotAlv;
-  const snCount = (equip as MstSlotItemData & { _snapshotCount?: number })
-    ._snapshotCount;
+
+  const metaRow = document.createElement("div");
+  metaRow.className = "grid grid-cols-[minmax(0,1fr)_2.1rem_2.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
+
+  const typeSpan = document.createElement("span");
+  typeSpan.className = "truncate";
+  const meta = equip as EquipRuntimeMeta;
+  const snLv = meta._snapshotLevel;
+  const snAlv = meta._snapshotAlv;
+  const snCount = meta._snapshotCount;
+  const reqLv = meta._requiredLevel ?? 0;
+  const reqAlv = meta._requiredAlv ?? 0;
+  const displayLv = getCandidateLevel(equip);
+  const displayAlv = getCandidateAlv(equip);
+  const hasRequiredMeta = reqLv > 0 || reqAlv > 0;
+  const isSnapshotSource = getEquipModalSource() === "snapshot";
+  const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
   typeSpan.textContent = getEquipTypeName(equip.type?.[2] ?? 0);
-  if (snLv != null && snLv > 0) {
-    const impSpan = document.createElement("span");
-    impSpan.style.color = "#00897b";
-    impSpan.style.fontWeight = "bold";
-    impSpan.textContent = ` ★${snLv}`;
-    typeSpan.appendChild(impSpan);
+  metaRow.appendChild(typeSpan);
+
+  if (isSnapshotSource) {
+    const profCol = document.createElement("span");
+    profCol.className = "text-right font-mono";
+    if (snAlv != null && snAlv > 0) {
+      profCol.classList.add("font-bold");
+      if (snAlv <= 3) profCol.classList.add("text-blue-700");
+      else if (snAlv <= 6) profCol.classList.add("text-amber-700");
+      else profCol.classList.add("text-orange-700");
+      profCol.textContent = profSymbols[snAlv] ?? ">>";
+    } else {
+      profCol.classList.add("text-base-content/30");
+      profCol.textContent = "";
+    }
+    metaRow.appendChild(profCol);
+
+    const impCol = document.createElement("span");
+    impCol.className = "text-right font-mono";
+    if (snLv != null && snLv > 0) {
+      impCol.classList.add("text-teal-700", "font-bold");
+      impCol.textContent = `★${snLv}`;
+    } else {
+      impCol.classList.add("text-base-content/30");
+      impCol.textContent = "";
+    }
+    metaRow.appendChild(impCol);
+
+    const countCol = document.createElement("span");
+    countCol.className = "text-right text-base-content/60 font-mono";
+    countCol.textContent = snCount != null && snCount > 1 ? `×${snCount}` : "";
+    if (snCount != null && snCount > 1) countCol.classList.add("font-bold");
+    else countCol.classList.add("text-base-content/30");
+    metaRow.appendChild(countCol);
+
+    textDiv.appendChild(metaRow);
+  } else {
+    const typeLine = document.createElement("div");
+    typeLine.className = "text-[11px] text-base-content/40 leading-tight flex items-baseline gap-3 min-w-0";
+
+    const typeName = document.createElement("span");
+    typeName.className = "truncate";
+    typeName.textContent = typeSpan.textContent;
+    typeLine.appendChild(typeName);
+
+    if (hasRequiredMeta) {
+      const reqLine = document.createElement("span");
+      reqLine.className = "text-[10px] leading-tight text-warning/80 font-mono shrink-0";
+      const reqParts: string[] = [];
+      if (displayLv > 0) reqParts.push(`★${displayLv}+`);
+      if (displayAlv > 0) reqParts.push(`熟練${profSymbols[displayAlv] ?? ">>"}+`);
+      reqLine.textContent = `必要最低 ${reqParts.join(" /")}`;
+      typeLine.appendChild(reqLine);
+    }
+
+    textDiv.appendChild(typeLine);
   }
-  if (snAlv != null && snAlv > 0) {
-    const profSpan = document.createElement("span");
-    const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
-    profSpan.style.fontWeight = "bold";
-    profSpan.style.textShadow =
-      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
-    if (snAlv <= 3) profSpan.style.color = "#1976d2";
-    else if (snAlv <= 6) profSpan.style.color = "#f57c00";
-    else profSpan.style.color = "#e65100";
-    profSpan.textContent = ` ${profSymbols[snAlv] ?? ">>"}`;
-    typeSpan.appendChild(profSpan);
-  }
-  if (snCount != null && snCount > 1) {
-    const cntSpan = document.createElement("span");
-    cntSpan.style.color = "#6b7280";
-    cntSpan.textContent = ` ×${snCount}`;
-    typeSpan.appendChild(cntSpan);
-  }
-  textDiv.appendChild(typeSpan);
   item.appendChild(textDiv);
 
   // Key stat badges
   const badges = document.createElement("div");
-  badges.className = "flex gap-1 shrink-0 flex-wrap justify-end";
-  if (snLv != null && snLv > 0) {
-    const lvBadge = document.createElement("span");
-    lvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
-    lvBadge.style.color = "#00897b";
-    lvBadge.style.textShadow =
-      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
-    lvBadge.textContent = `★${snLv}`;
-    badges.appendChild(lvBadge);
-  }
-  if (snAlv != null && snAlv > 0) {
-    const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
-    const alvBadge = document.createElement("span");
-    alvBadge.className = "text-[10px] px-1 py-0.5 rounded font-mono font-bold";
-    alvBadge.style.textShadow =
-      "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
-    if (snAlv <= 3) alvBadge.style.color = "#1976d2";
-    else if (snAlv <= 6) alvBadge.style.color = "#f57c00";
-    else alvBadge.style.color = "#e65100";
-    alvBadge.textContent = profSymbols[snAlv] ?? ">>";
-    badges.appendChild(alvBadge);
-  }
-  if (snCount != null && snCount > 1) {
-    const cntBadge = document.createElement("span");
-    cntBadge.className =
-      "text-[10px] px-1 py-0.5 rounded font-mono font-bold bg-base-200/60 text-base-content/60";
-    cntBadge.textContent = `×${snCount}`;
-    badges.appendChild(cntBadge);
-  }
+  badges.className = "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
   const statPairs: [string, number][] = [];
   if (equip.houg) statPairs.push(["火", equip.houg]);
   if (equip.raig) statPairs.push(["雷", equip.raig]);
   if (equip.tyku) statPairs.push(["空", equip.tyku]);
   if (equip.tais) statPairs.push(["潜", equip.tais]);
   if (equip.baku) statPairs.push(["爆", equip.baku]);
-  for (const [lbl, val] of statPairs.slice(0, 3)) {
+  for (const [lbl, val] of statPairs.slice(0, 2)) {
     const b = document.createElement("span");
-    b.className = `text-[10px] px-1 py-0.5 rounded font-mono ${val > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`;
+    b.className = `text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${val > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`;
     b.textContent = `${lbl}${val > 0 ? "+" : ""}${val}`;
     badges.appendChild(b);
   }
   item.appendChild(badges);
 
   item.addEventListener("mouseenter", () => renderEquipDetail(equip));
-  item.addEventListener("click", () => {
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     if (isWorkspaceReadOnly()) return;
-    consumeEquipModalCallback(equip.id);
+    const selection = {
+      id: equip.id,
+      level: getCandidateLevel(equip),
+      alv: getCandidateAlv(equip),
+    };
+    consumeEquipModalCallback(selection);
     (
       document.getElementById("equip-select-modal") as HTMLDialogElement
     ).close();
@@ -389,9 +393,36 @@ function renderEquipGrid(
   typeFilter: string,
   sideFilter: SideFilter,
 ) {
-  const grid = document.getElementById("equip-modal-grid")!;
+  const grid = document.getElementById("equip-modal-grid");
+  if (!(grid instanceof HTMLElement)) return;
+  const modal = document.getElementById("equip-select-modal");
+  if (!(modal instanceof HTMLDialogElement)) return;
+  grid.style.display = "flex";
+  grid.style.flexDirection = "column";
+  grid.style.minHeight = "0";
+  grid.style.overflowY = "hidden";
   grid.innerHTML = "";
   cleanupEquipVS();
+
+  // Clear-selection button — always at the top of the grid, never scrolls away
+  if (getEquipModalCurrentId() != null) {
+    const clearItem = document.createElement("div");
+    clearItem.className =
+      "shrink-0 flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
+    clearItem.textContent = "✕ 装備を外す";
+    if (isWorkspaceReadOnly()) {
+      clearItem.style.opacity = "0.5";
+      clearItem.style.pointerEvents = "none";
+    } else {
+      clearItem.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        consumeEquipModalCallback({ id: null, level: 0, alv: 0 });
+        modal.close();
+      });
+    }
+    grid.appendChild(clearItem);
+  }
 
   let items: MstSlotItemData[];
 
@@ -443,7 +474,7 @@ function renderEquipGrid(
   items = filterEquipsBySide(items, sideFilter);
 
   if (isAirBaseEquipTarget()) {
-    items = items.filter((e) => AIRCRAFT_TYPES.has(e.type?.[2] ?? -1));
+    items = items.filter((e) => isValidAirBaseItem(e));
   }
 
   // Apply ship-based equipment filter
@@ -452,13 +483,32 @@ function renderEquipGrid(
   if (isExslot && !isAirBaseEquipTarget()) {
     const filtered = filterForExslot(
       equipTarget.shipId,
-      equipTarget.slot?.shipLevel ?? null,
       items,
     );
     if (filtered) items = filtered;
   } else {
     const filtered = filterForNormalSlot(equipTarget.shipId, items);
     if (filtered) items = filtered;
+  }
+
+  // Master-source candidates don't carry inventory metadata, so attach the
+  // minimum requirement values when slot rules demand improved equipment.
+  if (
+    getEquipModalSource() === "master" &&
+    equipTarget.shipId != null &&
+    !isAirBaseEquipTarget()
+  ) {
+    if (isExslot) {
+      items = items.map((item) => {
+        const req = getExslotSelectionRequirement(equipTarget.shipId, item);
+        if (!req || (req.level <= 0 && req.alv <= 0)) return item;
+        return {
+          ...item,
+          _requiredLevel: req.level,
+          _requiredAlv: req.alv,
+        } as EquipRuntimeMeta;
+      });
+    }
   }
 
   if (typeFilter) {
@@ -473,26 +523,17 @@ function renderEquipGrid(
   }
 
   if (items.length === 0) {
-    grid.innerHTML =
-      '<p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>';
+    const empty = document.createElement("p");
+    empty.className = "text-sm text-base-content/30 text-center py-12";
+    empty.textContent = "該当する装備が見つかりません";
+    grid.appendChild(empty);
     renderEquipCategoryNav([]);
     return;
   }
 
-  if (getEquipModalCurrentId() != null) {
-    const clearItem = document.createElement("div");
-    clearItem.className =
-      "flex items-center gap-2 px-3 py-2 mb-1 rounded-lg cursor-pointer bg-error/5 hover:bg-error/10 text-error/70 hover:text-error transition-colors text-sm";
-    clearItem.textContent = "✕ 装備を外す";
-    clearItem.addEventListener("click", () => {
-      if (isWorkspaceReadOnly()) return;
-      consumeEquipModalCallback(null);
-      (
-        document.getElementById("equip-select-modal") as HTMLDialogElement
-      ).close();
-    });
-    grid.appendChild(clearItem);
-  }
+  const rows: EquipVRow[] = [];
+  let catOffsets: { typeId: number; offset: number }[] = [];
+  let virtualOffset = 0;
 
   if (!typeFilter) {
     const groups = new Map<number, MstSlotItemData[]>();
@@ -503,55 +544,65 @@ function renderEquipGrid(
       else groups.set(t, [e]);
     }
     const sortedTypes = [...groups.keys()].sort((a, b) => a - b);
-    const rows: EquipGRow[] = [];
-    const catOffsets: { typeId: number; offset: number }[] = [];
-    let totalH = 0;
     for (const t of sortedTypes) {
-      catOffsets.push({ typeId: t, offset: totalH });
+      catOffsets.push({ typeId: t, offset: virtualOffset });
       rows.push({ kind: "header", typeId: t });
-      totalH += HEADER_HEIGHT;
-      for (const e of groups.get(t)!) {
-        rows.push({ kind: "item", equip: e });
-        totalH += EQUIP_ROW_PITCH;
+      virtualOffset += HEADER_HEIGHT;
+      for (const equip of groups.get(t) ?? []) {
+        rows.push({ kind: "item", equip });
+        virtualOffset += EQUIP_ROW_PITCH;
       }
     }
-    const offsets = new Array<number>(rows.length + 1);
-    offsets[0] = 0;
-    for (let i = 0; i < rows.length; i++) {
-      offsets[i + 1] =
-        offsets[i] +
-        (rows[i].kind === "header" ? HEADER_HEIGHT : EQUIP_ROW_PITCH);
-    }
-
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${totalH}px`;
-    grid.appendChild(spacer);
-
-    _equipGVS = { rows, offsets, spacer, viewport, grid, rStart: -1, rEnd: -1 };
-    grid.addEventListener("scroll", onEquipGScroll);
-    syncEquipGVS();
-    renderEquipCategoryNav(catOffsets);
   } else {
-    const { spacer, viewport } = createVSContainer();
-    spacer.style.height = `${items.length * EQUIP_ROW_PITCH}px`;
-    viewport.style.cssText += "display:flex;flex-direction:column;gap:1px;";
-    grid.appendChild(spacer);
-
-    _equipVS = {
-      items,
-      spacer,
-      viewport,
-      grid,
-      cols: 1,
-      pitch: EQUIP_ROW_PITCH,
-      measured: false,
-      rStart: -1,
-      rEnd: -1,
-    };
-    grid.addEventListener("scroll", onEquipScroll);
-    syncEquipVS();
-    renderEquipCategoryNav([]);
+    for (const equip of items) {
+      rows.push({ kind: "item", equip });
+    }
+    catOffsets = [];
   }
+
+  // Find the row index of the currently selected equip so scrollToIndex can jump directly to it.
+  const currentEquipId = getEquipModalCurrentId();
+  _currentEquipRowIndex = -1;
+  if (currentEquipId != null) {
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      if (r.kind === "item" && r.equip.id === currentEquipId) {
+        _currentEquipRowIndex = i;
+        break;
+      }
+    }
+  }
+  _equipVListHandle = null;
+
+  const vlistWrapper = document.createElement("div");
+  vlistWrapper.style.flex = "1";
+  vlistWrapper.style.minHeight = "0";
+  vlistWrapper.style.overflow = "hidden";
+  grid.appendChild(vlistWrapper);
+
+  _equipVirtuaDispose = render(
+    () =>
+      createComponent(EquipVList, {
+        data: rows,
+        ref: (handle: unknown) => { _equipVListHandle = handle as typeof _equipVListHandle; },
+        style: {
+          height: "100%",
+        },
+        class: "overflow-x-hidden",
+        children: (row: EquipVRow) => {
+          if (row.kind === "header") return createGroupHeader(getEquipTypeName(row.typeId));
+          const wrap = document.createElement("div");
+          wrap.style.height = `${EQUIP_ROW_PITCH}px`;
+          wrap.style.display = "flex";
+          wrap.style.alignItems = "center";
+          wrap.style.boxSizing = "border-box";
+          wrap.appendChild(createEquipItem(row.equip));
+          return wrap;
+        },
+      }),
+    vlistWrapper,
+  );
+  renderEquipCategoryNav(catOffsets);
 }
 
 function renderEquipCategoryNav(
@@ -561,7 +612,7 @@ function renderEquipCategoryNav(
     "equip-modal-categories",
     "equip-modal-grid",
     catOffsets,
-    (c: { typeId: number }) => ({
+    (c) => ({
       text:
         EQUIP_TYPE_SHORT[c.typeId] ??
         getEquipTypeName(c.typeId),
@@ -571,7 +622,8 @@ function renderEquipCategoryNav(
 }
 
 function renderEquipDetail(equip: MstSlotItemData) {
-  const panel = document.getElementById("equip-modal-detail")!;
+  const panel = document.getElementById("equip-modal-detail");
+  if (!(panel instanceof HTMLElement)) return;
   panel.innerHTML = "";
 
   const imgSrc = equipImageUrl(equip.id);
@@ -626,8 +678,13 @@ function renderEquipDetail(equip: MstSlotItemData) {
     l.className = "text-base-content/50";
     l.textContent = label;
     const v = document.createElement("span");
-    v.className = `font-mono font-medium ${value > 0 ? "text-success" : "text-error"}`;
-    v.textContent = `${value > 0 ? "+" : ""}${value}`;
+    if (label === "射程") {
+      v.className = "font-mono font-medium text-base-content/80";
+      v.textContent = RANGE_NAMES[value] ?? String(value);
+    } else {
+      v.className = `font-mono font-medium ${value > 0 ? "text-success" : "text-error"}`;
+      v.textContent = `${value > 0 ? "+" : ""}${value}`;
+    }
     row.appendChild(l);
     row.appendChild(v);
     grid.appendChild(row);
@@ -743,8 +800,10 @@ function renderEquipDetail(equip: MstSlotItemData) {
 }
 
 function resetEquipDetail() {
-  document.getElementById("equip-modal-detail")!.innerHTML =
-    '<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>';
+  const panel = document.getElementById("equip-modal-detail");
+  if (panel instanceof HTMLElement) {
+    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>';
+  }
 }
 
 /** Wire up DOM event listeners for the equip modal. Call once at init time. */
@@ -805,18 +864,16 @@ export function initEquipModalEvents() {
       const type =
         equipTypeEl instanceof HTMLSelectElement ? equipTypeEl.value : "";
       renderEquipGrid(search, type, side);
+      if (getEquipModalCurrentId() != null) {
+        requestAnimationFrame(() => {
+          scheduleScrollToCurrentEquip();
+        });
+      }
     });
 }
 
 /** Invalidate equip virtual scroll on resize. */
 export function handleResizeEquip() {
-  if (_equipVS) {
-    _equipVS.rStart = -1;
-    _equipVS.measured = false;
-    syncEquipVS();
-  }
-  if (_equipGVS) {
-    _equipGVS.rStart = -1;
-    syncEquipGVS();
-  }
+  // Keep API compatibility for resize hooks from index.astro.
+  // `virtua` handles visible-window recalculation internally.
 }

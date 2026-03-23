@@ -122,6 +122,10 @@ export function addEntry(
       unpinned.pop();
     }
     entries = [...pinned, ...unpinned];
+    // Hard cap: if all entries are pinned and still over limit, drop oldest pinned.
+    if (entries.length > MAX_ENTRIES) {
+      entries = entries.slice(0, MAX_ENTRIES);
+    }
   }
 
   _ws.entries = entries;

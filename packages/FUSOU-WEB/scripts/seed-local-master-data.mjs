@@ -21,12 +21,16 @@ const BUCKET = "dev-kc-master-data";
 const DB_NAME = "dev_kc_master_data_index";
 const TMP_DIR = join(process.cwd(), ".seed-tmp");
 
-// Tables needed for the simulator
+// Default tables needed for simulator core flows + equipment filtering.
 const REQUIRED_TABLES = [
   "mst_ship",
   "mst_slotitem",
   "mst_stype",
   "mst_slotitem_equiptype",
+  "mst_equip_ship",
+  "mst_equip_exslot",
+  "mst_equip_exslot_ship",
+  "mst_equip_limit_exslot",
 ];
 
 // All 13 tables for completeness

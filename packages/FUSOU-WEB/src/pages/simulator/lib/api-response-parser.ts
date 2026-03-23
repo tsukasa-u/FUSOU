@@ -186,6 +186,8 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
       raig: s.api_raig ?? null,
       tyku: s.api_tyku ?? null,
       tais: s.api_tais ?? null,
+      kaih: s.api_kaih ?? s.api_houk ?? null,
+      saku: s.api_saku ?? s.api_sakuteki ?? null,
       luck: s.api_luck ?? null,
       soku: s.api_soku ?? 0,
       leng: s.api_leng ?? 0,
@@ -309,6 +311,25 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
       }
     }
     result.mst_equip_exslot_ships = arr;
+  }
+
+  // ── Per-ship exslot equipment limits ──
+  // api_mst_equip_limit_exslot: HashMap<ship_id, equip_id[]>
+  if (data.api_mst_equip_limit_exslot && typeof data.api_mst_equip_limit_exslot === "object") {
+    const raw = data.api_mst_equip_limit_exslot as Record<string, unknown>;
+    const arr: Array<{ ship_id: number; equip: number[] }> = [];
+    for (const [shipIdStr, equipList] of Object.entries(raw)) {
+      const shipId = Number(shipIdStr);
+      if (!Number.isFinite(shipId)) continue;
+      if (!Array.isArray(equipList)) continue;
+
+      const equipIds = equipList
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v));
+
+      arr.push({ ship_id: shipId, equip: equipIds });
+    }
+    result.mst_equip_limit_exslots = arr;
   }
 
   return result;

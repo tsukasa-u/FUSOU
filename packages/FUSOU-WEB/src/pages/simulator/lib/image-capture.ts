@@ -104,7 +104,45 @@ function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
 // Cache external images as data URIs so html-to-image can embed them directly.
 // Blob URLs require html-to-image to re-fetch them which can fail silently and
 // fall back to TRANSPARENT_PIXEL; data URIs are inlined without any re-fetch.
+// The cache is capped at IMAGE_CACHE_MAX entries; oldest entry is evicted when full
+// (Map preserves insertion order, so the first key is the oldest).
+const IMAGE_CACHE_MAX = 100;
 const externalImageDataUrlCache = new Map<string, string>();
+
+function setImageCache(url: string, dataUrl: string): void {
+  if (externalImageDataUrlCache.size >= IMAGE_CACHE_MAX) {
+    const oldest = externalImageDataUrlCache.keys().next().value;
+    if (oldest !== undefined) externalImageDataUrlCache.delete(oldest);
+  }
+  externalImageDataUrlCache.set(url, dataUrl);
+}
+
+function flashPressedEffect(btn: HTMLButtonElement): void {
+  btn.style.transform = "translateY(1px) scale(0.98)";
+  btn.style.filter = "brightness(0.92)";
+  btn.style.transition = "transform 70ms ease, filter 70ms ease";
+  window.setTimeout(() => {
+    btn.style.transform = "";
+    btn.style.filter = "";
+    btn.style.transition = "";
+  }, 110);
+}
+
+function syncSaveTargetControls(): void {
+  const checked = document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null;
+  const includeAirbase = document.getElementById("saveimg-include-airbase") as HTMLInputElement | null;
+  if (!checked || !includeAirbase) return;
+
+  const isAirbaseOnly = checked.value === "airbase";
+  if (isAirbaseOnly) {
+    includeAirbase.checked = true;
+    includeAirbase.disabled = true;
+    includeAirbase.closest("label")?.classList.add("opacity-60");
+  } else {
+    includeAirbase.disabled = false;
+    includeAirbase.closest("label")?.classList.remove("opacity-60");
+  }
+}
 
 async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> {
   const proxied = `/api/asset-sync/image-proxy?url=${encodeURIComponent(absUrl)}`;
@@ -118,7 +156,7 @@ async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> 
       reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-    externalImageDataUrlCache.set(absUrl, dataUrl);
+    setImageCache(absUrl, dataUrl);
     return dataUrl;
   } catch {
     return null;
@@ -230,7 +268,6 @@ async function buildCaptureNode(opts: {
   clone.style.padding = "0";
 
   clone.querySelector("#data-status")?.remove();
-  clone.querySelectorAll("[id^='fleet-'][id$='-toggle']").forEach((el) => el.remove());
   const fleetSections = clone.querySelector("#fleet-sections") as HTMLElement | null;
   const fleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
     fleet1: clone.querySelector("#fleet-1-section") as HTMLElement | null,
@@ -377,18 +414,30 @@ async function buildCaptureNode(opts: {
 /** Wire up save-image modal and button event listeners. */
 export function initImageCaptureEvents() {
   document.getElementById("btn-save-image")?.addEventListener("click", () => {
+    const openBtn = document.getElementById("btn-save-image");
+    if (openBtn instanceof HTMLButtonElement) {
+      flashPressedEffect(openBtn);
+    }
     const modal = document.getElementById("save-image-modal");
     const captureRoot = document.getElementById("deck-capture-area");
     if (captureRoot) {
       prewarmVisibleExternalImageCache(captureRoot).catch(() => {});
     }
-    if (modal instanceof HTMLDialogElement) modal.showModal();
+    if (modal instanceof HTMLDialogElement) {
+      modal.showModal();
+      syncSaveTargetControls();
+    }
+  });
+
+  document.querySelectorAll<HTMLInputElement>('input[name="saveimg-fleet-target"]').forEach((radio) => {
+    radio.addEventListener("change", syncSaveTargetControls);
   });
 
   document.getElementById("btn-save-image-confirm")?.addEventListener("click", async () => {
     const btn = document.getElementById("btn-save-image-confirm");
     const modal = document.getElementById("save-image-modal");
     if (!(btn instanceof HTMLButtonElement)) return;
+    flashPressedEffect(btn);
 
     const fleetTarget = ((document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null)?.value ?? "both") as "both" | "fleet1" | "fleet2" | "fleet3" | "fleet4" | "airbase";
     const includeAirBaseChecked = (document.getElementById("saveimg-include-airbase") as HTMLInputElement | null)?.checked ?? true;

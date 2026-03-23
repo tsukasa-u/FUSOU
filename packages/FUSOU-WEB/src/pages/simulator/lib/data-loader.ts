@@ -21,6 +21,7 @@ import {
   setSpriteSheetUrl,
   setWeaponIconFrame,
 } from "./simulator-mutations";
+import { beginBulkLoad, endBulkLoad } from "./state";
 import { getAssetBaseUrl, getMasterDataCounts } from "./simulator-selectors";
 import type {
   MstShipData,
@@ -187,7 +188,9 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   if (typeof json !== "object" || json === null) return;
   const obj = json as Record<string, unknown>;
 
-  if (obj.mst_ships && typeof obj.mst_ships === "object") {
+  beginBulkLoad();
+  try {
+    if (obj.mst_ships && typeof obj.mst_ships === "object") {
     if (Array.isArray(obj.mst_ships)) {
       for (const v of obj.mst_ships) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
@@ -205,7 +208,7 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
   }
 
-  if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
+    if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
     if (Array.isArray(obj.mst_slot_items)) {
       for (const v of obj.mst_slot_items) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
@@ -228,10 +231,10 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   }
 
   // Optional: equipment type master for category display
-  const equipTypeObj =
-    (obj.mst_slotitem_equiptypes as unknown) ??
-    (obj.mst_slotitem_equiptype as unknown);
-  if (equipTypeObj && typeof equipTypeObj === "object") {
+    const equipTypeObj =
+      (obj.mst_slotitem_equiptypes as unknown) ??
+      (obj.mst_slotitem_equiptype as unknown);
+    if (equipTypeObj && typeof equipTypeObj === "object") {
     if (Array.isArray(equipTypeObj)) {
       for (const v of equipTypeObj) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
@@ -249,17 +252,20 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
   }
 
-  if (obj.ships && !obj.mst_ships) {
-    loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
-  }
-  if (obj.equipments && !obj.mst_slot_items) {
-    loadMasterDataFromJson({ mst_slot_items: obj.equipments }, renderAll);
-  }
+    if (obj.ships && !obj.mst_ships) {
+      loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
+    }
+    if (obj.equipments && !obj.mst_slot_items) {
+      loadMasterDataFromJson({ mst_slot_items: obj.equipments }, renderAll);
+    }
 
   // ── Equipment filtering tables (JSON import preserves keys) ──
-  loadEquipFilterFromJson(obj);
+    loadEquipFilterFromJson(obj);
 
-  updateDataStatus();
+    updateDataStatus();
+  } finally {
+    endBulkLoad("all");
+  }
   renderAll();
 }
 
@@ -293,21 +299,23 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
 }
 
 export async function loadMasterData(renderAll: () => void) {
-  const [
-    shipData,
-    equipData,
-    bannerMapData,
-    cardMapData,
-    equipImageData,
-    iconFrameData,
-    synergyData,
-    equipTypeData,
-    stypeData,
-    equipExslotData,
-    equipShipData,
-    equipExslotShipData,
-    equipLimitExslotData,
-  ] = await Promise.all([
+  beginBulkLoad();
+  try {
+    const [
+      shipData,
+      equipData,
+      bannerMapData,
+      cardMapData,
+      equipImageData,
+      iconFrameData,
+      synergyData,
+      equipTypeData,
+      stypeData,
+      equipExslotData,
+      equipShipData,
+      equipExslotShipData,
+      equipLimitExslotData,
+    ] = await Promise.all([
     fetchJsonSafe<{ records: MstShipData[] }>(
       "/api/master-data/json?table_name=mst_ship",
       "mst_ship",
@@ -366,32 +374,32 @@ export async function loadMasterData(renderAll: () => void) {
     ),
   ]);
 
-  if (shipData?.records) {
+    if (shipData?.records) {
     for (const s of shipData.records) {
       if (s && s.id != null && s.name) setMasterShip(s);
     }
   }
 
-  if (equipData?.records) {
+    if (equipData?.records) {
     for (const e of equipData.records) {
       if (e && e.id != null && e.name)
         setMasterSlotItem(normalizeMstSlotItem(e));
     }
   }
 
-  if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
-  if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
+    if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
+    if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
 
-  if (cardMapData?.base_url && !getAssetBaseUrl())
-    setAssetBaseUrl(cardMapData.base_url);
-  if (cardMapData?.cards) setCardMap(cardMapData.cards);
+    if (cardMapData?.base_url && !getAssetBaseUrl())
+      setAssetBaseUrl(cardMapData.base_url);
+    if (cardMapData?.cards) setCardMap(cardMapData.cards);
 
-  if (equipImageData?.base_url && !getAssetBaseUrl())
-    setAssetBaseUrl(equipImageData.base_url);
-  if (equipImageData?.card) setEquipCardMap(equipImageData.card);
-  if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
+    if (equipImageData?.base_url && !getAssetBaseUrl())
+      setAssetBaseUrl(equipImageData.base_url);
+    if (equipImageData?.card) setEquipCardMap(equipImageData.card);
+    if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
 
-  if (iconFrameData?.frames) {
+    if (iconFrameData?.frames) {
     resetWeaponIconFrames();
     for (const [name, entry] of Object.entries(iconFrameData.frames)) {
       const m = name.match(/_id_(\d+)$/);
@@ -401,11 +409,11 @@ export async function loadMasterData(renderAll: () => void) {
     }
   }
 
-  if (iconFrameData?.meta?.size) {
+    if (iconFrameData?.meta?.size) {
     setSpriteSheetMeta(iconFrameData.meta.size.w ?? 0, iconFrameData.meta.size.h ?? 0);
   }
 
-  if (iconFrameData) {
+    if (iconFrameData) {
     const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
     try {
       const pngRes = await fetch("/api/asset-sync/weapon-icons");
@@ -431,11 +439,11 @@ export async function loadMasterData(renderAll: () => void) {
     }
   }
 
-  if (synergyData?.effects && synergyData.cross_effects) {
+    if (synergyData?.effects && synergyData.cross_effects) {
     setSlotItemEffects(synergyData);
   }
 
-  if (equipTypeData?.records) {
+    if (equipTypeData?.records) {
     for (const t of equipTypeData.records) {
       if (t && t.id != null && t.name) {
         setMasterEquipType(t);
@@ -444,19 +452,19 @@ export async function loadMasterData(renderAll: () => void) {
   }
 
   // ── Equipment filtering tables ──
-  if (stypeData?.records) {
+    if (stypeData?.records) {
     for (const s of stypeData.records) {
       if (s && s.id != null) setMasterStype(s);
     }
   }
 
-  if (equipExslotData?.records) {
+    if (equipExslotData?.records) {
     for (const e of equipExslotData.records) {
       if (e && e.equip != null) addEquipExslotId(e.equip);
     }
   }
 
-  if (equipShipData?.records) {
+    if (equipShipData?.records) {
     for (const r of equipShipData.records) {
       if (r && r.ship_id != null && r.equip_type) {
         setMasterEquipShip(r);
@@ -464,7 +472,7 @@ export async function loadMasterData(renderAll: () => void) {
     }
   }
 
-  if (equipExslotShipData?.records) {
+    if (equipExslotShipData?.records) {
     for (const r of equipExslotShipData.records) {
       if (r && r.slotitem_id != null) {
         setMasterEquipExslotShip(r);
@@ -472,7 +480,7 @@ export async function loadMasterData(renderAll: () => void) {
     }
   }
 
-  if (equipLimitExslotData?.records) {
+    if (equipLimitExslotData?.records) {
     for (const r of equipLimitExslotData.records) {
       if (r && r.ship_id != null && r.equip) {
         setMasterEquipLimitExslot(r);
@@ -480,8 +488,11 @@ export async function loadMasterData(renderAll: () => void) {
     }
   }
 
-  console.info("[simulator] master data load summary", getMasterDataCounts());
+    console.info("[simulator] master data load summary", getMasterDataCounts());
 
-  updateDataStatus();
+    updateDataStatus();
+  } finally {
+    endBulkLoad("all");
+  }
   renderAll();
 }

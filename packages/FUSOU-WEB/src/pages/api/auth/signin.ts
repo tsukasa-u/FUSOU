@@ -6,7 +6,7 @@ import {
   validateRedirectUrl,
   sanitizeErrorMessage,
 } from "@/utility/security";
-import { createEnvContext } from "@/server/utils";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
@@ -15,15 +15,23 @@ export const POST: APIRoute = async ({
   locals,
 }) => {
   const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
-  const requestOrigin = new URL(request.url).origin;
 
-  // CSRF protection: Validate Origin/Referer header
-  if (!validateOrigin(request, requestOrigin)) {
+  // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
+  // Fall back to the request-derived origin only when no canonical URL is configured (local dev).
+  const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
+  if (!siteUrl && import.meta.env.PROD) {
+    console.error("[auth/signin] PUBLIC_SITE_URL is not configured in production");
+    return new Response("Server misconfiguration", { status: 500 });
+  }
+  const canonicalOrigin = siteUrl || new URL(request.url).origin;
+
+  // CSRF protection: Validate Origin/Referer header against canonical origin
+  if (!validateOrigin(request, canonicalOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }
 
   const formData = await request.formData();
-  const url_origin = requestOrigin;
+  const url_origin = canonicalOrigin;
 
   const provider = formData.get("provider")?.toString();
 

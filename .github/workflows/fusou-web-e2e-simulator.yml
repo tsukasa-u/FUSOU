@@ -1,0 +1,108 @@
+name: FUSOU-WEB Simulator E2E
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_d1r2:
+        description: "Run full simulator integration E2E with local D1/R2 seed"
+        required: false
+        default: false
+        type: boolean
+  pull_request:
+    paths:
+      - packages/FUSOU-WEB/**
+      - packages/shared-ui/**
+      - pnpm-lock.yaml
+      - .github/workflows/fusou-web-e2e-simulator.yml
+
+jobs:
+  simulator-e2e-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
+      PLAYWRIGHT_REUSE_SERVER: "false"
+      PUBLIC_SITE_URL: http://127.0.0.1:4401
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build avro-wasm
+        run: pnpm --filter @fusou/avro-wasm run build
+
+      - name: Install Playwright Chromium
+        run: pnpm --dir packages/FUSOU-WEB exec playwright install --with-deps chromium
+
+      - name: Run simulator smoke E2E (D1/R2-isolated)
+        run: pnpm --dir packages/FUSOU-WEB run e2e:simulator:ci:smoke
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-fusou-web-simulator-smoke
+          path: packages/FUSOU-WEB/playwright-report
+          if-no-files-found: ignore
+
+  simulator-e2e-d1r2:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_d1r2 == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
+      PLAYWRIGHT_REUSE_SERVER: "false"
+      PUBLIC_SITE_URL: http://127.0.0.1:4401
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build avro-wasm
+        run: pnpm --filter @fusou/avro-wasm run build
+
+      - name: Seed local D1/R2 for simulator
+        run: pnpm --dir packages/FUSOU-WEB run seed:master-data
+
+      - name: Install Playwright Chromium
+        run: pnpm --dir packages/FUSOU-WEB exec playwright install --with-deps chromium
+
+      - name: Run simulator full E2E (D1/R2)
+        run: pnpm --dir packages/FUSOU-WEB run e2e:simulator:ci
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-fusou-web-simulator-d1r2
+          path: packages/FUSOU-WEB/playwright-report
+          if-no-files-found: ignore

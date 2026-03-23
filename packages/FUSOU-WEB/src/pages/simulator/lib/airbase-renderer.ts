@@ -1,204 +1,411 @@
-// ── Air Base Rendering ──
+// ── Air Base Rendering / Fleet Section UI ──
 
-import type { FleetSlot } from "./types";
-import { AIRCRAFT_TYPES } from "./constants";
-import { createWeaponIconEl } from "./equip-calc";
-import { openEquipModal } from "./equip-modal";
-import { renderFleetSlots } from "./fleet-renderer";
 import {
-  cycleAirBaseEquipImprovement,
-  cycleAirBaseEquipProficiency,
-  setAirBaseEquip,
-  setEquipModalTargetForAirBase,
-  setFleetSectionCollapsed,
-  toggleFleetSectionCollapsed,
+  setAirbaseSectionVisible,
+  setCombinedFleetType,
+  setFleetSectionVisible,
+  setVisibleAirbaseCount,
 } from "./simulator-mutations";
 import {
-  getAirBaseState,
+  getCombinedFleetType,
   getFleetState,
-  getMasterSlotItem,
-  isFleetSectionCollapsed,
-  isWorkspaceReadOnly,
+  getVisibleAirbaseCount,
+  isAirbaseSectionVisible,
+  isFleetSectionVisible,
 } from "./simulator-selectors";
+import { validateCombinedFleet } from "./combined-fleet";
+import { rerenderSolidSimulator } from "../../../components/solid/simulator-renderer";
+import { debounce } from "./equip-calc";
+import { onSimulatorStateDirty } from "./state";
 
-const isReadOnly = () => isWorkspaceReadOnly();
+const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
+let displaySettingsLoaded = false;
+let settingsEventsBound = false;
 
-function hasAnyShipInFleet(fleet: FleetSlot[]): boolean {
-  return fleet.some((slot) => slot.shipId != null);
+
+type DisplaySettings = {
+  fleets: Record<number, boolean>;
+  showAirbase: boolean;
+  airbaseCount: number;
+  fleetSlotLayout: "2x3" | "3x2";
+  combinedFleetType: 0 | 1 | 2 | 3;
+};
+
+const FLEET_SECTION_IDS = [1, 2, 3, 4] as const;
+const FLEET_SECTION_MAX_WIDTH_2X3 = "52rem";
+const FLEET_SECTION_MAX_WIDTH_3X2 = "76rem";
+const SLOT_LAYOUT_3X2_MIN_WIDTH_PX = 1200;
+const MOBILE_FLEET_SECTION_MAX_WIDTH = "26rem";
+const AIRBASE_THREE_COLUMN_BREAKPOINT_PX = 1200;
+const AIRBASE_TWO_COLUMN_BREAKPOINT_PX = 768;
+const MOBILE_SINGLE_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
+const TWO_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
+let fleetSlotLayoutMode: "2x3" | "3x2" = "2x3";
+
+function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
+  if (
+    fleetSlotLayoutMode === "3x2" &&
+    typeof window !== "undefined" &&
+    window.innerWidth < SLOT_LAYOUT_3X2_MIN_WIDTH_PX
+  ) {
+    return "2x3";
+  }
+  return fleetSlotLayoutMode;
 }
 
-function syncFleetSectionUi() {
-  const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
-  const fleetPairs: Array<[number, FleetSlot[]]> = [[1, fleet1], [2, fleet2], [3, fleet3], [4, fleet4]];
-
-  for (const [index, fleet] of fleetPairs) {
-    const body = document.getElementById(`fleet-${index}-body`) as HTMLElement | null;
-    const toggle = document.getElementById(`fleet-${index}-toggle`) as HTMLButtonElement | null;
-    if (!body || !toggle) continue;
-
-    // Auto-expand when the fleet gets a ship for easier editing.
-    if (hasAnyShipInFleet(fleet)) {
-      setFleetSectionCollapsed(index, false);
-    }
-
-    const collapsed = isFleetSectionCollapsed(index);
-    body.style.display = collapsed ? "none" : "block";
-    toggle.textContent = collapsed ? "展開" : "折りたたむ";
-    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+function readDisplaySettings(): DisplaySettings | null {
+  try {
+    const raw = localStorage.getItem(DISPLAY_SETTINGS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<DisplaySettings> & {
+      singleFleetGrid3x2?: boolean;
+    };
+    const rawCombined = parsed.combinedFleetType;
+    const combinedFleetType: 0 | 1 | 2 | 3 =
+      typeof rawCombined === "number" && [0, 1, 2, 3].includes(rawCombined)
+        ? (rawCombined as 0 | 1 | 2 | 3)
+        : 0;
+    return {
+      fleets: {
+        1: parsed.fleets?.[1] !== false,
+        2: parsed.fleets?.[2] !== false,
+        // Default to first two fleets only when value is not explicitly saved.
+        3: parsed.fleets?.[3] === true,
+        4: parsed.fleets?.[4] === true,
+      },
+      showAirbase: parsed.showAirbase !== false,
+      airbaseCount: Math.max(0, Math.min(3, Math.trunc(parsed.airbaseCount ?? 3))),
+      // Backward compatibility: old setting used singleFleetGrid3x2 boolean.
+      fleetSlotLayout:
+        parsed.fleetSlotLayout === "3x2" || parsed.singleFleetGrid3x2 === true
+          ? "3x2"
+          : "2x3",
+      combinedFleetType
+    };
+  } catch {
+    return null;
   }
 }
 
-let fleetToggleBound = false;
-function ensureFleetSectionToggleHandlers() {
-  if (fleetToggleBound) return;
-  [1, 2, 3, 4].forEach((index) => {
-    const toggle = document.getElementById(`fleet-${index}-toggle`) as HTMLButtonElement | null;
-    if (!toggle) return;
-    toggle.addEventListener("click", () => {
-      toggleFleetSectionCollapsed(index);
-      syncFleetSectionUi();
-    });
-  });
-  fleetToggleBound = true;
+function writeDisplaySettings(): void {
+  try {
+    const payload: DisplaySettings = {
+      fleets: {
+        1: isFleetSectionVisible(1),
+        2: isFleetSectionVisible(2),
+        3: isFleetSectionVisible(3),
+        4: isFleetSectionVisible(4),
+      },
+      showAirbase: isAirbaseSectionVisible(),
+      airbaseCount: getVisibleAirbaseCount(),
+      fleetSlotLayout: fleetSlotLayoutMode,
+      combinedFleetType: getCombinedFleetType()
+    };
+    localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(payload));
+  } catch {
+    // ignore persistence failures
+  }
 }
 
-export function renderAirBases() {
-  const container = document.getElementById("air-bases")!;
-  container.innerHTML = "";
+function loadDisplaySettingsOnce(): void {
+  if (displaySettingsLoaded) return;
+  displaySettingsLoaded = true;
+  const settings = readDisplaySettings();
+  if (!settings) {
+    // Default view: vertical slot layout with first two fleets visible.
+    setFleetSectionVisible(1, true);
+    setFleetSectionVisible(2, true);
+    setFleetSectionVisible(3, false);
+    setFleetSectionVisible(4, false);
+    setAirbaseSectionVisible(true);
+    setVisibleAirbaseCount(3);
+    fleetSlotLayoutMode = "2x3";
+    setCombinedFleetType(0);
+    return;
+  }
+  setFleetSectionVisible(1, settings.fleets[1]);
+  setFleetSectionVisible(2, settings.fleets[2]);
+  setFleetSectionVisible(3, settings.fleets[3]);
+  setFleetSectionVisible(4, settings.fleets[4]);
+  setAirbaseSectionVisible(settings.showAirbase);
+  setVisibleAirbaseCount(settings.airbaseCount);
+  fleetSlotLayoutMode = settings.fleetSlotLayout;
+  setCombinedFleetType(settings.combinedFleetType);
+}
 
-  const airBases = getAirBaseState();
-  airBases.forEach((base, bIdx) => {
-    const card = document.createElement("div");
-    card.className = "border border-base-200 rounded-lg overflow-hidden";
+function syncDisplaySettingsControls(): void {
+  const modal = document.getElementById("display-settings-modal");
+  if (!(modal instanceof HTMLDialogElement)) return;
 
-    const title = document.createElement("div");
-    title.className = "px-3 py-1.5 bg-base-200/30 text-xs font-bold text-base-content/40 border-b border-base-200/50";
-    title.textContent = `第${bIdx + 1}基地`;
-    card.appendChild(title);
+  for (const i of [1, 2, 3, 4] as const) {
+    const el = document.getElementById(`display-fleet-${i}`) as HTMLInputElement | null;
+    if (el) el.checked = isFleetSectionVisible(i);
+  }
 
-    const slotsDiv = document.createElement("div");
-    slotsDiv.className = "divide-y divide-base-200/50";
+  const airbaseVisible = document.getElementById("display-airbase") as HTMLInputElement | null;
+  if (airbaseVisible) airbaseVisible.checked = isAirbaseSectionVisible();
 
-    for (let i = 0; i < 4; i++) {
-      const equip = base.equipIds[i] != null ? getMasterSlotItem(base.equipIds[i]!) : null;
-      const row = document.createElement("div");
-      row.className = "flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer hover:bg-base-200/40 transition-colors";
+  const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
+  if (airbaseCount) {
+    airbaseCount.value = String(getVisibleAirbaseCount());
+    airbaseCount.disabled = !isAirbaseSectionVisible();
+  }
 
-      const idxLabel = document.createElement("span");
-      idxLabel.className = "w-3.5 text-center text-base-content/25 font-mono shrink-0";
-      idxLabel.textContent = String(i + 1);
-      row.appendChild(idxLabel);
+  const slotLayout = document.getElementById("display-fleet-slot-layout") as HTMLSelectElement | null;
+  if (slotLayout) {
+    slotLayout.value = fleetSlotLayoutMode;
+  }
 
-      if (equip) {
-        const iconNum = equip.type?.[3] ?? 0;
-        row.appendChild(createWeaponIconEl(iconNum, 16));
-      } else {
-        const blank = document.createElement("div");
-        blank.style.cssText = "width:16px;height:16px";
-        blank.className = "shrink-0";
-        row.appendChild(blank);
-      }
+  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
+  if (combinedFleet) {
+    combinedFleet.value = String(getCombinedFleetType());
+  }
+}
 
-      const eqName = document.createElement("span");
-      eqName.className = `truncate flex-1 ${equip ? "text-base-content/70" : "text-base-content/20 italic"}`;
-      eqName.textContent = equip?.name ?? "—";
-      row.appendChild(eqName);
+function applyDisplaySettingsUi(): void {
+  const effectiveSlotLayout = getEffectiveFleetSlotLayout();
+  const isMobileSingleColumn = window.innerWidth < MOBILE_SINGLE_COLUMN_BREAKPOINT_PX;
+  const fleetSectionMaxWidth =
+    isMobileSingleColumn
+      ? MOBILE_FLEET_SECTION_MAX_WIDTH
+      : effectiveSlotLayout === "3x2"
+        ? FLEET_SECTION_MAX_WIDTH_3X2
+        : FLEET_SECTION_MAX_WIDTH_2X3;
 
-      if (equip) {
-        const eqType2 = equip.type?.[2] ?? 0;
-        const isAircraft = AIRCRAFT_TYPES.has(eqType2);
+  const visibleFleetIndexes: number[] = [];
 
-        if (isAircraft) {
-          const profLevel = base.equipProficiency[i] ?? 0;
-          const profBadge = document.createElement("span");
-          profBadge.className = "shrink-0 cursor-pointer select-none text-[11px] leading-none font-bold mr-0.5";
-          profBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
-          profBadge.style.display = "inline-block";
-          profBadge.style.width = "2em";
-          profBadge.style.textAlign = "center";
-          const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
-          profBadge.textContent = profSymbols[profLevel] ?? ">>";
-          if (profLevel === 0) {
-            profBadge.style.color = "#1976d2";
-            profBadge.style.opacity = "0";
-            profBadge.style.transition = "opacity 0.15s";
-            row.addEventListener("mouseenter", () => { profBadge.style.opacity = "0.4"; });
-            row.addEventListener("mouseleave", () => { profBadge.style.opacity = "0"; });
-          } else if (profLevel <= 3) {
-            profBadge.style.color = "#1976d2";
-          } else if (profLevel <= 6) {
-            profBadge.style.color = "#f57c00";
-          } else {
-            profBadge.style.color = "#e65100";
-          }
-          profBadge.title = `熟練度${profLevel} (クリックで変更)`;
-          profBadge.addEventListener("click", (e) => {
-            e.stopPropagation();
-            if (isReadOnly()) return;
-            cycleAirBaseEquipProficiency(airBases[bIdx], i);
-            renderAirBases();
-          });
-          row.appendChild(profBadge);
-        }
+  for (const i of FLEET_SECTION_IDS) {
+    const section = document.getElementById(`fleet-${i}-section`) as HTMLElement | null;
+    if (!section) continue;
 
-        const impLevel = base.equipImprovement[i] ?? 0;
-        const impBadge = document.createElement("span");
-        impBadge.className = "shrink-0 cursor-pointer select-none text-[11px] leading-none font-bold";
-        impBadge.style.textShadow = "0 0 3px rgba(255,255,255,0.9), 0 0 6px rgba(255,255,255,0.7)";
-        impBadge.style.minWidth = "2em";
-        impBadge.style.textAlign = "right";
-        if (impLevel > 0) {
-          impBadge.style.color = "#00897b";
-          impBadge.textContent = `★${impLevel}`;
-        } else {
-          impBadge.textContent = "★";
-          impBadge.style.color = "#00897b";
-          impBadge.style.opacity = "0";
-          impBadge.style.transition = "opacity 0.15s";
-          row.addEventListener("mouseenter", () => { impBadge.style.opacity = "0.4"; });
-          row.addEventListener("mouseleave", () => { impBadge.style.opacity = "0"; });
-        }
-        impBadge.title = `改修Lv${impLevel} (クリックで変更)`;
-        impBadge.addEventListener("click", (e) => {
-          e.stopPropagation();
-          if (isReadOnly()) return;
-          cycleAirBaseEquipImprovement(airBases[bIdx], i);
-          renderAirBases();
-        });
-        row.appendChild(impBadge);
-      }
+    const visible = isFleetSectionVisible(i);
+    if (visible) visibleFleetIndexes.push(i);
 
-      if (equip?.distance != null) {
-        const dist = document.createElement("span");
-        dist.className = "text-[10px] text-base-content/30 shrink-0";
-        dist.textContent = `半径${equip.distance}`;
-        row.appendChild(dist);
-      }
+    // Keep hidden fleets fully out of layout flow.
+    section.hidden = !visible;
+    section.style.display = visible ? "block" : "none";
+    section.style.maxWidth = fleetSectionMaxWidth;
+    section.style.width = "100%";
+    section.style.justifySelf = "center";
+  }
 
-      const slotIdx = i;
-      row.addEventListener("click", () => {
-        if (isReadOnly()) return;
-        setEquipModalTargetForAirBase();
-        openEquipModal(base.equipIds[slotIdx], (id) => {
-          setAirBaseEquip(airBases[bIdx], slotIdx, id);
-          renderAirBases();
-        });
-      });
-
-      slotsDiv.appendChild(row);
+  for (const i of FLEET_SECTION_IDS) {
+    const slots = document.getElementById(`fleet-${i}-slots`) as HTMLElement | null;
+    if (!slots) continue;
+    if (isMobileSingleColumn) {
+      slots.style.gridTemplateColumns = "minmax(0, 1fr)";
+      // Keep cards full-width in single-column mode to avoid collapsed tiles.
+      slots.style.justifyItems = "stretch";
+      slots.style.justifyContent = "";
+      continue;
     }
-    card.appendChild(slotsDiv);
-    container.appendChild(card);
+    slots.style.justifyItems = "stretch";
+    slots.style.justifyContent = "";
+    slots.style.gridTemplateColumns =
+      effectiveSlotLayout === "3x2"
+        ? "repeat(3, minmax(0, 1fr))"
+        : "repeat(2, minmax(0, 1fr))";
+  }
+
+  const fleetSections = document.getElementById("fleet-sections") as HTMLElement | null;
+  if (fleetSections) {
+    const twoCol =
+      effectiveSlotLayout === "2x3" &&
+      visibleFleetIndexes.length >= 2 && window.innerWidth >= TWO_COLUMN_BREAKPOINT_PX;
+    fleetSections.style.display = "grid";
+    fleetSections.style.justifyContent = "center";
+    fleetSections.style.gridTemplateColumns = twoCol
+      ? `repeat(2, minmax(0, ${fleetSectionMaxWidth}))`
+      : `minmax(0, ${fleetSectionMaxWidth})`;
+  }
+
+  const airbaseSection = document.getElementById("airbase-section") as HTMLElement | null;
+  const showAirbase = isAirbaseSectionVisible();
+  if (airbaseSection) {
+    airbaseSection.style.display = showAirbase ? "block" : "none";
+    airbaseSection.style.maxWidth = fleetSectionMaxWidth;
+    airbaseSection.style.width = "100%";
+    airbaseSection.style.marginLeft = "auto";
+    airbaseSection.style.marginRight = "auto";
+  }
+
+  const visibleBaseCount = getVisibleAirbaseCount();
+  const airBasesGrid = document.getElementById("air-bases") as HTMLElement | null;
+  if (airBasesGrid) {
+    const maxColsByWidth =
+      window.innerWidth >= AIRBASE_THREE_COLUMN_BREAKPOINT_PX
+        ? 3
+        : window.innerWidth >= AIRBASE_TWO_COLUMN_BREAKPOINT_PX
+          ? 2
+          : 1;
+    const airbaseCols = Math.max(1, Math.min(visibleBaseCount, maxColsByWidth));
+    airBasesGrid.style.gridTemplateColumns = `repeat(${airbaseCols}, minmax(0, 1fr))`;
+  }
+
+  const baseCards = document.querySelectorAll<HTMLElement>("#air-bases > *");
+  baseCards.forEach((card, index) => {
+    card.style.display = showAirbase && index < visibleBaseCount ? "block" : "none";
   });
 }
 
-export function renderAll() {
-  const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
-  ensureFleetSectionToggleHandlers();
-  renderFleetSlots("fleet-1-slots", fleet1);
-  renderFleetSlots("fleet-2-slots", fleet2);
-  renderFleetSlots("fleet-3-slots", fleet3);
-  renderFleetSlots("fleet-4-slots", fleet4);
-  syncFleetSectionUi();
-  renderAirBases();
+const applyDisplaySettingsUiOnResize = debounce(() => {
+  applyDisplaySettingsUi();
+}, 80);
+
+function syncCombinedFleetUI(): void {
+  const combinedType = getCombinedFleetType();
+  const isCombined = combinedType > 0;
+  const combinedLabel: Record<number, string> = {
+    1: "機動部隊",
+    2: "水上打撃部隊",
+    3: "輸送護衛部隊",
+  };
+
+  for (const fleetIdx of [1, 2, 3, 4] as const) {
+    const badge = document.getElementById(`fleet-${fleetIdx}-combined-badge`) as HTMLElement | null;
+    if (!badge) continue;
+    if (fleetIdx === 1 && isCombined) {
+      badge.textContent = combinedLabel[combinedType] ?? "";
+      badge.hidden = false;
+    } else if (fleetIdx === 2 && isCombined) {
+      badge.textContent = "護衛";
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  const validationEl = document.getElementById("combined-fleet-validation") as HTMLElement | null;
+  const validationTextEl = document.getElementById("combined-fleet-validation-text") as HTMLElement | null;
+  if (!validationEl || !validationTextEl) return;
+
+  if (!isCombined) {
+    validationEl.classList.add("hidden");
+    validationTextEl.textContent = "";
+    return;
+  }
+
+  const fleets = getFleetState();
+  const result = validateCombinedFleet(combinedType, fleets.fleet1, fleets.fleet2);
+  if (result.ok) {
+    validationEl.classList.add("hidden");
+    validationTextEl.textContent = "";
+    return;
+  }
+
+  const parts: string[] = [];
+  if (result.mainErrors.length > 0) parts.push(`本隊: ${result.mainErrors.join(' / ')}`);
+  if (result.escortErrors.length > 0) parts.push(`護衛: ${result.escortErrors.join(' / ')}`);
+  validationTextEl.textContent = parts.join('  |  ');
+  validationEl.classList.remove("hidden");
+}
+
+function bindDisplaySettingsEvents(): void {
+  if (settingsEventsBound) return;
+  settingsEventsBound = true;
+
+  const openBtn = document.getElementById("btn-display-settings");
+  const modal = document.getElementById("display-settings-modal") as HTMLDialogElement | null;
+  if (openBtn instanceof HTMLButtonElement && modal) {
+    openBtn.addEventListener("click", () => {
+      syncDisplaySettingsControls();
+      modal.showModal();
+    });
+  }
+
+  for (const i of [1, 2, 3, 4] as const) {
+    const el = document.getElementById(`display-fleet-${i}`) as HTMLInputElement | null;
+    if (!el) continue;
+    el.addEventListener("change", () => {
+      setFleetSectionVisible(i, el.checked);
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
+  const airbaseVisible = document.getElementById("display-airbase") as HTMLInputElement | null;
+  if (airbaseVisible) {
+    airbaseVisible.addEventListener("change", () => {
+      setAirbaseSectionVisible(airbaseVisible.checked);
+      const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
+      if (airbaseCount) airbaseCount.disabled = !airbaseVisible.checked;
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
+  const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
+  if (airbaseCount) {
+    airbaseCount.addEventListener("change", () => {
+      setVisibleAirbaseCount(Number.parseInt(airbaseCount.value, 10));
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
+  const slotLayout = document.getElementById("display-fleet-slot-layout") as HTMLSelectElement | null;
+  if (slotLayout) {
+    slotLayout.addEventListener("change", () => {
+      fleetSlotLayoutMode = slotLayout.value === "3x2" ? "3x2" : "2x3";
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
+  // Combined fleet type selector
+  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
+  if (combinedFleet) {
+    combinedFleet.addEventListener("change", () => {
+      const newType = Math.max(0, Math.min(3, Number.parseInt(combinedFleet.value, 10) || 0)) as 0 | 1 | 2 | 3;
+      const isCombined = newType > 0;
+      setCombinedFleetType(newType);
+
+      // Auto-show fleet 2 when entering combined mode
+      if (isCombined && !isFleetSectionVisible(2)) {
+        setFleetSectionVisible(2, true);
+        const cb = document.getElementById("display-fleet-2") as HTMLInputElement | null;
+        if (cb) cb.checked = true;
+      }
+
+      syncCombinedFleetUI();
+      applyDisplaySettingsUi();
+      writeDisplaySettings();
+    });
+  }
+
+  document.getElementById("btn-display-settings-apply")?.addEventListener("click", () => {
+    const modalEl = document.getElementById("display-settings-modal") as HTMLDialogElement | null;
+    modalEl?.close();
+  });
+
+  window.addEventListener("resize", applyDisplaySettingsUiOnResize);
+}
+
+let combinedFleetUiSubscribed = false;
+
+export function initDisplaySettingsEvents(): void {
+  loadDisplaySettingsOnce();
+  bindDisplaySettingsEvents();
+  syncDisplaySettingsControls();
+  applyDisplaySettingsUi();
+  syncCombinedFleetUI();
+  if (!combinedFleetUiSubscribed) {
+    combinedFleetUiSubscribed = true;
+    onSimulatorStateDirty("fleet", () => {
+      syncCombinedFleetUI();
+    });
+  }
+}
+
+export function renderAirBases(): void {
+  loadDisplaySettingsOnce();
+  rerenderSolidSimulator("airbase");
+  applyDisplaySettingsUi();
+}
+
+export function renderAll(): void {
+  loadDisplaySettingsOnce();
+  rerenderSolidSimulator("all");
+  applyDisplaySettingsUi();
+  syncCombinedFleetUI();
 }

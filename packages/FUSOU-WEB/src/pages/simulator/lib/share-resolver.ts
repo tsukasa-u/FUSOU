@@ -1,5 +1,9 @@
 // ── Share URL resolution: normalize any URL/key input to a fleet payload ──
 
+import {
+  decodePayloadBase64Safe,
+  isLikelySimulatorPayload,
+} from "./payload-codec";
 import type { ViewerEntry } from "./viewer-workspace";
 
 type ResolvedShare =
@@ -20,17 +24,6 @@ type ResolveApiResponse = {
   snapshotPayload?: Record<string, unknown> | null;
   error?: string;
 };
-
-function decodePayloadBase64(data: string): unknown {
-  try {
-    const binary = atob(data);
-    const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    return JSON.parse(json);
-  } catch {
-    return JSON.parse(atob(data));
-  }
-}
 
 /** Extract a 16-char hex key from a short URL or a bare key string. */
 function extractShortKey(input: string): string | null {
@@ -60,8 +53,14 @@ function resolveSimulatorUrlDirectly(input: string): ResolvedShare | null {
     }
     const dataParam = parsed.searchParams.get("data");
     if (!dataParam) return null;
-    const payload = decodePayloadBase64(dataParam);
-    if (!payload || typeof payload !== "object") return null;
+    const decoded = decodePayloadBase64Safe(dataParam);
+    if (!decoded.ok) {
+      return { ok: false, error: `データの復元に失敗しました: ${decoded.error}` };
+    }
+    const payload = decoded.payload;
+    if (!isLikelySimulatorPayload(payload)) {
+      return { ok: false, error: "共有データの形式が不正です" };
+    }
     return {
       ok: true,
       payloadKind: "exportedFleet",
@@ -108,6 +107,10 @@ async function resolveViaApi(key: string): Promise<ResolvedShare> {
     if (data.snapshotPayload.snapshotSlotItems && !payload.snapshotSlotItems) {
       payload.snapshotSlotItems = data.snapshotPayload.snapshotSlotItems;
     }
+  }
+
+  if (!isLikelySimulatorPayload(payload)) {
+    return { ok: false, error: "共有データの形式が不正です" };
   }
 
   return {
