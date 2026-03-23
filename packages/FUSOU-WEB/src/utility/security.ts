@@ -70,6 +70,34 @@ export function validateOrigin(
   request: Request,
   allowedOrigins: string | string[]
 ): boolean {
+  return validateOriginDetailed(request, allowedOrigins).ok;
+}
+
+export type OriginValidationResult = {
+  ok: boolean;
+  reason:
+    | "allowed_origin_invalid"
+    | "origin_match"
+    | "origin_mismatch"
+    | "origin_invalid"
+    | "referer_match"
+    | "referer_mismatch"
+    | "referer_invalid"
+    | "origin_and_referer_missing";
+  allowedOrigins: string[];
+  requestOrigin: string | null;
+  requestReferer: string | null;
+  parsedOrigin: string | null;
+  parsedRefererOrigin: string | null;
+};
+
+/**
+ * Same as validateOrigin(), but returns details for diagnostics.
+ */
+export function validateOriginDetailed(
+  request: Request,
+  allowedOrigins: string | string[]
+): OriginValidationResult {
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
 
@@ -77,8 +105,7 @@ export function validateOrigin(
     const originList = Array.isArray(allowedOrigins)
       ? allowedOrigins
       : [allowedOrigins];
-    const allowedOriginSet = new Set(
-      originList
+    const normalizedAllowedOrigins = originList
       .map((value) => {
         try {
           return new URL(value).origin;
@@ -86,29 +113,123 @@ export function validateOrigin(
           return null;
         }
       })
-      .filter((origin): origin is string => Boolean(origin)),
+      .filter((entry): entry is string => Boolean(entry));
+
+    const allowedOriginSet = new Set(
+      normalizedAllowedOrigins,
     );
 
     if (allowedOriginSet.size === 0) {
-      return false;
+      return {
+        ok: false,
+        reason: "allowed_origin_invalid",
+        allowedOrigins: normalizedAllowedOrigins,
+        requestOrigin: origin,
+        requestReferer: referer,
+        parsedOrigin: null,
+        parsedRefererOrigin: null,
+      };
     }
 
-    // Check Origin header first (more reliable)
+    // Check Origin header first (more reliable).
+    // If Origin is present but malformed (e.g., "null"), do not fail immediately;
+    // fall back to Referer validation.
     if (origin) {
-      const originUrl = new URL(origin);
-      return allowedOriginSet.has(originUrl.origin);
+      try {
+        const originUrl = new URL(origin);
+        if (allowedOriginSet.has(originUrl.origin)) {
+          return {
+            ok: true,
+            reason: "origin_match",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: originUrl.origin,
+            parsedRefererOrigin: null,
+          };
+        }
+        return {
+          ok: false,
+          reason: "origin_mismatch",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: originUrl.origin,
+          parsedRefererOrigin: null,
+        };
+      } catch {
+        // Fall through to Referer validation only if present.
+        if (!referer) {
+          return {
+            ok: false,
+            reason: "origin_invalid",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: null,
+            parsedRefererOrigin: null,
+          };
+        }
+      }
     }
 
     // Fallback to Referer header
     if (referer) {
-      const refererUrl = new URL(referer);
-      return allowedOriginSet.has(refererUrl.origin);
+      try {
+        const refererUrl = new URL(referer);
+        if (allowedOriginSet.has(refererUrl.origin)) {
+          return {
+            ok: true,
+            reason: "referer_match",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: null,
+            parsedRefererOrigin: refererUrl.origin,
+          };
+        }
+        return {
+          ok: false,
+          reason: "referer_mismatch",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: null,
+          parsedRefererOrigin: refererUrl.origin,
+        };
+      } catch {
+        return {
+          ok: false,
+          reason: "referer_invalid",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: null,
+          parsedRefererOrigin: null,
+        };
+      }
     }
 
     // No origin or referer header - reject for security
-    return false;
+    return {
+      ok: false,
+      reason: "origin_and_referer_missing",
+      allowedOrigins: normalizedAllowedOrigins,
+      requestOrigin: origin,
+      requestReferer: referer,
+      parsedOrigin: null,
+      parsedRefererOrigin: null,
+    };
   } catch {
-    return false;
+    return {
+      ok: false,
+      reason: "allowed_origin_invalid",
+      allowedOrigins: [],
+      requestOrigin: origin,
+      requestReferer: referer,
+      parsedOrigin: null,
+      parsedRefererOrigin: null,
+    };
   }
 }
 

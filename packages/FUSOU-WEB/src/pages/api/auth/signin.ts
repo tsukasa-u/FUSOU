@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
 import {
   validateOrigin,
+  validateOriginDetailed,
   validateRedirectUrl,
   sanitizeErrorMessage,
 } from "@/utility/security";
@@ -26,7 +27,52 @@ export const POST: APIRoute = async ({
   const canonicalOrigin = siteUrl;
 
   // CSRF protection: Validate Origin/Referer header against canonical origin (strict 1:1).
-  if (!validateOrigin(request, canonicalOrigin)) {
+  const originResult = validateOriginDetailed(request, canonicalOrigin);
+  if (!originResult.ok) {
+    let requestUrlOrigin: string | null = null;
+    try {
+      requestUrlOrigin = new URL(request.url).origin;
+    } catch {
+      requestUrlOrigin = null;
+    }
+
+    console.error(
+      "[auth/signin] origin validation failed",
+      JSON.stringify(
+        {
+          reason: originResult.reason,
+          canonicalOrigin,
+          requestMethod: request.method,
+          requestUrl: request.url,
+          requestUrlOrigin,
+          headers: {
+            origin: request.headers.get("origin"),
+            referer: request.headers.get("referer"),
+            host: request.headers.get("host"),
+            "x-forwarded-host": request.headers.get("x-forwarded-host"),
+            "x-forwarded-proto": request.headers.get("x-forwarded-proto"),
+            "cf-visitor": request.headers.get("cf-visitor"),
+            "cf-ray": request.headers.get("cf-ray"),
+            "sec-fetch-site": request.headers.get("sec-fetch-site"),
+            "sec-fetch-mode": request.headers.get("sec-fetch-mode"),
+            "sec-fetch-dest": request.headers.get("sec-fetch-dest"),
+            "sec-fetch-user": request.headers.get("sec-fetch-user"),
+          },
+          parsed: {
+            origin: originResult.parsedOrigin,
+            refererOrigin: originResult.parsedRefererOrigin,
+            allowedOrigins: originResult.allowedOrigins,
+          },
+          env: {
+            PUBLIC_SITE_URL: siteUrl,
+            CF_PAGES_BRANCH: getEnv(envCtx, "CF_PAGES_BRANCH"),
+            CF_PAGES_URL: getEnv(envCtx, "CF_PAGES_URL"),
+          },
+        },
+        null,
+        2,
+      ),
+    );
     return new Response("Invalid request origin", { status: 403 });
   }
 
