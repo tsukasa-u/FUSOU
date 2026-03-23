@@ -38,14 +38,6 @@ for ver in "${VERSIONS[@]}"; do
         echo "  ⚠️  schema_${ver} generation failed (feature may not exist yet), skipping"
         rm -f "$OUTPUT_DIR/schema_${ver}.json"
     fi
-
-    echo "Generating master_schema_${ver}..."
-    if cargo run --bin print_master_schema --no-default-features --features "schema_${ver},full" 2>/dev/null > "$OUTPUT_DIR/master_schema_${ver}.json"; then
-        echo "  ✅ $OUTPUT_DIR/master_schema_${ver}.json"
-    else
-        echo "  ⚠️  master_schema_${ver} generation failed, skipping"
-        rm -f "$OUTPUT_DIR/master_schema_${ver}.json"
-    fi
 done
 
 echo ""
@@ -58,11 +50,6 @@ if command -v jq &> /dev/null; then
             tv=$(jq -r '.table_version' "$OUTPUT_DIR/schema_${ver}.json")
             sc=$(jq '.schemas | length' "$OUTPUT_DIR/schema_${ver}.json")
             echo "  ${ver}: table_version=${tv}, tables=${sc}"
-        fi
-        if [ -f "$OUTPUT_DIR/master_schema_${ver}.json" ]; then
-            mtv=$(jq -r '.table_version' "$OUTPUT_DIR/master_schema_${ver}.json")
-            msc=$(jq '.schemas | length' "$OUTPUT_DIR/master_schema_${ver}.json")
-            echo "  ${ver}: master_table_version=${mtv}, master_tables=${msc}"
         fi
     done
 fi

@@ -32,7 +32,3 @@ pnpm-debug.log*
 # wrangler local development files
 .wrangler/
 
-# Playwright generated artifacts
-playwright-report/
-test-results/
-

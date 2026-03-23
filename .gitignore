@@ -70,8 +70,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!packages/FUSOU-WEB/src/**/lib/
-!packages/equip_synergy_detector/lib/
 lib64/
 parts/
 sdist/
@@ -82,7 +80,3 @@ wheels/
 *.egg
 
 packages/fusou-datasets/venv/
-
-packages/FUSOU-WEB/.seed-assets-tmp/
-
-packages/FUSOU-WEB/supabase/

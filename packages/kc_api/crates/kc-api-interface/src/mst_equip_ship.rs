@@ -36,7 +36,6 @@ pub struct MstEquipShip {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShip {
-    pub ship_id: i32,
     pub equip_type: HashMap<String, Option<Vec<i32>>>,
 }
 

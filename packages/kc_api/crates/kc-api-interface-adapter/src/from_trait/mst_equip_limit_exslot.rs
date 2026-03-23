@@ -12,7 +12,7 @@ impl From<kcapi_main::api_start2::get_data::ApiData> for InterfaceWrapper<MstEqu
             .map(|(ship_id, equip)| {
                 (
                     ship_id as i32,
-                    InterfaceWrapper::<MstEquipLimitExslot>::from((ship_id, equip)).unwrap(),
+                    InterfaceWrapper::<MstEquipLimitExslot>::from(equip).unwrap(),
                 )
             })
             .collect::<HashMap<i32, MstEquipLimitExslot>>();
@@ -23,13 +23,10 @@ impl From<kcapi_main::api_start2::get_data::ApiData> for InterfaceWrapper<MstEqu
     }
 }
 
-impl From<(i64, Vec<i64>)> for InterfaceWrapper<MstEquipLimitExslot> {
-    fn from((ship_id, equip): (i64, Vec<i64>)) -> Self {
+impl From<Vec<i64>> for InterfaceWrapper<MstEquipLimitExslot> {
+    fn from(equip: Vec<i64>) -> Self {
         Self(MstEquipLimitExslot {
-            ship_id: ship_id as i32,
             equip: equip.into_iter().map(|value| value as i32).collect(),
         })
     }
 }
-
-

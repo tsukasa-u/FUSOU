@@ -16,7 +16,6 @@ const accessToken = cookies.get("sb-local-access-token");
 const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
-const expiresAtCookie = cookies.get("sb-local-expires-at");
 
 // Get allowed origin using unified env API
 const envCtx = createEnvContext({ env: runtimeEnv });
@@ -44,9 +43,7 @@ let app_return_url: string | null = null; // URL to return to app
 
 const providerValue = provider?.value ?? "google";
 
-// Provider refresh token is optional. Supabase session tokens are the only
-// required credentials for returning auth state to the desktop app.
-if (refreshToken?.value && accessToken?.value) {
+if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   try {
     const sessionResult = await supabase.auth.setSession({
       refresh_token: refreshToken.value,
@@ -67,7 +64,7 @@ if (refreshToken?.value && accessToken?.value) {
       if (memberIdHash) {
         console.log(
           "[callback] Checking member_id_hash conflict:",
-          memberIdHash,
+          memberIdHash
         );
         try {
           const conflictCheckResponse = await fetch(
@@ -81,7 +78,7 @@ if (refreshToken?.value && accessToken?.value) {
               body: JSON.stringify({
                 member_id_hash: memberIdHash,
               }),
-            },
+            }
           );
 
           const conflictCheckData = (await conflictCheckResponse.json()) as any;
@@ -96,11 +93,11 @@ if (refreshToken?.value && accessToken?.value) {
             conflictCheckResponse.status === 409
           ) {
             console.log(
-              "[callback] CONFLICT DETECTED - redirecting to conflict page",
+              "[callback] CONFLICT DETECTED - redirecting to conflict page"
             );
             // Redirect to conflict resolution page with member_id_hash
             return Astro.redirect(
-              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
+              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`
             );
           }
 
@@ -108,41 +105,7 @@ if (refreshToken?.value && accessToken?.value) {
             console.warn("Member ID conflict check failed:", conflictCheckData);
             // Proceed anyway - let the app handle any issues
           } else {
-            // If migrateable (anonymous owner), call upsert to perform migration
-            if (conflictCheckData?.migrateable) {
-              console.log(
-                "[callback] Anonymous owner detected - performing auto-migration",
-              );
-              try {
-                const upsertResponse = await fetch(
-                  Astro.url.origin + "/api/user/member-map/upsert",
-                  {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${accessToken.value}`,
-                    },
-                    body: JSON.stringify({ member_id_hash: memberIdHash }),
-                  },
-                );
-                const upsertData = (await upsertResponse.json()) as any;
-                if (upsertResponse.ok) {
-                  console.log(
-                    "[callback] Auto-migration successful:",
-                    upsertData?.action,
-                  );
-                } else {
-                  console.error(
-                    "[callback] Auto-migration failed:",
-                    upsertData,
-                  );
-                }
-              } catch (upsertError) {
-                console.error("[callback] Auto-migration error:", upsertError);
-              }
-            } else {
-              console.log("[callback] No conflict - proceeding with auth");
-            }
+            console.log("[callback] No conflict - proceeding with auth");
           }
         } catch (checkError) {
           console.error("Error checking member_id_hash conflict:", checkError);
@@ -150,36 +113,34 @@ if (refreshToken?.value && accessToken?.value) {
         }
       } else {
         console.warn(
-          "[callback] No member_id_hash provided in query params - skipping conflict check",
+          "[callback] No member_id_hash provided in query params - skipping conflict check"
         );
       }
 
-      // Generate return parameters regardless of DB insert success.
-      // This allows users to manually copy tokens even if DB fails.
-      const returnQuery = new URLSearchParams();
-      if (providerRefreshToken?.value) {
-        returnQuery.set("provider_refresh_token", providerRefreshToken.value);
-      }
-      returnQuery.set("provider", providerValue);
-      returnQuery.set("supabase_access_token", accessToken.value);
-      returnQuery.set("supabase_refresh_token", refreshToken.value);
-      if (expiresAtCookie?.value) {
-        returnQuery.set("expires_at", expiresAtCookie.value);
-      }
-      return_params = returnQuery.toString();
+      // Generate return parameters regardless of DB insert success
+      // This allows users to manually copy tokens even if DB fails
+      return_params =
+        "provider_refresh_token=" +
+        providerRefreshToken.value +
+        "&provider=" +
+        providerValue +
+        "&supabase_access_token=" +
+        accessToken.value +
+        "&supabase_refresh_token=" +
+        refreshToken.value;
 
       const candidateHref = `fusou://auth?${return_params}`;
 
       // Keep the href for display/copy even if validation fails; redirect stays gated by validation
       return_href = candidateHref;
 
-      // Validate the desktop app custom protocol URL
+      // Validate the Tauri custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
         // Desktop app detected - set return URL for app redirect
         if (isFromTauriApp) {
           isDesktopApp = true;
-          // Reuse the validated fusou:// return URL to avoid scheme mismatch.
-          app_return_url = candidateHref;
+          // Return URL to app with auth status and params
+          app_return_url = `tauri://auth-complete?${return_params}`;
         }
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
@@ -197,9 +158,7 @@ if (refreshToken?.value && accessToken?.value) {
   }
 } else {
   // No tokens present - show warning
-  console.warn(
-    "Missing required Supabase session cookies. Cannot proceed with authentication.",
-  );
+  console.warn("Missing required cookies. Cannot proceed with authentication.");
   error_message = "Missing required authentication cookies";
   set_session_error_flag = true;
   return_href_missing_flag = true;
@@ -212,7 +171,6 @@ cookies.delete("sb-local-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider-token", { path: "/" });
 cookies.delete("sb-local-provider-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider", { path: "/" });
-cookies.delete("sb-local-expires-at", { path: "/" });
 ---
 
 <Layout title="Account Setup - Link Game to Social Account">
@@ -453,7 +411,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
             </button>
             <a
               id="app-return-link"
-              href="fusou://auth?status=success"
+              href="tauri://auth-complete?status=success"
               class="btn btn-ghost w-full border border-base-300"
             >
               ← Return to App
@@ -547,7 +505,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           // Set manual return-to-app link even when app detection is missing
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
-            const base = appReturnUrl || "fusou://auth";
+            const base = appReturnUrl || "fusou://auth-complete";
             const href =
               base + (base.includes("?") ? "&" : "?") + "status=success";
             appReturnLink.setAttribute("href", href);
@@ -560,27 +518,27 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               // App is primary action
               dashboardBtn.classList.remove(
                 "btn-primary",
-                "border-primary-content",
+                "border-primary-content"
               );
               dashboardBtn.classList.add("btn-ghost", "border-base-300");
 
               appReturnLink.classList.remove("btn-ghost", "border-base-300");
               appReturnLink.classList.add(
                 "btn-primary",
-                "border-primary-content",
+                "border-primary-content"
               );
             } else {
               // Web is primary action
               dashboardBtn.classList.add(
                 "btn-primary",
-                "border-primary-content",
+                "border-primary-content"
               );
               dashboardBtn.classList.remove("btn-ghost", "border-base-300");
 
               appReturnLink.classList.add("btn-ghost", "border-base-300");
               appReturnLink.classList.remove(
                 "btn-primary",
-                "border-primary-content",
+                "border-primary-content"
               );
             }
           }

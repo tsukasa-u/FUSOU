@@ -30,7 +30,6 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         let mut providrer_refresh_token = String::new();
         let mut supabase_refresh_token = String::new();
         let mut supabase_access_token = String::new();
-        let mut expires_at_str = String::new();
 
         url.query_pairs().for_each(|(key, value)| {
             // println!("key: {}, value: {}", key, value);
@@ -40,8 +39,6 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
                 supabase_refresh_token = value.to_string();
             } else if key.eq("supabase_access_token") {
                 supabase_access_token = value.to_string();
-            } else if key.eq("expires_at") {
-                expires_at_str = value.to_string();
             }
         });
         
@@ -60,33 +57,20 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
             let manager = { auth_manager.lock().unwrap().clone() };
             
-            let expires_at = expires_at_str
-                .parse::<i64>()
-                .ok()
-                .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
-
             let session = Session {
                 access_token: supabase_access_token.clone(),
                 refresh_token: supabase_refresh_token.clone(),
-                expires_at,
+                expires_at: None,
                 token_type: Some("bearer".to_string()),
             };
             
-            let handle_clone = app.clone();
+            // We can't await here easily because single_instance_init is synchronous?
+            // But we can spawn a task.
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = manager.save_session(&session).await {
                     tracing::error!("Failed to save session in single instance: {}", e);
                 } else {
                     tracing::info!("Social auth session saved successfully via OAuth callback");
-                    // Mark that a social session is now active so that
-                    // try_anonymous_auth does not overwrite it.
-                    crate::util::set_social_session_active();
-                    // Reset the upsert flag so the mapping is re-evaluated with
-                    // the new social session (even if a previous upsert already succeeded).
-                    crate::util::reset_member_id_upsert_flag();
-                    // Immediately upsert member_id mapping so user_member_map
-                    // reflects the social user_id instead of the anonymous one.
-                    crate::util::try_upsert_member_id(&handle_clone).await;
                 }
             });
             // Note: No need to emit tokens to frontend
@@ -245,21 +229,15 @@ async fn handle_realtime_sync_async(
     }
 
     // 2. Get Supabase configuration (with clear error messages)
-    // Try compile-time embedded values first (set via option_env! during build with dotenvx),
-    // then fall back to runtime env vars (available when running via dotenvx directly).
-    let supabase_url = option_env!("PUBLIC_SUPABASE_URL")
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("SUPABASE_URL").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_URL").ok())
-        .ok_or("Environment variable SUPABASE_URL or PUBLIC_SUPABASE_URL is not set (compile-time or runtime)")?;
+    let supabase_url = std::env::var("SUPABASE_URL")
+        .or_else(|_| std::env::var("PUBLIC_SUPABASE_URL"))
+        .map_err(|_| "Environment variable SUPABASE_URL or PUBLIC_SUPABASE_URL is not set")?;
     
     // Support multiple variable names for API key (ANON_KEY for legacy, PUBLISHABLE_KEY for new)
-    let supabase_anon_key = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-        .map(|s| s.to_string())
-        .or_else(|| std::env::var("SUPABASE_ANON_KEY").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_ANON_KEY").ok())
-        .or_else(|| std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY").ok())
-        .ok_or("Environment variable SUPABASE_ANON_KEY, PUBLIC_SUPABASE_ANON_KEY, or PUBLIC_SUPABASE_PUBLISHABLE_KEY is not set (compile-time or runtime)")?;
+    let supabase_anon_key = std::env::var("SUPABASE_ANON_KEY")
+        .or_else(|_| std::env::var("PUBLIC_SUPABASE_ANON_KEY"))
+        .or_else(|_| std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY"))
+        .map_err(|_| "Environment variable SUPABASE_ANON_KEY, PUBLIC_SUPABASE_ANON_KEY, or PUBLIC_SUPABASE_PUBLISHABLE_KEY is not set")?;
 
     if supabase_url.trim().is_empty() {
         return Err("SUPABASE_URL is set but empty".into());

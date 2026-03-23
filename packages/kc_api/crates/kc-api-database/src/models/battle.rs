@@ -14,7 +14,6 @@ use crate::models::deck::OwnDeck;
 use crate::models::deck::OwnDeckId;
 use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
-use crate::dedup::DedupCache;
 use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
 use kc_api_interface::air_base::AirBases;
@@ -803,7 +802,6 @@ impl AirBaseAirAttackList {
         uuid: Uuid,
         data: kc_api_interface::battle::AirBaseAirAttacks,
         table: &mut PortTable,
-        dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
         let new_air_base_air_attack = Uuid::new_v7(ts);
@@ -817,7 +815,6 @@ impl AirBaseAirAttackList {
                     new_air_base_air_attack,
                     air_base_air_attack.clone(),
                     table,
-                    dedup,
                     env_uuid,
                     air_base_air_attack_index,
                 )
@@ -876,7 +873,7 @@ pub struct AirBaseAirAttack {
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
-    pub airbase_id: Option<AirBaseId>,
+    pub airbase_id: AirBaseId,
     pub squadron_plane: Option<Vec<Option<i32>>>,
 }
 
@@ -886,7 +883,6 @@ impl AirBaseAirAttack {
         uuid: Uuid,
         data: kc_api_interface::battle::AirBaseAirAttack,
         table: &mut PortTable,
-        dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
         index: usize,
     ) -> Option<()> {
@@ -900,14 +896,10 @@ impl AirBaseAirAttack {
         };
 
         // ------------------------------------------------------------------------
-        // Create AirBase record (deduplicate by base_id)
-        let air_base_clone = air_base.clone();
-        let new_airbase_id = dedup.get_or_insert_with(
-            "airbase",
-            data.base_id,
-            ts,
-            |uuid| AirBase::new_ret_option(ts, uuid, air_base_clone, table, env_uuid),
-        );
+        // Create AirBase record
+        let new_airbase_id = Uuid::new_v7(ts);
+        let result = AirBase::new_ret_option(ts, new_airbase_id, air_base.clone(), table, env_uuid);
+        let _new_airbase_id_wrap = result.map(|_| new_airbase_id);
         // ------------------------------------------------------------------------
 
         let new_data = AirBaseAirAttack {
@@ -1416,7 +1408,7 @@ impl FriendlySupportHourai {
             Some(_) => {
                 let data_len = data.at_list.clone().unwrap().len();
                 (0..data_len).for_each(|i| {
-                    let new_data = FriendlySupportHourai {
+                    let new_data = MidnightHougeki {
                         env_uuid,
                         uuid,
                         index: i as i32,
@@ -1449,7 +1441,7 @@ impl FriendlySupportHourai {
                         e_now_hps: Some(data.e_now_hps.clone()[i].clone().into_i32()),
                     };
 
-                    table.friendly_support_hourai.push(new_data);
+                    table.midnight_hougeki.push(new_data);
                 });
                 Some(())
             }
@@ -1568,7 +1560,6 @@ impl Battle {
         uuid: Uuid,
         data: kc_api_interface::battle::Battle,
         table: &mut PortTable,
-        dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
         index: usize,
     ) {
@@ -1587,12 +1578,14 @@ impl Battle {
             .unwrap_or_default();
 
         #[cfg(feature = "schema_v0_4")]
-        let new_f_deck_id = data.clone().deck_id.and_then(|deck_id| {
-            dedup.get_or_insert_with("own_deck", deck_id, ts, |uuid| {
-                let cache = true;
-                OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cache)
-            })
-        });
+        let new_f_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            let cache = true;
+            data.clone()
+                .deck_id
+                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cache))
+                .map(|_| uuid)
+        };
         let new_e_deck_id = {
             let uuid = Uuid::new_v7(ts);
             EnemyDeck::new_ret_option(ts, uuid, data.clone(), table, env_uuid).map(|_| uuid)
@@ -1606,20 +1599,22 @@ impl Battle {
                 })
                 .map(|_| uuid)
         };
-        let new_support_deck_id = data.clone()
-            .support_attack
-            .and_then(|attack| {
-                attack
-                    .support_airatack
-                    .map(|air| air.deck_id)
-                    .or(attack.support_hourai.map(|hourai| hourai.deck_id))
-            })
-            .and_then(|deck_id| {
-                dedup.get_or_insert_with("support_deck", deck_id, ts, |uuid| {
-                    let cashe = true;
-                    SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
+        let new_support_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .support_attack
+                .and_then(|attack| {
+                    attack
+                        .support_airatack
+                        .map(|air| air.deck_id)
+                        .or(attack.support_hourai.map(|hourai| hourai.deck_id))
+                        .and_then(|deck_id| {
+                            let cashe = true;
+                            SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
+                        })
                 })
-            });
+                .map(|_| uuid)
+        };
         let new_air_base_assault = {
             let uuid = Uuid::new_v7(ts);
             data.clone()
@@ -1641,7 +1636,7 @@ impl Battle {
             data.clone()
                 .air_base_air_attacks
                 .and_then(|attacks| {
-                    AirBaseAirAttackList::new_ret_option(ts, uuid, attacks, table, dedup, env_uuid)
+                    AirBaseAirAttackList::new_ret_option(ts, uuid, attacks, table, env_uuid)
                 })
                 .map(|_| uuid)
         };
