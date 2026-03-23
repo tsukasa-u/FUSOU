@@ -52,11 +52,22 @@ function countShip(counts: FleetCounts, ship: MstShipData): void {
   if (CRUISER_OR_ABOVE.has(stype)) counts[58]++;
 
   const speedType = speedBucket(ship.soku);
-  const isSpecialFast = [364, 733].includes(ship.id) && [2, 1, 0].includes(speedType);
-  if (stype === 8 || (stype === 9 || stype === 10) && (speedType === 1 || speedType === 0) || isSpecialFast) {
+  const isBattleship = stype === 8 || stype === 9 || stype === 10;
+  const isSpecialFast =
+    isBattleship &&
+    [364, 733].includes(ship.id) &&
+    [2, 1, 0].includes(speedType);
+  const isFastBattleship =
+    isBattleship &&
+    ((speedType === 1 || speedType === 0) || isSpecialFast);
+  const isSlowBattleship =
+    (stype === 9 || stype === 10) &&
+    [2, 3, 4].includes(speedType) &&
+    !isSpecialFast;
+  if (isFastBattleship) {
     counts[63]++;
   }
-  if ((stype === 9 || stype === 10) && [2, 3, 4].includes(speedType) && !isSpecialFast) {
+  if (isSlowBattleship) {
     counts[62]++;
   }
   if (stype === 7 && (ship.tais?.[0] ?? 0) > 0) {

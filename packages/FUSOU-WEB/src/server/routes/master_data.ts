@@ -853,10 +853,24 @@ app.get("/json", async (c) => {
       );
     }
 
+    // Guard against excessively large objects before pulling into memory
+    const MAX_AVRO_BYTES = 50 * 1024 * 1024; // 50 MB
+    if (r2Object.size > MAX_AVRO_BYTES) {
+      console.error(`[master-data] ${tableName} object too large: ${r2Object.size} bytes`);
+      return c.json({ error: "Master data object exceeds maximum size limit" }, 503);
+    }
+
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
     const records = decodeAvroOcfToJson(avroBytes);
+
+    // When an explicit version is requested the data is immutable — cache aggressively.
+    // When serving the latest version the key changes after each upload, so use a short
+    // TTL to avoid CDN/clients staying on stale "latest" data.
+    const cacheControl = requestedVersion
+      ? "public, max-age=86400, stale-while-revalidate=604800"
+      : "public, max-age=60, stale-while-revalidate=300";
 
     return c.json(
       {
@@ -868,7 +882,7 @@ app.get("/json", async (c) => {
       },
       200,
       {
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "Cache-Control": cacheControl,
         ...CORS_HEADERS,
       },
     );
