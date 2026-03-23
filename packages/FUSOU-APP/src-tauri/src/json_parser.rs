@@ -43,11 +43,16 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::Basic(data) => {
                 data.restore();
-                // Baseline flow: member_id_hash is managed via anonymous session.
-                // Social-link upsert is handled separately in OAuth callback handling.
+                // Sequential execution: First try to upsert member_id, then authenticate anonymously
+                // This ensures member_id is mapped to Supabase user before creating anonymous session
                 let handle_clone = handle.clone();
                 tokio::task::spawn(async move {
-                    // Create/restore anonymous session for data uploads
+                    // First: Attempt to upsert member_id to Supabase user (if already authenticated)
+                    crate::util::try_upsert_member_id(&handle_clone).await;
+                    
+                    // Second: Create/restore anonymous session for data uploads
+                    // If member_id was successfully upserted above, the anonymous session 
+                    // will detect the existing mapping and update the user_id if needed
                     crate::util::try_anonymous_auth(&handle_clone).await;
                 });
             }

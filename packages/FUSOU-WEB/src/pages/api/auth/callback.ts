@@ -1,20 +1,19 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { createEnvContext, getEnv } from "@/server/utils";
 import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
 } from "@/utility/security";
 
-const createUserScopedClient = (
-  accessToken: string,
-  supabaseUrl: string,
-  supabasePublishableKey: string,
-) =>
+// These are build-time constants, no need for runtime env
+const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL!;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
+
+const createUserScopedClient = (accessToken: string) =>
   createClient(
-    supabaseUrl,
-    supabasePublishableKey,
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
     {
       auth: {
         persistSession: false,
@@ -38,17 +37,7 @@ const createUserScopedClient = (
 // };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
-  const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
-  const supabasePublishableKey = getEnv(envCtx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY");
-
-  if (!supabaseUrl || !supabasePublishableKey) {
-    return new Response("Server misconfiguration: Supabase env is not set", {
-      status: 500,
-    });
-  }
-
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
 
   if (!authCode) {
@@ -56,7 +45,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   }
 
   // Supabase PKCE flow handles state validation internally
-  const supabase = createSupabaseServerClient(cookies, envCtx.runtime);
+  const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
@@ -86,11 +75,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
     };
 
     // Use user-scoped client with access token (RLS-compliant)
-    const userClient = createUserScopedClient(
-      access_token,
-      supabaseUrl,
-      supabasePublishableKey,
-    );
+    const userClient = createUserScopedClient(access_token);
     const { error: storeTokenError } = await userClient
       .from("provider_tokens")
       .upsert(upsertPayload);

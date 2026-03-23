@@ -12,8 +12,6 @@ pub mod encode;
 pub mod integrate;
 #[cfg(feature = "full")]
 pub mod table;
-#[cfg(feature = "full")]
-pub mod dedup;
 // models depends on table, so also gated behind full
 #[cfg(feature = "full")]
 pub mod models;

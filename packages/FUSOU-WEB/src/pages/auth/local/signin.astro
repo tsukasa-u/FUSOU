@@ -174,7 +174,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
           <form action="/api/local_auth/signin" method="post" class="mb-4">
             <input type="hidden" name="app_origin" value={Astro.url.searchParams.get("app_origin") ?? ""} />
-            <input type="hidden" name="member_id_hash" value={Astro.url.searchParams.get("member_id_hash") ?? ""} />
             <button
               type="submit"
               name="provider"

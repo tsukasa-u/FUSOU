@@ -1,7 +1,7 @@
 /**
  * Convert kc_api generated Avro schemas to ReactFlow graph JSON.
  *
- * Input:  kc_api/generated-schemas/schema_v*.json, master_schema_v*.json
+ * Input:  kc_api/generated-schemas/schema_v*.json  (auto-detected)
  * Output: FUSOU-WEB/src/data/graphs/db_v*.json
  *
  * Each output file contains { nodes, edges } ready for ReactFlow consumption.
@@ -14,85 +14,6 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMAS_DIR = resolve(__dirname, "../../kc_api/generated-schemas");
 const OUTPUT_DIR = resolve(__dirname, "../src/data/graphs");
-
-const MASTER_TABLE_ALIASES = new Map([
-  ["mst_ship", "mst_ship"],
-  ["mst_ships", "mst_ship"],
-  ["mst_slotitem", "mst_slotitem"],
-  ["mst_slot_item", "mst_slotitem"],
-  ["mst_slot_items", "mst_slotitem"],
-  ["mst_slotitem_equiptype", "mst_slotitem_equiptype"],
-  ["mst_slotitem_equip_type", "mst_slotitem_equiptype"],
-  ["mst_slotitem_equip_types", "mst_slotitem_equiptype"],
-  ["mst_shipgraph", "mst_shipgraph"],
-  ["mst_ship_graph", "mst_shipgraph"],
-  ["mst_ship_graphs", "mst_shipgraph"],
-  ["mst_ship_upgrade", "mst_ship_upgrade"],
-  ["mst_ship_upgrades", "mst_ship_upgrade"],
-  ["mst_use_item", "mst_payitem"],
-  ["mst_use_items", "mst_payitem"],
-  ["mst_maparea", "mst_map_area"],
-  ["mst_map_areas", "mst_map_area"],
-  ["mst_mapinfo", "mst_map_info"],
-  ["mst_map_infos", "mst_map_info"],
-  ["mst_equip_exslot_ship", "mst_equip_exslot_ship"],
-  ["mst_equip_exslot_ships", "mst_equip_exslot_ship"],
-  ["mst_equip_exslot", "mst_equip_exslot"],
-  ["mst_equip_exslots", "mst_equip_exslot"],
-  ["mst_equip_limit_exslot", "mst_equip_limit_exslot"],
-  ["mst_equip_limit_exslots", "mst_equip_limit_exslot"],
-  ["mst_equip_ship", "mst_equip_ship"],
-  ["mst_equip_ships", "mst_equip_ship"],
-  ["mst_stype", "mst_stype"],
-  ["mst_stypes", "mst_stype"],
-]);
-
-// Shared per-source overrides for all tables (master/non-master).
-// Key format: `${sourceTable}.${fieldName}` -> target table or [target tables].
-const SOURCE_FIELD_TARGET_OVERRIDES = new Map([
-  ["mst_map_info.maparea_id", "mst_map_area"],
-  ["mst_ship_upgrade.api_current_ship_id", ["mst_ship", "mst_shipgraph"]],
-  ["mst_ship_upgrade.api_original_ship_id", ["mst_ship", "mst_shipgraph"]],
-  ["mst_ship.aftershipid", ["mst_ship", "mst_shipgraph"]],
-  ["mst_ship.stype", "mst_stype"],
-  ["mst_slotitem.type", "mst_slotitem_equiptype"],
-  ["own_ship.ship_id", ["mst_ship", "mst_shipgraph"]],
-  ["enemy_ship.mst_ship_id", ["mst_ship", "mst_shipgraph"]],
-  ["friend_ship.mst_ship_id", ["mst_ship", "mst_shipgraph"]],
-  ["cells.maparea_id", "mst_map_info"],
-]);
-
-// Shared generic field mappings (fallback when source-specific mapping is absent).
-const FIELD_TARGET_OVERRIDES = new Map([
-  ["equip", "mst_slotitem"],
-  ["si", "mst_slotitem"],
-]);
-
-function normalizeMasterTableName(name) {
-  return MASTER_TABLE_ALIASES.get(name) || name;
-}
-
-function normalizeTargets(targetValue) {
-  if (!targetValue) return [];
-  const list = Array.isArray(targetValue) ? targetValue : [targetValue];
-  return [...new Set(list.map((t) => normalizeMasterTableName(t)))];
-}
-
-function resolveOverrideTargets(fieldName, sourceTable = "") {
-  if (sourceTable) {
-    const sourceSpecific = SOURCE_FIELD_TARGET_OVERRIDES.get(
-      `${sourceTable}.${fieldName}`,
-    );
-    if (sourceSpecific) return normalizeTargets(sourceSpecific);
-  }
-
-  const generic = FIELD_TARGET_OVERRIDES.get(fieldName);
-  return normalizeTargets(generic);
-}
-
-function resolveOverrideTarget(fieldName, sourceTable = "") {
-  return resolveOverrideTargets(fieldName, sourceTable)[0] ?? null;
-}
 
 /** Compare version keys like "v0_4" vs "v1_0" numerically */
 function compareVersionKeys(a, b) {
@@ -224,15 +145,6 @@ function inferEdges(tables) {
 function resolveTarget(fieldName, sourceTable, tables) {
   const tableNames = tables.map((t) => t.table_name);
 
-  const overridden = resolveOverrideTarget(fieldName, sourceTable);
-  if (
-    overridden &&
-    tableNames.includes(overridden) &&
-    overridden !== sourceTable
-  ) {
-    return overridden;
-  }
-
   // Direct match: field_name minus common suffixes
   const candidates = [
     fieldName,
@@ -309,151 +221,6 @@ function resolveTarget(fieldName, sourceTable, tables) {
   return null;
 }
 
-function buildMasterDataNodesFromAvro(version) {
-  const masterPath = resolve(SCHEMAS_DIR, `master_schema_${version}.json`);
-  if (!existsSync(masterPath)) {
-    throw new Error(
-      `Required master schema file not found: ${masterPath}. Run kc_api/scripts/generate-schemas.sh first.`,
-    );
-  }
-
-  const raw = JSON.parse(readFileSync(masterPath, "utf-8"));
-  if (!Array.isArray(raw.schemas)) {
-    throw new Error(`Invalid master schema format: ${masterPath}`);
-  }
-
-  const nodes = [];
-  for (const table of raw.schemas) {
-    if (!table?.table_name || !table?.schema) continue;
-
-    let schema;
-    try {
-      schema =
-        typeof table.schema === "string"
-          ? JSON.parse(table.schema)
-          : table.schema;
-    } catch {
-      continue;
-    }
-
-    if (!schema || schema.type !== "record" || !Array.isArray(schema.fields)) {
-      continue;
-    }
-
-    const tableName = normalizeMasterTableName(table.table_name);
-    const fields = schema.fields.map((f) => {
-      const parsed = parseAvroType(f.type);
-      const masterTargets = resolveMasterTargets(f.name, tableName);
-      return {
-        name: f.name,
-        type: parsed.display,
-        isUuid: parsed.isUuid,
-        isKey: f.name === "id" || f.name === "api_id" || f.name === "uuid",
-        isFk:
-          (parsed.isUuid && f.name !== "uuid" && f.name !== "env_uuid") ||
-          masterTargets.some((target) => target !== tableName),
-      };
-    });
-
-    nodes.push({
-      id: tableName,
-      type: "schemaTableNode",
-      position: { x: 0, y: 0 },
-      data: {
-        tableName,
-        recordName: schema.name || tableName,
-        fields,
-      },
-    });
-  }
-
-  // Deduplicate by canonical table id (alias names can collapse)
-  const dedup = new Map();
-  for (const node of nodes) {
-    if (!dedup.has(node.id)) dedup.set(node.id, node);
-  }
-
-  const deduped = [...dedup.values()];
-  if (deduped.length === 0) {
-    throw new Error(`No master schemas found in: ${masterPath}`);
-  }
-
-  return deduped;
-}
-
-function resolveMasterTarget(fieldName, sourceTable = "") {
-  const overridden = resolveOverrideTarget(fieldName, sourceTable);
-  if (overridden) return overridden;
-
-  if (/^mst_[a-z0-9_]+_id$/.test(fieldName)) {
-    return normalizeMasterTableName(fieldName.replace(/_id$/, ""));
-  }
-
-  return null;
-}
-
-function resolveMasterTargets(fieldName, sourceTable = "") {
-  const overrides = resolveOverrideTargets(fieldName, sourceTable);
-  if (overrides.length > 0) return overrides;
-
-  if (/^mst_[a-z0-9_]+_id$/.test(fieldName)) {
-    return [normalizeMasterTableName(fieldName.replace(/_id$/, ""))];
-  }
-
-  return [];
-}
-
-function inferMasterEdges(nodes, masterNodeIds) {
-  const edges = [];
-
-  for (const node of nodes) {
-    const fields = node.data?.fields || [];
-    for (const field of fields) {
-      if (!field.isFk) continue;
-      const targets = resolveMasterTargets(field.name, node.id);
-      for (const target of targets) {
-        if (!masterNodeIds.has(target) || target === node.id) continue;
-
-        edges.push({
-          id: `e-${node.id}-${field.name}-${target}`,
-          source: node.id,
-          sourceHandle: `${node.id}-${field.name}`,
-          target,
-          targetHandle: `${target}-uuid`,
-          label: field.name,
-        });
-      }
-    }
-  }
-
-  return edges;
-}
-
-function mergeMasterDataGraph(result, masterNodes) {
-  if (!result || masterNodes.length === 0) return;
-
-  const nodeById = new Map(result.nodes.map((n) => [n.id, n]));
-  for (const master of masterNodes) {
-    if (!nodeById.has(master.id)) {
-      nodeById.set(master.id, master);
-    }
-  }
-
-  const mergedNodes = [...nodeById.values()];
-  const masterNodeIds = new Set(masterNodes.map((n) => n.id));
-  const masterEdges = inferMasterEdges(mergedNodes, masterNodeIds);
-
-  const edgeById = new Map();
-  for (const edge of [...result.edges, ...masterEdges]) {
-    edgeById.set(edge.id, edge);
-  }
-
-  result.nodes = mergedNodes;
-  result.edges = [...edgeById.values()];
-  result.tableCount = result.nodes.length;
-  result.masterTableCount = masterNodes.length;
-}
-
 function convertVersion(version) {
   const filePath = resolve(SCHEMAS_DIR, `schema_${version}.json`);
   if (!existsSync(filePath)) {
@@ -470,17 +237,12 @@ function convertVersion(version) {
     const schema = JSON.parse(t.schema);
     const fields = schema.fields.map((f) => {
       const parsed = parseAvroType(f.type);
-      const isMasterRef = /^mst_[a-z0-9_]+_id$/.test(f.name);
-      const masterTargets = resolveMasterTargets(f.name, t.table_name);
       return {
         name: f.name,
         type: parsed.display,
         isUuid: parsed.isUuid,
         isKey: f.name === "uuid",
-        isFk:
-          (parsed.isUuid && f.name !== "uuid" && f.name !== "env_uuid") ||
-          isMasterRef ||
-          masterTargets.some((target) => target !== t.table_name),
+        isFk: parsed.isUuid && f.name !== "uuid" && f.name !== "env_uuid",
       };
     });
 
@@ -696,8 +458,6 @@ const allVersions = {};
 for (const version of VERSIONS) {
   const result = results[version];
   if (result) {
-    const masterNodes = buildMasterDataNodesFromAvro(version);
-
     // Merge DOT edges (richer relationship data) into Avro version data
     if (dotMerge) {
       // Filter DOT edges to only include nodes present in this version
@@ -708,8 +468,6 @@ for (const version of VERSIONS) {
       // Enrich nodes with isEnvRef from DOT
       result.nodes = enrichAvroNodes(result.nodes, dotMerge.envRefFields);
     }
-
-    mergeMasterDataGraph(result, masterNodes);
 
     const outputPath = resolve(OUTPUT_DIR, `db_${version}.json`);
     writeFileSync(outputPath, JSON.stringify(result, null, 2));

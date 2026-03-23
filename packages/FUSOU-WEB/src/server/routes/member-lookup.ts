@@ -244,33 +244,19 @@ app.post('/verify-ownership', async (c) => {
         }, 200);
       }
       
-      // If it's owned by a DIFFERENT user, check if the owner is anonymous
+      // If it's owned by a DIFFERENT user, that's a CONFLICT!
+      // Try to fetch owner email via Admin API
       let ownerEmail: string | null = null;
-      let isAnonymousOwner = false;
       try {
         const { data: ownerAdmin } = await supabaseAdmin.auth.admin.getUserById(ownerUserId);
         ownerEmail = ownerAdmin?.user?.email ?? null;
-        isAnonymousOwner = !!(ownerAdmin?.user?.is_anonymous);
       } catch (_) {}
 
-      // If the existing owner is an anonymous user, allow migration
-      if (isAnonymousOwner) {
-        console.log('[verify-ownership] Existing owner is anonymous - migration allowed:', {
-          member_id_hash: member_id_hash ? member_id_hash.slice(0, 8) + '...' : null,
-          current_user: userId ? userId.slice(0, 8) + '...' : null,
-          anonymous_owner: ownerUserId ? ownerUserId.slice(0, 8) + '...' : null,
-        });
-        return jsonResponse({
-          verified: false,
-          migrateable: true,
-          message: 'This member ID is currently linked to an anonymous session and can be migrated to your account.',
-        }, 200);
-      }
-
       console.warn('[verify-ownership] CONFLICT DETECTED:', {
-        member_id_hash: member_id_hash ? member_id_hash.slice(0, 8) + '...' : null,
-        current_user: userId ? userId.slice(0, 8) + '...' : null,
-        existing_owner: ownerUserId ? ownerUserId.slice(0, 8) + '...' : null,
+        member_id_hash,
+        current_user: userId,
+        existing_owner: ownerUserId,
+        existing_email: ownerEmail,
       });
       
       return jsonResponse({
@@ -280,7 +266,7 @@ app.post('/verify-ownership', async (c) => {
     }
 
     // member_id_hash is not owned by anyone yet, safe to use
-    console.log('[verify-ownership] No conflict - member_id_hash is available:', member_id_hash ? member_id_hash.slice(0, 8) + '...' : null);
+    console.log('[verify-ownership] No conflict - member_id_hash is available:', member_id_hash);
     return jsonResponse({
       verified: false,
       message: 'This member ID is not linked to any account yet. You can link it now.',

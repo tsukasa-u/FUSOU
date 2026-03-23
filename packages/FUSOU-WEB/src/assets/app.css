@@ -451,31 +451,3 @@
   content: "\e87f";
   color: var(--color-accent);
 }
-
-.sim-delete-btn {
-  filter: blur(0.35px);
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in oklch, var(--color-base-100) 72%, transparent) 16%,
-    color-mix(in oklch, var(--color-base-100) 50%, transparent) 48%,
-    color-mix(in oklch, var(--color-base-100) 20%, transparent) 76%,
-    color-mix(in oklch, var(--color-base-100) 3%, transparent) 100%
-  );
-}
-
-.sim-delete-btn:hover {
-  background-image: radial-gradient(
-    circle at center,
-    color-mix(in oklch, var(--color-base-100) 78%, transparent) 14%,
-    color-mix(in oklch, var(--color-base-100) 58%, transparent) 46%,
-    color-mix(in oklch, var(--color-base-100) 24%, transparent) 76%,
-    color-mix(in oklch, var(--color-base-100) 5%, transparent) 100%
-  );
-}
-
-.sim-delete-btn-airbase,
-.sim-delete-btn-airbase:hover {
-  filter: none;
-  background-image: none;
-  background-color: transparent;
-}

@@ -1,4 +1,4 @@
-use kc_api::interface::{ship, slot_item, use_items, deck_port};
+use kc_api::interface::{ship, slot_item, use_items};
 use kc_api::fleet_snapshot::fleet::FleetSnapshot;
 use reqwest::Client;
 use serde_json::json;
@@ -15,13 +15,10 @@ fn get_payload_data() -> serde_json::Value {
     let use_items = use_items::UseItems::load();
     let ships = ship::Ships::load();
     let slot_items = slot_item::SlotItems::load();
-    let deck_data = deck_port::DeckPorts::load();
     let payload = FleetSnapshot::new(
         ships.ships.values().cloned().collect(),
         use_items.use_items.values().cloned().collect(),
         slot_items.slot_items.values().cloned().collect(),
-        deck_data.deck_ports.values().cloned().collect(),
-        deck_data.combined_flag,
     );
     json!(payload)
 }

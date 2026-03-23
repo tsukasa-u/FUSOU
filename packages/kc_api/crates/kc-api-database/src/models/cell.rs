@@ -5,7 +5,6 @@ use uuid::Uuid;
 use crate::models::battle::Battle;
 use crate::models::battle::BattleId;
 use crate::models::env_info::EnvInfoId;
-use crate::dedup::DedupCache;
 use crate::table::PortTable;
 
 #[cfg(feature = "schema_v0_5")]
@@ -47,7 +46,6 @@ impl Cells {
         uuid: Uuid,
         data: kc_api_interface::cells::Cells,
         table: &mut PortTable,
-        dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
     ) {
         let new_battle = Uuid::new_v7(ts);
@@ -60,7 +58,6 @@ impl Cells {
                     new_battle,
                     battle.clone(),
                     table,
-                    dedup,
                     env_uuid,
                     battle_index,
                 )

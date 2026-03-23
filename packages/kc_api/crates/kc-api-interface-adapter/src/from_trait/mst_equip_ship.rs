@@ -30,7 +30,7 @@ impl From<HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>>
         for (ship_id, equip_ship) in equip_ships {
             equip_ship_map.insert(
                 ship_id as i32,
-                InterfaceWrapper::<MstEquipShip>::from((ship_id, equip_ship)).unwrap(),
+                InterfaceWrapper::<MstEquipShip>::from(equip_ship).unwrap(),
             );
         }
         Self(MstEquipShips {
@@ -54,12 +54,9 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrappe
 }
 
 #[cfg(feature = "20250627")]
-impl From<(i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)>
-    for InterfaceWrapper<MstEquipShip>
-{
-    fn from((ship_id, equip_ship): (i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)) -> Self {
+impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrapper<MstEquipShip> {
+    fn from(equip_ship: kcapi_main::api_start2::get_data::ApiMstEquipShip) -> Self {
         Self(MstEquipShip {
-            ship_id: ship_id as i32,
             equip_type: equip_ship
                 .api_equip_type
                 .into_iter()
@@ -69,9 +66,7 @@ impl From<(i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)>
                         v.map(|values| values.into_iter().map(|value| value as i32).collect()),
                     )
                 })
-                .collect(),
+                .collect::<HashMap<String, Option<Vec<i32>>>>(),
         })
     }
 }
-
-

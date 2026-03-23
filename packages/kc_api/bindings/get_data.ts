@@ -2,17 +2,17 @@
 
 export type MstEquipExslot = { equip: number, };
 
-export type MstEquipExslotShip = { slotitem_id: number, ship_ids: { [key in string]?: number } | null, stypes: { [key in string]?: number } | null, ctypes: { [key in string]?: number } | null, req_level: number, };
+export type MstEquipExslotShip = { ship_ids: { [key in string]?: number } | null, stypes: { [key in string]?: number } | null, ctypes: { [key in string]?: number } | null, req_level: number, };
 
 export type MstEquipExslotShips = { mst_equip_ships: { [key in string]?: MstEquipExslotShip }, };
 
 export type MstEquipExslots = { mst_equip_exslots: { [key in number]?: MstEquipExslot }, };
 
-export type MstEquipLimitExslot = { ship_id: number, equip: Array<number>, };
+export type MstEquipLimitExslot = { equip: Array<number>, };
 
 export type MstEquipLimitExslots = { mst_equip_limit_exslots: { [key in number]?: MstEquipLimitExslot }, };
 
-export type MstEquipShip = { ship_id: number, equip_type: { [key in string]?: Array<number> | null }, };
+export type MstEquipShip = { equip_type: { [key in string]?: Array<number> | null }, };
 
 export type MstEquipShips = { mst_equip_ships: { [key in number]?: MstEquipShip }, };
 

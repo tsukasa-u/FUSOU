@@ -23,9 +23,7 @@ export interface EnvContext {
 /**
  * Honoコンテキストから統一環境変数コンテキストを生成
  */
-export function createEnvContext(
-  c: Pick<Context, "env"> | { env?: any },
-): EnvContext {
+export function createEnvContext(c: Pick<Context, "env"> | { env?: any }): EnvContext {
   const runtimeEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
   const isDev = import.meta.env.DEV;
 
@@ -81,7 +79,7 @@ export function hasEnv(ctx: EnvContext, key: string): boolean {
 export async function generateSignedToken(
   payload: Record<string, any>,
   secret: string,
-  expiresInSeconds: number,
+  expiresInSeconds: number
 ): Promise<string> {
   const secretKey = new TextEncoder().encode(secret);
   const token = await new SignJWT(payload)
@@ -94,7 +92,7 @@ export async function generateSignedToken(
 /** 署名付きトークンを検証 */
 export async function verifySignedToken(
   token: string,
-  secret: string,
+  secret: string
 ): Promise<Record<string, any> | null> {
   try {
     const secretKey = new TextEncoder().encode(secret);
@@ -112,7 +110,7 @@ export async function verifySignedToken(
  */
 export function getEnvValue(
   key: string,
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, any> = {}
 ): string | undefined {
   const ctx: EnvContext = {
     runtime: runtimeEnv,
@@ -141,7 +139,7 @@ export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
  * @deprecated Use createEnvContext() + resolveSupabaseConfig() instead
  */
 export function resolveSupabaseConfigLegacy(
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, any> = {}
 ): SupabaseConfig {
   const ctx: EnvContext = {
     runtime: runtimeEnv,
@@ -156,7 +154,7 @@ export function resolveSupabaseConfigLegacy(
  * @deprecated Use createEnvContext() instead for unified environment access
  */
 export function getRuntimeEnv(
-  c: Pick<Context, "env"> | { env?: any },
+  c: Pick<Context, "env"> | { env?: any }
 ): Record<string, any> {
   return ((c as any)?.env as any)?.env || (c as any)?.env || {};
 }
@@ -178,19 +176,11 @@ export function injectEnv(locals: any): Bindings {
     BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
     MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
     MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
-    ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
-    // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
     SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,
-    PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(
-      ctx,
-      "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-    )!,
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
     ASSET_UPLOAD_SIGNING_SECRET: getEnv(ctx, "ASSET_UPLOAD_SIGNING_SECRET")!,
-    FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(
-      ctx,
-      "FLEET_SNAPSHOT_SIGNING_SECRET",
-    )!,
+    FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
@@ -199,7 +189,6 @@ export function injectEnv(locals: any): Bindings {
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
     COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
-    SHORTENER_SERVICE: ctx.runtime.SHORTENER_SERVICE,
   };
 }
 
@@ -208,9 +197,7 @@ export function injectEnv(locals: any): Bindings {
 // ========================
 
 /** Authorization ヘッダーから Bearer トークンを抽出 */
-export function extractBearer(
-  header: string | null | undefined,
-): string | null {
+export function extractBearer(header: string | null | undefined): string | null {
   if (!header) return null;
   const [scheme, ...rest] = header.trim().split(/\s+/);
   if (!rest.length || scheme.toLowerCase() !== "bearer") return null;
@@ -242,9 +229,7 @@ export function extractExtension(value?: string | null): string | null {
 }
 
 /** 許可された拡張子リストを解決 */
-export function resolveAllowedExtensions(
-  ...sources: (string | undefined)[]
-): Set<string> {
+export function resolveAllowedExtensions(...sources: (string | undefined)[]): Set<string> {
   for (const source of sources) {
     const entries = parseList(source);
     if (entries.length > 0) return new Set(entries);
@@ -301,7 +286,7 @@ let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
 function getJWKS() {
   if (JWKS) return JWKS;
   if (!SUPABASE_URL) return undefined;
-
+  
   try {
     const jwksUrl = new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`);
     JWKS = createRemoteJWKSet(jwksUrl);
@@ -320,9 +305,7 @@ export async function validateJWT(token: string): Promise<{
   try {
     const jwks = getJWKS();
     if (!SUPABASE_URL || !jwks) {
-      console.error(
-        "validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized",
-      );
+      console.error("validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized");
       return null;
     }
 
@@ -344,22 +327,20 @@ export async function validateJWT(token: string): Promise<{
 
 /**
  * dataset_token を検証（匿名認証で発行された署名付きトークン）
- *
+ * 
  * @param token dataset_token文字列
  * @param secret DATASET_TOKEN_SECRET
  * @returns 検証成功時は { dataset_id } を返す。失敗時はnull
  */
 export async function validateDatasetToken(
   token: string,
-  secret: string,
+  secret: string
 ): Promise<{
   dataset_id: string;
 } | null> {
   try {
     if (!secret) {
-      console.error(
-        "validateDatasetToken: DATASET_TOKEN_SECRET not configured",
-      );
+      console.error("validateDatasetToken: DATASET_TOKEN_SECRET not configured");
       return null;
     }
 
@@ -367,10 +348,10 @@ export async function validateDatasetToken(
     if (!payload) return null;
 
     // 必須フィールド検証
-    if (payload.typ !== "dataset") return null;
-    if (typeof payload.sub !== "string") return null;
-    if (typeof payload.dataset_id !== "string") return null;
-    if (payload.aud !== "fusou-upload") return null;
+    if (payload.typ !== 'dataset') return null;
+    if (typeof payload.sub !== 'string') return null;
+    if (typeof payload.dataset_id !== 'string') return null;
+    if (payload.aud !== 'fusou-upload') return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
@@ -385,7 +366,7 @@ export async function validateDatasetToken(
 /** 許可リストに違反するかチェック */
 export function violatesAllowList(
   candidates: Array<string | null | undefined>,
-  allowList: Set<string>,
+  allowList: Set<string>
 ): boolean {
   if (allowList.size === 0) return true;
   return candidates.some((value) => {
@@ -416,37 +397,35 @@ export function parseSize(value: string | undefined): number | null {
 export async function generateR2SignedUrl(
   _bucket: any, // R2BucketBinding
   key: string,
-  _expiresInSeconds: number = 3600, // デフォルト1時間
+  _expiresInSeconds: number = 3600 // デフォルト1時間
 ): Promise<string> {
   // Cloudflare R2 の GetObject に対する署名URL を生成
   // Workers 環境では bucket.createSignedUrl() を使用（利用可能な場合）
-
+  
   // フォールバック: 公開読み取り前提（署名URL生成APIがない場合）
   // 本来は AWS SDK の getSignedUrl を使用することが推奨されます
-
+  
   try {
     // Cloudflare Workers Bindings には署名URL生成機能がないため、
     // 以下のいずれかの方法が必要：
     // 1. Cloudflare REST API を呼び出す
     // 2. AWS SDK を使用して署名を手動計算
     // 3. Workers KV に一時トークンを保存
-
+    
     // 現状の実装では、バケットの特定キーに対して
     // 時限付きアクセスを提供するため、別方法を採用：
-
+    
     // 現状の実装では、バケットの特定キーに対して
     // 時限付きアクセスを提供するため、別方法を採用：
-
+    
     // バケットバインディングオブジェクトからenvを取得するのは難しいため、
     // 呼び出し元で generateR2SignedUrl を呼ぶ前に必要なコンテキストを解決するか、
     // この関数自体を非推奨にして generateTimeBasedSignedUrl を直接使うべきですが、
     // とりあえずここでは後方互換性のために generateTimeBasedSignedUrl のシグネチャ変更に合わせて修正します。
     // ただし、ここからは secret と baseUrl が取れないので、この関数は実質的に使えなくなります。
     // 呼び出し元を修正する必要があります。
-
-    throw new Error(
-      "generateR2SignedUrl is deprecated. Use generateTimeBasedSignedUrl with explicit secrets instead.",
-    );
+    
+    throw new Error("generateR2SignedUrl is deprecated. Use generateTimeBasedSignedUrl with explicit secrets instead.");
   } catch (error) {
     console.error(`Failed to generate R2 signed URL for key: ${key}`, error);
     throw error;
@@ -461,30 +440,30 @@ export async function generateTimeBasedSignedUrl(
   key: string,
   secret: string,
   baseUrl: string,
-  expiresInSeconds: number = 3600,
+  expiresInSeconds: number = 3600
 ): Promise<string> {
   if (!secret) {
-    throw new Error("Secret is required for signed URL generation");
+    throw new Error('Secret is required for signed URL generation');
   }
 
   if (!baseUrl) {
-    throw new Error("Base URL is required for signed URL generation");
+    throw new Error('Base URL is required for signed URL generation');
   }
 
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + expiresInSeconds;
-
+  
   // 署名トークン生成（R2 Presigned URL の代替）
   const token = await generateSignedToken(
     {
       key,
-      action: "read",
+      action: 'read',
       exp: expiresAt,
     },
     secret,
-    expiresInSeconds,
+    expiresInSeconds
   );
-
+  
   // URL に token をパラメータとして含める
   // WASM または外部クライアントが token を使用してアクセス
   return `${baseUrl}/${key}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
@@ -497,31 +476,31 @@ export async function generateTimeBasedSignedUrl(
 export async function verifyR2SignedUrl(
   token: string,
   key: string,
-  secret: string,
+  secret: string
 ): Promise<boolean> {
   try {
     if (!secret) {
-      console.error("verifyR2SignedUrl: Secret not provided");
+      console.error('verifyR2SignedUrl: Secret not provided');
       return false;
     }
 
     const payload = await verifySignedToken(token, secret);
-
+    
     if (!payload) return false;
-
+    
     // キーの一致確認
     if (payload.key !== key) return false;
-
+    
     // アクション確認
-    if (payload.action !== "read") return false;
-
+    if (payload.action !== 'read') return false;
+    
     // 有効期限確認
     const now = Math.floor(Date.now() / 1000);
     if (payload.exp && payload.exp < now) return false;
-
+    
     return true;
   } catch (error) {
-    console.error("R2 signed URL verification failed:", error);
+    console.error('R2 signed URL verification failed:', error);
     return false;
   }
 }
@@ -529,14 +508,14 @@ export async function verifyR2SignedUrl(
 /**
  * R2 バケットからバイナリデータを読み込む（署名URL不要）
  * Worker環境内でのアクセス（env.R2バインディング経由）
- *
+ * 
  * @param bucket R2BucketBinding
  * @param key オブジェクトキー
  * @returns バイナリデータ（ArrayBuffer）
  */
 export async function readR2Binary(
   bucket: any,
-  key: string,
+  key: string
 ): Promise<ArrayBuffer> {
   const obj = await bucket.get(key);
   if (!obj) {
@@ -547,7 +526,7 @@ export async function readR2Binary(
 
 /**
  * R2 バケットにバイナリデータを書き込む
- *
+ * 
  * @param bucket R2BucketBinding
  * @param key オブジェクトキー
  * @param data バイナリデータ
@@ -557,7 +536,7 @@ export async function writeR2Binary(
   bucket: any,
   key: string,
   data: ArrayBuffer | Uint8Array,
-  metadata?: Record<string, string>,
+  metadata?: Record<string, string>
 ): Promise<void> {
   await bucket.put(key, data, {
     customMetadata: metadata,
@@ -566,21 +545,21 @@ export async function writeR2Binary(
 
 /**
  * R2 オブジェクトのメタデータを取得（ファイルサイズ確認用）
- *
+ * 
  * @param bucket R2BucketBinding
  * @param key オブジェクトキー
  * @returns メタデータ（size, contentType, lastModified）
  */
 export async function getR2ObjectMetadata(
   bucket: any,
-  key: string,
+  key: string
 ): Promise<{ size: number; contentType: string; lastModified: Date } | null> {
   try {
     const obj = await bucket.head(key);
     if (!obj) return null;
     return {
       size: obj.size || 0,
-      contentType: obj.contentType || "application/octet-stream",
+      contentType: obj.contentType || 'application/octet-stream',
       lastModified: obj.uploaded || new Date(),
     };
   } catch (error) {
@@ -591,48 +570,45 @@ export async function getR2ObjectMetadata(
 /**
  * [Issue #19] トークンペイロードの型安全性を確保
  * Payload から required fields を検証して必須フィールドがすべて存在することを確認
- *
+ * 
  * @param payload トークンペイロード
  * @param requiredFields 必須フィールド名のリスト
  * @returns { valid: boolean, error?: string, data?: any }
  */
 export function validateTokenPayload(
   payload: any,
-  requiredFields: string[] = [],
+  requiredFields: string[] = []
 ): { valid: boolean; error?: string; data?: any } {
-  if (!payload || typeof payload !== "object") {
+  if (!payload || typeof payload !== 'object') {
     return {
       valid: false,
-      error: "Token payload must be a non-null object",
+      error: 'Token payload must be a non-null object',
     };
   }
 
   // Check for required fields
-  const missingFields = requiredFields.filter((field) => !(field in payload));
+  const missingFields = requiredFields.filter(field => !(field in payload));
   if (missingFields.length > 0) {
     return {
       valid: false,
-      error: `Missing required fields in token payload: ${missingFields.join(", ")}`,
+      error: `Missing required fields in token payload: ${missingFields.join(', ')}`,
     };
   }
 
   // Validate user_id is present and is string
-  if (!payload.user_id || typeof payload.user_id !== "string") {
+  if (!payload.user_id || typeof payload.user_id !== 'string') {
     return {
       valid: false,
-      error: "Token payload must have user_id as string",
+      error: 'Token payload must have user_id as string',
     };
   }
 
   // Validate expectedFileSize if present (should be number)
-  if ("expectedFileSize" in payload && payload.expectedFileSize !== null) {
-    if (
-      typeof payload.expectedFileSize !== "number" ||
-      payload.expectedFileSize <= 0
-    ) {
+  if ('expectedFileSize' in payload && payload.expectedFileSize !== null) {
+    if (typeof payload.expectedFileSize !== 'number' || payload.expectedFileSize <= 0) {
       return {
         valid: false,
-        error: "expectedFileSize must be a positive number if provided",
+        error: 'expectedFileSize must be a positive number if provided',
       };
     }
   }

@@ -19,28 +19,25 @@ export const POST: APIRoute = async ({
   const currentUrl = new URL(request.url);
   const appOriginParam = currentUrl.searchParams.get("app_origin");
 
-  // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
-  // Fall back to the request-derived origin only when no canonical URL is configured (local dev).
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
-  const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
-  if (!siteUrl && import.meta.env.PROD) {
-    console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured in production");
-    return new Response("Server misconfiguration", { status: 500 });
+  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+  const providedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
+  if (!providedOrigin) {
+    return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
+      status: 500,
+    });
   }
-  const canonicalOrigin = siteUrl || currentUrl.origin;
 
-  // CSRF protection: Validate Origin/Referer header against canonical origin
-  if (!validateOrigin(request, canonicalOrigin)) {
+  // CSRF protection: Validate Origin/Referer header
+  if (!validateOrigin(request, providedOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }
 
   const formData = await request.formData();
-  const url_origin = canonicalOrigin;
+  const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)
   const appOriginFormParam = formData.get("app_origin")?.toString() || appOriginParam;
-  const memberIdHash = formData.get("member_id_hash")?.toString();
 
   const validProviders = ["google"];
 
@@ -59,12 +56,9 @@ export const POST: APIRoute = async ({
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
   }
-  if (memberIdHash) {
-    callbackUrl.searchParams.set("member_id_hash", memberIdHash);
-  }
 
   // Open Redirect protection: Validate callback URL
-  if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {
+  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
     return new Response("Invalid callback URL", { status: 400 });
   }
 
