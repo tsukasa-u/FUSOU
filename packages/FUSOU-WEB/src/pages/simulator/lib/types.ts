@@ -12,6 +12,8 @@ export interface MstShipData {
   raig: number[] | null;
   tyku: number[] | null;
   tais: number[] | null;
+  kaih?: number[] | null;
+  saku?: number[] | null;
   luck: number[] | null;
   soku: number;
   leng: number;
@@ -42,6 +44,10 @@ export interface MstSlotItemData {
   leng?: number;
   soku?: number;
   distance: number | null;
+  /** 迎撃 (Interception) — computed: api_houk when type[2]==48, else 0 */
+  geigeki?: number;
+  /** 対爆 (Anti-Bomber) — computed: api_houm when type[2]==48, else 0 */
+  taibaku?: number;
 }
 
 /** api_mst_slotitem_equiptype — equipment category master */
@@ -92,6 +98,17 @@ export interface AirBaseSlot {
   equipProficiency: number[];
 }
 
+export interface ShipSelection {
+  id: number | null;
+  level?: number | null;
+}
+
+export interface EquipSelection {
+  id: number | null;
+  level?: number;
+  alv?: number;
+}
+
 export function emptyFleetSlot(): FleetSlot {
   return {
     shipId: null,
@@ -130,7 +147,7 @@ export interface MstEquipShipData {
   equip_type: Record<string, number[] | null>;
 }
 
-/** api_mst_equip_exslot — equipment ID allowed in reinforcement expansion slot */
+/** api_mst_equip_exslot — equipment type[2] IDs available for reinforcement expansion slot */
 export interface MstEquipExslotData {
   equip: number;
 }
@@ -145,9 +162,11 @@ export interface MstEquipExslotShipData {
   /** Keys: ship class IDs (string), Values: 1=allowed */
   ctypes: Record<string, number> | null;
   req_level: number;
+  /** Optional proficiency requirement if provided by upstream master data. */
+  req_alv?: number;
 }
 
-/** api_mst_equip_limit_exslot — per-ship exslot equipment limits */
+/** api_mst_equip_limit_exslot — per-ship excluded exslot equipment type[2] IDs */
 export interface MstEquipLimitExslotData {
   ship_id: number;
   equip: number[];

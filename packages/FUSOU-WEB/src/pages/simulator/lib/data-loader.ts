@@ -1,6 +1,28 @@
 // ── Data loader: master data import, normalization, asset loading ──
 
-import { state } from "./state";
+import {
+  addEquipExslotId,
+  resetWeaponIconFrames,
+  setAssetBaseUrl,
+  setBannerMap,
+  setCardMap,
+  setEquipCardMap,
+  setEquipItemUpMap,
+  setHasMasterData,
+  setMasterEquipExslotShip,
+  setMasterEquipLimitExslot,
+  setMasterEquipShip,
+  setMasterEquipType,
+  setMasterShip,
+  setMasterSlotItem,
+  setMasterStype,
+  setSlotItemEffects,
+  setSpriteSheetMeta,
+  setSpriteSheetUrl,
+  setWeaponIconFrame,
+} from "./simulator-mutations";
+import { beginBulkLoad, endBulkLoad } from "./state";
+import { getAssetBaseUrl, getMasterDataCounts } from "./simulator-selectors";
 import type {
   MstShipData,
   MstSlotItemData,
@@ -23,25 +45,26 @@ export function normalizeMstSlotItem(raw: MstSlotItemData): MstSlotItemData {
 export function updateDataStatus() {
   const statusEl = document.getElementById("data-status");
   const textEl = document.getElementById("data-status-text");
-  const shipCount = Object.keys(state.mstShips).length;
-  const equipCount = Object.keys(state.mstSlotItems).length;
+  const counts = getMasterDataCounts();
+  const shipCount = counts.ships;
+  const equipCount = counts.equips;
 
   if (!statusEl || !textEl) {
     // Some render paths may load data before the status elements are mounted.
-    state.hasMasterData = shipCount > 0 || equipCount > 0;
+    setHasMasterData(shipCount > 0 || equipCount > 0);
     return;
   }
 
   if (shipCount > 0 && equipCount > 0) {
-    state.hasMasterData = true;
+    setHasMasterData(true);
     statusEl.className = "alert alert-success mb-5 py-2";
     textEl.textContent = `マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
   } else if (shipCount > 0 || equipCount > 0) {
-    state.hasMasterData = true;
+    setHasMasterData(true);
     statusEl.className = "alert alert-warning mb-5 py-2";
     textEl.textContent = `一部マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
   } else {
-    state.hasMasterData = false;
+    setHasMasterData(false);
     statusEl.className = "alert alert-warning mb-5 py-2";
     textEl.textContent = "マスターデータが未読込です";
   }
@@ -64,7 +87,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
     if (Array.isArray(obj.mst_stypes)) {
       for (const v of obj.mst_stypes) {
         if (v && typeof v === "object" && "id" in v) {
-          state.mstStypes[(v as MstStypeData).id] = v as MstStypeData;
+          setMasterStype(v as MstStypeData);
         }
       }
     } else {
@@ -72,7 +95,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
         obj.mst_stypes as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "id" in v) {
-          state.mstStypes[Number(k)] = v as MstStypeData;
+          setMasterStype({ ...(v as MstStypeData), id: Number(k) });
         }
       }
     }
@@ -83,7 +106,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
     if (Array.isArray(obj.mst_equip_exslots)) {
       for (const v of obj.mst_equip_exslots) {
         if (v && typeof v === "object" && "equip" in v) {
-          state.equipExslotSet.add((v as MstEquipExslotData).equip);
+          addEquipExslotId((v as MstEquipExslotData).equip);
         }
       }
     } else {
@@ -91,7 +114,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
         obj.mst_equip_exslots as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip" in v) {
-          state.equipExslotSet.add((v as MstEquipExslotData).equip);
+          addEquipExslotId((v as MstEquipExslotData).equip);
         }
       }
     }
@@ -102,8 +125,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
     if (Array.isArray(obj.mst_equip_ships)) {
       for (const v of obj.mst_equip_ships) {
         if (v && typeof v === "object" && "ship_id" in v && "equip_type" in v) {
-          state.mstEquipShip[(v as MstEquipShipData).ship_id] =
-            v as MstEquipShipData;
+          setMasterEquipShip(v as MstEquipShipData);
         }
       }
     } else {
@@ -111,7 +133,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
         obj.mst_equip_ships as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip_type" in v) {
-          state.mstEquipShip[Number(k)] = v as MstEquipShipData;
+          setMasterEquipShip({ ...(v as MstEquipShipData), ship_id: Number(k) });
         }
       }
     }
@@ -125,8 +147,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
     if (Array.isArray(obj.mst_equip_exslot_ships)) {
       for (const v of obj.mst_equip_exslot_ships) {
         if (v && typeof v === "object" && "slotitem_id" in v) {
-          state.mstEquipExslotShip[(v as MstEquipExslotShipData).slotitem_id] =
-            v as MstEquipExslotShipData;
+          setMasterEquipExslotShip(v as MstEquipExslotShipData);
         }
       }
     } else {
@@ -134,7 +155,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
         obj.mst_equip_exslot_ships as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "req_level" in v) {
-          state.mstEquipExslotShip[Number(k)] = v as MstEquipExslotShipData;
+          setMasterEquipExslotShip({ ...(v as MstEquipExslotShipData), slotitem_id: Number(k) });
         }
       }
     }
@@ -148,8 +169,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
     if (Array.isArray(obj.mst_equip_limit_exslots)) {
       for (const v of obj.mst_equip_limit_exslots) {
         if (v && typeof v === "object" && "ship_id" in v && "equip" in v) {
-          state.mstEquipLimitExslot[(v as MstEquipLimitExslotData).ship_id] =
-            v as MstEquipLimitExslotData;
+          setMasterEquipLimitExslot(v as MstEquipLimitExslotData);
         }
       }
     } else {
@@ -157,7 +177,7 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
         obj.mst_equip_limit_exslots as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip" in v) {
-          state.mstEquipLimitExslot[Number(k)] = v as MstEquipLimitExslotData;
+          setMasterEquipLimitExslot({ ...(v as MstEquipLimitExslotData), ship_id: Number(k) });
         }
       }
     }
@@ -168,11 +188,13 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   if (typeof json !== "object" || json === null) return;
   const obj = json as Record<string, unknown>;
 
-  if (obj.mst_ships && typeof obj.mst_ships === "object") {
+  beginBulkLoad();
+  try {
+    if (obj.mst_ships && typeof obj.mst_ships === "object") {
     if (Array.isArray(obj.mst_ships)) {
       for (const v of obj.mst_ships) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
-          state.mstShips[(v as MstShipData).id] = v as MstShipData;
+          setMasterShip(v as MstShipData);
         }
       }
     } else {
@@ -180,18 +202,18 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
         obj.mst_ships as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
-          state.mstShips[Number(k)] = v as MstShipData;
+          setMasterShip({ ...(v as MstShipData), id: Number(k) });
         }
       }
     }
   }
 
-  if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
+    if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
     if (Array.isArray(obj.mst_slot_items)) {
       for (const v of obj.mst_slot_items) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
           const item = normalizeMstSlotItem(v as MstSlotItemData);
-          state.mstSlotItems[item.id] = item;
+          setMasterSlotItem(item);
         }
       }
     } else {
@@ -199,47 +221,51 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
         obj.mst_slot_items as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
-          state.mstSlotItems[Number(k)] = normalizeMstSlotItem(
-            v as MstSlotItemData,
-          );
+          setMasterSlotItem({
+            ...normalizeMstSlotItem(v as MstSlotItemData),
+            id: Number(k),
+          });
         }
       }
     }
   }
 
   // Optional: equipment type master for category display
-  const equipTypeObj =
-    (obj.mst_slotitem_equiptypes as unknown) ??
-    (obj.mst_slotitem_equiptype as unknown);
-  if (equipTypeObj && typeof equipTypeObj === "object") {
+    const equipTypeObj =
+      (obj.mst_slotitem_equiptypes as unknown) ??
+      (obj.mst_slotitem_equiptype as unknown);
+    if (equipTypeObj && typeof equipTypeObj === "object") {
     if (Array.isArray(equipTypeObj)) {
       for (const v of equipTypeObj) {
         if (v && typeof v === "object" && "id" in v && "name" in v) {
           const rec = v as MstSlotItemEquipTypeData;
-          state.mstSlotItemEquipTypes[rec.id] = rec;
+          setMasterEquipType(rec);
         }
       }
     } else {
       for (const [k, v] of Object.entries(equipTypeObj as Record<string, unknown>)) {
         if (v && typeof v === "object" && "name" in v) {
           const rec = v as MstSlotItemEquipTypeData;
-          state.mstSlotItemEquipTypes[Number(k)] = { ...rec, id: Number(k) };
+          setMasterEquipType({ ...rec, id: Number(k) });
         }
       }
     }
   }
 
-  if (obj.ships && !obj.mst_ships) {
-    loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
-  }
-  if (obj.equipments && !obj.mst_slot_items) {
-    loadMasterDataFromJson({ mst_slot_items: obj.equipments }, renderAll);
-  }
+    if (obj.ships && !obj.mst_ships) {
+      loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
+    }
+    if (obj.equipments && !obj.mst_slot_items) {
+      loadMasterDataFromJson({ mst_slot_items: obj.equipments }, renderAll);
+    }
 
   // ── Equipment filtering tables (JSON import preserves keys) ──
-  loadEquipFilterFromJson(obj);
+    loadEquipFilterFromJson(obj);
 
-  updateDataStatus();
+    updateDataStatus();
+  } finally {
+    endBulkLoad("all");
+  }
   renderAll();
 }
 
@@ -273,21 +299,23 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
 }
 
 export async function loadMasterData(renderAll: () => void) {
-  const [
-    shipData,
-    equipData,
-    bannerMapData,
-    cardMapData,
-    equipImageData,
-    iconFrameData,
-    synergyData,
-    equipTypeData,
-    stypeData,
-    equipExslotData,
-    equipShipData,
-    equipExslotShipData,
-    equipLimitExslotData,
-  ] = await Promise.all([
+  beginBulkLoad();
+  try {
+    const [
+      shipData,
+      equipData,
+      bannerMapData,
+      cardMapData,
+      equipImageData,
+      iconFrameData,
+      synergyData,
+      equipTypeData,
+      stypeData,
+      equipExslotData,
+      equipShipData,
+      equipExslotShipData,
+      equipLimitExslotData,
+    ] = await Promise.all([
     fetchJsonSafe<{ records: MstShipData[] }>(
       "/api/master-data/json?table_name=mst_ship",
       "mst_ship",
@@ -346,127 +374,125 @@ export async function loadMasterData(renderAll: () => void) {
     ),
   ]);
 
-  if (shipData?.records) {
+    if (shipData?.records) {
     for (const s of shipData.records) {
-      if (s && s.id != null && s.name) state.mstShips[s.id] = s;
+      if (s && s.id != null && s.name) setMasterShip(s);
     }
   }
 
-  if (equipData?.records) {
+    if (equipData?.records) {
     for (const e of equipData.records) {
       if (e && e.id != null && e.name)
-        state.mstSlotItems[e.id] = normalizeMstSlotItem(e);
+        setMasterSlotItem(normalizeMstSlotItem(e));
     }
   }
 
-  if (bannerMapData?.base_url) state.assetBaseUrl = bannerMapData.base_url;
-  if (bannerMapData?.banners) state.bannerMap = bannerMapData.banners;
+    if (bannerMapData?.base_url) setAssetBaseUrl(bannerMapData.base_url);
+    if (bannerMapData?.banners) setBannerMap(bannerMapData.banners);
 
-  if (cardMapData?.base_url && !state.assetBaseUrl)
-    state.assetBaseUrl = cardMapData.base_url;
-  if (cardMapData?.cards) state.cardMap = cardMapData.cards;
+    if (cardMapData?.base_url && !getAssetBaseUrl())
+      setAssetBaseUrl(cardMapData.base_url);
+    if (cardMapData?.cards) setCardMap(cardMapData.cards);
 
-  if (equipImageData?.base_url && !state.assetBaseUrl)
-    state.assetBaseUrl = equipImageData.base_url;
-  if (equipImageData?.card) state.equipCardMap = equipImageData.card;
-  if (equipImageData?.item_up) state.equipItemUpMap = equipImageData.item_up;
+    if (equipImageData?.base_url && !getAssetBaseUrl())
+      setAssetBaseUrl(equipImageData.base_url);
+    if (equipImageData?.card) setEquipCardMap(equipImageData.card);
+    if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
 
-  if (iconFrameData?.frames) {
-    state.weaponIconFrames = {};
+    if (iconFrameData?.frames) {
+    resetWeaponIconFrames();
     for (const [name, entry] of Object.entries(iconFrameData.frames)) {
       const m = name.match(/_id_(\d+)$/);
       if (!m) continue;
       const { x, y, w, h } = entry.frame;
-      state.weaponIconFrames[parseInt(m[1], 10)] = [x, y, w, h];
+      setWeaponIconFrame(parseInt(m[1], 10), [x, y, w, h]);
     }
   }
 
-  if (iconFrameData?.meta?.size) {
-    state.spriteSheetW = iconFrameData.meta.size.w ?? 0;
-    state.spriteSheetH = iconFrameData.meta.size.h ?? 0;
+    if (iconFrameData?.meta?.size) {
+    setSpriteSheetMeta(iconFrameData.meta.size.w ?? 0, iconFrameData.meta.size.h ?? 0);
   }
 
-  if (iconFrameData) {
+    if (iconFrameData) {
     const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
     try {
       const pngRes = await fetch("/api/asset-sync/weapon-icons");
       if (pngRes.ok) {
         const pngBlob = await pngRes.blob();
-        state.spriteSheetUrl = await new Promise<string>((resolve, reject) => {
+        setSpriteSheetUrl(await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(pngBlob);
-        });
+        }));
       } else {
-        state.spriteSheetUrl = state.assetBaseUrl
-          ? `${state.assetBaseUrl}/${pngKey}`
-          : "/api/asset-sync/weapon-icons";
+        const assetBaseUrl = getAssetBaseUrl();
+        setSpriteSheetUrl(assetBaseUrl
+          ? `${assetBaseUrl}/${pngKey}`
+          : "/api/asset-sync/weapon-icons");
       }
     } catch {
-      state.spriteSheetUrl = state.assetBaseUrl
-        ? `${state.assetBaseUrl}/${pngKey}`
-        : "/api/asset-sync/weapon-icons";
+      const assetBaseUrl = getAssetBaseUrl();
+      setSpriteSheetUrl(assetBaseUrl
+        ? `${assetBaseUrl}/${pngKey}`
+        : "/api/asset-sync/weapon-icons");
     }
   }
 
-  if (synergyData?.effects && synergyData.cross_effects) {
-    state.slotItemEffects = synergyData;
+    if (synergyData?.effects && synergyData.cross_effects) {
+    setSlotItemEffects(synergyData);
   }
 
-  if (equipTypeData?.records) {
+    if (equipTypeData?.records) {
     for (const t of equipTypeData.records) {
       if (t && t.id != null && t.name) {
-        state.mstSlotItemEquipTypes[t.id] = t;
+        setMasterEquipType(t);
       }
     }
   }
 
   // ── Equipment filtering tables ──
-  if (stypeData?.records) {
+    if (stypeData?.records) {
     for (const s of stypeData.records) {
-      if (s && s.id != null) state.mstStypes[s.id] = s;
+      if (s && s.id != null) setMasterStype(s);
     }
   }
 
-  if (equipExslotData?.records) {
+    if (equipExslotData?.records) {
     for (const e of equipExslotData.records) {
-      if (e && e.equip != null) state.equipExslotSet.add(e.equip);
+      if (e && e.equip != null) addEquipExslotId(e.equip);
     }
   }
 
-  if (equipShipData?.records) {
+    if (equipShipData?.records) {
     for (const r of equipShipData.records) {
       if (r && r.ship_id != null && r.equip_type) {
-        state.mstEquipShip[r.ship_id] = r;
+        setMasterEquipShip(r);
       }
     }
   }
 
-  if (equipExslotShipData?.records) {
+    if (equipExslotShipData?.records) {
     for (const r of equipExslotShipData.records) {
       if (r && r.slotitem_id != null) {
-        state.mstEquipExslotShip[r.slotitem_id] = r;
+        setMasterEquipExslotShip(r);
       }
     }
   }
 
-  if (equipLimitExslotData?.records) {
+    if (equipLimitExslotData?.records) {
     for (const r of equipLimitExslotData.records) {
       if (r && r.ship_id != null && r.equip) {
-        state.mstEquipLimitExslot[r.ship_id] = r;
+        setMasterEquipLimitExslot(r);
       }
     }
   }
 
-  console.info("[simulator] master data load summary", {
-    ships: Object.keys(state.mstShips).length,
-    equips: Object.keys(state.mstSlotItems).length,
-    equipTypes: Object.keys(state.mstSlotItemEquipTypes).length,
-    stypes: Object.keys(state.mstStypes).length,
-    equipShip: Object.keys(state.mstEquipShip).length,
-  });
+    console.info("[simulator] master data load summary", getMasterDataCounts());
 
-  updateDataStatus();
+    updateDataStatus();
+  } finally {
+    endBulkLoad("all");
+  }
   renderAll();
 }

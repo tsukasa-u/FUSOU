@@ -1,7 +1,17 @@
 // ── Equipment stat calculation & asset URL helpers ──
 
-import { state } from "./state";
 import { STAT_KEYS } from "./constants";
+import {
+  getAssetBaseUrl,
+  getBannerMap,
+  getCardMap,
+  getEquipCardMap,
+  getEquipItemUpMap,
+  getMasterSlotItem,
+  getSlotItemEffects,
+  getSpriteSheetMeta,
+  getWeaponIconFrame,
+} from "./simulator-selectors";
 
 export function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number) {
   let timer: number;
@@ -23,7 +33,8 @@ export function computeEquipBonuses(
   exSlotImprovement: number,
 ): Record<string, number> {
   const bonuses: Record<string, number> = {};
-  if (!state.slotItemEffects) return bonuses;
+  const slotItemEffects = getSlotItemEffects();
+  if (!slotItemEffects) return bonuses;
 
   const allItems: { id: number; improvement: number }[] = [];
   for (let i = 0; i < equipIds.length; i++) {
@@ -45,7 +56,7 @@ export function computeEquipBonuses(
     const id = parseInt(idStr, 10);
     const levels = itemGroups[id];
     const count = levels.length;
-    const entries = state.slotItemEffects.effects[id];
+    const entries = slotItemEffects.effects[id];
     if (!entries) continue;
 
     for (const entry of entries) {
@@ -91,7 +102,7 @@ export function computeEquipBonuses(
     for (let j = i + 1; j < uniqueIds.length; j++) {
       const a = Math.min(uniqueIds[i], uniqueIds[j]);
       const b = Math.max(uniqueIds[i], uniqueIds[j]);
-      const entries = state.slotItemEffects.cross_effects[`${a}:${b}`];
+      const entries = slotItemEffects.cross_effects[`${a}:${b}`];
       if (!entries) continue;
       for (const entry of entries) {
         if (!entry.ships.includes(shipId)) continue;
@@ -118,7 +129,7 @@ export function computeEquipSum(
   if (exSlotId != null) ids.push(exSlotId);
   for (const id of ids) {
     if (id == null) continue;
-    const eq = state.mstSlotItems[id];
+    const eq = getMasterSlotItem(id);
     if (!eq) continue;
     for (const k of ["houg", "raig", "tyku", "tais", "baku", "saku", "houm", "souk", "luck", "soku"] as const) {
       const v = eq[k] || 0;
@@ -135,21 +146,24 @@ export function computeEquipSum(
 }
 
 export function bannerUrl(shipId: number): string {
-  const key = state.bannerMap[String(shipId)];
-  if (state.assetBaseUrl && key) return `${state.assetBaseUrl}/${key}`;
-  if (!state.assetBaseUrl) return `/api/asset-sync/ship-banner/${shipId}`;
+  const assetBaseUrl = getAssetBaseUrl();
+  const key = getBannerMap()[String(shipId)];
+  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
+  if (!assetBaseUrl) return `/api/asset-sync/ship-banner/${shipId}`;
   return "";
 }
 
 export function cardUrl(shipId: number): string {
-  const key = state.cardMap[String(shipId)];
-  if (state.assetBaseUrl && key) return `${state.assetBaseUrl}/${key}`;
+  const assetBaseUrl = getAssetBaseUrl();
+  const key = getCardMap()[String(shipId)];
+  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
   return bannerUrl(shipId);
 }
 
 export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
-  const frame = state.weaponIconFrames[iconNum];
-  if (frame && state.spriteSheetUrl) {
+  const frame = getWeaponIconFrame(iconNum);
+  const spriteSheet = getSpriteSheetMeta();
+  if (frame && spriteSheet.url) {
     const [fx, fy, fw, fh] = frame;
     const scaleX = size / fw;
     const scaleY = size / fh;
@@ -158,10 +172,10 @@ export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
     wrapper.style.width = `${size}px`;
     wrapper.style.height = `${size}px`;
     const img = document.createElement("img");
-    img.src = state.spriteSheetUrl;
+    img.src = spriteSheet.url;
     img.alt = "";
-    img.style.width = `${state.spriteSheetW * scaleX}px`;
-    img.style.height = `${state.spriteSheetH * scaleY}px`;
+    img.style.width = `${spriteSheet.width * scaleX}px`;
+    img.style.height = `${spriteSheet.height * scaleY}px`;
     img.style.marginLeft = `-${fx * scaleX}px`;
     img.style.marginTop = `-${fy * scaleY}px`;
     img.style.maxWidth = "none";
@@ -178,7 +192,8 @@ export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
 
 export function equipImageUrl(equipId: number): string {
   const id = String(equipId);
-  const key = state.equipCardMap[id] || state.equipItemUpMap[id];
-  if (state.assetBaseUrl && key) return `${state.assetBaseUrl}/${key}`;
+  const assetBaseUrl = getAssetBaseUrl();
+  const key = getEquipCardMap()[id] || getEquipItemUpMap()[id];
+  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
   return "";
 }

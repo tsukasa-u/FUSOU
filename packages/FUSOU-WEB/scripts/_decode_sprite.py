@@ -3,7 +3,10 @@ import struct
 import json
 import sys
 
-path = "C:/Users/ogu-h/Documents/Github/FUSOU/packages/FUSOU-PROXY-DATA/2026-02-13/kcs2/img/common/common_icon_weapon.json"
+if len(sys.argv) < 2:
+    print(f"Usage: {sys.argv[0]} PATH_TO_MSGPACK_JSON", file=sys.stderr)
+    sys.exit(1)
+path = sys.argv[1]
 with open(path, "rb") as f:
     data = f.read()
 

@@ -72,41 +72,75 @@ function getRemote(key, localFile) {
 
 /**
  * Fetch remote R2 object keys under a prefix via Cloudflare REST API.
- * Requires wrangler OAuth token stored in the default config location.
+ * Requires either CF_ACCOUNT_ID / CLOUDFLARE_ACCOUNT_ID and
+ * CF_API_TOKEN / CLOUDFLARE_API_TOKEN environment variables, or a valid
+ * wrangler OAuth token in the platform-standard config location.
  */
 async function fetchRemoteKeys(prefix, { delimiter } = {}) {
-  const accountId = "4251ceba7e6cde5576e39c207a13d720";
+  const accountId =
+    process.env.CF_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID;
+  if (!accountId) {
+    throw new Error(
+      "Cloudflare account ID not configured. Set CF_ACCOUNT_ID or CLOUDFLARE_ACCOUNT_ID in your environment.",
+    );
+  }
+
   let url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/r2/buckets/${BUCKET}/objects?prefix=${encodeURIComponent(prefix)}&max_keys=1000`;
   if (delimiter) url += `&delimiter=${encodeURIComponent(delimiter)}`;
 
-  // Read wrangler OAuth token
-  const os = await import("os");
-  const fs = await import("fs");
-  const path = await import("path");
-  const configPath = path.join(
-    os.default.homedir(),
-    "AppData",
-    "Roaming",
-    "xdg.config",
-    ".wrangler",
-    "config",
-    "default.toml",
-  );
+  // Prefer explicit API token from environment, fall back to wrangler OAuth token
+  let token =
+    process.env.CF_API_TOKEN || process.env.CLOUDFLARE_API_TOKEN || null;
 
-  if (!fs.existsSync(configPath)) {
-    throw new Error(
-      `Wrangler config not found at ${configPath}. Run 'npx wrangler login' first.`,
-    );
-  }
+  if (!token) {
+    const os = await import("os");
+    const fs = await import("fs");
+    const path = await import("path");
 
-  const config = fs.readFileSync(configPath, "utf8");
-  const tokenMatch = config.match(/oauth_token\s*=\s*"([^"]+)"/);
-  if (!tokenMatch) {
-    throw new Error(
-      "No oauth_token found in wrangler config. Run 'npx wrangler login' first.",
+    const homeDir = os.default.homedir();
+    const configCandidates = [];
+
+    // Windows: %APPDATA%\.wrangler\config\default.toml
+    if (process.platform === "win32" && process.env.APPDATA) {
+      configCandidates.push(
+        path.join(
+          process.env.APPDATA,
+          ".wrangler",
+          "config",
+          "default.toml",
+        ),
+      );
+    }
+
+    // XDG config: ${XDG_CONFIG_HOME:-$HOME/.config}/.wrangler/config/default.toml
+    const xdgConfigHome =
+      process.env.XDG_CONFIG_HOME || path.join(homeDir, ".config");
+    configCandidates.push(
+      path.join(xdgConfigHome, ".wrangler", "config", "default.toml"),
     );
+
+    // Legacy: $HOME/.wrangler/config/default.toml
+    configCandidates.push(
+      path.join(homeDir, ".wrangler", "config", "default.toml"),
+    );
+
+    const configPath = configCandidates.find((p) => fs.existsSync(p));
+
+    if (!configPath) {
+      throw new Error(
+        "Wrangler config not found in standard locations. Run 'npx wrangler login' or set CF_API_TOKEN / CLOUDFLARE_API_TOKEN in your environment.",
+      );
+    }
+
+    const config = fs.readFileSync(configPath, "utf8");
+    const tokenMatch = config.match(/oauth_token\s*=\s*"([^"]+)"/);
+    if (!tokenMatch) {
+      throw new Error(
+        "No oauth_token found in wrangler config. Run 'npx wrangler login' or set CF_API_TOKEN / CLOUDFLARE_API_TOKEN.",
+      );
+    }
+    token = tokenMatch[1];
   }
-  const token = tokenMatch[1];
 
   const resp = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
