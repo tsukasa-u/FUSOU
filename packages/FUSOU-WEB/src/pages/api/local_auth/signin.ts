@@ -20,16 +20,16 @@ export const POST: APIRoute = async ({
   const appOriginParam = currentUrl.searchParams.get("app_origin");
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
-  // Fall back to the request-derived origin only when no canonical URL is configured (local dev).
+  // Do not fall back to request.url; fail loudly on misconfiguration.
   const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
-  if (!siteUrl && import.meta.env.PROD) {
-    console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured in production");
+  if (!siteUrl) {
+    console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured");
     return new Response("Server misconfiguration", { status: 500 });
   }
-  const canonicalOrigin = siteUrl || currentUrl.origin;
+  const canonicalOrigin = siteUrl;
 
-  // CSRF protection: Validate Origin/Referer header against canonical origin
+  // CSRF protection: Validate Origin/Referer header against canonical origin (strict 1:1).
   if (!validateOrigin(request, canonicalOrigin)) {
     return new Response("Invalid request origin", { status: 403 });
   }

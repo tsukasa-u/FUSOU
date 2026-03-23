@@ -1,4 +1,7 @@
 import type { APIRoute } from "astro";
+import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
+
+const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
@@ -47,17 +50,17 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const newProviderRefreshToken = providerRefreshTokenList[index] || "";
 
   // Update active cookies
-  cookies.set("sb-access-token", newAccessToken, { path: "/" });
-  cookies.set("sb-refresh-token", newRefreshToken, { path: "/" });
+  cookies.set("sb-access-token", newAccessToken, COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", newRefreshToken, COOKIE_OPTIONS);
   
   if (newProviderToken) {
-    cookies.set("sb-provider-token", newProviderToken, { path: "/" });
+    cookies.set("sb-provider-token", newProviderToken, COOKIE_OPTIONS);
   } else {
     cookies.delete("sb-provider-token", { path: "/" });
   }
 
   if (newProviderRefreshToken) {
-    cookies.set("sb-provider-refresh-token", newProviderRefreshToken, { path: "/" });
+    cookies.set("sb-provider-refresh-token", newProviderRefreshToken, COOKIE_OPTIONS);
   } else {
     cookies.delete("sb-provider-refresh-token", { path: "/" });
   }

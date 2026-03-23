@@ -154,8 +154,10 @@ if (refreshToken?.value && accessToken?.value) {
         );
       }
 
-      // Generate return parameters regardless of DB insert success.
-      // This allows users to manually copy tokens even if DB fails.
+      // Build fusou:// return URL for the desktop app.
+      // The URL is stored in a short-lived httpOnly cookie so that it is never
+      // written into a DOM attribute — only the client-side API endpoint at
+      // /api/local_auth/app-redirect reads and consumes it.
       const returnQuery = new URLSearchParams();
       if (providerRefreshToken?.value) {
         returnQuery.set("provider_refresh_token", providerRefreshToken.value);
@@ -170,16 +172,25 @@ if (refreshToken?.value && accessToken?.value) {
 
       const candidateHref = `fusou://auth?${return_params}`;
 
-      // Keep the href for display/copy even if validation fails; redirect stays gated by validation
-      return_href = candidateHref;
+      // Store for display/manual copy in the UI (no tokens in DOM; only shown
+      // when validateRedirectUrl succeeds and user explicitly requests it).
+      return_href = "/api/local_auth/app-redirect";
 
       // Validate the desktop app custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
-        // Desktop app detected - set return URL for app redirect
+        // Desktop app detected - store the redirect URL in a short-lived cookie.
         if (isFromTauriApp) {
           isDesktopApp = true;
-          // Reuse the validated fusou:// return URL to avoid scheme mismatch.
-          app_return_url = candidateHref;
+          app_return_url = "/api/local_auth/app-redirect";
+          // Store token URL in a 60-second, httpOnly, strict-SameSite cookie.
+          // Only /api/local_auth/app-redirect can consume it (single-use).
+          cookies.set("sb-app-redirect-url", candidateHref, {
+            path: "/api/local_auth/app-redirect",
+            httpOnly: true,
+            secure: import.meta.env.PROD,
+            sameSite: "lax",
+            maxAge: 60,
+          });
         }
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
@@ -478,7 +489,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
   data-error-flag={String(set_session_error_flag)}
   data-error-message={error_message ?? ""}
   data-is-desktop-app={String(isDesktopApp)}
-  data-app-return-url={app_return_url ?? ""}
+  data-has-app-redirect={String(!!app_return_url)}
 >
 </astro-data-callback>
 
@@ -489,7 +500,8 @@ cookies.delete("sb-local-expires-at", { path: "/" });
       const errorFlag = this.dataset.errorFlag === "true";
       const errorMessage = this.dataset.errorMessage || "";
       const isDesktopApp = this.dataset.isDesktopApp === "true";
-      const appReturnUrl = this.dataset.appReturnUrl || "";
+      const hasAppRedirect = this.dataset.hasAppRedirect === "true";
+      const appReturnUrl = hasAppRedirect ? "/api/local_auth/app-redirect" : "";
 
       window.addEventListener("DOMContentLoaded", () => {
         const errorContent = document.getElementById("error-content");
@@ -519,16 +531,9 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
           }
 
-          // Auto-redirect to app on error (after short delay for UX)
-          if (isDesktopApp && appReturnUrl) {
-            setTimeout(() => {
-              window.location.href =
-                appReturnUrl +
-                (appReturnUrl.includes("?") ? "&" : "?") +
-                "status=error&message=" +
-                encodeURIComponent(errorMessage);
-            }, 2000); // 2 second delay to show error message
-          }
+          // On error, do not auto-redirect to the app with any token URL.
+          // The app-redirect cookie has already expired or been consumed.
+          // The user can retry sign-in instead.
         } else {
           // Show success state (Step 3)
           errorContent?.classList.add("hidden");
@@ -544,13 +549,14 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
           }
 
-          // Set manual return-to-app link even when app detection is missing
+          // Set manual return-to-app link (fetches actual redirect from API).
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
-            const base = appReturnUrl || "fusou://auth";
-            const href =
-              base + (base.includes("?") ? "&" : "?") + "status=success";
-            appReturnLink.setAttribute("href", href);
+            if (hasAppRedirect) {
+              appReturnLink.setAttribute("href", "/api/local_auth/app-redirect");
+            } else {
+              appReturnLink.setAttribute("href", "fusou://auth?status=success");
+            }
           }
 
           // Switch primary accent depending on app vs web
@@ -585,13 +591,12 @@ cookies.delete("sb-local-expires-at", { path: "/" });
             }
           }
 
-          // Auto-redirect to app on success (after short delay for UX)
-          if (isDesktopApp && appReturnUrl) {
+          // Auto-redirect to app on success via the one-time server endpoint.
+          // Tokens are in an httpOnly cookie consumed by /api/local_auth/app-redirect,
+          // so they are never exposed in JS scope.
+          if (isDesktopApp && hasAppRedirect) {
             setTimeout(() => {
-              window.location.href =
-                appReturnUrl +
-                (appReturnUrl.includes("?") ? "&" : "?") +
-                "status=success";
+              window.location.href = "/api/local_auth/app-redirect";
             }, 1500); // 1.5 second delay to show success message
           }
         }
