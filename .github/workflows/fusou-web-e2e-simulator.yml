@@ -1,5 +1,8 @@
 name: FUSOU-WEB Simulator E2E
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   pull_request:
