@@ -1,0 +1,21 @@
+{
+  "name": "kcs-script-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KanColle game script analysis tools",
+  "scripts": {
+    "deobfuscate": "node scripts/deobfuscate.js",
+    "scan": "node scripts/scan.js",
+    "scan:main": "node scripts/scan.js --main",
+    "start": "node scripts/run.js",
+    "start:main": "node scripts/run.js --main",
+    "repl": "node scripts/run.js --repl",
+    "sloteffect": "node scripts/run-sloteffect.js"
+  },
+  "dependencies": {
+    "jsdom": "^25.0.0"
+  },
+  "devDependencies": {
+    "webcrack": "^2.0.0"
+  }
+}

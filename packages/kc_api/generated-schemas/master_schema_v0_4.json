@@ -1,0 +1,57 @@
+{
+  "schemas": [
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstShip\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"sortno\",\"type\":[\"null\",\"int\"]},{\"name\":\"sort_id\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"yomi\",\"type\":\"string\"},{\"name\":\"stype\",\"type\":\"int\"},{\"name\":\"ctype\",\"type\":\"int\"},{\"name\":\"afterlv\",\"type\":[\"null\",\"int\"]},{\"name\":\"aftershipid\",\"type\":[\"null\",\"string\"]},{\"name\":\"taik\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"souk\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"houg\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"raig\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"tyku\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"luck\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"soku\",\"type\":\"int\"},{\"name\":\"leng\",\"type\":[\"null\",\"int\"]},{\"name\":\"slot_num\",\"type\":\"int\"},{\"name\":\"maxeq\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"buildtime\",\"type\":[\"null\",\"int\"]},{\"name\":\"broken\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"powup\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"backs\",\"type\":[\"null\",\"int\"]},{\"name\":\"getmes\",\"type\":[\"null\",\"string\"]},{\"name\":\"afterfuel\",\"type\":[\"null\",\"int\"]},{\"name\":\"afterbull\",\"type\":[\"null\",\"int\"]},{\"name\":\"fuel_max\",\"type\":[\"null\",\"int\"]},{\"name\":\"bull_max\",\"type\":[\"null\",\"int\"]},{\"name\":\"voicef\",\"type\":[\"null\",\"int\"]},{\"name\":\"tais\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}]}",
+      "table_name": "mst_ships"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstSlotItem\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"sortno\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"type\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"taik\",\"type\":\"int\"},{\"name\":\"souk\",\"type\":\"int\"},{\"name\":\"houg\",\"type\":\"int\"},{\"name\":\"raig\",\"type\":\"int\"},{\"name\":\"soku\",\"type\":\"int\"},{\"name\":\"baku\",\"type\":\"int\"},{\"name\":\"tyku\",\"type\":\"int\"},{\"name\":\"tais\",\"type\":\"int\"},{\"name\":\"atap\",\"type\":\"int\"},{\"name\":\"houm\",\"type\":\"int\"},{\"name\":\"raim\",\"type\":\"int\"},{\"name\":\"houk\",\"type\":\"int\"},{\"name\":\"raik\",\"type\":\"int\"},{\"name\":\"bakk\",\"type\":\"int\"},{\"name\":\"saku\",\"type\":\"int\"},{\"name\":\"sakb\",\"type\":\"int\"},{\"name\":\"luck\",\"type\":\"int\"},{\"name\":\"leng\",\"type\":\"int\"},{\"name\":\"rare\",\"type\":\"int\"},{\"name\":\"taibaku\",\"type\":\"int\"},{\"name\":\"geigeki\",\"type\":\"int\"},{\"name\":\"broken\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"usebull\",\"type\":\"string\"},{\"name\":\"version\",\"type\":[\"null\",\"int\"]},{\"name\":\"cost\",\"type\":[\"null\",\"int\"]},{\"name\":\"distance\",\"type\":[\"null\",\"int\"]}]}",
+      "table_name": "mst_slot_items"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipExslotShip\",\"fields\":[{\"name\":\"slotitem_id\",\"type\":\"int\"},{\"name\":\"ship_ids\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"stypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"ctypes\",\"type\":[\"null\",{\"type\":\"map\",\"values\":\"int\"}]},{\"name\":\"req_level\",\"type\":\"int\"}]}",
+      "table_name": "mst_equip_exslot_ships"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipExslot\",\"fields\":[{\"name\":\"equip\",\"type\":\"int\"}]}",
+      "table_name": "mst_equip_exslot"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipLimitExslot\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
+      "table_name": "mst_equip_limit_exslot"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstSlotItemEquipType\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"}]}",
+      "table_name": "mst_slotitem_equip_types"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipShip\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip_type\",\"type\":{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}}]}",
+      "table_name": "mst_equip_ships"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstStype\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"sortno\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"equip_type\",\"type\":{\"type\":\"map\",\"values\":\"int\"}}]}",
+      "table_name": "mst_stypes"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstUseItem\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"}]}",
+      "table_name": "mst_use_items"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstMapArea\",\"fields\":[{\"name\":\"api_id\",\"type\":\"int\"},{\"name\":\"api_name\",\"type\":\"string\"},{\"name\":\"api_type\",\"type\":\"int\"}]}",
+      "table_name": "mst_map_areas"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstMapInfo\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"maparea_id\",\"type\":\"int\"},{\"name\":\"no\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"opetext\",\"type\":\"string\"},{\"name\":\"infotext\",\"type\":\"string\"},{\"name\":\"item\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"max_maphp\",\"type\":[\"null\",\"int\"]},{\"name\":\"required_defeat_count\",\"type\":[\"null\",\"int\"]},{\"name\":\"sally_flag\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
+      "table_name": "mst_map_infos"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstShipGraph\",\"fields\":[{\"name\":\"api_id\",\"type\":\"int\"},{\"name\":\"api_filename\",\"type\":\"string\"},{\"name\":\"api_version\",\"type\":{\"type\":\"array\",\"items\":\"string\"}},{\"name\":\"api_battle_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_battle_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_sortno\",\"type\":[\"null\",\"int\"]},{\"name\":\"api_boko_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_boko_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_kaisyu_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_kaisyu_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_kaizo_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_kaizo_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_map_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_map_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_ensyuf_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_ensyuf_d\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_ensyue_n\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_weda\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_wedb\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_pa\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_pab\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_sp_flag\",\"type\":[\"null\",\"int\"]},{\"name\":\"api_wedc\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]},{\"name\":\"api_wedd\",\"type\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}]}",
+      "table_name": "mst_ship_graphs"
+    },
+    {
+      "schema": "{\"type\":\"record\",\"name\":\"MstShipUpgrade\",\"fields\":[{\"name\":\"api_id\",\"type\":\"int\"},{\"name\":\"api_current_ship_id\",\"type\":\"int\"},{\"name\":\"api_original_ship_id\",\"type\":\"int\"},{\"name\":\"api_upgrade_type\",\"type\":\"int\"},{\"name\":\"api_upgrade_level\",\"type\":\"int\"},{\"name\":\"api_drawing_count\",\"type\":\"int\"},{\"name\":\"api_catapult_count\",\"type\":\"int\"},{\"name\":\"api_report_count\",\"type\":\"int\"},{\"name\":\"api_aviation_mat_count\",\"type\":\"int\"},{\"name\":\"api_arms_mat_count\",\"type\":\"int\"},{\"name\":\"api_tech_count\",\"type\":\"int\"},{\"name\":\"api_sortno\",\"type\":\"int\"},{\"name\":\"api_boiler_count\",\"type\":[\"null\",\"int\"]}]}",
+      "table_name": "mst_ship_upgrades"
+    }
+  ],
+  "table_version": "0.4"
+}

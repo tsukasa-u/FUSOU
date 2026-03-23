@@ -8,6 +8,7 @@ import {
 import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { ERROR_CODES, createErrorResponse } from "../error-codes";
+import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -758,6 +759,137 @@ app.post("/upload", async (c) => {
       }
     },
   });
+});
+
+/**
+ * GET /json - Public JSON endpoint: decode Avro from R2 and return as JSON
+ *
+ * Query params:
+ * - table_name: required (e.g. mst_ship, mst_slotitem)
+ * - table_version: optional (defaults to latest)
+ *
+ * No authentication required — master data is public reference data.
+ * Returns decoded JSON records with aggressive caching (immutable data).
+ */
+app.get("/json", async (c) => {
+  const env = createEnvContext(c);
+  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const bucket = env.runtime.MASTER_DATA_BUCKET;
+
+  if (!db || !bucket) {
+    return c.json({ error: "Master data storage not configured" }, 503);
+  }
+
+  const tableName = c.req.query("table_name");
+  const requestedVersion = c.req.query("table_version");
+
+  if (!tableName) {
+    return c.json({ error: "table_name is required" }, 400);
+  }
+
+  if (!ALLOWED_MASTER_TABLES.has(tableName)) {
+    return c.json(
+      {
+        error: `Invalid table_name. Allowed: ${Array.from(ALLOWED_MASTER_TABLES).join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  try {
+    let sql = `
+      SELECT period_tag, table_version, r2_keys
+      FROM master_data_index
+      WHERE upload_status = 'completed'
+    `;
+    const params: unknown[] = [];
+    if (requestedVersion) {
+      sql += " AND table_version = ?";
+      params.push(requestedVersion);
+    }
+    sql += " ORDER BY completed_at DESC LIMIT 1";
+
+    const record = (await db
+      .prepare(sql)
+      .bind(...params)
+      .first()) as {
+      period_tag: string;
+      table_version: string;
+      r2_keys: string;
+    } | null;
+
+    if (!record) {
+      return c.json(
+        {
+          table_name: tableName,
+          table_version: null,
+          period_tag: null,
+          count: 0,
+          records: [],
+        },
+        200,
+        { ...CORS_HEADERS },
+      );
+    }
+
+    const { period_tag, table_version } = record;
+
+    // Build R2 key
+    const r2Key = `master_data/${table_version}/${period_tag}/${tableName}.avro`;
+
+    // Fetch Avro binary from R2
+    const r2Object = await bucket.get(r2Key);
+    if (!r2Object) {
+      return c.json(
+        {
+          table_name: tableName,
+          table_version,
+          period_tag,
+          count: 0,
+          records: [],
+        },
+        200,
+        { ...CORS_HEADERS },
+      );
+    }
+
+    // Guard against excessively large objects before pulling into memory
+    const MAX_AVRO_BYTES = 50 * 1024 * 1024; // 50 MB
+    if (r2Object.size > MAX_AVRO_BYTES) {
+      console.error(`[master-data] ${tableName} object too large: ${r2Object.size} bytes`);
+      return c.json({ error: "Master data object exceeds maximum size limit" }, 503);
+    }
+
+    // Read full body into ArrayBuffer, then decode
+    const arrayBuffer = await r2Object.arrayBuffer();
+    const avroBytes = new Uint8Array(arrayBuffer);
+    const records = decodeAvroOcfToJson(avroBytes);
+
+    // When an explicit version is requested the data is immutable — cache aggressively.
+    // When serving the latest version the key changes after each upload, so use a short
+    // TTL to avoid CDN/clients staying on stale "latest" data.
+    const cacheControl = requestedVersion
+      ? "public, max-age=86400, stale-while-revalidate=604800"
+      : "public, max-age=60, stale-while-revalidate=300";
+
+    return c.json(
+      {
+        table_name: tableName,
+        table_version,
+        period_tag,
+        count: records.length,
+        records,
+      },
+      200,
+      {
+        "Cache-Control": cacheControl,
+        ...CORS_HEADERS,
+      },
+    );
+  } catch (err) {
+    console.error(`[master-data] Error decoding ${tableName}: ${String(err)}`);
+    return c.json({ error: "Failed to decode master data" }, 500);
+  }
 });
 
 /**

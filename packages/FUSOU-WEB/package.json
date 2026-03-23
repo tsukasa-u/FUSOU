@@ -13,7 +13,18 @@
     "astro": "astro",
     "gen:licenses": "node ../../scripts/generate-licenses.js",
     "verify:battle-data": "node scripts/verify-battle-data.mjs",
-    "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts"
+    "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts",
+    "e2e:simulator": "playwright test -c playwright.config.ts e2e/simulator.spec.ts",
+    "e2e:simulator:smoke": "playwright test -c playwright.config.ts e2e/simulator.smoke.spec.ts",
+    "e2e:simulator:headed": "playwright test -c playwright.config.ts e2e/simulator.spec.ts --headed",
+    "e2e:simulator:ui": "playwright test -c playwright.config.ts e2e/simulator.spec.ts --ui",
+    "e2e:simulator:ci": "playwright test -c playwright.config.ts e2e/simulator.spec.ts --reporter=list",
+    "e2e:simulator:ci:smoke": "playwright test -c playwright.config.ts e2e/simulator.smoke.spec.ts --reporter=list",
+    "e2e:simulator:install": "playwright install chromium",
+    "seed:master-data": "node scripts/seed-local-master-data.mjs",
+    "seed:master-data:all": "node scripts/seed-local-master-data.mjs --all",
+    "seed:fleet-data": "node scripts/seed-local-fleet-data.mjs --all",
+    "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.12",
@@ -30,6 +41,7 @@
     "daisyui": "^5.5.5",
     "elkjs": "^0.11.0",
     "hono": "^4.12.4",
+    "html-to-image": "^1.11.13",
     "jose": "^6.1.2",
     "nanostores": "^1.1.0",
     "react": "^19.2.0",
@@ -40,7 +52,8 @@
     "shared-ui": "workspace:*",
     "solid-chartjs": "^1.3.11",
     "solid-js": "^1.9.10",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "virtua": "^0.41.5"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
@@ -50,6 +63,8 @@
     "@cloudflare/workers-types": "^4.20251128.0",
     "@dotenvx/dotenvx": "^1.51.1",
     "@faker-js/faker": "^9.9.0",
+    "@msgpack/msgpack": "^3.1.3",
+    "@playwright/test": "^1.57.0",
     "@r4ai/remark-callout": "^0.6.2",
     "@tailwindcss/vite": "^4.1.17",
     "@types/d3-hierarchy": "^3.1.7",
@@ -57,6 +72,9 @@
     "@types/react-dom": "^19.2.3",
     "astro": "^5.16.2",
     "astro-icon": "^1.1.5",
+    "baseline-browser-mapping": "^2.10.10",
+    "msgpackr": "^1.11.8",
+    "playwright": "^1.57.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "wrangler": "^4.59.1"

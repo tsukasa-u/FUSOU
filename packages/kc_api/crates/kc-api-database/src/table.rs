@@ -427,13 +427,14 @@ impl PortTable {
         timestamp: i64,
     ) -> PortTable {
         let mut table = PortTable::default();
+        let mut dedup = crate::dedup::DedupCache::new();
         let timestamp_context = uuid::ContextV7::new().with_additional_precision();
         let ts: uuid::Timestamp =
             uuid::Timestamp::from_unix(&timestamp_context, timestamp as u64, 0);
         let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
         {
             let uuid = Uuid::new_v7(ts);
-            Cells::new_ret_option(ts, uuid, interface_cells.clone(), &mut table, env_uuid)
+            Cells::new_ret_option(ts, uuid, interface_cells.clone(), &mut table, &mut dedup, env_uuid)
         };
         tracing::debug!(
             "PortTable::new created with {} cells, maparea_id={}, mapinfo_no={}, battles={}",

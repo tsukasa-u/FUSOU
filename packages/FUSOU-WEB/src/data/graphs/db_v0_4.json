@@ -1,7 +1,7 @@
 {
   "version": "0.4",
   "versionKey": "v0_4",
-  "tableCount": 33,
+  "tableCount": 46,
   "nodes": [
     {
       "id": "env_info",
@@ -77,7 +77,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -287,7 +287,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -349,7 +349,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           }
         ]
@@ -395,7 +395,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           }
         ]
@@ -441,7 +441,7 @@
             "type": "int?",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -655,7 +655,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -765,7 +765,7 @@
             "type": "int",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -1200,7 +1200,7 @@
           },
           {
             "name": "airbase_id",
-            "type": "uuid",
+            "type": "uuid?",
             "isUuid": true,
             "isKey": false,
             "isFk": true,
@@ -1833,7 +1833,7 @@
             "type": "int?[]?",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -2013,7 +2013,7 @@
             "type": "int?[]",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -2161,7 +2161,7 @@
             "type": "int?[]?",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -2719,7 +2719,7 @@
             "type": "int?[]",
             "isUuid": false,
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -3388,6 +3388,1091 @@
           }
         ]
       }
+    },
+    {
+      "id": "mst_ship",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_ship",
+        "recordName": "MstShip",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "sortno",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "sort_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "yomi",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "stype",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "ctype",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "afterlv",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "aftershipid",
+            "type": "string?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "taik",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "souk",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "houg",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "raig",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "tyku",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "luck",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "soku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "leng",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "slot_num",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "maxeq",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "buildtime",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "broken",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "powup",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "backs",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "getmes",
+            "type": "string?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "afterfuel",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "afterbull",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "fuel_max",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "bull_max",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "voicef",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "tais",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_slotitem",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_slotitem",
+        "recordName": "MstSlotItem",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "sortno",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "type",
+            "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "taik",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "souk",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "houg",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "raig",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "soku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "baku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "tyku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "tais",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "atap",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "houm",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "raim",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "houk",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "raik",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "bakk",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "saku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "sakb",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "luck",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "leng",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "rare",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "taibaku",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "geigeki",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "broken",
+            "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "usebull",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "version",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "cost",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "distance",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_equip_exslot_ship",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_equip_exslot_ship",
+        "recordName": "MstEquipExslotShip",
+        "fields": [
+          {
+            "name": "slotitem_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "ship_ids",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "stypes",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "ctypes",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "req_level",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_equip_exslot",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_equip_exslot",
+        "recordName": "MstEquipExslot",
+        "fields": [
+          {
+            "name": "equip",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_equip_limit_exslot",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_equip_limit_exslot",
+        "recordName": "MstEquipLimitExslot",
+        "fields": [
+          {
+            "name": "ship_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "equip",
+            "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_slotitem_equiptype",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_slotitem_equiptype",
+        "recordName": "MstSlotItemEquipType",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_equip_ship",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_equip_ship",
+        "recordName": "MstEquipShip",
+        "fields": [
+          {
+            "name": "ship_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "equip_type",
+            "type": "{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_stype",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_stype",
+        "recordName": "MstStype",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "sortno",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "equip_type",
+            "type": "{\"type\":\"map\",\"values\":\"int\"}",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_payitem",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_payitem",
+        "recordName": "MstUseItem",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_map_area",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_map_area",
+        "recordName": "MstMapArea",
+        "fields": [
+          {
+            "name": "api_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "api_name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_type",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_map_info",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_map_info",
+        "recordName": "MstMapInfo",
+        "fields": [
+          {
+            "name": "id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "maparea_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "no",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "name",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "level",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "opetext",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "infotext",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "item",
+            "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "max_maphp",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "required_defeat_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "sally_flag",
+            "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_shipgraph",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_shipgraph",
+        "recordName": "MstShipGraph",
+        "fields": [
+          {
+            "name": "api_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "api_filename",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_version",
+            "type": "string[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_battle_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_battle_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_sortno",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_boko_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_boko_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_kaisyu_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_kaisyu_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_kaizo_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_kaizo_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_map_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_map_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_ensyuf_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_ensyuf_d",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_ensyue_n",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_weda",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_wedb",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_pa",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_pab",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_sp_flag",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_wedc",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_wedd",
+            "type": "int[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mst_ship_upgrade",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "mst_ship_upgrade",
+        "recordName": "MstShipUpgrade",
+        "fields": [
+          {
+            "name": "api_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": true,
+            "isFk": false
+          },
+          {
+            "name": "api_current_ship_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "api_original_ship_id",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": true
+          },
+          {
+            "name": "api_upgrade_type",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_upgrade_level",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_drawing_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_catapult_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_report_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_aviation_mat_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_arms_mat_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_tech_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_sortno",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "api_boiler_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          }
+        ]
+      }
     }
   ],
   "edges": [
@@ -3398,6 +4483,14 @@
       "target": "plane_info",
       "targetHandle": "plane_info-uuid",
       "label": "plane_info"
+    },
+    {
+      "id": "e-midnight_hougeki_list-midnight_hougeki-midnight_hougeki",
+      "source": "midnight_hougeki_list",
+      "sourceHandle": "midnight_hougeki_list-midnight_hougeki",
+      "target": "midnight_hougeki",
+      "targetHandle": "midnight_hougeki-uuid",
+      "label": "midnight_hougeki"
     },
     {
       "id": "e-opening_airattack_list-opening_air_attack-opening_airattack",
@@ -3448,20 +4541,12 @@
       "label": "carrier_base_assault"
     },
     {
-      "id": "e-battle-closing_raigeki-closing_raigeki",
+      "id": "e-battle-opening_raigeki-opening_raigeki",
       "source": "battle",
-      "sourceHandle": "battle-closing_raigeki",
-      "target": "closing_raigeki",
-      "targetHandle": "closing_raigeki-uuid",
-      "label": "closing_raigeki"
-    },
-    {
-      "id": "e-battle-midnight_hougeki-midnight_hougeki_list",
-      "source": "battle",
-      "sourceHandle": "battle-midnight_hougeki",
-      "target": "midnight_hougeki_list",
-      "targetHandle": "midnight_hougeki_list-uuid",
-      "label": "midnight_hougeki"
+      "sourceHandle": "battle-opening_raigeki",
+      "target": "opening_raigeki",
+      "targetHandle": "opening_raigeki-uuid",
+      "label": "opening_raigeki"
     },
     {
       "id": "e-battle-opening_taisen-opening_taisen_list",
@@ -3472,20 +4557,20 @@
       "label": "opening_taisen"
     },
     {
+      "id": "e-battle-midnight_hougeki-midnight_hougeki_list",
+      "source": "battle",
+      "sourceHandle": "battle-midnight_hougeki",
+      "target": "midnight_hougeki_list",
+      "targetHandle": "midnight_hougeki_list-uuid",
+      "label": "midnight_hougeki"
+    },
+    {
       "id": "e-battle-support_hourai-support_hourai",
       "source": "battle",
       "sourceHandle": "battle-support_hourai",
       "target": "support_hourai",
       "targetHandle": "support_hourai-uuid",
       "label": "support_hourai"
-    },
-    {
-      "id": "e-battle-air_base_assault-airbase_assult",
-      "source": "battle",
-      "sourceHandle": "battle-air_base_assault",
-      "target": "airbase_assult",
-      "targetHandle": "airbase_assult-uuid",
-      "label": "air_base_assault"
     },
     {
       "id": "e-battle-hougeki-hougeki_list",
@@ -3496,20 +4581,20 @@
       "label": "hougeki"
     },
     {
-      "id": "e-battle-air_base_air_attacks-airbase_airattack_list",
-      "source": "battle",
-      "sourceHandle": "battle-air_base_air_attacks",
-      "target": "airbase_airattack_list",
-      "targetHandle": "airbase_airattack_list-uuid",
-      "label": "air_base_air_attacks"
-    },
-    {
       "id": "e-battle-opening_air_attack-opening_airattack_list",
       "source": "battle",
       "sourceHandle": "battle-opening_air_attack",
       "target": "opening_airattack_list",
       "targetHandle": "opening_airattack_list-uuid",
       "label": "opening_air_attack"
+    },
+    {
+      "id": "e-battle-air_base_assault-airbase_assult",
+      "source": "battle",
+      "sourceHandle": "battle-air_base_assault",
+      "target": "airbase_assult",
+      "targetHandle": "airbase_assult-uuid",
+      "label": "air_base_assault"
     },
     {
       "id": "e-battle-support_airattack-support_airattack",
@@ -3520,20 +4605,20 @@
       "label": "support_airattack"
     },
     {
-      "id": "e-battle-opening_raigeki-opening_raigeki",
+      "id": "e-battle-closing_raigeki-closing_raigeki",
       "source": "battle",
-      "sourceHandle": "battle-opening_raigeki",
-      "target": "opening_raigeki",
-      "targetHandle": "opening_raigeki-uuid",
-      "label": "opening_raigeki"
+      "sourceHandle": "battle-closing_raigeki",
+      "target": "closing_raigeki",
+      "targetHandle": "closing_raigeki-uuid",
+      "label": "closing_raigeki"
     },
     {
-      "id": "e-midnight_hougeki_list-midnight_hougeki-midnight_hougeki",
-      "source": "midnight_hougeki_list",
-      "sourceHandle": "midnight_hougeki_list-midnight_hougeki",
-      "target": "midnight_hougeki",
-      "targetHandle": "midnight_hougeki-uuid",
-      "label": "midnight_hougeki"
+      "id": "e-battle-air_base_air_attacks-airbase_airattack_list",
+      "source": "battle",
+      "sourceHandle": "battle-air_base_air_attacks",
+      "target": "airbase_airattack_list",
+      "targetHandle": "airbase_airattack_list-uuid",
+      "label": "air_base_air_attacks"
     },
     {
       "id": "e-friendly_support_hourai_list-hourai_list-friendly_support_hourai",
@@ -3592,12 +4677,12 @@
       "label": "f_deck_id"
     },
     {
-      "id": "e-cells-f_deck_before_id-own_deck",
+      "id": "e-cells-battles-battle",
       "source": "cells",
-      "sourceHandle": "cells-f_deck_before_id",
-      "target": "own_deck",
-      "targetHandle": "own_deck-uuid",
-      "label": "f_deck_before_id"
+      "sourceHandle": "cells-battles",
+      "target": "battle",
+      "targetHandle": "battle-uuid",
+      "label": "battles"
     },
     {
       "id": "e-cells-f_deck_after_id-own_deck",
@@ -3608,20 +4693,12 @@
       "label": "f_deck_after_id"
     },
     {
-      "id": "e-cells-battles-battle",
+      "id": "e-cells-f_deck_before_id-own_deck",
       "source": "cells",
-      "sourceHandle": "cells-battles",
-      "target": "battle",
-      "targetHandle": "battle-uuid",
-      "label": "battles"
-    },
-    {
-      "id": "e-friend_deck-ship_ids-friend_ship",
-      "source": "friend_deck",
-      "sourceHandle": "friend_deck-ship_ids",
-      "target": "friend_ship",
-      "targetHandle": "friend_ship-uuid",
-      "label": "ship_ids"
+      "sourceHandle": "cells-f_deck_before_id",
+      "target": "own_deck",
+      "targetHandle": "own_deck-uuid",
+      "label": "f_deck_before_id"
     },
     {
       "id": "e-own_deck-ship_ids-own_ship",
@@ -3629,14 +4706,6 @@
       "sourceHandle": "own_deck-ship_ids",
       "target": "own_ship",
       "targetHandle": "own_ship-uuid",
-      "label": "ship_ids"
-    },
-    {
-      "id": "e-enemy_deck-ship_ids-enemy_ship",
-      "source": "enemy_deck",
-      "sourceHandle": "enemy_deck-ship_ids",
-      "target": "enemy_ship",
-      "targetHandle": "enemy_ship-uuid",
       "label": "ship_ids"
     },
     {
@@ -3648,11 +4717,27 @@
       "label": "ship_ids"
     },
     {
-      "id": "e-own_ship-slot-own_slotitem",
-      "source": "own_ship",
-      "sourceHandle": "own_ship-slot",
-      "target": "own_slotitem",
-      "targetHandle": "own_slotitem-uuid",
+      "id": "e-friend_deck-ship_ids-friend_ship",
+      "source": "friend_deck",
+      "sourceHandle": "friend_deck-ship_ids",
+      "target": "friend_ship",
+      "targetHandle": "friend_ship-uuid",
+      "label": "ship_ids"
+    },
+    {
+      "id": "e-enemy_deck-ship_ids-enemy_ship",
+      "source": "enemy_deck",
+      "sourceHandle": "enemy_deck-ship_ids",
+      "target": "enemy_ship",
+      "targetHandle": "enemy_ship-uuid",
+      "label": "ship_ids"
+    },
+    {
+      "id": "e-friend_ship-slot-friend_slotitem",
+      "source": "friend_ship",
+      "sourceHandle": "friend_ship-slot",
+      "target": "friend_slotitem",
+      "targetHandle": "friend_slotitem-uuid",
       "label": "slot"
     },
     {
@@ -3664,6 +4749,14 @@
       "label": "slot_ex"
     },
     {
+      "id": "e-own_ship-slot-own_slotitem",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-slot",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid",
+      "label": "slot"
+    },
+    {
       "id": "e-enemy_ship-slot-enemy_slotitem",
       "source": "enemy_ship",
       "sourceHandle": "enemy_ship-slot",
@@ -3672,12 +4765,197 @@
       "label": "slot"
     },
     {
-      "id": "e-friend_ship-slot-friend_slotitem",
+      "id": "e-cells-maparea_id-mst_map_info",
+      "source": "cells",
+      "sourceHandle": "cells-maparea_id",
+      "target": "mst_map_info",
+      "targetHandle": "mst_map_info-uuid",
+      "label": "maparea_id"
+    },
+    {
+      "id": "e-own_slotitem-mst_slotitem_id-mst_slotitem",
+      "source": "own_slotitem",
+      "sourceHandle": "own_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "mst_slotitem_id"
+    },
+    {
+      "id": "e-enemy_slotitem-mst_slotitem_id-mst_slotitem",
+      "source": "enemy_slotitem",
+      "sourceHandle": "enemy_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "mst_slotitem_id"
+    },
+    {
+      "id": "e-friend_slotitem-mst_slotitem_id-mst_slotitem",
+      "source": "friend_slotitem",
+      "sourceHandle": "friend_slotitem-mst_slotitem_id",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "mst_slotitem_id"
+    },
+    {
+      "id": "e-own_ship-ship_id-mst_ship",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid",
+      "label": "ship_id"
+    },
+    {
+      "id": "e-own_ship-ship_id-mst_shipgraph",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "ship_id"
+    },
+    {
+      "id": "e-enemy_ship-mst_ship_id-mst_ship",
+      "source": "enemy_ship",
+      "sourceHandle": "enemy_ship-mst_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid",
+      "label": "mst_ship_id"
+    },
+    {
+      "id": "e-enemy_ship-mst_ship_id-mst_shipgraph",
+      "source": "enemy_ship",
+      "sourceHandle": "enemy_ship-mst_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "mst_ship_id"
+    },
+    {
+      "id": "e-friend_ship-mst_ship_id-mst_ship",
       "source": "friend_ship",
-      "sourceHandle": "friend_ship-slot",
-      "target": "friend_slotitem",
-      "targetHandle": "friend_slotitem-uuid",
-      "label": "slot"
+      "sourceHandle": "friend_ship-mst_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid",
+      "label": "mst_ship_id"
+    },
+    {
+      "id": "e-friend_ship-mst_ship_id-mst_shipgraph",
+      "source": "friend_ship",
+      "sourceHandle": "friend_ship-mst_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "mst_ship_id"
+    },
+    {
+      "id": "e-friendly_support_hourai-si-mst_slotitem",
+      "source": "friendly_support_hourai",
+      "sourceHandle": "friendly_support_hourai-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "si"
+    },
+    {
+      "id": "e-hougeki-si-mst_slotitem",
+      "source": "hougeki",
+      "sourceHandle": "hougeki-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "si"
+    },
+    {
+      "id": "e-midnight_hougeki-si-mst_slotitem",
+      "source": "midnight_hougeki",
+      "sourceHandle": "midnight_hougeki-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "si"
+    },
+    {
+      "id": "e-opening_taisen-si-mst_slotitem",
+      "source": "opening_taisen",
+      "sourceHandle": "opening_taisen-si",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "si"
+    },
+    {
+      "id": "e-mst_ship-stype-mst_stype",
+      "source": "mst_ship",
+      "sourceHandle": "mst_ship-stype",
+      "target": "mst_stype",
+      "targetHandle": "mst_stype-uuid",
+      "label": "stype"
+    },
+    {
+      "id": "e-mst_ship-aftershipid-mst_shipgraph",
+      "source": "mst_ship",
+      "sourceHandle": "mst_ship-aftershipid",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "aftershipid"
+    },
+    {
+      "id": "e-mst_slotitem-type-mst_slotitem_equiptype",
+      "source": "mst_slotitem",
+      "sourceHandle": "mst_slotitem-type",
+      "target": "mst_slotitem_equiptype",
+      "targetHandle": "mst_slotitem_equiptype-uuid",
+      "label": "type"
+    },
+    {
+      "id": "e-mst_equip_exslot-equip-mst_slotitem",
+      "source": "mst_equip_exslot",
+      "sourceHandle": "mst_equip_exslot-equip",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "equip"
+    },
+    {
+      "id": "e-mst_equip_limit_exslot-equip-mst_slotitem",
+      "source": "mst_equip_limit_exslot",
+      "sourceHandle": "mst_equip_limit_exslot-equip",
+      "target": "mst_slotitem",
+      "targetHandle": "mst_slotitem-uuid",
+      "label": "equip"
+    },
+    {
+      "id": "e-mst_map_info-maparea_id-mst_map_area",
+      "source": "mst_map_info",
+      "sourceHandle": "mst_map_info-maparea_id",
+      "target": "mst_map_area",
+      "targetHandle": "mst_map_area-uuid",
+      "label": "maparea_id"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_current_ship_id-mst_ship",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_current_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid",
+      "label": "api_current_ship_id"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_current_ship_id-mst_shipgraph",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_current_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "api_current_ship_id"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_original_ship_id-mst_ship",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_original_ship_id",
+      "target": "mst_ship",
+      "targetHandle": "mst_ship-uuid",
+      "label": "api_original_ship_id"
+    },
+    {
+      "id": "e-mst_ship_upgrade-api_original_ship_id-mst_shipgraph",
+      "source": "mst_ship_upgrade",
+      "sourceHandle": "mst_ship_upgrade-api_original_ship_id",
+      "target": "mst_shipgraph",
+      "targetHandle": "mst_shipgraph-uuid",
+      "label": "api_original_ship_id"
     }
-  ]
+  ],
+  "masterTableCount": 13
 }

@@ -1,0 +1,205 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import { StatsCharts } from "@/components/react/StatsCharts";
+
+export const prerender = false;
+
+const emptyStats = {
+  dailySorties: [],
+  rankDistribution: {},
+  formationUsage: {},
+  airStateDistribution: {},
+};
+---
+
+<PageLayout title="FUSOU - Statistics">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1440px] mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+        <div>
+          <h1 class="text-3xl font-bold">統計ダッシュボード</h1>
+          <p class="text-base-content/60 mt-1">戦闘データの統計情報を可視化</p>
+        </div>
+        <a href="/battles" class="btn btn-ghost btn-sm">← 戦闘一覧</a>
+      </div>
+
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div class="stat bg-base-100 rounded-box shadow-sm">
+          <div class="stat-title">総出撃数</div>
+          <div class="stat-value text-primary" id="stat-total">-</div>
+        </div>
+        <div class="stat bg-base-100 rounded-box shadow-sm">
+          <div class="stat-title">S勝利率</div>
+          <div class="stat-value text-success" id="stat-s-rate">-</div>
+        </div>
+        <div class="stat bg-base-100 rounded-box shadow-sm">
+          <div class="stat-title">制空確保率</div>
+          <div class="stat-value text-info" id="stat-air-rate">-</div>
+        </div>
+        <div class="stat bg-base-100 rounded-box shadow-sm">
+          <div class="stat-title">ドロップ数</div>
+          <div class="stat-value text-accent" id="stat-drops">-</div>
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="card bg-base-100 shadow-sm mb-6">
+        <div class="card-body p-4">
+          <div class="flex flex-wrap gap-4 items-end">
+            <div class="form-control">
+              <label class="label"><span class="label-text">期間</span></label>
+              <select id="filter-period" class="select select-bordered select-sm">
+                <option value="latest">最新</option>
+                <option value="all">全期間</option>
+              </select>
+            </div>
+            <button id="btn-load" class="btn btn-primary btn-sm">集計</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts (React island) -->
+      <div id="charts-container">
+        <StatsCharts client:only="react" data={emptyStats} />
+      </div>
+
+      <!-- Loading overlay -->
+      <div id="loading-overlay" style="display:none" class="fixed inset-0 bg-base-300/50 flex items-center justify-center z-50">
+        <span class="loading loading-spinner loading-lg"></span>
+      </div>
+    </div>
+  </div>
+</PageLayout>
+
+<script>
+  const FORMATION_NAMES: Record<number, string> = {
+    1: "単縦陣",
+    2: "複縦陣",
+    3: "輪形陣",
+    4: "梯形陣",
+    5: "単横陣",
+    6: "警戒陣",
+  };
+
+  const AIR_NAMES: Record<number, string> = {
+    0: "航空均衡",
+    1: "制空権確保",
+    2: "航空優勢",
+    3: "航空劣勢",
+    4: "制空権喪失",
+  };
+
+  interface BattleRecord {
+    timestamp: number | null;
+    formation: number[] | null;
+    battle_result: { win_rank: string; drop_ship_id: number | null } | null;
+    opening_air_attack: Array<{ air_superiority: number | null } | null> | null;
+  }
+
+  document.getElementById("btn-load")?.addEventListener("click", async () => {
+    const overlay = document.getElementById("loading-overlay")!;
+    overlay.style.display = "flex";
+
+    try {
+      const periodEl = document.getElementById("filter-period") as unknown as HTMLSelectElement;
+      const periodTag = periodEl?.value ?? "latest";
+
+      const res = await fetch(`/api/data-loader/data/battle?period_tag=${periodTag}`, {
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res.ok) {
+        overlay.style.display = "none";
+        return;
+      }
+
+      const result = await res.json() as { records?: BattleRecord[] };
+      const battles = result.records ?? [];
+
+      if (battles.length === 0) {
+        document.getElementById("stat-total")!.textContent = "0";
+        document.getElementById("stat-s-rate")!.textContent = "-";
+        document.getElementById("stat-air-rate")!.textContent = "-";
+        document.getElementById("stat-drops")!.textContent = "0";
+        overlay.style.display = "none";
+        return;
+      }
+
+      // -- Compute stats --
+      const total = battles.length;
+      const rankCounts: Record<string, number> = {};
+      const formCounts: Record<string, number> = {};
+      const airCounts: Record<string, number> = {};
+      const dailyCounts: Record<string, number> = {};
+      let drops = 0;
+
+      for (const b of battles) {
+        // Rank
+        const rank = b.battle_result?.win_rank ?? "?";
+        rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
+
+        // Drops
+        if (b.battle_result?.drop_ship_id) drops++;
+
+        // Formation
+        const form = b.formation?.[0];
+        if (form != null) {
+          const name = FORMATION_NAMES[form] ?? `不明(${form})`;
+          formCounts[name] = (formCounts[name] ?? 0) + 1;
+        }
+
+        // Air state
+        const airSup = b.opening_air_attack?.[0]?.air_superiority;
+        if (airSup != null) {
+          const name = AIR_NAMES[airSup] ?? `不明(${airSup})`;
+          airCounts[name] = (airCounts[name] ?? 0) + 1;
+        }
+
+        // Daily
+        if (b.timestamp) {
+          const d = new Date(b.timestamp);
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          dailyCounts[dateStr] = (dailyCounts[dateStr] ?? 0) + 1;
+        }
+      }
+
+      // Summary stats
+      document.getElementById("stat-total")!.textContent = String(total);
+
+      const sCount = rankCounts["S"] ?? 0;
+      document.getElementById("stat-s-rate")!.textContent = `${((sCount / total) * 100).toFixed(1)}%`;
+
+      const airSecured = airCounts["制空権確保"] ?? 0;
+      const airTotal = Object.values(airCounts).reduce((s, v) => s + v, 0);
+      document.getElementById("stat-air-rate")!.textContent =
+        airTotal > 0 ? `${((airSecured / airTotal) * 100).toFixed(1)}%` : "-";
+
+      document.getElementById("stat-drops")!.textContent = String(drops);
+
+      // Build chart data and dispatch to React via custom event
+      const dailySorties = Object.entries(dailyCounts)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, count]) => ({ date, count }));
+
+      const statsData = {
+        dailySorties,
+        rankDistribution: rankCounts,
+        formationUsage: formCounts,
+        airStateDistribution: airCounts,
+      };
+
+      // Store in global for React to pick up
+      (window as unknown as Record<string, unknown>).__fusouStatsData = statsData;
+      window.dispatchEvent(new CustomEvent("fusou:stats-update", { detail: statsData }));
+
+    } catch (err) {
+      console.error("Failed to load stats:", err);
+    } finally {
+      overlay.style.display = "none";
+    }
+  });
+</script>

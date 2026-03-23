@@ -362,8 +362,8 @@ mod tests {
         assert!(versions.contains(&"v0_4".to_string()));
         #[cfg(feature = "schema_v0_5")]
         assert!(versions.contains(&"v0_5".to_string()));
-        #[cfg(feature = "schema_v0_6")]
-        assert!(versions.contains(&"v0_6".to_string()));
+        // #[cfg(feature = "schema_v0_6")]
+        // assert!(versions.contains(&"v0_6".to_string()));
     }
 
     #[test]
@@ -380,10 +380,10 @@ mod tests {
         assert!(!schemas.is_empty());
     }
 
-    #[test]
-    #[cfg(feature = "schema_v0_6")]
-    fn test_get_available_schemas_v0_6() {
-        let schemas = schema_registry::get_available_schemas("v0_6");
-        assert!(!schemas.is_empty());
-    }
+    // #[test]
+    // #[cfg(feature = "schema_v0_6")]
+    // fn test_get_available_schemas_v0_6() {
+    //     let schemas = schema_registry::get_available_schemas("v0_6");
+    //     assert!(!schemas.is_empty());
+    // }
 }

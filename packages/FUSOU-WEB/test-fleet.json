@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "fleet1": [
+    { "shipId": 911, "shipLevel": 175, "equipIds": [276, 276, 36, 59, 40], "equipImprovement": [6, 4, 0, 3, 0], "equipProficiency": [0, 0, 0, 7, 0], "exSlotId": null, "exSlotImprovement": 0 },
+    { "shipId": 594, "shipLevel": 99, "equipIds": [335, 335, 52, 57, 54], "equipImprovement": [0, 0, 0, 0, 0], "equipProficiency": [7, 7, 7, 4, 3], "exSlotId": null, "exSlotImprovement": 0 },
+    { "shipId": 10, "shipLevel": null, "equipIds": [null, null, null, null, null], "equipImprovement": [0, 0, 0, 0, 0], "equipProficiency": [0, 0, 0, 0, 0], "exSlotId": null, "exSlotImprovement": 0 },
+    { "shipId": 541, "shipLevel": 155, "equipIds": [276, 276, 36, null, null], "equipImprovement": [10, 8, 6, 0, 0], "equipProficiency": [0, 0, 0, 0, 0], "exSlotId": null, "exSlotImprovement": 0 },
+    { "shipId": 646, "shipLevel": 130, "equipIds": [335, 335, 52, 57, 54], "equipImprovement": [0, 0, 0, 0, 0], "equipProficiency": [7, 5, 6, 2, 1], "exSlotId": 40, "exSlotImprovement": 4 },
+    { "shipId": 119, "shipLevel": 80, "equipIds": [125, 125, null, null, null], "equipImprovement": [7, 7, 0, 0, 0], "equipProficiency": [0, 0, 0, 0, 0], "exSlotId": null, "exSlotImprovement": 0 }
+  ],
+  "fleet2": []
+}
