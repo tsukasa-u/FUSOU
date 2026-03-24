@@ -36,9 +36,7 @@ const isFromTauriApp =
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let return_href: string | null = null;
 let set_session_error_flag: boolean = false;
-let return_href_missing_flag: boolean = false;
 let isDesktopApp: boolean = isFromTauriApp; // Flag to detect desktop app flow
 let app_return_url: string | null = null; // URL to return to app
 
@@ -56,7 +54,6 @@ if (refreshToken?.value && accessToken?.value) {
     if (sessionResult.error) {
       error_message = sessionResult.error.message;
       set_session_error_flag = true;
-      return_href_missing_flag = true;
     } else {
       const userId = sessionResult.data.session?.user.id;
       if (!userId) {
@@ -174,8 +171,6 @@ if (refreshToken?.value && accessToken?.value) {
 
       // Store for display/manual copy in the UI (no tokens in DOM; only shown
       // when validateRedirectUrl succeeds and user explicitly requests it).
-      return_href = "/api/local_auth/app-redirect";
-
       // Validate the desktop app custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
         // Desktop app detected - store the redirect URL in a short-lived cookie.
@@ -195,7 +190,6 @@ if (refreshToken?.value && accessToken?.value) {
       } else {
         console.error("Invalid return href rejected in local callback");
         error_message = "Invalid redirect URL";
-        return_href_missing_flag = true;
       }
 
       // Database write is now handled server-side in /api/local_auth/callback.ts
@@ -204,7 +198,6 @@ if (refreshToken?.value && accessToken?.value) {
   } catch (error) {
     error_message = error instanceof Error ? error.message : String(error);
     set_session_error_flag = true;
-    return_href_missing_flag = true;
   }
 } else {
   // No tokens present - show warning
@@ -213,7 +206,6 @@ if (refreshToken?.value && accessToken?.value) {
   );
   error_message = "Missing required authentication cookies";
   set_session_error_flag = true;
-  return_href_missing_flag = true;
 }
 
 // Clean up local app tokens after they've been used
@@ -501,7 +493,6 @@ cookies.delete("sb-local-expires-at", { path: "/" });
       const errorMessage = this.dataset.errorMessage || "";
       const isDesktopApp = this.dataset.isDesktopApp === "true";
       const hasAppRedirect = this.dataset.hasAppRedirect === "true";
-      const appReturnUrl = hasAppRedirect ? "/api/local_auth/app-redirect" : "";
 
       window.addEventListener("DOMContentLoaded", () => {
         const errorContent = document.getElementById("error-content");

@@ -871,7 +871,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
       listContainer.innerHTML = "";
       for (const entry of data.tags) {
-        const btn = document.createElement("button");
+        const btn: HTMLButtonElement = document.createElement("button");
         btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
         const uploaded = entry.uploaded ? new Date(entry.uploaded).toLocaleString() : "";
 
@@ -883,7 +883,8 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
         uploadedSpan.className = "text-xs text-base-content/40";
         uploadedSpan.textContent = uploaded;
 
-        btn.append(tagSpan, uploadedSpan);
+        btn.appendChild(tagSpan);
+        btn.appendChild(uploadedSpan);
         btn.addEventListener("click", async () => {
           try {
             const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`, { headers: authHeaders() });

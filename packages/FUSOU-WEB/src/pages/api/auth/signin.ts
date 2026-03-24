@@ -2,7 +2,6 @@ import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
 import {
-  validateOrigin,
   validateOriginDetailed,
   validateRedirectUrl,
   sanitizeErrorMessage,
