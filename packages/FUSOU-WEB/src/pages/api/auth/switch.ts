@@ -1,9 +1,23 @@
 import type { APIRoute } from "astro";
-import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
+import {
+  SECURE_COOKIE_OPTIONS,
+  validateOrigin,
+} from "@/utility/security";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const POST: APIRoute = async ({ request, cookies, redirect }) => {
+export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => {
+  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+  const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
+  if (!siteUrl) {
+    return new Response("Server misconfiguration", { status: 500 });
+  }
+
+  if (!validateOrigin(request, siteUrl)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
+
   const formData = await request.formData();
   const indexStr = formData.get("index");
 

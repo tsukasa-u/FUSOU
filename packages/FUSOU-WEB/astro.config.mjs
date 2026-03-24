@@ -14,13 +14,61 @@ import rehypeMermaid from "rehype-mermaid";
  * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
  * 優先順位: 平文の環境変数 → Cloudflare組み込みのデプロイURL
  */
-function resolvePublicSiteUrl() {
-  // 1) 明示指定を最優先（dotenvx / Cloudflare env）
-  const envVal = process.env.PUBLIC_SITE_URL;
-  if (envVal && !envVal.startsWith("encrypted:")) return envVal;
+/**
+ * @param {string} value
+ */
+function isLocalOnlyUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
 
-  // 2) Cloudflare Pages 上のビルドは組み込みURLを使用
+/**
+ * @param {string | undefined} branch
+ * @param {string | undefined} deploymentUrl
+ */
+function toPreviewAliasUrl(branch, deploymentUrl) {
+  if (!branch || !deploymentUrl) return undefined;
+
+  // Convert branch names like "feature/foo_bar" into Cloudflare preview alias style.
+  const normalizedBranch = branch
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  if (!normalizedBranch) return undefined;
+
+  try {
+    const deploymentHost = new URL(deploymentUrl).hostname;
+    const firstDot = deploymentHost.indexOf(".");
+    if (firstDot === -1 || firstDot === deploymentHost.length - 1) {
+      return undefined;
+    }
+
+    const projectHost = deploymentHost.slice(firstDot + 1);
+    return `https://${normalizedBranch}.${projectHost}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function resolvePublicSiteUrl() {
+  // 1) 明示指定（dotenvx / Cloudflare env）
+  const envVal = process.env.PUBLIC_SITE_URL;
   const branch = process.env.CF_PAGES_BRANCH;
+  const isCloudflareBuild = Boolean(branch);
+  if (envVal && !envVal.startsWith("encrypted:")) {
+    // Cloudflare build では localhost 系の値を拒否して誤設定を防止する。
+    if (!(isCloudflareBuild && isLocalOnlyUrl(envVal))) {
+      return envVal;
+    }
+  }
+
+  // 2) Cloudflare Pages 上のビルドは組み込み情報から解決
   const deploymentUrl = process.env.CF_PAGES_URL;
   const productionSiteUrl = process.env.PUBLIC_SITE_URL_PRODUCTION;
 
@@ -33,6 +81,11 @@ function resolvePublicSiteUrl() {
         return deploymentUrl;
       }
       return undefined;
+    }
+
+    const previewAliasUrl = toPreviewAliasUrl(branch, deploymentUrl);
+    if (previewAliasUrl) {
+      return previewAliasUrl;
     }
 
     if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {

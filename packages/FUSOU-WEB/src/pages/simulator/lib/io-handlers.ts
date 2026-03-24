@@ -874,7 +874,16 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
         const btn = document.createElement("button");
         btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
         const uploaded = entry.uploaded ? new Date(entry.uploaded).toLocaleString() : "";
-        btn.innerHTML = `<span class="flex-1 text-left">${entry.tag}</span><span class="text-xs text-base-content/40">${uploaded}</span>`;
+
+        const tagSpan = document.createElement("span");
+        tagSpan.className = "flex-1 text-left";
+        tagSpan.textContent = entry.tag;
+
+        const uploadedSpan = document.createElement("span");
+        uploadedSpan.className = "text-xs text-base-content/40";
+        uploadedSpan.textContent = uploaded;
+
+        btn.append(tagSpan, uploadedSpan);
         btn.addEventListener("click", async () => {
           try {
             const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`, { headers: authHeaders() });

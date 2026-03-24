@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import { validateRedirectUrl } from "@/utility/security";
 
 // One-time redirect endpoint: reads the short-lived fusou:// redirect URL from
 // an httpOnly cookie set by /auth/local/callback.astro, issues the redirect,
@@ -17,8 +18,8 @@ export const GET: APIRoute = async ({ cookies, url }) => {
   // Must use the same path the cookie was set with in callback.astro.
   cookies.delete("sb-app-redirect-url", { path: "/api/local_auth/app-redirect" });
 
-  // Weak validation: must be a fusou:// deep link
-  if (!redirectTarget.startsWith("fusou://")) {
+  // Strict validation: only allow fusou://auth deep links.
+  if (!validateRedirectUrl(redirectTarget, url.origin)) {
     console.error("[app-redirect] non-fusou redirect rejected");
     return new Response("Invalid redirect target", { status: 400 });
   }

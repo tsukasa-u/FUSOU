@@ -188,12 +188,12 @@ if (refreshToken?.value && accessToken?.value) {
             path: "/api/local_auth/app-redirect",
             httpOnly: true,
             secure: import.meta.env.PROD,
-            sameSite: "lax",
+            sameSite: "strict",
             maxAge: 60,
           });
         }
       } else {
-        console.error("Invalid return href rejected: ", candidateHref);
+        console.error("Invalid return href rejected in local callback");
         error_message = "Invalid redirect URL";
         return_href_missing_flag = true;
       }
