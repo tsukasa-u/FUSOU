@@ -72,9 +72,6 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     );
   }
 
-  console.log("✓ Set sb-local-access-token (for local app)");
-  console.log("✓ Set sb-local-refresh-token (for local app)");
-
   if (provider_token && provider_refresh_token) {
     cookies.set("sb-local-provider-token", provider_token, COOKIE_OPTIONS);
     cookies.set(

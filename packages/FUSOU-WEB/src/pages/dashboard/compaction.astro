@@ -69,6 +69,17 @@
 
     const ChartLib = (typeof window !== 'undefined' && window.Chart) ? window.Chart : null;
 
+    // HTML escape function for XSS prevention
+    function escapeHtml(value) {
+      if (value == null) return '';
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     function setText(id, value) {
       const el = document.getElementById(id);
       if (el) el.textContent = String(value ?? '');
@@ -201,9 +212,9 @@
         <div class="bg-red-900/20 border border-red-500 rounded p-4">
           <div class="flex justify-between items-start">
             <div>
-              <div class="text-sm text-gray-400">Dataset: ${failure.dataset_id}</div>
-              <div class="text-red-400 font-medium">${failure.error_step || 'Unknown step'}</div>
-              <div class="text-sm text-gray-300 mt-1">${failure.error_message || 'No error message'}</div>
+              <div class="text-sm text-gray-400">Dataset: ${escapeHtml(failure.dataset_id)}</div>
+              <div class="text-red-400 font-medium">${escapeHtml(failure.error_step || 'Unknown step')}</div>
+              <div class="text-sm text-gray-300 mt-1">${escapeHtml(failure.error_message || 'No error message')}</div>
             </div>
             <div class="text-xs text-gray-500">
               ${new Date(failure.created_at).toLocaleString('ja-JP')}
@@ -234,8 +245,8 @@
           <tbody>
             ${errorData.map(error => `
               <tr class="border-b border-gray-700/50">
-                <td class="py-2 font-medium">${error.error_step || 'Unknown'}</td>
-                <td class="py-2 text-red-400">${error.error_count}</td>
+                <td class="py-2 font-medium">${escapeHtml(error.error_step || 'Unknown')}</td>
+                <td class="py-2 text-red-400">${escapeHtml(error.error_count)}</td>
                 <td class="py-2 text-sm text-gray-400">${new Date(error.latest_error_at).toLocaleString('ja-JP')}</td>
               </tr>
             `).join('')}

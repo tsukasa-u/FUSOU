@@ -62,10 +62,6 @@ if (refreshToken?.value && accessToken?.value) {
 
       // Check for member_id_hash conflict BEFORE returning to app
       if (memberIdHash) {
-        console.log(
-          "[callback] Checking member_id_hash conflict:",
-          memberIdHash,
-        );
         try {
           const conflictCheckResponse = await fetch(
             Astro.url.origin + "/api/member-lookup/verify-ownership",
@@ -82,19 +78,12 @@ if (refreshToken?.value && accessToken?.value) {
           );
 
           const conflictCheckData = (await conflictCheckResponse.json()) as any;
-          console.log("[callback] Conflict check response:", {
-            status: conflictCheckResponse.status,
-            data: conflictCheckData,
-          });
 
           // If conflict detected (member_id_hash already owned by another user)
           if (
             !conflictCheckResponse.ok &&
             conflictCheckResponse.status === 409
           ) {
-            console.log(
-              "[callback] CONFLICT DETECTED - redirecting to conflict page",
-            );
             // Redirect to conflict resolution page with member_id_hash
             return Astro.redirect(
               `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
@@ -102,14 +91,10 @@ if (refreshToken?.value && accessToken?.value) {
           }
 
           if (!conflictCheckResponse.ok) {
-            console.warn("Member ID conflict check failed:", conflictCheckData);
             // Proceed anyway - let the app handle any issues
           } else {
             // If migrateable (anonymous owner), call upsert to perform migration
             if (conflictCheckData?.migrateable) {
-              console.log(
-                "[callback] Anonymous owner detected - performing auto-migration",
-              );
               try {
                 const upsertResponse = await fetch(
                   Astro.url.origin + "/api/user/member-map/upsert",
@@ -124,31 +109,22 @@ if (refreshToken?.value && accessToken?.value) {
                 );
                 const upsertData = (await upsertResponse.json()) as any;
                 if (upsertResponse.ok) {
-                  console.log(
-                    "[callback] Auto-migration successful:",
-                    upsertData?.action,
-                  );
+                  // Auto-migration successful
                 } else {
-                  console.error(
-                    "[callback] Auto-migration failed:",
-                    upsertData,
-                  );
+                  // Auto-migration failed - proceed anyway
                 }
               } catch (upsertError) {
-                console.error("[callback] Auto-migration error:", upsertError);
+                // Silently proceed on auto-migration errors
               }
             } else {
-              console.log("[callback] No conflict - proceeding with auth");
+              // No conflict detected - proceeding with auth
             }
           }
         } catch (checkError) {
-          console.error("Error checking member_id_hash conflict:", checkError);
           // Proceed anyway - let the app handle any issues
         }
       } else {
-        console.warn(
-          "[callback] No member_id_hash provided in query params - skipping conflict check",
-        );
+        // No member_id_hash provided in query params - skipping conflict check
       }
 
       // Build fusou:// return URL for the desktop app.
