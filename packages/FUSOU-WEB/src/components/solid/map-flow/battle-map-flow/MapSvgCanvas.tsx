@@ -156,7 +156,7 @@ export default function MapSvgCanvas(props: Props) {
                 if (spot.currentRouteVisited) {
                   return spot.currentRouteHasBattle ? "#f43f5e" : "#ffffff";
                 }
-                return spot.battleCount > 0 ? "#f59e0b" : "#e2e8f0";
+                return spot.battleCount > 0 ? "#f43f5e" : "#e2e8f0";
               };
               return (
                 <g

@@ -20,6 +20,7 @@ import type {
   ResolvedRouteOverlay,
   SelectedCellDetails,
   SelectedCellFilter,
+  SortieRoute,
   TransitionOverlay,
 } from "./battle-map-flow/types";
 
@@ -253,7 +254,7 @@ export default function BattleMapFlowPanel() {
   });
 
   const allSortieRoutes = createMemo(() => {
-    return filteredCellRecords()
+    const allRoutes = filteredCellRecords()
       .map((cellRecord) => {
         const mapKey = mapKeyOf(cellRecord);
         const cells = (cellRecord.cell_index || [])
@@ -314,8 +315,25 @@ export default function BattleMapFlowPanel() {
           sortTimestamp: routeTimestamp,
         };
       })
-      .filter((route): route is NonNullable<typeof route> => !!route)
-      .sort((a, b) => b.sortTimestamp - a.sortTimestamp);
+      .filter((route): route is NonNullable<typeof route> => !!route);
+
+    // 同じセルパスを持つルートをマージ（最新のタイムスタンプを保持）
+    // 帰港（港への帰還）は、ルート末尾の0（港）を無視して比較
+    const routeMap = allRoutes.reduce(
+      (map, route) => {
+        // 末尾が港（0）の場合は除去してキーを生成
+        const normalizedCells = route.cells.at(-1) === 0 ? route.cells.slice(0, -1) : route.cells;
+        const cellPathKey = `${route.mapKey}:${normalizedCells.join("-")}`;
+        const existing = map.get(cellPathKey);
+        if (!existing || route.sortTimestamp > existing.sortTimestamp) {
+          map.set(cellPathKey, route);
+        }
+        return map;
+      },
+      new Map<string, SortieRoute>(),
+    );
+
+    return Array.from(routeMap.values()).sort((a, b) => b.sortTimestamp - a.sortTimestamp);
   });
 
   const filteredRouteCount = createMemo(() => {
@@ -975,7 +993,7 @@ export default function BattleMapFlowPanel() {
                     <div class="text-xs text-base-content/70">緑の点線: マップ上の接続ルート</div>
                     <div class="text-xs text-base-content/70">経路上の数字: その遷移を通過した回数</div>
                     <div class="text-xs text-base-content/70">赤の矢印: いま表示中の出撃が進んだ順路</div>
-                    <div class="text-xs text-base-content/70">白丸: 通過だけ / 黄丸: 戦闘が発生 / オレンジ強調: 選択中セル</div>
+                    <div class="text-xs text-base-content/70">白丸: 通過のみ / 赤丸: 戦闘が発生 / 黄丸: 港 / 黒枠: 選択中セル</div>
                   </div>
                   <Show when={selectedSortieRoute()}>
                     {(selected) => (
