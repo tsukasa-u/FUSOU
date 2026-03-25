@@ -4,6 +4,7 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
+import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import {
   validateAvroOCFSmart,
   extractSchemaFromOCF,
@@ -24,6 +25,114 @@ function arrayBufferToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...Array.from(chunk));
   }
   return btoa(binary);
+}
+
+const PUBLIC_RECORD_TABLES = new Set([
+  "battle",
+  "cells",
+  "enemy_deck",
+  "enemy_ship",
+  "battle_result",
+]);
+
+const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
+
+function parsePositiveInt(value: string | undefined, fallbackValue: number, max: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallbackValue;
+  }
+  return Math.min(parsed, max);
+}
+
+function normalizeTimestamp(value: unknown): number | null {
+  const normalizeEpochMs = (raw: number): number => {
+    // Some records store seconds while others store milliseconds.
+    return raw < 1_000_000_000_000 ? raw * 1000 : raw;
+  };
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return normalizeEpochMs(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? normalizeEpochMs(parsed) : null;
+  }
+  return null;
+}
+
+function attachSortieIds(records: any[]): void {
+  type Item = {
+    rec: Record<string, unknown>;
+    ts: number | null;
+  };
+
+  const sortable: Item[] = records
+    .filter((rec): rec is Record<string, unknown> => !!rec && typeof rec === "object")
+    .map((rec) => ({
+      rec,
+      ts: normalizeTimestamp(rec.timestamp) ?? normalizeTimestamp(rec.midnight_timestamp),
+    }))
+    .sort((a, b) => {
+      const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
+      const bTs = b.ts ?? Number.MAX_SAFE_INTEGER;
+      return aTs - bTs;
+    });
+
+  const byDataset = new Map<string, { mapKey: string; ts: number | null; sortieNo: number }>();
+
+  for (const item of sortable) {
+    const datasetId = typeof item.rec.dataset_id === "string" && item.rec.dataset_id
+      ? item.rec.dataset_id
+      : "global";
+    const mapArea = Number(item.rec.maparea_id ?? 0) || 0;
+    const mapInfo = Number(item.rec.mapinfo_no ?? 0) || 0;
+    const mapKey = `${mapArea}-${mapInfo}`;
+
+    const prev = byDataset.get(datasetId);
+    let sortieNo = 1;
+    if (prev) {
+      const sameMap = prev.mapKey === mapKey;
+      const withinGap =
+        prev.ts != null && item.ts != null
+          ? Math.abs(item.ts - prev.ts) <= SORTIE_SPLIT_GAP_MS
+          : sameMap;
+      sortieNo = sameMap && withinGap ? prev.sortieNo : prev.sortieNo + 1;
+    }
+
+    byDataset.set(datasetId, { mapKey, ts: item.ts, sortieNo });
+    item.rec.__sortie_id = `${datasetId}:${mapKey}:${sortieNo}`;
+  }
+}
+
+async function decodeIndexedBlock(
+  bucket: R2Bucket,
+  filePath: string,
+  startByte: number,
+  length: number,
+): Promise<any[]> {
+  if (startByte < 0 || length <= 0) {
+    return [];
+  }
+
+  // Read once and slice in-memory to avoid body re-use issues in local runtimes.
+  const sourceObject = await bucket.get(filePath);
+  if (!sourceObject?.body) {
+    return [];
+  }
+  const sourceBytes = new Uint8Array(await new Response(sourceObject.body).arrayBuffer());
+  const endByte = Math.min(sourceBytes.byteLength, startByte + length);
+  if (startByte >= endByte) {
+    return [];
+  }
+
+  const headerBytes = sourceBytes.subarray(0, startByte);
+  const dataBytes = sourceBytes.subarray(startByte, endByte);
+  const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
+  combined.set(headerBytes, 0);
+  combined.set(dataBytes, headerBytes.byteLength);
+
+  return decodeAvroOcfToJson(combined);
 }
 
 // validateAvroHeader is now imported from avro-validator
@@ -536,7 +645,7 @@ app.get("/chunks", async (c) => {
     let sql = `SELECT 
            bi.id AS id,
            bi.dataset_id,
-           bi.table_name AS table,
+           bi.table_name AS table_name,
            bi.length AS size,
            bi.table_version,
            af.file_path,
@@ -581,7 +690,7 @@ app.get("/chunks", async (c) => {
       id: r.id,
       file_path: r.file_path,
       dataset_id: r.dataset_id,
-      table: r.table,
+      table: r.table_name,
       table_version: r.table_version,
       size: r.size,
       record_count: r.record_count,
@@ -630,7 +739,7 @@ app.get("/latest", async (c) => {
     let latestSql = `SELECT 
          bi.id,
          bi.dataset_id,
-         bi.table_name AS table,
+         bi.table_name AS table_name,
          bi.length AS size,
          bi.table_version,
          af.file_path,
@@ -658,7 +767,7 @@ app.get("/latest", async (c) => {
       id: row.id,
       file_path: row.file_path,
       dataset_id: row.dataset_id,
-      table: row.table,
+      table: row.table_name,
       table_version: row.table_version,
       size: row.size,
       record_count: row.record_count,
@@ -708,7 +817,7 @@ app.get("/global/chunks", async (c) => {
     let sql = `SELECT 
            bi.id,
            bi.dataset_id,
-           bi.table_name AS table,
+           bi.table_name AS table_name,
            bi.length AS size,
            bi.table_version,
            af.file_path,
@@ -751,7 +860,7 @@ app.get("/global/chunks", async (c) => {
       id: r.id,
       file_path: r.file_path,
       dataset_id: r.dataset_id,
-      table: r.table,
+      table: r.table_name,
       table_version: r.table_version,
       size: r.size,
       record_count: r.record_count,
@@ -765,6 +874,175 @@ app.get("/global/chunks", async (c) => {
   } catch (err) {
     console.error("[battle_data] Failed to query global chunks:", err);
     return c.json({ error: "Failed to retrieve global chunks" }, 500);
+  }
+});
+
+/**
+ * GET /global/records - Decode recent battle-related records for web UI analysis pages
+ * Query params:
+ *   - table: battle | cells | enemy_deck | enemy_ship
+ *   - period_tag: latest | all | specific tag
+ *   - dataset_id: optional dataset filter
+ *   - limit_blocks: max archived blocks to decode (default 10, max 40)
+ *   - limit_records: max records in response (default 3000, max 20000)
+ */
+app.get("/global/records", async (c) => {
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+
+  if (!indexDb || !bucket) {
+    return c.json({ error: "BATTLE index DB or R2 bucket is not configured" }, 500);
+  }
+
+  const table = (c.req.query("table") || "battle").trim();
+  const periodTagParam = (c.req.query("period_tag") || "latest").trim();
+  const datasetId = c.req.query("dataset_id")?.trim();
+  const includeSortieKeyRaw =
+    (c.req.query("include_sortie_key") || "1").trim().toLowerCase();
+  const includeSortieKey = !["0", "false", "off", "no"].includes(includeSortieKeyRaw);
+  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 10, 40);
+  const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
+
+  if (!PUBLIC_RECORD_TABLES.has(table)) {
+    return c.json(
+      {
+        error: "INVALID_TABLE",
+        message: `table must be one of: ${Array.from(PUBLIC_RECORD_TABLES).join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
+
+  try {
+    let resolvedPeriodTag: string | null = null;
+    if (periodTagParam === "latest") {
+      const latest = (await indexDb
+        .prepare(
+          "SELECT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC, start_timestamp DESC LIMIT 1",
+        )
+        .bind(table)
+        .first()) as { period_tag?: string } | null;
+      resolvedPeriodTag = latest?.period_tag ?? null;
+    } else if (periodTagParam !== "all") {
+      resolvedPeriodTag = periodTagParam;
+    }
+
+    let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
+               FROM block_indexes bi
+               JOIN archived_files af ON af.id = bi.file_id
+               WHERE bi.table_name = ?`;
+    const params: unknown[] = [table];
+
+    if (resolvedPeriodTag) {
+      sql += " AND bi.period_tag = ?";
+      params.push(resolvedPeriodTag);
+    }
+    if (datasetId) {
+      sql += " AND bi.dataset_id = ?";
+      params.push(datasetId);
+    }
+
+    sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
+    params.push(limitBlocks);
+
+    const blockResult = await indexDb.prepare(sql).bind(...params).all?.();
+    const rows = (blockResult?.results || []) as Array<{
+      id: number;
+      dataset_id: string;
+      start_byte: number;
+      length: number;
+      start_timestamp: number | null;
+      end_timestamp: number | null;
+      period_tag: string | null;
+      file_path: string;
+    }>;
+
+    if (rows.length === 0) {
+      const payload = {
+        success: true,
+        table,
+        period_tag: resolvedPeriodTag || periodTagParam,
+        count: 0,
+        records: [],
+        source_blocks: 0,
+      };
+      const response = c.json(payload);
+      response.headers.set(
+        "Cache-Control",
+        "public, max-age=30, stale-while-revalidate=120",
+      );
+      response.headers.set("X-FUSOU-Cache", "MISS");
+      if (cache) {
+        c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+      }
+      return response;
+    }
+
+    const decodedRecords: any[] = [];
+    for (const row of rows) {
+      try {
+        const recs = await decodeIndexedBlock(
+          bucket,
+          row.file_path,
+          Number(row.start_byte || 0),
+          Number(row.length || 0),
+        );
+        for (const rec of recs) {
+          decodedRecords.push(rec);
+          if (decodedRecords.length >= limitRecords) {
+            break;
+          }
+        }
+        if (decodedRecords.length >= limitRecords) {
+          break;
+        }
+      } catch (err) {
+        console.warn("[battle-data] failed to decode block in /global/records", {
+          table,
+          blockId: row.id,
+          filePath: row.file_path,
+          error: String(err),
+        });
+      }
+    }
+
+    if (table === "battle" && includeSortieKey) {
+      attachSortieIds(decodedRecords);
+    }
+
+    const payload = {
+      success: true,
+      table,
+      period_tag: resolvedPeriodTag || periodTagParam,
+      count: decodedRecords.length,
+      records: decodedRecords,
+      source_blocks: rows.length,
+    };
+    const response = c.json(payload);
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=30, stale-while-revalidate=120",
+    );
+    response.headers.set("X-FUSOU-Cache", "MISS");
+    if (cache) {
+      c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+    }
+    return response;
+  } catch (err) {
+    console.error("[battle-data] Failed to fetch global records:", err);
+    return c.json({ error: "Failed to decode records" }, 500);
   }
 });
 
@@ -790,7 +1068,7 @@ app.get("/global/latest", async (c) => {
     let globalLatestSql = `SELECT 
          bi.id,
          bi.dataset_id,
-         bi.table_name AS table,
+         bi.table_name AS table_name,
          bi.length AS size,
          bi.table_version,
          af.file_path,
@@ -817,7 +1095,7 @@ app.get("/global/latest", async (c) => {
       id: row.id,
       file_path: row.file_path,
       dataset_id: row.dataset_id,
-      table: row.table,
+      table: row.table_name,
       table_version: row.table_version,
       size: row.size,
       record_count: row.record_count,

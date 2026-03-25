@@ -25,6 +25,8 @@
     "seed:master-data": "node scripts/seed-local-master-data.mjs",
     "seed:master-data:all": "node scripts/seed-local-master-data.mjs --all",
     "seed:fleet-data": "node scripts/seed-local-fleet-data.mjs --all",
+    "seed:battle-data": "node scripts/seed-local-battle-data.mjs --period latest",
+    "seed:battle-data:all": "node scripts/seed-local-battle-data.mjs --period all",
     "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
   },
   "dependencies": {

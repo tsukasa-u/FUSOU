@@ -12,6 +12,7 @@ import {
   Filler,
 } from "chart.js";
 import { Bar, Line, Doughnut } from "react-chartjs-2";
+import { useEffect, useState } from "react";
 
 ChartJS.register(
   CategoryScale,
@@ -50,13 +51,28 @@ const AIR_STATE_COLORS: Record<string, string> = {
 };
 
 export function StatsCharts({ data }: { data: BattleStatsData }) {
+  const [liveData, setLiveData] = useState<BattleStatsData>(data);
+
+  useEffect(() => {
+    const onUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<BattleStatsData>;
+      if (customEvent.detail) {
+        setLiveData(customEvent.detail);
+      }
+    };
+    window.addEventListener("fusou:stats-update", onUpdate as EventListener);
+    return () => {
+      window.removeEventListener("fusou:stats-update", onUpdate as EventListener);
+    };
+  }, []);
+
   // Daily sortie trend
   const sortieLineData = {
-    labels: data.dailySorties.map((d) => d.date),
+    labels: liveData.dailySorties.map((d) => d.date),
     datasets: [
       {
         label: "出撃数",
-        data: data.dailySorties.map((d) => d.count),
+        data: liveData.dailySorties.map((d) => d.count),
         borderColor: "#6A7FDB",
         backgroundColor: "rgba(106,127,219,0.15)",
         fill: true,
@@ -66,25 +82,25 @@ export function StatsCharts({ data }: { data: BattleStatsData }) {
   };
 
   // Rank distribution doughnut
-  const rankLabels = Object.keys(data.rankDistribution);
+  const rankLabels = Object.keys(liveData.rankDistribution);
   const rankDoughnut = {
     labels: rankLabels,
     datasets: [
       {
-        data: rankLabels.map((k) => data.rankDistribution[k]),
+        data: rankLabels.map((k) => liveData.rankDistribution[k]),
         backgroundColor: rankLabels.map((k) => RANK_COLORS[k] ?? "#888"),
       },
     ],
   };
 
   // Formation usage bar
-  const formLabels = Object.keys(data.formationUsage);
+  const formLabels = Object.keys(liveData.formationUsage);
   const formBarData = {
     labels: formLabels,
     datasets: [
       {
         label: "使用回数",
-        data: formLabels.map((k) => data.formationUsage[k]),
+        data: formLabels.map((k) => liveData.formationUsage[k]),
         backgroundColor: "#6A7FDB",
         borderRadius: 4,
       },
@@ -92,12 +108,12 @@ export function StatsCharts({ data }: { data: BattleStatsData }) {
   };
 
   // Air state distribution
-  const airLabels = Object.keys(data.airStateDistribution);
+  const airLabels = Object.keys(liveData.airStateDistribution);
   const airDoughnut = {
     labels: airLabels,
     datasets: [
       {
-        data: airLabels.map((k) => data.airStateDistribution[k]),
+        data: airLabels.map((k) => liveData.airStateDistribution[k]),
         backgroundColor: airLabels.map((k) => AIR_STATE_COLORS[k] ?? "#888"),
       },
     ],

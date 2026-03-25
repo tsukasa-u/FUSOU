@@ -14,7 +14,7 @@ import {
   isFleetSectionVisible,
 } from "./simulator-selectors";
 import { validateCombinedFleet } from "./combined-fleet";
-import { rerenderSolidSimulator } from "../../../components/solid/simulator-renderer";
+import { rerenderSolidSimulator } from "../../../components/solid/simulator/simulator-renderer";
 import { debounce } from "./equip-calc";
 import { onSimulatorStateDirty } from "./state";
 

@@ -134,7 +134,7 @@ export default defineConfig({
       include: ["**/react/*"],
     }),
     solid({
-      include: ["**/solid/*"],
+      include: ["**/solid/**"],
     }),
   ],
   output: "server",

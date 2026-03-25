@@ -3,12 +3,12 @@
 import { Index, Show, createContext, createEffect, createMemo, createSignal, onMount, useContext, type JSX } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { render } from "solid-js/web";
-import type { AirBaseSlot, FleetSlot } from "../../pages/simulator/lib/types";
-import { AIRCRAFT_TYPES, RANGE_NAMES, SPEED_NAMES, STYPE_SHORT } from "../../pages/simulator/lib/constants";
-import { cardUrl, computeEquipBonuses, computeEquipSum, createWeaponIconEl } from "../../pages/simulator/lib/equip-calc";
-import { prefetchExternalUrlForExport } from "../../pages/simulator/lib/image-capture";
-import { openShipModal } from "../../pages/simulator/lib/ship-modal";
-import { openEquipModal } from "../../pages/simulator/lib/equip-modal";
+import type { AirBaseSlot, FleetSlot } from "../../../pages/simulator/lib/types";
+import { AIRCRAFT_TYPES, RANGE_NAMES, SPEED_NAMES, STYPE_SHORT } from "../../../pages/simulator/lib/constants";
+import { cardUrl, computeEquipBonuses, computeEquipSum, createWeaponIconEl } from "../../../pages/simulator/lib/equip-calc";
+import { prefetchExternalUrlForExport } from "../../../pages/simulator/lib/image-capture";
+import { openShipModal } from "../../../pages/simulator/lib/ship-modal";
+import { openEquipModal } from "../../../pages/simulator/lib/equip-modal";
 import {
   applyAirBaseEquipSelection,
   applyFleetEquipSelection,
@@ -27,20 +27,21 @@ import {
   setEquipModalTargetForAirBase,
   setEquipModalTargetForFleet,
   setShipModalTargetForFleet,
-} from "../../pages/simulator/lib/simulator-mutations";
+} from "../../../pages/simulator/lib/simulator-mutations";
 import {
   markSimulatorStateDirty,
   simulatorFleetState,
   simulatorAirbaseState,
   type SimulatorDirtyScope,
-} from "../../pages/simulator/lib/state";
+} from "../../../pages/simulator/lib/state";
 import {
   getAirBaseState,
   getFleetState,
   getMasterShip,
   getMasterSlotItem,
   isWorkspaceReadOnly,
-} from "../../pages/simulator/lib/simulator-selectors";
+} from "../../../pages/simulator/lib/simulator-selectors";
+
 
 let mounted = false;
 const prefetchedCardUrls = new Set<string>();

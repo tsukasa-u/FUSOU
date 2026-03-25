@@ -139,6 +139,47 @@ const { id } = Astro.params;
     E: "text-error",
   };
 
+  function normalizeEpochMs(value) {
+    if (value == null) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return n < 1_000_000_000_000 ? n * 1000 : n;
+  }
+
+  function resolveBattleResult(raw, battleResultByUuid) {
+    if (!raw) return null;
+    if (typeof raw === "string") {
+      return battleResultByUuid.get(raw) ?? null;
+    }
+    if (typeof raw === "object" && raw.win_rank) {
+      return {
+        win_rank: raw.win_rank,
+        drop_ship_id: raw.drop_ship_id ?? null,
+      };
+    }
+    return null;
+  }
+
+  async function fetchBattleResultByUuid(uuid) {
+    if (!uuid) return null;
+    try {
+      const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
+      const response = await fetch(
+        `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+      );
+      if (!response.ok) return null;
+      const payload = await response.json();
+      const item = (payload.records || []).find((r) => r?.uuid === uuid && r?.win_rank);
+      if (!item?.win_rank) return null;
+      return {
+        win_rank: item.win_rank,
+        drop_ship_id: item.drop_ship_id ?? null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   function renderHPBar(current, max, label = "") {
     const pct = max > 0 ? Math.max(0, (current / max) * 100) : 0;
     let color = "bg-success";
@@ -237,21 +278,24 @@ const { id } = Astro.params;
     </div>`;
   }
 
-  function renderBattle(battle) {
+  function renderBattle(battle, mapLabel) {
     // Meta
     const metaEl = document.getElementById("battle-meta");
-    const ts = battle.timestamp
-      ? new Date(battle.timestamp).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
+    const tsValue = normalizeEpochMs(battle.timestamp) ?? normalizeEpochMs(battle.midnight_timestamp);
+    const ts = tsValue
+      ? new Date(tsValue).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
       : "-";
+    const mapText = mapLabel || (battle.maparea_id && battle.mapinfo_no ? `${battle.maparea_id}-${battle.mapinfo_no}` : "-");
     metaEl.innerHTML = `
       <span>日時: <strong>${ts}</strong></span>
+      <span>海域: <strong>${mapText}</strong></span>
       <span>セル: <strong>${battle.cell_id}</strong></span>
       <span>デッキ: <strong>${battle.deck_id ?? "-"}</strong></span>
     `;
 
     // Formation
-    const fForm = battle.formation?.[0] ?? 0;
-    const eForm = battle.formation?.[1] ?? 0;
+    const fForm = battle.f_formation ?? battle.formation?.[0] ?? 0;
+    const eForm = battle.e_formation ?? battle.formation?.[1] ?? 0;
     document.getElementById("f-formation").textContent = FORMATION_NAMES[fForm] ?? "-";
     document.getElementById("e-formation").textContent = FORMATION_NAMES[eForm] ?? "-";
 
@@ -336,14 +380,109 @@ const { id } = Astro.params;
     }
   }
 
-  // Page will receive battle data via sessionStorage or URL params
-  // For now, show placeholder guidance
-  const battleData = sessionStorage.getItem("battleDetail");
-  if (battleData) {
+  async function loadBattleById() {
+    const battleData = sessionStorage.getItem("battleDetail");
+    if (battleData) {
+      try {
+        const parsed = JSON.parse(battleData);
+        if (parsed) {
+          const preloaded = {
+            ...parsed,
+            timestamp:
+              normalizeEpochMs(parsed.timestamp) ?? normalizeEpochMs(parsed.midnight_timestamp) ?? null,
+          };
+          renderBattle(preloaded);
+        }
+      } catch (e) {
+        console.error("Failed to parse session battle data:", e);
+      }
+    }
+
     try {
-      renderBattle(JSON.parse(battleData));
+      const [battleRes, cellsRes, battleResultRes] = await Promise.all([
+        fetch(
+          `/api/battle-data/global/records?table=battle&period_tag=all&limit_blocks=40&limit_records=20000`,
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=cells&period_tag=all&limit_blocks=40&limit_records=20000`,
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=40&limit_records=20000`,
+        ),
+      ]);
+
+      if (!battleRes.ok) {
+        const meta = document.getElementById("battle-meta");
+        if (meta) {
+          meta.innerHTML = `<span class="text-error">戦闘データ取得に失敗しました (${battleRes.status})</span>`;
+        }
+        return;
+      }
+
+      const payload = await battleRes.json();
+      const records = payload.records ?? [];
+      const cellsPayload = cellsRes.ok ? await cellsRes.json() : { records: [] };
+      const battleResultPayload = battleResultRes.ok ? await battleResultRes.json() : { records: [] };
+
+      const mapByBattleUuid = new Map();
+      for (const cell of cellsPayload.records || []) {
+        if (!cell?.battles) continue;
+        const maparea = Number(cell.maparea_id ?? 0);
+        const mapinfo = Number(cell.mapinfo_no ?? 0);
+        if (maparea > 0 && mapinfo > 0) {
+          mapByBattleUuid.set(cell.battles, `${maparea}-${mapinfo}`);
+        }
+      }
+
+      const battleResultByUuid = new Map();
+      for (const item of battleResultPayload.records || []) {
+        if (!item?.uuid || !item.win_rank) continue;
+        battleResultByUuid.set(item.uuid, {
+          win_rank: item.win_rank,
+          drop_ship_id: item.drop_ship_id ?? null,
+        });
+      }
+      const idText = String(battleId || "");
+      const fallbackIdx = Number.parseInt(idText, 10);
+
+      const candidates = records.filter((r) => String(r.uuid || "") === idText);
+      const matched =
+        (candidates.length > 0
+          ? candidates.sort((a, b) => {
+              const ta = normalizeEpochMs(a.timestamp) ?? normalizeEpochMs(a.midnight_timestamp) ?? 0;
+              const tb = normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp) ?? 0;
+              return tb - ta;
+            })[0]
+          : null)
+        ?? (Number.isFinite(fallbackIdx) && fallbackIdx >= 0 ? records[fallbackIdx] : null);
+
+      if (matched) {
+        let resolvedBattleResult = resolveBattleResult(matched.battle_result, battleResultByUuid);
+        if (!resolvedBattleResult && typeof matched.battle_result === "string") {
+          resolvedBattleResult = await fetchBattleResultByUuid(matched.battle_result);
+        }
+        const merged = {
+          ...matched,
+          timestamp:
+            normalizeEpochMs(matched.timestamp) ?? normalizeEpochMs(matched.midnight_timestamp) ?? null,
+          battle_result: resolvedBattleResult,
+        };
+        const mapLabel = matched.uuid ? mapByBattleUuid.get(matched.uuid) : null;
+        renderBattle(merged, mapLabel);
+      } else {
+        const meta = document.getElementById("battle-meta");
+        if (meta) {
+          meta.innerHTML = `<span class="text-warning">指定された戦闘データが見つかりませんでした</span>`;
+        }
+      }
     } catch (e) {
-      console.error("Failed to parse battle data:", e);
+      console.error("Failed to load battle detail by id:", e);
+      const meta = document.getElementById("battle-meta");
+      if (meta) {
+        meta.innerHTML = `<span class="text-error">戦闘データ読込中にエラーが発生しました</span>`;
+      }
     }
   }
+
+  void loadBattleById();
 </script>
