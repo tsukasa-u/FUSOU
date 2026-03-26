@@ -16,7 +16,7 @@
  *
  * Optional args:
  *   --period <latest|all|tag> (default: latest)
- *   --tables <csv>            (default: battle,cells,enemy_deck,enemy_ship)
+ *   --tables <csv>            (default: battle,cells,env_info,enemy_deck,enemy_ship,enemy_slotitem,own_deck,own_ship,own_slotitem,carrierbase_assault,closing_raigeki,hougeki,hougeki_list,midnight_hougeki,midnight_hougeki_list,opening_airattack,opening_airattack_list,opening_raigeki,opening_taisen,opening_taisen_list)
  *   --limit <number>          (default: 2000, max: 20000)
  */
 
@@ -25,7 +25,29 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { join } from "path";
 
 const TMP_DIR = join(process.cwd(), ".seed-battle-tmp");
-const DEFAULT_TABLES = ["battle", "cells", "enemy_deck", "enemy_ship"];
+const SUPPORTED_TABLES = [
+  "battle",
+  "cells",
+  "env_info",
+  "enemy_deck",
+  "enemy_ship",
+  "enemy_slotitem",
+  "own_deck",
+  "own_ship",
+  "own_slotitem",
+  "carrierbase_assault",
+  "closing_raigeki",
+  "hougeki",
+  "hougeki_list",
+  "midnight_hougeki",
+  "midnight_hougeki_list",
+  "opening_airattack",
+  "opening_airattack_list",
+  "opening_raigeki",
+  "opening_taisen",
+  "opening_taisen_list",
+];
+const DEFAULT_TABLES = [...SUPPORTED_TABLES];
 
 function run(cmd) {
   return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
@@ -101,7 +123,7 @@ function parseArgs() {
     throw new Error("Missing D1 database name. Pass --db, set SEED_BATTLE_DB/BATTLE_INDEX_DB_NAME, or configure BATTLE_INDEX_DB in wrangler.toml");
   }
 
-  const invalid = options.tables.filter((t) => !DEFAULT_TABLES.includes(t));
+  const invalid = options.tables.filter((t) => !SUPPORTED_TABLES.includes(t));
   if (invalid.length > 0) {
     throw new Error(`Unsupported tables in --tables: ${invalid.join(", ")}`);
   }

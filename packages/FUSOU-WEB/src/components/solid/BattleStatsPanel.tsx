@@ -53,6 +53,7 @@ const RANK_COLORS: Record<string, string> = {
   C: "#ef4444",
   D: "#b91c1c",
   E: "#7f1d1d",
+  未記録: "#94a3b8",
 };
 
 const AIR_COLORS: Record<string, string> = {
@@ -179,6 +180,41 @@ export default function BattleStatsPanel() {
         return;
       }
 
+      const unresolvedResultUuids = new Set<string>();
+      for (const battle of battles) {
+        if (typeof battle.battle_result === "string" && !battleResultByUuid.has(battle.battle_result)) {
+          unresolvedResultUuids.add(battle.battle_result);
+        }
+      }
+
+      if (unresolvedResultUuids.size > 0) {
+        const fetched = await Promise.allSettled(
+          [...unresolvedResultUuids].map(async (uuid) => {
+            const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
+            const detailRes = await fetch(
+              `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+            );
+            if (!detailRes.ok) return null;
+            const body = (await detailRes.json()) as { records?: BattleResultRecord[] };
+            const found = (body.records || []).find((item) => item?.uuid === uuid && !!item?.win_rank);
+            if (!found?.win_rank) return null;
+            return {
+              uuid,
+              win_rank: found.win_rank,
+              drop_ship_id: found.drop_ship_id ?? null,
+            };
+          }),
+        );
+
+        for (const item of fetched) {
+          if (item.status !== "fulfilled" || !item.value) continue;
+          battleResultByUuid.set(item.value.uuid, {
+            win_rank: item.value.win_rank,
+            drop_ship_id: item.value.drop_ship_id,
+          });
+        }
+      }
+
       const rankCounts: Record<string, number> = {};
       const formCounts: Record<string, number> = {};
       const airCounts: Record<string, number> = {};
@@ -187,7 +223,7 @@ export default function BattleStatsPanel() {
 
       for (const b of battles) {
         const resolvedBattleResult = resolveBattleResult(b.battle_result, battleResultByUuid);
-        const rank = resolvedBattleResult?.win_rank ?? "?";
+        const rank = resolvedBattleResult?.win_rank ?? "未記録";
         rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
 
         if (resolvedBattleResult?.drop_ship_id) drops++;
@@ -308,17 +344,22 @@ export default function BattleStatsPanel() {
           <div class="flex items-center gap-6">
             <div class="w-44 h-44 rounded-full border border-base-300" style={{ background: rankConic() }}></div>
             <div class="flex-1 text-sm">
-              <For each={rankEntries()}>
-                {([name, value]) => (
-                  <div class="flex items-center justify-between py-1 border-b border-base-200">
-                    <span class="flex items-center gap-2">
-                      <span class="inline-block w-3 h-3 rounded-sm" style={{ background: RANK_COLORS[name] ?? "#94a3b8" }}></span>
-                      {name}
-                    </span>
-                    <span>{value}</span>
-                  </div>
-                )}
-              </For>
+              <Show
+                when={rankEntries().length > 0}
+                fallback={<div class="py-8 text-base-content/50">戦闘結果データがありません</div>}
+              >
+                <For each={rankEntries()}>
+                  {([name, value]) => (
+                    <div class="flex items-center justify-between py-1 border-b border-base-200">
+                      <span class="flex items-center gap-2">
+                        <span class="inline-block w-3 h-3 rounded-sm" style={{ background: RANK_COLORS[name] ?? "#94a3b8" }}></span>
+                        {name}
+                      </span>
+                      <span>{value}</span>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
         </div>
@@ -348,17 +389,22 @@ export default function BattleStatsPanel() {
           <div class="flex items-center gap-6">
             <div class="w-44 h-44 rounded-full border border-base-300" style={{ background: airConic() }}></div>
             <div class="flex-1 text-sm">
-              <For each={airEntries()}>
-                {([name, value]) => (
-                  <div class="flex items-center justify-between py-1 border-b border-base-200">
-                    <span class="flex items-center gap-2">
-                      <span class="inline-block w-3 h-3 rounded-sm" style={{ background: AIR_COLORS[name] ?? "#94a3b8" }}></span>
-                      {name}
-                    </span>
-                    <span>{value}</span>
-                  </div>
-                )}
-              </For>
+              <Show
+                when={airEntries().length > 0}
+                fallback={<div class="py-8 text-base-content/50">制空データがありません</div>}
+              >
+                <For each={airEntries()}>
+                  {([name, value]) => (
+                    <div class="flex items-center justify-between py-1 border-b border-base-200">
+                      <span class="flex items-center gap-2">
+                        <span class="inline-block w-3 h-3 rounded-sm" style={{ background: AIR_COLORS[name] ?? "#94a3b8" }}></span>
+                        {name}
+                      </span>
+                      <span>{value}</span>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </div>
           </div>
         </div>

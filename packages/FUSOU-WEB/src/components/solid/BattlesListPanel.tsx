@@ -30,6 +30,22 @@ type CellRecord = {
   mapinfo_no?: number | null;
 };
 
+type EnemyDeckRecord = {
+  uuid: string;
+  ship_ids?: string[] | string | null;
+};
+
+type EnemyShipRecord = {
+  uuid: string;
+  index?: number | null;
+  mst_ship_id?: number | null;
+};
+
+type MstShipRecord = {
+  id: number;
+  name: string;
+};
+
 const WIN_RANK_BADGES: Record<string, string> = {
   S: "badge-success",
   A: "badge-info",
@@ -103,6 +119,7 @@ export default function BattlesListPanel() {
   const [resultFilter, setResultFilter] = createSignal("");
   const [currentPage, setCurrentPage] = createSignal(0);
   const [allBattles, setAllBattles] = createSignal<BattleRecord[]>([]);
+  const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<Map<string, string>>(new Map());
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
@@ -142,18 +159,29 @@ export default function BattlesListPanel() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
-        `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-        { headers: { "Content-Type": "application/json" } },
-      );
-      const cellsResponse = await fetch(
-        `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-        { headers: { "Content-Type": "application/json" } },
-      );
-      const battleResultResponse = await fetch(
-        `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-        { headers: { "Content-Type": "application/json" } },
-      );
+      const [response, cellsResponse, battleResultResponse, enemyDeckResponse, enemyShipResponse, mstShipResponse] = await Promise.all([
+        fetch(
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=8000`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+        fetch(
+          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=20000`,
+          { headers: { "Content-Type": "application/json" } },
+        ),
+        fetch(`/api/master-data/json?table_name=mst_ship`, { headers: { "Content-Type": "application/json" } }),
+      ]);
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
         setError(payload.message || "戦闘データの取得に失敗しました。");
@@ -167,6 +195,15 @@ export default function BattlesListPanel() {
         : { records: [] };
       const battleResultPayload = battleResultResponse.ok
         ? ((await battleResultResponse.json()) as { records?: BattleResultRecord[] })
+        : { records: [] };
+      const enemyDeckPayload = enemyDeckResponse.ok
+        ? ((await enemyDeckResponse.json()) as { records?: EnemyDeckRecord[] })
+        : { records: [] };
+      const enemyShipPayload = enemyShipResponse.ok
+        ? ((await enemyShipResponse.json()) as { records?: EnemyShipRecord[] })
+        : { records: [] };
+      const mstShipPayload = mstShipResponse.ok
+        ? ((await mstShipResponse.json()) as { records?: MstShipRecord[] })
         : { records: [] };
       const battleResultByUuid = new Map<string, { win_rank: WinRank; drop_ship_id: number | null }>();
       for (const rec of battleResultPayload.records || []) {
@@ -251,7 +288,58 @@ export default function BattlesListPanel() {
         })
         .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
+      const deckById = new Map((enemyDeckPayload.records || []).map((d) => [d.uuid, d]));
+      const shipsByGroupId = new Map<string, EnemyShipRecord[]>();
+      for (const ship of enemyShipPayload.records || []) {
+        const group = shipsByGroupId.get(ship.uuid);
+        if (group) {
+          group.push(ship);
+        } else {
+          shipsByGroupId.set(ship.uuid, [ship]);
+        }
+      }
+      for (const group of shipsByGroupId.values()) {
+        group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+      }
+      const mstShipNameById = new Map((mstShipPayload.records || []).map((s) => [s.id, s.name]));
+
+      const toGroupIds = (shipIds: EnemyDeckRecord["ship_ids"]): string[] => {
+        if (Array.isArray(shipIds)) {
+          return shipIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+        }
+        if (typeof shipIds === "string" && shipIds.length > 0) {
+          return [shipIds];
+        }
+        return [];
+      };
+
+      const describeEnemy = (deckId?: string | null): string => {
+        if (!deckId) return "-";
+        const deck = deckById.get(deckId);
+        if (!deck?.ship_ids) return `敵艦隊 ${deckId.slice(0, 8)}`;
+        const names: string[] = [];
+        for (const groupId of toGroupIds(deck.ship_ids)) {
+          const ships = shipsByGroupId.get(groupId) || [];
+          for (const ship of ships) {
+            const id = ship.mst_ship_id;
+            if (!id) continue;
+            names.push(mstShipNameById.get(id) ?? `艦ID:${id}`);
+          }
+        }
+        const uniq = [...new Set(names)];
+        if (uniq.length === 0) return `敵艦隊 ${deckId.slice(0, 8)}`;
+        const head = uniq.slice(0, 3).join(" / ");
+        return uniq.length > 3 ? `${head} +${uniq.length - 3}` : head;
+      };
+
+      const enemyNames = new Map<string, string>();
+      for (const battle of sorted) {
+        if (!battle.e_deck_id || enemyNames.has(battle.e_deck_id)) continue;
+        enemyNames.set(battle.e_deck_id, describeEnemy(battle.e_deck_id));
+      }
+
       setAllBattles(sorted);
+      setEnemyDeckNameById(enemyNames);
       setCurrentPage(0);
       if (mapFilter() && !sorted.some((b) => mapLabelOf(b) === mapFilter())) {
         setMapFilter("");
@@ -271,7 +359,7 @@ export default function BattlesListPanel() {
       // Ignore storage errors and keep navigation.
     }
     const detailId = battle.uuid || String(fallbackIndex);
-    window.location.href = `/battles/${detailId}`;
+    window.location.href = `/battles/${encodeURIComponent(detailId)}`;
   }
 
   onMount(() => {
@@ -347,13 +435,16 @@ export default function BattlesListPanel() {
               <For each={recentSummary()}>
                 {(b) => {
                   const rank = battleResultOf(b)?.win_rank ?? "-";
-                  const deck = b.e_deck_id ? b.e_deck_id.slice(0, 8) : "-";
                   return (
                     <div class="py-1 border-b border-base-200">
                       <span class="font-mono text-xs mr-2">{formatTimestamp(b.timestamp)}</span>
                       <span class="badge badge-ghost badge-sm mr-2">{mapLabelOf(b)}</span>
                       <span class="mr-2">{b.cell_id}マス</span>
-                      <span class="mr-2">敵艦隊 {deck}</span>
+                      <span class="mr-2">
+                        {b.e_deck_id
+                          ? (enemyDeckNameById().get(b.e_deck_id) ?? `敵艦隊 ${b.e_deck_id.slice(0, 8)}`)
+                          : "-"}
+                      </span>
                       <span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span>
                     </div>
                   );
@@ -394,6 +485,7 @@ export default function BattlesListPanel() {
                         const airSup = b.opening_air_attack?.[0]?.air_superiority;
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
                         const detailId = b.uuid || String(fallbackIdx);
+                        const detailHref = `/battles/${encodeURIComponent(detailId)}`;
                         return (
                           <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
                             <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
@@ -405,7 +497,7 @@ export default function BattlesListPanel() {
                             <td>{result?.drop_ship_id ? `#${result.drop_ship_id}` : "-"}</td>
                             <td>
                               <a
-                                href={`/battles/${detailId}`}
+                                href={detailHref}
                                 class="btn btn-ghost btn-xs"
                                 onClick={(e) => {
                                   e.stopPropagation();

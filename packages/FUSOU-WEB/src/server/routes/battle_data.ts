@@ -30,9 +30,25 @@ function arrayBufferToBase64(bytes: Uint8Array): string {
 const PUBLIC_RECORD_TABLES = new Set([
   "battle",
   "cells",
+  "env_info",
   "enemy_deck",
   "enemy_ship",
+  "enemy_slotitem",
+  "own_deck",
+  "own_ship",
+  "own_slotitem",
   "battle_result",
+  "carrierbase_assault",
+  "closing_raigeki",
+  "hougeki",
+  "hougeki_list",
+  "midnight_hougeki",
+  "midnight_hougeki_list",
+  "opening_airattack",
+  "opening_airattack_list",
+  "opening_raigeki",
+  "opening_taisen",
+  "opening_taisen_list",
 ]);
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
@@ -103,6 +119,50 @@ function attachSortieIds(records: any[]): void {
     byDataset.set(datasetId, { mapKey, ts: item.ts, sortieNo });
     item.rec.__sortie_id = `${datasetId}:${mapKey}:${sortieNo}`;
   }
+}
+
+function matchesRecordFilter(record: unknown, filterObj: Record<string, unknown>): boolean {
+  if (!record || typeof record !== "object") {
+    return false;
+  }
+  const rec = record as Record<string, unknown>;
+  for (const [key, expected] of Object.entries(filterObj)) {
+    const actual = rec[key];
+
+    if (Array.isArray(expected)) {
+      if (!expected.includes(actual as never)) {
+        return false;
+      }
+      continue;
+    }
+
+    if (expected === null) {
+      if (actual !== null && actual !== undefined) {
+        return false;
+      }
+      continue;
+    }
+
+    if (typeof expected === "number") {
+      const actualNum = Number(actual);
+      if (!Number.isFinite(actualNum) || actualNum !== expected) {
+        return false;
+      }
+      continue;
+    }
+
+    if (typeof expected === "boolean") {
+      if (Boolean(actual) !== expected) {
+        return false;
+      }
+      continue;
+    }
+
+    if (String(actual) !== String(expected)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 async function decodeIndexedBlock(
@@ -901,8 +961,22 @@ app.get("/global/records", async (c) => {
   const includeSortieKeyRaw =
     (c.req.query("include_sortie_key") || "1").trim().toLowerCase();
   const includeSortieKey = !["0", "false", "off", "no"].includes(includeSortieKeyRaw);
+  const filterJsonRaw = c.req.query("filter_json")?.trim();
   const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 10, 40);
   const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
+
+  let recordFilter: Record<string, unknown> | null = null;
+  if (filterJsonRaw) {
+    try {
+      const parsed = JSON.parse(filterJsonRaw) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return c.json({ error: "INVALID_FILTER", message: "filter_json must be a JSON object" }, 400);
+      }
+      recordFilter = parsed as Record<string, unknown>;
+    } catch {
+      return c.json({ error: "INVALID_FILTER", message: "filter_json must be valid JSON" }, 400);
+    }
+  }
 
   if (!PUBLIC_RECORD_TABLES.has(table)) {
     return c.json(
@@ -1000,6 +1074,9 @@ app.get("/global/records", async (c) => {
           Number(row.length || 0),
         );
         for (const rec of recs) {
+          if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
+            continue;
+          }
           decodedRecords.push(rec);
           if (decodedRecords.length >= limitRecords) {
             break;
