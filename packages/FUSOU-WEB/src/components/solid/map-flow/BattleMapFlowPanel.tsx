@@ -210,11 +210,11 @@ export default function BattleMapFlowPanel() {
                 setMapPortsByKey((prev) => ({ ...prev, [mapKey]: labeledPorts }));
               }
             } else {
-              addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。番号で表示します。`);
+              addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。代替ラベルで表示します。`);
             }
           } catch (error) {
             if (isAbortError(error)) return;
-            addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。番号で表示します。`);
+            addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。代替ラベルで表示します。`);
           }
         }
       } catch (error) {
@@ -351,7 +351,7 @@ export default function BattleMapFlowPanel() {
         return {
           sortieId,
           mapKey,
-          route: routeCells.map((cellId) => cellLabel(cellId, mapKey)).join(" -> "),
+          route: routeCells.map((cellId) => cellLabel(cellId, mapKey)).join(" → "),
           cells: routeCells,
           steps,
           battleCount: steps.filter((step) => step.hasBattle).length,
@@ -701,7 +701,7 @@ export default function BattleMapFlowPanel() {
         passCount++;
         const next = route.steps[index + 1];
         const nextLabel = next ? cellLabel(next.cellId, route.mapKey) : "到達";
-        const transitionLabel = `${cellLabel(step.cellId, route.mapKey)} -> ${nextLabel}`;
+        const transitionLabel = `${cellLabel(step.cellId, route.mapKey)} → ${nextLabel}`;
         outgoingCounts.set(transitionLabel, (outgoingCounts.get(transitionLabel) ?? 0) + 1);
       });
     }
@@ -1165,7 +1165,7 @@ export default function BattleMapFlowPanel() {
                     {(s) => {
                       const nexts = [...s.nextCells.entries()]
                         .sort((a, b) => b[1] - a[1])
-                        .map(([cell, count]) => `${cellLabel(cell)}(${count})`)
+                        .map(([cell, count]) => `${cellLabel(cell, mapFilter() || undefined)} (${count})`)
                         .join(", ");
                       const topEnemies = [...s.enemyCounts.entries()]
                         .sort((a, b) => b[1] - a[1])

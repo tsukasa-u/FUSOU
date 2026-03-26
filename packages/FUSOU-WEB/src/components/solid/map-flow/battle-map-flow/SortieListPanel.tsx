@@ -13,6 +13,21 @@ type Props = {
   cellLabel: (cellId: number, mapKey?: string) => string;
 };
 
+function InlineArrow() {
+  return (
+    <svg
+      class="h-3.5 w-3.5 shrink-0 text-base-content/60"
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path d="M2 8H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      <path d="M9.5 4.5L13 8L9.5 11.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  );
+}
+
 export default function SortieListPanel(props: Props) {
   return (
     <Show
@@ -85,7 +100,13 @@ export default function SortieListPanel(props: Props) {
                           <td>{props.cellLabel(step.cellId, selected().mapKey)}</td>
                           <td>
                             {next
-                              ? `${props.cellLabel(step.cellId, selected().mapKey)} -> ${props.cellLabel(next.cellId, selected().mapKey)}`
+                              ? (
+                                <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                                  <span>{props.cellLabel(step.cellId, selected().mapKey)}</span>
+                                  <InlineArrow />
+                                  <span>{props.cellLabel(next.cellId, selected().mapKey)}</span>
+                                </span>
+                              )
                               : "到達"}
                           </td>
                           <td class="text-xs">{step.hasBattle ? step.enemy : "通過のみ"}</td>
@@ -109,7 +130,20 @@ export default function SortieListPanel(props: Props) {
                 <span class="badge badge-ghost badge-sm">{route.mapKey}</span>
                 <span class="text-base-content/70">通過 {route.steps.length} / 戦闘 {route.battleCount}</span>
               </div>
-              <div class="font-mono text-xs break-all">{route.route}</div>
+              <div class="font-mono text-xs">
+                <span class="inline-flex flex-wrap items-center gap-1">
+                  <For each={route.steps}>
+                    {(step, i) => (
+                      <>
+                        <span>{props.cellLabel(step.cellId, route.mapKey)}</span>
+                        <Show when={i() < route.steps.length - 1}>
+                          <InlineArrow />
+                        </Show>
+                      </>
+                    )}
+                  </For>
+                </span>
+              </div>
             </div>
           )}
         </For>

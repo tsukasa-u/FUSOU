@@ -2,6 +2,7 @@
 import { createSignal, createMemo, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
+import { getBattleMapAsset } from "@/data/battleMapAssets";
 import {
   FORMATION_NAMES,
   AIR_STATE,
@@ -34,6 +35,7 @@ export default function BattleDetailPanel(props: {
   const [fleets, setFleets] = createSignal<BattleFleets | null>(null);
   const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<number, Record<string, unknown>> | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
+  const [cellLabel, setCellLabel] = createSignal<string>("-");
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
@@ -57,6 +59,44 @@ export default function BattleDetailPanel(props: {
       ? `${b.maparea_id}-${b.mapinfo_no}`
       : "-";
   });
+
+  const alphaCellLabel = (cellId: number): string => {
+    if (!Number.isFinite(cellId) || cellId <= 0) return "-";
+    let n = Math.floor(cellId);
+    let label = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      label = String.fromCharCode(65 + rem) + label;
+      n = Math.floor((n - 1) / 26);
+    }
+    return label;
+  };
+
+  async function resolveBattleCellLabel(battleRecord: Record<string, unknown>): Promise<string> {
+    const rawCellId = Number(battleRecord.cell_id ?? NaN);
+    if (!Number.isFinite(rawCellId)) return "-";
+    if (rawCellId === 0) return "港";
+
+    const mapAreaId = Number(battleRecord.maparea_id ?? NaN);
+    const mapInfoNo = Number(battleRecord.mapinfo_no ?? NaN);
+    if (!Number.isFinite(mapAreaId) || !Number.isFinite(mapInfoNo) || mapAreaId <= 0 || mapInfoNo <= 0) {
+      return alphaCellLabel(rawCellId);
+    }
+
+    const mapKey = `${mapAreaId}-${mapInfoNo}`;
+    const asset = getBattleMapAsset(mapKey);
+    if (!asset?.labelsUrl) return alphaCellLabel(rawCellId);
+
+    try {
+      const response = await fetch(asset.labelsUrl);
+      if (!response.ok) return alphaCellLabel(rawCellId);
+      const payload = (await response.json()) as Record<string, string>;
+      const label = payload?.[String(rawCellId)];
+      return typeof label === "string" && label ? label : alphaCellLabel(rawCellId);
+    } catch {
+      return alphaCellLabel(rawCellId);
+    }
+  }
 
   const formations = createMemo(() => {
     const b = battle();
@@ -239,11 +279,13 @@ export default function BattleDetailPanel(props: {
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
+        const resolvedCellLabel = await resolveBattleCellLabel(merged);
 
         setBattle(merged);
         setFleets(resolvedFleets);
         setMstSlotItemById(resolvedMst);
         setMapLabel(label);
+        setCellLabel(resolvedCellLabel);
       } else if (!preloadedBattle) {
         setError("指定された戦闘データが見つかりませんでした");
       }
@@ -292,7 +334,7 @@ export default function BattleDetailPanel(props: {
                 <div class="flex flex-wrap gap-6 text-sm">
                   <span>日時: <strong>{ts()}</strong></span>
                   <span>海域: <strong>{mapText()}</strong></span>
-                  <span>セル: <strong>{String(b().cell_id ?? "-")}</strong></span>
+                  <span>セル: <strong>{cellLabel()}</strong></span>
                   <span>デッキ: <strong>{String(b().deck_id ?? "-")}</strong></span>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import { getBattleMapAsset } from "@/data/battleMapAssets";
 
 type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 
@@ -120,6 +121,28 @@ export default function BattlesListPanel() {
   const [currentPage, setCurrentPage] = createSignal(0);
   const [allBattles, setAllBattles] = createSignal<BattleRecord[]>([]);
   const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<Map<string, string>>(new Map());
+  const [cellLabelsByMapKey, setCellLabelsByMapKey] = createSignal<Record<string, Record<number, string>>>({});
+
+  const alphaCellLabel = (cellId: number): string => {
+    if (!Number.isFinite(cellId) || cellId <= 0) return "-";
+    let n = Math.floor(cellId);
+    let label = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      label = String.fromCharCode(65 + rem) + label;
+      n = Math.floor((n - 1) / 26);
+    }
+    return label;
+  };
+
+  const cellDisplayLabelOf = (b: BattleRecord): string => {
+    const cellId = Number(b.cell_id ?? NaN);
+    if (!Number.isFinite(cellId)) return "-";
+    if (cellId === 0) return "港";
+    const mapKey = mapLabelOf(b);
+    const labels = mapKey !== "-" ? cellLabelsByMapKey()[mapKey] : undefined;
+    return labels?.[cellId] || alphaCellLabel(cellId);
+  };
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
@@ -338,8 +361,36 @@ export default function BattlesListPanel() {
         enemyNames.set(battle.e_deck_id, describeEnemy(battle.e_deck_id));
       }
 
+      const mapKeys = [...new Set(sorted.map((b) => mapLabelOf(b)).filter((key) => key !== "-"))];
+      const labelEntries = await Promise.all(
+        mapKeys.map(async (mapKey) => {
+          const asset = getBattleMapAsset(mapKey);
+          if (!asset?.labelsUrl) return [mapKey, {} as Record<number, string>] as const;
+          try {
+            const response = await fetch(asset.labelsUrl, { headers: { "Content-Type": "application/json" } });
+            if (!response.ok) return [mapKey, {} as Record<number, string>] as const;
+            const payload = (await response.json()) as Record<string, string>;
+            const labels: Record<number, string> = {};
+            for (const [rawId, label] of Object.entries(payload || {})) {
+              const id = Number(rawId);
+              if (!Number.isFinite(id) || typeof label !== "string" || !label) continue;
+              labels[id] = label;
+            }
+            return [mapKey, labels] as const;
+          } catch {
+            return [mapKey, {} as Record<number, string>] as const;
+          }
+        }),
+      );
+
+      const labelsByMap: Record<string, Record<number, string>> = {};
+      for (const [mapKey, labels] of labelEntries) {
+        labelsByMap[mapKey] = labels;
+      }
+
       setAllBattles(sorted);
       setEnemyDeckNameById(enemyNames);
+      setCellLabelsByMapKey(labelsByMap);
       setCurrentPage(0);
       if (mapFilter() && !sorted.some((b) => mapLabelOf(b) === mapFilter())) {
         setMapFilter("");
@@ -439,7 +490,7 @@ export default function BattlesListPanel() {
                     <div class="py-1 border-b border-base-200">
                       <span class="font-mono text-xs mr-2">{formatTimestamp(b.timestamp)}</span>
                       <span class="badge badge-ghost badge-sm mr-2">{mapLabelOf(b)}</span>
-                      <span class="mr-2">{b.cell_id}マス</span>
+                      <span class="mr-2">{cellDisplayLabelOf(b)}</span>
                       <span class="mr-2">
                         {b.e_deck_id
                           ? (enemyDeckNameById().get(b.e_deck_id) ?? `敵艦隊 ${b.e_deck_id.slice(0, 8)}`)
@@ -490,7 +541,7 @@ export default function BattlesListPanel() {
                           <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
                             <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
                             <td>{mapLabelOf(b)}</td>
-                            <td>{b.cell_id}</td>
+                            <td>{cellDisplayLabelOf(b)}</td>
                             <td>{FORMATION_NAMES[formation] ?? "-"}</td>
                             <td>{airSup != null ? AIR_SUPERIORITY_NAMES[airSup] ?? String(airSup) : "-"}</td>
                             <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>

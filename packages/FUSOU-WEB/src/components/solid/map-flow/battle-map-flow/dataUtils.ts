@@ -87,8 +87,9 @@ export function cellLabel(
 ): string {
   if (!Number.isFinite(cellId)) return "-";
   const custom = labels?.[cellId];
-  if (custom) return `${custom}(${cellId})`;
-  return cellId === 0 ? "港(0)" : `${cellId}マス`;
+  if (custom) return custom;
+  if (cellId === 0) return "港";
+  return alphaCellFallbackLabel(cellId);
 }
 
 export function cellOverlayLabel(
@@ -98,7 +99,20 @@ export function cellOverlayLabel(
   if (!Number.isFinite(cellId)) return "-";
   const custom = labels?.[cellId];
   if (custom) return custom;
-  return cellId === 0 ? "港" : `${cellId}`;
+  if (cellId === 0) return "港";
+  return alphaCellFallbackLabel(cellId);
+}
+
+function alphaCellFallbackLabel(cellId: number): string {
+  if (!Number.isFinite(cellId) || cellId <= 0) return "-";
+  let n = Math.floor(cellId);
+  let label = "";
+  while (n > 0) {
+    const rem = (n - 1) % 26;
+    label = String.fromCharCode(65 + rem) + label;
+    n = Math.floor((n - 1) / 26);
+  }
+  return label;
 }
 
 export function parseFrameRect(value: unknown): FrameRect | null {

@@ -69,7 +69,7 @@ export default function CellDetailsPanel(props: Props) {
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div>
           <div class="text-sm font-semibold">{d().mapKey} / {d().label} の戦闘と進路</div>
-          <div class="text-xs text-base-content/70">対象セル ID: {d().cellIds.join(", ")}</div>
+          <div class="text-xs text-base-content/70">対象セル: {d().label}</div>
         </div>
         <button class="btn btn-ghost btn-xs" onClick={props.onClear}>選択解除</button>
       </div>
