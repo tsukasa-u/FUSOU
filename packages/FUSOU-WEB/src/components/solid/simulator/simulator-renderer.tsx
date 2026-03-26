@@ -107,15 +107,13 @@ function WeaponIcon(props: { iconNum: number }): JSX.Element {
   let host!: HTMLSpanElement;
 
   onMount(() => {
-    host.innerHTML = "";
-    host.appendChild(createWeaponIconEl(props.iconNum, 16));
+    host.replaceChildren(createWeaponIconEl(props.iconNum, 16));
   });
 
   createMemo(() => {
     props.iconNum;
     if (!host) return;
-    host.innerHTML = "";
-    host.appendChild(createWeaponIconEl(props.iconNum, 16));
+    host.replaceChildren(createWeaponIconEl(props.iconNum, 16));
   });
 
   return <span ref={host} class="shrink-0 inline-flex" />;

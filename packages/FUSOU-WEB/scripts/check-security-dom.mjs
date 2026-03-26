@@ -3,7 +3,7 @@
 import { execSync } from "node:child_process";
 
 const TARGET_PREFIX = "src/";
-const FORBIDDEN = /\.innerHTML\s*=/;
+const FORBIDDEN = /\.(?:innerHTML|outerHTML)\s*=|insertAdjacentHTML\s*\(|dangerouslySetInnerHTML\s*=/;
 const ALLOW_MARKER = "safe-innerhtml";
 
 function getDiffText() {
@@ -60,7 +60,7 @@ for (const line of lines) {
 }
 
 if (violations.length > 0) {
-  console.error("[check-security-dom] New innerHTML assignment detected in added lines.");
+  console.error("[check-security-dom] New unsafe DOM HTML sink detected in added lines.");
   console.error(
     "Use textContent/createElement or sanitize and annotate with 'safe-innerhtml' when unavoidable.",
   );

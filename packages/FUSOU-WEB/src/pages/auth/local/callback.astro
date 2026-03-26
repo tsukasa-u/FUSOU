@@ -378,7 +378,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
 
           <div class="flex flex-col gap-3">
             <a
-              href={`/auth/local/signin${appOriginParam ? `?app_origin=${appOriginParam}` : ""}`}
+              href={`/auth/local/signin${appOriginParam ? `?app_origin=${encodeURIComponent(appOriginParam)}` : ""}`}
               class="btn btn-primary w-full border border-primary-content"
             >
               ← Retry Sign-in
@@ -475,6 +475,23 @@ cookies.delete("sb-local-expires-at", { path: "/" });
         const successContent = document.getElementById("success-content");
         const errorMessageEl = document.getElementById("error-message");
 
+        function createStepStatusIcon(pathData: string): SVGSVGElement {
+          const svgNs = "http://www.w3.org/2000/svg";
+          const svg = document.createElementNS(svgNs, "svg");
+          svg.setAttribute("class", "w-5 h-5");
+          svg.setAttribute("fill", "none");
+          svg.setAttribute("stroke", "currentColor");
+          svg.setAttribute("viewBox", "0 0 24 24");
+
+          const path = document.createElementNS(svgNs, "path");
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          path.setAttribute("stroke-width", "3");
+          path.setAttribute("d", pathData);
+          svg.appendChild(path);
+          return svg;
+        }
+
         // Update Step 3 indicator based on error state
         const step3Box = document.querySelector(".step-3-box");
         const step3Circle = document.querySelector(".step-3-circle");
@@ -494,8 +511,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
-            step3Circle.innerHTML =
-              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
+            step3Circle.replaceChildren(createStepStatusIcon("M6 18L18 6M6 6l12 12"));
           }
 
           // On error, do not auto-redirect to the app with any token URL.
@@ -512,8 +528,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content";
-            step3Circle.innerHTML =
-              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+            step3Circle.replaceChildren(createStepStatusIcon("M5 13l4 4L19 7"));
           }
 
           // Set manual return-to-app link (fetches actual redirect from API).

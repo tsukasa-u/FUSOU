@@ -93,16 +93,28 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
+const sanitizeDocsUrl = (value: string | undefined): string | null => {
+  if (!value || !value.startsWith("/docs/")) return null;
+  const slug = value.slice("/docs/".length);
+  const safeSlug = slug
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return safeSlug ? `/docs/${safeSlug}` : "/docs";
+};
+
 const renderMenuHtml = (nodes: MenuEntry[]): string =>
   nodes
     .map((node: MenuEntry) => {
+      const safeUrl = sanitizeDocsUrl(node.url);
       const children = node.children.length
         ? `<ul class="ml-3 pl-3 space-y-2">${renderMenuHtml(
             node.children
           )}</ul>`
         : "";
-      const label = node.url
-        ? `<a href="${node.url}" class="text-sm font-medium text-base-content">${escapeHtml(node.title)}</a>`
+      const label = safeUrl
+        ? `<a href="${escapeHtml(safeUrl)}" class="text-sm font-medium text-base-content">${escapeHtml(node.title)}</a>`
         : `<details open><summary class="text-sm font-semibold text-base-content/80">${escapeHtml(node.title)}</summary>${
             children
           }</details>`;

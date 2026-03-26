@@ -19,7 +19,36 @@ on:
       - .github/workflows/fusou-web-e2e-simulator.yml
 
 jobs:
+  web-quality-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build avro-wasm
+        run: pnpm --filter @fusou/avro-wasm run build
+
+      - name: Run DOM security check
+        run: pnpm --dir packages/FUSOU-WEB run check:security:dom
+
+      - name: Run Astro check
+        run: pnpm --dir packages/FUSOU-WEB exec astro check
+
   simulator-e2e-smoke:
+    needs: web-quality-check
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -61,6 +90,7 @@ jobs:
           if-no-files-found: ignore
 
   simulator-e2e-d1r2:
+    needs: web-quality-check
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_d1r2 == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45

@@ -193,7 +193,10 @@ function populateStypeFilter(
   sideFilter: SideFilter,
 ) {
   const current = select.value;
-  select.innerHTML = '<option value="">全艦種</option>';
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "全艦種";
+  select.replaceChildren(defaultOption);
   const stypes = new Set<number>();
   for (const s of filterShipsBySide(
     Object.values(getMasterShips()),
@@ -223,7 +226,7 @@ function renderShipGrid(
   grid.style.flexDirection = "column";
   grid.style.minHeight = "0";
   grid.style.overflowY = "hidden";
-  grid.innerHTML = "";
+  grid.replaceChildren();
   cleanupShipVS();
 
   // Clear-selection button — always at the top of the grid, never scrolls away
@@ -419,8 +422,13 @@ function createShipItem(ship: MstShipData): HTMLElement {
   img.className = "w-full h-full object-cover";
   img.loading = "lazy";
   img.onerror = function () {
-    (this as HTMLImageElement).parentElement!.innerHTML =
-      `<div class="w-full h-full flex items-center justify-center text-[9px] text-base-content/20 bg-base-200">${ship.id}</div>`;
+    const parent = (this as HTMLImageElement).parentElement;
+    if (!parent) return;
+    parent.replaceChildren();
+    const fallback = document.createElement("div");
+    fallback.className = "w-full h-full flex items-center justify-center text-[9px] text-base-content/20 bg-base-200";
+    fallback.textContent = String(ship.id);
+    parent.appendChild(fallback);
   };
   imgWrap.appendChild(img);
   item.appendChild(imgWrap);
@@ -499,7 +507,7 @@ function createShipItem(ship: MstShipData): HTMLElement {
 function renderShipDetail(ship: MstShipData) {
   const panel = document.getElementById("ship-modal-detail");
   if (!(panel instanceof HTMLElement)) return;
-  panel.innerHTML = "";
+  panel.replaceChildren();
 
   const bannerWrap = document.createElement("div");
   bannerWrap.className =
@@ -508,8 +516,13 @@ function renderShipDetail(ship: MstShipData) {
   bannerImg.src = bannerUrl(ship.id);
   bannerImg.className = "w-full h-full object-cover";
   bannerImg.onerror = function () {
-    (this as HTMLImageElement).parentElement!.innerHTML =
-      '<div class="w-full h-full flex items-center justify-center text-base-content/20 text-xs">No Image</div>';
+    const parent = (this as HTMLImageElement).parentElement;
+    if (!parent) return;
+    parent.replaceChildren();
+    const fallback = document.createElement("div");
+    fallback.className = "w-full h-full flex items-center justify-center text-base-content/20 text-xs";
+    fallback.textContent = "No Image";
+    parent.appendChild(fallback);
   };
   bannerWrap.appendChild(bannerImg);
   panel.appendChild(bannerWrap);
@@ -571,7 +584,12 @@ function renderShipDetail(ship: MstShipData) {
 function resetShipDetail() {
   const panel = document.getElementById("ship-modal-detail");
   if (panel instanceof HTMLElement) {
-    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">艦娘にカーソルを合わせると<br/>詳細が表示されます</p>';
+    const message = document.createElement("p");
+    message.className = "text-sm text-base-content/30 text-center pt-10";
+    message.appendChild(document.createTextNode("艦娘にカーソルを合わせると"));
+    message.appendChild(document.createElement("br"));
+    message.appendChild(document.createTextNode("詳細が表示されます"));
+    panel.replaceChildren(message);
   }
 }
 

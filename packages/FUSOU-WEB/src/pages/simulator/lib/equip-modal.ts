@@ -219,7 +219,10 @@ function populateEquipTypeFilter(
   sideFilter: SideFilter,
 ) {
   const current = select.value;
-  select.innerHTML = '<option value="">全装備種</option>';
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "全装備種";
+  select.replaceChildren(defaultOption);
   const types = new Map<number, string>();
   let sourceItems = filterEquipsBySide(
     Object.values(getMasterSlotItems()),
@@ -401,7 +404,7 @@ function renderEquipGrid(
   grid.style.flexDirection = "column";
   grid.style.minHeight = "0";
   grid.style.overflowY = "hidden";
-  grid.innerHTML = "";
+  grid.replaceChildren();
   cleanupEquipVS();
 
   // Clear-selection button — always at the top of the grid, never scrolls away
@@ -624,7 +627,7 @@ function renderEquipCategoryNav(
 function renderEquipDetail(equip: MstSlotItemData) {
   const panel = document.getElementById("equip-modal-detail");
   if (!(panel instanceof HTMLElement)) return;
-  panel.innerHTML = "";
+  panel.replaceChildren();
 
   const imgSrc = equipImageUrl(equip.id);
   if (imgSrc) {
@@ -774,7 +777,12 @@ function renderEquipDetail(equip: MstSlotItemData) {
       const sectionTitle = document.createElement("div");
       sectionTitle.className =
         "text-[11px] font-bold text-warning/80 mb-2 flex items-center gap-1";
-      sectionTitle.innerHTML = `<span class="text-warning">★</span>装備ボーナス${shipData ? ` (${shipData.name})` : ""}`;
+      const star = document.createElement("span");
+      star.className = "text-warning";
+      star.textContent = "★";
+      const titleText = document.createTextNode(`装備ボーナス${shipData ? ` (${shipData.name})` : ""}`);
+      sectionTitle.appendChild(star);
+      sectionTitle.appendChild(titleText);
       section.appendChild(sectionTitle);
 
       const bonusGrid = document.createElement("div");
@@ -802,7 +810,12 @@ function renderEquipDetail(equip: MstSlotItemData) {
 function resetEquipDetail() {
   const panel = document.getElementById("equip-modal-detail");
   if (panel instanceof HTMLElement) {
-    panel.innerHTML = '<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br/>詳細が表示されます</p>';
+    const message = document.createElement("p");
+    message.className = "text-sm text-base-content/30 text-center pt-10";
+    message.appendChild(document.createTextNode("装備にカーソルを合わせると"));
+    message.appendChild(document.createElement("br"));
+    message.appendChild(document.createTextNode("詳細が表示されます"));
+    panel.replaceChildren(message);
   }
 }
 

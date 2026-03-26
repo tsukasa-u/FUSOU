@@ -1,5 +1,20 @@
 ---
+import { isSafeImageUrl } from "@/utility/security";
+
 const { lastUpdated, contributors } = Astro.props;
+
+const safeExternalHttpUrl = (value?: string): string | undefined => {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return undefined;
+    }
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
+};
 ---
 
 {
@@ -28,11 +43,21 @@ const { lastUpdated, contributors } = Astro.props;
               github_username: string;
               github_url?: string;
             };
-          }) => (
-            <li class="flex items-center">
-              {contributor.data.github_avatar ? (
+          }) => {
+            const safeAvatarUrl =
+              contributor.data.github_avatar &&
+              isSafeImageUrl(contributor.data.github_avatar)
+                ? contributor.data.github_avatar
+                : undefined;
+            const safeProfileUrl = safeExternalHttpUrl(
+              contributor.data.github_url,
+            );
+
+            return (
+              <li class="flex items-center">
+                {safeAvatarUrl ? (
                 <img
-                  src={contributor.data.github_avatar}
+                  src={safeAvatarUrl}
                   alt={contributor.data.github_username}
                   class="size-8 rounded-full mr-2"
                 />
@@ -41,9 +66,9 @@ const { lastUpdated, contributors } = Astro.props;
                   {contributor.data.github_username.charAt(0).toUpperCase()}
                 </div>
               )}
-              {contributor.data.github_url ? (
+              {safeProfileUrl ? (
                 <a
-                  href={contributor.data.github_url}
+                  href={safeProfileUrl}
                   class="text-md text-blue-500 hover:underline"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -55,8 +80,9 @@ const { lastUpdated, contributors } = Astro.props;
                   {contributor.data.github_username}
                 </span>
               )}
-            </li>
-          )
+              </li>
+            );
+          }
         )}
       </ul>
     </div>

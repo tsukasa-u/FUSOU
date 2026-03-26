@@ -20,7 +20,7 @@ export function renderCategoryNav<T extends { offset: number }>(
 ): void {
   const nav = document.getElementById(navId);
   if (!nav) return;
-  nav.innerHTML = "";
+  nav.replaceChildren();
   if (catOffsets.length === 0) { nav.classList.add("hidden"); nav.classList.remove("sm:block"); return; }
   nav.classList.remove("hidden"); nav.classList.add("sm:block");
   nav.scrollTop = 0;

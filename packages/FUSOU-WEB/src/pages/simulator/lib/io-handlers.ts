@@ -284,11 +284,57 @@ function getWorkspaceEntryById(id: string): ViewerEntry | null {
   return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
 }
 
-function buildLockIconSvg(locked: boolean): string {
+function createLockIconElement(locked: boolean): SVGElement {
+  const svgNs = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(svgNs, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "16");
+  svg.setAttribute("aria-hidden", "true");
+
   if (locked) {
-    return '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M7 10V8a5 5 0 1 1 10 0v2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><rect x="5" y="10" width="14" height="10" rx="2.2" fill="currentColor" fill-opacity="0.14" stroke="currentColor" stroke-width="2.2"/></svg>';
+    const shackle = document.createElementNS(svgNs, "path");
+    shackle.setAttribute("d", "M7 10V8a5 5 0 1 1 10 0v2");
+    shackle.setAttribute("fill", "none");
+    shackle.setAttribute("stroke", "currentColor");
+    shackle.setAttribute("stroke-width", "2.2");
+    shackle.setAttribute("stroke-linecap", "round");
+
+    const body = document.createElementNS(svgNs, "rect");
+    body.setAttribute("x", "5");
+    body.setAttribute("y", "10");
+    body.setAttribute("width", "14");
+    body.setAttribute("height", "10");
+    body.setAttribute("rx", "2.2");
+    body.setAttribute("fill", "currentColor");
+    body.setAttribute("fill-opacity", "0.14");
+    body.setAttribute("stroke", "currentColor");
+    body.setAttribute("stroke-width", "2.2");
+
+    svg.appendChild(shackle);
+    svg.appendChild(body);
+    return svg;
   }
-  return '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 10V8a5 5 0 0 1 9.4-2.4" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="M15 10h4v10H5V10h7" fill="currentColor" fill-opacity="0.12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+  const shackle = document.createElementNS(svgNs, "path");
+  shackle.setAttribute("d", "M9 10V8a5 5 0 0 1 9.4-2.4");
+  shackle.setAttribute("fill", "none");
+  shackle.setAttribute("stroke", "currentColor");
+  shackle.setAttribute("stroke-width", "2.2");
+  shackle.setAttribute("stroke-linecap", "round");
+
+  const body = document.createElementNS(svgNs, "path");
+  body.setAttribute("d", "M15 10h4v10H5V10h7");
+  body.setAttribute("fill", "currentColor");
+  body.setAttribute("fill-opacity", "0.12");
+  body.setAttribute("stroke", "currentColor");
+  body.setAttribute("stroke-width", "2.2");
+  body.setAttribute("stroke-linecap", "round");
+  body.setAttribute("stroke-linejoin", "round");
+
+  svg.appendChild(shackle);
+  svg.appendChild(body);
+  return svg;
 }
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
@@ -459,9 +505,9 @@ function renderWorkspacePanel() {
     _workspaceListExpanded = false;
   }
 
-  playgroundHost.innerHTML = "";
-  list.innerHTML = "";
-  if (listFooter) listFooter.innerHTML = "";
+  playgroundHost.replaceChildren();
+  list.replaceChildren();
+  if (listFooter) listFooter.replaceChildren();
 
   const activeIndex = ws.activeId ? ws.entries.findIndex((entry) => entry.id === ws.activeId) : -1;
   const shouldAutoExpandForActive = activeIndex >= WORKSPACE_COLLAPSED_VISIBLE_COUNT;
@@ -537,7 +583,7 @@ function renderWorkspacePanel() {
 
     const lockBtn = document.createElement("button");
     lockBtn.className = "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors";
-    lockBtn.innerHTML = buildLockIconSvg(Boolean(entry.locked));
+    lockBtn.replaceChildren(createLockIconElement(Boolean(entry.locked)));
     lockBtn.style.color = entry.locked ? "#dc2626" : "#16a34a";
     lockBtn.style.backgroundColor = entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)";
     lockBtn.style.border = `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`;
@@ -836,6 +882,32 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     saveActiveOwnDeckIfNeeded();
   });
 
+  const setFleetListMessage = (
+    container: HTMLElement,
+    message: string,
+    className: string,
+    linkHref?: string,
+    linkText?: string,
+  ) => {
+    const p = document.createElement("p");
+    p.className = className;
+    p.appendChild(document.createTextNode(message));
+    if (linkHref && linkText) {
+      const link = document.createElement("a");
+      link.href = linkHref;
+      link.className = "link link-primary";
+      link.textContent = linkText;
+      p.appendChild(link);
+    }
+    container.replaceChildren(p);
+  };
+
+  const setFleetListLoading = (container: HTMLElement) => {
+    const spinner = document.createElement("span");
+    spinner.className = "loading loading-spinner loading-sm";
+    container.replaceChildren(spinner);
+  };
+
   // R2 fleet load
   document.getElementById("btn-load-fleet")?.addEventListener("click", async () => {
     const modal = document.getElementById("load-fleet-modal") as HTMLDialogElement;
@@ -844,32 +916,38 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     const listContainer = document.getElementById("fleet-list-container")!;
 
     if (!_accessToken) {
-      listContainer.innerHTML = '<p class="text-base-content/60 text-sm">この機能を利用するには<a href="/auth/signin" class="link link-primary">ログイン</a>が必要です</p>';
+      setFleetListMessage(
+        listContainer,
+        "この機能を利用するには",
+        "text-base-content/60 text-sm",
+        "/auth/signin",
+        "ログイン",
+      );
+      listContainer.firstElementChild?.appendChild(document.createTextNode("が必要です"));
       return;
     }
 
-    listContainer.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
+    setFleetListLoading(listContainer);
 
     try {
       const res = await fetch("/api/fleet/snapshots/list", { headers: authHeaders() });
       if (res.status === 401 || res.status === 403) {
         const body = await res.json().catch(() => ({})) as { error?: string };
         const msg = body.error ?? "認証エラー";
-        const escaped = msg.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        listContainer.innerHTML = `<p class="text-warning text-sm">${escaped}</p>`;
+        setFleetListMessage(listContainer, msg, "text-warning text-sm");
         return;
       }
       if (!res.ok) {
-        listContainer.innerHTML = '<p class="text-error text-sm">読込に失敗しました</p>';
+        setFleetListMessage(listContainer, "読込に失敗しました", "text-error text-sm");
         return;
       }
       const data = (await res.json()) as { ok: boolean; tags: { tag: string; uploaded: string; size: number }[] };
       if (!data.tags || data.tags.length === 0) {
-        listContainer.innerHTML = '<p class="text-base-content/40">保存された艦隊データがありません</p>';
+        setFleetListMessage(listContainer, "保存された艦隊データがありません", "text-base-content/40");
         return;
       }
 
-      listContainer.innerHTML = "";
+      listContainer.replaceChildren();
       for (const entry of data.tags) {
         const btn: HTMLButtonElement = document.createElement("button");
         btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
@@ -903,7 +981,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
         listContainer.appendChild(btn);
       }
     } catch {
-      listContainer.innerHTML = '<p class="text-error text-sm">読込エラー</p>';
+      setFleetListMessage(listContainer, "読込エラー", "text-error text-sm");
     }
   });
 
