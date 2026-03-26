@@ -9,12 +9,14 @@ import type {
   CellRecord,
   EnemyDeckRecord,
   EnemyShipRecord,
+  EnemySlotItemRecord,
   MapFrameMeta,
   MapImageMetaPayload,
   MapInfoPayload,
   MapLabelsPayload,
   MapSpot,
   MstShipRecord,
+  MstSlotItemRecord,
   OfficialMapThemeMode,
   OverlayMarker,
   ResolvedRouteOverlay,
@@ -22,18 +24,18 @@ import type {
   SelectedCellFilter,
   SortieRoute,
   TransitionOverlay,
+  WeaponIconFrame,
+  WeaponIconMeta,
 } from "./battle-map-flow/types";
 
 import {
   DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT,
-  DEFAULT_OFFICIAL_MAP_SCALE_PERCENT,
   MAP_FLOW_DISPLAY_SETTINGS_KEY,
   MAX_SORTIE_ROUTES,
   ROUTE_COUNT_BADGE_HEIGHT,
   ROUTE_COUNT_BADGE_WIDTH,
   STEP_BADGE_HEIGHT,
   STEP_BADGE_WIDTH,
-  WIN_RANK_BADGES,
 } from "./battle-map-flow/constants";
 
 import { computeTransitionBadgePosition, buildSpotRenderPositions } from "./battle-map-flow/geometry";
@@ -50,7 +52,7 @@ import {
   resolveBattleResult,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
-import { buildEnemyDeckResolver } from "./battle-map-flow/enemyResolver";
+import { buildEnemyDeckResolver, buildEnemyFleetResolver } from "./battle-map-flow/enemyResolver";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
@@ -76,11 +78,19 @@ export default function BattleMapFlowPanel() {
   const [cellRecords, setCellRecords] = createSignal<CellRecord[]>([]);
   const [enemyDecks, setEnemyDecks] = createSignal<EnemyDeckRecord[]>([]);
   const [enemyShips, setEnemyShips] = createSignal<EnemyShipRecord[]>([]);
+  const [enemySlotItems, setEnemySlotItems] = createSignal<EnemySlotItemRecord[]>([]);
   const [mstShips, setMstShips] = createSignal<MstShipRecord[]>([]);
+  const [mstSlotItems, setMstSlotItems] = createSignal<MstSlotItemRecord[]>([]);
+  const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, WeaponIconFrame>>({});
+  const [weaponIconMeta, setWeaponIconMeta] = createSignal<WeaponIconMeta>({ width: 0, height: 0 });
   const [mapSpotsByKey, setMapSpotsByKey] = createSignal<Record<string, MapSpot[]>>({});
   const [mapPortsByKey, setMapPortsByKey] = createSignal<Record<string, number[]>>({});
   const [mapLabelsByKey, setMapLabelsByKey] = createSignal<Record<string, Record<number, string>>>({});
   const [mapFrameMetaByKey, setMapFrameMetaByKey] = createSignal<Record<string, MapFrameMeta>>({});
+  const pendingMetadataLoads = new Map<string, Promise<void>>();
+
+  let mapMetadataAbortController: AbortController | null = null;
+  let loadDataAbortController: AbortController | null = null;
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
 
@@ -106,100 +116,133 @@ export default function BattleMapFlowPanel() {
     return pureCellOverlayLabel(cellId, mapLabelsByKey()[mapKey]);
   }
 
+  function isAbortError(error: unknown): boolean {
+    return error instanceof DOMException && error.name === "AbortError";
+  }
+
   // ── Map metadata loading ────────────────────────────────────────────────────
 
   async function ensureMapMetadata(mapKey: string): Promise<void> {
     if (!mapKey || mapSpotsByKey()[mapKey]) return;
+    const pending = pendingMetadataLoads.get(mapKey);
+    if (pending) return pending;
     const asset = getBattleMapAsset(mapKey);
     if (!asset) return;
-    try {
+    if (!mapMetadataAbortController || mapMetadataAbortController.signal.aborted) {
+      mapMetadataAbortController = new AbortController();
+    }
+    const signal = mapMetadataAbortController.signal;
+
+    const request = (async () => {
       try {
-        const imageMetaResponse = await fetch(asset.imageMetaUrl);
-        if (imageMetaResponse.ok) {
-          const imageMetaPayload = (await imageMetaResponse.json()) as MapImageMetaPayload;
-          const parsed = parseMapFrameMeta(imageMetaPayload);
-          if (parsed) {
-            setMapFrameMetaByKey((prev) => ({ ...prev, [mapKey]: parsed }));
+        try {
+          const imageMetaResponse = await fetch(asset.imageMetaUrl, { signal });
+          if (signal.aborted) return;
+          if (imageMetaResponse.ok) {
+            const imageMetaPayload = (await imageMetaResponse.json()) as MapImageMetaPayload;
+            const parsed = parseMapFrameMeta(imageMetaPayload);
+            if (parsed) {
+              setMapFrameMetaByKey((prev) => ({ ...prev, [mapKey]: parsed }));
+            } else {
+              addMetadataWarning(`${mapKey} の画像情報を読み取れませんでした。`);
+            }
           } else {
-            addMetadataWarning(`${mapKey} の画像情報を読み取れませんでした。`);
+            addMetadataWarning(`${mapKey} の画像情報の読み込みに失敗しました。`);
           }
-        } else {
+        } catch (error) {
+          if (isAbortError(error)) return;
           addMetadataWarning(`${mapKey} の画像情報の読み込みに失敗しました。`);
         }
-      } catch {
-        addMetadataWarning(`${mapKey} の画像情報の読み込みに失敗しました。`);
-      }
 
-      const response = await fetch(asset.infoUrl);
-      if (!response.ok) {
-        addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
-        return;
-      }
-      const payload = (await response.json()) as MapInfoPayload;
-      const spots = (payload.spots || [])
-        .map((spot): MapSpot | null => {
-          const cellId = Number(spot.no ?? NaN);
-          const x = Number(spot.x ?? NaN);
-          const y = Number(spot.y ?? NaN);
-          if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
-          const lineOffsetX = Number(spot.line?.x ?? NaN);
-          const lineOffsetY = Number(spot.line?.y ?? NaN);
-          return {
-            cellId,
-            x,
-            y,
-            lineOffsetX: Number.isFinite(lineOffsetX) ? lineOffsetX : undefined,
-            lineOffsetY: Number.isFinite(lineOffsetY) ? lineOffsetY : undefined,
-          } satisfies MapSpot;
-        })
-        .filter((spot): spot is MapSpot => spot !== null);
+        const response = await fetch(asset.infoUrl, { signal });
+        if (signal.aborted) return;
+        if (!response.ok) {
+          addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
+          return;
+        }
+        const payload = (await response.json()) as MapInfoPayload;
+        const spots = (payload.spots || [])
+          .map((spot): MapSpot | null => {
+            const cellId = Number(spot.no ?? NaN);
+            const x = Number(spot.x ?? NaN);
+            const y = Number(spot.y ?? NaN);
+            if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const lineOffsetX = Number(spot.line?.x ?? NaN);
+            const lineOffsetY = Number(spot.line?.y ?? NaN);
+            return {
+              cellId,
+              x,
+              y,
+              lineOffsetX: Number.isFinite(lineOffsetX) ? lineOffsetX : undefined,
+              lineOffsetY: Number.isFinite(lineOffsetY) ? lineOffsetY : undefined,
+            } satisfies MapSpot;
+          })
+          .filter((spot): spot is MapSpot => spot !== null);
 
-      if (spots.length > 0) {
-        setMapSpotsByKey((prev) => ({ ...prev, [mapKey]: spots }));
-      }
+        if (spots.length > 0) {
+          setMapSpotsByKey((prev) => ({ ...prev, [mapKey]: spots }));
+        }
 
-      // Default port: cell 0 (if present in spots)
-      const spotPorts = spots.filter((s) => s.cellId === 0).map((s) => s.cellId);
-      if (spotPorts.length > 0) {
-        setMapPortsByKey((prev) => ({ ...prev, [mapKey]: spotPorts }));
-      }
+        const spotPorts = spots.filter((s) => s.cellId === 0).map((s) => s.cellId);
+        if (spotPorts.length > 0) {
+          setMapPortsByKey((prev) => ({ ...prev, [mapKey]: spotPorts }));
+        }
 
-      if (asset.labelsUrl && !mapLabelsByKey()[mapKey]) {
-        try {
-          const labelsResponse = await fetch(asset.labelsUrl);
-          if (labelsResponse.ok) {
-            const labelsPayload = (await labelsResponse.json()) as MapLabelsPayload;
-            const labels: Record<number, string> = {};
-            for (const [rawId, label] of Object.entries(labelsPayload)) {
-              const id = Number(rawId);
-              if (!Number.isFinite(id) || typeof label !== "string" || !label) continue;
-              labels[id] = label;
+        if (asset.labelsUrl && !mapLabelsByKey()[mapKey]) {
+          try {
+            const labelsResponse = await fetch(asset.labelsUrl, { signal });
+            if (signal.aborted) return;
+            if (labelsResponse.ok) {
+              const labelsPayload = (await labelsResponse.json()) as MapLabelsPayload;
+              const labels: Record<number, string> = {};
+              for (const [rawId, label] of Object.entries(labelsPayload)) {
+                const id = Number(rawId);
+                if (!Number.isFinite(id) || typeof label !== "string" || !label) continue;
+                labels[id] = label;
+              }
+              setMapLabelsByKey((prev) => ({ ...prev, [mapKey]: labels }));
+
+              const labeledPorts = Object.entries(labels)
+                .filter(([, label]) => /港/.test(label))
+                .map(([id]) => Number(id))
+                .filter((id) => Number.isFinite(id));
+              if (labeledPorts.length > 0) {
+                setMapPortsByKey((prev) => ({ ...prev, [mapKey]: labeledPorts }));
+              }
+            } else {
+              addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。番号で表示します。`);
             }
-            setMapLabelsByKey((prev) => ({ ...prev, [mapKey]: labels }));
-
-            const labeledPorts = Object.entries(labels)
-              .filter(([, label]) => /港/.test(label))
-              .map(([id]) => Number(id))
-              .filter((id) => Number.isFinite(id));
-            if (labeledPorts.length > 0) {
-              setMapPortsByKey((prev) => ({ ...prev, [mapKey]: labeledPorts }));
-            }
-          } else {
+          } catch (error) {
+            if (isAbortError(error)) return;
             addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。番号で表示します。`);
           }
-        } catch {
-          addMetadataWarning(`${mapKey} のセル名データの読み込みに失敗しました。番号で表示します。`);
         }
+      } catch (error) {
+        if (isAbortError(error)) return;
+        addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
+      } finally {
+        pendingMetadataLoads.delete(mapKey);
       }
-    } catch {
-      addMetadataWarning(`${mapKey} のマップ情報の読み込みに失敗しました。`);
-    }
+    })();
+
+    pendingMetadataLoads.set(mapKey, request);
+    return request;
   }
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
   const describeEnemy = createMemo(() =>
     buildEnemyDeckResolver(enemyDecks(), enemyShips(), mstShips()),
+  );
+
+  const describeEnemyFleet = createMemo(() =>
+    buildEnemyFleetResolver(
+      enemyDecks(),
+      enemyShips(),
+      enemySlotItems(),
+      mstShips(),
+      mstSlotItems(),
+    ),
   );
 
   const mapOptions = createMemo(() => {
@@ -646,7 +689,7 @@ export default function BattleMapFlowPanel() {
       .filter((battle) => mapKeyOf(battle) === filter.mapKey && cellIdSet.has(battle.cell_id))
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
-    const enemyCounts = new Map<string, number>();
+    const enemyFleetCounts = new Map<string, { fleet: ReturnType<ReturnType<typeof describeEnemyFleet>>; count: number }>();
     const resultCounts = new Map<string, number>();
     const dropCounts = new Map<string, number>();
     const outgoingCounts = new Map<string, number>();
@@ -664,8 +707,14 @@ export default function BattleMapFlowPanel() {
     }
 
     for (const battle of matchingBattles) {
-      const enemy = describeEnemy()(battle.e_deck_id);
-      enemyCounts.set(enemy, (enemyCounts.get(enemy) ?? 0) + 1);
+      const enemyFleet = describeEnemyFleet()(battle.e_deck_id);
+      const fleetKey = enemyFleet.signature;
+      const existing = enemyFleetCounts.get(fleetKey);
+      if (existing) {
+        existing.count++;
+      } else {
+        enemyFleetCounts.set(fleetKey, { fleet: enemyFleet, count: 1 });
+      }
 
       const result = battle.battle_result && typeof battle.battle_result === "object" ? battle.battle_result : null;
       if (result?.win_rank) {
@@ -682,7 +731,13 @@ export default function BattleMapFlowPanel() {
       passCount,
       routeCount: matchingRoutes.length,
       battleCount: matchingBattles.length,
-      topEnemies: [...enemyCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
+      topEnemyFleets: [...enemyFleetCounts.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 5)
+        .map(([, { fleet, count }]) => ({
+          ...fleet,
+          count,
+        })),
       resultCounts: [...resultCounts.entries()].sort((a, b) => b[1] - a[1]),
       dropCounts: [...dropCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
       outgoingCounts: [...outgoingCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5),
@@ -698,18 +753,29 @@ export default function BattleMapFlowPanel() {
   // ── Data fetching ───────────────────────────────────────────────────────────
 
   async function loadData() {
+    loadDataAbortController?.abort();
+    const abortController = new AbortController();
+    loadDataAbortController = abortController;
+    const signal = abortController.signal;
+    const requestedPeriodTag = periodTag();
+
     setLoading(true);
     setError(null);
     try {
-      const [battleRes, cellsRes, enemyDeckRes, enemyShipRes, mstShipRes, battleResultRes] =
+      const [battleRes, cellsRes, enemyDeckRes, enemyShipRes, enemySlotItemRes, mstShipRes, mstSlotItemRes, battleResultRes, weaponIconFramesRes] =
         await Promise.all([
-          fetch(`/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=12000&include_sortie_key=1`),
-          fetch(`/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=12000`),
-          fetch(`/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`),
-          fetch(`/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=20000`),
-          fetch(`/api/master-data/json?table_name=mst_ship`),
-          fetch(`/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=12000`),
+          fetch(`/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000&include_sortie_key=1`, { signal }),
+          fetch(`/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
+          fetch(`/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=8000`, { signal }),
+          fetch(`/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=20000`, { signal }),
+          fetch(`/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=40000`, { signal }),
+          fetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
+          fetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
+          fetch(`/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
+          fetch(`/api/asset-sync/weapon-icon-frames`, { signal }),
         ]);
+
+      if (signal.aborted) return;
 
       if (!battleRes.ok) {
         setError("戦闘データの取得に失敗しました。");
@@ -727,12 +793,41 @@ export default function BattleMapFlowPanel() {
       const shipPayload = enemyShipRes.ok
         ? ((await enemyShipRes.json()) as { records?: EnemyShipRecord[] })
         : { records: [] };
+      const slotItemPayload = enemySlotItemRes.ok
+        ? ((await enemySlotItemRes.json()) as { records?: EnemySlotItemRecord[] })
+        : { records: [] };
       const mstPayload = mstShipRes.ok
         ? ((await mstShipRes.json()) as { records?: MstShipRecord[] })
+        : { records: [] };
+      const mstSlotItemPayload = mstSlotItemRes.ok
+        ? ((await mstSlotItemRes.json()) as { records?: MstSlotItemRecord[] })
         : { records: [] };
       const battleResultPayload = battleResultRes.ok
         ? ((await battleResultRes.json()) as { records?: BattleResultRecord[] })
         : { records: [] };
+      const weaponIconFramesPayload = weaponIconFramesRes.ok
+        ? ((await weaponIconFramesRes.json()) as {
+            frames?: Record<string, { frame?: { x?: number; y?: number; w?: number; h?: number } }>;
+            meta?: { size?: { w?: number; h?: number } };
+          })
+        : {};
+
+      const iconFrames: Record<number, WeaponIconFrame> = {};
+      for (const [name, entry] of Object.entries(weaponIconFramesPayload.frames || {})) {
+        const match = name.match(/_id_(\d+)$/);
+        if (!match) continue;
+        const iconId = Number.parseInt(match[1], 10);
+        const frame = entry?.frame;
+        if (!frame) continue;
+        const x = Number(frame.x ?? NaN);
+        const y = Number(frame.y ?? NaN);
+        const w = Number(frame.w ?? NaN);
+        const h = Number(frame.h ?? NaN);
+        if (!Number.isFinite(iconId) || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(w) || !Number.isFinite(h)) {
+          continue;
+        }
+        iconFrames[iconId] = { x, y, w, h };
+      }
 
       const battleResultByUuid = new Map<string, BattleResultData>();
       for (const rec of battleResultPayload.records || []) {
@@ -758,6 +853,7 @@ export default function BattleMapFlowPanel() {
             const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
             const res = await fetch(
               `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+              { signal },
             );
             if (!res.ok) return null;
             const body = (await res.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
@@ -774,6 +870,8 @@ export default function BattleMapFlowPanel() {
           });
         }
       }
+
+      if (signal.aborted || loadDataAbortController !== abortController) return;
 
       // Build a map from battle-group UUID to map coordinates (some battle records lack map info).
       const mapByBattleUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
@@ -804,7 +902,14 @@ export default function BattleMapFlowPanel() {
       setCellRecords(cellsPayload.records || []);
       setEnemyDecks(deckPayload.records || []);
       setEnemyShips(shipPayload.records || []);
+      setEnemySlotItems(slotItemPayload.records || []);
       setMstShips(mstPayload.records || []);
+      setMstSlotItems(mstSlotItemPayload.records || []);
+      setWeaponIconFrames(iconFrames);
+      setWeaponIconMeta({
+        width: Number(weaponIconFramesPayload.meta?.size?.w ?? 0) || 0,
+        height: Number(weaponIconFramesPayload.meta?.size?.h ?? 0) || 0,
+      });
 
       const hasMapInPayload =
         mergedBattles.some((r) => mapKeyOf(r) === mapFilter()) ||
@@ -813,11 +918,14 @@ export default function BattleMapFlowPanel() {
         setMapFilter("");
       }
     } catch (e) {
-      setError(`読込エラー: ${String(e)}`);
+      if (isAbortError(e)) return;
+      setError("読込に失敗しました。しばらくしてから再試行してください。");
       setBattleRecords([]);
       setCellRecords([]);
     } finally {
-      setLoading(false);
+      if (loadDataAbortController === abortController) {
+        setLoading(false);
+      }
     }
   }
 
@@ -836,11 +944,7 @@ export default function BattleMapFlowPanel() {
 
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
     const onMediaQueryChange = () => applyDetectedTheme();
-    if (typeof mediaQuery.addEventListener === "function") {
-      mediaQuery.addEventListener("change", onMediaQueryChange);
-    } else {
-      mediaQuery.addListener(onMediaQueryChange);
-    }
+    mediaQuery.addEventListener("change", onMediaQueryChange);
 
     const observer = new MutationObserver(() => applyDetectedTheme());
     observer.observe(document.documentElement, {
@@ -863,12 +967,11 @@ export default function BattleMapFlowPanel() {
     }
 
     onCleanup(() => {
+      mapMetadataAbortController?.abort();
+      loadDataAbortController?.abort();
+      pendingMetadataLoads.clear();
       observer.disconnect();
-      if (typeof mediaQuery.removeEventListener === "function") {
-        mediaQuery.removeEventListener("change", onMediaQueryChange);
-      } else {
-        mediaQuery.removeListener(onMediaQueryChange);
-      }
+      mediaQuery.removeEventListener("change", onMediaQueryChange);
     });
 
     void loadData();
@@ -1021,6 +1124,8 @@ export default function BattleMapFlowPanel() {
                       details={details()}
                       displayedSortieRoutesCount={displayedSortieRoutes().length}
                       mstShipNameById={mstShipNameById()}
+                      weaponIconFrames={weaponIconFrames()}
+                      weaponIconMeta={weaponIconMeta()}
                       onClear={() => setSelectedCellFilter(null)}
                     />
                   )}

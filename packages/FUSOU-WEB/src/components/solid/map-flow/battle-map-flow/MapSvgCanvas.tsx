@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
+import { isSafeImageUrl } from "@/utility/security";
 import type { ResolvedRouteOverlay, SelectedCellFilter } from "./types";
 import {
   BASE_CELL_MARKER_RADIUS,
@@ -21,7 +22,8 @@ type Props = {
 export default function MapSvgCanvas(props: Props) {
   const o = () => props.overlay;
   const seaFrame = () => o().asset.seaMapFrame;
-  const hasOfficialBackgroundImage = () => o().asset.spriteUrl.length > 0;
+  const hasOfficialBackgroundImage = () =>
+    o().asset.spriteUrl.length > 0 && isSafeImageUrl(o().asset.spriteUrl);
 
   return (
     <div class="rounded-box overflow-hidden border border-base-300 bg-slate-100 shadow-inner">

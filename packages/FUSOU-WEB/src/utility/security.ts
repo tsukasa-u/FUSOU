@@ -234,6 +234,21 @@ export function validateOriginDetailed(
 }
 
 /**
+ * Validate that a URL is safe for use in image src/href attributes.
+ * Only relative URLs and http(s) absolute URLs are allowed.
+ */
+export function isSafeImageUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith("/")) return true;
+  try {
+    const parsed = new URL(url, "http://localhost");
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Sanitize error messages to prevent information disclosure
  */
 export function sanitizeErrorMessage(error: unknown): string {

@@ -1,14 +1,65 @@
 /** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
-import type { SelectedCellDetails } from "./types";
+import { isSafeImageUrl } from "@/utility/security";
+import type { SelectedCellDetails, WeaponIconFrame, WeaponIconMeta } from "./types";
 import { WIN_RANK_BADGES } from "./constants";
 
 type Props = {
   details: SelectedCellDetails;
   displayedSortieRoutesCount: number;
   mstShipNameById: Map<number, string>;
+  weaponIconFrames: Record<number, WeaponIconFrame>;
+  weaponIconMeta: WeaponIconMeta;
   onClear: () => void;
 };
+
+function WeaponIcon(props: {
+  iconType: number | null;
+  frames: Record<number, WeaponIconFrame>;
+  meta: WeaponIconMeta;
+}) {
+  // iconType 0 and negative mean "no icon" in the KC master data
+  const frame = () =>
+    props.iconType != null && props.iconType > 0
+      ? props.frames[props.iconType]
+      : undefined;
+
+  return (
+    <Show
+      when={frame()}
+      fallback={
+        <span class="inline-flex h-4 w-4 flex-none items-center justify-center rounded bg-base-300 text-[9px] text-base-content/60">
+          ?
+        </span>
+      }
+    >
+      {(f) => {
+        // f() is the WeaponIconFrame object (the resolved when-accessor value)
+        const size = 16;
+        const ratioX = size / f().w;
+        const ratioY = size / f().h;
+        return (
+          <span
+            class="inline-block flex-none overflow-hidden rounded"
+            style={{ width: `${size}px`, height: `${size}px` }}
+          >
+            <img
+              src="/api/asset-sync/weapon-icons"
+              alt=""
+              class="block max-w-none"
+              style={{
+                width: `${props.meta.width * ratioX}px`,
+                height: `${props.meta.height * ratioY}px`,
+                "margin-left": `-${f().x * ratioX}px`,
+                "margin-top": `-${f().y * ratioY}px`,
+              }}
+            />
+          </span>
+        );
+      }}
+    </Show>
+  );
+}
 
 export default function CellDetailsPanel(props: Props) {
   const d = () => props.details;
@@ -45,14 +96,67 @@ export default function CellDetailsPanel(props: Props) {
       <div class="grid gap-4 lg:grid-cols-2">
         <div class="space-y-3">
           <div class="rounded-box bg-base-100 p-3">
-            <div class="font-semibold text-sm mb-2">よく遭遇する敵</div>
+            <div class="font-semibold text-sm mb-2">よく遭遇する敵艦隊</div>
             <Show
-              when={d().topEnemies.length > 0}
+              when={d().topEnemyFleets.length > 0}
               fallback={<div class="text-xs text-base-content/50">戦闘記録はありません</div>}
             >
-              <For each={d().topEnemies}>
-                {([enemy, count]) => <div class="text-xs text-base-content/80">{enemy} ({count})</div>}
-              </For>
+              <div class="space-y-2">
+                <For each={d().topEnemyFleets}>
+                  {(fleet) => (
+                    <div class="rounded-box bg-base-200 px-2 py-1.5">
+                      {/* Fleet header */}
+                      <div class="mb-1 flex items-center justify-between text-[11px]">
+                        <span class="font-semibold text-base-content/80">遭遇 {fleet.count} 回</span>
+                        <span class="text-base-content/50">艦数 {fleet.ships.length}</span>
+                      </div>
+                      {/* Ships */}
+                      <div class="divide-y divide-base-300">
+                        <For each={fleet.ships}>
+                          {(ship) => (
+                            <div class="py-1 first:pt-0 last:pb-0">
+                              {/* Ship header: banner + name + params */}
+                              <div class="flex min-w-0 items-center gap-1.5">
+                                <Show when={ship.bannerUrl && isSafeImageUrl(ship.bannerUrl)}>
+                                  <img
+                                    src={ship.bannerUrl}
+                                    alt={ship.name}
+                                    class="h-5 w-20 flex-none rounded object-cover"
+                                    loading="lazy"
+                                  />
+                                </Show>
+                                <span class="min-w-0 flex-1 truncate text-[11px] font-medium text-base-content/90">
+                                  {ship.name}
+                                </span>
+                                <span class="flex-none text-[10px] text-base-content/55">
+                                  火{ship.karyoku ?? "-"} 雷{ship.raisou ?? "-"} 対{ship.taiku ?? "-"} 装{ship.soukou ?? "-"}
+                                </span>
+                              </div>
+                              {/* Equipment: inline badges */}
+                              <Show when={ship.equipments.length > 0}>
+                                <div class="mt-0.5 flex flex-wrap gap-0.5 pl-1">
+                                  <For each={ship.equipments}>
+                                    {(equip) => (
+                                      <span class="inline-flex items-center gap-0.5 rounded bg-base-100 px-1 py-0.5 text-[10px] text-base-content/70 ring-1 ring-base-300">
+                                        <WeaponIcon
+                                          iconType={equip.iconType}
+                                          frames={props.weaponIconFrames}
+                                          meta={props.weaponIconMeta}
+                                        />
+                                        {equip.name}
+                                      </span>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
             </Show>
           </div>
           <div class="rounded-box bg-base-100 p-3">
