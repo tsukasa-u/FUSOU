@@ -165,6 +165,26 @@ function matchesRecordFilter(record: unknown, filterObj: Record<string, unknown>
   return true;
 }
 
+async function putCacheSafely(
+  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  cache: Cache,
+  cacheKey: RequestInfo | URL,
+  response: Response,
+): Promise<void> {
+  const putPromise = cache.put(cacheKey, response.clone());
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil(putPromise);
+      return;
+    }
+  } catch (err) {
+    // Some runtimes/tests may not provide ExecutionContext; fall back to direct await.
+    console.warn("[battle-data] ExecutionContext unavailable for cache put", err);
+  }
+  await putPromise;
+}
+
 async function decodeIndexedBlock(
   bucket: R2Bucket,
   filePath: string,
@@ -1059,7 +1079,7 @@ app.get("/global/records", async (c) => {
       );
       response.headers.set("X-FUSOU-Cache", "MISS");
       if (cache) {
-        c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+        await putCacheSafely(c, cache, cacheKey, response);
       }
       return response;
     }
@@ -1114,7 +1134,7 @@ app.get("/global/records", async (c) => {
     );
     response.headers.set("X-FUSOU-Cache", "MISS");
     if (cache) {
-      c.executionCtx.waitUntil(cache.put(cacheKey, response.clone()));
+      await putCacheSafely(c, cache, cacheKey, response);
     }
     return response;
   } catch (err) {
