@@ -10,7 +10,6 @@ import kcApp from './routes/kc';
 import compactApp from './routes/compact';
 import battleDataApp from './routes/battle_data';
 import userApp from './routes/user';
-import analyticsApp from './routes/analytics';
 import adminApp from './routes/admin';
 import dataLoaderApp from './routes/data_loader';
 import masterDataApp from './routes/master_data';
@@ -57,7 +56,6 @@ app.route('/kc-period', kcApp);     // kcApp declares /latest, etc.
 app.route('/compaction', compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route('/battle-data', battleDataApp); // battleDataApp declares /upload, /health
 app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
-app.route('/analytics', analyticsApp); // analytics app declares /compaction-metrics
 app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 app.route('/data-loader', dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 app.route('/master-data', masterDataApp); // masterDataApp declares /upload (Stage 1), /download-master (Stage 2+3)
