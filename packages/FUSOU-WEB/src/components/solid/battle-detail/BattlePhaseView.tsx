@@ -82,8 +82,8 @@ function ShellingRows(props: {
             const defenderHpSnapshot = getRowHpSnapshot(row, defenderSide);
 
             return (
-              <div class="rounded border border-base-300 bg-base-200 p-2">
-                <div class="grid gap-2 md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-start">
+              <div class="rounded border border-base-300 bg-base-200 p-2 overflow-visible">
+                <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start overflow-visible">
                   <div class="space-y-1">
                     <PhaseParticipant
                       name={shipNameFromIndex(attackerSide, attackerIdx, props.fleets)}
@@ -93,8 +93,8 @@ function ShellingRows(props: {
                       hpMax={maxHpForShip(attackerSide, attackerIdx, attackerCurrentHp, props.fleets)}
                     />
                     <Show when={sis.length > 0}>
-                      <div class="text-[10px] text-base-content/55 wrap-break-word">
-                        <span class="text-[10px] text-base-content/55">
+                      <div class="text-[10px] text-base-content/55 overflow-visible relative z-10">
+                        <span class="inline-flex flex-nowrap items-center gap-1 whitespace-nowrap text-[10px] text-base-content/55">
                           <EquipmentBadgesFromSlotIds
                             slotIds={sis}
                             mstSlotItemById={props.mstSlotItemById}
