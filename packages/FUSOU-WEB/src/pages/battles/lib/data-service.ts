@@ -1,5 +1,6 @@
 import type { ShipInfo, WeaponIconFrame } from "./types";
 import { toGroupIds, hpScoreForDeck } from "./helpers";
+import { cachedFetch } from "@/utility/fetchCache";
 
 let mstShipByIdCache: Map<number, Record<string, unknown>> | null = null;
 let mstSlotItemByIdCache: Map<number, Record<string, unknown>> | null = null;
@@ -7,7 +8,7 @@ let weaponIconFramesCache: Record<number, WeaponIconFrame> | null = null;
 let weaponIconMetaCache = { width: 0, height: 0 };
 
 async function fetchJson(url: string): Promise<unknown> {
-  const response = await fetch(url);
+  const response = await cachedFetch(url);
   if (!response.ok) return null;
   return response.json();
 }
@@ -47,6 +48,37 @@ export async function fetchRecordsByUuid(
     return payload?.records || [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * Batch-fetch records matching any of the given UUIDs in a single request.
+ * Returns a Map from uuid → matching rows.
+ */
+export async function fetchRecordsByUuids(
+  table: string,
+  uuids: string[],
+): Promise<Map<string, Array<Record<string, unknown>>>> {
+  const unique = [...new Set(uuids.filter(Boolean))];
+  if (!table || unique.length === 0) return new Map();
+  if (unique.length === 1) {
+    const rows = await fetchRecordsByUuid(table, unique[0]);
+    return new Map([[unique[0], rows]]);
+  }
+  try {
+    const filterJson = encodeURIComponent(JSON.stringify({ uuid: unique }));
+    const payload = (await fetchJson(
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=${unique.length * 50}&filter_json=${filterJson}`,
+    )) as { records?: Array<Record<string, unknown>> } | null;
+    const result = new Map<string, Array<Record<string, unknown>>>();
+    for (const id of unique) result.set(id, []);
+    for (const row of payload?.records || []) {
+      const id = String(row?.uuid ?? "");
+      if (result.has(id)) result.get(id)!.push(row);
+    }
+    return result;
+  } catch {
+    return new Map();
   }
 }
 
@@ -217,18 +249,20 @@ export async function resolveFriendlyFleet(
     envUuid,
     200,
   );
-  const ownShipsByGroup = new Map<string, Array<Record<string, unknown>>>();
   const hpSnapshot = (battle.f_nowhps ??
     battle.midnight_f_nowhps ??
     []) as unknown[];
 
+  // Collect all unique ship group IDs from all decks
+  const allGroupIds: string[] = [];
   for (const deck of ownDecks) {
-    for (const groupId of toGroupIds(deck.ship_ids)) {
-      if (ownShipsByGroup.has(groupId)) continue;
-      const ships = await fetchRecordsByUuid("own_ship", groupId);
-      ownShipsByGroup.set(groupId, ships);
+    for (const gid of toGroupIds(deck.ship_ids)) {
+      if (!allGroupIds.includes(gid)) allGroupIds.push(gid);
     }
   }
+
+  // Batch-fetch all ship groups in one request
+  const ownShipsByGroup = await fetchRecordsByUuids("own_ship", allGroupIds);
 
   let bestGroupId: string | null = null;
   let bestScore = Number.MAX_SAFE_INTEGER;
@@ -254,58 +288,62 @@ export async function resolveFriendlyFleet(
   const mstShipById = await getMstShipById();
   const mstSlotItemById = await getMstSlotItemById();
 
-  const shipPromises = [...selectedShips]
-    .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
-    .map(async (ship) => {
-      const shipId = Number(ship.ship_id ?? 0) || null;
-      const mstShip = shipId ? mstShipById.get(shipId) : null;
-      const slotGroupId =
-        typeof ship.slot === "string" ? ship.slot : null;
-      const slotRows = slotGroupId
-        ? await fetchRecordsByUuid("own_slotitem", slotGroupId)
-        : [];
-      const equips = slotRows
-        .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-        .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
-        .map((row) => {
-          const slotId = Number(row.mst_slotitem_id ?? 0) || null;
-          const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
-          const iconType =
-            Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
-            ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
-              ? Number(
-                  ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
-                ) || null
-              : null;
-          return {
-            name:
-              (mstSlot as Record<string, unknown>)?.name
-                ? String((mstSlot as Record<string, unknown>).name)
-                : `装備ID:${slotId}`,
-            level: (row.level as number) ?? null,
-            iconType,
-            slotItemId: slotId,
-          };
-        });
+  // Collect all slot UUIDs and batch-fetch them in one request
+  const sortedShips = [...selectedShips].sort(
+    (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
+  );
+  const slotUuids = sortedShips
+    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .filter(Boolean);
+  const slotRowsByUuid = await fetchRecordsByUuids("own_slotitem", slotUuids);
 
-      return {
-        name: mstShip
-          ? String((mstShip as Record<string, unknown>).name ?? `艦ID:${shipId ?? "-"}`)
-          : `艦ID:${shipId ?? "-"}`,
-        shipId,
-        level: Number(ship.lv ?? 0) || null,
-        nowhp: Number(ship.nowhp ?? 0) || 0,
-        maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-        karyoku: ship.karyoku ?? null,
-        raisou: ship.raisou ?? null,
-        taiku: ship.taiku ?? null,
-        soukou: ship.soukou ?? null,
-        bannerUrl: shipId ? `/api/asset-sync/ship-banner/${shipId}` : "",
-        equipments: equips,
-      } satisfies ShipInfo;
-    });
+  return sortedShips.map((ship) => {
+    const shipId = Number(ship.ship_id ?? 0) || null;
+    const mstShip = shipId ? mstShipById.get(shipId) : null;
+    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotRows = slotGroupId
+      ? slotRowsByUuid.get(slotGroupId) || []
+      : [];
+    const equips = slotRows
+      .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
+      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .map((row) => {
+        const slotId = Number(row.mst_slotitem_id ?? 0) || null;
+        const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
+        const iconType =
+          Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
+          ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
+            ? Number(
+                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
+              ) || null
+            : null;
+        return {
+          name:
+            (mstSlot as Record<string, unknown>)?.name
+              ? String((mstSlot as Record<string, unknown>).name)
+              : `装備ID:${slotId}`,
+          level: (row.level as number) ?? null,
+          iconType,
+          slotItemId: slotId,
+        };
+      });
 
-  return Promise.all(shipPromises);
+    return {
+      name: mstShip
+        ? String((mstShip as Record<string, unknown>).name ?? `艦ID:${shipId ?? "-"}`)
+        : `艦ID:${shipId ?? "-"}`,
+      shipId,
+      level: Number(ship.lv ?? 0) || null,
+      nowhp: Number(ship.nowhp ?? 0) || 0,
+      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
+      karyoku: ship.karyoku ?? null,
+      raisou: ship.raisou ?? null,
+      taiku: ship.taiku ?? null,
+      soukou: ship.soukou ?? null,
+      bannerUrl: shipId ? `/api/asset-sync/ship-banner/${shipId}` : "",
+      equipments: equips,
+    } satisfies ShipInfo;
+  });
 }
 
 export async function resolveEnemyFleet(
@@ -320,61 +358,73 @@ export async function resolveEnemyFleet(
 
   const mstShipById = await getMstShipById();
   const mstSlotItemById = await getMstSlotItemById();
-  const ships: ShipInfo[] = [];
 
-  for (const groupId of toGroupIds(deck.ship_ids)) {
-    const groupShips = await fetchRecordsByUuid("enemy_ship", groupId);
-    const sortedShips = [...groupShips].sort(
+  // Batch-fetch all enemy ship groups in one request
+  const groupIds = toGroupIds(deck.ship_ids);
+  const shipsByGroup = await fetchRecordsByUuids("enemy_ship", groupIds);
+
+  // Collect all ships and their slot UUIDs
+  const allShips: Array<Record<string, unknown>> = [];
+  for (const groupId of groupIds) {
+    const groupShips = [...(shipsByGroup.get(groupId) || [])].sort(
       (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
     );
-    for (const ship of sortedShips) {
-      const mstId = Number(ship.mst_ship_id ?? 0) || null;
-      const mstShip = mstId ? mstShipById.get(mstId) : null;
-      const slotGroupId =
-        typeof ship.slot === "string" ? ship.slot : null;
-      const slotRows = slotGroupId
-        ? await fetchRecordsByUuid("enemy_slotitem", slotGroupId)
-        : [];
-      const equips = slotRows
-        .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-        .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
-        .map((row) => {
-          const slotId = Number(row.mst_slotitem_id ?? 0) || null;
-          const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
-          const iconType =
-            Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
-            ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
-              ? Number(
-                  ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
-                ) || null
-              : null;
-          return {
-            name:
-              (mstSlot as Record<string, unknown>)?.name
-                ? String((mstSlot as Record<string, unknown>).name)
-                : `装備ID:${slotId}`,
-            level: null,
-            iconType,
-            slotItemId: slotId,
-          };
-        });
+    allShips.push(...groupShips);
+  }
 
-      ships.push({
-        name: mstShip
-          ? String((mstShip as Record<string, unknown>).name ?? `敵艦ID:${mstId ?? "-"}`)
-          : `敵艦ID:${mstId ?? "-"}`,
-        shipId: mstId,
-        level: Number(ship.lv ?? 0) || null,
-        nowhp: Number(ship.nowhp ?? 0) || 0,
-        maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-        karyoku: ship.karyoku ?? null,
-        raisou: ship.raisou ?? null,
-        taiku: ship.taiku ?? null,
-        soukou: ship.soukou ?? null,
-        bannerUrl: mstId ? `/api/asset-sync/ship-banner/${mstId}` : "",
-        equipments: equips,
+  // Batch-fetch all enemy slot items in one request
+  const slotUuids = allShips
+    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .filter(Boolean);
+  const slotRowsByUuid = await fetchRecordsByUuids("enemy_slotitem", slotUuids);
+
+  const ships: ShipInfo[] = [];
+  for (const ship of allShips) {
+    const mstId = Number(ship.mst_ship_id ?? 0) || null;
+    const mstShip = mstId ? mstShipById.get(mstId) : null;
+    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotRows = slotGroupId
+      ? slotRowsByUuid.get(slotGroupId) || []
+      : [];
+    const equips = slotRows
+      .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
+      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .map((row) => {
+        const slotId = Number(row.mst_slotitem_id ?? 0) || null;
+        const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
+        const iconType =
+          Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
+          ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
+            ? Number(
+                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
+              ) || null
+            : null;
+        return {
+          name:
+            (mstSlot as Record<string, unknown>)?.name
+              ? String((mstSlot as Record<string, unknown>).name)
+              : `装備ID:${slotId}`,
+          level: null,
+          iconType,
+          slotItemId: slotId,
+        };
       });
-    }
+
+    ships.push({
+      name: mstShip
+        ? String((mstShip as Record<string, unknown>).name ?? `敵艦ID:${mstId ?? "-"}`)
+        : `敵艦ID:${mstId ?? "-"}`,
+      shipId: mstId,
+      level: Number(ship.lv ?? 0) || null,
+      nowhp: Number(ship.nowhp ?? 0) || 0,
+      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
+      karyoku: ship.karyoku ?? null,
+      raisou: ship.raisou ?? null,
+      taiku: ship.taiku ?? null,
+      soukou: ship.soukou ?? null,
+      bannerUrl: mstId ? `/api/asset-sync/ship-banner/${mstId}` : "",
+      equipments: equips,
+    });
   }
 
   return ships;

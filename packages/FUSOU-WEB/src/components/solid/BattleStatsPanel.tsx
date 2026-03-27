@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import { cachedFetch } from "@/utility/fetchCache";
 
 type BattleRecord = {
   timestamp: number | null;
@@ -149,12 +150,14 @@ export default function BattleStatsPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
-      );
-      const battleResultRes = await fetch(
-        `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
-      );
+      const [res, battleResultRes] = await Promise.all([
+        cachedFetch(
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
+        ),
+        cachedFetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
+        ),
+      ]);
       if (!res.ok) {
         setError("戦闘データの取得に失敗しました。");
         setStats(emptyStats());
@@ -188,30 +191,21 @@ export default function BattleStatsPanel() {
       }
 
       if (unresolvedResultUuids.size > 0) {
-        const fetched = await Promise.allSettled(
-          [...unresolvedResultUuids].map(async (uuid) => {
-            const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
-            const detailRes = await fetch(
-              `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
-            );
-            if (!detailRes.ok) return null;
-            const body = (await detailRes.json()) as { records?: BattleResultRecord[] };
-            const found = (body.records || []).find((item) => item?.uuid === uuid && !!item?.win_rank);
-            if (!found?.win_rank) return null;
-            return {
-              uuid,
-              win_rank: found.win_rank,
-              drop_ship_id: found.drop_ship_id ?? null,
-            };
-          }),
+        const fillTargets = [...unresolvedResultUuids].slice(0, 100);
+        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchRes = await cachedFetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
-
-        for (const item of fetched) {
-          if (item.status !== "fulfilled" || !item.value) continue;
-          battleResultByUuid.set(item.value.uuid, {
-            win_rank: item.value.win_rank,
-            drop_ship_id: item.value.drop_ship_id,
-          });
+        if (batchRes.ok) {
+          const body = (await batchRes.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
+          for (const found of body.records || []) {
+            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
+              battleResultByUuid.set(found.uuid, {
+                win_rank: found.win_rank,
+                drop_ship_id: found.drop_ship_id ?? null,
+              });
+            }
+          }
         }
       }
 

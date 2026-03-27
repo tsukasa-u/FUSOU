@@ -984,6 +984,9 @@ app.get("/global/records", async (c) => {
   const filterJsonRaw = c.req.query("filter_json")?.trim();
   const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 10, 40);
   const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
+  const cacheControl = periodTagParam === "latest"
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=3600, stale-while-revalidate=86400";
 
   let recordFilter: Record<string, unknown> | null = null;
   if (filterJsonRaw) {
@@ -1063,6 +1066,24 @@ app.get("/global/records", async (c) => {
       file_path: string;
     }>;
 
+    // Build a lightweight ETag from the block IDs so conditional requests can
+    // skip the expensive R2 decode step entirely.
+    const blockEtag = rows.length > 0
+      ? `"br-${rows.map((r) => r.id).join("-")}-${limitRecords}"`
+      : null;
+
+    const ifNoneMatch = c.req.header("If-None-Match");
+    if (blockEtag && ifNoneMatch === blockEtag) {
+      return new Response(null, {
+        status: 304,
+        headers: {
+          ETag: blockEtag,
+          "Cache-Control": cacheControl,
+          "X-FUSOU-Cache": "NOT-MODIFIED",
+        },
+      });
+    }
+
     if (rows.length === 0) {
       const payload = {
         success: true,
@@ -1075,7 +1096,7 @@ app.get("/global/records", async (c) => {
       const response = c.json(payload);
       response.headers.set(
         "Cache-Control",
-        "public, max-age=30, stale-while-revalidate=120",
+        cacheControl,
       );
       response.headers.set("X-FUSOU-Cache", "MISS");
       if (cache) {
@@ -1130,9 +1151,12 @@ app.get("/global/records", async (c) => {
     const response = c.json(payload);
     response.headers.set(
       "Cache-Control",
-      "public, max-age=30, stale-while-revalidate=120",
+      cacheControl,
     );
     response.headers.set("X-FUSOU-Cache", "MISS");
+    if (blockEtag) {
+      response.headers.set("ETag", blockEtag);
+    }
     if (cache) {
       await putCacheSafely(c, cache, cacheKey, response);
     }

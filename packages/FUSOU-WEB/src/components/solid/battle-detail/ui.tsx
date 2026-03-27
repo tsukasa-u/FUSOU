@@ -6,6 +6,38 @@ import { getDamageState, hpFillClass } from "@/pages/battles/lib/helpers";
 import { getWeaponIconCaches } from "@/pages/battles/lib/data-service";
 import { isSafeImageUrl } from "@/utility/security";
 
+/**
+ * Ship banner `<img>` with graceful loading:
+ * - A neutral placeholder background is always visible via the wrapper.
+ * - The image starts invisible and fades in on load.
+ * - On error the `<img>` is hidden so no broken-icon flickers.
+ */
+function ShipBanner(props: {
+  src: string | undefined;
+  alt: string;
+  class?: string;
+}): JSX.Element {
+  const outerClass = props.class ?? "h-6 w-24";
+  return (
+    <span class={`${outerClass} inline-block flex-none rounded overflow-hidden`}>
+      <Show when={props.src && isSafeImageUrl(props.src)}>
+        <img
+          src={props.src}
+          alt={props.alt}
+          class="h-full w-full rounded object-cover opacity-0 transition-opacity duration-200"
+          loading="lazy"
+          onLoad={(e) => {
+            (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+          }}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = "none";
+          }}
+        />
+      </Show>
+    </span>
+  );
+}
+
 // ── Pure helpers (no JSX) ─────────────────────────────────────────────────
 
 export function shipNameFromIndex(
@@ -95,6 +127,7 @@ export function WeaponIcon(props: { iconType: number | null | undefined }): JSX.
             <img
               src="/api/asset-sync/weapon-icons"
               alt=""
+              class="opacity-0 transition-opacity duration-150"
               style={{
                 display: "block",
                 "max-width": "none",
@@ -102,6 +135,12 @@ export function WeaponIcon(props: { iconType: number | null | undefined }): JSX.
                 height: `${meta.height * ratioY}px`,
                 "margin-left": `-${frame.x * ratioX}px`,
                 "margin-top": `-${frame.y * ratioY}px`,
+              }}
+              onLoad={(e) => {
+                (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
               }}
             />
           </span>
@@ -344,14 +383,7 @@ export function ShipRows(props: { ships: ShipInfo[]; sideLabel: string }): JSX.E
           return (
             <div class="rounded-box bg-base-200 p-2">
               <div class="flex items-center gap-2 mb-1">
-                <Show when={ship.bannerUrl && isSafeImageUrl(ship.bannerUrl)}>
-                  <img
-                    src={ship.bannerUrl}
-                    alt={ship.name}
-                    class="h-6 w-24 rounded object-cover"
-                    loading="lazy"
-                  />
-                </Show>
+                <ShipBanner src={ship.bannerUrl} alt={ship.name} class="h-6 w-24" />
                 <div class="min-w-0">
                   <div class="text-sm font-semibold truncate">{ship.name}</div>
                   <div class="text-[11px] text-base-content/60">

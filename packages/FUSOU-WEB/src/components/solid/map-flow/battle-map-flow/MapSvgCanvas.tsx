@@ -68,7 +68,10 @@ export default function MapSvgCanvas(props: Props) {
                 width={o().asset.spriteSheetSize.width}
                 height={o().asset.spriteSheetSize.height}
                 preserveAspectRatio="none"
-                style={{ filter: "brightness(1.04) saturate(0.98) contrast(1.01)", opacity: "0.96" }}
+                style={{ filter: "brightness(1.04) saturate(0.98) contrast(1.01)", opacity: "0", transition: "opacity 0.3s ease-in" }}
+                onLoad={(e) => {
+                  (e.currentTarget as SVGImageElement).style.opacity = "0.96";
+                }}
               />
             </g>
           </Show>

@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
+import { cachedFetch } from "@/utility/fetchCache";
 
 type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 
@@ -183,27 +184,22 @@ export default function BattlesListPanel() {
     setError(null);
     try {
       const [response, cellsResponse, battleResultResponse, enemyDeckResponse, enemyShipResponse, mstShipResponse] = await Promise.all([
-        fetch(
+        cachedFetch(
           `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-          { headers: { "Content-Type": "application/json" } },
         ),
-        fetch(
+        cachedFetch(
           `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-          { headers: { "Content-Type": "application/json" } },
         ),
-        fetch(
+        cachedFetch(
           `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
-          { headers: { "Content-Type": "application/json" } },
         ),
-        fetch(
+        cachedFetch(
           `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=8000`,
-          { headers: { "Content-Type": "application/json" } },
         ),
-        fetch(
+        cachedFetch(
           `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=20000`,
-          { headers: { "Content-Type": "application/json" } },
         ),
-        fetch(`/api/master-data/json?table_name=mst_ship`, { headers: { "Content-Type": "application/json" } }),
+        cachedFetch(`/api/master-data/json?table_name=mst_ship`),
       ]);
       if (!response.ok) {
         const payload = (await response.json().catch(() => ({}))) as { message?: string };
@@ -246,30 +242,20 @@ export default function BattlesListPanel() {
 
       if (unresolvedResultUuids.size > 0) {
         const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const fetched = await Promise.all(
-          fillTargets.map(async (uuid) => {
-            const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
-            const res = await fetch(
-              `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
-              { headers: { "Content-Type": "application/json" } },
-            );
-            if (!res.ok) return null;
-            const body = (await res.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
-            const found = (body.records || []).find((r) => r?.uuid === uuid && !!r.win_rank);
-            if (!found?.win_rank) return null;
-            return {
-              uuid,
-              win_rank: found.win_rank,
-              drop_ship_id: found.drop_ship_id ?? null,
-            };
-          }),
+        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchRes = await cachedFetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
-        for (const item of fetched) {
-          if (!item) continue;
-          battleResultByUuid.set(item.uuid, {
-            win_rank: item.win_rank,
-            drop_ship_id: item.drop_ship_id,
-          });
+        if (batchRes.ok) {
+          const body = (await batchRes.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
+          for (const found of body.records || []) {
+            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
+              battleResultByUuid.set(found.uuid, {
+                win_rank: found.win_rank,
+                drop_ship_id: found.drop_ship_id ?? null,
+              });
+            }
+          }
         }
       }
 

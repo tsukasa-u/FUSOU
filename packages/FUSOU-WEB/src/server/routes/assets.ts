@@ -420,7 +420,7 @@ app.get("/ship-banner-map", async (c) => {
     }
 
     const cacheControl = envCtx.isDev
-      ? "no-store"
+      ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
     return c.json(
@@ -491,7 +491,7 @@ app.get("/ship-card-map", async (c) => {
     }
 
     const cacheControl = envCtx.isDev
-      ? "no-store"
+      ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
     return c.json(
@@ -717,7 +717,7 @@ app.get("/weapon-icon-frames", async (c) => {
     const atlasRaw = await r2Object.arrayBuffer();
 
     const cacheControl = envCtx.isDev
-      ? "no-store"
+      ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
     // Detect whether the bytes are Brotli-compressed or plain JSON.

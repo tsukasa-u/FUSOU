@@ -3,6 +3,7 @@ import { createSignal, createMemo, onMount, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
+import { cachedFetch } from "@/utility/fetchCache";
 import {
   FORMATION_NAMES,
   AIR_STATE,
@@ -22,7 +23,7 @@ import {
   resolveFriendlyFleet,
   resolveEnemyFleet,
 } from "@/pages/battles/lib/data-service";
-import { ShipRows, HPBar } from "./ui";
+import { ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 
@@ -134,23 +135,12 @@ export default function BattleDetailPanel(props: {
     return dropId ? `ドロップ: 艦#${dropId}` : null;
   });
 
-  // ── Fallback HP bars (when fleet data not available) ──────────────
-
-  const FallbackFleetHp = (fbProps: { side: "friend" | "enemy" }) => {
-    const b = battle();
-    if (!b) return <div class="text-sm text-base-content/40">データなし</div>;
-    if (fbProps.side === "friend") {
-      const fHPs = (b.f_nowhps ?? b.midnight_f_nowhps ?? []) as number[];
-      return fHPs.length > 0
-        ? <>{fHPs.map((hp, i) => <HPBar current={hp} max={hp} label={`${i + 1}番`} />)}</>
-        : <div class="text-sm text-base-content/40">データなし</div>;
-    }
-    const eHPs = (b.e_nowhps ?? b.midnight_e_nowhps ?? []) as number[];
-    const eMaxHPs = (b.e_hp_max ?? b.midnight_e_nowhps ?? []) as number[];
-    return eHPs.length > 0
-      ? <>{eHPs.map((hp, i) => <HPBar current={hp} max={eMaxHPs[i] ?? hp} label={`${i + 1}番`} />)}</>
-      : <div class="text-sm text-base-content/40">データなし</div>;
-  };
+  const FleetLoadingFallback = () => (
+    <div class="flex items-center justify-center py-6 text-base-content/40">
+      <span class="loading loading-spinner loading-sm mr-2" />
+      <span class="text-sm">艦隊データ読込中…</span>
+    </div>
+  );
 
   // ── Data loading ──────────────────────────────────────────────────
 
@@ -230,7 +220,7 @@ export default function BattleDetailPanel(props: {
       }
 
       if (!matched && Number.isFinite(fallbackIdx) && fallbackIdx >= 0) {
-        const battleRes = await fetch(
+        const battleRes = await cachedFetch(
           `/api/battle-data/global/records?table=battle&period_tag=all&limit_blocks=120&limit_records=20000`,
         );
         if (battleRes.ok) {
@@ -382,7 +372,7 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.friendlyShips?.length}
-                      fallback={<FallbackFleetHp side="friend" />}
+                      fallback={<FleetLoadingFallback />}
                     >
                       <ShipRows ships={fleets()!.friendlyShips} sideLabel="味方" />
                     </Show>
@@ -395,7 +385,7 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}
-                      fallback={<FallbackFleetHp side="enemy" />}
+                      fallback={<FleetLoadingFallback />}
                     >
                       <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
                     </Show>

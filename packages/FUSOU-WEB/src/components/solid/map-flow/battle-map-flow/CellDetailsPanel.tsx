@@ -28,7 +28,7 @@ function WeaponIcon(props: {
     <Show
       when={frame()}
       fallback={
-        <span class="inline-flex h-4 w-4 flex-none items-center justify-center rounded bg-base-300 text-[9px] text-base-content/60">
+        <span class="inline-flex h-4 w-4 flex-none items-center justify-center rounded text-[9px] text-base-content/60">
           ?
         </span>
       }
@@ -46,12 +46,18 @@ function WeaponIcon(props: {
             <img
               src="/api/asset-sync/weapon-icons"
               alt=""
-              class="block max-w-none"
+              class="block max-w-none opacity-0 transition-opacity duration-150"
               style={{
                 width: `${props.meta.width * ratioX}px`,
                 height: `${props.meta.height * ratioY}px`,
                 "margin-left": `-${f().x * ratioX}px`,
                 "margin-top": `-${f().y * ratioY}px`,
+              }}
+              onLoad={(e) => {
+                (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+              }}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
               }}
             />
           </span>
@@ -117,14 +123,22 @@ export default function CellDetailsPanel(props: Props) {
                             <div class="py-1 first:pt-0 last:pb-0">
                               {/* Ship header: banner + name + params */}
                               <div class="flex min-w-0 items-center gap-1.5">
-                                <Show when={ship.bannerUrl && isSafeImageUrl(ship.bannerUrl)}>
-                                  <img
-                                    src={ship.bannerUrl}
-                                    alt={ship.name}
-                                    class="h-5 w-20 flex-none rounded object-cover"
-                                    loading="lazy"
-                                  />
-                                </Show>
+                                <span class="h-5 w-20 inline-block flex-none rounded overflow-hidden">
+                                  <Show when={ship.bannerUrl && isSafeImageUrl(ship.bannerUrl)}>
+                                    <img
+                                      src={ship.bannerUrl}
+                                      alt={ship.name}
+                                      class="h-full w-full rounded object-cover opacity-0 transition-opacity duration-200"
+                                      loading="lazy"
+                                      onLoad={(e) => {
+                                        (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+                                      }}
+                                      onError={(e) => {
+                                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                                      }}
+                                    />
+                                  </Show>
+                                </span>
                                 <span class="min-w-0 flex-1 truncate text-[11px] font-medium text-base-content/90">
                                   {ship.name}
                                 </span>

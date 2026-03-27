@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { type BattleMapTheme, getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
+import { cachedFetch } from "@/utility/fetchCache";
 
 import type {
   BattleRecord,
@@ -764,15 +765,15 @@ export default function BattleMapFlowPanel() {
     try {
       const [battleRes, cellsRes, enemyDeckRes, enemyShipRes, enemySlotItemRes, mstShipRes, mstSlotItemRes, battleResultRes, weaponIconFramesRes] =
         await Promise.all([
-          fetch(`/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000&include_sortie_key=1`, { signal }),
-          fetch(`/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
-          fetch(`/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=8000`, { signal }),
-          fetch(`/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=20000`, { signal }),
-          fetch(`/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=40000`, { signal }),
-          fetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
-          fetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
-          fetch(`/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
-          fetch(`/api/asset-sync/weapon-icon-frames`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000&include_sortie_key=1`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=8000`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=20000`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=40000`, { signal }),
+          cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
+          cachedFetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
+          cachedFetch(`/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
+          cachedFetch(`/api/asset-sync/weapon-icon-frames`, { signal }),
         ]);
 
       if (signal.aborted) return;
@@ -848,26 +849,22 @@ export default function BattleMapFlowPanel() {
 
       if (unresolvedResultUuids.size > 0) {
         const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const fetched = await Promise.all(
-          fillTargets.map(async (uuid) => {
-            const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
-            const res = await fetch(
-              `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
-              { signal },
-            );
-            if (!res.ok) return null;
-            const body = (await res.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
-            const found = (body.records || []).find((result) => result?.uuid === uuid && !!result.win_rank);
-            if (!found?.win_rank) return null;
-            return { uuid, win_rank: found.win_rank, drop_ship_id: found.drop_ship_id ?? null };
-          }),
+        // Batch lookup: send all UUIDs in a single filter_json with array value
+        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchRes = await cachedFetch(
+          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
+          { signal },
         );
-        for (const result of fetched) {
-          if (!result) continue;
-          battleResultByUuid.set(result.uuid, {
-            win_rank: result.win_rank,
-            drop_ship_id: result.drop_ship_id,
-          });
+        if (batchRes.ok) {
+          const body = (await batchRes.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
+          for (const found of body.records || []) {
+            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
+              battleResultByUuid.set(found.uuid, {
+                win_rank: found.win_rank,
+                drop_ship_id: found.drop_ship_id ?? null,
+              });
+            }
+          }
         }
       }
 
