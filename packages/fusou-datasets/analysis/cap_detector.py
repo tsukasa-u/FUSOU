@@ -19,7 +19,7 @@ Variables
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 import numpy as np
 
@@ -361,9 +361,9 @@ class CapDetector:
     @staticmethod
     def plot(
         result: CapResult,
-        ax: Optional["matplotlib.axes.Axes"] = None,
+        ax: Optional[Any] = None,
         title: Optional[str] = None,
-    ) -> "matplotlib.axes.Axes":
+    ) -> Any:
         """Plot the cap detection result.
 
         Shows the curve coloured by segment with vertical dashed lines

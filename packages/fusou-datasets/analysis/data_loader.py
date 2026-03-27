@@ -258,6 +258,22 @@ def load_shelling_data(
     if attack_df.empty:
         warnings.warn("No attack data after flattening hougeki.", RuntimeWarning)
         return attack_df
+        
+    # Attempt to load SlotItemMaster for equipment stats
+    print("Loading slot_item_master ...", file=sys.stderr)
+    equip_lookup = {}
+    try:
+        equip_df = fd.load("slot_item_master", period_tag=period_tag, table_version=table_version)
+        for _, row in equip_df.iterrows():
+            if "id" in row and pd.notnull(row["id"]):
+                equip_lookup[int(row["id"])] = {
+                    "karyoku": row.get("karyoku", 0),
+                    "raisou": row.get("raisou", 0),
+                    "taiku": row.get("taiku", 0),
+                    "soukou": row.get("soukou", 0),
+                }
+    except Exception as e:
+        warnings.warn(f"Failed to load slot_item_master. Equipment specific stats will be 0. ({e})")
 
     # Build stat lookups (own_ship has array stats, enemy_ship has scalar)
     stat_cols = ["karyoku", "raisou", "taiku", "soukou"]
@@ -282,12 +298,28 @@ def load_shelling_data(
         dyn_atk_hp = row.get("dynamic_attacker_nowhp")
         dyn_def_hp = row.get("dynamic_defender_nowhp")
         
+        # Calculate equipment buffs
+        eq_k, eq_r, eq_t, eq_s = 0, 0, 0, 0
+        si_list = row.get("si", [])
+        if isinstance(si_list, list):
+            for eq_id in si_list:
+                if eq_id and int(eq_id) in equip_lookup:
+                    stats = equip_lookup[int(eq_id)]
+                    eq_k += int(stats["karyoku"]) if pd.notnull(stats["karyoku"]) else 0
+                    eq_r += int(stats["raisou"]) if pd.notnull(stats["raisou"]) else 0
+                    eq_t += int(stats["taiku"]) if pd.notnull(stats["taiku"]) else 0
+                    eq_s += int(stats["soukou"]) if pd.notnull(stats["soukou"]) else 0
+
         return pd.Series({
             "attacker_karyoku": atk.get("karyoku"),
             "attacker_raisou": atk.get("raisou"),
             "attacker_taiku": atk.get("taiku"),
             "attacker_lv": atk.get("lv"),
             "attacker_nowhp": dyn_atk_hp if pd.notnull(dyn_atk_hp) else atk.get("nowhp"),
+            "attacker_equip_karyoku": eq_k,
+            "attacker_equip_raisou": eq_r,
+            "attacker_equip_taiku": eq_t,
+            "attacker_equip_soukou": eq_s,
             "defender_soukou": dfn.get("soukou"),
             "defender_nowhp": dyn_def_hp if pd.notnull(dyn_def_hp) else dfn.get("nowhp"),
             "defender_maxhp": dfn.get("maxhp"),
@@ -310,10 +342,11 @@ def load_shelling_data(
 
     # Ensure numeric
     numeric_cols = [
-        "attacker_karyoku", "attacker_raisou", "attacker_taiku",
-        "attacker_lv", "defender_soukou", "defender_nowhp",
-        "defender_maxhp", "damage", "cl", "at_type", "at_eflag",
-        "hit_index", "n_hits",
+        "attacker_karyoku", "attacker_raisou", "attacker_taiku", "attacker_nowhp",
+        "attacker_lv", "attacker_equip_karyoku", "attacker_equip_raisou", 
+        "attacker_equip_taiku", "attacker_equip_soukou",
+        "defender_soukou", "defender_nowhp", "defender_maxhp", 
+        "damage", "cl", "at_type", "at_eflag", "hit_index", "n_hits",
     ]
     for col in numeric_cols:
         if col in result.columns:
@@ -370,6 +403,10 @@ def generate_synthetic_data(
         "defender_soukou": soukou,
         "defender_nowhp": rng.integers(10, 200, size=n_samples),
         "defender_maxhp": rng.integers(10, 200, size=n_samples),
+        "attacker_equip_karyoku": rng.integers(0, 50, size=n_samples),
+        "attacker_equip_raisou": rng.integers(0, 50, size=n_samples),
+        "attacker_equip_taiku": rng.integers(0, 50, size=n_samples),
+        "attacker_equip_soukou": rng.integers(0, 50, size=n_samples),
         "damage": damage,
         "cl": cl,
         "at_type": 0,
