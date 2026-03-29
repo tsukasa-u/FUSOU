@@ -33,6 +33,83 @@ static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
 static ORGANIZATION_NAME: &str = "FUSOU";
 static COUNTRY_NAME: &str = "JP";
 
+fn normalize_content_type(content_type: &str) -> String {
+    content_type
+        .split(';')
+        .next()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn parse_content_encodings(content_encoding: &str) -> Vec<String> {
+    content_encoding
+        .split(',')
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+fn decode_body_with_encoding(body: &[u8], encoding: &str) -> Result<Vec<u8>, String> {
+    match encoding {
+        "" | "identity" => Ok(body.to_vec()),
+        "gzip" | "x-gzip" => {
+            let mut buf = Vec::new();
+            flate2::read::MultiGzDecoder::new(body)
+                .read_to_end(&mut buf)
+                .map_err(|err| format!("gzip decode failed: {err}"))?;
+            Ok(buf)
+        }
+        "deflate" => {
+            let mut zlib_buf = Vec::new();
+            if flate2::read::ZlibDecoder::new(body)
+                .read_to_end(&mut zlib_buf)
+                .is_ok()
+            {
+                return Ok(zlib_buf);
+            }
+
+            let mut deflate_buf = Vec::new();
+            flate2::read::DeflateDecoder::new(body)
+                .read_to_end(&mut deflate_buf)
+                .map_err(|err| format!("deflate decode failed: {err}"))?;
+            Ok(deflate_buf)
+        }
+        "br" => {
+            let mut buf = Vec::new();
+            brotli::Decompressor::new(body, 4096)
+                .read_to_end(&mut buf)
+                .map_err(|err| format!("brotli decode failed: {err}"))?;
+            Ok(buf)
+        }
+        _ => Err(format!("unsupported content-encoding: {encoding}")),
+    }
+}
+
+fn decode_response_body(mut body: Vec<u8>, encodings: &[String], try_gzip_sniff: bool) -> Vec<u8> {
+    if !encodings.is_empty() {
+        for encoding in encodings.iter().rev() {
+            match decode_body_with_encoding(&body, encoding) {
+                Ok(decoded) => {
+                    body = decoded;
+                }
+                Err(err) => {
+                    tracing::warn!(encoding = %encoding, error = %err, "failed to decode response body");
+                    return body;
+                }
+            }
+        }
+        return body;
+    }
+
+    if try_gzip_sniff && body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+        if let Ok(decoded) = decode_body_with_encoding(&body, "gzip") {
+            return decoded;
+        }
+    }
+
+    body
+}
+
 fn log_response(
     parts: response::Parts,
     body: Vec<u8>,
@@ -42,25 +119,47 @@ fn log_response(
     file_prefix: String,
     allow_save_api_responses: bool,
     allow_save_resources: bool,
+    allow_save_main_js_local: bool,
 ) {
-    let mut content_type: String = String::new();
+    let mut raw_content_type = String::new();
+    let mut content_type = String::new();
+    let mut content_encoding = String::new();
     let mut _content_length: i64 = -1;
 
     const HEADER_NAME_CONTENT_TYPE: HeaderName = HeaderName::from_static("content-type");
+    const HEADER_NAME_CONTENT_ENCODING: HeaderName = HeaderName::from_static("content-encoding");
     const HEADER_NAME_CONTENT_LENGTH: HeaderName = HeaderName::from_static("content-length");
     {
         for (key, value) in parts.headers {
             match key {
                 Some(HEADER_NAME_CONTENT_TYPE) => {
-                    content_type = value.to_str().unwrap().to_string();
+                    if let Ok(v) = value.to_str() {
+                        raw_content_type = v.to_string();
+                        content_type = normalize_content_type(v);
+                    }
+                }
+                Some(HEADER_NAME_CONTENT_ENCODING) => {
+                    if let Ok(v) = value.to_str() {
+                        content_encoding = v.to_string();
+                    }
                 }
                 Some(HEADER_NAME_CONTENT_LENGTH) => {
-                    _content_length = value.to_str().unwrap().parse::<i64>().unwrap();
+                    if let Ok(v) = value.to_str() {
+                        if let Ok(parsed) = v.parse::<i64>() {
+                            _content_length = parsed;
+                        }
+                    }
                 }
                 _ => {}
             };
         }
     }
+
+    let content_encodings = parse_content_encodings(&content_encoding);
+
+    let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
+    let uri_path = re_uri.replace(uri.path(), "").to_string();
+    let status = parts.status.to_string();
 
     let pass: bool = match content_type.as_str() {
         "text/plain" => false,
@@ -74,24 +173,31 @@ fn log_response(
         _ => true,
     };
 
-    let save: bool = match content_type.as_str() {
-        "text/plain" => allow_save_api_responses,
-        "application/json" => allow_save_resources,
-        "image/png" => allow_save_resources,
-        "video/mp4" => allow_save_resources,
-        "audio/mpeg" => allow_save_resources,
-        "text/html" => false,
-        "text/css" => false,
-        "text/javascript" => false,
-        _ => allow_save_resources,
+    let is_json_by_path = uri_path.ends_with(".json");
+    let is_js_by_path = uri_path.ends_with(".js");
+    let is_main_js = uri_path.ends_with("/main.js");
+
+    let save: bool = if is_js_by_path {
+        // JS is not persisted by default. Only allow main.js when explicitly enabled.
+        is_main_js && allow_save_main_js_local
+    } else {
+        match content_type.as_str() {
+            "text/plain" => allow_save_api_responses,
+            "application/json" => allow_save_resources,
+            "image/png" => allow_save_resources,
+            "video/mp4" => allow_save_resources,
+            "audio/mpeg" => allow_save_resources,
+            "text/html" => false,
+            "text/css" => false,
+            "text/javascript" | "application/javascript" | "application/x-javascript" => {
+                is_main_js && allow_save_main_js_local
+            }
+            _ => allow_save_resources,
+        }
     };
 
     let utc: chrono::NaiveDateTime = Utc::now().naive_utc();
     let jst: chrono::DateTime<chrono_tz::Tz> = Tokyo.from_utc_datetime(&utc);
-
-    let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
-    let uri_path = re_uri.replace(uri.path(), "").to_string();
-    let status = parts.status.to_string();
 
     tracing::info!(status = %status, uri = %uri_path, content_type = %content_type);
 
@@ -104,12 +210,9 @@ fn log_response(
             // Phase 4: Decompress CPU-bound operations using spawn_blocking
             let buffer_for_text = if !pass && content_type.eq("text/plain") {
                 let body_clone = body.clone();
+                let content_encodings_clone = content_encodings.clone();
                 match tokio::task::spawn_blocking(move || {
-                    let mut buf = Vec::new();
-                    match flate2::read::MultiGzDecoder::new(body_clone.as_slice()).read_to_end(&mut buf) {
-                        Ok(_) => buf,
-                        Err(_) => body_clone,
-                    }
+                    decode_response_body(body_clone, &content_encodings_clone, true)
                 }).await {
                     Ok(buf) => buf,
                     Err(e) => {
@@ -125,7 +228,7 @@ fn log_response(
                 if let Ok(buffer_string) = String::from_utf8(buffer_for_text.clone()) {
                     let mes = bidirectional_channel::StatusInfo::RESPONSE {
                         path: uri_path.clone(),
-                        content_type: content_type.to_string(),
+                        content_type: raw_content_type.clone(),
                         content: buffer_string,
                     };
                     let _ = tx_proxy_log.send(mes).await;
@@ -181,17 +284,12 @@ fn log_response(
                     let file_log_path = path_log.join(Path::new(path_removed.as_str()));
                     let file_log_path_for_sync = file_log_path.clone();
 
-                    if content_type.eq("application/json") {
+                    if content_type.eq("application/json") || is_json_by_path {
                         // Phase 4: Decompress JSON using spawn_blocking
                         let body_clone = body.clone();
+                        let content_encodings_clone = content_encodings.clone();
                         let json_buffer = match tokio::task::spawn_blocking(move || {
-                            let mut buf = Vec::new();
-                            match flate2::read::MultiGzDecoder::new(body_clone.as_slice())
-                                .read_to_end(&mut buf)
-                            {
-                                Ok(_) => buf,
-                                Err(_) => body_clone,
-                            }
+                            decode_response_body(body_clone, &content_encodings_clone, true)
                         }).await {
                             Ok(buf) => buf,
                             Err(e) => {
@@ -203,6 +301,22 @@ fn log_response(
                         // Phase 3: Use async file I/O (non-blocking)
                         if let Err(e) = tokio::fs::write(&file_log_path, json_buffer).await {
                             tracing::error!("Failed to write json file: {}", e);
+                        }
+                    } else if is_main_js && allow_save_main_js_local {
+                        let body_clone = body.clone();
+                        let content_encodings_clone = content_encodings.clone();
+                        let js_buffer = match tokio::task::spawn_blocking(move || {
+                            decode_response_body(body_clone, &content_encodings_clone, true)
+                        }).await {
+                            Ok(buf) => buf,
+                            Err(e) => {
+                                tracing::error!("spawn_blocking main.js decompression failed: {}", e);
+                                body.clone()
+                            }
+                        };
+
+                        if let Err(e) = tokio::fs::write(&file_log_path, js_buffer).await {
+                            tracing::error!("Failed to write main.js file: {}", e);
                         }
                     } else {
                         // Phase 3: Use async file I/O (non-blocking)
@@ -362,6 +476,7 @@ struct LogHandler {
     allow_save_api_requests: bool,
     allow_save_api_responses: bool,
     allow_save_resources: bool,
+    allow_save_main_js_local: bool,
 }
 
 impl HttpHandler for LogHandler {
@@ -412,6 +527,7 @@ impl HttpHandler for LogHandler {
             self.file_prefix.clone(),
             self.allow_save_api_responses,
             self.allow_save_resources,
+            self.allow_save_main_js_local,
         );
 
         let reconstructed_body = hudsucker::Body::from(full_body);
@@ -496,6 +612,7 @@ pub fn serve_proxy(
     let allow_save_api_requests = configs.get_allow_save_api_requests();
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
+    let allow_save_main_js_local = configs.get_allow_save_main_js_local();
 
     let ca_dir = Path::new(ca_save_path.as_str());
     let use_generated_certs = configs.certificates.get_use_generated_certs();
@@ -627,6 +744,7 @@ pub fn serve_proxy(
             allow_save_api_requests,
             allow_save_api_responses,
             allow_save_resources,
+            allow_save_main_js_local,
         })
         .with_graceful_shutdown(async move {
             loop {
@@ -668,4 +786,63 @@ pub fn serve_proxy(
     tokio::task::spawn(server_proxy.start());
 
     Ok(addr)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_response_body, parse_content_encodings};
+    use std::io::Write;
+
+    fn gzip_compress(input: &[u8]) -> Vec<u8> {
+        let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(input).expect("failed to write gzip input");
+        encoder.finish().expect("failed to finish gzip")
+    }
+
+    fn br_compress(input: &[u8]) -> Vec<u8> {
+        let mut out = Vec::new();
+        {
+            let mut writer = brotli::CompressorWriter::new(&mut out, 4096, 5, 22);
+            writer.write_all(input).expect("failed to write brotli input");
+        }
+        out
+    }
+
+    #[test]
+    fn parse_content_encoding_list() {
+        let parsed = parse_content_encodings("gzip, br");
+        assert_eq!(parsed, vec!["gzip".to_string(), "br".to_string()]);
+    }
+
+    #[test]
+    fn decode_single_brotli_payload() {
+        let json = br#"{"ok":true,"kind":"single-br"}"#;
+        let compressed = br_compress(json);
+        let encodings = vec!["br".to_string()];
+
+        let decoded = decode_response_body(compressed, &encodings, false);
+        assert_eq!(decoded, json);
+    }
+
+    #[test]
+    fn decode_stacked_gzip_then_brotli_payload() {
+        // Encoding order in header is the order encoders were applied.
+        // For gzip then br, decoder must run in reverse order: br -> gzip.
+        let json = br#"{"ok":true,"kind":"gzip-then-br"}"#;
+        let gz = gzip_compress(json);
+        let stacked = br_compress(&gz);
+        let encodings = vec!["gzip".to_string(), "br".to_string()];
+
+        let decoded = decode_response_body(stacked, &encodings, false);
+        assert_eq!(decoded, json);
+    }
+
+    #[test]
+    fn decode_gzip_by_magic_sniff_when_header_missing() {
+        let json = br#"{"ok":true,"kind":"sniff-gzip"}"#;
+        let gz = gzip_compress(json);
+
+        let decoded = decode_response_body(gz, &[], true);
+        assert_eq!(decoded, json);
+    }
 }
