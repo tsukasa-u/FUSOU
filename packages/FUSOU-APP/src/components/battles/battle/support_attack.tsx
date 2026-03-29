@@ -327,12 +327,31 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     );
   };
 
+  const display_air_sprite_counts = () => {
+    const support_airatack = props.battle_selected()?.support_attack?.support_airatack;
+    if (!support_airatack) return null;
+
+    const f_fly = support_airatack.f_sprite_fly_count;
+    const e_fly = support_airatack.e_sprite_fly_count;
+    const f_crash = support_airatack.f_sprite_crash_count;
+    const e_crash = support_airatack.e_sprite_crash_count;
+
+    return (
+      <div class="pl-2 text-xs">
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash ?? 0}/{e_crash ?? 0}
+      </div>
+    );
+  };
+
   return (
     <Show when={show_support()}>
       <li>
         <details open={true}>
           <summary>Support Attack</summary>
           <ul class="pl-0">
+            <Show when={show_support_airattack()}>
+              {display_air_sprite_counts()}
+            </Show>
             <table class="table table-xs">
               <thead>
                 <tr>

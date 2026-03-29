@@ -348,12 +348,31 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     );
   };
 
+  const display_sprite_counts = () => {
+    const carrier_base_assault = props.battle_selected()?.carrier_base_assault;
+    if (!carrier_base_assault) return null;
+
+    const f_fly = carrier_base_assault.f_sprite_fly_count;
+    const e_fly = carrier_base_assault.e_sprite_fly_count;
+    const f_crash1 = carrier_base_assault.f_sprite_crash_stage1_count;
+    const f_crash2 = carrier_base_assault.f_sprite_crash_stage2_count;
+    const e_crash1 = carrier_base_assault.e_sprite_crash_stage1_count;
+    const e_crash2 = carrier_base_assault.e_sprite_crash_stage2_count;
+
+    return (
+      <div class="pl-2 text-xs">
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0}/{e_crash1 ?? 0}+{e_crash2 ?? 0}
+      </div>
+    );
+  };
+
   return (
     <Show when={show_air_attack()}>
       <li>
         <details open={true}>
           <summary>Carrier Base Assault</summary>
           <ul class="pl-0">
+            {display_sprite_counts()}
             <table class="table table-xs">
               <thead>
                 <tr>

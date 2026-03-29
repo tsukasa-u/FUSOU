@@ -92,6 +92,12 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
             base_id: air_base_air_attack.api_base_id,
             f_damage,
             e_damage,
+            f_sprite_fly_count: None,
+            e_sprite_fly_count: None,
+            f_sprite_crash_stage1_count: None,
+            f_sprite_crash_stage2_count: None,
+            e_sprite_crash_stage1_count: None,
+            e_sprite_crash_stage2_count: None,
         })
     }
 }
@@ -302,6 +308,12 @@ impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<OpeningAirAtt
             },
             f_damage,
             e_damage,
+            f_sprite_fly_count: None,
+            e_sprite_fly_count: None,
+            f_sprite_crash_count_stage1: None,
+            f_sprite_crash_count_stage2: None,
+            e_sprite_crash_count_stage1: None,
+            e_sprite_crash_count_stage2: None,
         })
     }
 }
@@ -695,6 +707,10 @@ impl From<kcapi_common::common_air::ApiSupportAiratack> for InterfaceWrapper<Sup
             ship_id: support_airatack.api_ship_id,
             f_damage,
             e_damage,
+            f_sprite_fly_count: None,
+            e_sprite_fly_count: None,
+            f_sprite_crash_count: None,
+            e_sprite_crash_count: None,
         })
     }
 }
@@ -734,7 +750,16 @@ impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<CarrierBaseAs
             value.api_stage3.clone(),
             value.api_stage3_combined.clone(),
         );
-        Self(CarrierBaseAssault { f_damage, e_damage })
+        Self(CarrierBaseAssault {
+            f_damage,
+            e_damage,
+            f_sprite_fly_count: None,
+            e_sprite_fly_count: None,
+            f_sprite_crash_stage1_count: None,
+            f_sprite_crash_stage2_count: None,
+            e_sprite_crash_stage1_count: None,
+            e_sprite_crash_stage2_count: None,
+        })
     }
 }
 

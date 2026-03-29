@@ -236,6 +236,12 @@ pub struct BattleResult {
 pub struct CarrierBaseAssault {
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_stage1_count: Option<i64>,
+    pub f_sprite_crash_stage2_count: Option<i64>,
+    pub e_sprite_crash_stage1_count: Option<i64>,
+    pub e_sprite_crash_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -262,6 +268,12 @@ pub struct AirBaseAirAttack {
     pub base_id: i64,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_stage1_count: Option<i64>,
+    pub f_sprite_crash_stage2_count: Option<i64>,
+    pub e_sprite_crash_stage1_count: Option<i64>,
+    pub e_sprite_crash_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -271,6 +283,12 @@ pub struct OpeningAirAttack {
     pub air_fire: Option<AirFire>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_count_stage1: Option<i64>,
+    pub f_sprite_crash_count_stage2: Option<i64>,
+    pub e_sprite_crash_count_stage1: Option<i64>,
+    pub e_sprite_crash_count_stage2: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -400,6 +418,10 @@ pub struct SupportAiratack {
     pub ship_id: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

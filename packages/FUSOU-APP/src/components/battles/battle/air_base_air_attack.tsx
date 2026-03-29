@@ -191,6 +191,21 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
     );
   };
 
+  const display_sprite_counts = (attack: AirBaseAirAttack) => {
+    const f_fly = attack.f_sprite_fly_count;
+    const e_fly = attack.e_sprite_fly_count;
+    const f_crash1 = attack.f_sprite_crash_stage1_count;
+    const f_crash2 = attack.f_sprite_crash_stage2_count;
+    const e_crash1 = attack.e_sprite_crash_stage1_count;
+    const e_crash2 = attack.e_sprite_crash_stage2_count;
+
+    return (
+      <span class="pl-2">
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0}/{e_crash1 ?? 0}+{e_crash2 ?? 0}
+      </span>
+    );
+  };
+
   return (
     <Show when={show_air_attack()}>
       <li>
@@ -215,6 +230,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                     <>
                       <div class="flex flex-nowrap pl-2 items-center">
                         {display_touch(attack)}
+                        {display_sprite_counts(attack)}
                       </div>
                       <tr class="rounded">
                         {attacker_planes(attack)}
