@@ -98,6 +98,8 @@ tags: [formulas, aerial combat, fighter power, anti-air, AACI]
 
 ## 2. 航空戦 Stage1・Stage2
 
+モーション（画面スプライト）との対応は [航空機戦データとスプライトモーション対応](./aerial_sprite_mapping.md) を参照。
+
 ### 2-1. Stage1（制空戦・相互撃墜）
 
 各スロットの被撃墜数:
