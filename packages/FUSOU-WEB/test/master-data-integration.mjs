@@ -42,8 +42,8 @@ const results = [];
 
 log('\n=== Master Data Upload Validation Tests ===\n', 'blue');
 
-// Test 1: All 13 master tables
-results.push(test('All 13 master tables present', () => {
+// Test 1: All supported master tables
+results.push(test('All supported master tables present', () => {
   const tables = [
     'mst_ship',
     'mst_shipgraph',
@@ -175,7 +175,7 @@ results.push(test('File size validation (0-byte files allowed after fix)', () =>
 }));
 
 // Test 8: Required tables validation
-results.push(test('All 13 tables required in upload', () => {
+results.push(test('All supported tables required in upload', () => {
   const allowed = new Set([
     'mst_ship', 'mst_shipgraph', 'mst_slotitem', 'mst_slotitem_equiptype',
     'mst_payitem', 'mst_equip_exslot', 'mst_equip_exslot_ship',
@@ -216,7 +216,7 @@ results.push(test('Stage 3 execution URL format with token parameter', () => {
 }));
 
 // Test 10: Concatenation with correct offsets
-results.push(test('Concatenate all 13 tables with correct offsets', () => {
+results.push(test('Concatenate all supported tables with correct offsets', () => {
   const data = [
     { name: 'mst_ship', size: 100 },
     { name: 'mst_shipgraph', size: 0 },      // Empty

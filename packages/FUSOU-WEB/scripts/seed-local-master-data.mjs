@@ -33,7 +33,7 @@ const REQUIRED_TABLES = [
   "mst_equip_limit_exslot",
 ];
 
-// All 13 tables for completeness
+// All supported master tables for completeness
 const ALL_TABLES = [
   "mst_ship",
   "mst_shipgraph",
