@@ -713,7 +713,7 @@ pub struct OpeningAirAttack {
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
     pub f_loss_plane2: i32,
-    pub f_damages: Option<Vec<f32>>,
+    pub f_damages: Option<Vec<i32>>,
     pub f_cl: Option<Vec<i32>>,
     pub f_rai_flag: Option<Vec<Option<i32>>>,
     pub f_bak_flag: Option<Vec<Option<i32>>>,
@@ -723,7 +723,7 @@ pub struct OpeningAirAttack {
     pub e_touch_plane: Option<i32>,
     pub e_loss_plane1: i32,
     pub e_loss_plane2: i32,
-    pub e_damages: Option<Vec<f32>>,
+    pub e_damages: Option<Vec<i32>>,
     pub e_cl: Option<Vec<i32>>,
     pub e_rai_flag: Option<Vec<Option<i32>>>,
     pub e_bak_flag: Option<Vec<Option<i32>>>,
@@ -732,6 +732,18 @@ pub struct OpeningAirAttack {
     pub airfire_idx: Option<i32>,
     pub airfire_use_item: Option<Vec<i32>>,
     pub air_superiority: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage2_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage2_count: i32,
 }
 
 impl OpeningAirAttack {
@@ -743,6 +755,11 @@ impl OpeningAirAttack {
         env_uuid: EnvInfoId,
         index: usize,
     ) -> Option<()> {
+        #[cfg(feature = "schema_v0_5")]
+        let f_sprite_fly_count = data.f_damage.plane_from.as_ref().map(|v| v.len() as i32);
+        #[cfg(feature = "schema_v0_5")]
+        let e_sprite_fly_count = data.e_damage.plane_from.as_ref().map(|v| v.len() as i32);
+
         let new_data = OpeningAirAttack {
             env_uuid,
             uuid,
@@ -751,7 +768,7 @@ impl OpeningAirAttack {
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
             f_loss_plane2: data.f_damage.loss_plane2 as i32,
-            f_damages: data.f_damage.damages,
+            f_damages: data.f_damage.damages.into_i32(),
             f_cl: data.f_damage.cl.into_i32(),
             f_rai_flag: data.f_damage.rai_flag.into_i32(),
             f_bak_flag: data.f_damage.bak_flag.into_i32(),
@@ -761,7 +778,7 @@ impl OpeningAirAttack {
             e_touch_plane: data.e_damage.touch_plane.into_i32(),
             e_loss_plane1: data.e_damage.loss_plane1 as i32,
             e_loss_plane2: data.e_damage.loss_plane2 as i32,
-            e_damages: data.e_damage.damages,
+            e_damages: data.e_damage.damages.into_i32(),
             e_cl: data.e_damage.cl.into_i32(),
             e_rai_flag: data.e_damage.rai_flag.into_i32(),
             e_bak_flag: data.e_damage.bak_flag.into_i32(),
@@ -773,6 +790,18 @@ impl OpeningAirAttack {
                 .clone()
                 .map(|fire| fire.use_item.into_iter().map(|value| value as i32).collect()),
             air_superiority: data.air_superiority.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage1_count: data.f_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage2_count: data.f_damage.loss_plane2 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage1_count: data.e_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage2_count: data.e_damage.loss_plane2 as i32,
         };
 
         table.opening_airattack.push(new_data);
@@ -860,7 +889,7 @@ pub struct AirBaseAirAttack {
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
     pub f_loss_plane2: i32,
-    pub f_damages: Option<Vec<f32>>,
+    pub f_damages: Option<Vec<i32>>,
     pub f_cl: Option<Vec<i32>>,
     pub f_rai_flag: Option<Vec<Option<i32>>>,
     pub f_bak_flag: Option<Vec<Option<i32>>>,
@@ -870,7 +899,7 @@ pub struct AirBaseAirAttack {
     pub e_touch_plane: Option<i32>,
     pub e_loss_plane1: i32,
     pub e_loss_plane2: i32,
-    pub e_damages: Option<Vec<f32>>,
+    pub e_damages: Option<Vec<i32>>,
     pub e_cl: Option<Vec<i32>>,
     pub e_rai_flag: Option<Vec<Option<i32>>>,
     pub e_bak_flag: Option<Vec<Option<i32>>>,
@@ -878,6 +907,18 @@ pub struct AirBaseAirAttack {
     pub e_now_hps: Vec<i32>,
     pub airbase_id: Option<AirBaseId>,
     pub squadron_plane: Option<Vec<Option<i32>>>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage2_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage2_count: i32,
 }
 
 impl AirBaseAirAttack {
@@ -890,6 +931,11 @@ impl AirBaseAirAttack {
         env_uuid: EnvInfoId,
         index: usize,
     ) -> Option<()> {
+        #[cfg(feature = "schema_v0_5")]
+        let f_sprite_fly_count = data.f_damage.plane_from.as_ref().map(|v| v.len() as i32);
+        #[cfg(feature = "schema_v0_5")]
+        let e_sprite_fly_count = data.e_damage.plane_from.as_ref().map(|v| v.len() as i32);
+
         let air_bases = AirBases::load();
         let air_base = match air_bases.bases.get(&(data.base_id).to_string()) {
             Some(air_base) => air_base,
@@ -918,7 +964,7 @@ impl AirBaseAirAttack {
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
             f_loss_plane2: data.f_damage.loss_plane2 as i32,
-            f_damages: data.f_damage.damages,
+            f_damages: data.f_damage.damages.into_i32(),
             f_cl: data.f_damage.cl.into_i32(),
             f_rai_flag: data.f_damage.rai_flag.into_i32(),
             f_bak_flag: data.f_damage.bak_flag.into_i32(),
@@ -933,7 +979,7 @@ impl AirBaseAirAttack {
             e_touch_plane: data.e_damage.touch_plane.into_i32(),
             e_loss_plane1: data.e_damage.loss_plane1 as i32,
             e_loss_plane2: data.e_damage.loss_plane2 as i32,
-            e_damages: data.e_damage.damages,
+            e_damages: data.e_damage.damages.into_i32(),
             e_cl: data.e_damage.cl.into_i32(),
             e_rai_flag: data.e_damage.rai_flag.into_i32(),
             e_bak_flag: data.e_damage.bak_flag.into_i32(),
@@ -946,6 +992,18 @@ impl AirBaseAirAttack {
                 .collect(),
             airbase_id: new_airbase_id,
             squadron_plane: data.squadron_plane.into_i32(),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage1_count: data.f_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage2_count: data.f_damage.loss_plane2 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage1_count: data.e_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage2_count: data.e_damage.loss_plane2 as i32,
         };
 
         table.airbase_airattack.push(new_data);
@@ -972,7 +1030,7 @@ pub struct AirBaseAssult {
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
     pub f_loss_plane2: i32,
-    pub f_damages: Option<Vec<f32>>,
+    pub f_damages: Option<Vec<i32>>,
     pub f_cl: Option<Vec<i32>>,
     pub f_rai_flag: Option<Vec<Option<i32>>>,
     pub f_bak_flag: Option<Vec<Option<i32>>>,
@@ -982,12 +1040,24 @@ pub struct AirBaseAssult {
     pub e_touch_plane: Option<i32>,
     pub e_loss_plane1: i32,
     pub e_loss_plane2: i32,
-    pub e_damages: Option<Vec<f32>>,
+    pub e_damages: Option<Vec<i32>>,
     pub e_cl: Option<Vec<i32>>,
     pub e_rai_flag: Option<Vec<Option<i32>>>,
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage2_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage2_count: i32,
 }
 
 impl AirBaseAssult {
@@ -998,6 +1068,11 @@ impl AirBaseAssult {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
+        #[cfg(feature = "schema_v0_5")]
+        let f_sprite_fly_count = data.f_damage.plane_from.as_ref().map(|v| v.len() as i32);
+        #[cfg(feature = "schema_v0_5")]
+        let e_sprite_fly_count = data.e_damage.plane_from.as_ref().map(|v| v.len() as i32);
+
         let new_data = AirBaseAssult {
             env_uuid,
             uuid,
@@ -1010,7 +1085,7 @@ impl AirBaseAssult {
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
             f_loss_plane2: data.f_damage.loss_plane2 as i32,
-            f_damages: data.f_damage.damages,
+            f_damages: data.f_damage.damages.into_i32(),
             f_cl: data.f_damage.cl.into_i32(),
             f_rai_flag: data.f_damage.rai_flag.into_i32(),
             f_bak_flag: data.f_damage.bak_flag.into_i32(),
@@ -1025,7 +1100,7 @@ impl AirBaseAssult {
             e_touch_plane: data.e_damage.touch_plane.into_i32(),
             e_loss_plane1: data.e_damage.loss_plane1 as i32,
             e_loss_plane2: data.e_damage.loss_plane2 as i32,
-            e_damages: data.e_damage.damages,
+            e_damages: data.e_damage.damages.into_i32(),
             e_cl: data.e_damage.cl.into_i32(),
             e_rai_flag: data.e_damage.rai_flag.into_i32(),
             e_bak_flag: data.e_damage.bak_flag.into_i32(),
@@ -1036,6 +1111,18 @@ impl AirBaseAssult {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage1_count: data.f_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage2_count: data.f_damage.loss_plane2 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage1_count: data.e_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage2_count: data.e_damage.loss_plane2 as i32,
         };
 
         table.airbase_assult.push(new_data);
@@ -1061,7 +1148,7 @@ pub struct CarrierBaseAssault {
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
     pub f_loss_plane2: i32,
-    pub f_damages: Option<Vec<f32>>,
+    pub f_damages: Option<Vec<i32>>,
     pub f_cl: Option<Vec<i32>>,
     pub f_rai_flag: Option<Vec<Option<i32>>>,
     pub f_bak_flag: Option<Vec<Option<i32>>>,
@@ -1071,12 +1158,24 @@ pub struct CarrierBaseAssault {
     pub e_touch_plane: Option<i32>,
     pub e_loss_plane1: i32,
     pub e_loss_plane2: i32,
-    pub e_damages: Option<Vec<f32>>,
+    pub e_damages: Option<Vec<i32>>,
     pub e_cl: Option<Vec<i32>>,
     pub e_rai_flag: Option<Vec<Option<i32>>>,
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_stage2_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage1_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_stage2_count: i32,
 }
 
 impl CarrierBaseAssault {
@@ -1087,6 +1186,11 @@ impl CarrierBaseAssault {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
+        #[cfg(feature = "schema_v0_5")]
+        let f_sprite_fly_count = data.f_damage.plane_from.as_ref().map(|v| v.len() as i32);
+        #[cfg(feature = "schema_v0_5")]
+        let e_sprite_fly_count = data.e_damage.plane_from.as_ref().map(|v| v.len() as i32);
+
         let new_data = CarrierBaseAssault {
             env_uuid,
             uuid,
@@ -1094,7 +1198,7 @@ impl CarrierBaseAssault {
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
             f_loss_plane2: data.f_damage.loss_plane2 as i32,
-            f_damages: data.f_damage.damages,
+            f_damages: data.f_damage.damages.into_i32(),
             f_cl: data.f_damage.cl.into_i32(),
             f_rai_flag: data.f_damage.rai_flag.into_i32(),
             f_bak_flag: data.f_damage.bak_flag.into_i32(),
@@ -1109,7 +1213,7 @@ impl CarrierBaseAssault {
             e_touch_plane: data.e_damage.touch_plane.into_i32(),
             e_loss_plane1: data.e_damage.loss_plane1 as i32,
             e_loss_plane2: data.e_damage.loss_plane2 as i32,
-            e_damages: data.e_damage.damages,
+            e_damages: data.e_damage.damages.into_i32(),
             e_cl: data.e_damage.cl.into_i32(),
             e_rai_flag: data.e_damage.rai_flag.into_i32(),
             e_bak_flag: data.e_damage.bak_flag.into_i32(),
@@ -1120,6 +1224,18 @@ impl CarrierBaseAssault {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage1_count: data.f_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_stage2_count: data.f_damage.loss_plane2 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage1_count: data.e_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_stage2_count: data.e_damage.loss_plane2 as i32,
         };
 
         table.carrierbase_assault.push(new_data);
@@ -1233,7 +1349,7 @@ pub struct SupportAirattack {
     pub f_plane_from: Option<Vec<i32>>,
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane: i32,
-    pub f_damages: Option<Vec<f32>>,
+    pub f_damages: Option<Vec<i32>>,
     pub f_cl: Option<Vec<i32>>,
     pub f_rai_flag: Option<Vec<Option<i32>>>,
     pub f_bak_flag: Option<Vec<Option<i32>>>,
@@ -1242,12 +1358,20 @@ pub struct SupportAirattack {
     pub e_plane_from: Option<Vec<i32>>,
     pub e_touch_plane: Option<i32>,
     pub e_loss_plane: i32,
-    pub e_damages: Option<Vec<f32>>,
+    pub e_damages: Option<Vec<i32>>,
     pub e_cl: Option<Vec<i32>>,
     pub e_rai_flag: Option<Vec<Option<i32>>>,
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_fly_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_crash_count: i32,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_crash_count: i32,
 }
 
 impl SupportAirattack {
@@ -1282,13 +1406,18 @@ impl SupportAirattack {
         let f_damage = data.f_damage;
         let e_damage = data.e_damage;
 
+        #[cfg(feature = "schema_v0_5")]
+        let f_sprite_fly_count = f_damage.plane_from.as_ref().map(|v| v.len() as i32);
+        #[cfg(feature = "schema_v0_5")]
+        let e_sprite_fly_count = e_damage.plane_from.as_ref().map(|v| v.len() as i32);
+
         let new_data = SupportAirattack {
             env_uuid,
             uuid,
             f_plane_from: f_damage.plane_from.into_i32(),
             f_touch_plane: f_damage.touch_plane.into_i32(),
             f_loss_plane: f_damage.loss_plane1 as i32,
-            f_damages: f_damage.damages,
+            f_damages: f_damage.damages.into_i32(),
             f_cl: f_damage.cl.into_i32(),
             f_rai_flag: f_damage.rai_flag.into_i32(),
             f_bak_flag: f_damage.bak_flag.into_i32(),
@@ -1297,12 +1426,20 @@ impl SupportAirattack {
             e_plane_from: e_damage.plane_from.into_i32(),
             e_touch_plane: e_damage.touch_plane.into_i32(),
             e_loss_plane: e_damage.loss_plane1 as i32,
-            e_damages: e_damage.damages,
+            e_damages: e_damage.damages.into_i32(),
             e_cl: e_damage.cl.into_i32(),
             e_rai_flag: e_damage.rai_flag.into_i32(),
             e_bak_flag: e_damage.bak_flag.into_i32(),
             e_protect_flag: e_damage.protect_flag,
             e_now_hps: e_damage.now_hps.into_i32(),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_fly_count,
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_crash_count: f_damage.loss_plane1 as i32,
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_crash_count: e_damage.loss_plane1 as i32,
         };
         table.support_airattack.push(new_data);
 

@@ -18,7 +18,7 @@ pub struct ApiRaigeki {
     #[serde(rename = "api_fdam")]
     pub api_fdam: Vec<f32>,
     #[serde(rename = "api_fydam")]
-    pub api_fydam: Vec<i64>,
+    pub api_fydam: Vec<f32>,
     #[serde(rename = "api_erai")]
     pub api_erai: Vec<i64>,
     #[serde(rename = "api_ecl")]
@@ -26,7 +26,7 @@ pub struct ApiRaigeki {
     #[serde(rename = "api_edam")]
     pub api_edam: Vec<f32>,
     #[serde(rename = "api_eydam")]
-    pub api_eydam: Vec<i64>,
+    pub api_eydam: Vec<f32>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]
@@ -86,7 +86,7 @@ pub struct ApiOpeningAtack {
     #[serde(rename = "api_fdam")]
     pub api_fdam: Vec<f32>,
     #[serde(rename = "api_fydam_list_items")]
-    pub api_fydam_list_items: Vec<Option<Vec<i64>>>,
+    pub api_fydam_list_items: Vec<Option<Vec<f32>>>,
     #[serde(rename = "api_erai_list_items")]
     pub api_erai_list_items: Vec<Option<Vec<i64>>>,
     #[serde(rename = "api_ecl_list_items")]
@@ -94,7 +94,7 @@ pub struct ApiOpeningAtack {
     #[serde(rename = "api_edam")]
     pub api_edam: Vec<f32>,
     #[serde(rename = "api_eydam_list_items")]
-    pub api_eydam_list_items: Vec<Option<Vec<i64>>>,
+    pub api_eydam_list_items: Vec<Option<Vec<f32>>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]

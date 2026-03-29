@@ -37,6 +37,10 @@ pub struct OwnDeck {
     pub uuid: OwnDeckId,
     pub ship_ids: Option<OwnShipId>,
     pub combined_flag: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub chart_seiku_value: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub chart_tp_value: Option<i32>,
 }
 
 impl OwnDeck {
@@ -106,6 +110,10 @@ impl OwnDeck {
             uuid,
             ship_ids: new_ship_ids_wrap,
             combined_flag: decks.combined_flag.map(|flag| flag as i32),
+            #[cfg(feature = "schema_v0_5")]
+            chart_seiku_value: deck.chart_seiku_value.map(|v| v as i32),
+            #[cfg(feature = "schema_v0_5")]
+            chart_tp_value: deck.chart_tp_value.map(|v| v as i32),
         };
 
         table.own_deck.push(new_data);
@@ -128,6 +136,10 @@ pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
     pub ship_ids: Option<OwnShipId>,
+    #[cfg(feature = "schema_v0_5")]
+    pub chart_seiku_value: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub chart_tp_value: Option<i32>,
 }
 
 impl SupportDeck {
@@ -202,6 +214,10 @@ impl SupportDeck {
             env_uuid,
             uuid,
             ship_ids: new_ship_ids_wrap,
+            #[cfg(feature = "schema_v0_5")]
+            chart_seiku_value: deck.chart_seiku_value.map(|v| v as i32),
+            #[cfg(feature = "schema_v0_5")]
+            chart_tp_value: deck.chart_tp_value.map(|v| v as i32),
         };
 
         table.support_deck.push(new_data);

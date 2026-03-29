@@ -35,6 +35,8 @@ impl From<kcapi_main::api_start2::get_data::ApiMstMapinfo> for InterfaceWrapper<
                 .collect(),
             max_maphp: map_info.api_max_maphp.map(|value| value as i32),
             required_defeat_count: map_info.api_required_defeat_count.map(|value| value as i32),
+            gauge_type: map_info.api_gauge_type.map(|value| value as i32),
+            gauge_num: map_info.api_gauge_num.map(|value| value as i32),
             sally_flag: map_info
                 .api_sally_flag
                 .into_iter()

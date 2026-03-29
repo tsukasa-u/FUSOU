@@ -1,6 +1,7 @@
 use kc_api_interface::air_base::AirBases;
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::slot_item::SlotItems;
+use kc_api_interface::deck_port::DeckPorts;
 
 use kc_api_dto::endpoints::api_get_member::*;
 use kc_api_interface::use_items::UseItems;
@@ -41,7 +42,6 @@ register_trait!(
     Res,
     (
         basic,
-        chart_additional_info,
         deck,
         furniture,
         kdock,
@@ -87,6 +87,22 @@ impl TraitForConvert for require_info::Res {
             EmitData::Set(Set::UseItems(use_item)),
             EmitData::Identifier(Identifier::RequireInfo(())),
         ])
+    }
+}
+
+impl TraitForConvert for chart_additional_info::Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let mut deck_ports = DeckPorts::load();
+        for (idx, deck_param) in self.api_data.api_deck_param.iter().enumerate() {
+            let deck_id = (idx as i64) + 1;
+            if let Some(deck_port) = deck_ports.deck_ports.get_mut(&deck_id) {
+                deck_port.chart_seiku_value = Some(deck_param.api_seiku_value);
+                deck_port.chart_tp_value = Some(deck_param.api_tp_value);
+            }
+        }
+
+        Some(vec![EmitData::Set(Set::DeckPorts(deck_ports))])
     }
 }
 

@@ -10,7 +10,7 @@ use super::battle::calc_air_damage;
 
 use kc_api_interface::cells::{
     AirBaseAttack, Cell, CellData, Cells, DestructionBattle, EDeckInfo, Eventmap, Happening,
-    KCS_CELLS_INDEX,
+    Itemget, KCS_CELLS_INDEX,
 };
 
 impl From<kcapi_main::api_req_map::next::ApiAirBaseAttack> for InterfaceWrapper<AirBaseAttack> {
@@ -63,6 +63,32 @@ impl From<kcapi_common::common_map::ApiEventmap> for InterfaceWrapper<Eventmap> 
             max_maphp: eventmap.api_max_maphp,
             now_maphp: eventmap.api_now_maphp,
             dmg: eventmap.api_dmg,
+            gauge_type: eventmap.api_gauge_type,
+            gauge_num: eventmap.api_gauge_num,
+            state: eventmap.api_state,
+            selected_rank: eventmap.api_selected_rank,
+        })
+    }
+}
+
+impl From<kcapi_main::api_req_map::next::ApiItemget> for InterfaceWrapper<Itemget> {
+    fn from(itemget: kcapi_main::api_req_map::next::ApiItemget) -> Self {
+        Self(Itemget {
+            usemst: itemget.api_usemst,
+            id: itemget.api_id,
+            getcount: itemget.api_getcount,
+            icon_id: itemget.api_icon_id,
+        })
+    }
+}
+
+impl From<kcapi_main::api_req_map::start::ApiItemget> for InterfaceWrapper<Itemget> {
+    fn from(itemget: kcapi_main::api_req_map::start::ApiItemget) -> Self {
+        Self(Itemget {
+            usemst: itemget.api_usemst,
+            id: itemget.api_id,
+            getcount: itemget.api_getcount,
+            icon_id: itemget.api_icon_id,
         })
     }
 }
@@ -123,6 +149,13 @@ impl From<kcapi_main::api_req_map::next::ApiData> for InterfaceWrapper<Cell> {
                 destruction_battle
             });
 
+        let itemget: Option<Vec<Itemget>> = cells.api_itemget.map(|items| {
+            items
+                .into_iter()
+                .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
+                .collect()
+        });
+
         {
             KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
@@ -137,6 +170,7 @@ impl From<kcapi_main::api_req_map::next::ApiData> for InterfaceWrapper<Cell> {
             next: cells.api_next,
             e_deck_info: enemy_deck_info,
             limit_state: cells.api_limit_state,
+            itemget,
             m1: cells.api_m1,
             destruction_battle,
             happening,
@@ -165,6 +199,17 @@ impl From<kcapi_main::api_req_map::start::ApiData> for InterfaceWrapper<Cell> {
                 .collect()
         });
 
+        let happening: Option<Happening> = cells
+            .api_happening
+            .map(|happening| InterfaceWrapper::<Happening>::from(happening).unwrap());
+
+        let itemget: Option<Vec<Itemget>> = cells.api_itemget.map(|items| {
+            items
+                .into_iter()
+                .map(|item| InterfaceWrapper::<Itemget>::from(item).unwrap())
+                .collect()
+        });
+
         {
             KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
@@ -179,9 +224,10 @@ impl From<kcapi_main::api_req_map::start::ApiData> for InterfaceWrapper<Cell> {
             next: cells.api_next,
             e_deck_info: enemy_deck_info,
             limit_state: cells.api_limit_state,
+            itemget,
             m1: None,
             destruction_battle: None,
-            happening: None,
+            happening,
         })
     }
 }

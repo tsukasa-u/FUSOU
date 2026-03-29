@@ -36,6 +36,17 @@ where
     }
 }
 
+fn has_fractional_part(value: f32) -> bool {
+    value.floor() < value
+}
+
+fn calc_opening_ydam_protect_flag(ydam_items: &Vec<Option<Vec<f32>>>) -> Vec<bool> {
+    ydam_items
+        .iter()
+        .map(|item| item.as_ref().and_then(|v| v.first().copied()).is_some_and(has_fractional_part))
+        .collect()
+}
+
 impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
     fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
         let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
@@ -147,28 +158,19 @@ pub fn calc_air_damage(
         })
     });
 
-    let f_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| {
-        stage3
-            .api_fdam
-            .map(|f_damages| calc_protect_flag(&f_damages))
-    });
-    let e_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| {
-        stage3
-            .api_edam
-            .map(|e_damages| calc_protect_flag(&e_damages))
-    });
-    let f_protect_combined: Option<Vec<bool>> =
-        stage3_combined.clone().and_then(|stage3_combined| {
-            stage3_combined
-                .api_fdam
-                .map(|f_damages| calc_protect_flag(&f_damages))
-        });
-    let e_protect_combined: Option<Vec<bool>> =
-        stage3_combined.clone().and_then(|stage3_combined| {
-            stage3_combined
-                .api_edam
-                .map(|e_damages| calc_protect_flag(&e_damages))
-        });
+    // Air stage damage paths do not trigger cover shield semantics.
+    let f_protect: Option<Vec<bool>> = stage3
+        .clone()
+        .and_then(|stage3| stage3.api_fdam.map(|values| vec![false; values.len()]));
+    let e_protect: Option<Vec<bool>> = stage3
+        .clone()
+        .and_then(|stage3| stage3.api_edam.map(|values| vec![false; values.len()]));
+    let f_protect_combined: Option<Vec<bool>> = stage3_combined
+        .clone()
+        .and_then(|stage3| stage3.api_fdam.map(|values| vec![false; values.len()]));
+    let e_protect_combined: Option<Vec<bool>> = stage3_combined
+        .clone()
+        .and_then(|stage3| stage3.api_edam.map(|values| vec![false; values.len()]));
 
     let f_sp: Option<Vec<Option<Vec<i64>>>> =
         stage3.clone().and_then(|stage3| stage3.api_f_sp_list);
@@ -310,7 +312,6 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for InterfaceWrapper<Op
             .iter()
             .map(calc_protect_flag)
             .collect();
-
         let f_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
         let e_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
 
@@ -336,9 +337,12 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for InterfaceWrapper<Op
 impl From<kcapi_common::common_battle::ApiOpeningAtack> for InterfaceWrapper<OpeningRaigeki> {
     fn from(opening_raigeki: kcapi_common::common_battle::ApiOpeningAtack) -> Self {
         let f_damages: Vec<f32> = calc_floor(&opening_raigeki.api_fdam);
-        let f_protect_flag: Vec<bool> = calc_protect_flag(&opening_raigeki.api_fdam);
+        let f_protect_flag: Vec<bool> =
+            calc_opening_ydam_protect_flag(&opening_raigeki.api_fydam_list_items);
         let e_damages: Vec<f32> = calc_floor(&opening_raigeki.api_edam);
-        let e_protect_flag: Vec<bool> = calc_protect_flag(&opening_raigeki.api_edam);
+        // Client behavior uses fydam_list_items path even for enemy shield checks.
+        let e_protect_flag: Vec<bool> =
+            calc_opening_ydam_protect_flag(&opening_raigeki.api_fydam_list_items);
 
         let f_cl_list = calc_critical(
             &f_damages,
@@ -390,10 +394,11 @@ impl From<kcapi_common::common_battle::ApiRaigeki> for InterfaceWrapper<ClosingR
     fn from(closing_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
         let f_damages: Vec<f32> = calc_floor(&closing_raigeki.api_fdam);
         let f_cl = calc_critical(&f_damages, &closing_raigeki.api_fcl.to_vec());
-        let f_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fdam);
+        let f_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fydam);
         let e_damages: Vec<f32> = calc_floor(&closing_raigeki.api_edam);
         let e_cl = calc_critical(&e_damages, &closing_raigeki.api_ecl.to_vec());
-        let e_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_edam);
+        // Client behavior uses fydam path even for enemy shield checks.
+        let e_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fydam);
 
         let f_now_hps: Vec<i64> = vec![0; f_damages.len()];
         let e_now_hps: Vec<i64> = vec![0; e_damages.len()];
@@ -419,7 +424,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for InterfaceWrapper<Hougeki>
     fn from(hougeki: kcapi_common::common_battle::ApiHougeki) -> Self {
         let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(calc_si_list).collect();
 
-        let damages: Vec<Vec<f32>> = hougeki
+        let damages_raw: Vec<Vec<f32>> = hougeki
             .api_damage
             .iter()
             .enumerate()
@@ -440,8 +445,9 @@ impl From<kcapi_common::common_battle::ApiHougeki> for InterfaceWrapper<Hougeki>
                 }
                 .to_vec()
             })
-            .map(|damages| calc_floor(&damages))
             .collect();
+
+        let damages: Vec<Vec<f32>> = damages_raw.iter().map(calc_floor).collect();
 
         let cl_list: Vec<Vec<i64>> = hougeki
             .api_cl_list
@@ -468,13 +474,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for InterfaceWrapper<Hougeki>
             .map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list))
             .collect();
 
-        let protect_flag: Vec<Vec<bool>> = hougeki
-            .api_damage
-            .iter()
-            .enumerate()
-            .map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx]))
-            .map(|damage| calc_protect_flag(&damage))
-            .collect();
+        let protect_flag: Vec<Vec<bool>> = damages_raw.iter().map(calc_protect_flag).collect();
 
         let df_list: Vec<Vec<i64>> = hougeki
             .api_df_list
@@ -528,7 +528,7 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                 .collect()
         });
 
-        let damages: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| {
+        let damages_raw: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| {
             hougeki.api_df_list.clone().and_then(|df_list| {
                 hougeki.api_sp_list.clone().map(|api_sp_list| {
                     api_damage
@@ -548,11 +548,12 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                             }
                             _ => damages,
                         })
-                        .map(|damages| calc_floor(&damages))
                         .collect()
                 })
             })
         });
+
+        let damages: Option<Vec<Vec<f32>>> = damages_raw.clone().map(|rows| rows.iter().map(calc_floor).collect());
 
         let cl_list: Option<Vec<Vec<i64>>> = hougeki.api_cl_list.and_then(|api_cl_list| {
             damages.clone().and_then(|damages| {
@@ -583,16 +584,7 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
             })
         });
 
-        let protect_flag: Option<Vec<Vec<bool>>> = hougeki.api_damage.and_then(|api_damage| {
-            hougeki.api_df_list.clone().map(|df_list| {
-                api_damage
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
-                    .map(|damage| calc_protect_flag(&damage))
-                    .collect()
-            })
-        });
+        let protect_flag: Option<Vec<Vec<bool>>> = damages_raw.clone().map(|rows| rows.iter().map(calc_protect_flag).collect());
 
         let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| {
             hougeki.api_sp_list.clone().map(|api_sp_list| {
@@ -664,9 +656,10 @@ impl From<kcapi_common::common_battle::ApiSupportInfo> for InterfaceWrapper<Supp
 
 impl From<kcapi_common::common_battle::ApiSupportHourai> for InterfaceWrapper<SupportHourai> {
     fn from(support_hourai: kcapi_common::common_battle::ApiSupportHourai) -> Self {
-        let damages: Vec<f32> = calc_floor(&support_hourai.api_damage);
+        let raw_damage = support_hourai.api_damage.clone();
+        let damages: Vec<f32> = calc_floor(&raw_damage);
         let cl_list: Vec<i64> = calc_critical(&damages, &support_hourai.api_cl_list);
-        let protect_flag: Vec<bool> = calc_protect_flag(&damages);
+        let protect_flag: Vec<bool> = calc_protect_flag(&raw_damage);
         let now_hps: Vec<i64> = vec![0; damages.len()];
 
         Self(SupportHourai {

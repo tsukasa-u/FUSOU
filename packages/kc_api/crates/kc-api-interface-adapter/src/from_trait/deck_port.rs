@@ -53,6 +53,8 @@ impl From<kcapi_main::api_port::port::ApiDeckPort> for InterfaceWrapper<DeckPort
             name: deck_port.api_name,
             mission: deck_port.api_mission,
             ship: Some(deck_port.api_ship),
+            chart_seiku_value: None,
+            chart_tp_value: None,
         })
     }
 }
