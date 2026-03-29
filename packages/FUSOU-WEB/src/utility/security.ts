@@ -46,8 +46,8 @@ export function validateRedirectUrl(
       return false;
     }
 
-    // Check host matches exactly
-    if (url.host !== allowed.host) {
+    // Check full origin matches exactly (scheme + host + port)
+    if (url.origin !== allowed.origin) {
       return false;
     }
 
@@ -68,28 +68,181 @@ export function validateRedirectUrl(
  */
 export function validateOrigin(
   request: Request,
-  allowedOrigin: string
+  allowedOrigins: string | string[]
 ): boolean {
+  return validateOriginDetailed(request, allowedOrigins).ok;
+}
+
+export type OriginValidationResult = {
+  ok: boolean;
+  reason:
+    | "allowed_origin_invalid"
+    | "origin_match"
+    | "origin_mismatch"
+    | "origin_invalid"
+    | "referer_match"
+    | "referer_mismatch"
+    | "referer_invalid"
+    | "origin_and_referer_missing";
+  allowedOrigins: string[];
+  requestOrigin: string | null;
+  requestReferer: string | null;
+  parsedOrigin: string | null;
+  parsedRefererOrigin: string | null;
+};
+
+/**
+ * Same as validateOrigin(), but returns details for diagnostics.
+ */
+export function validateOriginDetailed(
+  request: Request,
+  allowedOrigins: string | string[]
+): OriginValidationResult {
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
 
   try {
-    const allowed = new URL(allowedOrigin);
+    const originList = Array.isArray(allowedOrigins)
+      ? allowedOrigins
+      : [allowedOrigins];
+    const normalizedAllowedOrigins = originList
+      .map((value) => {
+        try {
+          return new URL(value).origin;
+        } catch {
+          return null;
+        }
+      })
+      .filter((entry): entry is string => Boolean(entry));
 
-    // Check Origin header first (more reliable)
+    const allowedOriginSet = new Set(
+      normalizedAllowedOrigins,
+    );
+
+    if (allowedOriginSet.size === 0) {
+      return {
+        ok: false,
+        reason: "allowed_origin_invalid",
+        allowedOrigins: normalizedAllowedOrigins,
+        requestOrigin: origin,
+        requestReferer: referer,
+        parsedOrigin: null,
+        parsedRefererOrigin: null,
+      };
+    }
+
+    // Check Origin header first (more reliable).
+    // If Origin is present but malformed (e.g., "null"), do not fail immediately;
+    // fall back to Referer validation.
     if (origin) {
-      const originUrl = new URL(origin);
-      return originUrl.host === allowed.host;
+      try {
+        const originUrl = new URL(origin);
+        if (allowedOriginSet.has(originUrl.origin)) {
+          return {
+            ok: true,
+            reason: "origin_match",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: originUrl.origin,
+            parsedRefererOrigin: null,
+          };
+        }
+        return {
+          ok: false,
+          reason: "origin_mismatch",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: originUrl.origin,
+          parsedRefererOrigin: null,
+        };
+      } catch {
+        // Fall through to Referer validation only if present.
+        if (!referer) {
+          return {
+            ok: false,
+            reason: "origin_invalid",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: null,
+            parsedRefererOrigin: null,
+          };
+        }
+      }
     }
 
     // Fallback to Referer header
     if (referer) {
-      const refererUrl = new URL(referer);
-      return refererUrl.host === allowed.host;
+      try {
+        const refererUrl = new URL(referer);
+        if (allowedOriginSet.has(refererUrl.origin)) {
+          return {
+            ok: true,
+            reason: "referer_match",
+            allowedOrigins: normalizedAllowedOrigins,
+            requestOrigin: origin,
+            requestReferer: referer,
+            parsedOrigin: null,
+            parsedRefererOrigin: refererUrl.origin,
+          };
+        }
+        return {
+          ok: false,
+          reason: "referer_mismatch",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: null,
+          parsedRefererOrigin: refererUrl.origin,
+        };
+      } catch {
+        return {
+          ok: false,
+          reason: "referer_invalid",
+          allowedOrigins: normalizedAllowedOrigins,
+          requestOrigin: origin,
+          requestReferer: referer,
+          parsedOrigin: null,
+          parsedRefererOrigin: null,
+        };
+      }
     }
 
     // No origin or referer header - reject for security
-    return false;
+    return {
+      ok: false,
+      reason: "origin_and_referer_missing",
+      allowedOrigins: normalizedAllowedOrigins,
+      requestOrigin: origin,
+      requestReferer: referer,
+      parsedOrigin: null,
+      parsedRefererOrigin: null,
+    };
+  } catch {
+    return {
+      ok: false,
+      reason: "allowed_origin_invalid",
+      allowedOrigins: [],
+      requestOrigin: origin,
+      requestReferer: referer,
+      parsedOrigin: null,
+      parsedRefererOrigin: null,
+    };
+  }
+}
+
+/**
+ * Validate that a URL is safe for use in image src/href attributes.
+ * Only relative URLs and http(s) absolute URLs are allowed.
+ */
+export function isSafeImageUrl(url: string): boolean {
+  if (!url) return false;
+  if (url.startsWith("/")) return true;
+  try {
+    const parsed = new URL(url, "http://localhost");
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
   }
@@ -129,3 +282,16 @@ export const TEMPORARY_COOKIE_OPTIONS = {
   sameSite: "strict" as const,
   maxAge: 60 * 15, // 15 minutes
 };
+
+/**
+ * HTML escape function for preventing XSS attacks
+ * Escapes characters that have special meaning in HTML context
+ */
+export function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}

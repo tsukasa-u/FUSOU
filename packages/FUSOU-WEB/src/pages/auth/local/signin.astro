@@ -174,6 +174,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
           <form action="/api/local_auth/signin" method="post" class="mb-4">
             <input type="hidden" name="app_origin" value={Astro.url.searchParams.get("app_origin") ?? ""} />
+            <input type="hidden" name="member_id_hash" value={Astro.url.searchParams.get("member_id_hash") ?? ""} />
             <button
               type="submit"
               name="provider"
@@ -268,7 +269,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
     let memberIdHashSynced = false;
 
     // Helper function to mask member_id_hash
-    function maskMemberIdHash(hash) {
+    function maskMemberIdHash(hash: string) {
       if (!hash || hash.length < 8) return hash;
       return hash.substring(0, 6) + '...' + hash.substring(hash.length - 4);
     }
@@ -313,8 +314,33 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
       return false;
     }
 
-    function updateStepIndicators(step) {
+    function updateStepIndicators(step: string) {
       const stepNum = parseInt(step);
+
+      function createStatusIcon(pathData: string): SVGSVGElement {
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNs, 'svg');
+        svg.setAttribute('class', 'w-5 h-5');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('viewBox', '0 0 24 24');
+
+        const path = document.createElementNS(svgNs, 'path');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('stroke-width', '3');
+        path.setAttribute('d', pathData);
+        svg.appendChild(path);
+        return svg;
+      }
+
+      function setElementContent(element: Element, content: string | Node) {
+        if (typeof content === 'string') {
+          element.textContent = content;
+          return;
+        }
+        element.replaceChildren(content);
+      }
 
       // Update step 1
       const step1Box = document.querySelector('.step-1-box');
@@ -326,7 +352,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
         } else if (stepNum > 1) {
           step1Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-success bg-success/10';
           step1Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-success text-success-content';
-          step1Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+          setElementContent(step1Circle, createStatusIcon('M5 13l4 4L19 7'));
         }
       }
 
@@ -340,11 +366,11 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
         } else if (stepNum > 2) {
           step2Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-success bg-success/10';
           step2Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-success text-success-content';
-          step2Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+          setElementContent(step2Circle, createStatusIcon('M5 13l4 4L19 7'));
         } else {
           step2Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-base-300 bg-base-200 opacity-50';
           step2Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-base-300 text-base-content';
-          step2Circle.innerHTML = '2';
+          setElementContent(step2Circle, '2');
         }
       }
 
@@ -355,11 +381,11 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
         if (stepNum === 3) {
           step3Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10';
           step3Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content';
-          step3Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+          setElementContent(step3Circle, createStatusIcon('M5 13l4 4L19 7'));
         } else {
           step3Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-base-300 bg-base-200 opacity-50';
           step3Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-base-300 text-base-content';
-          step3Circle.innerHTML = '3';
+          setElementContent(step3Circle, '3');
         }
       }
     }
@@ -413,9 +439,52 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
     }
 
     document.addEventListener("DOMContentLoaded", () => {
+      function createButtonIcon(pathData: string): SVGSVGElement {
+        const svgNs = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNs, 'svg');
+        svg.setAttribute('xmlns', svgNs);
+        svg.setAttribute('class', 'w-5 h-5');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('stroke', 'currentColor');
+
+        const path = document.createElementNS(svgNs, 'path');
+        path.setAttribute('stroke-linecap', 'round');
+        path.setAttribute('stroke-linejoin', 'round');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('d', pathData);
+        svg.appendChild(path);
+        return svg;
+      }
+
+      function createLoadingSpinner(): HTMLSpanElement {
+        const spinner = document.createElement('span');
+        spinner.className = 'loading loading-spinner loading-sm';
+        return spinner;
+      }
+
+      function cloneChildNodes(element: HTMLElement): Node[] {
+        return Array.from<Node>(element.childNodes).map((node: Node) => node.cloneNode(true));
+      }
+
+      function restoreButtonContent(button: HTMLButtonElement, originalNodes: Node[]) {
+        button.replaceChildren(...originalNodes.map((node: Node) => node.cloneNode(true)));
+      }
+
+      function setButtonLoading(button: HTMLButtonElement) {
+        button.replaceChildren(createLoadingSpinner(), document.createTextNode(' Syncing...'));
+      }
+
+      function setButtonSuccess(button: HTMLButtonElement) {
+        button.replaceChildren(
+          createButtonIcon('M5 13l4 4L19 7'),
+          document.createTextNode(' Game Account Synced'),
+        );
+      }
+
       // Step buttons - prevent default click on disabled items
       document.querySelectorAll(".step-indicator").forEach((btn) => {
-        btn.addEventListener("click", (e) => {
+        btn.addEventListener("click", () => {
           const step = btn.getAttribute("data-step");
           const isDisabled = btn.getAttribute("disabled") !== null;
           
@@ -442,13 +511,10 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
           syncError?.classList.add("hidden");
           
           // Store original content
-          const originalHTML = syncButton.innerHTML;
+          const originalNodes = cloneChildNodes(syncButton);
           
           // Update button to show loading state
-          syncButton.innerHTML = `
-            <span class="loading loading-spinner loading-sm"></span>
-            Syncing...
-          `;
+          setButtonLoading(syncButton);
 
           try {
             console.log("[signin] Starting member ID sync...");
@@ -464,12 +530,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               syncSuccess?.classList.remove("hidden");
               syncButton.classList.remove("btn-primary");
               syncButton.classList.add("btn-success");
-              syncButton.innerHTML = `
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                </svg>
-                Game Account Synced
-              `;
+              setButtonSuccess(syncButton);
               if (syncButton instanceof HTMLButtonElement) {
                 syncButton.disabled = true;
               }
@@ -495,7 +556,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               if (syncError) syncError.classList.remove("hidden");
               
               // Restore original button
-              syncButton.innerHTML = originalHTML;
+              restoreButtonContent(syncButton, originalNodes);
               syncButton.classList.add("btn-primary");
               syncButton.disabled = false;
             }
@@ -507,7 +568,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
             if (syncError) syncError.classList.remove("hidden");
             
             // Restore original button
-            syncButton.innerHTML = originalHTML;
+            restoreButtonContent(syncButton, originalNodes);
             syncButton.classList.add("btn-primary");
             syncButton.disabled = false;
           }

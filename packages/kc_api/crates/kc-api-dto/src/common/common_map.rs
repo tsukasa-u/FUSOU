@@ -36,6 +36,14 @@ pub struct ApiEventmap {
     pub api_now_maphp: i64,
     #[serde(rename = "api_dmg")]
     pub api_dmg: i64,
+    #[serde(rename = "api_gauge_type")]
+    pub api_gauge_type: Option<i64>,
+    #[serde(rename = "api_gauge_num")]
+    pub api_gauge_num: Option<i64>,
+    #[serde(rename = "api_state")]
+    pub api_state: Option<i64>,
+    #[serde(rename = "api_selected_rank")]
+    pub api_selected_rank: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]

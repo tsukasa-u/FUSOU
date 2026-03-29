@@ -3,7 +3,7 @@ import type { AirDamage, Battle } from "./battle";
 
 export type AirBaseAttack = { air_superiority: number | null, plane_from: Array<Array<number> | null>, f_damage: AirDamage, e_damage: AirDamage, stage_flag: Array<number>, map_squadron_plane: { [key in string]?: Array<number> } | null, };
 
-export type Cell = { timestamp: number | null, rashin_id: number, no: number, color_no: number, event_id: number, event_kind: number, next: number, e_deck_info: Array<EDeckInfo> | null, limit_state: number, m1: number | null, destruction_battle: DestructionBattle | null, happening: Happening | null, };
+export type Cell = { timestamp: number | null, rashin_id: number, no: number, color_no: number, event_id: number, event_kind: number, next: number, e_deck_info: Array<EDeckInfo> | null, limit_state: number, itemget: Array<Itemget> | null, m1: number | null, destruction_battle: DestructionBattle | null, happening: Happening | null, };
 
 export type CellData = { id: number, no: number, color_no: number, passed: number, distance: number | null, };
 
@@ -13,6 +13,8 @@ export type DestructionBattle = { formation: Array<number>, ship_ke: Array<numbe
 
 export type EDeckInfo = { kind: number, ship_ids: Array<number>, };
 
-export type Eventmap = { max_maphp: number, now_maphp: number, dmg: number, };
+export type Eventmap = { max_maphp: number, now_maphp: number, dmg: number, gauge_type: number | null, gauge_num: number | null, state: number | null, selected_rank: number | null, };
 
 export type Happening = { count: number, mst_id: number, dentan: number, };
+
+export type Itemget = { usemst: number, id: number, getcount: number, icon_id: number, };

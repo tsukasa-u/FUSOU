@@ -16,6 +16,7 @@ const accessToken = cookies.get("sb-local-access-token");
 const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
+const expiresAtCookie = cookies.get("sb-local-expires-at");
 
 // Get allowed origin using unified env API
 const envCtx = createEnvContext({ env: runtimeEnv });
@@ -35,15 +36,15 @@ const isFromTauriApp =
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let return_href: string | null = null;
 let set_session_error_flag: boolean = false;
-let return_href_missing_flag: boolean = false;
 let isDesktopApp: boolean = isFromTauriApp; // Flag to detect desktop app flow
 let app_return_url: string | null = null; // URL to return to app
 
 const providerValue = provider?.value ?? "google";
 
-if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
+// Provider refresh token is optional. Supabase session tokens are the only
+// required credentials for returning auth state to the desktop app.
+if (refreshToken?.value && accessToken?.value) {
   try {
     const sessionResult = await supabase.auth.setSession({
       refresh_token: refreshToken.value,
@@ -53,7 +54,6 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
     if (sessionResult.error) {
       error_message = sessionResult.error.message;
       set_session_error_flag = true;
-      return_href_missing_flag = true;
     } else {
       const userId = sessionResult.data.session?.user.id;
       if (!userId) {
@@ -62,10 +62,6 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
 
       // Check for member_id_hash conflict BEFORE returning to app
       if (memberIdHash) {
-        console.log(
-          "[callback] Checking member_id_hash conflict:",
-          memberIdHash
-        );
         try {
           const conflictCheckResponse = await fetch(
             Astro.url.origin + "/api/member-lookup/verify-ownership",
@@ -78,74 +74,98 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
               body: JSON.stringify({
                 member_id_hash: memberIdHash,
               }),
-            }
+            },
           );
 
           const conflictCheckData = (await conflictCheckResponse.json()) as any;
-          console.log("[callback] Conflict check response:", {
-            status: conflictCheckResponse.status,
-            data: conflictCheckData,
-          });
 
           // If conflict detected (member_id_hash already owned by another user)
           if (
             !conflictCheckResponse.ok &&
             conflictCheckResponse.status === 409
           ) {
-            console.log(
-              "[callback] CONFLICT DETECTED - redirecting to conflict page"
-            );
             // Redirect to conflict resolution page with member_id_hash
             return Astro.redirect(
-              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`
+              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
             );
           }
 
           if (!conflictCheckResponse.ok) {
-            console.warn("Member ID conflict check failed:", conflictCheckData);
             // Proceed anyway - let the app handle any issues
           } else {
-            console.log("[callback] No conflict - proceeding with auth");
+            // If migrateable (anonymous owner), call upsert to perform migration
+            if (conflictCheckData?.migrateable) {
+              try {
+                const upsertResponse = await fetch(
+                  Astro.url.origin + "/api/user/member-map/upsert",
+                  {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${accessToken.value}`,
+                    },
+                    body: JSON.stringify({ member_id_hash: memberIdHash }),
+                  },
+                );
+                const upsertData = (await upsertResponse.json()) as any;
+                if (upsertResponse.ok) {
+                  // Auto-migration successful
+                } else {
+                  // Auto-migration failed - proceed anyway
+                }
+              } catch (upsertError) {
+                // Silently proceed on auto-migration errors
+              }
+            } else {
+              // No conflict detected - proceeding with auth
+            }
           }
         } catch (checkError) {
-          console.error("Error checking member_id_hash conflict:", checkError);
           // Proceed anyway - let the app handle any issues
         }
       } else {
-        console.warn(
-          "[callback] No member_id_hash provided in query params - skipping conflict check"
-        );
+        // No member_id_hash provided in query params - skipping conflict check
       }
 
-      // Generate return parameters regardless of DB insert success
-      // This allows users to manually copy tokens even if DB fails
-      return_params =
-        "provider_refresh_token=" +
-        providerRefreshToken.value +
-        "&provider=" +
-        providerValue +
-        "&supabase_access_token=" +
-        accessToken.value +
-        "&supabase_refresh_token=" +
-        refreshToken.value;
+      // Build fusou:// return URL for the desktop app.
+      // The URL is stored in a short-lived httpOnly cookie so that it is never
+      // written into a DOM attribute — only the client-side API endpoint at
+      // /api/local_auth/app-redirect reads and consumes it.
+      const returnQuery = new URLSearchParams();
+      if (providerRefreshToken?.value) {
+        returnQuery.set("provider_refresh_token", providerRefreshToken.value);
+      }
+      returnQuery.set("provider", providerValue);
+      returnQuery.set("supabase_access_token", accessToken.value);
+      returnQuery.set("supabase_refresh_token", refreshToken.value);
+      if (expiresAtCookie?.value) {
+        returnQuery.set("expires_at", expiresAtCookie.value);
+      }
+      return_params = returnQuery.toString();
 
       const candidateHref = `fusou://auth?${return_params}`;
 
-      // Keep the href for display/copy even if validation fails; redirect stays gated by validation
-      return_href = candidateHref;
-
-      // Validate the Tauri custom protocol URL
+      // Store for display/manual copy in the UI (no tokens in DOM; only shown
+      // when validateRedirectUrl succeeds and user explicitly requests it).
+      // Validate the desktop app custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
-        // Desktop app detected - set return URL for app redirect
+        // Desktop app detected - store the redirect URL in a short-lived cookie.
         if (isFromTauriApp) {
           isDesktopApp = true;
-          // Return URL to app with auth status and params
-          app_return_url = `tauri://auth-complete?${return_params}`;
+          app_return_url = "/api/local_auth/app-redirect";
+          // Store token URL in a 60-second, httpOnly, strict-SameSite cookie.
+          // Only /api/local_auth/app-redirect can consume it (single-use).
+          cookies.set("sb-app-redirect-url", candidateHref, {
+            path: "/api/local_auth/app-redirect",
+            httpOnly: true,
+            secure: import.meta.env.PROD,
+            sameSite: "strict",
+            maxAge: 60,
+          });
         }
       } else {
-        console.error("Invalid return href rejected: ", candidateHref);
+        console.error("Invalid return href rejected in local callback");
         error_message = "Invalid redirect URL";
-        return_href_missing_flag = true;
       }
 
       // Database write is now handled server-side in /api/local_auth/callback.ts
@@ -154,14 +174,14 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   } catch (error) {
     error_message = error instanceof Error ? error.message : String(error);
     set_session_error_flag = true;
-    return_href_missing_flag = true;
   }
 } else {
   // No tokens present - show warning
-  console.warn("Missing required cookies. Cannot proceed with authentication.");
+  console.warn(
+    "Missing required Supabase session cookies. Cannot proceed with authentication.",
+  );
   error_message = "Missing required authentication cookies";
   set_session_error_flag = true;
-  return_href_missing_flag = true;
 }
 
 // Clean up local app tokens after they've been used
@@ -171,6 +191,7 @@ cookies.delete("sb-local-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider-token", { path: "/" });
 cookies.delete("sb-local-provider-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider", { path: "/" });
+cookies.delete("sb-local-expires-at", { path: "/" });
 ---
 
 <Layout title="Account Setup - Link Game to Social Account">
@@ -357,7 +378,7 @@ cookies.delete("sb-local-provider", { path: "/" });
 
           <div class="flex flex-col gap-3">
             <a
-              href={`/auth/local/signin${appOriginParam ? `?app_origin=${appOriginParam}` : ""}`}
+              href={`/auth/local/signin${appOriginParam ? `?app_origin=${encodeURIComponent(appOriginParam)}` : ""}`}
               class="btn btn-primary w-full border border-primary-content"
             >
               ← Retry Sign-in
@@ -411,7 +432,7 @@ cookies.delete("sb-local-provider", { path: "/" });
             </button>
             <a
               id="app-return-link"
-              href="tauri://auth-complete?status=success"
+              href="fusou://auth?status=success"
               class="btn btn-ghost w-full border border-base-300"
             >
               ← Return to App
@@ -436,7 +457,7 @@ cookies.delete("sb-local-provider", { path: "/" });
   data-error-flag={String(set_session_error_flag)}
   data-error-message={error_message ?? ""}
   data-is-desktop-app={String(isDesktopApp)}
-  data-app-return-url={app_return_url ?? ""}
+  data-has-app-redirect={String(!!app_return_url)}
 >
 </astro-data-callback>
 
@@ -447,12 +468,29 @@ cookies.delete("sb-local-provider", { path: "/" });
       const errorFlag = this.dataset.errorFlag === "true";
       const errorMessage = this.dataset.errorMessage || "";
       const isDesktopApp = this.dataset.isDesktopApp === "true";
-      const appReturnUrl = this.dataset.appReturnUrl || "";
+      const hasAppRedirect = this.dataset.hasAppRedirect === "true";
 
       window.addEventListener("DOMContentLoaded", () => {
         const errorContent = document.getElementById("error-content");
         const successContent = document.getElementById("success-content");
         const errorMessageEl = document.getElementById("error-message");
+
+        function createStepStatusIcon(pathData: string): SVGSVGElement {
+          const svgNs = "http://www.w3.org/2000/svg";
+          const svg = document.createElementNS(svgNs, "svg");
+          svg.setAttribute("class", "w-5 h-5");
+          svg.setAttribute("fill", "none");
+          svg.setAttribute("stroke", "currentColor");
+          svg.setAttribute("viewBox", "0 0 24 24");
+
+          const path = document.createElementNS(svgNs, "path");
+          path.setAttribute("stroke-linecap", "round");
+          path.setAttribute("stroke-linejoin", "round");
+          path.setAttribute("stroke-width", "3");
+          path.setAttribute("d", pathData);
+          svg.appendChild(path);
+          return svg;
+        }
 
         // Update Step 3 indicator based on error state
         const step3Box = document.querySelector(".step-3-box");
@@ -473,20 +511,12 @@ cookies.delete("sb-local-provider", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
-            step3Circle.innerHTML =
-              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
+            step3Circle.replaceChildren(createStepStatusIcon("M6 18L18 6M6 6l12 12"));
           }
 
-          // Auto-redirect to app on error (after short delay for UX)
-          if (isDesktopApp && appReturnUrl) {
-            setTimeout(() => {
-              window.location.href =
-                appReturnUrl +
-                (appReturnUrl.includes("?") ? "&" : "?") +
-                "status=error&message=" +
-                encodeURIComponent(errorMessage);
-            }, 2000); // 2 second delay to show error message
-          }
+          // On error, do not auto-redirect to the app with any token URL.
+          // The app-redirect cookie has already expired or been consumed.
+          // The user can retry sign-in instead.
         } else {
           // Show success state (Step 3)
           errorContent?.classList.add("hidden");
@@ -498,17 +528,17 @@ cookies.delete("sb-local-provider", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content";
-            step3Circle.innerHTML =
-              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+            step3Circle.replaceChildren(createStepStatusIcon("M5 13l4 4L19 7"));
           }
 
-          // Set manual return-to-app link even when app detection is missing
+          // Set manual return-to-app link (fetches actual redirect from API).
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
-            const base = appReturnUrl || "fusou://auth-complete";
-            const href =
-              base + (base.includes("?") ? "&" : "?") + "status=success";
-            appReturnLink.setAttribute("href", href);
+            if (hasAppRedirect) {
+              appReturnLink.setAttribute("href", "/api/local_auth/app-redirect");
+            } else {
+              appReturnLink.setAttribute("href", "fusou://auth?status=success");
+            }
           }
 
           // Switch primary accent depending on app vs web
@@ -518,38 +548,37 @@ cookies.delete("sb-local-provider", { path: "/" });
               // App is primary action
               dashboardBtn.classList.remove(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
               dashboardBtn.classList.add("btn-ghost", "border-base-300");
 
               appReturnLink.classList.remove("btn-ghost", "border-base-300");
               appReturnLink.classList.add(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
             } else {
               // Web is primary action
               dashboardBtn.classList.add(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
               dashboardBtn.classList.remove("btn-ghost", "border-base-300");
 
               appReturnLink.classList.add("btn-ghost", "border-base-300");
               appReturnLink.classList.remove(
                 "btn-primary",
-                "border-primary-content"
+                "border-primary-content",
               );
             }
           }
 
-          // Auto-redirect to app on success (after short delay for UX)
-          if (isDesktopApp && appReturnUrl) {
+          // Auto-redirect to app on success via the one-time server endpoint.
+          // Tokens are in an httpOnly cookie consumed by /api/local_auth/app-redirect,
+          // so they are never exposed in JS scope.
+          if (isDesktopApp && hasAppRedirect) {
             setTimeout(() => {
-              window.location.href =
-                appReturnUrl +
-                (appReturnUrl.includes("?") ? "&" : "?") +
-                "status=success";
+              window.location.href = "/api/local_auth/app-redirect";
             }, 1500); // 1.5 second delay to show success message
           }
         }

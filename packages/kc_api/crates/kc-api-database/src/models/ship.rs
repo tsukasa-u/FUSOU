@@ -46,6 +46,8 @@ pub struct OwnShip {
     pub fuel: Option<i32>,              // 燃料
     pub bull: Option<i32>,              // 弾薬
     pub cond: Option<i32>,              // 疲労度
+    #[cfg(feature = "schema_v0_5")]
+    pub cond_state: Option<i32>,        // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
     #[cfg(feature = "schema_v0_4")]
     pub karyoku: Option<Vec<i32>>,      // 火力
     #[cfg(feature = "schema_v0_5")]
@@ -181,6 +183,8 @@ impl OwnShip {
             fuel: ship.fuel.map(|value| value as i32),
             bull: ship.bull.map(|value| value as i32),
             cond: ship.cond.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            cond_state: ship.cond_state.map(|value| value as i32),
             #[cfg(feature = "schema_v0_4")]
             karyoku: ship
                 .karyoku

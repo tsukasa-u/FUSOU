@@ -6,7 +6,7 @@ edition.workspace = true
 
 [dev-dependencies]
 chrono = { workspace = true }
-kc-api-database = { workspace = true }
+kc-api-database = { workspace = true, features = ["schema_v0_5"] }
 kc-api-interface = { workspace = true }
 kc-api-parser = { workspace = true }
 register_trait = { workspace = true }

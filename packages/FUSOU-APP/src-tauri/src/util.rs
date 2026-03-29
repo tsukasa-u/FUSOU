@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::LazyLock;
+use std::sync::Mutex;
 use tokio::sync::OnceCell;
 use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
@@ -15,6 +16,17 @@ use fusou_auth::types;
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
 use crate::notify;
+
+/// Flag indicating that a social auth session has been saved.
+/// Set by the OAuth callback handler; checked by `try_anonymous_auth` to
+/// avoid overwriting a social session with an anonymous one.
+static SOCIAL_SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Mark that a social auth session is now active.
+pub fn set_social_session_active() {
+    SOCIAL_SESSION_ACTIVE.store(true, Ordering::SeqCst);
+}
+
 /// Deprecated: Environment-scoped ID cache (ENV_UNIQ_ID). Do not use for user identification.
 ///
 /// Use [`get_user_member_id()`] instead for a user-scoped, salted SHA-256 identifier
@@ -24,11 +36,20 @@ static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
 /// Flag to ensure member_id upsert is called only once per unique member_id_hash
 static MEMBER_ID_UPSERTED: AtomicBool = AtomicBool::new(false);
-static LAST_UPSERTED_MEMBER_ID: LazyLock<OnceCell<String>> = LazyLock::new(|| OnceCell::new());
+static LAST_UPSERTED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(Mutex::default);
 
 /// Flag to track if anonymous auth has been attempted (to avoid redundant attempts)
 static ANONYMOUS_AUTH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
-static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<OnceCell<String>> = LazyLock::new(|| OnceCell::new());
+static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(Mutex::default);
+
+/// Reset the member_id upsert flag so that the next call to `try_upsert_member_id`
+/// will proceed even if a previous upsert already succeeded for the same hash.
+/// Called after a new social auth session is saved to ensure the mapping is updated.
+pub fn reset_member_id_upsert_flag() {
+    MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+}
 
 #[allow(non_snake_case)]
 pub fn get_ROAMING_DIR() -> PathBuf {
@@ -96,7 +117,7 @@ pub async fn get_user_member_id() -> String {
 }
 
 /// Upsert member_id_hash to Supabase user mapping.
-/// Called once per unique member_id_hash when Basic is updated after game launch.
+/// Called when a social auth session is established (OAuth callback path).
 pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
     let member_id_hash = get_user_member_id().await;
     if member_id_hash.is_empty() {
@@ -106,10 +127,13 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
 
     // Check if we already attempted upsert for THIS member_id_hash
     // If member_id changed (game switch), reset flag and allow retry
-    let last_member_id = LAST_UPSERTED_MEMBER_ID.get();
+    let last_member_id = {
+        let guard = LAST_UPSERTED_MEMBER_ID.lock().unwrap();
+        guard.clone()
+    };
     if MEMBER_ID_UPSERTED.load(Ordering::SeqCst) {
         if let Some(last_id) = last_member_id {
-            if last_id == &member_id_hash {
+            if last_id == member_id_hash {
                 tracing::debug!("member_id upsert already completed for this member_id_hash, skipping");
                 return;
             } else {
@@ -187,7 +211,10 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
                 // Server returns 200 OK for both new upserts and already-existing mappings
                 // This is idempotent by design
                 // Mark as completed for this member_id
-                let _ = LAST_UPSERTED_MEMBER_ID.set(member_id_hash.clone());
+                {
+                    let mut guard = LAST_UPSERTED_MEMBER_ID.lock().unwrap();
+                    *guard = Some(member_id_hash.clone());
+                }
                 MEMBER_ID_UPSERTED.store(true, Ordering::SeqCst);
             } else {
                 let body_text = resp.text().await.unwrap_or_default();
@@ -214,10 +241,13 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     // Check if already attempted for THIS member_id_hash
     // If member_id changed (game switch), reset flag and allow retry
-    let last_member_id = LAST_AUTHENTICATED_MEMBER_ID.get();
+    let last_member_id = {
+        let guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+        guard.clone()
+    };
     if ANONYMOUS_AUTH_ATTEMPTED.load(Ordering::SeqCst) {
         if let Some(last_id) = last_member_id {
-            if last_id == &member_id_hash {
+            if last_id == member_id_hash {
                 tracing::debug!("anonymous auth already attempted for this member_id_hash, skipping");
                 return;
             } else {
@@ -258,24 +288,15 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         Ok((anon_session, dataset_token_str)) => {
             tracing::info!("Anonymous authentication successful");
             
-            // Check if we already have a session (e.g., from bootstrap social auth)
-            // Only save anonymous session if there's no existing session
-            let has_existing_session = match auth_manager_clone.peek_session().await {
-                Ok(Some(existing)) => {
-                    // Check if existing session is social auth (has non-empty refresh_token from social provider)
-                    let is_social_auth = !existing.refresh_token.is_empty();
-                    if is_social_auth {
-                        tracing::info!("Keeping existing social auth session, not overwriting with anonymous session");
-                    } else {
-                        tracing::info!("No valid social auth session found, proceeding with anonymous session");
-                    }
-                    is_social_auth
-                }
-                _ => false,
-            };
+            // Check if we already have a social session (set by OAuth callback)
+            // Only save anonymous session if there's no existing social session
+            let has_existing_social = SOCIAL_SESSION_ACTIVE.load(Ordering::SeqCst);
+            if has_existing_social {
+                tracing::info!("Keeping existing social auth session, not overwriting with anonymous session");
+            }
             
             // Only save anonymous session if no existing social auth session
-            if !has_existing_session {
+            if !has_existing_social {
                 // セッションを保存
                 if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
                     tracing::error!("Failed to save anonymous session: {}", e);
@@ -284,14 +305,20 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
                     return;
                 } else {
                     // Success: record member_id and mark as attempted
-                    let _ = LAST_AUTHENTICATED_MEMBER_ID.set(member_id_hash.clone());
+                    {
+                        let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+                        *guard = Some(member_id_hash.clone());
+                    }
                     // Note: No need to emit tokens to frontend
                     // Session saved to FileStorage and managed by AuthManager
                 }
             } else {
                 tracing::info!("Skipping anonymous session save to preserve social auth session");
                 // Still record member_id for this attempt
-                let _ = LAST_AUTHENTICATED_MEMBER_ID.set(member_id_hash.clone());
+                {
+                    let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+                    *guard = Some(member_id_hash.clone());
+                }
             }
             
             // dataset_tokenを保存（7日間有効期限）

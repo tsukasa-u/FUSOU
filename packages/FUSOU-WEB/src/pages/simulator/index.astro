@@ -1,0 +1,954 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
+
+export const prerender = false;
+
+// --- SSR: Resolve access token from cookie session ---
+const cookies = Astro.cookies;
+const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+
+let safeAccessToken: string | null = null;
+
+const accessTokenCookie = cookies.get("sb-access-token");
+const refreshTokenCookie = cookies.get("sb-refresh-token");
+
+if (accessTokenCookie?.value && refreshTokenCookie?.value) {
+  try {
+    const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshTokenCookie.value,
+      access_token: accessTokenCookie.value,
+    });
+    if (session.data.session?.access_token) {
+      safeAccessToken = session.data.session.access_token;
+    }
+  } catch {
+    // Session invalid — user is not logged in
+  }
+}
+---
+
+<PageLayout title="FUSOU - Fleet Simulator">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1440px] mx-auto px-4 py-6">
+      <!-- Header -->
+      <div
+        class="flex flex-col md:flex-row md:items-end md:justify-between mb-5 gap-3"
+      >
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">編成シミュレータ</h1>
+          <p class="text-sm text-base-content/50 mt-0.5">
+            艦隊編成を組み立てて確認・共有
+          </p>
+        </div>
+        <div class="flex gap-1.5 flex-wrap">
+          <button id="btn-display-settings" class="btn btn-ghost btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
+              ></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9a3 3 0 100 6 3 3 0 000-6z"></path></svg
+            >
+            表示設定
+          </button>
+          <button id="btn-load-fleet" class="btn btn-ghost btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              ></path></svg
+            >
+            R2読込
+          </button>
+          <button id="btn-import" class="btn btn-ghost btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              ></path></svg
+            >
+            APIレスポンス貼り付け
+          </button>
+          <button id="btn-save-image" class="btn btn-ghost btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M3 7h4l2-2h6l2 2h4v12H3V7zm9 10a4 4 0 100-8 4 4 0 000 8z"
+              ></path></svg
+            >
+            画像保存
+          </button>
+          <button id="btn-share" class="btn btn-primary btn-sm gap-1.5">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              ><path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+              ></path></svg
+            >
+            共有
+          </button>
+        </div>
+      </div>
+
+      <section
+        id="shared-workspace-panel"
+        class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5"
+      >
+        <div class="flex items-center justify-between gap-1.5 mb-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <h2 class="text-sm font-semibold shrink-0">ワークスペース</h2>
+            <span id="workspace-mode-status" class="badge badge-sm badge-outline truncate">PLAYGROUND</span>
+          </div>
+          <div class="flex items-center gap-0.5 shrink-0">
+            <button
+              id="btn-workspace-add-current"
+              class="btn btn-ghost btn-xs gap-1"
+              title="現在のPlayground編成をワークスペースに追加"
+              aria-label="現在編成を追加"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"></path></svg
+              >
+              <span class="hidden sm:inline text-[11px]">編成追加</span>
+            </button>
+            <button
+              id="btn-workspace-add"
+              class="btn btn-ghost btn-xs gap-1"
+              title="共有URLをワークスペースに追加"
+              aria-label="URLを追加"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg
+              >
+              <span class="hidden sm:inline text-[11px]">URL追加</span>
+            </button>
+            <span id="workspace-count" class="text-xs text-base-content/50 pl-1">0件</span>
+          </div>
+        </div>
+        <p id="workspace-empty" class="text-sm text-base-content/50 mb-2">
+          他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。
+        </p>
+        <div id="workspace-playground-entry" class="space-y-2"></div>
+        <div class="mt-3 border-t border-base-300/60 pt-3">
+          <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="text-xs font-medium tracking-wide text-base-content/60">保存済み</span>
+            <span class="text-[11px] text-base-content/45">一覧のみスクロールします</span>
+          </div>
+          <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-[28rem] overflow-y-auto pr-1">
+            <div id="workspace-entry-list" class="space-y-2"></div>
+          </div>
+          <div id="workspace-entry-list-footer" class="mt-2"></div>
+        </div>
+      </section>
+
+      <div id="deck-capture-area">
+        <!-- Status -->
+        <div id="data-status" class="alert alert-info mb-5 py-2 hidden">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-5 h-5"
+            ><path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            ></path></svg
+          >
+          <span id="data-status-text" class="text-sm"
+            >マスターデータ読込中...</span
+          >
+        </div>
+
+        <div id="combined-fleet-validation" class="alert alert-warning mb-4 py-2 hidden">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            class="stroke-current shrink-0 w-5 h-5"
+            ><path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v2m0 4h.01M10.29 3.86l-7.5 13A1 1 0 003.67 18h16.66a1 1 0 00.88-1.5l-7.5-13a1 1 0 00-1.74 0z"
+            ></path></svg
+          >
+          <span id="combined-fleet-validation-text" class="text-sm"></span>
+        </div>
+
+        <!-- Fleets -->
+        <div
+          id="fleet-sections"
+          class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5"
+        >
+          <!-- Fleet 1 -->
+          <section
+            id="fleet-1-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-primary/5 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-primary/15 text-primary flex items-center justify-center text-xs font-bold"
+                    >1</span
+                  >
+                  <h3 class="font-semibold text-sm">第1艦隊</h3>
+                  <span id="fleet-1-combined-badge" hidden class="badge badge-xs badge-warning px-1 font-bold"></span>
+                </div>
+              </div>
+            </div>
+            <div id="fleet-1-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-1-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 2 -->
+          <section
+            id="fleet-2-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-secondary/5 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-secondary/15 text-secondary flex items-center justify-center text-xs font-bold"
+                    >2</span
+                  >
+                  <h3 class="font-semibold text-sm">第2艦隊</h3>
+                  <span id="fleet-2-combined-badge" hidden class="badge badge-xs badge-secondary px-1 font-bold">護衛</span>
+                </div>
+              </div>
+            </div>
+            <div id="fleet-2-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-2-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 3 -->
+          <section
+            id="fleet-3-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-info/10 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-info/20 text-info flex items-center justify-center text-xs font-bold"
+                    >3</span
+                  >
+                  <h3 class="font-semibold text-sm">第3艦隊</h3>
+                </div>
+              </div>
+            </div>
+            <div id="fleet-3-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-3-slots"
+              >
+              </div>
+            </div>
+          </section>
+
+          <!-- Fleet 4 -->
+          <section
+            id="fleet-4-section"
+            class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden"
+          >
+            <div
+              class="px-4 py-3 bg-gradient-to-r from-warning/10 to-transparent border-b border-base-200"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="w-6 h-6 rounded-md bg-warning/20 text-warning flex items-center justify-center text-xs font-bold"
+                    >4</span
+                  >
+                  <h3 class="font-semibold text-sm">第4艦隊</h3>
+                </div>
+              </div>
+            </div>
+            <div id="fleet-4-body" class="p-3">
+              <div
+                class="grid grid-cols-1 sm:grid-cols-2 gap-2"
+                id="fleet-4-slots"
+              >
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <!-- Air Base -->
+        <section
+          id="airbase-section"
+          class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 overflow-hidden mb-5"
+        >
+          <div
+            class="px-4 py-3 bg-gradient-to-r from-accent/5 to-transparent border-b border-base-200"
+          >
+            <div class="flex items-center gap-2">
+              <span
+                class="w-6 h-6 rounded-md bg-accent/15 text-accent flex items-center justify-center text-xs font-bold"
+                >基</span
+              >
+              <h3 class="font-semibold text-sm">基地航空隊</h3>
+            </div>
+          </div>
+          <div class="p-3">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3" id="air-bases">
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Ship Selection Modal -->
+      <dialog id="ship-select-modal" class="modal modal-bottom sm:modal-middle z-[1200]">
+        <div
+          class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]"
+        >
+          <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-lg">艦娘を選択</h3>
+              <form method="dialog">
+                <button class="btn btn-ghost btn-sm btn-circle">✕</button>
+              </form>
+            </div>
+            <div class="flex gap-2">
+              <input
+                type="text"
+                id="ship-modal-search"
+                placeholder="名前・IDで検索..."
+                class="input input-bordered input-sm flex-1"
+                autocomplete="off"
+              />
+              <select
+                id="ship-modal-side"
+                class="select select-bordered select-sm w-28 sm:w-32"
+              >
+                <option value="ally">味方のみ</option>
+                <option value="enemy">敵のみ</option>
+                <option value="all">全て</option>
+              </select>
+              <select
+                id="ship-modal-stype"
+                class="select select-bordered select-sm w-32 sm:w-36"
+                ><option value="">全艦種</option></select
+              >
+            </div>
+            <div
+              id="ship-modal-source-tabs"
+              class="tabs tabs-boxed mt-2 hidden"
+            >
+              <button class="tab tab-sm tab-active" data-source="snapshot"
+                >スナップショット</button
+              >
+              <button class="tab tab-sm" data-source="master"
+                >マスターデータ</button
+              >
+            </div>
+          </div>
+          <div class="flex flex-1 min-h-0">
+            <div
+              class="w-20 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar"
+              id="ship-modal-categories"
+            >
+            </div>
+            <div
+              class="relative flex-1 overflow-y-auto p-2 sm:p-3"
+              id="ship-modal-grid"
+            >
+            </div>
+            <div
+              class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block"
+              id="ship-modal-detail"
+            >
+              <p class="text-sm text-base-content/30 text-center pt-10">
+                艦娘にカーソルを合わせると<br />詳細が表示されます
+              </p>
+            </div>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Equipment Selection Modal -->
+      <dialog
+        id="equip-select-modal"
+        class="modal modal-bottom sm:modal-middle z-[1200]"
+      >
+        <div
+          class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]"
+        >
+          <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-bold text-lg">装備を選択</h3>
+              <form method="dialog">
+                <button class="btn btn-ghost btn-sm btn-circle">✕</button>
+              </form>
+            </div>
+            <div class="flex gap-2">
+              <input
+                type="text"
+                id="equip-modal-search"
+                placeholder="装備名で検索..."
+                class="input input-bordered input-sm flex-1"
+                autocomplete="off"
+              />
+              <select
+                id="equip-modal-side"
+                class="select select-bordered select-sm w-28 sm:w-32"
+              >
+                <option value="ally">味方のみ</option>
+                <option value="enemy">敵のみ</option>
+                <option value="all">全て</option>
+              </select>
+              <select
+                id="equip-modal-type"
+                class="select select-bordered select-sm w-32 sm:w-40"
+                ><option value="">全装備種</option></select
+              >
+            </div>
+            <div
+              id="equip-modal-source-tabs"
+              class="tabs tabs-boxed mt-2 hidden"
+            >
+              <button class="tab tab-sm tab-active" data-source="snapshot"
+                >スナップショット</button
+              >
+              <button class="tab tab-sm" data-source="master"
+                >マスターデータ</button
+              >
+            </div>
+          </div>
+          <div class="flex flex-1 min-h-0">
+            <div
+              class="w-24 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar"
+              id="equip-modal-categories"
+            >
+            </div>
+            <div
+              class="relative flex-1 overflow-y-auto p-2 sm:p-3"
+              id="equip-modal-grid"
+            >
+            </div>
+            <div
+              class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block"
+              id="equip-modal-detail"
+            >
+              <p class="text-sm text-base-content/30 text-center pt-10">
+                装備にカーソルを合わせると<br />詳細が表示されます
+              </p>
+            </div>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Load Fleet Modal -->
+      <dialog id="display-settings-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-2">表示設定</h3>
+          <p class="text-xs text-base-content/60 mb-4">艦隊と基地航空隊の表示を切り替えます。</p>
+          <div class="space-y-3 text-sm">
+            <div class="grid grid-cols-2 gap-2">
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-1" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第1艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-2" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第2艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-3" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第3艦隊を表示</span>
+              </label>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input id="display-fleet-4" type="checkbox" class="checkbox checkbox-sm" checked />
+                <span class="label-text">第4艦隊を表示</span>
+              </label>
+            </div>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input id="display-airbase" type="checkbox" class="checkbox checkbox-sm" checked />
+              <span class="label-text">基地航空隊を表示</span>
+            </label>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">連合艦隊タイプ</span></label>
+              <select id="display-combined-fleet" class="select select-bordered select-sm w-52">
+                <option value="0">通常艦隊</option>
+                <option value="1">機動部隊（第1＋第2）</option>
+                <option value="2">水上打撃部隊（第1＋第2）</option>
+                <option value="3">輸送護衛部隊（第1＋第2）</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">艦隊内スロット配置</span></label>
+              <select id="display-fleet-slot-layout" class="select select-bordered select-sm w-40">
+                <option value="2x3" selected>2x3（縦長）</option>
+                <option value="3x2">3x2（横長）</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1"><span class="label-text">表示する基地航空隊数</span></label>
+              <select id="display-airbase-count" class="select select-bordered select-sm w-36">
+                <option value="0">0</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+              </select>
+            </div>
+          </div>
+          <div class="modal-action">
+            <button id="btn-display-settings-apply" type="button" class="btn btn-primary btn-sm">閉じる</button>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+      </dialog>
+
+      <dialog id="load-fleet-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-2">R2から自分のデッキを読込</h3>
+          <p class="text-xs text-base-content/60 mb-4">
+            選択したデッキはワークスペースに追加されます。
+          </p>
+          <div
+            id="fleet-list-container"
+            class="space-y-2 max-h-80 overflow-y-auto"
+          >
+            <span class="loading loading-spinner loading-sm"></span>
+          </div>
+          <div class="modal-action">
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">閉じる</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Save Image Modal -->
+      <dialog id="save-image-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-4">画像保存設定</h3>
+          <div class="space-y-3 text-sm">
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">保存対象</span></label
+              >
+              <div class="flex flex-wrap gap-3">
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="both"
+                    checked
+                  />
+                  <span class="label-text">第1+第2艦隊</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet1"
+                  />
+                  <span class="label-text">第1艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet2"
+                  />
+                  <span class="label-text">第2艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet3"
+                  />
+                  <span class="label-text">第3艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="fleet4"
+                  />
+                  <span class="label-text">第4艦隊のみ</span>
+                </label>
+                <label class="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="radio"
+                    name="saveimg-fleet-target"
+                    class="radio radio-sm"
+                    value="airbase"
+                  />
+                  <span class="label-text">航空基地のみ</span>
+                </label>
+              </div>
+            </div>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input
+                id="saveimg-include-airbase"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                checked
+              />
+              <span class="label-text">基地航空隊を含める</span>
+            </label>
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input
+                id="saveimg-transparent-bg"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+              />
+              <span class="label-text">背景を透過（PNG）</span>
+            </label>
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">画質倍率</span></label
+              >
+              <select
+                id="saveimg-scale"
+                class="select select-bordered select-sm"
+              >
+                <option value="1">標準 (x1)</option>
+                <option value="2" selected>高画質 (x2)</option>
+                <option value="3">超高画質 (x3)</option>
+              </select>
+            </div>
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">ファイル名</span></label
+              >
+              <input
+                id="saveimg-filename"
+                type="text"
+                class="input input-bordered input-sm"
+                value="fleet-deck"
+              />
+            </div>
+          </div>
+          <div class="modal-action">
+            <button
+              id="btn-save-image-confirm"
+              type="button"
+              class="btn btn-primary btn-sm">PNGで保存</button
+            >
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">キャンセル</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Share Settings Modal -->
+      <dialog id="share-settings-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 class="font-bold text-lg mb-2">共有URL設定</h3>
+          <p class="text-xs text-base-content/60 mb-4">
+            共有時に含める情報を選択できます。詳細を含めるほど、URL生成が重くなる場合があります。
+          </p>
+
+          <div class="space-y-2.5 text-sm">
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input
+                id="share-include-airbase"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                checked
+              />
+              <span class="label-text">基地航空隊を含める</span>
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-2 py-0">
+              <input
+                id="share-include-detailed-stats"
+                type="checkbox"
+                class="checkbox checkbox-sm"
+                checked
+              />
+              <span class="label-text">艦娘の詳細ステータス（回避/対潜/索敵の補正値など）を含める</span>
+            </label>
+
+            <div>
+              <label class="label cursor-pointer justify-start gap-2 py-0">
+                <input
+                  id="share-include-snapshot"
+                  type="checkbox"
+                  class="checkbox checkbox-sm"
+                />
+                <span class="label-text">スナップショット情報を含める（艦娘/装備選択モーダルに反映）</span>
+              </label>
+              <p id="share-snapshot-hint" class="text-xs text-base-content/50 ml-7"></p>
+              <p class="text-xs text-base-content/45 ml-7 mt-0.5">
+                URLパラメータには含めず、短縮URLの内部保存データとして共有されます。
+              </p>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button
+              id="btn-share-confirm"
+              type="button"
+              class="btn btn-primary btn-sm"
+            >URLを生成してコピー</button>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">キャンセル</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- Workspace Add Modal -->
+      <dialog id="workspace-add-modal" class="modal">
+        <div class="modal-box rounded-xl">
+          <h3 id="workspace-modal-title" class="font-bold text-lg mb-2">ワークスペースにURLを追加</h3>
+          <p id="workspace-modal-description" class="text-xs text-base-content/60 mb-4">
+            共有URL（/s/xxxx or /simulator?data=...）を追加できます。URLを空欄のまま保存すると、現在の編成を自分のデッキとして追加します。
+          </p>
+
+          <div class="space-y-3 text-sm">
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">表示名（任意）</span></label
+              >
+              <input
+                id="workspace-entry-label"
+                type="text"
+                class="input input-bordered input-sm"
+                placeholder="例: 友軍A / E-5破砕編成"
+              />
+            </div>
+
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">メモ（任意）</span></label
+              >
+              <textarea
+                id="workspace-entry-memo"
+                class="textarea textarea-bordered textarea-sm min-h-20"
+                maxlength="300"
+                placeholder="例: 対潜重視。夜戦火力が不足しがち"
+              ></textarea>
+            </div>
+
+            <div class="form-control">
+              <label class="label py-1"
+                ><span class="label-text">共有URL or キー</span></label
+              >
+              <input
+                id="workspace-share-input"
+                type="text"
+                class="input input-bordered input-sm"
+                placeholder="https://fusou.dev/s/xxxxxxxxxxxxxxxx"
+              />
+              <p class="text-xs text-base-content/50 mt-1">
+                キーだけ（16桁hex）でも追加できます。
+              </p>
+            </div>
+          </div>
+
+          <div class="modal-action">
+            <button
+              id="btn-workspace-add-confirm"
+              type="button"
+              class="btn btn-primary btn-sm"
+            >追加して切り替え</button>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">キャンセル</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <!-- API Response Paste Dialog -->
+      <dialog id="api-paste-modal" class="modal">
+        <div class="modal-box max-w-2xl">
+          <h3 class="font-bold text-lg mb-2">APIレスポンス貼り付け</h3>
+          <p class="text-sm text-base-content/60 mb-4">
+            各エンドポイントのレスポンスJSONを貼り付けてください。<code class="text-xs">svdata=</code>プレフィックス付きでも使用可能です。
+          </p>
+
+          <!-- port -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-port">
+                <code class="text-xs">api_port/port</code>
+                <span class="text-base-content/50 ml-1">艦娘・編成</span>
+              </label>
+              <span id="api-paste-status-port" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-port"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_port/port のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-port" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <!-- require_info -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-require">
+                <code class="text-xs">api_get_member/require_info</code>
+                <span class="text-base-content/50 ml-1">装備</span>
+              </label>
+              <span id="api-paste-status-require" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-require"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_get_member/require_info のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-require" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <!-- getData -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-1">
+              <label class="text-sm font-medium" for="api-paste-master">
+                <code class="text-xs">api_start2/getData</code>
+                <span class="text-base-content/50 ml-1">マスターデータ</span>
+              </label>
+              <span id="api-paste-status-master" class="badge badge-ghost badge-sm">未読込</span>
+            </div>
+            <textarea
+              id="api-paste-master"
+              class="textarea textarea-bordered w-full h-24 font-mono text-xs"
+              placeholder="api_start2/getData のレスポンスJSON..."
+            ></textarea>
+            <p id="api-paste-message-master" class="text-xs mt-1 min-h-[1.2em]"></p>
+          </div>
+
+          <div class="modal-action">
+            <button id="btn-api-paste-apply" class="btn btn-success btn-sm">編成に反映</button>
+            <button id="btn-api-paste-reset" class="btn btn-ghost btn-sm">リセット</button>
+            <form method="dialog">
+              <button class="btn btn-ghost btn-sm">閉じる</button>
+            </form>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+    </div>
+  </div>
+</PageLayout>
+
+<script is:inline define:vars={{ accessToken: safeAccessToken }}>
+  window.__fusouAccessToken = accessToken;
+</script>
+
+<script>
+  import { initDisplaySettingsEvents, renderAll } from "./lib/airbase-renderer";
+  import { updateDataStatus, loadMasterData } from "./lib/data-loader";
+  import { initShipModalEvents, handleResizeShip } from "./lib/ship-modal";
+  import { initEquipModalEvents, handleResizeEquip } from "./lib/equip-modal";
+  import { initImageCaptureEvents } from "./lib/image-capture";
+  import { initIOEvents, loadFromUrl } from "./lib/io-handlers";
+
+  // Event listeners
+  initShipModalEvents();
+  initEquipModalEvents();
+  initDisplaySettingsEvents();
+  initImageCaptureEvents();
+  window.addEventListener("resize", () => {
+    handleResizeShip();
+    handleResizeEquip();
+  });
+
+  // Init
+  (async () => {
+    updateDataStatus();
+    const initialWorkspaceSeed = await loadFromUrl();
+    renderAll();
+    initIOEvents(initialWorkspaceSeed);
+    loadMasterData(renderAll);
+  })();
+</script>
+
+<style is:global>
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+</style>

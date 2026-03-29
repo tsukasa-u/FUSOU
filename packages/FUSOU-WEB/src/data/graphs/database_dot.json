@@ -11,6 +11,27 @@
         "structName": "PlaneInfo",
         "fields": [
           {
+            "name": "max_count",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "count",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "index",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "slotid",
             "type": "Option<OwnSlotItemId>",
             "isKey": false,
@@ -23,20 +44,6 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": true
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "cond",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
           },
           {
             "name": "uuid",
@@ -53,14 +60,7 @@
             "isEnvRef": false
           },
           {
-            "name": "max_count",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "count",
+            "name": "cond",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
@@ -92,13 +92,6 @@
             "isEnvRef": false
           },
           {
-            "name": "action_kind",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "env_uuid",
             "type": "EnvInfoId",
             "isKey": false,
@@ -106,9 +99,9 @@
             "isEnvRef": true
           },
           {
-            "name": "uuid",
-            "type": "AirBaseId",
-            "isKey": true,
+            "name": "action_kind",
+            "type": "i32",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
@@ -116,6 +109,13 @@
             "name": "distance",
             "type": "i32",
             "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "AirBaseId",
+            "isKey": true,
             "isFk": false,
             "isEnvRef": false
           }
@@ -128,294 +128,30 @@
       }
     },
     {
-      "id": "models__battle__OpeningTaisen",
+      "id": "models__battle__SupportHourai",
       "type": "schemaTableNode",
       "position": {
         "x": 0,
         "y": 0
       },
       "data": {
-        "structName": "OpeningTaisen",
+        "structName": "SupportHourai",
         "fields": [
           {
-            "name": "damage",
-            "type": "Vec<i32>",
-            "isKey": false,
+            "name": "uuid",
+            "type": "SupportHouraiId",
+            "isKey": true,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "df",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "at",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "at_eflag",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "protect_flag",
+            "name": "e_protect_flag",
             "type": "Vec<bool>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "si",
-            "type": "Vec<Option<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "OpeningTaisenId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "at_type",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "opening_taisen",
-        "recordName": "OpeningTaisen"
-      }
-    },
-    {
-      "id": "models__battle__BattleResult",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "BattleResult",
-        "fields": [
-          {
-            "name": "uuid",
-            "type": "BattleResultId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "landing_sub_value",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "drop_ship_id",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "win_rank",
-            "type": "String",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "landing_hp_now",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "landing_hp_max",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "battle_result",
-        "recordName": "BattleResult"
-      }
-    },
-    {
-      "id": "models__battle__OpeningAirAttackList",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "OpeningAirAttackList",
-        "fields": [
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "uuid",
-            "type": "OpeningAirAttackListId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "opening_air_attack",
-            "type": "Option<OpeningAirAttackId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "opening_air_attack_list",
-        "recordName": "OpeningAirAttackList"
-      }
-    },
-    {
-      "id": "models__battle__AirBaseAirAttack",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "AirBaseAirAttack",
-        "fields": [
-          {
-            "name": "f_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "squadron_plane",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "e_now_hps",
             "type": "Vec<i32>",
             "isKey": false,
@@ -425,99 +161,29 @@
           {
             "name": "f_now_hps",
             "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "AirBaseAirAttackId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_damages",
-            "type": "Option<Vec<f32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
             "name": "e_cl",
-            "type": "Option<Vec<i32>>",
+            "type": "Vec<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "e_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
+            "name": "f_cl",
+            "type": "Vec<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "f_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
+            "name": "f_protect_flag",
+            "type": "Vec<bool>",
             "isKey": false,
             "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "airbase_id",
-            "type": "AirBaseId",
-            "isKey": false,
-            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -526,13 +192,27 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": true
+          },
+          {
+            "name": "f_damage",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_damage",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ],
         "isReq": false,
         "isRes": false,
         "isDataType": true,
-        "tableName": "air_base_air_attack",
-        "recordName": "AirBaseAirAttack"
+        "tableName": "support_hourai",
+        "recordName": "SupportHourai"
       }
     },
     {
@@ -546,28 +226,21 @@
         "structName": "MidnightHougeki",
         "fields": [
           {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "damage",
+            "name": "cl",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "at",
-            "type": "Option<i32>",
+            "name": "index",
+            "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "df",
+            "name": "f_now_hps",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
@@ -581,22 +254,15 @@
             "isEnvRef": false
           },
           {
+            "name": "df",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "protect_flag",
             "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "cl",
-            "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -609,8 +275,15 @@
             "isEnvRef": false
           },
           {
-            "name": "e_now_hps",
-            "type": "Option<Vec<i32>>",
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "at",
+            "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -623,7 +296,14 @@
             "isEnvRef": false
           },
           {
-            "name": "f_now_hps",
+            "name": "e_now_hps",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "damage",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
@@ -635,6 +315,284 @@
         "isDataType": true,
         "tableName": "midnight_hougeki",
         "recordName": "MidnightHougeki"
+      }
+    },
+    {
+      "id": "models__battle__MidnightHougekiList",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "MidnightHougekiList",
+        "fields": [
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "uuid",
+            "type": "MidnightHougekiListId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_hougeki",
+            "type": "Option<MidnightHougekiId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_flare_pos",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_flare_pos",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "midnight_hougeki_list",
+        "recordName": "MidnightHougekiList"
+      }
+    },
+    {
+      "id": "models__battle__OpeningAirAttackList",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "OpeningAirAttackList",
+        "fields": [
+          {
+            "name": "uuid",
+            "type": "OpeningAirAttackListId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "opening_air_attack",
+            "type": "Option<OpeningAirAttackId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "opening_air_attack_list",
+        "recordName": "OpeningAirAttackList"
+      }
+    },
+    {
+      "id": "models__battle__CarrierBaseAssault",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "CarrierBaseAssault",
+        "fields": [
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "e_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "CarrierBaseAssaultId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "carrier_base_assault",
+        "recordName": "CarrierBaseAssault"
       }
     },
     {
@@ -677,15 +635,85 @@
       }
     },
     {
-      "id": "models__battle__FriendlySupportHourai",
+      "id": "models__battle__AirBaseAssult",
       "type": "schemaTableNode",
       "position": {
         "x": 0,
         "y": 0
       },
       "data": {
-        "structName": "FriendlySupportHourai",
+        "structName": "AirBaseAssult",
         "fields": [
+          {
+            "name": "e_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "squadron_plane",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "AirBaseAssultId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
           {
             "name": "env_uuid",
             "type": "EnvInfoId",
@@ -694,103 +722,8 @@
             "isEnvRef": true
           },
           {
-            "name": "cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "si",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "damage",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "FriendlySupportHouraiId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "df",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "at",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "f_now_hps",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "at_eflag",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "friendly_support_hourai",
-        "recordName": "FriendlySupportHourai"
-      }
-    },
-    {
-      "id": "models__battle__SupportAirattack",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "SupportAirattack",
-        "fields": [
-          {
-            "name": "f_cl",
-            "type": "Option<Vec<i32>>",
+            "type": "Vec<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -803,7 +736,21 @@
             "isEnvRef": false
           },
           {
-            "name": "e_loss_plane",
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane2",
             "type": "i32",
             "isKey": false,
             "isFk": false,
@@ -817,22 +764,8 @@
             "isEnvRef": false
           },
           {
-            "name": "f_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Option<Vec<bool>>",
+            "name": "f_loss_plane1",
+            "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -845,11 +778,11 @@
             "isEnvRef": false
           },
           {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
+            "name": "e_loss_plane1",
+            "type": "i32",
             "isKey": false,
             "isFk": false,
-            "isEnvRef": true
+            "isEnvRef": false
           },
           {
             "name": "f_bak_flag",
@@ -859,16 +792,140 @@
             "isEnvRef": false
           },
           {
-            "name": "e_bak_flag",
+            "name": "f_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "air_base_assult",
+        "recordName": "AirBaseAssult"
+      }
+    },
+    {
+      "id": "models__battle__AirBaseAirAttackList",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "AirBaseAirAttackList",
+        "fields": [
+          {
+            "name": "air_base_air_attack",
+            "type": "Option<AirBaseAirAttackId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "AirBaseAirAttackListId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "air_base_air_attack_list",
+        "recordName": "AirBaseAirAttackList"
+      }
+    },
+    {
+      "id": "models__battle__HougekiList",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "HougekiList",
+        "fields": [
+          {
+            "name": "hougeki",
+            "type": "Option<HougekiId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "HougekiListId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "hougeki_list",
+        "recordName": "HougekiList"
+      }
+    },
+    {
+      "id": "models__battle__AirBaseAirAttack",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "AirBaseAirAttack",
+        "fields": [
+          {
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_bak_flag",
             "type": "Option<Vec<Option<i32>>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "uuid",
-            "type": "SupportAirattackId",
-            "isKey": true,
+            "name": "f_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
@@ -887,27 +944,6 @@
             "isEnvRef": false
           },
           {
-            "name": "e_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "f_touch_plane",
             "type": "Option<i32>",
             "isKey": false,
@@ -915,102 +951,7 @@
             "isEnvRef": false
           },
           {
-            "name": "f_loss_plane",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "support_airattack",
-        "recordName": "SupportAirattack"
-      }
-    },
-    {
-      "id": "models__battle__Battle",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "Battle",
-        "fields": [
-          {
-            "name": "air_base_assault",
-            "type": "Option<AirBaseAssultId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "closing_raigeki",
-            "type": "Option<ClosingRaigekiId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "friend_total_damages",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "battle_result",
-            "type": "Option<BattleResultId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "midnight_e_nowhps",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "support_airattack",
-            "type": "Option<SupportAirattackId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "opening_taisen",
-            "type": "Option<OpeningTaisenListId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "support_deck_id",
-            "type": "Option<SupportDeckId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "friend_deck_id",
-            "type": "Option<FriendDeckId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "balloon_flag",
+            "name": "e_touch_plane",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
@@ -1024,45 +965,45 @@
             "isEnvRef": true
           },
           {
-            "name": "e_formation",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "cell_id",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_deck_id",
-            "type": "Option<EnemyDeckId>",
+            "name": "airbase_id",
+            "type": "Option<AirBaseId>",
             "isKey": false,
             "isFk": true,
             "isEnvRef": false
           },
           {
-            "name": "e_nowhps",
+            "name": "f_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_cl",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "e_reconnaissance",
-            "type": "Option<i32>",
+            "name": "e_protect_flag",
+            "type": "Option<Vec<bool>>",
             "isKey": false,
             "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "midnight_hougeki",
-            "type": "Option<MidnightHougekiListId>",
-            "isKey": false,
-            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -1073,37 +1014,361 @@
             "isEnvRef": false
           },
           {
-            "name": "smoke_type",
-            "type": "Option<i32>",
+            "name": "f_loss_plane1",
+            "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "f_deck_id",
-            "type": "Option<OwnDeckId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_nowhps",
+            "name": "e_plane_from",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "air_base_air_attacks",
-            "type": "Option<AirBaseAirAttackListId>",
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
             "isKey": false,
-            "isFk": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
             "isEnvRef": false
           },
           {
             "name": "uuid",
-            "type": "BattleId",
+            "type": "AirBaseAirAttackId",
             "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "squadron_plane",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "air_base_air_attack",
+        "recordName": "AirBaseAirAttack"
+      }
+    },
+    {
+      "id": "models__battle__ClosingRaigeki",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "ClosingRaigeki",
+        "fields": [
+          {
+            "name": "e_cl",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Vec<bool>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "f_dam",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "ClosingRaigekiId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_dam",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_cl",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_protect_flag",
+            "type": "Vec<bool>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "closing_raigeki",
+        "recordName": "ClosingRaigeki"
+      }
+    },
+    {
+      "id": "models__battle__FriendlySupportHourai",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "FriendlySupportHourai",
+        "fields": [
+          {
+            "name": "index",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "df",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "si",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at_eflag",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "damage",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "FriendlySupportHouraiId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "friendly_support_hourai",
+        "recordName": "FriendlySupportHourai"
+      }
+    },
+    {
+      "id": "models__battle__BattleResult",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "BattleResult",
+        "fields": [
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "landing_hp_now",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "win_rank",
+            "type": "String",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "BattleResultId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "drop_ship_id",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "landing_hp_max",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "landing_sub_value",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "battle_result",
+        "recordName": "BattleResult"
+      }
+    },
+    {
+      "id": "models__battle__Battle",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "Battle",
+        "fields": [
+          {
+            "name": "smoke_type",
+            "type": "Option<i32>",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
@@ -1122,9 +1387,72 @@
             "isEnvRef": false
           },
           {
-            "name": "f_escape_idx",
+            "name": "e_reconnaissance",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_e_nowhps",
             "type": "Option<Vec<i32>>",
             "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_deck_id",
+            "type": "Option<EnemyDeckId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "friend_deck_id",
+            "type": "Option<FriendDeckId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "opening_raigeki",
+            "type": "Option<OpeningRaigekiId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "timestamp",
+            "type": "Option<i64>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_timestamp",
+            "type": "Option<i64>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "support_deck_id",
+            "type": "Option<SupportDeckId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "BattleId",
+            "isKey": true,
             "isFk": false,
             "isEnvRef": false
           },
@@ -1136,7 +1464,28 @@
             "isEnvRef": false
           },
           {
-            "name": "midnight_e_total_damages",
+            "name": "opening_taisen",
+            "type": "Option<OpeningTaisenListId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_deck_id",
+            "type": "Option<OwnDeckId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_hougeki",
+            "type": "Option<MidnightHougekiListId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_nowhps",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
@@ -1150,22 +1499,8 @@
             "isEnvRef": false
           },
           {
-            "name": "midnight_timestamp",
-            "type": "Option<i64>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "timestamp",
-            "type": "Option<i64>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_combat_ration",
-            "type": "Option<Vec<i32>>",
+            "name": "balloon_flag",
+            "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -1178,17 +1513,10 @@
             "isEnvRef": false
           },
           {
-            "name": "opening_raigeki",
-            "type": "Option<OpeningRaigekiId>",
+            "name": "hougeki",
+            "type": "Option<HougekiListId>",
             "isKey": false,
             "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "midnight_f_total_damages",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
             "isEnvRef": false
           },
           {
@@ -1199,15 +1527,15 @@
             "isEnvRef": false
           },
           {
-            "name": "f_formation",
-            "type": "Option<i32>",
+            "name": "e_nowhps",
+            "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "hougeki",
-            "type": "Option<HougekiListId>",
+            "name": "battle_result",
+            "type": "Option<BattleResultId>",
             "isKey": false,
             "isFk": true,
             "isEnvRef": false
@@ -1220,7 +1548,14 @@
             "isEnvRef": false
           },
           {
-            "name": "f_total_damages",
+            "name": "air_base_assault",
+            "type": "Option<AirBaseAssultId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_escape_idx",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
@@ -1228,6 +1563,90 @@
           },
           {
             "name": "midnight_f_nowhps",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "support_airattack",
+            "type": "Option<SupportAirattackId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "closing_raigeki",
+            "type": "Option<ClosingRaigekiId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_formation",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "cell_id",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_total_damages",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "friend_total_damages",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_e_total_damages",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "index",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_formation",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "midnight_f_total_damages",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "air_base_air_attacks",
+            "type": "Option<AirBaseAirAttackListId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_combat_ration",
             "type": "Option<Vec<i32>>",
             "isKey": false,
             "isFk": false,
@@ -1252,20 +1671,6 @@
         "structName": "Hougeki",
         "fields": [
           {
-            "name": "at_type",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "at",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "cl",
             "type": "Vec<i32>",
             "isKey": false,
@@ -1280,39 +1685,11 @@
             "isEnvRef": false
           },
           {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "df",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "HougekiId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index_1",
+            "name": "at_type",
             "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
           },
           {
             "name": "damage",
@@ -1322,15 +1699,8 @@
             "isEnvRef": false
           },
           {
-            "name": "at_eflag",
+            "name": "at",
             "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "si",
-            "type": "Vec<Option<i32>>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -1348,6 +1718,55 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
+          },
+          {
+            "name": "df",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "index_1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "HougekiId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "si",
+            "type": "Vec<Option<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at_eflag",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
           }
         ],
         "isReq": false,
@@ -1355,955 +1774,6 @@
         "isDataType": true,
         "tableName": "hougeki",
         "recordName": "Hougeki"
-      }
-    },
-    {
-      "id": "models__battle__AirBaseAssult",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "AirBaseAssult",
-        "fields": [
-          {
-            "name": "f_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "squadron_plane",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "f_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "AirBaseAssultId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "air_base_assult",
-        "recordName": "AirBaseAssult"
-      }
-    },
-    {
-      "id": "models__battle__ClosingRaigeki",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "ClosingRaigeki",
-        "fields": [
-          {
-            "name": "uuid",
-            "type": "ClosingRaigekiId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_rai",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "e_dam",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_dam",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "closing_raigeki",
-        "recordName": "ClosingRaigeki"
-      }
-    },
-    {
-      "id": "models__battle__OpeningRaigeki",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "OpeningRaigeki",
-        "fields": [
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "OpeningRaigekiId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "f_dam",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_rai",
-            "type": "Vec<Option<Vec<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_dam",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai",
-            "type": "Vec<Option<Vec<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "opening_raigeki",
-        "recordName": "OpeningRaigeki"
-      }
-    },
-    {
-      "id": "models__battle__OpeningAirAttack",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "OpeningAirAttack",
-        "fields": [
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "air_superiority",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "airfire_use_item",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "airfire_idx",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "f_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "OpeningAirAttackId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "opening_air_attack",
-        "recordName": "OpeningAirAttack"
-      }
-    },
-    {
-      "id": "models__battle__CarrierBaseAssault",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "CarrierBaseAssault",
-        "fields": [
-          {
-            "name": "f_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_damages",
-            "type": "Option<Vec<f32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_bak_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "CarrierBaseAssaultId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Option<Vec<bool>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "e_loss_plane2",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_plane_from",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_rai_flag",
-            "type": "Option<Vec<Option<i32>>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_loss_plane1",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "carrier_base_assault",
-        "recordName": "CarrierBaseAssault"
-      }
-    },
-    {
-      "id": "models__battle__AirBaseAirAttackList",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "AirBaseAirAttackList",
-        "fields": [
-          {
-            "name": "air_base_air_attack",
-            "type": "Option<AirBaseAirAttackId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "uuid",
-            "type": "AirBaseAirAttackListId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "air_base_air_attack_list",
-        "recordName": "AirBaseAirAttackList"
-      }
-    },
-    {
-      "id": "models__battle__SupportHourai",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "SupportHourai",
-        "fields": [
-          {
-            "name": "e_damage",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "e_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_now_hps",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_protect_flag",
-            "type": "Vec<bool>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "SupportHouraiId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_damage",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "f_cl",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "support_hourai",
-        "recordName": "SupportHourai"
-      }
-    },
-    {
-      "id": "models__battle__MidnightHougekiList",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "MidnightHougekiList",
-        "fields": [
-          {
-            "name": "f_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "MidnightHougekiListId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_flare_pos",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "e_touch_plane",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "midnight_hougeki",
-            "type": "Option<MidnightHougekiId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "f_flare_pos",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "midnight_hougeki_list",
-        "recordName": "MidnightHougekiList"
       }
     },
     {
@@ -2331,13 +1801,6 @@
             "isEnvRef": true
           },
           {
-            "name": "f_flare_pos",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "uuid",
             "type": "FriendlySupportHouraiListId",
             "isKey": true,
@@ -2350,6 +1813,13 @@
             "isKey": false,
             "isFk": true,
             "isEnvRef": false
+          },
+          {
+            "name": "f_flare_pos",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ],
         "isReq": false,
@@ -2360,20 +1830,83 @@
       }
     },
     {
-      "id": "models__battle__HougekiList",
+      "id": "models__battle__OpeningTaisen",
       "type": "schemaTableNode",
       "position": {
         "x": 0,
         "y": 0
       },
       "data": {
-        "structName": "HougekiList",
+        "structName": "OpeningTaisen",
         "fields": [
           {
-            "name": "hougeki",
-            "type": "Option<HougekiId>",
+            "name": "index",
+            "type": "i32",
             "isKey": false,
-            "isFk": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "df",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at_type",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "at_eflag",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "OpeningTaisenId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "si",
+            "type": "Vec<Option<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "damage",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
             "isEnvRef": false
           },
           {
@@ -2384,9 +1917,16 @@
             "isEnvRef": true
           },
           {
-            "name": "uuid",
-            "type": "HougekiListId",
-            "isKey": true,
+            "name": "protect_flag",
+            "type": "Vec<bool>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "cl",
+            "type": "Vec<i32>",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           }
@@ -2394,8 +1934,468 @@
         "isReq": false,
         "isRes": false,
         "isDataType": true,
-        "tableName": "hougeki_list",
-        "recordName": "HougekiList"
+        "tableName": "opening_taisen",
+        "recordName": "OpeningTaisen"
+      }
+    },
+    {
+      "id": "models__battle__OpeningAirAttack",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "OpeningAirAttack",
+        "fields": [
+          {
+            "name": "f_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "air_superiority",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "index",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane2",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "OpeningAirAttackId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "f_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "airfire_use_item",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "airfire_idx",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane1",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "opening_air_attack",
+        "recordName": "OpeningAirAttack"
+      }
+    },
+    {
+      "id": "models__battle__OpeningRaigeki",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "OpeningRaigeki",
+        "fields": [
+          {
+            "name": "f_cl",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_dam",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Vec<bool>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "OpeningRaigekiId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_protect_flag",
+            "type": "Vec<bool>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai",
+            "type": "Vec<Option<Vec<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "e_cl",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai",
+            "type": "Vec<Option<Vec<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_dam",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "opening_raigeki",
+        "recordName": "OpeningRaigeki"
+      }
+    },
+    {
+      "id": "models__battle__SupportAirattack",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "SupportAirattack",
+        "fields": [
+          {
+            "name": "e_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_loss_plane",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_rai_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_touch_plane",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_protect_flag",
+            "type": "Option<Vec<bool>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "e_bak_flag",
+            "type": "Option<Vec<Option<i32>>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_cl",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "SupportAirattackId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_damages",
+            "type": "Option<Vec<f32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_loss_plane",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_now_hps",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "support_airattack",
+        "recordName": "SupportAirattack"
       }
     },
     {
@@ -2408,48 +2408,6 @@
       "data": {
         "structName": "Cells",
         "fields": [
-          {
-            "name": "uuid",
-            "type": "CellsId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "cell_index",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "maparea_id",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "mapinfo_no",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "battle_index",
-            "type": "Vec<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
           {
             "name": "battles",
             "type": "BattleId",
@@ -2465,10 +2423,52 @@
             "isEnvRef": false
           },
           {
+            "name": "battle_index",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "mapinfo_no",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "maparea_id",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
             "name": "f_deck_before_id",
             "type": "Option<OwnDeckId>",
             "isKey": false,
             "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "cell_index",
+            "type": "Vec<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "CellsId",
+            "isKey": true,
+            "isFk": false,
             "isEnvRef": false
           }
         ],
@@ -2490,6 +2490,20 @@
         "structName": "OwnDeck",
         "fields": [
           {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "combined_flag",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "ship_ids",
             "type": "Option<OwnShipId>",
             "isKey": false,
@@ -2502,12 +2516,37 @@
             "isKey": true,
             "isFk": false,
             "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "own_deck",
+        "recordName": "OwnDeck"
+      }
+    },
+    {
+      "id": "models__deck__SupportDeck",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "SupportDeck",
+        "fields": [
+          {
+            "name": "uuid",
+            "type": "SupportDeckId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
           },
           {
-            "name": "combined_flag",
-            "type": "Option<i32>",
+            "name": "ship_ids",
+            "type": "Option<OwnShipId>",
             "isKey": false,
-            "isFk": false,
+            "isFk": true,
             "isEnvRef": false
           },
           {
@@ -2521,8 +2560,8 @@
         "isReq": false,
         "isRes": false,
         "isDataType": true,
-        "tableName": "own_deck",
-        "recordName": "OwnDeck"
+        "tableName": "support_deck",
+        "recordName": "SupportDeck"
       }
     },
     {
@@ -2536,13 +2575,6 @@
         "structName": "FriendDeck",
         "fields": [
           {
-            "name": "uuid",
-            "type": "FriendDeckId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "ship_ids",
             "type": "Option<FriendShipId>",
             "isKey": false,
@@ -2555,6 +2587,13 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": true
+          },
+          {
+            "name": "uuid",
+            "type": "FriendDeckId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
           }
         ],
         "isReq": false,
@@ -2575,6 +2614,13 @@
         "structName": "EnemyDeck",
         "fields": [
           {
+            "name": "uuid",
+            "type": "EnemyDeckId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "env_uuid",
             "type": "EnvInfoId",
             "isKey": false,
@@ -2594,13 +2640,6 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "EnemyDeckId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
           }
         ],
         "isReq": false,
@@ -2608,45 +2647,6 @@
         "isDataType": true,
         "tableName": "enemy_deck",
         "recordName": "EnemyDeck"
-      }
-    },
-    {
-      "id": "models__deck__SupportDeck",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "SupportDeck",
-        "fields": [
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "ship_ids",
-            "type": "Option<OwnShipId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "uuid",
-            "type": "SupportDeckId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "support_deck",
-        "recordName": "SupportDeck"
       }
     },
     {
@@ -2660,13 +2660,6 @@
         "structName": "EnvInfo",
         "fields": [
           {
-            "name": "uuid",
-            "type": "EnvInfoId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
             "name": "version",
             "type": "String",
             "isKey": false,
@@ -2674,15 +2667,22 @@
             "isEnvRef": false
           },
           {
-            "name": "user_env_unique",
-            "type": "UserEnv",
-            "isKey": false,
+            "name": "uuid",
+            "type": "EnvInfoId",
+            "isKey": true,
             "isFk": false,
             "isEnvRef": false
           },
           {
             "name": "timestamp",
             "type": "i64",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "user_env_unique",
+            "type": "UserEnv",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
@@ -2696,85 +2696,15 @@
       }
     },
     {
-      "id": "models__ship__OwnShip",
+      "id": "models__ship__FriendShip",
       "type": "schemaTableNode",
       "position": {
         "x": 0,
         "y": 0
       },
       "data": {
-        "structName": "OwnShip",
+        "structName": "FriendShip",
         "fields": [
-          {
-            "name": "slot",
-            "type": "Option<OwnSlotItemId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "lucky",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "taiku",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "kaihi",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "sally_area",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "sp_effect_items",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "raisou",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "leng",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "nowhp",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "sakuteki",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
           {
             "name": "index",
             "type": "i32",
@@ -2783,77 +2713,35 @@
             "isEnvRef": false
           },
           {
-            "name": "lv",
-            "type": "Option<i32>",
+            "name": "mst_ship_id",
+            "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "soku",
-            "type": "Option<i32>",
+            "name": "env_uuid",
+            "type": "EnvInfoId",
             "isKey": false,
             "isFk": false,
-            "isEnvRef": false
+            "isEnvRef": true
           },
           {
             "name": "uuid",
-            "type": "OwnShipId",
+            "type": "FriendShipId",
             "isKey": true,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "slot_ex",
-            "type": "Option<OwnSlotItemId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "taisen",
+            "name": "slotnum",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "onsolot",
-            "type": "Option<Vec<i32>>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "ship_id",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "cond",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "karyoku",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "fuel",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "bull",
+            "name": "lv",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
@@ -2867,11 +2755,232 @@
             "isEnvRef": false
           },
           {
+            "name": "slot",
+            "type": "Option<FriendSlotItemId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "karyoku",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "raisou",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "taiku",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "nowhp",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "soukou",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          }
+        ],
+        "isReq": false,
+        "isRes": false,
+        "isDataType": true,
+        "tableName": "friend_ship",
+        "recordName": "FriendShip"
+      }
+    },
+    {
+      "id": "models__ship__OwnShip",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "structName": "OwnShip",
+        "fields": [
+          {
+            "name": "taisen",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "sally_area",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "kaihi",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "sp_effect_items",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "nowhp",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "slot_ex",
+            "type": "Option<OwnSlotItemId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "bull",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "env_uuid",
             "type": "EnvInfoId",
             "isKey": false,
             "isFk": false,
             "isEnvRef": true
+          },
+          {
+            "name": "index",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "ship_id",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "leng",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "raisou",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "soku",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "fuel",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "sakuteki",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "lv",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "cond",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "lucky",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "maxhp",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "karyoku",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "uuid",
+            "type": "OwnShipId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "slot",
+            "type": "Option<OwnSlotItemId>",
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "taiku",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "onsolot",
+            "type": "Option<Vec<i32>>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           },
           {
             "name": "soukou",
@@ -2913,6 +3022,20 @@
             "isEnvRef": false
           },
           {
+            "name": "soukou",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "mst_ship_id",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "uuid",
             "type": "EnemyShipId",
             "isKey": true,
@@ -2927,6 +3050,20 @@
             "isEnvRef": false
           },
           {
+            "name": "env_uuid",
+            "type": "EnvInfoId",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "lv",
+            "type": "Option<i32>",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "taiku",
             "type": "Option<i32>",
             "isKey": false,
@@ -2941,7 +3078,7 @@
             "isEnvRef": false
           },
           {
-            "name": "soukou",
+            "name": "raisou",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
@@ -2953,34 +3090,6 @@
             "isKey": false,
             "isFk": true,
             "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "mst_ship_id",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "raisou",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "lv",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
           }
         ],
         "isReq": false,
@@ -2991,29 +3100,15 @@
       }
     },
     {
-      "id": "models__ship__FriendShip",
+      "id": "models__slotitem__OwnSlotItem",
       "type": "schemaTableNode",
       "position": {
         "x": 0,
         "y": 0
       },
       "data": {
-        "structName": "FriendShip",
+        "structName": "OwnSlotItem",
         "fields": [
-          {
-            "name": "taiku",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "maxhp",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
           {
             "name": "env_uuid",
             "type": "EnvInfoId",
@@ -3022,56 +3117,7 @@
             "isEnvRef": true
           },
           {
-            "name": "mst_ship_id",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "slotnum",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "lv",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "slot",
-            "type": "Option<FriendSlotItemId>",
-            "isKey": false,
-            "isFk": true,
-            "isEnvRef": false
-          },
-          {
-            "name": "karyoku",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "raisou",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "soukou",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "nowhp",
+            "name": "alv",
             "type": "Option<i32>",
             "isKey": false,
             "isFk": false,
@@ -3086,8 +3132,22 @@
           },
           {
             "name": "uuid",
-            "type": "FriendShipId",
+            "type": "OwnSlotItemId",
             "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "level",
+            "type": "i32",
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "mst_slotitem_id",
+            "type": "i32",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           }
@@ -3095,8 +3155,8 @@
         "isReq": false,
         "isRes": false,
         "isDataType": true,
-        "tableName": "friend_ship",
-        "recordName": "FriendShip"
+        "tableName": "own_slot_item",
+        "recordName": "OwnSlotItem"
       }
     },
     {
@@ -3110,14 +3170,7 @@
         "structName": "EnemySlotItem",
         "fields": [
           {
-            "name": "uuid",
-            "type": "EnemySlotItemId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "mst_slotitem_id",
+            "name": "index",
             "type": "i32",
             "isKey": false,
             "isFk": false,
@@ -3131,7 +3184,14 @@
             "isEnvRef": true
           },
           {
-            "name": "index",
+            "name": "uuid",
+            "type": "EnemySlotItemId",
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "mst_slotitem_id",
             "type": "i32",
             "isKey": false,
             "isFk": false,
@@ -3146,66 +3206,6 @@
       }
     },
     {
-      "id": "models__slotitem__OwnSlotItem",
-      "type": "schemaTableNode",
-      "position": {
-        "x": 0,
-        "y": 0
-      },
-      "data": {
-        "structName": "OwnSlotItem",
-        "fields": [
-          {
-            "name": "uuid",
-            "type": "OwnSlotItemId",
-            "isKey": true,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "mst_slotitem_id",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "env_uuid",
-            "type": "EnvInfoId",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": true
-          },
-          {
-            "name": "level",
-            "type": "i32",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          },
-          {
-            "name": "alv",
-            "type": "Option<i32>",
-            "isKey": false,
-            "isFk": false,
-            "isEnvRef": false
-          }
-        ],
-        "isReq": false,
-        "isRes": false,
-        "isDataType": true,
-        "tableName": "own_slot_item",
-        "recordName": "OwnSlotItem"
-      }
-    },
-    {
       "id": "models__slotitem__FriendSlotItem",
       "type": "schemaTableNode",
       "position": {
@@ -3216,9 +3216,9 @@
         "structName": "FriendSlotItem",
         "fields": [
           {
-            "name": "uuid",
-            "type": "FriendSlotItemId",
-            "isKey": true,
+            "name": "mst_slotitem_id",
+            "type": "i32",
+            "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
@@ -3230,16 +3230,16 @@
             "isEnvRef": true
           },
           {
-            "name": "mst_slotitem_id",
+            "name": "index",
             "type": "i32",
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
           },
           {
-            "name": "index",
-            "type": "i32",
-            "isKey": false,
+            "name": "uuid",
+            "type": "FriendSlotItemId",
+            "isKey": true,
             "isFk": false,
             "isEnvRef": false
           }
@@ -3262,6 +3262,14 @@
       "label": "plane_info"
     },
     {
+      "id": "e-models__battle__MidnightHougekiList-midnight_hougeki-models__battle__MidnightHougeki-MidnightHougekiId",
+      "source": "models__battle__MidnightHougekiList",
+      "sourceHandle": "models__battle__MidnightHougekiList-midnight_hougeki",
+      "target": "models__battle__MidnightHougeki",
+      "targetHandle": "models__battle__MidnightHougeki-MidnightHougekiId",
+      "label": "midnight_hougeki"
+    },
+    {
       "id": "e-models__battle__OpeningAirAttackList-opening_air_attack-models__battle__OpeningAirAttack-OpeningAirAttackId",
       "source": "models__battle__OpeningAirAttackList",
       "sourceHandle": "models__battle__OpeningAirAttackList-opening_air_attack",
@@ -3278,60 +3286,20 @@
       "label": "opening_taisen"
     },
     {
-      "id": "e-models__battle__Battle-air_base_assault-models__battle__AirBaseAssult-AirBaseAssultId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-air_base_assault",
-      "target": "models__battle__AirBaseAssult",
-      "targetHandle": "models__battle__AirBaseAssult-AirBaseAssultId",
-      "label": "air_base_assault"
+      "id": "e-models__battle__AirBaseAirAttackList-air_base_air_attack-models__battle__AirBaseAirAttack-AirBaseAirAttackId",
+      "source": "models__battle__AirBaseAirAttackList",
+      "sourceHandle": "models__battle__AirBaseAirAttackList-air_base_air_attack",
+      "target": "models__battle__AirBaseAirAttack",
+      "targetHandle": "models__battle__AirBaseAirAttack-AirBaseAirAttackId",
+      "label": "air_base_air_attack"
     },
     {
-      "id": "e-models__battle__Battle-closing_raigeki-models__battle__ClosingRaigeki-ClosingRaigekiId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-closing_raigeki",
-      "target": "models__battle__ClosingRaigeki",
-      "targetHandle": "models__battle__ClosingRaigeki-ClosingRaigekiId",
-      "label": "closing_raigeki"
-    },
-    {
-      "id": "e-models__battle__Battle-battle_result-models__battle__BattleResult-BattleResultId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-battle_result",
-      "target": "models__battle__BattleResult",
-      "targetHandle": "models__battle__BattleResult-BattleResultId",
-      "label": "battle_result"
-    },
-    {
-      "id": "e-models__battle__Battle-support_airattack-models__battle__SupportAirattack-SupportAirattackId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-support_airattack",
-      "target": "models__battle__SupportAirattack",
-      "targetHandle": "models__battle__SupportAirattack-SupportAirattackId",
-      "label": "support_airattack"
-    },
-    {
-      "id": "e-models__battle__Battle-opening_taisen-models__battle__OpeningTaisenList-OpeningTaisenListId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-opening_taisen",
-      "target": "models__battle__OpeningTaisenList",
-      "targetHandle": "models__battle__OpeningTaisenList-OpeningTaisenListId",
-      "label": "opening_taisen"
-    },
-    {
-      "id": "e-models__battle__Battle-midnight_hougeki-models__battle__MidnightHougekiList-MidnightHougekiListId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-midnight_hougeki",
-      "target": "models__battle__MidnightHougekiList",
-      "targetHandle": "models__battle__MidnightHougekiList-MidnightHougekiListId",
-      "label": "midnight_hougeki"
-    },
-    {
-      "id": "e-models__battle__Battle-air_base_air_attacks-models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-air_base_air_attacks",
-      "target": "models__battle__AirBaseAirAttackList",
-      "targetHandle": "models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
-      "label": "air_base_air_attacks"
+      "id": "e-models__battle__HougekiList-hougeki-models__battle__Hougeki-HougekiId",
+      "source": "models__battle__HougekiList",
+      "sourceHandle": "models__battle__HougekiList-hougeki",
+      "target": "models__battle__Hougeki",
+      "targetHandle": "models__battle__Hougeki-HougekiId",
+      "label": "hougeki"
     },
     {
       "id": "e-models__battle__Battle-friendly_force_attack-models__battle__FriendlySupportHouraiList-FriendlySupportHouraiListId",
@@ -3350,14 +3318,6 @@
       "label": "carrier_base_assault"
     },
     {
-      "id": "e-models__battle__Battle-support_hourai-models__battle__SupportHourai-SupportHouraiId",
-      "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-support_hourai",
-      "target": "models__battle__SupportHourai",
-      "targetHandle": "models__battle__SupportHourai-SupportHouraiId",
-      "label": "support_hourai"
-    },
-    {
       "id": "e-models__battle__Battle-opening_raigeki-models__battle__OpeningRaigeki-OpeningRaigekiId",
       "source": "models__battle__Battle",
       "sourceHandle": "models__battle__Battle-opening_raigeki",
@@ -3366,12 +3326,28 @@
       "label": "opening_raigeki"
     },
     {
-      "id": "e-models__battle__Battle-opening_air_attack-models__battle__OpeningAirAttackList-OpeningAirAttackListId",
+      "id": "e-models__battle__Battle-opening_taisen-models__battle__OpeningTaisenList-OpeningTaisenListId",
       "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-opening_air_attack",
-      "target": "models__battle__OpeningAirAttackList",
-      "targetHandle": "models__battle__OpeningAirAttackList-OpeningAirAttackListId",
-      "label": "opening_air_attack"
+      "sourceHandle": "models__battle__Battle-opening_taisen",
+      "target": "models__battle__OpeningTaisenList",
+      "targetHandle": "models__battle__OpeningTaisenList-OpeningTaisenListId",
+      "label": "opening_taisen"
+    },
+    {
+      "id": "e-models__battle__Battle-midnight_hougeki-models__battle__MidnightHougekiList-MidnightHougekiListId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-midnight_hougeki",
+      "target": "models__battle__MidnightHougekiList",
+      "targetHandle": "models__battle__MidnightHougekiList-MidnightHougekiListId",
+      "label": "midnight_hougeki"
+    },
+    {
+      "id": "e-models__battle__Battle-support_hourai-models__battle__SupportHourai-SupportHouraiId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-support_hourai",
+      "target": "models__battle__SupportHourai",
+      "targetHandle": "models__battle__SupportHourai-SupportHouraiId",
+      "label": "support_hourai"
     },
     {
       "id": "e-models__battle__Battle-hougeki-models__battle__HougekiList-HougekiListId",
@@ -3382,20 +3358,52 @@
       "label": "hougeki"
     },
     {
-      "id": "e-models__battle__AirBaseAirAttackList-air_base_air_attack-models__battle__AirBaseAirAttack-AirBaseAirAttackId",
-      "source": "models__battle__AirBaseAirAttackList",
-      "sourceHandle": "models__battle__AirBaseAirAttackList-air_base_air_attack",
-      "target": "models__battle__AirBaseAirAttack",
-      "targetHandle": "models__battle__AirBaseAirAttack-AirBaseAirAttackId",
-      "label": "air_base_air_attack"
+      "id": "e-models__battle__Battle-opening_air_attack-models__battle__OpeningAirAttackList-OpeningAirAttackListId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-opening_air_attack",
+      "target": "models__battle__OpeningAirAttackList",
+      "targetHandle": "models__battle__OpeningAirAttackList-OpeningAirAttackListId",
+      "label": "opening_air_attack"
     },
     {
-      "id": "e-models__battle__MidnightHougekiList-midnight_hougeki-models__battle__MidnightHougeki-MidnightHougekiId",
-      "source": "models__battle__MidnightHougekiList",
-      "sourceHandle": "models__battle__MidnightHougekiList-midnight_hougeki",
-      "target": "models__battle__MidnightHougeki",
-      "targetHandle": "models__battle__MidnightHougeki-MidnightHougekiId",
-      "label": "midnight_hougeki"
+      "id": "e-models__battle__Battle-battle_result-models__battle__BattleResult-BattleResultId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-battle_result",
+      "target": "models__battle__BattleResult",
+      "targetHandle": "models__battle__BattleResult-BattleResultId",
+      "label": "battle_result"
+    },
+    {
+      "id": "e-models__battle__Battle-air_base_assault-models__battle__AirBaseAssult-AirBaseAssultId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-air_base_assault",
+      "target": "models__battle__AirBaseAssult",
+      "targetHandle": "models__battle__AirBaseAssult-AirBaseAssultId",
+      "label": "air_base_assault"
+    },
+    {
+      "id": "e-models__battle__Battle-support_airattack-models__battle__SupportAirattack-SupportAirattackId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-support_airattack",
+      "target": "models__battle__SupportAirattack",
+      "targetHandle": "models__battle__SupportAirattack-SupportAirattackId",
+      "label": "support_airattack"
+    },
+    {
+      "id": "e-models__battle__Battle-closing_raigeki-models__battle__ClosingRaigeki-ClosingRaigekiId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-closing_raigeki",
+      "target": "models__battle__ClosingRaigeki",
+      "targetHandle": "models__battle__ClosingRaigeki-ClosingRaigekiId",
+      "label": "closing_raigeki"
+    },
+    {
+      "id": "e-models__battle__Battle-air_base_air_attacks-models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
+      "source": "models__battle__Battle",
+      "sourceHandle": "models__battle__Battle-air_base_air_attacks",
+      "target": "models__battle__AirBaseAirAttackList",
+      "targetHandle": "models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
+      "label": "air_base_air_attacks"
     },
     {
       "id": "e-models__battle__FriendlySupportHouraiList-hourai_list-models__battle__FriendlySupportHourai-FriendlySupportHouraiId",
@@ -3404,14 +3412,6 @@
       "target": "models__battle__FriendlySupportHourai",
       "targetHandle": "models__battle__FriendlySupportHourai-FriendlySupportHouraiId",
       "label": "hourai_list"
-    },
-    {
-      "id": "e-models__battle__HougekiList-hougeki-models__battle__Hougeki-HougekiId",
-      "source": "models__battle__HougekiList",
-      "sourceHandle": "models__battle__HougekiList-hougeki",
-      "target": "models__battle__Hougeki",
-      "targetHandle": "models__battle__Hougeki-HougekiId",
-      "label": "hougeki"
     },
     {
       "id": "e-models__airbase__PlaneInfo-slotid-models__slotitem__OwnSlotItem-OwnSlotItem",
@@ -3430,12 +3430,12 @@
       "label": "airbase_id"
     },
     {
-      "id": "e-models__battle__Battle-support_deck_id-models__deck__SupportDeck-SupportDeck",
+      "id": "e-models__battle__Battle-e_deck_id-models__deck__EnemyDeck-EnemyDeck",
       "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-support_deck_id",
-      "target": "models__deck__SupportDeck",
-      "targetHandle": "models__deck__SupportDeck-SupportDeck",
-      "label": "support_deck_id"
+      "sourceHandle": "models__battle__Battle-e_deck_id",
+      "target": "models__deck__EnemyDeck",
+      "targetHandle": "models__deck__EnemyDeck-EnemyDeck",
+      "label": "e_deck_id"
     },
     {
       "id": "e-models__battle__Battle-friend_deck_id-models__deck__FriendDeck-FriendDeck",
@@ -3446,12 +3446,12 @@
       "label": "friend_deck_id"
     },
     {
-      "id": "e-models__battle__Battle-e_deck_id-models__deck__EnemyDeck-EnemyDeck",
+      "id": "e-models__battle__Battle-support_deck_id-models__deck__SupportDeck-SupportDeck",
       "source": "models__battle__Battle",
-      "sourceHandle": "models__battle__Battle-e_deck_id",
-      "target": "models__deck__EnemyDeck",
-      "targetHandle": "models__deck__EnemyDeck-EnemyDeck",
-      "label": "e_deck_id"
+      "sourceHandle": "models__battle__Battle-support_deck_id",
+      "target": "models__deck__SupportDeck",
+      "targetHandle": "models__deck__SupportDeck-SupportDeck",
+      "label": "support_deck_id"
     },
     {
       "id": "e-models__battle__Battle-f_deck_id-models__deck__OwnDeck-OwnDeck",
@@ -3494,6 +3494,14 @@
       "label": "ship_ids"
     },
     {
+      "id": "e-models__deck__SupportDeck-ship_ids-models__ship__OwnShip-OwnShip",
+      "source": "models__deck__SupportDeck",
+      "sourceHandle": "models__deck__SupportDeck-ship_ids",
+      "target": "models__ship__OwnShip",
+      "targetHandle": "models__ship__OwnShip-OwnShip",
+      "label": "ship_ids"
+    },
+    {
       "id": "e-models__deck__FriendDeck-ship_ids-models__ship__FriendShip-FriendShip",
       "source": "models__deck__FriendDeck",
       "sourceHandle": "models__deck__FriendDeck-ship_ids",
@@ -3510,19 +3518,11 @@
       "label": "ship_ids"
     },
     {
-      "id": "e-models__deck__SupportDeck-ship_ids-models__ship__OwnShip-OwnShip",
-      "source": "models__deck__SupportDeck",
-      "sourceHandle": "models__deck__SupportDeck-ship_ids",
-      "target": "models__ship__OwnShip",
-      "targetHandle": "models__ship__OwnShip-OwnShip",
-      "label": "ship_ids"
-    },
-    {
-      "id": "e-models__ship__OwnShip-slot-models__slotitem__OwnSlotItem-OwnSlotItem",
-      "source": "models__ship__OwnShip",
-      "sourceHandle": "models__ship__OwnShip-slot",
-      "target": "models__slotitem__OwnSlotItem",
-      "targetHandle": "models__slotitem__OwnSlotItem-OwnSlotItem",
+      "id": "e-models__ship__FriendShip-slot-models__slotitem__FriendSlotItem-FriendSlotItem",
+      "source": "models__ship__FriendShip",
+      "sourceHandle": "models__ship__FriendShip-slot",
+      "target": "models__slotitem__FriendSlotItem",
+      "targetHandle": "models__slotitem__FriendSlotItem-FriendSlotItem",
       "label": "slot"
     },
     {
@@ -3534,19 +3534,19 @@
       "label": "slot_ex"
     },
     {
+      "id": "e-models__ship__OwnShip-slot-models__slotitem__OwnSlotItem-OwnSlotItem",
+      "source": "models__ship__OwnShip",
+      "sourceHandle": "models__ship__OwnShip-slot",
+      "target": "models__slotitem__OwnSlotItem",
+      "targetHandle": "models__slotitem__OwnSlotItem-OwnSlotItem",
+      "label": "slot"
+    },
+    {
       "id": "e-models__ship__EnemyShip-slot-models__slotitem__EnemySlotItem-EnemySlotItem",
       "source": "models__ship__EnemyShip",
       "sourceHandle": "models__ship__EnemyShip-slot",
       "target": "models__slotitem__EnemySlotItem",
       "targetHandle": "models__slotitem__EnemySlotItem-EnemySlotItem",
-      "label": "slot"
-    },
-    {
-      "id": "e-models__ship__FriendShip-slot-models__slotitem__FriendSlotItem-FriendSlotItem",
-      "source": "models__ship__FriendShip",
-      "sourceHandle": "models__ship__FriendShip-slot",
-      "target": "models__slotitem__FriendSlotItem",
-      "targetHandle": "models__slotitem__FriendSlotItem-FriendSlotItem",
       "label": "slot"
     }
   ],

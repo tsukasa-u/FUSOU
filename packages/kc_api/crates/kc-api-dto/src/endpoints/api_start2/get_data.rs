@@ -441,6 +441,10 @@ pub struct ApiMstMapinfo {
     pub api_max_maphp: Option<i64>,
     #[serde(rename = "api_required_defeat_count")]
     pub api_required_defeat_count: Option<i64>,
+    #[serde(rename = "api_gauge_type")]
+    pub api_gauge_type: Option<i64>,
+    #[serde(rename = "api_gauge_num")]
+    pub api_gauge_num: Option<i64>,
     #[serde(rename = "api_sally_flag")]
     pub api_sally_flag: Vec<i64>,
 }

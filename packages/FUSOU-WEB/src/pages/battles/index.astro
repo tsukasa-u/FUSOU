@@ -1,0 +1,28 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import BattlesListPanel from "@/components/solid/BattlesListPanel";
+
+export const prerender = false;
+---
+
+<PageLayout title="FUSOU - Battles">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1440px] mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+        <div>
+          <h1 class="text-3xl font-bold">戦闘データ</h1>
+          <p class="text-base-content/60 mt-1">R2に保存された戦闘履歴を閲覧・分析</p>
+        </div>
+        <div class="flex gap-2">
+          <a href="/battles/map-flow" class="btn btn-outline btn-sm">マップ進行</a>
+          <a href="/battles/stats" class="btn btn-outline btn-sm">統計</a>
+        </div>
+      </div>
+
+      <BattlesListPanel client:only="solid-js" />
+    </div>
+  </div>
+</PageLayout>

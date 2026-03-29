@@ -1,0 +1,16 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import BattleDetailPanel from "@/components/solid/battle-detail/BattleDetailPanel";
+
+export const prerender = false;
+
+const { id } = Astro.params;
+---
+
+<PageLayout title="FUSOU - Battle Detail">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <BattleDetailPanel client:only="solid-js" battleId={id ?? ""} />
+  </div>
+</PageLayout>

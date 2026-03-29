@@ -34,7 +34,7 @@ proc-macro2 = "1.0.86"
 quote = "1.0.38"
 register_macro_derive_and_attr = { path = "crates/register_macro_derive_and_attr" }
 register_trait = { path = "crates/register_trait" }
-kc-api-database = { path = "crates/kc-api-database" }
+kc-api-database = { path = "crates/kc-api-database", default-features = false }
 kc-api-interface = { path = "crates/kc-api-interface" }
 kc-api-dto = { path = "crates/kc-api-dto" }
 kc-api-parser = { path = "crates/kc-api-parser" }

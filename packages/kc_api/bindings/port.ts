@@ -2,7 +2,7 @@
 
 export type Basic = { member_id: string, };
 
-export type DeckPort = { id: number, name: string, mission: Array<number>, ship: Array<number> | null, };
+export type DeckPort = { id: number, name: string, mission: Array<number>, ship: Array<number> | null, chart_seiku_value: number | null, chart_tp_value: number | null, };
 
 export type DeckPorts = { deck_ports: { [key in number]?: DeckPort }, combined_flag: number | null, };
 
@@ -16,7 +16,7 @@ export type NDock = { ship_id: number, complete_time: number, counter: number, i
 
 export type NDocks = { n_docks: Array<NDock>, };
 
-export type Ship = { id: number, ship_id: number | null, lv: number | null, exp: Array<number> | null, nowhp: number | null, maxhp: number | null, soku: number | null, leng: number | null, slot: Array<number> | null, onslot: Array<number> | null, slot_ex: number | null, fuel: number | null, bull: number | null, slotnum: number | null, cond: number | null, karyoku: Array<number> | null, raisou: Array<number> | null, taiku: Array<number> | null, soukou: Array<number> | null, kaihi: Array<number> | null, taisen: Array<number> | null, sakuteki: Array<number> | null, lucky: Array<number> | null, sally_area: number | null, sp_effect_items: SpEffectItems | null, };
+export type Ship = { id: number, ship_id: number | null, lv: number | null, exp: Array<number> | null, nowhp: number | null, maxhp: number | null, soku: number | null, leng: number | null, slot: Array<number> | null, onslot: Array<number> | null, slot_ex: number | null, fuel: number | null, bull: number | null, slotnum: number | null, cond: number | null, cond_state?: number, karyoku: Array<number> | null, raisou: Array<number> | null, taiku: Array<number> | null, soukou: Array<number> | null, kaihi: Array<number> | null, taisen: Array<number> | null, sakuteki: Array<number> | null, lucky: Array<number> | null, sally_area: number | null, sp_effect_items: SpEffectItems | null, };
 
 export type Ships = { ships: { [key in number]?: Ship }, };
 

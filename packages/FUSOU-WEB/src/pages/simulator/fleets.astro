@@ -1,0 +1,118 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+
+export const prerender = false;
+---
+
+<PageLayout title="FUSOU - Fleet List">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1440px] mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+        <div>
+          <h1 class="text-3xl font-bold">保存済み艦隊</h1>
+          <p class="text-base-content/60 mt-1">R2に保存された艦隊スナップショットの一覧</p>
+        </div>
+        <a href="/simulator" class="btn btn-primary btn-sm">新規編成</a>
+      </div>
+
+      <!-- Fleet List -->
+      <div class="card bg-base-100 shadow-sm">
+        <div class="card-body p-0">
+          <div class="overflow-x-auto">
+            <table class="table table-zebra table-sm">
+              <thead>
+                <tr>
+                  <th>タグ名</th>
+                  <th>保存日時</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="fleet-list-body">
+                <tr>
+                  <td colspan="3" class="text-center py-12">
+                    <span class="loading loading-spinner loading-md"></span>
+                    <p class="mt-2 text-base-content/40">読込中...</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</PageLayout>
+
+<script>
+  function renderMessageRow(message: string, className = "text-base-content/40") {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 3;
+    td.className = `text-center py-12 ${className}`;
+    td.textContent = message;
+    tr.appendChild(td);
+    return tr;
+  }
+
+  function renderFleetRow(tag: string) {
+    const tr = document.createElement("tr");
+    tr.className = "hover";
+
+    const tagTd = document.createElement("td");
+    tagTd.className = "font-mono";
+    tagTd.textContent = tag;
+
+    const savedAtTd = document.createElement("td");
+    savedAtTd.className = "text-base-content/40";
+    savedAtTd.textContent = "-";
+
+    const actionsTd = document.createElement("td");
+    actionsTd.className = "flex gap-1";
+
+    const openLink = document.createElement("a");
+    openLink.href = `/simulator?fleet=${encodeURIComponent(tag)}`;
+    openLink.className = "btn btn-primary btn-xs";
+    openLink.textContent = "シミュレータで開く";
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "btn btn-ghost btn-xs btn-delete";
+    deleteButton.dataset.tag = tag;
+    deleteButton.textContent = "削除";
+
+    actionsTd.appendChild(openLink);
+    actionsTd.appendChild(deleteButton);
+    tr.appendChild(tagTd);
+    tr.appendChild(savedAtTd);
+    tr.appendChild(actionsTd);
+    return tr;
+  }
+
+  async function loadFleets() {
+    const tbody = document.getElementById("fleet-list-body")!;
+
+    try {
+      const res = await fetch("/api/fleet/snapshots/list");
+      if (!res.ok) {
+        tbody.replaceChildren(renderMessageRow("読込に失敗しました", "text-error"));
+        return;
+      }
+
+      const data = (await res.json()) as { tags: string[] };
+      if (!data.tags || data.tags.length === 0) {
+        tbody.replaceChildren(renderMessageRow("保存された艦隊データがありません"));
+        return;
+      }
+
+      tbody.replaceChildren(...data.tags.map((tag) => renderFleetRow(tag)));
+    } catch (err) {
+      console.error("Failed to load fleet list:", err);
+      tbody.replaceChildren(renderMessageRow("読込エラー", "text-error"));
+    }
+  }
+
+  loadFleets();
+</script>

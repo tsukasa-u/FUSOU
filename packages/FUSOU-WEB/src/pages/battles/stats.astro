@@ -1,0 +1,25 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import BattleStatsPanel from "@/components/solid/BattleStatsPanel";
+
+export const prerender = false;
+---
+
+<PageLayout title="FUSOU - Statistics">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1440px] mx-auto px-4 py-8">
+      <!-- Header -->
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+        <div>
+          <h1 class="text-3xl font-bold">統計ダッシュボード</h1>
+          <p class="text-base-content/60 mt-1">戦闘データの統計情報を可視化</p>
+        </div>
+        <a href="/battles" class="btn btn-ghost btn-sm">← 戦闘一覧</a>
+      </div>
+
+      <BattleStatsPanel client:only="solid-js" />
+    </div>
+  </div>
+</PageLayout>

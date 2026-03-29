@@ -2,8 +2,14 @@
 import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
 import { Icon } from "astro-icon/components";
 import type { AuthResponse } from "@supabase/supabase-js";
+
+const STORED_TOKEN_COOKIE_OPTIONS = {
+  ...SECURE_COOKIE_OPTIONS,
+  sameSite: "lax" as const,
+};
 
 const cookies = Astro.cookies;
 const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
@@ -27,10 +33,26 @@ if (
   !storedProviderToken ||
   !storedProviderRefreshToken
 ) {
-  cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
-  cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
-  cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
-  cookies.set("stored-sb-provider-refresh-token", { data: [] }, { path: "/" });
+  cookies.set(
+    "stored-sb-access-token",
+    { data: [] },
+    STORED_TOKEN_COOKIE_OPTIONS,
+  );
+  cookies.set(
+    "stored-sb-refresh-token",
+    { data: [] },
+    STORED_TOKEN_COOKIE_OPTIONS,
+  );
+  cookies.set(
+    "stored-sb-provider-token",
+    { data: [] },
+    STORED_TOKEN_COOKIE_OPTIONS,
+  );
+  cookies.set(
+    "stored-sb-provider-refresh-token",
+    { data: [] },
+    STORED_TOKEN_COOKIE_OPTIONS,
+  );
   storedAccessToken = cookies.get("stored-sb-access-token");
   storedRefreshToken = cookies.get("stored-sb-refresh-token");
   storedProviderToken = cookies.get("stored-sb-provider-token");
@@ -135,22 +157,22 @@ if (
 cookies.set(
   "stored-sb-access-token",
   { data: validAccessTokenList },
-  { path: "/" }
+  STORED_TOKEN_COOKIE_OPTIONS,
 );
 cookies.set(
   "stored-sb-refresh-token",
   { data: validRefreshTokenList },
-  { path: "/" }
+  STORED_TOKEN_COOKIE_OPTIONS,
 );
 cookies.set(
   "stored-sb-provider-token",
   { data: validProviderTokenList },
-  { path: "/" }
+  STORED_TOKEN_COOKIE_OPTIONS,
 );
 cookies.set(
   "stored-sb-provider-refresh-token",
   { data: validProviderRefreshTokenList },
-  { path: "/" }
+  STORED_TOKEN_COOKIE_OPTIONS,
 );
 ---
 
@@ -204,23 +226,6 @@ cookies.set(
                         </form>
                       )}
                     </div>
-                    <astro-data-account-info
-                      class="hidden"
-                      data-access-token={session?.data.session?.access_token}
-                      data-refresh-token={session?.data.session?.refresh_token}
-                      data-provider-token={validProviderTokenList[idx]}
-                      data-provider-refresh-token={
-                        validProviderRefreshTokenList[idx]
-                      }
-                      data-provider={
-                        session?.data.session?.user.app_metadata.provider
-                      }
-                      data-username={
-                        session?.data.session?.user.user_metadata.name
-                      }
-                      data-email={session?.data.user?.email}
-                      data-date={Date.now()}
-                    />
                   </li>
                 );
               })
@@ -257,39 +262,4 @@ cookies.set(
   </div>
 </Layout>
 
-<script>
-  import { createUniqueId } from "solid-js";
-  import {
-    resetSession,
-    setSession,
-  } from "../components/states/persistentSupabaseSessionAtom";
-  resetSession();
 
-  class AstroDataAccountInfo extends HTMLElement {
-    constructor() {
-      super();
-      const accessToken = this.dataset.accessToken!;
-      const refreshToken = this.dataset.refreshToken!;
-      const email = this.dataset.email!;
-      const provider = this.dataset.provider!;
-      const username = this.dataset.username!;
-      const providerToken = this.dataset.providerToken!;
-      const providerRefreshToken = this.dataset.providerRefreshToken!;
-      const date = this.dataset.date!;
-
-      setSession({
-        id: createUniqueId(),
-        accessToken,
-        refreshToken,
-        email,
-        provider,
-        username,
-        providerToken,
-        providerRefreshToken,
-        date,
-      });
-    }
-  }
-
-  customElements.define("astro-data-account-info", AstroDataAccountInfo);
-</script>

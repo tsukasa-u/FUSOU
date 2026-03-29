@@ -35,6 +35,8 @@ pub struct MstMapInfo {
     pub item: Vec<i32>,
     pub max_maphp: Option<i32>,
     pub required_defeat_count: Option<i32>,
+    pub gauge_type: Option<i32>,
+    pub gauge_num: Option<i32>,
     pub sally_flag: Vec<i32>,
 }
 

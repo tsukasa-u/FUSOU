@@ -2,17 +2,17 @@
 
 export type MstEquipExslot = { equip: number, };
 
-export type MstEquipExslotShip = { ship_ids: { [key in string]?: number } | null, stypes: { [key in string]?: number } | null, ctypes: { [key in string]?: number } | null, req_level: number, };
+export type MstEquipExslotShip = { slotitem_id: number, ship_ids: { [key in string]?: number } | null, stypes: { [key in string]?: number } | null, ctypes: { [key in string]?: number } | null, req_level: number, };
 
 export type MstEquipExslotShips = { mst_equip_ships: { [key in string]?: MstEquipExslotShip }, };
 
 export type MstEquipExslots = { mst_equip_exslots: { [key in number]?: MstEquipExslot }, };
 
-export type MstEquipLimitExslot = { equip: Array<number>, };
+export type MstEquipLimitExslot = { ship_id: number, equip: Array<number>, };
 
 export type MstEquipLimitExslots = { mst_equip_limit_exslots: { [key in number]?: MstEquipLimitExslot }, };
 
-export type MstEquipShip = { equip_type: { [key in string]?: Array<number> | null }, };
+export type MstEquipShip = { ship_id: number, equip_type: { [key in string]?: Array<number> | null }, };
 
 export type MstEquipShips = { mst_equip_ships: { [key in number]?: MstEquipShip }, };
 
@@ -20,7 +20,7 @@ export type MstMapArea = { api_id: number, api_name: string, api_type: number, }
 
 export type MstMapAreas = { mst_map_areas: { [key in number]?: MstMapArea }, };
 
-export type MstMapInfo = { id: number, maparea_id: number, no: number, name: string, level: number, opetext: string, infotext: string, item: Array<number>, max_maphp: number | null, required_defeat_count: number | null, sally_flag: Array<number>, };
+export type MstMapInfo = { id: number, maparea_id: number, no: number, name: string, level: number, opetext: string, infotext: string, item: Array<number>, max_maphp: number | null, required_defeat_count: number | null, gauge_type: number | null, gauge_num: number | null, sally_flag: Array<number>, };
 
 export type MstMapInfos = { mst_map_infos: { [key in number]?: MstMapInfo }, };
 
