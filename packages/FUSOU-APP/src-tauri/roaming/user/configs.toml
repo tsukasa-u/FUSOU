@@ -11,6 +11,9 @@ allow_save_api_responses = true
 # Whether to save KanColle resources such as images and metadata
 allow_save_resources = true
 
+# Whether to save only main.js locally (JS is not uploaded by asset sync)
+allow_save_main_js_local = true
+
 # The location to save files
 # The default location is under the user's Documents directory
 # to use the default location, leave this empty
