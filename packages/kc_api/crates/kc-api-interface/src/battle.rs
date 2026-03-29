@@ -251,6 +251,12 @@ pub struct AirBaseAssult {
     pub squadron_count: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_stage1_count: Option<i64>,
+    pub f_sprite_crash_stage2_count: Option<i64>,
+    pub e_sprite_crash_stage1_count: Option<i64>,
+    pub e_sprite_crash_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

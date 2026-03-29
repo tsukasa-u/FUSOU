@@ -20,20 +20,6 @@ pub type OwnShipId = Uuid;
 pub type EnemyShipId = Uuid;
 pub type FriendShipId = Uuid;
 
-#[cfg(feature = "schema_v0_5")]
-fn calc_cond_state(cond: i32) -> i32 {
-    // 0: red fatigue, 1: orange fatigue, 2: normal,
-    // 3: sparkle(low), 4: sparkle(mid), 5: sparkle(high)
-    match cond {
-        i32::MIN..=19 => 0,
-        20..=29 => 1,
-        30..=49 => 2,
-        50..=57 => 3,
-        58..=70 => 4,
-        _ => 5,
-    }
-}
-
 #[derive(
     Debug,
     Clone,
@@ -198,7 +184,7 @@ impl OwnShip {
             bull: ship.bull.map(|value| value as i32),
             cond: ship.cond.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            cond_state: ship.cond.map(|value| calc_cond_state(value as i32)),
+            cond_state: ship.cond_state.map(|value| value as i32),
             #[cfg(feature = "schema_v0_4")]
             karyoku: ship
                 .karyoku

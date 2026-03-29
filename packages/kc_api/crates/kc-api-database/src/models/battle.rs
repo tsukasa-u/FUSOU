@@ -21,19 +21,6 @@ use kc_api_interface::air_base::AirBases;
 use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::ship::Ships;
 
-#[cfg(feature = "schema_v0_5")]
-mod sprite_metrics;
-#[cfg(feature = "schema_v0_5")]
-use sprite_metrics::{
-    count_friend_sprite_fly_from_airbase_squadrons,
-    count_friend_sprite_fly_from_optional_airbase_squadrons,
-    count_sprite_fly_from_plane_from,
-    count_support_friend_sprite_fly_from_ship_ids,
-    SpriteCapacityContext,
-    StageSpriteMetrics,
-    SupportSpriteMetrics,
-};
-
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type BattleId = Uuid;
@@ -666,10 +653,6 @@ impl OpeningAirAttackList {
         data: Vec<Option<kc_api_interface::battle::OpeningAirAttack>>,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-        #[cfg(feature = "schema_v0_5")]
-        f_ship_sprite_capacity: Option<Vec<Option<i32>>>,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<Vec<Option<i32>>>,
     ) -> Option<()> {
         if data.iter().all(|x| x.is_none()) {
             return None;
@@ -688,10 +671,6 @@ impl OpeningAirAttackList {
                         table,
                         env_uuid,
                         opening_air_attack_index,
-                        #[cfg(feature = "schema_v0_5")]
-                        f_ship_sprite_capacity.as_ref(),
-                        #[cfg(feature = "schema_v0_5")]
-                        e_ship_sprite_capacity.as_ref(),
                     ),
                     None => None,
                 },
@@ -775,17 +754,7 @@ impl OpeningAirAttack {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
-        #[cfg(feature = "schema_v0_5")]
-        f_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
     ) -> Option<()> {
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_metrics = StageSpriteMetrics::from_fly_counts(
-            count_sprite_fly_from_plane_from(data.f_damage.plane_from.as_ref(), f_ship_sprite_capacity),
-            count_sprite_fly_from_plane_from(data.e_damage.plane_from.as_ref(), e_ship_sprite_capacity),
-        );
-
         let new_data = OpeningAirAttack {
             env_uuid,
             uuid,
@@ -817,17 +786,17 @@ impl OpeningAirAttack {
                 .map(|fire| fire.use_item.into_iter().map(|value| value as i32).collect()),
             air_superiority: data.air_superiority.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_fly_count: sprite_metrics.f_fly_count,
+            f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_fly_count: sprite_metrics.e_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage1_count: sprite_metrics.f_crash_stage1_count,
+            f_sprite_crash_stage1_count: data.f_sprite_crash_count_stage1.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage2_count: sprite_metrics.f_crash_stage2_count,
+            f_sprite_crash_stage2_count: data.f_sprite_crash_count_stage2.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage1_count: sprite_metrics.e_crash_stage1_count,
+            e_sprite_crash_stage1_count: data.e_sprite_crash_count_stage1.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage2_count: sprite_metrics.e_crash_stage2_count,
+            e_sprite_crash_stage2_count: data.e_sprite_crash_count_stage2.map(|value| value as i32),
         };
 
         table.opening_airattack.push(new_data);
@@ -860,8 +829,6 @@ impl AirBaseAirAttackList {
         table: &mut PortTable,
         dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<Vec<Option<i32>>>,
     ) -> Option<()> {
         let new_air_base_air_attack = Uuid::new_v7(ts);
         let result = data
@@ -877,8 +844,6 @@ impl AirBaseAirAttackList {
                     dedup,
                     env_uuid,
                     air_base_air_attack_index,
-                    #[cfg(feature = "schema_v0_5")]
-                    e_ship_sprite_capacity.as_ref(),
                 )
             })
             .collect::<Vec<_>>();
@@ -960,15 +925,7 @@ impl AirBaseAirAttack {
         dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
         index: usize,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
     ) -> Option<()> {
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_metrics = StageSpriteMetrics::from_fly_counts(
-            count_friend_sprite_fly_from_optional_airbase_squadrons(data.squadron_count.as_ref()),
-            count_sprite_fly_from_plane_from(data.e_damage.plane_from.as_ref(), e_ship_sprite_capacity),
-        );
-
         let air_bases = AirBases::load();
         let air_base = match air_bases.bases.get(&(data.base_id).to_string()) {
             Some(air_base) => air_base,
@@ -1026,17 +983,17 @@ impl AirBaseAirAttack {
             airbase_id: new_airbase_id,
             squadron_plane: data.squadron_plane.into_i32(),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_fly_count: sprite_metrics.f_fly_count,
+            f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_fly_count: sprite_metrics.e_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage1_count: sprite_metrics.f_crash_stage1_count,
+            f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage2_count: sprite_metrics.f_crash_stage2_count,
+            f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage1_count: sprite_metrics.e_crash_stage1_count,
+            e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage2_count: sprite_metrics.e_crash_stage2_count,
+            e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
         };
 
         table.airbase_airattack.push(new_data);
@@ -1100,15 +1057,7 @@ impl AirBaseAssult {
         data: kc_api_interface::battle::AirBaseAssult,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
     ) -> Option<()> {
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_metrics = StageSpriteMetrics::from_fly_counts(
-            Some(count_friend_sprite_fly_from_airbase_squadrons(&data.squadron_count)),
-            count_sprite_fly_from_plane_from(data.e_damage.plane_from.as_ref(), e_ship_sprite_capacity),
-        );
-
         let new_data = AirBaseAssult {
             env_uuid,
             uuid,
@@ -1148,17 +1097,17 @@ impl AirBaseAssult {
                 .map(|value| value as i32)
                 .collect(),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_fly_count: sprite_metrics.f_fly_count,
+            f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_fly_count: sprite_metrics.e_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage1_count: sprite_metrics.f_crash_stage1_count,
+            f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage2_count: sprite_metrics.f_crash_stage2_count,
+            f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage1_count: sprite_metrics.e_crash_stage1_count,
+            e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage2_count: sprite_metrics.e_crash_stage2_count,
+            e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
         };
 
         table.airbase_assult.push(new_data);
@@ -1221,17 +1170,7 @@ impl CarrierBaseAssault {
         data: kc_api_interface::battle::CarrierBaseAssault,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-        #[cfg(feature = "schema_v0_5")]
-        f_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
     ) -> Option<()> {
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_metrics = StageSpriteMetrics::from_fly_counts(
-            count_sprite_fly_from_plane_from(data.f_damage.plane_from.as_ref(), f_ship_sprite_capacity),
-            count_sprite_fly_from_plane_from(data.e_damage.plane_from.as_ref(), e_ship_sprite_capacity),
-        );
-
         let new_data = CarrierBaseAssault {
             env_uuid,
             uuid,
@@ -1266,17 +1205,17 @@ impl CarrierBaseAssault {
                 .map(|value| value as i32)
                 .collect(),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_fly_count: sprite_metrics.f_fly_count,
+            f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_fly_count: sprite_metrics.e_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage1_count: sprite_metrics.f_crash_stage1_count,
+            f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage2_count: sprite_metrics.f_crash_stage2_count,
+            f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage1_count: sprite_metrics.e_crash_stage1_count,
+            e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage2_count: sprite_metrics.e_crash_stage2_count,
+            e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
         };
 
         table.carrierbase_assault.push(new_data);
@@ -1422,8 +1361,6 @@ impl SupportAirattack {
         data: kc_api_interface::battle::SupportAiratack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-        #[cfg(feature = "schema_v0_5")]
-        e_ship_sprite_capacity: Option<&Vec<Option<i32>>>,
     ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
@@ -1449,12 +1386,6 @@ impl SupportAirattack {
         let f_damage = data.f_damage;
         let e_damage = data.e_damage;
 
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_metrics = SupportSpriteMetrics::from_fly_counts(
-            count_support_friend_sprite_fly_from_ship_ids(&data.ship_id),
-            count_sprite_fly_from_plane_from(e_damage.plane_from.as_ref(), e_ship_sprite_capacity),
-        );
-
         let new_data = SupportAirattack {
             env_uuid,
             uuid,
@@ -1477,13 +1408,13 @@ impl SupportAirattack {
             e_protect_flag: e_damage.protect_flag,
             e_now_hps: e_damage.now_hps.into_i32(),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_fly_count: sprite_metrics.f_fly_count,
+            f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_fly_count: sprite_metrics.e_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_count: sprite_metrics.f_crash_count,
+            f_sprite_crash_count: data.f_sprite_crash_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_count: sprite_metrics.e_crash_count,
+            e_sprite_crash_count: data.e_sprite_crash_count.map(|value| value as i32),
         };
         table.support_airattack.push(new_data);
 
@@ -1753,9 +1684,6 @@ impl Battle {
         env_uuid: EnvInfoId,
         index: usize,
     ) {
-        #[cfg(feature = "schema_v0_5")]
-        let sprite_capacity = SpriteCapacityContext::from_battle(&data);
-
         let new_battle_order: Vec<i32> = data
             .clone()
             .battle_order
@@ -1809,15 +1737,7 @@ impl Battle {
             data.clone()
                 .air_base_assault
                 .and_then(|assult| {
-                    AirBaseAssult::new_ret_option(
-                        ts,
-                        uuid,
-                        assult,
-                        table,
-                        env_uuid,
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.e_air_unit_jet.as_ref(),
-                    )
+                    AirBaseAssult::new_ret_option(ts, uuid, assult, table, env_uuid)
                 })
                 .map(|_| uuid)
         };
@@ -1826,17 +1746,7 @@ impl Battle {
             data.clone()
                 .carrier_base_assault
                 .and_then(|assult| {
-                    CarrierBaseAssault::new_ret_option(
-                        ts,
-                        uuid,
-                        assult,
-                        table,
-                        env_uuid,
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.f_air_war_jet.as_ref(),
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.e_air_war_jet.as_ref(),
-                    )
+                    CarrierBaseAssault::new_ret_option(ts, uuid, assult, table, env_uuid)
                 })
                 .map(|_| uuid)
         };
@@ -1845,16 +1755,7 @@ impl Battle {
             data.clone()
                 .air_base_air_attacks
                 .and_then(|attacks| {
-                    AirBaseAirAttackList::new_ret_option(
-                        ts,
-                        uuid,
-                        attacks,
-                        table,
-                        dedup,
-                        env_uuid,
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.e_air_unit.clone(),
-                    )
+                    AirBaseAirAttackList::new_ret_option(ts, uuid, attacks, table, dedup, env_uuid)
                 })
                 .map(|_| uuid)
         };
@@ -1863,17 +1764,7 @@ impl Battle {
             data.clone()
                 .opening_air_attack
                 .and_then(|attack| {
-                    OpeningAirAttackList::new_ret_option(
-                        ts,
-                        uuid,
-                        attack,
-                        table,
-                        env_uuid,
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.f_air_war.clone(),
-                        #[cfg(feature = "schema_v0_5")]
-                        sprite_capacity.e_air_war.clone(),
-                    )
+                    OpeningAirAttackList::new_ret_option(ts, uuid, attack, table, env_uuid)
                 })
                 .map(|_| uuid)
         };
@@ -1896,15 +1787,7 @@ impl Battle {
                 .clone()
                 .and_then(|attack| {
                     attack.support_airatack.and_then(|airattack| {
-                        SupportAirattack::new_ret_option(
-                            ts,
-                            uuid,
-                            airattack,
-                            table,
-                            env_uuid,
-                            #[cfg(feature = "schema_v0_5")]
-                            sprite_capacity.e_air_war.as_ref(),
-                        )
+                        SupportAirattack::new_ret_option(ts, uuid, airattack, table, env_uuid)
                     })
                 })
                 .map(|_| uuid)

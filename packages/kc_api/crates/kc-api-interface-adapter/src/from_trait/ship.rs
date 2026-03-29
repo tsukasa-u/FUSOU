@@ -3,6 +3,17 @@ use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::ship::{Ship, Ships, SpEffectItem, SpEffectItems};
 use std::collections::HashMap;
 
+fn calc_cond_state(cond: i64) -> i64 {
+    match cond {
+        i64::MIN..=19 => 0,
+        20..=29 => 1,
+        30..=49 => 2,
+        50..=57 => 3,
+        58..=70 => 4,
+        _ => 5,
+    }
+}
+
 impl From<Vec<kcapi_main::api_port::port::ApiShip>> for InterfaceWrapper<Ships> {
     fn from(ships: Vec<kcapi_main::api_port::port::ApiShip>) -> Self {
         let mut ship_map = HashMap::<i64, Ship>::with_capacity(ships.len());
@@ -31,6 +42,7 @@ impl From<kcapi_main::api_port::port::ApiShip> for InterfaceWrapper<Ship> {
             bull: Some(ship.api_bull),
             slotnum: Some(ship.api_slotnum),
             cond: Some(ship.api_cond),
+            cond_state: Some(calc_cond_state(ship.api_cond)),
             karyoku: Some(ship.api_karyoku),
             raisou: Some(ship.api_raisou),
             taiku: Some(ship.api_taiku),
@@ -155,6 +167,7 @@ impl From<kcapi_main::api_req_hokyu::charge::ApiData> for InterfaceWrapper<Ships
                     bull: Some(ship.api_bull),
                     slotnum: None,
                     cond: None,
+                    cond_state: None,
                     karyoku: None,
                     raisou: None,
                     taiku: None,
