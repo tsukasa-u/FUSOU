@@ -9,6 +9,8 @@ import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
 import rehypeMermaid from "rehype-mermaid";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 
 /**
  * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
@@ -222,11 +224,11 @@ export default defineConfig({
     },
   },
   markdown: {
-    remarkPlugins: [remarkCallout],
+    remarkPlugins: [remarkCallout, remarkMath],
     syntaxHighlight: {
       type: "shiki",
       excludeLangs: ["mermaid", "js"],
     },
-    rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }]],
+    rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
   },
 });
