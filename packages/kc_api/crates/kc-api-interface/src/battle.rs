@@ -242,6 +242,7 @@ pub struct CarrierBaseAssault {
 #[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAssult {
     pub squadron_plane: Vec<i64>,
+    pub squadron_count: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
@@ -257,6 +258,7 @@ pub struct AirBaseAirAttacks {
 pub struct AirBaseAirAttack {
     pub stage_flag: Vec<i64>,
     pub squadron_plane: Option<Vec<Option<i64>>>,
+    pub squadron_count: Option<Vec<Option<i64>>>,
     pub base_id: i64,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,

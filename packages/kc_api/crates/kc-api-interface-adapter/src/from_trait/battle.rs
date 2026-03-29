@@ -71,14 +71,22 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
             air_base_air_attack.api_stage3.clone(),
             air_base_air_attack.api_stage3_combined.clone(),
         );
+        let squadron_plane_src = air_base_air_attack.api_squadron_plane.clone();
         Self(AirBaseAirAttack {
             stage_flag: air_base_air_attack.api_stage_flag,
-            squadron_plane: air_base_air_attack
-                .api_squadron_plane
+            squadron_plane: squadron_plane_src
+                .clone()
                 .map(|squadron_planes| {
                     squadron_planes
                         .iter()
                         .map(|squadron_plane| squadron_plane.api_mst_id)
+                        .collect()
+                }),
+            squadron_count: squadron_plane_src
+                .map(|squadron_planes| {
+                    squadron_planes
+                        .iter()
+                        .map(|squadron_plane| squadron_plane.api_count)
                         .collect()
                 }),
             base_id: air_base_air_attack.api_base_id,
@@ -705,6 +713,11 @@ impl From<kcapi_common::common_air::ApiAirBaseInjection> for InterfaceWrapper<Ai
                 .api_air_base_data
                 .iter()
                 .map(|air_base_data| air_base_data.api_mst_id)
+                .collect(),
+            squadron_count: air_base_injection
+                .api_air_base_data
+                .iter()
+                .map(|air_base_data| air_base_data.api_count)
                 .collect(),
             f_damage,
             e_damage,
