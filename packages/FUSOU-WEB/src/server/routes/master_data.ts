@@ -14,7 +14,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 // Allowed master data table names
 // MUST match client's GetDataTableEncode struct exactly (kc_api::database::table)
-// All 13 tables that clients provide
+// All supported master tables that clients provide
 const ALLOWED_MASTER_TABLES = new Set([
   "mst_ship",
   "mst_shipgraph",

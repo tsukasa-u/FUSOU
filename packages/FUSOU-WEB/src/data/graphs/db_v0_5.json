@@ -113,6 +113,102 @@
             "isEnvRef": false
           },
           {
+            "name": "event_map_max_maphp",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_now_maphp",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_dmg",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_gauge_type",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_gauge_num",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_state",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "event_map_selected_rank",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "happening_counts",
+            "type": "int?[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "happening_mst_ids",
+            "type": "int?[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "happening_dentans",
+            "type": "int?[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "itemget_ids",
+            "type": "int[][]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "itemget_counts",
+            "type": "int[][]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "f_deck_before_id",
             "type": "uuid?",
             "isUuid": true,
@@ -549,6 +645,14 @@
             "isEnvRef": false
           },
           {
+            "name": "cond_state",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
             "name": "karyoku",
             "type": "int?",
             "isUuid": false,
@@ -901,6 +1005,22 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
+          },
+          {
+            "name": "chart_seiku_value",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "chart_tp_value",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ]
       }
@@ -938,6 +1058,22 @@
             "isUuid": true,
             "isKey": false,
             "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "chart_seiku_value",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "chart_tp_value",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
             "isEnvRef": false
           }
         ]
@@ -1096,7 +1232,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1176,7 +1312,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1233,6 +1369,54 @@
           {
             "name": "squadron_plane",
             "type": "int?[]?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1348,7 +1532,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1428,7 +1612,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1469,6 +1653,54 @@
           {
             "name": "e_now_hps",
             "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1538,7 +1770,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1618,7 +1850,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1659,6 +1891,54 @@
           {
             "name": "e_now_hps",
             "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2354,7 +2634,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2434,7 +2714,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2499,6 +2779,54 @@
           {
             "name": "air_superiority",
             "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_stage2_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage1_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_stage2_count",
+            "type": "int",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2864,7 +3192,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2936,7 +3264,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2977,6 +3305,38 @@
           {
             "name": "e_now_hps",
             "type": "int[]",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_fly_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_crash_count",
+            "type": "int",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_crash_count",
+            "type": "int",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -4196,6 +4556,20 @@
           },
           {
             "name": "required_defeat_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "gauge_type",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "gauge_num",
             "type": "int?",
             "isUuid": false,
             "isKey": false,

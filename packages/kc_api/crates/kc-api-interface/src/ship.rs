@@ -41,6 +41,8 @@ pub struct Ship {
     pub bull: Option<i64>,          // 弾薬
     pub slotnum: Option<i64>,       // 装備スロット数
     pub cond: Option<i64>,          // 疲労度
+    #[ts(optional)]
+    pub cond_state: Option<i64>,    // 0:red,1:orange,2:normal,3:kiralow,4:kiramid,5:kirahigh
     pub karyoku: Option<Vec<i64>>,  // 火力
     pub raisou: Option<Vec<i64>>,   // 雷装
     pub taiku: Option<Vec<i64>>,    // 対空
@@ -112,6 +114,7 @@ impl Ships {
                         bull: ship.bull.or(v.bull),
                         slotnum: ship.slotnum.or(v.slotnum),
                         cond: ship.cond.or(v.cond),
+                        cond_state: ship.cond_state.or(v.cond_state),
                         karyoku: ship.karyoku.clone().or(v.karyoku.clone()),
                         raisou: ship.raisou.clone().or(v.raisou.clone()),
                         taiku: ship.taiku.clone().or(v.taiku.clone()),

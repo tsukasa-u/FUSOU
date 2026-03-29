@@ -1072,7 +1072,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1152,7 +1152,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1324,7 +1324,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1404,7 +1404,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1514,7 +1514,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -1594,7 +1594,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2330,7 +2330,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2410,7 +2410,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2840,7 +2840,7 @@
           },
           {
             "name": "f_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -2912,7 +2912,7 @@
           },
           {
             "name": "e_damages",
-            "type": "float[]?",
+            "type": "int[]?",
             "isUuid": false,
             "isKey": false,
             "isFk": false,
@@ -4172,6 +4172,20 @@
           },
           {
             "name": "required_defeat_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "gauge_type",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false
+          },
+          {
+            "name": "gauge_num",
             "type": "int?",
             "isUuid": false,
             "isKey": false,

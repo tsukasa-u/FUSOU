@@ -93,7 +93,7 @@ pub struct Cell {
     pub limit_state: i64,
     // pub ration_flag: Option<i64>,
     // pub select_route: Option<SelectRoute>,
-    // pub itemget: Option<Vec<Itemget>>,
+    pub itemget: Option<Vec<Itemget>>,
     pub m1: Option<i64>,
     pub destruction_battle: Option<DestructionBattle>,
     pub happening: Option<Happening>,
@@ -123,6 +123,19 @@ pub struct Eventmap {
     pub max_maphp: i64,
     pub now_maphp: i64,
     pub dmg: i64,
+    pub gauge_type: Option<i64>,
+    pub gauge_num: Option<i64>,
+    pub state: Option<i64>,
+    pub selected_rank: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
+pub struct Itemget {
+    pub usemst: i64,
+    pub id: i64,
+    pub getcount: i64,
+    pub icon_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

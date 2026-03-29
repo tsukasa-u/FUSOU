@@ -44,16 +44,16 @@
         "0ff46632d793552c3be041bdc428d48127509965905e306c7d52295a48dab36e"
       ],
       "airbase_airattack": [
-        "83c633d5de799083791b28b9007d718fa4d850a817defd2f858a87188758c39c"
+        "e6f9739da47461c3a0e1555c319dd8684cfcbb3421077cb2772928f3614e010d"
       ],
       "airbase_airattack_list": [
         "8ed6869b85264c3d911a85109f44b7490c735c8b94ca0e8355ccb7a7bd0feb02"
       ],
       "airbase_assult": [
-        "294d8981d3ce56f447818d502c083ccb240fd4d9115c86232bae759996f83cbe"
+        "f91e012ed818776d5bda8fb248c7263e8c3d455e928658a0ad5905e88ee982cd"
       ],
       "carrierbase_assault": [
-        "9da4de61cf8a112dc947ce106a6edfd43e9802ade2fbbb1fef2d0b12d415335f"
+        "168e06584311670fb2bbff7e2594a44d0e520a6434b739bc9ceb2efcdbd64836"
       ],
       "closing_raigeki": [
         "2bcf02e60aa3b4da716959f251f95c974270ebd353b44dbd25270119e307df39"
@@ -77,7 +77,7 @@
         "28befbb502f8ef0f158022a87d5bea8c33cf915f243fe2d989d9afae2eedf681"
       ],
       "opening_airattack": [
-        "5bdd8e27a965a0d51d646c0a52a7d419d3ff5033efc22482013ec82f997eceb8"
+        "51714e6985b8e7004d63dd1c57599b4f4f74597eba4df534a510f188f76fad7a"
       ],
       "opening_airattack_list": [
         "07e2be3553f272ffd79cf9ff5e5f640e900eee151ce4a2b7d68ce31d1df236c5"
@@ -92,7 +92,7 @@
         "eca30194e3e6fd6f488a7e6ff50c686d72a04d35473a0ebf5f758531700fd918"
       ],
       "support_airattack": [
-        "7c8e13ac639372298c4c9ca9b4ac8c64fd4938ff92b20b6c79e212ac28e0200b"
+        "a8a08bc7a07b0d2c57cac810f2aa534599d440be73072500a40b9351bd7beee3"
       ],
       "support_hourai": [
         "290d93fa80405a355402334185f0db07e23531f0801b9ab9e373f554485884f1"
@@ -108,7 +108,7 @@
         "847c7ff6cb68d47feeda4e36030328fe90438bb33b074e11539a83193b9e2a91"
       ],
       "cells": [
-        "6136bb7d4ed8a853ccf62292860104b9c1466b931a18091d30c0196eff98d729"
+        "8faa8f4a68870fa410f21ae1d9a5b650cbcc3c08586969f43cd3dad5d142a6c2"
       ],
       "airbase": [
         "0857d42562fab6c3a6837302951ef745151bbb61e057b3df79c7fb2386c6abbe"
@@ -126,7 +126,7 @@
         "1504862affe80b77fa95db312fedd9b8483c1e0e0429349722d753f437a4e118"
       ],
       "own_ship": [
-        "6b50045b39e88de22c0052ef98e9724f1463d0e848fbe0a155898da5ab054b93"
+        "bd02dac5912c451e4f551a3ba447515b917081eb8c5d0ced3363ef23dc668879"
       ],
       "enemy_ship": [
         "0e49e864fdb7b7fcb40a60fef55c0d919bac3ced28ec9f8e2757d9acadf718c3"
@@ -135,10 +135,10 @@
         "224059c2c16aae9932e21cf876fc75557e6b8eb7eba0576046a7bedbd643bd76"
       ],
       "own_deck": [
-        "28a6c2ea4ab9f19f7a9fd33c0db18128695f327e4649f925ac38abb52431aaaa"
+        "312cfc44f06262c6c55638956c49788a02c503f2bf296c472e9c936ac9562bd0"
       ],
       "support_deck": [
-        "638137b3a7fe66bdff70256a08f1ea027db0dcc232f08fe5cd663f216eda3efd"
+        "8b6798e8fcc3112a71ffcb4af58b04c20592ac13cfb7ec7bb870107362cf2053"
       ],
       "enemy_deck": [
         "ecc77f17ecab6b90e3c576bb6d2f5fe821adc440bef90a90dc5f57fe5da0e2d5"
@@ -147,16 +147,16 @@
         "0ff46632d793552c3be041bdc428d48127509965905e306c7d52295a48dab36e"
       ],
       "airbase_airattack": [
-        "83c633d5de799083791b28b9007d718fa4d850a817defd2f858a87188758c39c"
+        "6f3d88e4baa7c730f5cc076537e5e5646a7ecefdbc8b6cc63b7c5bb4fe4db381"
       ],
       "airbase_airattack_list": [
         "8ed6869b85264c3d911a85109f44b7490c735c8b94ca0e8355ccb7a7bd0feb02"
       ],
       "airbase_assult": [
-        "294d8981d3ce56f447818d502c083ccb240fd4d9115c86232bae759996f83cbe"
+        "9d69c635dd389f8334d81692f838120e2f91f918170fd910e78c6ff0ed0d731e"
       ],
       "carrierbase_assault": [
-        "9da4de61cf8a112dc947ce106a6edfd43e9802ade2fbbb1fef2d0b12d415335f"
+        "d869826c4d010eace706f6cc41a6237df94ceb4af8273e6b5131249c74332e14"
       ],
       "closing_raigeki": [
         "2bcf02e60aa3b4da716959f251f95c974270ebd353b44dbd25270119e307df39"
@@ -180,7 +180,7 @@
         "28befbb502f8ef0f158022a87d5bea8c33cf915f243fe2d989d9afae2eedf681"
       ],
       "opening_airattack": [
-        "5bdd8e27a965a0d51d646c0a52a7d419d3ff5033efc22482013ec82f997eceb8"
+        "8f4944683711580a14bfb0faf1d675f4f1ae464993547ebff91f9ff97b922a83"
       ],
       "opening_airattack_list": [
         "07e2be3553f272ffd79cf9ff5e5f640e900eee151ce4a2b7d68ce31d1df236c5"
@@ -195,7 +195,7 @@
         "eca30194e3e6fd6f488a7e6ff50c686d72a04d35473a0ebf5f758531700fd918"
       ],
       "support_airattack": [
-        "7c8e13ac639372298c4c9ca9b4ac8c64fd4938ff92b20b6c79e212ac28e0200b"
+        "558c2bbc8ab8b0c6aea186a8dea19348645236201dfa4c7b900af0fc1ad9587a"
       ],
       "support_hourai": [
         "290d93fa80405a355402334185f0db07e23531f0801b9ab9e373f554485884f1"

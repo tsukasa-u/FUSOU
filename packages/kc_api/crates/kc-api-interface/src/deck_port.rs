@@ -46,6 +46,8 @@ pub struct DeckPort {
     pub name: String,
     pub mission: Vec<i64>,
     pub ship: Option<Vec<i64>>,
+    pub chart_seiku_value: Option<i64>,
+    pub chart_tp_value: Option<i64>,
 }
 
 impl DeckPorts {

@@ -20,7 +20,7 @@ export type MstMapArea = { api_id: number, api_name: string, api_type: number, }
 
 export type MstMapAreas = { mst_map_areas: { [key in number]?: MstMapArea }, };
 
-export type MstMapInfo = { id: number, maparea_id: number, no: number, name: string, level: number, opetext: string, infotext: string, item: Array<number>, max_maphp: number | null, required_defeat_count: number | null, sally_flag: Array<number>, };
+export type MstMapInfo = { id: number, maparea_id: number, no: number, name: string, level: number, opetext: string, infotext: string, item: Array<number>, max_maphp: number | null, required_defeat_count: number | null, gauge_type: number | null, gauge_num: number | null, sally_flag: Array<number>, };
 
 export type MstMapInfos = { mst_map_infos: { [key in number]?: MstMapInfo }, };
 

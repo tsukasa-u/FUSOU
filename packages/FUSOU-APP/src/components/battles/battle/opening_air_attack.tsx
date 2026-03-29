@@ -165,6 +165,39 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     );
   };
 
+  const display_sprite_counts = () => {
+    const f_fly = airattack()?.f_sprite_fly_count;
+    const e_fly = airattack()?.e_sprite_fly_count;
+    const f_crash1 = airattack()?.f_sprite_crash_count_stage1;
+    const f_crash2 = airattack()?.f_sprite_crash_count_stage2;
+    const e_crash1 = airattack()?.e_sprite_crash_count_stage1;
+    const e_crash2 = airattack()?.e_sprite_crash_count_stage2;
+
+    return (
+      <>
+        Sprite :{" "}
+        <Show
+          when={
+            f_fly != null ||
+            e_fly != null ||
+            f_crash1 != null ||
+            f_crash2 != null ||
+            e_crash1 != null ||
+            e_crash2 != null
+          }
+          fallback={<span class="pl-1 text-gray-500">_</span>}
+        >
+          <span class="pl-1">
+            Fly: {f_fly ?? "?"}/{e_fly ?? "?"}
+          </span>
+          <span class="pl-2">
+            Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0} / {e_crash1 ?? 0}+{e_crash2 ?? 0}
+          </span>
+        </Show>
+      </>
+    );
+  };
+
   const show_f_plane_from = () => {
     return (airattack()?.f_damage?.plane_from ?? []).length > 0;
   };
@@ -445,6 +478,8 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
               {display_touch()}
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_cut_in()}
+              <div class="divider divider-horizontal mr-0 ml-0" />
+              {display_sprite_counts()}
             </div>
             <Show when={show_f_plane_from() || show_e_plane_from()}>
               <table class="table table-xs">

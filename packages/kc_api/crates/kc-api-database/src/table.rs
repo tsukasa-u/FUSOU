@@ -912,8 +912,8 @@ impl GetDataTable {
         let mst_stype = encode(self.mst_stype.clone())?;
         let mst_use_item = encode(self.mst_use_item.clone())?;
         let mst_map_area = encode(self.mst_map_area.clone())?;
-        let mst_ship_graph = encode(self.mst_ship_graph.clone())?;
         let mst_map_info = encode(self.mst_map_info.clone())?;
+        let mst_ship_graph = encode(self.mst_ship_graph.clone())?;
         let mst_ship_upgrade = encode(self.mst_ship_upgrade.clone())?;
 
         let table_encode = GetDataTableEncode {

@@ -13,7 +13,8 @@ kc-api-parser = { workspace = true }
 kc-fleet-snapshot = { workspace = true }
 
 [features]
-default = ["graphviz", "from20250627"]
+default = ["graphviz", "from20250627", "schema_v0_5"]
+full = ["kc-api-database/full"]
 graphviz = [
     "kc-api-database/graphviz",
     "kc-api-dto/graphviz",

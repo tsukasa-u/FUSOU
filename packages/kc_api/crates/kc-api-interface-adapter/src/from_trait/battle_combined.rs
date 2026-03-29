@@ -5,7 +5,7 @@ use chrono::Local;
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
 
-use super::battle::{calc_dmg, calc_escape_idx, unwrap_into, parse_landing_hp};
+use super::battle::{apply_sprite_metrics, calc_dmg, calc_escape_idx, unwrap_into, parse_landing_hp};
 use kc_api_interface::battle::{BattleResult, BattleType};
 use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
@@ -174,6 +174,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -264,6 +265,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -360,6 +362,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -456,6 +459,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -554,6 +558,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -650,6 +655,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -729,6 +735,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -798,6 +805,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
@@ -865,6 +873,7 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             battle_result: None,
         })
         .unwrap();
+        apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
     }
