@@ -41,7 +41,7 @@
       "table_name": "mst_map_areas"
     },
     {
-      "schema": "{\"type\":\"record\",\"name\":\"MstMapInfo\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"maparea_id\",\"type\":\"int\"},{\"name\":\"no\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"opetext\",\"type\":\"string\"},{\"name\":\"infotext\",\"type\":\"string\"},{\"name\":\"item\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"max_maphp\",\"type\":[\"null\",\"int\"]},{\"name\":\"required_defeat_count\",\"type\":[\"null\",\"int\"]},{\"name\":\"sally_flag\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"MstMapInfo\",\"fields\":[{\"name\":\"id\",\"type\":\"int\"},{\"name\":\"maparea_id\",\"type\":\"int\"},{\"name\":\"no\",\"type\":\"int\"},{\"name\":\"name\",\"type\":\"string\"},{\"name\":\"level\",\"type\":\"int\"},{\"name\":\"opetext\",\"type\":\"string\"},{\"name\":\"infotext\",\"type\":\"string\"},{\"name\":\"item\",\"type\":{\"type\":\"array\",\"items\":\"int\"}},{\"name\":\"max_maphp\",\"type\":[\"null\",\"int\"]},{\"name\":\"required_defeat_count\",\"type\":[\"null\",\"int\"]},{\"name\":\"gauge_type\",\"type\":[\"null\",\"int\"]},{\"name\":\"gauge_num\",\"type\":[\"null\",\"int\"]},{\"name\":\"sally_flag\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
       "table_name": "mst_map_infos"
     },
     {
