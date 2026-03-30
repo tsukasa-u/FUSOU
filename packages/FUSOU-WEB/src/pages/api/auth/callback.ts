@@ -6,27 +6,24 @@ import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
 } from "@/utility/security";
+import { env } from "cloudflare:workers";
 
 const createUserScopedClient = (
   accessToken: string,
   supabaseUrl: string,
   supabasePublishableKey: string,
 ) =>
-  createClient(
-    supabaseUrl,
-    supabasePublishableKey,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+  createClient(supabaseUrl, supabasePublishableKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
       },
-      global: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    }
-  );
+    },
+  });
 
 // Use consistent cookie options with supabaseServer.ts
 // const COOKIE_OPTIONS = {
@@ -38,10 +35,13 @@ const createUserScopedClient = (
 // };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env });
   const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
-  const supabasePublishableKey = getEnv(envCtx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+  const supabasePublishableKey = getEnv(
+    envCtx,
+    "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  );
 
   if (!supabaseUrl || !supabasePublishableKey) {
     return new Response("Server misconfiguration: Supabase env is not set", {
@@ -56,7 +56,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   }
 
   // Supabase PKCE flow handles state validation internally
-  const supabase = createSupabaseServerClient(cookies, envCtx.runtime);
+  const supabase = createSupabaseServerClient(cookies, env);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
@@ -104,7 +104,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
         details: storeTokenError.details,
       });
       console.warn(
-        "⚠️ User authentication succeeded, but provider tokens won't be persisted to database"
+        "⚠️ User authentication succeeded, but provider tokens won't be persisted to database",
       );
       console.warn("⚠️ Tokens are still available in cookies for this session");
     } else {
@@ -115,7 +115,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
     cookies.set(
       "sb-provider-refresh-token",
       provider_refresh_token,
-      COOKIE_OPTIONS
+      COOKIE_OPTIONS,
     );
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");

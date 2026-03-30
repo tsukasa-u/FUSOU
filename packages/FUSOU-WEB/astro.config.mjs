@@ -142,10 +142,7 @@ export default defineConfig({
   output: "server",
   adapter: cloudflare({
     imageService: "cloudflare",
-    platformProxy: {
-      enabled: true,
-      persist: true,
-    },
+    persistState: true,
   }),
   vite: {
     ssr: {
@@ -153,6 +150,7 @@ export default defineConfig({
     },
     // @ts-ignore
     plugins: [
+      // @ts-ignore
       tailwindcss(),
       /*
       nodePolyfills({

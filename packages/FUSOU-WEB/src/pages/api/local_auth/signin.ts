@@ -8,20 +8,16 @@ import {
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env } from "cloudflare:workers";
 
-export const POST: APIRoute = async ({
-  request,
-  cookies,
-  redirect,
-  locals,
-}) => {
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
   const currentUrl = new URL(request.url);
   const appOriginParam = currentUrl.searchParams.get("app_origin");
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+  const envCtx = createEnvContext({ env });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured");
@@ -84,7 +80,8 @@ export const POST: APIRoute = async ({
 
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)
-  const appOriginFormParam = formData.get("app_origin")?.toString() || appOriginParam;
+  const appOriginFormParam =
+    formData.get("app_origin")?.toString() || appOriginParam;
   const memberIdHash = formData.get("member_id_hash")?.toString();
 
   const validProviders = ["google"];

@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
 import { Icon } from "astro-icon/components";
 import type { AuthResponse } from "@supabase/supabase-js";
+import { env } from "cloudflare:workers";
 
 const STORED_TOKEN_COOKIE_OPTIONS = {
   ...SECURE_COOKIE_OPTIONS,
@@ -12,7 +13,7 @@ const STORED_TOKEN_COOKIE_OPTIONS = {
 };
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = env;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -24,7 +25,7 @@ let storedAccessToken = cookies.get("stored-sb-access-token");
 let storedRefreshToken = cookies.get("stored-sb-refresh-token");
 let storedProviderToken = cookies.get("stored-sb-provider-token");
 let storedProviderRefreshToken = cookies.get(
-  "stored-sb-provider-refresh-token"
+  "stored-sb-provider-refresh-token",
 );
 
 if (
@@ -261,5 +262,3 @@ cookies.set(
     <Navigation />
   </div>
 </Layout>
-
-

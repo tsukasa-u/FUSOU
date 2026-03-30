@@ -5,9 +5,10 @@ import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = env;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // For local app flow: read from local auth tokens (sb-local-*)
@@ -511,7 +512,9 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
-            step3Circle.replaceChildren(createStepStatusIcon("M6 18L18 6M6 6l12 12"));
+            step3Circle.replaceChildren(
+              createStepStatusIcon("M6 18L18 6M6 6l12 12"),
+            );
           }
 
           // On error, do not auto-redirect to the app with any token URL.
@@ -535,7 +538,10 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
             if (hasAppRedirect) {
-              appReturnLink.setAttribute("href", "/api/local_auth/app-redirect");
+              appReturnLink.setAttribute(
+                "href",
+                "/api/local_auth/app-redirect",
+              );
             } else {
               appReturnLink.setAttribute("href", "fusou://auth?status=success");
             }

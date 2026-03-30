@@ -1,6 +1,11 @@
 import { createEnvContext, getEnv, type EnvContext } from "@/server/utils";
 import { createClient } from "@supabase/supabase-js";
-import type { AstroCookies } from "astro";
+
+type CookieLike = {
+  get(key: string): { value: string } | undefined;
+  set(key: string, value: string | object, options?: Record<string, any>): void;
+  delete(key: string, options?: Record<string, any>): void;
+};
 
 const cookieOptions = {
   path: "/",
@@ -10,7 +15,7 @@ const cookieOptions = {
   maxAge: 60 * 10, // 10 minutes is enough for PKCE exchange
 };
 
-const createCookieStorage = (cookies: AstroCookies) => {
+const createCookieStorage = (cookies: CookieLike) => {
   return {
     getItem(key: string) {
       return cookies.get(key)?.value ?? null;
@@ -25,8 +30,8 @@ const createCookieStorage = (cookies: AstroCookies) => {
 };
 
 export const createSupabaseServerClient = (
-  cookies: AstroCookies,
-  runtimeEnv?: Record<string, any>
+  cookies: CookieLike,
+  runtimeEnv?: Record<string, any>,
 ) => {
   // Create env context from runtime env or use buildtime env
   const envCtx: EnvContext = runtimeEnv
@@ -36,7 +41,7 @@ export const createSupabaseServerClient = (
         buildtime: import.meta.env as Record<string, any>,
         isDev: import.meta.env.DEV,
       };
-  
+
   const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
   const serviceKey =
     getEnv(envCtx, "SUPABASE_SECRET_KEY") ||
@@ -48,7 +53,7 @@ export const createSupabaseServerClient = (
 
   if (!serviceKey) {
     throw new Error(
-      "SUPABASE_SECRET_KEY (or PUBLIC_SUPABASE_PUBLISHABLE_KEY) is not set"
+      "SUPABASE_SECRET_KEY (or PUBLIC_SUPABASE_PUBLISHABLE_KEY) is not set",
     );
   }
 

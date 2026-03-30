@@ -2,9 +2,10 @@
 import Layout from "../../layouts/Layout.astro";
 import AlertBox from "../../components/AlertBox.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { env } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = env;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // Get member_id_hash from query params
@@ -21,7 +22,7 @@ if (!memberIdHash) {
     "rpc_get_member_conflict_hints",
     {
       member_id_hash: memberIdHash,
-    }
+    },
   );
 
   if (rpcError) {

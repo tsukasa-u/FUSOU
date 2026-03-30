@@ -7,14 +7,10 @@ import {
   sanitizeErrorMessage,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env } from "cloudflare:workers";
 
-export const POST: APIRoute = async ({
-  request,
-  cookies,
-  redirect,
-  locals,
-}) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env });
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
@@ -90,7 +86,7 @@ export const POST: APIRoute = async ({
     return new Response("Authentication request invalid", { status: 400 });
   }
 
-  const supabase = createSupabaseServerClient(cookies, envCtx.runtime);
+  const supabase = createSupabaseServerClient(cookies, env);
 
   const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
 

@@ -1,14 +1,12 @@
 import type { APIRoute } from "astro";
-import {
-  SECURE_COOKIE_OPTIONS,
-  validateOrigin,
-} from "@/utility/security";
+import { SECURE_COOKIE_OPTIONS, validateOrigin } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env } from "cloudflare:workers";
 
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     return new Response("Server misconfiguration", { status: 500 });
@@ -34,7 +32,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => 
   const storedAccessToken = cookies.get("stored-sb-access-token");
   const storedRefreshToken = cookies.get("stored-sb-refresh-token");
   const storedProviderToken = cookies.get("stored-sb-provider-token");
-  const storedProviderRefreshToken = cookies.get("stored-sb-provider-refresh-token");
+  const storedProviderRefreshToken = cookies.get(
+    "stored-sb-provider-refresh-token",
+  );
 
   if (!storedAccessToken || !storedRefreshToken) {
     return new Response("No stored sessions found", { status: 400 });
@@ -43,17 +43,21 @@ export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => 
   type storedToken = { data: string[] };
   const accessTokenList = (storedAccessToken.json() as storedToken).data;
   const refreshTokenList = (storedRefreshToken.json() as storedToken).data;
-  
+
   // Optional provider tokens
-  const providerTokenList = storedProviderToken 
-    ? (storedProviderToken.json() as storedToken).data 
+  const providerTokenList = storedProviderToken
+    ? (storedProviderToken.json() as storedToken).data
     : [];
-  const providerRefreshTokenList = storedProviderRefreshToken 
-    ? (storedProviderRefreshToken.json() as storedToken).data 
+  const providerRefreshTokenList = storedProviderRefreshToken
+    ? (storedProviderRefreshToken.json() as storedToken).data
     : [];
 
   // Validate index bounds
-  if (index < 0 || index >= accessTokenList.length || index >= refreshTokenList.length) {
+  if (
+    index < 0 ||
+    index >= accessTokenList.length ||
+    index >= refreshTokenList.length
+  ) {
     return new Response("Index out of bounds", { status: 400 });
   }
 
@@ -66,7 +70,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => 
   // Update active cookies
   cookies.set("sb-access-token", newAccessToken, COOKIE_OPTIONS);
   cookies.set("sb-refresh-token", newRefreshToken, COOKIE_OPTIONS);
-  
+
   if (newProviderToken) {
     cookies.set("sb-provider-token", newProviderToken, COOKIE_OPTIONS);
   } else {
@@ -74,7 +78,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => 
   }
 
   if (newProviderRefreshToken) {
-    cookies.set("sb-provider-refresh-token", newProviderRefreshToken, COOKIE_OPTIONS);
+    cookies.set(
+      "sb-provider-refresh-token",
+      newProviderRefreshToken,
+      COOKIE_OPTIONS,
+    );
   } else {
     cookies.delete("sb-provider-refresh-token", { path: "/" });
   }

@@ -1,21 +1,16 @@
 import type { APIRoute } from "astro";
-import type { Bindings } from "@/server/types";
+import { env as workerEnv } from "cloudflare:workers";
 
 export const prerender = false;
 
 const KEY_RE = /^[0-9a-f]{16}$/;
-const BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
+const BOT_UA =
+  /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 
 type ShareRecordResponse = {
   originalUrl?: string;
   snapshotPayload?: Record<string, unknown> | null;
-};
-
-type RuntimeLocals = {
-  runtime?: {
-    env?: Bindings;
-  };
 };
 
 type ShareRecordFetchResult =
@@ -42,10 +37,12 @@ function escHtml(s: string): string {
 }
 
 function isAllowedHost(hostname: string): boolean {
-  return hostname === "fusou.dev"
-    || hostname.endsWith(".fusou.dev")
-    || hostname === "fusou.pages.dev"
-    || hostname.endsWith(".fusou.pages.dev");
+  return (
+    hostname === "fusou.dev" ||
+    hostname.endsWith(".fusou.dev") ||
+    hostname === "fusou.pages.dev" ||
+    hostname.endsWith(".fusou.pages.dev")
+  );
 }
 
 function normalizeSimulatorUrl(value: string): string | null {
@@ -53,7 +50,12 @@ function normalizeSimulatorUrl(value: string): string | null {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:") return null;
     if (!isAllowedHost(parsed.hostname)) return null;
-    if (!(parsed.pathname === "/simulator" || parsed.pathname.startsWith("/simulator/"))) {
+    if (
+      !(
+        parsed.pathname === "/simulator" ||
+        parsed.pathname.startsWith("/simulator/")
+      )
+    ) {
       return null;
     }
     return parsed.toString();
@@ -67,7 +69,10 @@ function buildBootstrapHtml(
   snapshotPayload: Record<string, unknown>,
 ): string {
   const targetLiteral = JSON.stringify(originalUrl).replace(/</g, "\\u003c");
-  const snapshotLiteral = JSON.stringify(snapshotPayload).replace(/</g, "\\u003c");
+  const snapshotLiteral = JSON.stringify(snapshotPayload).replace(
+    /</g,
+    "\\u003c",
+  );
   const safeOriginalUrl = escHtml(originalUrl);
   const keyConst = JSON.stringify(SHARED_SNAPSHOT_SESSION_KEY);
 
@@ -255,7 +260,9 @@ function buildDescription(dataParam: string): string {
 
     const airBaseParts: string[] = [];
     (fleet.airBases ?? []).forEach((base, idx) => {
-      const equipCount = (base.equipIds ?? []).filter((id) => id !== null).length;
+      const equipCount = (base.equipIds ?? []).filter(
+        (id) => id !== null,
+      ).length;
       if (equipCount > 0) {
         airBaseParts.push(`${idx + 1}基地:${equipCount}/4`);
       }
@@ -301,12 +308,8 @@ function buildOgpHtml(
 </html>`;
 }
 
-async function fetchShareRecord(
-  locals: RuntimeLocals,
-  key: string,
-) : Promise<ShareRecordFetchResult> {
-  const env = locals.runtime?.env;
-  const shortenerService = env?.SHORTENER_SERVICE as Fetcher | undefined;
+async function fetchShareRecord(key: string): Promise<ShareRecordFetchResult> {
+  const shortenerService = workerEnv.SHORTENER_SERVICE as Fetcher | undefined;
   if (!shortenerService) {
     return {
       ok: false,
@@ -321,7 +324,9 @@ async function fetchShareRecord(
   try {
     // Access is protected by Cloudflare service binding isolation:
     // https://shortener.internal is not reachable from the public internet.
-    upstream = await shortenerService.fetch(`https://shortener.internal/internal/snapshot/${key}`);
+    upstream = await shortenerService.fetch(
+      `https://shortener.internal/internal/snapshot/${key}`,
+    );
   } catch (error) {
     console.error("[same-origin-share] shortener fetch failed:", error);
     return {
@@ -336,12 +341,18 @@ async function fetchShareRecord(
   if (!upstream.ok) {
     return {
       ok: false,
-      response: new Response(upstream.status === 404 ? buildNotFoundHtml() : "Service unavailable", {
-        status: upstream.status === 404 ? 404 : 502,
-        headers: {
-          "Content-Type": upstream.status === 404 ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
+      response: new Response(
+        upstream.status === 404 ? buildNotFoundHtml() : "Service unavailable",
+        {
+          status: upstream.status === 404 ? 404 : 502,
+          headers: {
+            "Content-Type":
+              upstream.status === 404
+                ? "text/html; charset=utf-8"
+                : "text/plain; charset=utf-8",
+          },
         },
-      }),
+      ),
     };
   }
 
@@ -358,8 +369,11 @@ async function fetchShareRecord(
     };
   }
 
-  const originalUrl = typeof data.originalUrl === "string" ? data.originalUrl : "";
-  const safeOriginalUrl = originalUrl ? normalizeSimulatorUrl(originalUrl) : null;
+  const originalUrl =
+    typeof data.originalUrl === "string" ? data.originalUrl : "";
+  const safeOriginalUrl = originalUrl
+    ? normalizeSimulatorUrl(originalUrl)
+    : null;
   if (!safeOriginalUrl) {
     return {
       ok: false,
@@ -377,7 +391,7 @@ async function fetchShareRecord(
   };
 }
 
-export const GET: APIRoute = async ({ params, request, locals }) => {
+export const GET: APIRoute = async ({ params, request }) => {
   const key = params.key;
   if (!key || !KEY_RE.test(key)) {
     return new Response(buildNotFoundHtml(), {
@@ -386,7 +400,7 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
     });
   }
 
-  const recordResult = await fetchShareRecord(locals as RuntimeLocals, key);
+  const recordResult = await fetchShareRecord(key);
   if (!recordResult.ok) {
     return recordResult.response;
   }
@@ -411,7 +425,10 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
   }
 
   if (!snapshotPayload) {
-    return new Response(null, { status: 302, headers: { Location: originalUrl } });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: originalUrl },
+    });
   }
 
   return new Response(buildBootstrapHtml(originalUrl, snapshotPayload), {
