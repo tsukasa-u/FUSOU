@@ -206,7 +206,7 @@ results.push(test('All supported tables required in upload', () => {
 
 // Test 9: Execution URL format
 results.push(test('Stage 3 execution URL format with token parameter', () => {
-  const endpoint = 'https://dev.fusou.pages.dev/api/master-data/upload';
+  const endpoint = 'https://dev.fusou.dev/api/master-data/upload';
   const token = 'signed_token_abc123';
   const execUrl = `${endpoint}?token=${token}`;
   
