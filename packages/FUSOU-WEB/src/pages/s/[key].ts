@@ -1,5 +1,4 @@
 import type { APIRoute } from "astro";
-import { env as workerEnv } from "cloudflare:workers";
 
 export const prerender = false;
 
@@ -317,13 +316,22 @@ function isFetcher(value: unknown): value is Fetcher {
   return typeof maybeFetcher.fetch === "function";
 }
 
-function getShortenerServiceBinding(): Fetcher | null {
-  const candidate = Reflect.get(workerEnv as object, "SHORTENER_SERVICE");
+type RuntimeLocals = {
+  runtime?: {
+    env?: Record<string, unknown>;
+  };
+};
+
+function getShortenerServiceBinding(locals: RuntimeLocals): Fetcher | null {
+  const candidate = locals.runtime?.env?.SHORTENER_SERVICE;
   return isFetcher(candidate) ? candidate : null;
 }
 
-async function fetchShareRecord(key: string): Promise<ShareRecordFetchResult> {
-  const shortenerService = getShortenerServiceBinding();
+async function fetchShareRecord(
+  key: string,
+  locals: RuntimeLocals,
+): Promise<ShareRecordFetchResult> {
+  const shortenerService = getShortenerServiceBinding(locals);
   if (!shortenerService) {
     return {
       ok: false,
@@ -405,7 +413,7 @@ async function fetchShareRecord(key: string): Promise<ShareRecordFetchResult> {
   };
 }
 
-export const GET: APIRoute = async ({ params, request }) => {
+export const GET: APIRoute = async ({ params, request, locals }) => {
   const key = params.key;
   if (!key || !KEY_RE.test(key)) {
     return new Response(buildNotFoundHtml(), {
@@ -414,7 +422,7 @@ export const GET: APIRoute = async ({ params, request }) => {
     });
   }
 
-  const recordResult = await fetchShareRecord(key);
+  const recordResult = await fetchShareRecord(key, locals as RuntimeLocals);
   if (!recordResult.ok) {
     return recordResult.response;
   }

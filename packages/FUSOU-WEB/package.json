@@ -30,7 +30,7 @@
     "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^13.0.0",
+    "@astrojs/cloudflare": "^12.6.12",
     "@dagrejs/dagre": "^2.0.4",
     "@duckdb/duckdb-wasm": "1.29.1-dev132.0",
     "@duckdb/node-api": "1.2.2-alpha.18",
@@ -76,7 +76,7 @@
     "@types/d3-hierarchy": "^3.1.7",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
-    "astro": "^6.1.1",
+    "astro": "^5.14.0",
     "astro-icon": "^1.1.5",
     "baseline-browser-mapping": "^2.10.10",
     "msgpackr": "^1.11.8",

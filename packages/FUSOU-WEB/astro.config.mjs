@@ -142,7 +142,9 @@ export default defineConfig({
   output: "server",
   adapter: cloudflare({
     imageService: "cloudflare",
-    persistState: true,
+    platformProxy: {
+      enabled: true,
+    },
   }),
   vite: {
     ssr: {
