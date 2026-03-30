@@ -4499,30 +4499,6 @@
       "label": "plane_info"
     },
     {
-      "id": "e-opening_taisen_list-opening_taisen-opening_taisen",
-      "source": "opening_taisen_list",
-      "sourceHandle": "opening_taisen_list-opening_taisen",
-      "target": "opening_taisen",
-      "targetHandle": "opening_taisen-uuid",
-      "label": "opening_taisen"
-    },
-    {
-      "id": "e-midnight_hougeki_list-midnight_hougeki-midnight_hougeki",
-      "source": "midnight_hougeki_list",
-      "sourceHandle": "midnight_hougeki_list-midnight_hougeki",
-      "target": "midnight_hougeki",
-      "targetHandle": "midnight_hougeki-uuid",
-      "label": "midnight_hougeki"
-    },
-    {
-      "id": "e-opening_airattack_list-opening_air_attack-opening_airattack",
-      "source": "opening_airattack_list",
-      "sourceHandle": "opening_airattack_list-opening_air_attack",
-      "target": "opening_airattack",
-      "targetHandle": "opening_airattack-uuid",
-      "label": "opening_air_attack"
-    },
-    {
       "id": "e-friendly_support_hourai_list-hourai_list-friendly_support_hourai",
       "source": "friendly_support_hourai_list",
       "sourceHandle": "friendly_support_hourai_list-hourai_list",
@@ -4531,28 +4507,20 @@
       "label": "hourai_list"
     },
     {
-      "id": "e-hougeki_list-hougeki-hougeki",
-      "source": "hougeki_list",
-      "sourceHandle": "hougeki_list-hougeki",
-      "target": "hougeki",
-      "targetHandle": "hougeki-uuid",
-      "label": "hougeki"
-    },
-    {
-      "id": "e-airbase_airattack_list-air_base_air_attack-airbase_airattack",
-      "source": "airbase_airattack_list",
-      "sourceHandle": "airbase_airattack_list-air_base_air_attack",
-      "target": "airbase_airattack",
-      "targetHandle": "airbase_airattack-uuid",
-      "label": "air_base_air_attack"
-    },
-    {
-      "id": "e-battle-opening_air_attack-opening_airattack_list",
+      "id": "e-battle-support_hourai-support_hourai",
       "source": "battle",
-      "sourceHandle": "battle-opening_air_attack",
-      "target": "opening_airattack_list",
-      "targetHandle": "opening_airattack_list-uuid",
-      "label": "opening_air_attack"
+      "sourceHandle": "battle-support_hourai",
+      "target": "support_hourai",
+      "targetHandle": "support_hourai-uuid",
+      "label": "support_hourai"
+    },
+    {
+      "id": "e-battle-opening_taisen-opening_taisen_list",
+      "source": "battle",
+      "sourceHandle": "battle-opening_taisen",
+      "target": "opening_taisen_list",
+      "targetHandle": "opening_taisen_list-uuid",
+      "label": "opening_taisen"
     },
     {
       "id": "e-battle-hougeki-hougeki_list",
@@ -4571,28 +4539,12 @@
       "label": "closing_raigeki"
     },
     {
-      "id": "e-battle-support_airattack-support_airattack",
+      "id": "e-battle-air_base_assault-airbase_assult",
       "source": "battle",
-      "sourceHandle": "battle-support_airattack",
-      "target": "support_airattack",
-      "targetHandle": "support_airattack-uuid",
-      "label": "support_airattack"
-    },
-    {
-      "id": "e-battle-opening_taisen-opening_taisen_list",
-      "source": "battle",
-      "sourceHandle": "battle-opening_taisen",
-      "target": "opening_taisen_list",
-      "targetHandle": "opening_taisen_list-uuid",
-      "label": "opening_taisen"
-    },
-    {
-      "id": "e-battle-support_hourai-support_hourai",
-      "source": "battle",
-      "sourceHandle": "battle-support_hourai",
-      "target": "support_hourai",
-      "targetHandle": "support_hourai-uuid",
-      "label": "support_hourai"
+      "sourceHandle": "battle-air_base_assault",
+      "target": "airbase_assult",
+      "targetHandle": "airbase_assult-uuid",
+      "label": "air_base_assault"
     },
     {
       "id": "e-battle-friendly_force_attack-friendly_support_hourai_list",
@@ -4603,12 +4555,12 @@
       "label": "friendly_force_attack"
     },
     {
-      "id": "e-battle-air_base_assault-airbase_assult",
+      "id": "e-battle-opening_raigeki-opening_raigeki",
       "source": "battle",
-      "sourceHandle": "battle-air_base_assault",
-      "target": "airbase_assult",
-      "targetHandle": "airbase_assult-uuid",
-      "label": "air_base_assault"
+      "sourceHandle": "battle-opening_raigeki",
+      "target": "opening_raigeki",
+      "targetHandle": "opening_raigeki-uuid",
+      "label": "opening_raigeki"
     },
     {
       "id": "e-battle-air_base_air_attacks-airbase_airattack_list",
@@ -4619,6 +4571,22 @@
       "label": "air_base_air_attacks"
     },
     {
+      "id": "e-battle-support_airattack-support_airattack",
+      "source": "battle",
+      "sourceHandle": "battle-support_airattack",
+      "target": "support_airattack",
+      "targetHandle": "support_airattack-uuid",
+      "label": "support_airattack"
+    },
+    {
+      "id": "e-battle-midnight_hougeki-midnight_hougeki_list",
+      "source": "battle",
+      "sourceHandle": "battle-midnight_hougeki",
+      "target": "midnight_hougeki_list",
+      "targetHandle": "midnight_hougeki_list-uuid",
+      "label": "midnight_hougeki"
+    },
+    {
       "id": "e-battle-carrier_base_assault-carrierbase_assault",
       "source": "battle",
       "sourceHandle": "battle-carrier_base_assault",
@@ -4627,19 +4595,51 @@
       "label": "carrier_base_assault"
     },
     {
-      "id": "e-battle-opening_raigeki-opening_raigeki",
+      "id": "e-battle-opening_air_attack-opening_airattack_list",
       "source": "battle",
-      "sourceHandle": "battle-opening_raigeki",
-      "target": "opening_raigeki",
-      "targetHandle": "opening_raigeki-uuid",
-      "label": "opening_raigeki"
+      "sourceHandle": "battle-opening_air_attack",
+      "target": "opening_airattack_list",
+      "targetHandle": "opening_airattack_list-uuid",
+      "label": "opening_air_attack"
     },
     {
-      "id": "e-battle-midnight_hougeki-midnight_hougeki_list",
-      "source": "battle",
-      "sourceHandle": "battle-midnight_hougeki",
-      "target": "midnight_hougeki_list",
-      "targetHandle": "midnight_hougeki_list-uuid",
+      "id": "e-airbase_airattack_list-air_base_air_attack-airbase_airattack",
+      "source": "airbase_airattack_list",
+      "sourceHandle": "airbase_airattack_list-air_base_air_attack",
+      "target": "airbase_airattack",
+      "targetHandle": "airbase_airattack-uuid",
+      "label": "air_base_air_attack"
+    },
+    {
+      "id": "e-hougeki_list-hougeki-hougeki",
+      "source": "hougeki_list",
+      "sourceHandle": "hougeki_list-hougeki",
+      "target": "hougeki",
+      "targetHandle": "hougeki-uuid",
+      "label": "hougeki"
+    },
+    {
+      "id": "e-opening_taisen_list-opening_taisen-opening_taisen",
+      "source": "opening_taisen_list",
+      "sourceHandle": "opening_taisen_list-opening_taisen",
+      "target": "opening_taisen",
+      "targetHandle": "opening_taisen-uuid",
+      "label": "opening_taisen"
+    },
+    {
+      "id": "e-opening_airattack_list-opening_air_attack-opening_airattack",
+      "source": "opening_airattack_list",
+      "sourceHandle": "opening_airattack_list-opening_air_attack",
+      "target": "opening_airattack",
+      "targetHandle": "opening_airattack-uuid",
+      "label": "opening_air_attack"
+    },
+    {
+      "id": "e-midnight_hougeki_list-midnight_hougeki-midnight_hougeki",
+      "source": "midnight_hougeki_list",
+      "sourceHandle": "midnight_hougeki_list-midnight_hougeki",
+      "target": "midnight_hougeki",
+      "targetHandle": "midnight_hougeki-uuid",
       "label": "midnight_hougeki"
     },
     {
@@ -4651,12 +4651,12 @@
       "label": "slotid"
     },
     {
-      "id": "e-airbase_airattack-airbase_id-airbase",
-      "source": "airbase_airattack",
-      "sourceHandle": "airbase_airattack-airbase_id",
-      "target": "airbase",
-      "targetHandle": "airbase-uuid",
-      "label": "airbase_id"
+      "id": "e-battle-support_deck_id-support_deck",
+      "source": "battle",
+      "sourceHandle": "battle-support_deck_id",
+      "target": "support_deck",
+      "targetHandle": "support_deck-uuid",
+      "label": "support_deck_id"
     },
     {
       "id": "e-battle-friend_deck_id-friend_deck",
@@ -4667,14 +4667,6 @@
       "label": "friend_deck_id"
     },
     {
-      "id": "e-battle-e_deck_id-enemy_deck",
-      "source": "battle",
-      "sourceHandle": "battle-e_deck_id",
-      "target": "enemy_deck",
-      "targetHandle": "enemy_deck-uuid",
-      "label": "e_deck_id"
-    },
-    {
       "id": "e-battle-f_deck_id-own_deck",
       "source": "battle",
       "sourceHandle": "battle-f_deck_id",
@@ -4683,20 +4675,20 @@
       "label": "f_deck_id"
     },
     {
-      "id": "e-battle-support_deck_id-support_deck",
+      "id": "e-battle-e_deck_id-enemy_deck",
       "source": "battle",
-      "sourceHandle": "battle-support_deck_id",
-      "target": "support_deck",
-      "targetHandle": "support_deck-uuid",
-      "label": "support_deck_id"
+      "sourceHandle": "battle-e_deck_id",
+      "target": "enemy_deck",
+      "targetHandle": "enemy_deck-uuid",
+      "label": "e_deck_id"
     },
     {
-      "id": "e-cells-f_deck_after_id-own_deck",
-      "source": "cells",
-      "sourceHandle": "cells-f_deck_after_id",
-      "target": "own_deck",
-      "targetHandle": "own_deck-uuid",
-      "label": "f_deck_after_id"
+      "id": "e-airbase_airattack-airbase_id-airbase",
+      "source": "airbase_airattack",
+      "sourceHandle": "airbase_airattack-airbase_id",
+      "target": "airbase",
+      "targetHandle": "airbase-uuid",
+      "label": "airbase_id"
     },
     {
       "id": "e-cells-f_deck_before_id-own_deck",
@@ -4705,6 +4697,14 @@
       "target": "own_deck",
       "targetHandle": "own_deck-uuid",
       "label": "f_deck_before_id"
+    },
+    {
+      "id": "e-cells-f_deck_after_id-own_deck",
+      "source": "cells",
+      "sourceHandle": "cells-f_deck_after_id",
+      "target": "own_deck",
+      "targetHandle": "own_deck-uuid",
+      "label": "f_deck_after_id"
     },
     {
       "id": "e-cells-battles-battle",
@@ -4747,22 +4747,6 @@
       "label": "ship_ids"
     },
     {
-      "id": "e-own_ship-slot_ex-own_slotitem",
-      "source": "own_ship",
-      "sourceHandle": "own_ship-slot_ex",
-      "target": "own_slotitem",
-      "targetHandle": "own_slotitem-uuid",
-      "label": "slot_ex"
-    },
-    {
-      "id": "e-own_ship-slot-own_slotitem",
-      "source": "own_ship",
-      "sourceHandle": "own_ship-slot",
-      "target": "own_slotitem",
-      "targetHandle": "own_slotitem-uuid",
-      "label": "slot"
-    },
-    {
       "id": "e-friend_ship-slot-friend_slotitem",
       "source": "friend_ship",
       "sourceHandle": "friend_ship-slot",
@@ -4777,6 +4761,22 @@
       "target": "enemy_slotitem",
       "targetHandle": "enemy_slotitem-uuid",
       "label": "slot"
+    },
+    {
+      "id": "e-own_ship-slot-own_slotitem",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-slot",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid",
+      "label": "slot"
+    },
+    {
+      "id": "e-own_ship-slot_ex-own_slotitem",
+      "source": "own_ship",
+      "sourceHandle": "own_ship-slot_ex",
+      "target": "own_slotitem",
+      "targetHandle": "own_slotitem-uuid",
+      "label": "slot_ex"
     },
     {
       "id": "e-cells-maparea_id-mst_map_info",
