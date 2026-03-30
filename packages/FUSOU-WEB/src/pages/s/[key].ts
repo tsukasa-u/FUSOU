@@ -308,10 +308,22 @@ function buildOgpHtml(
 </html>`;
 }
 
+function isFetcher(value: unknown): value is Fetcher {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const maybeFetcher = value as { fetch?: unknown };
+  return typeof maybeFetcher.fetch === "function";
+}
+
+function getShortenerServiceBinding(): Fetcher | null {
+  const candidate = Reflect.get(workerEnv as object, "SHORTENER_SERVICE");
+  return isFetcher(candidate) ? candidate : null;
+}
+
 async function fetchShareRecord(key: string): Promise<ShareRecordFetchResult> {
-  const shortenerService = (workerEnv as unknown as Record<string, unknown>)[
-    "SHORTENER_SERVICE"
-  ] as Fetcher | undefined;
+  const shortenerService = getShortenerServiceBinding();
   if (!shortenerService) {
     return {
       ok: false,
