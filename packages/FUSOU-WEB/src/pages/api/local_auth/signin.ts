@@ -68,8 +68,7 @@ export const POST: APIRoute = async ({
           },
           env: {
             PUBLIC_SITE_URL: siteUrl,
-            CF_PAGES_BRANCH: getEnv(envCtx, "CF_PAGES_BRANCH"),
-            CF_PAGES_URL: getEnv(envCtx, "CF_PAGES_URL"),
+            PUBLIC_SITE_ALLOWED_HOSTS: getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"),
           },
         },
         null,
