@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { brotliDecompressSync } from "node:zlib";
 import type { Bindings } from "../types";
 import {
   MAX_UPLOAD_BYTES,
@@ -714,33 +715,23 @@ app.get("/weapon-icon-frames", async (c) => {
     if (!r2Object) {
       return c.json({ error: "Sprite atlas not found" }, 404);
     }
-    const atlasRaw = await r2Object.arrayBuffer();
+    const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
-    // Detect whether the bytes are Brotli-compressed or plain JSON.
-    // Brotli streams never start with '{' (0x7B); they start with a
-    // window-size nibble (high bits set). Plain JSON starts with '{'.
-    const firstByte = new Uint8Array(atlasRaw)[0];
-    const isBrotli = firstByte !== 0x7b; // 0x7b = '{'
-
-    if (isBrotli) {
-      // Return raw Brotli bytes — browser decompresses via Content-Encoding: br
-      return new Response(atlasRaw, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Encoding": "br",
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        },
-      });
+    // Always return plain JSON. Some clients do not transparently decode
+    // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
+    let parsedAtlas: unknown;
+    try {
+      parsedAtlas = JSON.parse(new TextDecoder().decode(atlasRaw));
+    } catch {
+      const decompressed = brotliDecompressSync(atlasRaw);
+      parsedAtlas = JSON.parse(decompressed.toString("utf8"));
     }
 
-    // Already plain JSON — return as-is
-    return new Response(atlasRaw, {
+    return new Response(JSON.stringify(parsedAtlas), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
@@ -750,7 +741,10 @@ app.get("/weapon-icon-frames", async (c) => {
     });
   } catch (err) {
     console.error("[asset-sync] weapon-icon-frames error:", String(err), err instanceof Error ? err.stack : "");
-    return c.json({ error: "Failed to parse sprite atlas", detail: String(err) }, 500);
+    const payload = envCtx.isDev
+      ? { error: "Failed to parse sprite atlas", detail: String(err) }
+      : { error: "Failed to parse sprite atlas" };
+    return c.json(payload, 500);
   }
 });
 
@@ -760,7 +754,7 @@ app.get("/weapon-icon-frames", async (c) => {
  * Used by client-side deck image export to avoid browser-side CORS restrictions
  * when html-to-image fetches external card/banner URLs.
  *
- * On Cloudflare Pages the ASSET_SYNC_BUCKET R2 binding serves the same content
+ * On Cloudflare Workers the ASSET_SYNC_BUCKET R2 binding serves the same content
  * as ASSET_BASE_URL. Accessing R2 directly (no network hop) is mandatory to
  * avoid ERR_QUIC_PROTOCOL_ERROR / ERR_CONNECTION_RESET that occur when a Worker
  * makes an outbound HTTP/3 fetch to assets.fusou.dev while the browser is still
@@ -803,7 +797,7 @@ app.get("/image-proxy", async (c) => {
     ? "no-store"
     : "public, max-age=86400, stale-while-revalidate=604800";
 
-  // ── R2 direct access (primary path on Cloudflare Pages) ──────────────────
+  // ── R2 direct access (primary path on Cloudflare Workers) ────────────────
   // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.
   // Using the binding avoids an outbound HTTP request and all associated QUIC issues.
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;

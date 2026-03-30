@@ -179,8 +179,10 @@ async function putCacheSafely(
       return;
     }
   } catch (err) {
-    // Some runtimes/tests may not provide ExecutionContext; fall back to direct await.
-    console.warn("[battle-data] ExecutionContext unavailable for cache put", err);
+    // Hono can throw this in stateless contexts; direct await keeps behavior correct.
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn("[battle-data] ExecutionContext unavailable for cache put", err);
+    }
   }
   await putPromise;
 }
