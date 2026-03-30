@@ -309,7 +309,9 @@ function buildOgpHtml(
 }
 
 async function fetchShareRecord(key: string): Promise<ShareRecordFetchResult> {
-  const shortenerService = workerEnv.SHORTENER_SERVICE as Fetcher | undefined;
+  const shortenerService = (workerEnv as unknown as Record<string, unknown>)[
+    "SHORTENER_SERVICE"
+  ] as Fetcher | undefined;
   if (!shortenerService) {
     return {
       ok: false,
