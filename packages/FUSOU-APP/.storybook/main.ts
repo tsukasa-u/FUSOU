@@ -1,7 +1,10 @@
 import { mergeConfig } from "vite";
 import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 
 import type { StorybookConfig } from "storybook-solidjs-vite";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default <StorybookConfig>{
   framework: "storybook-solidjs-vite",
