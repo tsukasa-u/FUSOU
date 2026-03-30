@@ -728,6 +728,7 @@ pub struct ConfigsProxy {
     allow_save_api_requests: Option<bool>,
     allow_save_api_responses: Option<bool>,
     allow_save_resources: Option<bool>,
+    allow_save_main_js_local: Option<bool>,
     save_file_location: Option<String>,
     pub network: ConfigsProxyNetwork,
     pub certificates: ConfigsProxyCertificates,
@@ -746,6 +747,12 @@ impl ConfigsProxy {
 
     pub fn get_allow_save_resources(&self) -> bool {
         self.allow_save_resources.unwrap_or_else(|| get_default_configs().proxy.allow_save_resources.unwrap())
+    }
+
+    pub fn get_allow_save_main_js_local(&self) -> bool {
+        self.allow_save_main_js_local.unwrap_or_else(|| {
+            get_default_configs().proxy.allow_save_main_js_local.unwrap()
+        })
     }
 
     pub fn get_save_file_location(&self) -> Option<String> {
@@ -1063,6 +1070,7 @@ mod tests {
             allow_save_api_requests: None,
             allow_save_api_responses: None,
             allow_save_resources: None,
+            allow_save_main_js_local: None,
             save_file_location: None,
             network: default_configs.proxy.network.clone(),
             certificates: default_configs.proxy.certificates.clone(),
@@ -1084,6 +1092,11 @@ mod tests {
             empty_proxy_fields.get_allow_save_resources(),
             default_configs.proxy.get_allow_save_resources(),
             "allow_save_resources getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_allow_save_main_js_local(),
+            default_configs.proxy.get_allow_save_main_js_local(),
+            "allow_save_main_js_local getter should return configs.toml default"
         );
         
         // Test App Autostart defaults
