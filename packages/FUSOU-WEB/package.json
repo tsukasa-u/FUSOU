@@ -11,6 +11,7 @@
     "generate:all": "pnpm run generate:rust-data && pnpm run generate:graph-data",
     "build": "pnpm --filter @fusou/avro-wasm run build && pnpm run generate:all && pnpm run check:security:dom && astro check && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
     "build.no.keys": "pnpm --filter @fusou/avro-wasm run build && export PATH=\"$HOME/.cargo/bin:$PATH\" && pnpm run generate:all && pnpm run check:security:dom && astro check && dotenvx run -f .env --verbose --overload -- astro build",
+    "build:workers": "pnpm run build.no.keys && echo '_worker.js' > dist/.assetsignore",
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
