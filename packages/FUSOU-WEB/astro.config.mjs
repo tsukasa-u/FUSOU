@@ -38,9 +38,9 @@ function resolvePublicSiteUrl() {
 
   // 2) Preview deploys can optionally inject a deployment URL from CI
   const deploymentUrl = readPlainEnvUrl(
-    process.env.DEPLOYMENT_URL
-    || process.env.CF_WORKER_URL
-    || process.env.WORKERS_DEV_URL,
+    process.env.DEPLOYMENT_URL ||
+      process.env.CF_WORKER_URL ||
+      process.env.WORKERS_DEV_URL,
   );
   if (deploymentUrl) return deploymentUrl;
 
