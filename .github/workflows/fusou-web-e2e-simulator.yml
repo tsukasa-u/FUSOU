@@ -3,6 +3,9 @@ name: FUSOU-WEB Simulator E2E
 permissions:
   contents: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   workflow_dispatch:
     inputs:

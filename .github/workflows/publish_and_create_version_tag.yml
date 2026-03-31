@@ -3,6 +3,9 @@ name: "publish_and_create_version_tag"
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   create-release:
     defaults:
