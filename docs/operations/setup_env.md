@@ -442,7 +442,7 @@ npx wrangler deploy
 ### Cloudflare Workers (FUSOU-WEB)
 - Build scripts use `dotenvx run` to load `.env` during development
 - Production: Cloudflare Workers injects `DOTENV_PRIVATE_KEY` to decrypt `.env.production`
-- Runtime access via `locals.runtime.env` or `env` parameter
+- Runtime access via Cloudflare Workers env (e.g. `env` from `cloudflare:workers` / `cfEnv`, or `c.env` in Hono handlers)
 
 ## Security Benefits
 

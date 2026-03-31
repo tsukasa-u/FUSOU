@@ -1,5 +1,7 @@
 import { Hono } from "hono";
-import { brotliDecompressSync } from "node:zlib";
+import { promisify } from "node:util";
+import { brotliDecompress } from "node:zlib";
+const brotliDecompressAsync = promisify(brotliDecompress);
 import type { Bindings } from "../types";
 import {
   MAX_UPLOAD_BYTES,
@@ -712,11 +714,12 @@ app.get("/weapon-icon-frames", async (c) => {
 
     // Always return plain JSON. Some clients do not transparently decode
     // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
+    // Fall back to async Brotli decompression if the object was stored compressed.
     let parsedAtlas: unknown;
     try {
       parsedAtlas = JSON.parse(new TextDecoder().decode(atlasRaw));
     } catch {
-      const decompressed = brotliDecompressSync(atlasRaw);
+      const decompressed = await brotliDecompressAsync(atlasRaw);
       parsedAtlas = JSON.parse(decompressed.toString("utf8"));
     }
 

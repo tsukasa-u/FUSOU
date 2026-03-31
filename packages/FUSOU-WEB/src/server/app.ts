@@ -104,7 +104,7 @@ function resolveCorsOrigin(c: { env: Bindings; req: { method: string; header: (n
   }
 
   // For state-mutating requests, fail closed to canonical origin.
-  return resolveCanonicalOrigin(c) || 'null';
+  return resolveCanonicalOrigin(c) || '';
 }
 
 function appendVaryOriginHeader(headers: Headers): void {

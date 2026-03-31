@@ -158,9 +158,11 @@
 ```bash
 # 1. スケジュール実行のテスト
 curl -X POST https://fusou.dev/api/compaction/trigger-scheduled \
-  -H "Content-Type: application/json"
+  -H "Content-Type: application/json" \
+  -H "X-ADMIN-TOKEN: <your-admin-token>"
 
 # Expected: { "success": true, "enqueued": 0-N, "datasets": [...] }
+# Note: Requires ADMIN_TOKEN to be configured in Cloudflare Workers secrets.
 
 # 2. 手動コンパクションのテスト
 curl -X POST https://fusou.dev/api/compaction/sanitize-state \
