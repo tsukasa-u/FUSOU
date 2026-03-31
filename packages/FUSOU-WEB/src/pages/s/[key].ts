@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import type { Bindings } from "@/server/types";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
 
@@ -10,12 +11,6 @@ const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 type ShareRecordResponse = {
   originalUrl?: string;
   snapshotPayload?: Record<string, unknown> | null;
-};
-
-type RuntimeLocals = {
-  runtime?: {
-    env?: Bindings;
-  };
 };
 
 type ShareRecordFetchResult =
@@ -60,8 +55,9 @@ function parseAllowedHosts(value?: string): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function resolveSiteOrigin(locals: RuntimeLocals, requestUrl: string): string {
-  const configured = locals.runtime?.env?.PUBLIC_SITE_URL;
+function resolveSiteOrigin(requestUrl: string): string {
+  const workerEnv = cfEnv as unknown as Bindings;
+  const configured = workerEnv?.PUBLIC_SITE_URL;
   if (typeof configured === "string" && configured.trim().length > 0) {
     try {
       return new URL(configured).origin;
@@ -73,17 +69,18 @@ function resolveSiteOrigin(locals: RuntimeLocals, requestUrl: string): string {
   return new URL(requestUrl).origin;
 }
 
-function resolveAllowedHosts(locals: RuntimeLocals, requestUrl: string): Set<string> {
+function resolveAllowedHosts(requestUrl: string): Set<string> {
+  const workerEnv = cfEnv as unknown as Bindings;
   const allowed = new Set<string>();
 
-  const siteOrigin = resolveSiteOrigin(locals, requestUrl);
+  const siteOrigin = resolveSiteOrigin(requestUrl);
   try {
     allowed.add(new URL(siteOrigin).hostname.toLowerCase());
   } catch {
     // Ignore parse error.
   }
 
-  for (const host of parseAllowedHosts(locals.runtime?.env?.PUBLIC_SITE_ALLOWED_HOSTS)) {
+  for (const host of parseAllowedHosts(workerEnv?.PUBLIC_SITE_ALLOWED_HOSTS)) {
     allowed.add(host);
   }
 
@@ -356,13 +353,12 @@ function buildOgpHtml(
 }
 
 async function fetchShareRecord(
-  locals: RuntimeLocals,
   key: string,
   allowedHosts: Set<string>,
   siteOrigin: string,
 ) : Promise<ShareRecordFetchResult> {
-  const env = locals.runtime?.env;
-  const shortenerService = env?.SHORTENER_SERVICE as Fetcher | undefined;
+  const workerEnv = cfEnv as unknown as Bindings;
+  const shortenerService = workerEnv?.SHORTENER_SERVICE as Fetcher | undefined;
   if (!shortenerService) {
     return {
       ok: false,
@@ -435,11 +431,10 @@ async function fetchShareRecord(
   };
 }
 
-export const GET: APIRoute = async ({ params, request, locals }) => {
+export const GET: APIRoute = async ({ params, request }) => {
   const key = params.key;
-  const runtimeLocals = locals as RuntimeLocals;
-  const siteOrigin = resolveSiteOrigin(runtimeLocals, request.url);
-  const allowedHosts = resolveAllowedHosts(runtimeLocals, request.url);
+  const siteOrigin = resolveSiteOrigin(request.url);
+  const allowedHosts = resolveAllowedHosts(request.url);
 
   if (!key || !KEY_RE.test(key)) {
     return new Response(buildNotFoundHtml(siteOrigin), {
@@ -449,7 +444,6 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
   }
 
   const recordResult = await fetchShareRecord(
-    runtimeLocals,
     key,
     allowedHosts,
     siteOrigin,

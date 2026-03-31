@@ -8,12 +8,12 @@ import {
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const POST: APIRoute = async ({
   request,
   cookies,
   redirect,
-  locals,
 }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
   const currentUrl = new URL(request.url);
@@ -21,7 +21,7 @@ export const POST: APIRoute = async ({
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+  const envCtx = createEnvContext({ env: cfEnv as any });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured");

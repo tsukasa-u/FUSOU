@@ -201,36 +201,25 @@ app.post("/upload", async (c) => {
 // Supports incremental sync via optional 'since' query parameter (ms since epoch)
 // When 'since' is provided, returns only files with uploaded_at > since
 app.get("/keys", async (c) => {
-  console.log("GET /keys: request received");
-
   // Require valid Supabase access token
   const authHeader = c.req.header("Authorization");
-  console.log(`GET /keys: Authorization header present: ${!!authHeader}`);
 
   const accessToken = extractBearer(authHeader);
 
   if (!accessToken) {
-    console.log("GET /keys: no bearer token found in Authorization header");
     return c.json({ error: "Missing Authorization bearer token" }, 401);
   }
 
-  console.log("GET /keys: bearer token extracted, calling validateJWT");
   const supabaseUser = await validateJWT(accessToken);
 
   if (!supabaseUser) {
-    console.log("GET /keys: JWT validation failed, returning 401");
     return c.json({ error: "Invalid or expired JWT token" }, 401);
   }
-
-  console.log(
-    `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`,
-  );
 
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
 
   if (!db) {
-    console.log("GET /keys: ASSET_INDEX_DB not configured");
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
   }
 

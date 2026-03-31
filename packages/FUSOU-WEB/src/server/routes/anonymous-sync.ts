@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { SignJWT } from 'jose';
 import { createClient } from '@supabase/supabase-js';
-import { createEnvContext, getEnv, resolveSupabaseConfig } from '../utils';
+import { createEnvContext, getEnv, resolveSupabaseConfig, verifyAdminToken } from '../utils';
 import type { Bindings } from '../types';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -13,8 +13,13 @@ const app = new Hono<{ Bindings: Bindings }>();
  * troubleshoot anonymous sign-in issues.
  */
 app.get('/anonymous-sync/diagnostics', async (c) => {
+  const envCtx = createEnvContext({ env: c.env });
+  const check = verifyAdminToken(envCtx, c.req.header('X-ADMIN-TOKEN'));
+  if (!check.ok) {
+    return c.json({ error: check.error }, check.status);
+  }
+
   try {
-    const envCtx = createEnvContext({ env: c.env });
     const supabaseConfig = resolveSupabaseConfig(envCtx);
 
     const datasetTokenSecret = getEnv(envCtx, 'DATASET_TOKEN_SECRET');

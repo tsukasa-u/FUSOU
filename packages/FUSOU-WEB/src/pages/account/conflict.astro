@@ -2,9 +2,10 @@
 import Layout from "../../layouts/Layout.astro";
 import AlertBox from "../../components/AlertBox.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // Get member_id_hash from query params

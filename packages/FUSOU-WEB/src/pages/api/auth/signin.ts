@@ -7,14 +7,14 @@ import {
   sanitizeErrorMessage,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const POST: APIRoute = async ({
   request,
   cookies,
   redirect,
-  locals,
 }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+  const envCtx = createEnvContext({ env: cfEnv as any });
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.

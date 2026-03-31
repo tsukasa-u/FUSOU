@@ -4,11 +4,12 @@ import {
   validateOrigin,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env: cfEnv as any });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     return new Response("Server misconfiguration", { status: 500 });
