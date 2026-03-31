@@ -1,76 +1,23 @@
 # FOSSA Configuration
-# Policy: keep normal attribution output, excluding development dependencies only.
+# Policy: keep normal attribution output and limit analysis to product paths.
 
 version: 3
 
-# Project identification
-project: fusou/fusou
+server: https://app.fossa.com
 
-# CLI configuration
-cli:
-  server: https://app.fossa.com
+project:
+  id: fusou/fusou
+  name: FUSOU
 
-# Analysis modules - all packages in the monorepo
-analyze:
-  modules:
-    # Web Application (Astro)
-    - name: FUSOU-WEB
-      type: npm
-      path: packages/FUSOU-WEB
-      
-    # Desktop Application (Tauri + React)
-    - name: FUSOU-APP
-      type: npm
-      path: packages/FUSOU-APP
-      
-    # Shared UI Library
-    - name: shared-ui
-      type: npm
-      path: packages/shared-ui
-      
-    # Workflow Engine (Cloudflare Worker)
-    - name: FUSOU-WORKFLOW
-      type: npm
-      path: packages/FUSOU-WORKFLOW
-      
-    # URL Shortener (Cloudflare Worker)
-    - name: FUSOU-URL-SHORTER
-      type: npm
-      path: packages/FUSOU-URL-SHORTER
-      
-    # Rust modules for backend services
-    - name: kc_api
-      type: rust
-      path: packages/kc_api
-      
-    - name: fusou-auth
-      type: rust
-      path: packages/fusou-auth
-      
-    - name: fusou-upload
-      type: rust
-      path: packages/fusou-upload
-      
-    - name: avro-wasm
-      type: rust
-      path: packages/avro-wasm
-      
-    - name: configs
-      type: rust
-      path: packages/configs
-      
-    - name: equip_synergy_detector
-      type: npm
-      path: packages/equip_synergy_detector
-      
-    - name: fusou-datasets
-      type: python
-      path: packages/fusou-datasets
-
-# Attribution generation settings
-attribution:
-  enabled: true
-  # Include transitive runtime dependencies.
-  includeTransitive: true
-  # Exclude development/test dependencies.
-  includeDevDependencies: false
+paths:
+  only:
+    - packages/FUSOU-APP
+    - packages/FUSOU-WEB
+    - packages/shared-ui
+    - packages/FUSOU-WORKFLOW
+    - packages/FUSOU-URL-SHORTER
+    - packages/kc_api
+    - packages/fusou-auth
+    - packages/fusou-upload
+    - packages/avro-wasm
+    - packages/configs
