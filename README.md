@@ -7,6 +7,7 @@
 [![docs](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
 [![build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield)
 
 FUSOU is a simple data viewer for [Kantai Collection](https://games.dmm.com/detail/kancolle) (艦隊これくしょん -艦これ-).<br>
 The goal of this app is to display only the data that users can normally obtain through regular gameplay and to perform analysis using that data, unlike other similar apps.
