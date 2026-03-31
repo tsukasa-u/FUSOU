@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import solid from "@astrojs/solid-js";
 import cloudflare from "@astrojs/cloudflare";
 import sitemap from "@astrojs/sitemap";
-import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
@@ -39,9 +38,9 @@ function resolvePublicSiteUrl() {
 
   // 2) Preview deploys can optionally inject a deployment URL from CI
   const deploymentUrl = readPlainEnvUrl(
-    process.env.DEPLOYMENT_URL
-    || process.env.CF_WORKER_URL
-    || process.env.WORKERS_DEV_URL,
+    process.env.DEPLOYMENT_URL ||
+      process.env.CF_WORKER_URL ||
+      process.env.WORKERS_DEV_URL,
   );
   if (deploymentUrl) return deploymentUrl;
 
@@ -77,7 +76,6 @@ export default defineConfig({
   // @ts-ignore
   integrations: [
     sitemap(),
-    icon(),
     react({
       include: ["**/react/*"],
     }),

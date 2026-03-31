@@ -1,0 +1,23 @@
+# FOSSA Configuration
+# Policy: keep normal attribution output and limit analysis to product paths.
+
+version: 3
+
+server: https://app.fossa.com
+
+project:
+  id: fusou/fusou
+  name: FUSOU
+
+paths:
+  only:
+    - packages/FUSOU-APP
+    - packages/FUSOU-WEB
+    - packages/shared-ui
+    - packages/FUSOU-WORKFLOW
+    - packages/FUSOU-URL-SHORTER
+    - packages/kc_api
+    - packages/fusou-auth
+    - packages/fusou-upload
+    - packages/avro-wasm
+    - packages/configs
