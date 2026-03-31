@@ -1,4 +1,5 @@
 import app from "@/server/app";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
 
@@ -18,15 +19,15 @@ function stripApiPrefix(req: Request): Request {
   }
 }
 
-export const GET = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
-export const POST = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
-export const PUT = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
-export const DELETE = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
-export const PATCH = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
-export const OPTIONS = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
+export const GET = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });
+export const POST = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });
+export const PUT = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });
+export const DELETE = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });
+export const PATCH = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });
+export const OPTIONS = async ({ request }: any) =>
+  app.fetch(stripApiPrefix(request), { env: cfEnv });

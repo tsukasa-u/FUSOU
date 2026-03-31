@@ -28,9 +28,8 @@ export type Bindings = {
   DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
-  PUBLIC_SITE_URL_PRODUCTION?: string; // For generating absolute URLs in production
-  PUBLIC_SITE_PREVIEW_BASE_DOMAIN?: string; // For generating absolute URLs in preview (e.g. *.pages.dev)
-  PUBLIC_SITE_URL_FALLBACK?: string; // Fallback site URL if preview domain is not detected
+  PUBLIC_SITE_URL?: string; // Canonical public origin for the web app
+  PUBLIC_SITE_ALLOWED_HOSTS?: string; // Comma-separated host allowlist for simulator share URLs
   ASSET_BASE_URL?: string; // R2 custom domain base URL (e.g. https://assets.fusou.dev)
 
   // Queues

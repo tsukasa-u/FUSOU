@@ -1,13 +1,22 @@
-# Cloudflare Pages configuration for FUSOU-WEB
+# Cloudflare Workers configuration for FUSOU-WEB
 name = "fusou"
-compatibility_date = "2024-01-01"
+compatibility_date = "2024-10-22"
 compatibility_flags = ["nodejs_compat"]
-pages_build_output_dir = "dist"
+main = "@astrojs/cloudflare/entrypoints/server"
+workers_dev = true
+
+[[routes]]
+pattern = "fusou.dev/*"
+zone_id = "731e1832836d28c5388fd1248d79da7c"
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
 
 # ===== Environment Variables =====
 # Note: Do NOT hardcode variables in wrangler.toml.
 # - Development: keep non-secret config in .env via dotenvx
-# - Production (Cloudflare Pages): set environment variables in the Pages Dashboard
+# - Production: set environment variables in the Workers Dashboard
 #   e.g. Settings → Environment Variables → add TABLE_FINGERPRINTS_JSON
 
 # ===== Service Bindings =====
@@ -21,11 +30,14 @@ binding = "SHORTENER_SERVICE"
 service = "fusou-url-shorter"
 
 # ===== Public Asset Base URL (R2 custom domain) =====
-# ASSET_BASE_URL is managed in [vars] below.
-# Override in Cloudflare Pages dashboard if needed per environment.
+# Set ASSET_BASE_URL in the Workers Dashboard → Settings → Environment Variables.
 # Production value: https://assets.fusou.dev
 
 # ===== R2 Bucket Bindings =====
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "dev-kc-assets"
+
 [[r2_buckets]]
 binding = "ASSET_SYNC_BUCKET"
 bucket_name = "dev-kc-assets"
@@ -48,12 +60,12 @@ bucket_name = "dev-kc-master-data"
 
 [[d1_databases]]
 binding = "ASSET_INDEX_DB"
-database_name = "dev_kc_asset_index"
+database_name = "dev-kc-asset-index"
 database_id = "c625d190-44b7-4a80-85fe-6fddbba64248"
 
 [[d1_databases]]
 binding = "BATTLE_INDEX_DB"
-database_name = "dev_kc_battle_index"
+database_name = "dev-kc-battle-index"
 database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
 
 [[d1_databases]]
@@ -67,7 +79,7 @@ binding = "DATA_LOADER_CACHE_KV"
 id = "e1073037618c4cfba9c7e082e23db959"
 
 # ===== Queue Bindings =====
-# Producer binding (send messages from Pages)
+# Producer binding
 [[queues.producers]]
 queue = "dev-kc-compaction-queue"
 binding = "COMPACTION_QUEUE"
@@ -77,16 +89,7 @@ binding = "COMPACTION_QUEUE"
 queue = "dev-kc-compaction-dlq"
 binding = "COMPACTION_DLQ"
 
-# ===== Scheduled cron triggers =====
-# Note: Cloudflare Pages does not support scheduled functions via wrangler.toml
-# Alternative approaches:
-#
-# Option 1: External Cron Service (Recommended)
-#   Use GitHub Actions, Cloudflare Workers Cron, or other cron services to call:
-#   POST https://your-site.pages.dev/api/compaction/trigger-scheduled
-#
-# Option 2: Cloudflare Workers Cron (Separate Worker)
-#   Create a separate Worker with cron trigger that calls the endpoint
-#
-# Option 3: Manual Trigger
-#   Call the endpoint manually when needed for testing
+[observability.logs]
+enabled = true
+persist = true
+invocation_logs = true

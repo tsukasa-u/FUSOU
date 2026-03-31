@@ -1,6 +1,11 @@
 import { createEnvContext, getEnv, type EnvContext } from "@/server/utils";
 import { createClient } from "@supabase/supabase-js";
-import type { AstroCookies } from "astro";
+
+type CookieStore = {
+  get: (key: string) => { value: string } | undefined;
+  set: (key: string, value: string, options?: Record<string, unknown>) => void;
+  delete: (key: string, options?: Record<string, unknown>) => void;
+};
 
 const cookieOptions = {
   path: "/",
@@ -10,7 +15,7 @@ const cookieOptions = {
   maxAge: 60 * 10, // 10 minutes is enough for PKCE exchange
 };
 
-const createCookieStorage = (cookies: AstroCookies) => {
+const createCookieStorage = (cookies: CookieStore) => {
   return {
     getItem(key: string) {
       return cookies.get(key)?.value ?? null;
@@ -25,7 +30,7 @@ const createCookieStorage = (cookies: AstroCookies) => {
 };
 
 export const createSupabaseServerClient = (
-  cookies: AstroCookies,
+  cookies: CookieStore,
   runtimeEnv?: Record<string, any>
 ) => {
   // Create env context from runtime env or use buildtime env

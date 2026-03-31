@@ -65,6 +65,7 @@ export default function BattleMapFlowPanel() {
   const [mapFilter, setMapFilter] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [partialLoadWarnings, setPartialLoadWarnings] = createSignal<string[]>([]);
   const [selectedSortieId, setSelectedSortieId] = createSignal("");
   const [selectedCellFilter, setSelectedCellFilter] = createSignal<SelectedCellFilter | null>(null);
   const [metadataWarnings, setMetadataWarnings] = createSignal<string[]>([]);
@@ -762,7 +763,29 @@ export default function BattleMapFlowPanel() {
 
     setLoading(true);
     setError(null);
+    setPartialLoadWarnings([]);
     try {
+      const parseOptionalJson = async <T,>(
+        response: Response,
+        fallback: T,
+        label: string,
+        warnings: Set<string>,
+      ): Promise<T> => {
+        if (!response.ok) {
+          warnings.add(`${label}の読込に失敗`);
+          return fallback;
+        }
+        try {
+          return (await response.json()) as T;
+        } catch (err) {
+          console.warn("[map-flow] Failed to parse optional response", err);
+          warnings.add(`${label}の解析に失敗`);
+          return fallback;
+        }
+      };
+
+      const optionalWarnings = new Set<string>();
+
       const [battleRes, cellsRes, enemyDeckRes, enemyShipRes, enemySlotItemRes, mstShipRes, mstSlotItemRes, battleResultRes, weaponIconFramesRes] =
         await Promise.all([
           cachedFetch(`/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000&include_sortie_key=1`, { signal }),
@@ -773,7 +796,7 @@ export default function BattleMapFlowPanel() {
           cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
           cachedFetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
           cachedFetch(`/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`, { signal }),
-          cachedFetch(`/api/asset-sync/weapon-icon-frames`, { signal }),
+          cachedFetch(`/api/asset-sync/weapon-icon-frames?v=2`, { signal }),
         ]);
 
       if (signal.aborted) return;
@@ -785,33 +808,21 @@ export default function BattleMapFlowPanel() {
       }
 
       const battlePayload = (await battleRes.json()) as { records?: BattleRecord[] };
-      const cellsPayload = cellsRes.ok
-        ? ((await cellsRes.json()) as { records?: CellRecord[] })
-        : { records: [] };
-      const deckPayload = enemyDeckRes.ok
-        ? ((await enemyDeckRes.json()) as { records?: EnemyDeckRecord[] })
-        : { records: [] };
-      const shipPayload = enemyShipRes.ok
-        ? ((await enemyShipRes.json()) as { records?: EnemyShipRecord[] })
-        : { records: [] };
-      const slotItemPayload = enemySlotItemRes.ok
-        ? ((await enemySlotItemRes.json()) as { records?: EnemySlotItemRecord[] })
-        : { records: [] };
-      const mstPayload = mstShipRes.ok
-        ? ((await mstShipRes.json()) as { records?: MstShipRecord[] })
-        : { records: [] };
-      const mstSlotItemPayload = mstSlotItemRes.ok
-        ? ((await mstSlotItemRes.json()) as { records?: MstSlotItemRecord[] })
-        : { records: [] };
-      const battleResultPayload = battleResultRes.ok
-        ? ((await battleResultRes.json()) as { records?: BattleResultRecord[] })
-        : { records: [] };
-      const weaponIconFramesPayload = weaponIconFramesRes.ok
-        ? ((await weaponIconFramesRes.json()) as {
-            frames?: Record<string, { frame?: { x?: number; y?: number; w?: number; h?: number } }>;
-            meta?: { size?: { w?: number; h?: number } };
-          })
-        : {};
+      const cellsPayload = await parseOptionalJson<{ records?: CellRecord[] }>(cellsRes, { records: [] }, "セル履歴", optionalWarnings);
+      const deckPayload = await parseOptionalJson<{ records?: EnemyDeckRecord[] }>(enemyDeckRes, { records: [] }, "敵編成", optionalWarnings);
+      const shipPayload = await parseOptionalJson<{ records?: EnemyShipRecord[] }>(enemyShipRes, { records: [] }, "敵艦情報", optionalWarnings);
+      const slotItemPayload = await parseOptionalJson<{ records?: EnemySlotItemRecord[] }>(enemySlotItemRes, { records: [] }, "敵装備情報", optionalWarnings);
+      const mstPayload = await parseOptionalJson<{ records?: MstShipRecord[] }>(mstShipRes, { records: [] }, "艦マスタ", optionalWarnings);
+      const mstSlotItemPayload = await parseOptionalJson<{ records?: MstSlotItemRecord[] }>(mstSlotItemRes, { records: [] }, "装備マスタ", optionalWarnings);
+      const battleResultPayload = await parseOptionalJson<{ records?: BattleResultRecord[] }>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
+      const weaponIconFramesPayload = await parseOptionalJson<{
+        frames?: Record<string, { frame?: { x?: number; y?: number; w?: number; h?: number } }>;
+        meta?: { size?: { w?: number; h?: number } };
+      }>(weaponIconFramesRes, {}, "装備アイコン情報", optionalWarnings);
+
+      if (optionalWarnings.size > 0) {
+        setPartialLoadWarnings([...optionalWarnings]);
+      }
 
       const iconFrames: Record<number, WeaponIconFrame> = {};
       for (const [name, entry] of Object.entries(weaponIconFramesPayload.frames || {})) {
@@ -1032,6 +1043,17 @@ export default function BattleMapFlowPanel() {
             </button>
           </div>
           <Show when={error()}>{(msg) => <p class="mt-3 text-sm text-error">{msg()}</p>}</Show>
+          <Show when={partialLoadWarnings().length > 0}>
+            <div class="mt-3 rounded-box border border-info/30 bg-info/10 p-3 text-sm text-info-content">
+              <div class="font-semibold text-info">一部データを取得できませんでした</div>
+              <div class="text-xs text-base-content/80">
+                表示は継続していますが、結果の一部が欠損している可能性があります。しばらく待って再読込してください。
+              </div>
+              <div class="text-xs text-base-content/70 mt-1">
+                失敗項目: {partialLoadWarnings().join(" / ")}
+              </div>
+            </div>
+          </Show>
           <Show when={metadataWarnings().length > 0}>
             <div class="mt-3 rounded-box border border-warning/30 bg-warning/10 p-3 text-sm text-warning-content">
               <div class="font-semibold text-warning">マップメタデータ警告</div>

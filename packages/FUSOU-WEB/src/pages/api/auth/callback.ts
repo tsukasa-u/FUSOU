@@ -2,6 +2,7 @@ import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
@@ -38,8 +39,8 @@ const createUserScopedClient = (
 // };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env: cfEnv as any });
   const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
   const supabasePublishableKey = getEnv(envCtx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 

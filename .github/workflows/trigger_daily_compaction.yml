@@ -13,8 +13,20 @@ jobs:
     steps:
       - name: Trigger scheduled compaction
         run: |
-          curl -X POST https://${{ secrets.PAGES_DOMAIN }}/api/compaction/trigger-scheduled \
+          BASE_URL="${{ secrets.FUSOU_WEB_BASE_URL }}"
+          if [ -z "$BASE_URL" ]; then
+            echo "FUSOU_WEB_BASE_URL secret is not set"
+            exit 1
+          fi
+          ADMIN_TOKEN="${{ secrets.ADMIN_TOKEN }}"
+          if [ -z "$ADMIN_TOKEN" ]; then
+            echo "ADMIN_TOKEN secret is not set"
+            exit 1
+          fi
+          BASE_URL="${BASE_URL%/}"
+          curl -X POST "${BASE_URL}/api/compaction/trigger-scheduled" \
             -H "Content-Type: application/json" \
+            -H "X-ADMIN-TOKEN: $ADMIN_TOKEN" \
             -w "\nHTTP Status: %{http_code}\n" \
             -s -S
         continue-on-error: false

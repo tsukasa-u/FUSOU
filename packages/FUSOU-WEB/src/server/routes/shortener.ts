@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
-import { createEnvContext } from "@/server/utils";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -89,18 +89,67 @@ async function requestShortener(
   };
 }
 
-function isAllowedHost(hostname: string): boolean {
-  return hostname === "fusou.dev"
-    || hostname.endsWith(".fusou.dev")
-    || hostname === "fusou.pages.dev"
-    || hostname.endsWith(".fusou.pages.dev");
+function parseAllowedHosts(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      if (entry.includes("://")) {
+        try {
+          return new URL(entry).hostname.toLowerCase();
+        } catch {
+          return "";
+        }
+      }
+      return entry.replace(/^\*\./, "");
+    })
+    .filter((entry) => entry.length > 0);
 }
 
-function normalizeSimulatorUrl(value: string): string | null {
+function resolveAllowedHosts(
+  envCtx: ReturnType<typeof createEnvContext>,
+  requestUrl: string,
+): Set<string> {
+  const allowed = new Set<string>();
+
+  const configuredSiteUrl = getEnv(envCtx, "PUBLIC_SITE_URL");
+  if (configuredSiteUrl) {
+    try {
+      allowed.add(new URL(configuredSiteUrl).hostname.toLowerCase());
+    } catch {
+      // Ignore parse error.
+    }
+  }
+
+  try {
+    allowed.add(new URL(requestUrl).hostname.toLowerCase());
+  } catch {
+    // Ignore parse error.
+  }
+
+  for (const host of parseAllowedHosts(getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"))) {
+    allowed.add(host);
+  }
+
+  return allowed;
+}
+
+function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
+  const normalized = hostname.toLowerCase();
+  if (allowedHosts.has(normalized)) return true;
+  for (const allowed of allowedHosts) {
+    if (normalized.endsWith(`.${allowed}`)) return true;
+  }
+  return false;
+}
+
+function normalizeSimulatorUrl(value: string, allowedHosts: Set<string>): string | null {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:") return null;
-    if (!isAllowedHost(parsed.hostname)) return null;
+    if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
     if (!(parsed.pathname === "/simulator" || parsed.pathname.startsWith("/simulator/"))) {
       return null;
     }
@@ -192,6 +241,7 @@ app.post("/", async (c) => {
 
 app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
   const envCtx = createEnvContext(c);
+  const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
   const shortenerService = envCtx.runtime.SHORTENER_SERVICE as Fetcher | undefined;
 
   if (!shortenerService) {
@@ -237,7 +287,9 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
   }
 
   const originalUrl = typeof data.originalUrl === "string" ? data.originalUrl : "";
-  const safeOriginalUrl = originalUrl ? normalizeSimulatorUrl(originalUrl) : null;
+  const safeOriginalUrl = originalUrl
+    ? normalizeSimulatorUrl(originalUrl, allowedHosts)
+    : null;
   if (!safeOriginalUrl) {
     return c.json({ ok: false, error: "Resolved URL is invalid" }, 404);
   }

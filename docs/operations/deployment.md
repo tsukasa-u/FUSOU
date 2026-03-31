@@ -1,6 +1,6 @@
 # デプロイ後の設定確認チェックリスト
 
-## 🔧 Cloudflare Pages (FUSOU-WEB)
+## 🔧 Cloudflare Workers (FUSOU-WEB)
 
 ### 環境変数設定
 
@@ -98,8 +98,8 @@
 
 ### GitHub Secrets 設定
 
-- [ ] **PAGES_DOMAIN**
-  - 値: `fusou.pages.dev` (または本番ドメイン)
+- [ ] **FUSOU_WEB_BASE_URL**
+  - 値: `https://fusou.dev` (または本番ドメイン)
   - Repository Settings → Secrets and variables → Actions
 
 ### ワークフロー確認
@@ -157,13 +157,15 @@
 
 ```bash
 # 1. スケジュール実行のテスト
-curl -X POST https://fusou.pages.dev/api/compaction/trigger-scheduled \
-  -H "Content-Type: application/json"
+curl -X POST https://fusou.dev/api/compaction/trigger-scheduled \
+  -H "Content-Type: application/json" \
+  -H "X-ADMIN-TOKEN: <your-admin-token>"
 
 # Expected: { "success": true, "enqueued": 0-N, "datasets": [...] }
+# Note: Requires ADMIN_TOKEN to be configured in Cloudflare Workers secrets.
 
 # 2. 手動コンパクションのテスト
-curl -X POST https://fusou.pages.dev/api/compaction/sanitize-state \
+curl -X POST https://fusou.dev/api/compaction/sanitize-state \
   -H "Content-Type: application/json" \
   -d '{"datasetId":"<uuid>"}'
 
@@ -172,7 +174,7 @@ curl -X POST https://fusou.pages.dev/api/compaction/sanitize-state \
 
 ### ログ確認
 
-- [ ] Cloudflare Pages: `wrangler tail fusou`
+- [ ] Cloudflare Workers (FUSOU-WEB): `wrangler tail fusou`
 - [ ] Cloudflare Workers: `wrangler tail fusou-workflow`
 - [ ] キュー状態: `wrangler queues list`
 
@@ -181,11 +183,11 @@ curl -X POST https://fusou.pages.dev/api/compaction/sanitize-state \
 ## ⚠️ よくある見落とし
 
 1. **dotenvx DOTENV_PRIVATE_KEY が設定されていない**
-   - Pages と Workers 両方で必須
+  - FUSOU-WEB / FUSOU-WORKFLOW の両 Worker で必須
    - `wrangler secret put` で設定済み確認
 
-2. **PAGES_DOMAIN Secret がない**
-   - GitHub Actions で `secrets.PAGES_DOMAIN` が使用される
+2. **FUSOU_WEB_BASE_URL Secret がない**
+  - GitHub Actions で `secrets.FUSOU_WEB_BASE_URL` が使用される
    - Repository Settings で設定確認
 
 3. **キューが作成されていない**
@@ -193,7 +195,7 @@ curl -X POST https://fusou.pages.dev/api/compaction/sanitize-state \
    - Cloudflare Dashboard → Queues
 
 4. **R2 バケットの権限不足**
-   - Pages/Workers から該当バケットへのアクセス確認
+  - FUSOU-WEB Worker / FUSOU-WORKFLOW Worker から該当バケットへのアクセス確認
    - wrangler.toml の `bucket_name` とダッシュボード上の実際の名前が一致
 
 5. **Supabase との接続テスト**
@@ -220,7 +222,7 @@ curl -X POST https://fusou.pages.dev/api/compaction/sanitize-state \
 
 ### Workflow が実行されない
 
-- COMPACTION_WORKFLOW バインディングが Pages から見えるか確認
+- COMPACTION_WORKFLOW バインディングが FUSOU-WEB Worker から見えるか確認
 - BATTLE_DATA_BUCKET へのアクセス権限確認
 - Workflow のスキーマが正しいか確認
 
@@ -236,10 +238,10 @@ wrangler env list
 wrangler queues list
 
 # API エンドポイントが応答する
-curl https://fusou.pages.dev/api/compaction/trigger-scheduled
+curl https://fusou.dev/api/compaction/trigger-scheduled
 
 # DLQ ステータスエンドポイント確認
-curl https://fusou.pages.dev/api/compaction/dlq-status | jq
+curl https://fusou.dev/api/compaction/dlq-status | jq
 
 # ログに エラーがない
 wrangler tail fusou

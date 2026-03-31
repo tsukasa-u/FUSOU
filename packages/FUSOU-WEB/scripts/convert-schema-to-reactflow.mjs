@@ -373,7 +373,7 @@ function buildMasterDataNodesFromAvro(version) {
     if (!dedup.has(node.id)) dedup.set(node.id, node);
   }
 
-  const deduped = [...dedup.values()];
+  const deduped = [...dedup.values()].sort((a, b) => a.id.localeCompare(b.id));
   if (deduped.length === 0) {
     throw new Error(`No master schemas found in: ${masterPath}`);
   }
@@ -448,8 +448,8 @@ function mergeMasterDataGraph(result, masterNodes) {
     edgeById.set(edge.id, edge);
   }
 
-  result.nodes = mergedNodes;
-  result.edges = [...edgeById.values()];
+  result.nodes = mergedNodes.sort((a, b) => a.id.localeCompare(b.id));
+  result.edges = [...edgeById.values()].sort((a, b) => a.id.localeCompare(b.id));
   result.tableCount = result.nodes.length;
   result.masterTableCount = masterNodes.length;
 }
@@ -497,6 +497,9 @@ function convertVersion(version) {
   }
 
   const edges = inferEdges(tables);
+
+  nodes.sort((a, b) => a.id.localeCompare(b.id));
+  edges.sort((a, b) => a.id.localeCompare(b.id));
 
   return {
     version: tableVersion,

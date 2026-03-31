@@ -2,9 +2,10 @@ import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateOrigin } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
-export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => {
-  const envCtx = createEnvContext({ env: (locals as any)?.runtime?.env || {} });
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
+  const envCtx = createEnvContext({ env: cfEnv as any });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     return new Response("Server misconfiguration", { status: 500 });
@@ -14,8 +15,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect, locals }) => 
     return new Response("Invalid request origin", { status: 403 });
   }
 
-  const runtimeEnv = (locals as any)?.runtime?.env || {};
-  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+  const supabase = createSupabaseServerClient(cookies, cfEnv as Record<string, any>);
   await supabase.auth.signOut();
 
   const cookieNames = [
