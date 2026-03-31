@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, SignJWT, jwtVerify } from "jose";
 import type { Context } from "hono";
+import { env as cfEnv } from "cloudflare:workers";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
 
@@ -162,9 +163,9 @@ export function getRuntimeEnv(
 }
 
 /** Cloudflare runtime環境変数からBindingsオブジェクトを構築 */
-export function injectEnv(locals: any): Bindings {
+export function injectEnv(_locals?: unknown): Bindings {
   const ctx: EnvContext = {
-    runtime: locals?.runtime?.env || {},
+    runtime: (cfEnv as unknown as Record<string, any>) ?? {},
     buildtime: import.meta.env as Record<string, any>,
     isDev: import.meta.env.DEV,
   };
@@ -230,6 +231,38 @@ export function timingSafeEqual(a: string, b: string): boolean {
     diff |= aByte ^ bByte;
   }
   return diff === 0;
+}
+
+export type AdminTokenCheckResult = {
+  ok: boolean;
+  status: 200 | 401 | 403;
+  error?: string;
+};
+
+/** Verify X-ADMIN-TOKEN against ADMIN_TOKEN from environment. */
+export function verifyAdminToken(
+  ctx: EnvContext,
+  providedToken?: string | null,
+): AdminTokenCheckResult {
+  const adminToken = getEnv(ctx, "ADMIN_TOKEN");
+
+  if (!adminToken) {
+    return {
+      ok: false,
+      status: 403,
+      error: "Endpoint disabled (ADMIN_TOKEN not set)",
+    };
+  }
+
+  if (!providedToken || !timingSafeEqual(providedToken, adminToken)) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Unauthorized",
+    };
+  }
+
+  return { ok: true, status: 200 };
 }
 
 /** ファイル名から拡張子を抽出 */

@@ -145,7 +145,7 @@ export async function getWeaponIconFrames(): Promise<{
   }
   try {
     const payload = (await fetchJson(
-      `/api/asset-sync/weapon-icon-frames`,
+      `/api/asset-sync/weapon-icon-frames?v=2`,
     )) as {
       frames?: Record<string, { frame?: Record<string, unknown> }>;
       meta?: { size?: { w?: number; h?: number } };
@@ -170,7 +170,10 @@ export async function getWeaponIconFrames(): Promise<{
       height: Number(payload?.meta?.size?.h ?? 0) || 0,
     };
   } catch {
-    weaponIconFramesCache = {};
+    // Keep cache unset so callers can retry on the next invocation.
+    weaponIconFramesCache = null;
+    weaponIconMetaCache = { width: 0, height: 0 };
+    return { frames: {}, meta: weaponIconMetaCache };
   }
   return { frames: weaponIconFramesCache, meta: weaponIconMetaCache };
 }

@@ -2,11 +2,11 @@
 import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { Icon } from "astro-icon/components";
 import type { User } from "@supabase/supabase-js";
+import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -37,6 +37,10 @@ try {
 }
 
 let memberMap = null;
+function providerInitial(provider?: string): string {
+  return (provider?.trim()?.charAt(0) || "?").toUpperCase();
+}
+
 try {
   const { data, error } = await supabase.rpc(
     "rpc_get_current_user_member_map",
@@ -82,7 +86,12 @@ if (!user) {
           class="mb-6 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
         >
           <div class="flex items-center gap-3">
-            <Icon name={user.app_metadata.provider} class="size-10" />
+            <span
+              class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
+              title={user.app_metadata.provider || "provider"}
+            >
+              {providerInitial(user.app_metadata.provider)}
+            </span>
             <div>
               <div class="font-bold text-sm">
                 {user.user_metadata?.name || "User"}

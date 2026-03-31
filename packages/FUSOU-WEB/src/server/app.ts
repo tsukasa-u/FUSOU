@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { logger } from 'hono/logger';
 import type { Bindings } from './types';
 import { CORS_HEADERS } from './constants';
+import { createEnvContext, getEnv } from './utils';
 
 import authApp from './routes/auth';
 import assetsApp from './routes/assets';
@@ -19,6 +20,109 @@ import anonymousSyncApp from './routes/anonymous-sync';
 import shortenerApp from './routes/shortener';
 
 const app = new Hono<{ Bindings: Bindings }>();
+const SAFE_CORS_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function parseAllowedHosts(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      if (entry.includes('://')) {
+        try {
+          return new URL(entry).hostname.toLowerCase();
+        } catch {
+          return '';
+        }
+      }
+      return entry.replace(/^\*\./, '');
+    })
+    .filter((entry) => entry.length > 0);
+}
+
+function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
+  const normalized = hostname.toLowerCase();
+  if (allowedHosts.has(normalized)) return true;
+  for (const allowed of allowedHosts) {
+    if (normalized.endsWith(`.${allowed}`)) return true;
+  }
+  return false;
+}
+
+function resolveCanonicalOrigin(c: { env: Bindings; req: { url: string } }): string | null {
+  const env = createEnvContext(c);
+  const configured = getEnv(env, 'PUBLIC_SITE_URL')?.trim();
+  if (configured) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+function resolveAllowedHosts(c: { env: Bindings; req: { url: string } }): Set<string> {
+  const env = createEnvContext(c);
+  const allowed = new Set<string>();
+
+  const canonicalOrigin = resolveCanonicalOrigin(c);
+  if (canonicalOrigin) {
+    try {
+      allowed.add(new URL(canonicalOrigin).hostname.toLowerCase());
+    } catch {
+      // Ignore invalid canonical origin.
+    }
+  }
+
+  for (const host of parseAllowedHosts(getEnv(env, 'PUBLIC_SITE_ALLOWED_HOSTS'))) {
+    allowed.add(host);
+  }
+
+  return allowed;
+}
+
+function resolveCorsOrigin(c: { env: Bindings; req: { method: string; header: (name: string) => string | undefined; url: string } }): string {
+  const reqMethod = (c.req.header('Access-Control-Request-Method') || c.req.method || '').toUpperCase();
+
+  if (SAFE_CORS_METHODS.has(reqMethod)) {
+    return '*';
+  }
+
+  const requestOrigin = c.req.header('Origin');
+  if (requestOrigin) {
+    try {
+      const parsed = new URL(requestOrigin);
+      if (isAllowedHost(parsed.hostname, resolveAllowedHosts(c))) {
+        return parsed.origin;
+      }
+    } catch {
+      // Ignore malformed Origin and continue with fail-closed behavior.
+    }
+  }
+
+  // For state-mutating requests, fail closed to canonical origin.
+  return resolveCanonicalOrigin(c) || '';
+}
+
+function appendVaryOriginHeader(headers: Headers): void {
+  const current = headers.get('Vary');
+  if (!current) {
+    headers.set('Vary', 'Origin');
+    return;
+  }
+
+  const tokens = current
+    .split(',')
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length > 0);
+
+  if (!tokens.includes('origin')) {
+    headers.set('Vary', `${current}, Origin`);
+  }
+}
 
 // Global logger
 app.use('*', logger((msg) => {
@@ -26,13 +130,31 @@ app.use('*', logger((msg) => {
 }));
 
 // Global CORS (preflight)
-app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
+app.options('*', (c) => {
+  const headers = new Headers(CORS_HEADERS);
+  const origin = resolveCorsOrigin(c);
+  headers.set('Access-Control-Allow-Origin', origin);
+  if (origin !== '*') appendVaryOriginHeader(headers);
+  return new Response(null, { status: 204, headers });
+});
 
 // Global CORS (actual responses)
 app.use('*', async (c, next) => {
   await next();
+  const targetOrigin = resolveCorsOrigin(c);
+
+  // Enforce non-wildcard origin for mutating requests even when route returned default headers.
+  if (!SAFE_CORS_METHODS.has(c.req.method.toUpperCase())) {
+    c.res.headers.set('Access-Control-Allow-Origin', targetOrigin);
+    if (targetOrigin !== '*') appendVaryOriginHeader(c.res.headers);
+  }
+
   for (const [k, v] of Object.entries(CORS_HEADERS)) {
     // Avoid overriding explicitly-set headers
+    if (k === 'Access-Control-Allow-Origin') {
+      if (!c.res.headers.has(k)) c.res.headers.set(k, targetOrigin);
+      continue;
+    }
     if (!c.res.headers.has(k)) c.res.headers.set(k, v);
   }
 });

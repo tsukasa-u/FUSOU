@@ -7,14 +7,14 @@ import {
   sanitizeErrorMessage,
 } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const POST: APIRoute = async ({
   request,
   cookies,
   redirect,
-  locals,
 }) => {
-  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+  const envCtx = createEnvContext({ env: cfEnv as any });
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
@@ -64,8 +64,7 @@ export const POST: APIRoute = async ({
           },
           env: {
             PUBLIC_SITE_URL: siteUrl,
-            CF_PAGES_BRANCH: getEnv(envCtx, "CF_PAGES_BRANCH"),
-            CF_PAGES_URL: getEnv(envCtx, "CF_PAGES_URL"),
+            PUBLIC_SITE_ALLOWED_HOSTS: getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"),
           },
         },
         null,

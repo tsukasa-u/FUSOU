@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
-import { validateJWT, createEnvContext } from '../utils';
+import { validateJWT, createEnvContext, verifyAdminToken } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -191,12 +191,17 @@ app.post('/sanitize-state', async (c) => {
  * 
  * Use case: Nightly/periodic compaction of accumulated fragments
  * 
- * Note: No authentication required (assumed to be called only from CI/CD)
- *       In production, should add auth or IP whitelist
+ * Security: Requires ADMIN_TOKEN via X-ADMIN-TOKEN header.
+ *           If ADMIN_TOKEN is not configured, endpoint is disabled.
  */
 app.post('/trigger-scheduled', async (c) => {
   try {
     const env = createEnvContext(c);
+    const check = verifyAdminToken(env, c.req.header('X-ADMIN-TOKEN'));
+    if (!check.ok) {
+      return c.json({ error: check.error }, check.status);
+    }
+
     const db = env.runtime.BATTLE_INDEX_DB;
 
     if (!db) {

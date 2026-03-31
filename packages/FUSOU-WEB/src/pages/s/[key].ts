@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import type { Bindings } from "@/server/types";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
 
@@ -10,12 +11,6 @@ const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
 type ShareRecordResponse = {
   originalUrl?: string;
   snapshotPayload?: Record<string, unknown> | null;
-};
-
-type RuntimeLocals = {
-  runtime?: {
-    env?: Bindings;
-  };
 };
 
 type ShareRecordFetchResult =
@@ -41,18 +36,71 @@ function escHtml(s: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function isAllowedHost(hostname: string): boolean {
-  return hostname === "fusou.dev"
-    || hostname.endsWith(".fusou.dev")
-    || hostname === "fusou.pages.dev"
-    || hostname.endsWith(".fusou.pages.dev");
+function parseAllowedHosts(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      if (entry.includes("://")) {
+        try {
+          return new URL(entry).hostname.toLowerCase();
+        } catch {
+          return "";
+        }
+      }
+      return entry.replace(/^\*\./, "");
+    })
+    .filter((entry) => entry.length > 0);
 }
 
-function normalizeSimulatorUrl(value: string): string | null {
+function resolveSiteOrigin(requestUrl: string): string {
+  const workerEnv = cfEnv as unknown as Bindings;
+  const configured = workerEnv?.PUBLIC_SITE_URL;
+  if (typeof configured === "string" && configured.trim().length > 0) {
+    try {
+      return new URL(configured).origin;
+    } catch {
+      // Fall through to request URL.
+    }
+  }
+
+  return new URL(requestUrl).origin;
+}
+
+function resolveAllowedHosts(requestUrl: string): Set<string> {
+  const workerEnv = cfEnv as unknown as Bindings;
+  const allowed = new Set<string>();
+
+  const siteOrigin = resolveSiteOrigin(requestUrl);
+  try {
+    allowed.add(new URL(siteOrigin).hostname.toLowerCase());
+  } catch {
+    // Ignore parse error.
+  }
+
+  for (const host of parseAllowedHosts(workerEnv?.PUBLIC_SITE_ALLOWED_HOSTS)) {
+    allowed.add(host);
+  }
+
+  return allowed;
+}
+
+function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
+  const normalized = hostname.toLowerCase();
+  if (allowedHosts.has(normalized)) return true;
+  for (const allowed of allowedHosts) {
+    if (normalized.endsWith(`.${allowed}`)) return true;
+  }
+  return false;
+}
+
+function normalizeSimulatorUrl(value: string, allowedHosts: Set<string>): string | null {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "https:") return null;
-    if (!isAllowedHost(parsed.hostname)) return null;
+    if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
     if (!(parsed.pathname === "/simulator" || parsed.pathname.startsWith("/simulator/"))) {
       return null;
     }
@@ -96,7 +144,9 @@ function buildBootstrapHtml(
 </html>`;
 }
 
-function buildNotFoundHtml(): string {
+function buildNotFoundHtml(siteOrigin: string): string {
+  const safeSiteOrigin = escHtml(siteOrigin);
+  const simulatorUrl = `${safeSiteOrigin}/simulator`;
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -218,8 +268,8 @@ function buildNotFoundHtml(): string {
       <p>リンクのコピー漏れ・末尾欠落があると開けない場合があります。送信元に再発行を依頼してください。</p>
       <p>共有URLを再作成する場合は <code>/simulator</code> で最新編成から生成できます。</p>
       <div class="row">
-        <a class="btn primary" href="https://fusou.dev/simulator">シミュレータへ移動</a>
-        <a class="btn" href="https://fusou.dev/">FUSOUトップ</a>
+        <a class="btn primary" href="${simulatorUrl}">シミュレータへ移動</a>
+        <a class="btn" href="${safeSiteOrigin}/">FUSOUトップ</a>
       </div>
     </section>
   </main>
@@ -274,11 +324,12 @@ function buildOgpHtml(
   shortUrl: string,
   originalUrl: string,
   description: string,
+  siteOrigin: string,
 ): string {
   const safeShortUrl = escHtml(shortUrl);
   const safeOriginalUrl = escHtml(originalUrl);
   const safeDescription = escHtml(description);
-  const safeImageUrl = escHtml("https://fusou.dev/favicon.svg");
+  const safeImageUrl = escHtml(`${siteOrigin}/favicon.svg`);
 
   return `<!DOCTYPE html>
 <html lang="ja">
@@ -302,11 +353,12 @@ function buildOgpHtml(
 }
 
 async function fetchShareRecord(
-  locals: RuntimeLocals,
   key: string,
+  allowedHosts: Set<string>,
+  siteOrigin: string,
 ) : Promise<ShareRecordFetchResult> {
-  const env = locals.runtime?.env;
-  const shortenerService = env?.SHORTENER_SERVICE as Fetcher | undefined;
+  const workerEnv = cfEnv as unknown as Bindings;
+  const shortenerService = workerEnv?.SHORTENER_SERVICE as Fetcher | undefined;
   if (!shortenerService) {
     return {
       ok: false,
@@ -336,7 +388,7 @@ async function fetchShareRecord(
   if (!upstream.ok) {
     return {
       ok: false,
-      response: new Response(upstream.status === 404 ? buildNotFoundHtml() : "Service unavailable", {
+      response: new Response(upstream.status === 404 ? buildNotFoundHtml(siteOrigin) : "Service unavailable", {
         status: upstream.status === 404 ? 404 : 502,
         headers: {
           "Content-Type": upstream.status === 404 ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
@@ -359,11 +411,13 @@ async function fetchShareRecord(
   }
 
   const originalUrl = typeof data.originalUrl === "string" ? data.originalUrl : "";
-  const safeOriginalUrl = originalUrl ? normalizeSimulatorUrl(originalUrl) : null;
+  const safeOriginalUrl = originalUrl
+    ? normalizeSimulatorUrl(originalUrl, allowedHosts)
+    : null;
   if (!safeOriginalUrl) {
     return {
       ok: false,
-      response: new Response(buildNotFoundHtml(), {
+      response: new Response(buildNotFoundHtml(siteOrigin), {
         status: 404,
         headers: { "Content-Type": "text/html; charset=utf-8" },
       }),
@@ -377,16 +431,23 @@ async function fetchShareRecord(
   };
 }
 
-export const GET: APIRoute = async ({ params, request, locals }) => {
+export const GET: APIRoute = async ({ params, request }) => {
   const key = params.key;
+  const siteOrigin = resolveSiteOrigin(request.url);
+  const allowedHosts = resolveAllowedHosts(request.url);
+
   if (!key || !KEY_RE.test(key)) {
-    return new Response(buildNotFoundHtml(), {
+    return new Response(buildNotFoundHtml(siteOrigin), {
       status: 404,
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }
 
-  const recordResult = await fetchShareRecord(locals as RuntimeLocals, key);
+  const recordResult = await fetchShareRecord(
+    key,
+    allowedHosts,
+    siteOrigin,
+  );
   if (!recordResult.ok) {
     return recordResult.response;
   }
@@ -405,7 +466,7 @@ export const GET: APIRoute = async ({ params, request, locals }) => {
       // Fall back to the default description.
     }
 
-    return new Response(buildOgpHtml(request.url, originalUrl, description), {
+    return new Response(buildOgpHtml(request.url, originalUrl, description, siteOrigin), {
       headers: { "Content-Type": "text/html; charset=utf-8" },
     });
   }

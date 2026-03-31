@@ -2,31 +2,23 @@
  * Admin / Maintenance Routes
  * 
  * These endpoints are for administrative and one-time operations.
- * Consider adding authentication or removing after use.
+ * Access is protected by X-ADMIN-TOKEN + ADMIN_TOKEN.
  */
 
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
-import { createEnvContext } from '../utils';
+import { createEnvContext, verifyAdminToken } from '../utils';
 
 const adminApp = new Hono<{ Bindings: Bindings }>();
 
 // ===== Authentication Middleware =====
 adminApp.use('*', async (c, next) => {
-  const env = createEnvContext(c);
-  // @ts-ignore - ADMIN_TOKEN might not be in the runtime env type yet but will be available
-  const adminToken = env.env?.ADMIN_TOKEN || c.env.ADMIN_TOKEN;
-  
-  if (!adminToken) {
-    // If no token configured, disable admin routes for security
-    return c.json({ error: 'Admin routes disabled (ADMIN_TOKEN not set)' }, 403);
+  const envCtx = createEnvContext(c);
+  const check = verifyAdminToken(envCtx, c.req.header('X-ADMIN-TOKEN'));
+  if (!check.ok) {
+    return c.json({ error: check.error }, check.status);
   }
-  
-  const authHeader = c.req.header('X-ADMIN-TOKEN');
-  if (!authHeader || authHeader !== adminToken) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-  
+
   await next();
 });
 

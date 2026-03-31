@@ -1,3 +1,4 @@
+use kc_api::interface::cells::Cells;
 use kc_api::interface::ship::Ships;
 use proxy_https::bidirectional_channel;
 use std::error::Error;
@@ -137,6 +138,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Identifier::RequireInfo(_) => {}
             Identifier::GetData(_) => {
                 submit_data::submit_get_data_table();
+                Cells::reset();
             }
             Identifier::MapStart(_) => {
                 let _ = handle.emit_to("main", "set-kcs-air-bases-battles", AirBases::load());

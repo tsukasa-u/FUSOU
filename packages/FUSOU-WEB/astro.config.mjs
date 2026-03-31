@@ -13,106 +13,52 @@ import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 
 /**
- * Cloudflare Pages ビルド時に PUBLIC_SITE_URL を動的に解決する
- * 優先順位: 平文の環境変数 → Cloudflare組み込みのデプロイURL
- */
-/**
  * @param {string} value
  */
-function isLocalOnlyUrl(value) {
+function isPlainUrl(value) {
   try {
     const parsed = new URL(value);
-    return ["localhost", "127.0.0.1", "::1"].includes(parsed.hostname);
+    return Boolean(parsed.protocol && parsed.hostname);
   } catch {
     return false;
   }
 }
 
 /**
- * @param {string | undefined} branch
- * @param {string | undefined} deploymentUrl
+ * @param {string | undefined} value
  */
-function toPreviewAliasUrl(branch, deploymentUrl) {
-  if (!branch || !deploymentUrl) return undefined;
-
-  // Convert branch names like "feature/foo_bar" into Cloudflare preview alias style.
-  const normalizedBranch = branch
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-
-  if (!normalizedBranch) return undefined;
-
-  try {
-    const deploymentHost = new URL(deploymentUrl).hostname;
-    const firstDot = deploymentHost.indexOf(".");
-    if (firstDot === -1 || firstDot === deploymentHost.length - 1) {
-      return undefined;
-    }
-
-    const projectHost = deploymentHost.slice(firstDot + 1);
-    return `https://${normalizedBranch}.${projectHost}`;
-  } catch {
-    return undefined;
-  }
+function readPlainEnvUrl(value) {
+  if (!value || value.startsWith("encrypted:")) return undefined;
+  return isPlainUrl(value) ? value : undefined;
 }
 
 function resolvePublicSiteUrl() {
   // 1) 明示指定（dotenvx / Cloudflare env）
-  const envVal = process.env.PUBLIC_SITE_URL;
-  const branch = process.env.CF_PAGES_BRANCH;
-  const isCloudflareBuild = Boolean(branch);
-  if (envVal && !envVal.startsWith("encrypted:")) {
-    // Cloudflare build では localhost 系の値を拒否して誤設定を防止する。
-    if (!(isCloudflareBuild && isLocalOnlyUrl(envVal))) {
-      return envVal;
-    }
-  }
+  const explicitSiteUrl = readPlainEnvUrl(process.env.PUBLIC_SITE_URL);
+  if (explicitSiteUrl) return explicitSiteUrl;
 
-  // 2) Cloudflare Pages 上のビルドは組み込み情報から解決
-  const deploymentUrl = process.env.CF_PAGES_URL;
-  const productionSiteUrl = process.env.PUBLIC_SITE_URL_PRODUCTION;
-
-  if (branch) {
-    if (branch === "main") {
-      if (productionSiteUrl && !productionSiteUrl.startsWith("encrypted:")) {
-        return productionSiteUrl;
-      }
-      if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
-        return deploymentUrl;
-      }
-      return undefined;
-    }
-
-    const previewAliasUrl = toPreviewAliasUrl(branch, deploymentUrl);
-    if (previewAliasUrl) {
-      return previewAliasUrl;
-    }
-
-    if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
-      return deploymentUrl;
-    }
-
-    return undefined;
-  }
-
-  if (deploymentUrl && !deploymentUrl.startsWith("encrypted:")) {
-    return deploymentUrl;
-  }
+  // 2) Preview deploys can optionally inject a deployment URL from CI
+  const deploymentUrl = readPlainEnvUrl(
+    process.env.DEPLOYMENT_URL
+    || process.env.CF_WORKER_URL
+    || process.env.WORKERS_DEV_URL,
+  );
+  if (deploymentUrl) return deploymentUrl;
 
   return undefined;
 }
 
 const publicSiteUrl = resolvePublicSiteUrl();
-const isCloudflareBuild = Boolean(process.env.CF_PAGES_BRANCH);
-const isStrictEnv = isCloudflareBuild || Boolean(process.env.CI);
+const isCloudflareDeploy = Boolean(
+  process.env.CLOUDFLARE_ACCOUNT_ID || process.env.CF_ACCOUNT_ID,
+);
+const isStrictEnv = isCloudflareDeploy || Boolean(process.env.CI);
 
 let effectivePublicSiteUrl = publicSiteUrl;
 if (!effectivePublicSiteUrl) {
   if (isStrictEnv) {
     throw new Error(
-      "PUBLIC_SITE_URL (or CF_PAGES_URL on Pages) is required in CI/Cloudflare builds",
+      "PUBLIC_SITE_URL is required for CI/Cloudflare Workers builds",
     );
   } else {
     // Local CLI usage (astro check/dev) can safely fall back.
@@ -142,10 +88,6 @@ export default defineConfig({
   output: "server",
   adapter: cloudflare({
     imageService: "cloudflare",
-    platformProxy: {
-      enabled: true,
-      persist: true,
-    },
   }),
   vite: {
     ssr: {
@@ -212,7 +154,7 @@ export default defineConfig({
     resolve: {
       // @ts-ignore
       alias: {
-        ...(import.meta.env.PROD && {
+        ...(process.env.NODE_ENV === "production" && {
           "react-dom/server": "react-dom/server.edge",
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),

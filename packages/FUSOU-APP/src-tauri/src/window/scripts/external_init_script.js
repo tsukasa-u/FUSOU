@@ -17,12 +17,18 @@ const applyLayout = () => {
     htmlElement.style.setProperty("overflow", "hidden", "important");
   }
 
+  const rootElement = document.getElementById("root");
   ["header", "footer", "aside"].forEach((tag) => {
-    const element = document.getElementsByTagName(tag)[0];
+    const element = rootElement.getElementsByTagName(tag)[0];
     if (element) {
       element.style.setProperty("display", "none", "important");
     }
   });
+  const ulElements = rootElement.getElementsByTagName("ul");
+  for (let i = 0; i < ulElements.length; i++) {
+    ulElements[i].style.setProperty("display", "none", "important");
+  }
+  
 
   const gameFrame = document.getElementById("game_frame");
   if (!gameFrame) return;

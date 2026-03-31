@@ -24,70 +24,6 @@
   },
   "diffs": {
     "v0_4_to_v0_5": {
-      "cells": {
-        "status": "changed",
-        "addedFields": [
-          "event_map_max_maphp",
-          "event_map_now_maphp",
-          "event_map_dmg",
-          "event_map_gauge_type",
-          "event_map_gauge_num",
-          "event_map_state",
-          "event_map_selected_rank",
-          "happening_counts",
-          "happening_mst_ids",
-          "happening_dentans",
-          "itemget_ids",
-          "itemget_counts",
-          "f_deck_before_id",
-          "f_deck_after_id"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "own_ship": {
-        "status": "changed",
-        "addedFields": [
-          "cond_state"
-        ],
-        "removedFields": [],
-        "changedFields": [
-          "karyoku",
-          "raisou",
-          "taiku",
-          "soukou",
-          "kaihi",
-          "taisen",
-          "sakuteki",
-          "lucky"
-        ]
-      },
-      "own_deck": {
-        "status": "changed",
-        "addedFields": [
-          "chart_seiku_value",
-          "chart_tp_value"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "support_deck": {
-        "status": "changed",
-        "addedFields": [
-          "chart_seiku_value",
-          "chart_tp_value"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "enemy_deck": {
-        "status": "changed",
-        "addedFields": [
-          "combined_flag"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
       "airbase_airattack": {
         "status": "changed",
         "addedFields": [
@@ -114,6 +50,16 @@
         "removedFields": [],
         "changedFields": []
       },
+      "battle": {
+        "status": "changed",
+        "addedFields": [
+          "battle_result"
+        ],
+        "removedFields": [
+          "f_deck_id"
+        ],
+        "changedFields": []
+      },
       "carrierbase_assault": {
         "status": "changed",
         "addedFields": [
@@ -123,6 +69,35 @@
           "f_sprite_crash_stage2_count",
           "e_sprite_crash_stage1_count",
           "e_sprite_crash_stage2_count"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
+      "cells": {
+        "status": "changed",
+        "addedFields": [
+          "event_map_max_maphp",
+          "event_map_now_maphp",
+          "event_map_dmg",
+          "event_map_gauge_type",
+          "event_map_gauge_num",
+          "event_map_state",
+          "event_map_selected_rank",
+          "happening_counts",
+          "happening_mst_ids",
+          "happening_dentans",
+          "itemget_ids",
+          "itemget_counts",
+          "f_deck_before_id",
+          "f_deck_after_id"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
+      "enemy_deck": {
+        "status": "changed",
+        "addedFields": [
+          "combined_flag"
         ],
         "removedFields": [],
         "changedFields": []
@@ -140,6 +115,32 @@
         "removedFields": [],
         "changedFields": []
       },
+      "own_deck": {
+        "status": "changed",
+        "addedFields": [
+          "chart_seiku_value",
+          "chart_tp_value"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
+      "own_ship": {
+        "status": "changed",
+        "addedFields": [
+          "cond_state"
+        ],
+        "removedFields": [],
+        "changedFields": [
+          "karyoku",
+          "raisou",
+          "taiku",
+          "soukou",
+          "kaihi",
+          "taisen",
+          "sakuteki",
+          "lucky"
+        ]
+      },
       "support_airattack": {
         "status": "changed",
         "addedFields": [
@@ -151,14 +152,13 @@
         "removedFields": [],
         "changedFields": []
       },
-      "battle": {
+      "support_deck": {
         "status": "changed",
         "addedFields": [
-          "battle_result"
+          "chart_seiku_value",
+          "chart_tp_value"
         ],
-        "removedFields": [
-          "f_deck_id"
-        ],
+        "removedFields": [],
         "changedFields": []
       }
     }

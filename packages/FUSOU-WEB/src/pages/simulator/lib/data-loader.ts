@@ -343,7 +343,7 @@ export async function loadMasterData(renderAll: () => void) {
         { frame: { x: number; y: number; w: number; h: number } }
       >;
       meta?: { size?: { w: number; h: number } };
-    }>("/api/asset-sync/weapon-icon-frames", "weapon-icon-frames"),
+    }>("/api/asset-sync/weapon-icon-frames?v=2", "weapon-icon-frames"),
     fetchJsonSafe<SlotItemEffectsData>(
       "/data/slot_item_effects.json",
       "slot_item_effects",

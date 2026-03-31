@@ -27,7 +27,7 @@ cd packages/FUSOU-APP
 cp .env.example .env.local
 # エディタで .env.local を編集
 
-# FUSOU-WEB (Cloudflare Pages)
+# FUSOU-WEB (Cloudflare Workers)
 cd ../FUSOU-WEB
 cp .env.example .env
 cp .env.example .env.production
@@ -125,7 +125,7 @@ npm run dev
 FUSOU/
 ├── packages/
 │   ├── FUSOU-APP          # Tauri デスクトップアプリ（戦闘データ収集）
-│   ├── FUSOU-WEB          # Cloudflare Pages + Workers（サーバー）
+│   ├── FUSOU-WEB          # Cloudflare Workers（サーバー）
 │   ├── FUSOU-WORKFLOW     # Cloudflare Workers（コンパクションワークフロー）
 │   ├── FUSOU-PROXY        # Rust + HTTPS Proxy（データ転送）
 │   ├── kc_api             # Rust（KanColle API バインディング）
@@ -257,7 +257,7 @@ cp .env.example .env
 
 - [Cloudflare D1](https://developers.cloudflare.com/d1/)
 - [Cloudflare Workers](https://developers.cloudflare.com/workers/)
-- [Cloudflare Pages](https://developers.cloudflare.com/pages/)
+- [Cloudflare Workers](https://developers.cloudflare.com/workers/)
 - [Supabase](https://supabase.com/docs)
 - [PostgreSQL](https://www.postgresql.org/docs/)
 - [SQLite](https://www.sqlite.org/docs.html)
@@ -282,11 +282,11 @@ cp .env.example .env
 
 # 環境設定 - FUSOU-WEB
 
-このドキュメントは、Cloudflare Pages/Workers と Supabase の環境変数設定、および主要な API エンドポイントのテスト方法を説明します。
+このドキュメントは、Cloudflare Workers と Supabase の環境変数設定、および主要な API エンドポイントのテスト方法を説明します。
 
 ## 必須環境変数・バインディング
 
-### Cloudflare Pages（Dashboard での設定）
+### Cloudflare Workers（Dashboard での設定）
 
 以下の R2 バケットバインディングと環境変数を設定してください：
 
@@ -314,7 +314,7 @@ cp .env.example .env
 ### 設定方法
 
 **Dashboard 経由:**
-1. Cloudflare Pages プロジェクトを開く
+1. Cloudflare Workers の `fusou` サービスを開く
 2. `Settings` → `Environment variables`
 3. 上記の環境変数を `Production` / `Preview` 環境に追加
 
@@ -408,7 +408,7 @@ wrangler secret put DOTENV_PRIVATE_KEY
 wrangler deploy
 ```
 
-### FUSOU-WEB (Cloudflare Pages)
+### FUSOU-WEB (Cloudflare Workers)
 
 1. **Create `.env.production` for production:**
 ```bash
@@ -422,14 +422,14 @@ npx dotenvx encrypt -f .env.production
 ```
 
 3. **Set `DOTENV_PRIVATE_KEY` in Cloudflare Dashboard:**
-- Go to Cloudflare Pages → Your Project → Settings → Environment Variables
+- Go to Cloudflare Workers → fusou → Settings → Variables and Secrets
 - Select "Production" environment
 - Add variable: `DOTENV_PRIVATE_KEY` = (value from `.env.production.keys`)
 
 4. **Build and deploy:**
 ```bash
 npm run build
-npx wrangler pages deploy dist
+npx wrangler deploy
 ```
 
 ## How It Works
@@ -439,10 +439,10 @@ npx wrangler pages deploy dist
 - Local: reads from `.env` → `process.env`
 - Production: decrypts `.env` using `DOTENV_PRIVATE_KEY` secret
 
-### Cloudflare Pages (FUSOU-WEB)
+### Cloudflare Workers (FUSOU-WEB)
 - Build scripts use `dotenvx run` to load `.env` during development
-- Production: Cloudflare Pages injects `DOTENV_PRIVATE_KEY` to decrypt `.env.production`
-- Runtime access via `locals.runtime.env` or `env` parameter
+- Production: Cloudflare Workers injects `DOTENV_PRIVATE_KEY` to decrypt `.env.production`
+- Runtime access via Cloudflare Workers env (e.g. `env` from `cloudflare:workers` / `cfEnv`, or `c.env` in Hono handlers)
 
 ## Security Benefits
 
@@ -465,7 +465,7 @@ npx wrangler pages deploy dist
 
 ### "Cannot find DOTENV_PRIVATE_KEY"
 - Ensure you ran `npx dotenvx encrypt`
-- Check that `DOTENV_PRIVATE_KEY` is set as Worker/Pages secret
+- Check that `DOTENV_PRIVATE_KEY` is set as Worker secret
 - Verify the key matches the one in `.env.keys`
 
 ### "Environment variables not loading"
@@ -476,4 +476,3 @@ npx wrangler pages deploy dist
 ## References
 - [dotenvx Documentation](https://dotenvx.com/docs)
 - [dotenvx with Cloudflare Workers](https://dotenvx.com/docs/platforms/cloudflare#cloudflare-workers)
-- [dotenvx with Cloudflare Pages](https://dotenvx.com/docs/platforms/cloudflare#cloudflare-pages)

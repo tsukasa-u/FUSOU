@@ -5,9 +5,10 @@ import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // For local app flow: read from local auth tokens (sb-local-*)

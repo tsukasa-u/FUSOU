@@ -3,8 +3,8 @@ import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
-import { Icon } from "astro-icon/components";
 import type { AuthResponse } from "@supabase/supabase-js";
+import { env as cfEnv } from "cloudflare:workers";
 
 const STORED_TOKEN_COOKIE_OPTIONS = {
   ...SECURE_COOKIE_OPTIONS,
@@ -12,7 +12,7 @@ const STORED_TOKEN_COOKIE_OPTIONS = {
 };
 
 const cookies = Astro.cookies;
-const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -66,6 +66,10 @@ const providerTokenList = (storedProviderToken?.json() as storedToken).data;
 const providerRefreshTokenList = (
   storedProviderRefreshToken?.json() as storedToken
 ).data;
+
+function providerInitial(provider?: string): string {
+  return (provider?.trim()?.charAt(0) || "?").toUpperCase();
+}
 
 let currentSession: AuthResponse | null = null;
 if (refreshToken && accessToken && providerToken && providerRefreshToken) {
@@ -194,10 +198,12 @@ cookies.set(
                 return (
                   <li class="list-row flex items-center justify-between gap-4 p-4 border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors">
                     <div class="flex items-center gap-4">
-                      <Icon
-                        name={session?.data.session?.user.app_metadata.provider}
-                        class="size-10"
-                      />
+                      <span
+                        class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
+                        title={session?.data.session?.user.app_metadata.provider || "provider"}
+                      >
+                        {providerInitial(session?.data.session?.user.app_metadata.provider)}
+                      </span>
                       <div>
                         <div>
                           {session?.data.session?.user.user_metadata.name}
@@ -243,7 +249,15 @@ cookies.set(
               name="provider"
               type="submit"
             >
-              <Icon name="google" class="size-6" />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="size-6"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z" />
+              </svg>
               <div class="w-36 text-start">Sign in with Google</div>
             </button>
           </form>
