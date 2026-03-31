@@ -212,9 +212,9 @@ function processEndpoints() {
     return;
   }
 
-  const dotFiles = readdirSync(STRUCT_DOT_DIR).filter(
-    (f) => f.endsWith(".dot") && f !== "all.dot",
-  );
+  const dotFiles = readdirSync(STRUCT_DOT_DIR)
+    .filter((f) => f.endsWith(".dot") && f !== "all.dot")
+    .sort();
 
   const groups = {};
   const allEndpoints = [];
@@ -239,6 +239,9 @@ function processEndpoints() {
     }
 
     const endpointPath = `${groupName}/${endpointName}`;
+
+    parsed.nodes.sort((a, b) => a.id.localeCompare(b.id));
+    parsed.edges.sort((a, b) => a.id.localeCompare(b.id));
 
     const endpoint = {
       name: endpointName,
@@ -321,6 +324,9 @@ function processDatabaseDot() {
       field.isEnvRef = field.name === "env_uuid";
     }
   }
+
+  parsed.nodes.sort((a, b) => a.id.localeCompare(b.id));
+  parsed.edges.sort((a, b) => a.id.localeCompare(b.id));
 
   const outputPath = resolve(OUTPUT_DIR, "database_dot.json");
   writeFileSync(outputPath, JSON.stringify(parsed, null, 2));
