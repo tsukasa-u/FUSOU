@@ -88,10 +88,6 @@ export default defineConfig({
   output: "server",
   adapter: cloudflare({
     imageService: "cloudflare",
-    platformProxy: {
-      enabled: true,
-      persist: true,
-    },
   }),
   vite: {
     ssr: {
@@ -158,7 +154,7 @@ export default defineConfig({
     resolve: {
       // @ts-ignore
       alias: {
-        ...(import.meta.env.PROD && {
+        ...(process.env.NODE_ENV === "production" && {
           "react-dom/server": "react-dom/server.edge",
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),
