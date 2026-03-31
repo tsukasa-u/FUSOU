@@ -16,4 +16,24 @@ jobs:
       - name: Run FOSSA scan and upload build data
         uses: fossa-contrib/fossa-action@v3
         with:
-          fossa-api-key: 418bc73aa08a20a3d4878b7984f041bc
+          fossa-api-key: ${{ secrets.FOSSA_API_KEY }}
+
+      - name: Generate attribution document
+        env:
+          FOSSA_API_KEY: ${{ secrets.FOSSA_API_KEY }}
+        run: |
+          mkdir -p docs/contents/licenses
+          DATE=$(date +%Y-%m-%d)
+          {
+            printf -- "---\ntitle: Third Party Notices\ndescription: License information for dependencies used in FUSOU\ncontributors: [\"fossa-bot\"]\ndate: %s\nslug: licenses/third-party-notices\ntags: [licenses, notices]\n---\n\n" "$DATE"
+            fossa report attribution --format markdown
+          } > docs/contents/licenses/THIRD_PARTY_NOTICES.md
+
+      - name: Commit updated license notices
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/contents/licenses/THIRD_PARTY_NOTICES.md
+          git diff --staged --quiet || git commit -m "chore: update third-party license notices [skip ci]"
+          git push
