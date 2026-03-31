@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import solid from "@astrojs/solid-js";
 import cloudflare from "@astrojs/cloudflare";
 import sitemap from "@astrojs/sitemap";
-import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
@@ -77,7 +76,6 @@ export default defineConfig({
   // @ts-ignore
   integrations: [
     sitemap(),
-    icon(),
     react({
       include: ["**/react/*"],
     }),

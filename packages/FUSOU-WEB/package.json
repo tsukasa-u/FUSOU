@@ -79,7 +79,6 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "astro": "^6.1.2",
-    "astro-icon": "^1.1.5",
     "baseline-browser-mapping": "^2.10.10",
     "msgpackr": "^1.11.8",
     "playwright": "^1.57.0",
