@@ -1,0 +1,17 @@
+{
+  "syncedAt": "2026-03-31T14:08:15.686Z",
+  "prefix": "assets/kcs2/resources/map/",
+  "version": "",
+  "tag": "",
+  "maps": [
+    {
+      "mapKey": "2-2",
+      "files": {
+        "imageJson": "assets/kcs2/resources/map/002/02_image.json",
+        "imagePng": "assets/kcs2/resources/map/002/02_image.png",
+        "infoJson": "assets/kcs2/resources/map/002/02_info.json",
+        "labelsJson": null
+      }
+    }
+  ]
+}

@@ -16,11 +16,13 @@ THEMES = {
         "rand_color": (0xD4, 0xB4, 0xA1),   # BGR for RGB(0xA1, 0xB4, 0xD4)
         "bound_color": (84, 82, 81),
         "sea_color": (0x45, 0x45, 0x45),
+        "undetected_red_sea_color": (0x33, 0x33, 0xCC),
     },
     "light": {
         "rand_color": (0x5F, 0x90, 0x7A),    # BGR for RGB(0x7A, 0x90, 0x5F)
         "bound_color": (84, 82, 81),
         "sea_color": (0xFF, 0xFF, 0xFF),
+        "undetected_red_sea_color": (0x66, 0x66, 0xEE),
     },
 }
 
@@ -38,6 +40,19 @@ DEFAULT_PRE_CLUSTER_TRIM_PX = 0
 
 # Color quantization step before DBSCAN (1 = disabled)
 DEFAULT_CLUSTER_QUANT_STEP = 8
+
+# Red-sea filter and unresolved visualization settings.
+RED_SEA_MIN_AREA = 80
+RED_SEA_AUTO_ENABLE = True
+RED_SEA_AUTO_MIN_RATIO = 0.08
+RED_SEA_SMOOTH_SIGMA = 4.5
+RED_SEA_BLEND_SIGMA = 10.0
+RED_SEA_CONTOUR_LEVELS = (56, 88, 120, 152, 184)
+RED_SEA_CONTOUR_SMOOTH_WINDOW = 9
+RED_SEA_CONTOUR_SMOOTH_PASSES = 2
+
+# Guardrail: skip candidate if it covers more than this fraction
+MAX_FORCED_CLUSTER_AREA_RATIO = 0.60
 
 # Default land-selection preset for all areas (balanced approach)
 LAND_CANDIDATE = {
@@ -374,6 +389,234 @@ def build_land_mask_by_border_sea_split(region: np.ndarray, area_tag: str) -> np
 
 
 
+def detect_red_sea_mask(region: np.ndarray, area_tag: str) -> np.ndarray:
+    """Detect border-connected red sea regions to mark potential detection blind spots."""
+    h, w = region.shape[:2]
+    alpha_ok = region[:, :, 3] == 255
+    if not alpha_ok.any():
+        return np.zeros((h, w), np.uint8)
+
+    bgr = region[:, :, :3]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h_ch = hsv[:, :, 0]
+    s_ch = hsv[:, :, 1]
+    v_ch = hsv[:, :, 2]
+
+    b_ch = bgr[:, :, 0].astype(np.int16)
+    g_ch = bgr[:, :, 1].astype(np.int16)
+    r_ch = bgr[:, :, 2].astype(np.int16)
+
+    # Hue wraps around in HSV: red is near 0 and near 179.
+    hue_red = (h_ch <= 16) | (h_ch >= 155)
+    sat_ok = s_ch >= 40
+    val_ok = v_ch >= 35
+    red_dom = r_ch >= (g_ch + 12)
+    non_blue = b_ch <= (r_ch + 8)
+
+    red_like = (alpha_ok & hue_red & sat_ok & val_ok & red_dom & non_blue).astype(np.uint8) * 255
+    red_like = cv2.morphologyEx(
+        red_like,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+    )
+    red_like = remove_small_components(red_like, min_area=RED_SEA_MIN_AREA)
+    red_like = cv2.morphologyEx(
+        red_like,
+        cv2.MORPH_OPEN,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)),
+    )
+    red_like = cv2.morphologyEx(
+        red_like,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)),
+    )
+
+    # Smooth and reconnect red-sea boundary so transitions are less jagged.
+    red_soft = cv2.GaussianBlur(
+        red_like.astype(np.float32), (0, 0), sigmaX=3.0, sigmaY=3.0
+    )
+    red_like = np.where(red_soft >= 88.0, 255, 0).astype(np.uint8)
+    red_like = cv2.morphologyEx(
+        red_like,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9)),
+    )
+    red_like = remove_small_components(red_like, min_area=RED_SEA_MIN_AREA)
+
+    if RED_SEA_AUTO_ENABLE:
+        ratio = float(np.count_nonzero(red_like)) / float(max(1, h * w))
+        if ratio >= RED_SEA_AUTO_MIN_RATIO:
+            return red_like
+    return np.zeros((h, w), np.uint8)
+
+
+def create_red_sea_free_region(region: np.ndarray, red_sea_mask: np.ndarray) -> np.ndarray:
+    """Create a version of the region with red-sea areas blued-out for cleaner processing."""
+    if np.count_nonzero(red_sea_mask) == 0:
+        return region
+    
+    result = region.copy()
+    red_sea_px = red_sea_mask > 0
+    
+    # Replace red-sea pixels with nearby non-red-sea colors (blue sea fill)
+    if np.any(red_sea_px):
+        # Sample blue sea color from non-red areas
+        non_red = cv2.bitwise_not(red_sea_mask)
+        if np.count_nonzero(non_red) > 100:
+            non_red_pixels = region[:, :, :3][non_red > 0]
+            blue_sea_fill = np.median(non_red_pixels, axis=0).astype(np.uint8)
+        else:
+            blue_sea_fill = np.array([100, 100, 100], dtype=np.uint8)
+        
+        result[red_sea_px, :3] = blue_sea_fill
+    
+    return result
+
+
+def build_redness_strength_map(region: np.ndarray) -> np.ndarray:
+    """Return per-pixel redness strength (0..255) for non-land visualization."""
+    alpha_ok = region[:, :, 3] == 255
+    if not alpha_ok.any():
+        return np.zeros(region.shape[:2], np.uint8)
+
+    bgr = region[:, :, :3]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h_ch = hsv[:, :, 0].astype(np.float32)
+    s_ch = hsv[:, :, 1].astype(np.float32)
+    v_ch = hsv[:, :, 2].astype(np.float32)
+
+    b_ch = bgr[:, :, 0].astype(np.float32)
+    g_ch = bgr[:, :, 1].astype(np.float32)
+    r_ch = bgr[:, :, 2].astype(np.float32)
+
+    hue_dist = np.minimum(h_ch, 180.0 - h_ch)
+    hue_score = np.clip(1.0 - (hue_dist / 35.0), 0.0, 1.0)
+    sat_score = np.clip(s_ch / 255.0, 0.0, 1.0)
+    val_score = np.clip(v_ch / 255.0, 0.0, 1.0)
+    dom_score = np.clip((r_ch - np.maximum(g_ch, b_ch) + 20.0) / 80.0, 0.0, 1.0)
+
+    score = (
+        0.45 * hue_score
+        + 0.25 * sat_score
+        + 0.15 * val_score
+        + 0.15 * dom_score
+    )
+    score = np.clip(score, 0.0, 1.0)
+    score[~alpha_ok] = 0.0
+    return (score * 255.0).astype(np.uint8)
+
+
+def render_redness_heatmap(strength_u8: np.ndarray) -> np.ndarray:
+    """Render a readable redness heatmap image from strength map."""
+    return cv2.applyColorMap(strength_u8, cv2.COLORMAP_HOT)
+
+
+def build_red_zone_land_assist_mask(region: np.ndarray, area_tag: str) -> np.ndarray:
+    """Recover likely island components inside red-sea zones.
+
+    Red/blue mixed maps may miss islands near the red side because red sea and island
+    shades are close after colour transforms. This helper works on original colours and
+    keeps only small/medium low-saturation components inside a red-dominant zone.
+    """
+    h, w = region.shape[:2]
+    alpha_ok = region[:, :, 3] == 255
+    if not alpha_ok.any():
+        return np.zeros((h, w), np.uint8)
+
+    red_gate = detect_red_sea_mask(region, area_tag)
+    red_gate_ratio = float(np.count_nonzero(red_gate)) / float(max(1, h * w))
+    if red_gate_ratio < 0.04:
+        return np.zeros((h, w), np.uint8)
+
+    bgr = region[:, :, :3]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h_ch = hsv[:, :, 0]
+    s_ch = hsv[:, :, 1].astype(np.int16)
+    v_ch = hsv[:, :, 2].astype(np.int16)
+
+    b_ch = bgr[:, :, 0].astype(np.int16)
+    g_ch = bgr[:, :, 1].astype(np.int16)
+    r_ch = bgr[:, :, 2].astype(np.int16)
+
+    red_hue = (h_ch <= 18) | (h_ch >= 150)
+    red_dom = r_ch >= (g_ch + 6)
+    blue_not_dom = b_ch <= (r_ch + 16)
+    red_zone = alpha_ok & red_hue & red_dom & blue_not_dom & (v_ch >= 28)
+
+    # Islands in the red zone are typically lower saturation than the surrounding red sea.
+    # Keep moderate luminance to avoid near-black frame noise and bright haze bands.
+    island_like = red_zone & (s_ch <= 135) & (v_ch >= 42) & (v_ch <= 185)
+    mask = island_like.astype(np.uint8) * 255
+
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+
+    num_labels, label_map, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    out = np.zeros_like(mask)
+    area_total = float(max(1, h * w))
+    for i in range(1, num_labels):
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < 10:
+            continue
+        area_ratio = area / area_total
+        if area_ratio > 0.020:
+            continue
+
+        comp = label_map == i
+        border_touch = (
+            int(np.count_nonzero(comp[0, :]))
+            + int(np.count_nonzero(comp[h - 1, :]))
+            + int(np.count_nonzero(comp[:, 0]))
+            + int(np.count_nonzero(comp[:, w - 1]))
+        )
+        if border_touch > 220:
+            continue
+
+        mean_sat = float(np.mean(s_ch[comp])) if np.any(comp) else 255.0
+        mean_val = float(np.mean(v_ch[comp])) if np.any(comp) else 0.0
+        if mean_sat > 125.0 or mean_val < 38.0 or mean_val > 190.0:
+            continue
+
+        out[comp] = 255
+
+    out = suppress_axis_grid_lines(out, area_tag)
+    return remove_small_components(out, min_area=10)
+
+
+def detect_islands_in_red_sea(region: np.ndarray, red_sea_mask: np.ndarray, area_tag: str) -> np.ndarray:
+    """Dedicated island detection for red-sea zones using color and saturation heuristics."""
+    h, w = region.shape[:2]
+    if np.count_nonzero(red_sea_mask) == 0:
+        return np.zeros((h, w), np.uint8)
+    
+    bgr = region[:, :, :3]
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)
+    h_ch = hsv[:, :, 0]
+    s_ch = hsv[:, :, 1]
+    v_ch = hsv[:, :, 2]
+    
+    alpha_ok = region[:, :, 3] == 255
+    in_red_sea = (red_sea_mask > 0) & alpha_ok
+    
+    # Islands in red sea are typically:
+    # - Lower saturation than pure red sea
+    # - Moderate value (not too bright, not too dark)
+    # - Non-red hue (greens/browns instead of reds)
+    green_hue = ((h_ch >= 25) & (h_ch <= 90))
+    brown_hue = ((h_ch >= 100) & (h_ch <= 150))
+    low_sat = s_ch <= 120
+    moderate_val = (v_ch >= 50) & (v_ch <= 200)
+    
+    island_in_red = (in_red_sea & ((green_hue | brown_hue) & low_sat & moderate_val)).astype(np.uint8) * 255
+    
+    island_in_red = cv2.morphologyEx(island_in_red, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    island_in_red = remove_small_components(island_in_red, min_area=8)
+    
+    return island_in_red
+
+
+
+
 # ---------------------------------------------------------------------------
 # Contour builders
 # ---------------------------------------------------------------------------
@@ -520,7 +763,6 @@ def tune_mask_by_candidate(mask: np.ndarray) -> np.ndarray:
     return remove_small_components(tuned, min_area=int(LAND_CANDIDATE["component_min_area"]))
 
 
-
 # ---------------------------------------------------------------------------
 # Rendering helpers
 # ---------------------------------------------------------------------------
@@ -531,6 +773,101 @@ def render_theme_image(h: int, w: int, selected_contours: list, theme: dict) -> 
     for cnt in selected_contours:
         cv2.drawContours(img, [cnt], 0, theme["rand_color"], -1)
     img[np.all(img == 255, axis=2)] = theme["sea_color"]
+    return img
+
+
+def render_binary_overlay(mask_u8: np.ndarray, fg_bgr: tuple, bg_bgr: tuple = (255, 255, 255)) -> np.ndarray:
+    img = np.full((mask_u8.shape[0], mask_u8.shape[1], 3), bg_bgr, dtype=np.uint8)
+    img[mask_u8 > 0] = np.array(fg_bgr, dtype=np.uint8)
+    return img
+
+
+def build_soft_mask(mask_u8: np.ndarray, sigma: float) -> np.ndarray:
+    if np.count_nonzero(mask_u8) == 0:
+        return np.zeros(mask_u8.shape, dtype=np.float32)
+    soft = cv2.GaussianBlur(mask_u8.astype(np.float32) / 255.0, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    return np.clip(soft, 0.0, 1.0)
+
+
+def smooth_contour_points(
+    cnt: np.ndarray,
+    window: int = RED_SEA_CONTOUR_SMOOTH_WINDOW,
+    passes: int = RED_SEA_CONTOUR_SMOOTH_PASSES,
+) -> np.ndarray:
+    """Smooth a closed contour without polygonal simplification."""
+    pts = cnt.reshape(-1, 2).astype(np.float32)
+    n = int(pts.shape[0])
+    if n < 8:
+        return cnt
+
+    w = max(3, int(window))
+    if w % 2 == 0:
+        w += 1
+    half = w // 2
+
+    for _ in range(max(1, int(passes))):
+        ext = np.vstack([pts[-half:], pts, pts[:half]])
+        kernel = np.ones(w, dtype=np.float32) / float(w)
+        xs = np.convolve(ext[:, 0], kernel, mode="valid")
+        ys = np.convolve(ext[:, 1], kernel, mode="valid")
+        pts = np.stack([xs, ys], axis=1)
+
+    pts_i = np.round(pts).astype(np.int32).reshape(-1, 1, 2)
+    return pts_i
+
+
+def render_contours_on_background(
+    strength_u8: np.ndarray,
+    mask_u8: np.ndarray,
+    bg_bgr: tuple = (245, 245, 245),
+) -> np.ndarray:
+    """Render red-sea intensity with multi-level isolines (等高線)."""
+    h, w = mask_u8.shape[:2]
+    img = np.full((h, w, 3), bg_bgr, dtype=np.uint8)
+
+    if np.count_nonzero(mask_u8) == 0:
+        return img
+
+    masked_strength = cv2.bitwise_and(strength_u8, mask_u8)
+    smooth_strength = cv2.GaussianBlur(
+        masked_strength, (0, 0), sigmaX=RED_SEA_SMOOTH_SIGMA, sigmaY=RED_SEA_SMOOTH_SIGMA
+    )
+    smooth_strength = np.where(mask_u8 > 0, smooth_strength, 0).astype(np.uint8)
+
+    # Add subtle base heat tint so contour lines have context.
+    heat = cv2.applyColorMap(smooth_strength, cv2.COLORMAP_HOT)
+    alpha = (build_soft_mask(mask_u8, RED_SEA_BLEND_SIGMA) * 0.30)[:, :, None]
+    img = np.clip((img.astype(np.float32) * (1.0 - alpha)) + (heat.astype(np.float32) * alpha), 0, 255).astype(np.uint8)
+
+    # Draw isolines from low to high redness; higher levels are brighter and thicker.
+    level_count = max(1, len(RED_SEA_CONTOUR_LEVELS) - 1)
+    for idx, level in enumerate(RED_SEA_CONTOUR_LEVELS):
+        level_mask = np.where(smooth_strength >= int(level), 255, 0).astype(np.uint8)
+        level_mask = cv2.morphologyEx(
+            level_mask,
+            cv2.MORPH_CLOSE,
+            cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+        )
+        if np.count_nonzero(level_mask) == 0:
+            continue
+        contours, _ = cv2.findContours(level_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        t = idx / level_count
+        color = (
+            int(20 + 40 * t),
+            int(40 + 70 * t),
+            int(160 + 95 * t),
+        )
+        thickness = 1 if idx < 2 else 2
+        valid_contours = [c for c in contours if cv2.contourArea(c) >= 24.0]
+        if not valid_contours:
+            continue
+
+        # Keep the outermost contour shape as-is so map-edge lines do not bend unnaturally.
+        largest_idx = int(np.argmax([cv2.contourArea(c) for c in valid_contours]))
+        for i, c in enumerate(valid_contours):
+            draw_cnt = c if i == largest_idx else smooth_contour_points(c)
+            cv2.drawContours(img, [draw_cnt], -1, color, thickness, lineType=cv2.LINE_AA)
+
     return img
 
 
@@ -577,7 +914,18 @@ def process_sea_area(
     print(f"  Cluster quant step: {DEFAULT_CLUSTER_QUANT_STEP}")
 
     # ------------------------------------------------------------------
-    # DBSCAN clustering in LAB colour space
+    # Detect red sea and create red-sea-free analysis region
+    # ------------------------------------------------------------------
+    red_sea_mask = detect_red_sea_mask(region, area_tag)
+    red_sea_ratio = float(np.count_nonzero(red_sea_mask)) / float(max(1, h * w))
+    if np.count_nonzero(red_sea_mask) > 0:
+        print(f"  Red-sea detected: {red_sea_ratio:.4f} of total area")
+        # Use red-sea-free region for DBSCAN to ensure clean blue-sea clustering
+        analysis_region = create_red_sea_free_region(analysis_region, red_sea_mask)
+        print(f"  Using red-sea-free region for blue-sea land detection")
+
+    # ------------------------------------------------------------------
+    # DBSCAN clustering in LAB colour space (on blue sea only if red sea present)
     # ------------------------------------------------------------------
     flat   = analysis_region.reshape(-1, 4)
     opaque = flat[flat[:, 3] == 255]
@@ -606,7 +954,7 @@ def process_sea_area(
     os.makedirs(output_dir, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # Land detection and contour building using unified LAND_CANDIDATE preset
+    # Contour builder using unified LAND_CANDIDATE preset
     # ------------------------------------------------------------------
     selected, label_stats = select_land_label(
         analysis_region, colors, labels, LAND_CANDIDATE, info_path
@@ -630,7 +978,6 @@ def process_sea_area(
             }
             selected_contours = fallback_contours
         else:
-            # Last-resort fallback: border sea split
             print("  Candidate selection failed; trying border-sea-split fallback...")
             fallback_mask = build_land_mask_by_border_sea_split(analysis_region, area_tag)
             ratio = float(np.count_nonzero(fallback_mask)) / float(h * w)
@@ -665,7 +1012,51 @@ def process_sea_area(
         bicolor = suppress_axis_grid_lines(bicolor, area_tag)
         bicolor = merge_with_coastline_assist(bicolor, analysis_region)
 
+        if np.count_nonzero(red_sea_mask) > 0:
+            # Prioritize reliable blue-sea islands by excluding red-sea core from base mask.
+            red_core = cv2.erode(
+                red_sea_mask,
+                cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)),
+                iterations=1,
+            )
+            before_blue = int(np.count_nonzero(bicolor))
+            bicolor = cv2.bitwise_and(bicolor, cv2.bitwise_not(red_core))
+            after_blue = int(np.count_nonzero(bicolor))
+            if before_blue > 0 and after_blue < before_blue:
+                print(
+                    f"  Blue-sea prioritization: removed {before_blue - after_blue} px from red-sea core"
+                )
+
         contours, hierarchy = cv2.findContours(bicolor, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Detect islands specifically in red-sea zones (if red sea is present)
+        if np.count_nonzero(red_sea_mask) > 0:
+            red_sea_islands = detect_islands_in_red_sea(region, red_sea_mask, area_tag)
+            red_island_ratio = float(np.count_nonzero(red_sea_islands)) / float(h * w)
+            if red_island_ratio > 0.0001:
+                bicolor = cv2.bitwise_or(bicolor, red_sea_islands)
+                bicolor = suppress_axis_grid_lines(bicolor, area_tag)
+                bicolor = remove_small_components(
+                    bicolor, min_area=int(LAND_CANDIDATE["component_min_area"])
+                )
+                print(f"  Red-sea islands detected: +{red_island_ratio:.4f} land from red zone")
+                contours, hierarchy = cv2.findContours(
+                    bicolor, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+                )
+
+        # Additional red-zone assist for mixed red/blue sea maps.
+        red_land_assist = build_red_zone_land_assist_mask(region, area_tag)
+        red_assist_ratio = float(np.count_nonzero(red_land_assist)) / float(h * w)
+        if 0.0003 < red_assist_ratio < 0.02:
+            bicolor = cv2.bitwise_or(bicolor, red_land_assist)
+            bicolor = suppress_axis_grid_lines(bicolor, area_tag)
+            bicolor = remove_small_components(
+                bicolor, min_area=int(LAND_CANDIDATE["component_min_area"])
+            )
+            print(f"  Red-zone assist: +{red_assist_ratio:.4f} land from original")
+            contours, hierarchy = cv2.findContours(
+                bicolor, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE
+            )
 
         min_area = float(LAND_CANDIDATE["contour_min_area"])
 
@@ -685,12 +1076,60 @@ def process_sea_area(
             selected_contours, w, h, margin=2
         )
 
-    # ------------------------------------------------------------------
-    # Save themed images
-    # ------------------------------------------------------------------
+    print(
+        f"  Selected: {LAND_CANDIDATE['name']} | "
+        f"label={selected.get('label')} area={selected['area_ratio']:.3f} | "
+        f"by={selected.get('selected_by')}"
+    )
+    print(f"  Contours used: {len(selected_contours)}")
+
+    selected_land_mask = np.zeros((h, w), np.uint8)
+    if selected_contours:
+        cv2.drawContours(selected_land_mask, selected_contours, -1, 255, -1)
+
+    red_sea_mask = detect_red_sea_mask(region, area_tag)
+    unresolved_red_mask = cv2.bitwise_and(red_sea_mask, cv2.bitwise_not(selected_land_mask))
+    unresolved_ratio = float(np.count_nonzero(unresolved_red_mask)) / float(max(1, h * w))
+    red_strength_map = build_redness_strength_map(region)
+    red_strength_on_sea = cv2.bitwise_and(red_strength_map, red_sea_mask)
+
+    if np.count_nonzero(red_sea_mask) > 0:
+        red_sea_path = os.path.join(output_dir, f"{area_tag}_red_sea_mask.png")
+        unresolved_path = os.path.join(output_dir, f"{area_tag}_red_sea_unresolved.png")
+        redness_heatmap_path = os.path.join(output_dir, f"{area_tag}_redness_heatmap.png")
+        # Render red-sea mask as contour outlines (等高線)
+        cv2.imwrite(red_sea_path, render_contours_on_background(red_strength_on_sea, red_sea_mask, bg_bgr=(245, 245, 245)))
+        cv2.imwrite(unresolved_path, render_contours_on_background(red_strength_on_sea, unresolved_red_mask, bg_bgr=(255, 255, 255)))
+        cv2.imwrite(redness_heatmap_path, render_redness_heatmap(red_strength_on_sea))
+
+        sea_vals = red_strength_on_sea[red_sea_mask > 0]
+        mild = float(np.mean(sea_vals >= 64)) if sea_vals.size > 0 else 0.0
+        mid = float(np.mean(sea_vals >= 128)) if sea_vals.size > 0 else 0.0
+        strong = float(np.mean(sea_vals >= 192)) if sea_vals.size > 0 else 0.0
+        print(
+            f"  Red-sea filter(contours): total={int(np.count_nonzero(red_sea_mask))} "
+            f"unresolved={int(np.count_nonzero(unresolved_red_mask))} ({unresolved_ratio:.4f})"
+        )
+        print(
+            f"  Redness levels(sea): mild={mild:.3f} mid={mid:.3f} strong={strong:.3f}"
+        )
+        print(f"  Saved: {red_sea_path}")
+        print(f"  Saved: {unresolved_path}")
+        print(f"  Saved: {redness_heatmap_path}")
 
     for theme_name, theme in THEMES.items():
         img      = render_theme_image(h, w, selected_contours, theme)
+        if np.count_nonzero(red_sea_mask) > 0:
+            # Visualize red-sea intensity on non-land pixels as a gradient,
+            # instead of forcing red-side land detection.
+            sea_only = (red_sea_mask > 0) & (selected_land_mask == 0)
+            if np.any(sea_only):
+                base = np.array(theme["sea_color"], dtype=np.float32)
+                hot = np.array(theme["undetected_red_sea_color"], dtype=np.float32)
+                soft_edge = build_soft_mask(red_sea_mask, RED_SEA_BLEND_SIGMA)
+                weight = ((red_strength_on_sea.astype(np.float32) / 255.0) * soft_edge)[:, :, None]
+                blended = (base[None, None, :] * (1.0 - weight)) + (hot[None, None, :] * weight)
+                img[sea_only] = np.clip(blended[sea_only], 0, 255).astype(np.uint8)
         out_path = os.path.join(output_dir, f"{area_tag}_{theme_name}.png")
         cv2.imwrite(out_path, img)
         print(f"  Saved: {out_path}")

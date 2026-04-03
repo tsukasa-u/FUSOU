@@ -30,19 +30,28 @@ const battleMapAssets: Record<string, BattleMapAsset> = {};
 
 type ImportedImageModule = string | { src: string };
 
-const mapOutputLightEntries = import.meta.glob("/src/assets/map/output/*_light.png", {
-  eager: true,
-  import: "default",
-}) as Record<string, ImportedImageModule>;
+const mapOutputLightEntries = import.meta.glob(
+  "/src/assets/map/output/*_light.png",
+  {
+    eager: true,
+    import: "default",
+  },
+) as Record<string, ImportedImageModule>;
 
-const mapOutputDarkEntries = import.meta.glob("/src/assets/map/output/*_dark.png", {
-  eager: true,
-  import: "default",
-}) as Record<string, ImportedImageModule>;
+const mapOutputDarkEntries = import.meta.glob(
+  "/src/assets/map/output/*_dark.png",
+  {
+    eager: true,
+    import: "default",
+  },
+) as Record<string, ImportedImageModule>;
 
 const mapOutputSpriteEntries: Record<string, string> = {};
 
-for (const [path, mod] of Object.entries({ ...mapOutputLightEntries, ...mapOutputDarkEntries })) {
+for (const [path, mod] of Object.entries({
+  ...mapOutputLightEntries,
+  ...mapOutputDarkEntries,
+})) {
   const resolvedUrl = typeof mod === "string" ? mod : mod?.src;
   if (!resolvedUrl) continue;
   mapOutputSpriteEntries[path] = resolvedUrl;
@@ -66,7 +75,9 @@ for (const [path, url] of Object.entries(mapOutputSpriteEntries)) {
   mapOutputSpritesByMapKey.set(mapKey, current);
 }
 
-function parseMapKey(mapKey: string): { mapAreaId: number; mapInfoNo: number } | null {
+function parseMapKey(
+  mapKey: string,
+): { mapAreaId: number; mapInfoNo: number } | null {
   const matched = /^([1-9]\d*)-([1-9]\d*)$/.exec(mapKey);
   if (!matched) return null;
   const mapAreaId = Number(matched[1]);
@@ -82,13 +93,21 @@ function buildConventionAsset(mapKey: string): BattleMapAsset | null {
   const suffix = String(parsed.mapInfoNo).padStart(2, "0");
   const basePath = `/battle-maps/${mapKey}`;
   const outputSprites = mapOutputSpritesByMapKey.get(mapKey);
-  const resolvedSpriteUrl = outputSprites?.light ?? outputSprites?.dark ?? "";
+  const publicSprites = {
+    light: `${basePath}/${mapKey}_light.png`,
+    dark: `${basePath}/${mapKey}_dark.png`,
+  };
+  const resolvedSpriteUrl =
+    outputSprites?.light ?? outputSprites?.dark ?? publicSprites.light;
 
   // Frame values are replaced at runtime when image metadata is loaded.
   return {
     mapKey,
     spriteUrl: resolvedSpriteUrl,
-    spriteUrls: outputSprites,
+    spriteUrls: {
+      light: outputSprites?.light ?? publicSprites.light,
+      dark: outputSprites?.dark ?? publicSprites.dark,
+    },
     infoUrl: `${basePath}/${suffix}_info.json`,
     imageMetaUrl: `${basePath}/${suffix}_image.json`,
     labelsUrl: `${basePath}/cell_labels.json`,
@@ -111,14 +130,19 @@ function buildConventionAsset(mapKey: string): BattleMapAsset | null {
   };
 }
 
-export function getBattleMapAsset(mapKey: string | null | undefined): BattleMapAsset | null {
+export function getBattleMapAsset(
+  mapKey: string | null | undefined,
+): BattleMapAsset | null {
   if (!mapKey) return null;
   return battleMapAssets[mapKey] ?? buildConventionAsset(mapKey);
 }
 
 export type BattleMapTheme = "light" | "dark";
 
-export function resolveBattleMapSpriteUrl(asset: BattleMapAsset, theme: BattleMapTheme): string {
+export function resolveBattleMapSpriteUrl(
+  asset: BattleMapAsset,
+  theme: BattleMapTheme,
+): string {
   if (theme === "dark") {
     return asset.spriteUrls?.dark ?? asset.spriteUrls?.light ?? asset.spriteUrl;
   }

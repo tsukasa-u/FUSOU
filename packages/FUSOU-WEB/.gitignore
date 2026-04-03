@@ -36,3 +36,8 @@ pnpm-debug.log*
 playwright-report/
 test-results/
 
+# Keep only conversion script under src/assets/map; all generated/downloaded map assets are local artifacts
+src/assets/map/**
+!src/assets/map/convert.py
+!src/assets/map/convert_red_filter.py
+

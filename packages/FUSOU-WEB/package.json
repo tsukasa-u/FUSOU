@@ -30,7 +30,12 @@
     "seed:fleet-data": "node scripts/seed-local-fleet-data.mjs --all",
     "seed:battle-data": "node scripts/seed-local-battle-data.mjs --period latest",
     "seed:battle-data:all": "node scripts/seed-local-battle-data.mjs --period all",
-    "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
+    "sync:banners": "node scripts/sync-remote-d1-banners.mjs",
+    "sync:battle-maps": "node scripts/sync-battle-maps.mjs",
+    "battle-maps:download": "node scripts/download-battle-maps.mjs",
+    "battle-maps:preview": "node scripts/preview-battle-maps.mjs",
+    "battle-maps:build": "node scripts/build-battle-maps.mjs",
+    "battle-maps:separate-red-haze": "python src/assets/map/separate_red_haze.py"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.5",
