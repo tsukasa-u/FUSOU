@@ -23,9 +23,58 @@ type NormalSlotRule = {
   itemAllowListByType: Map<number, Set<number>>;
 };
 
+const NORMAL_SLOT_EXCLUDED_TYPES_BY_SHIP: Array<{
+  shipIds: number[];
+  slotIndex: number | { min: number };
+  mode: "exclude" | "allow-only";
+  typeIds: number[];
+}> = [
+  {
+    shipIds: [553, 554],
+    slotIndex: { min: 2 },
+    mode: "exclude",
+    typeIds: [2, 3],
+  },
+  {
+    shipIds: [622, 623, 624],
+    slotIndex: 3,
+    mode: "exclude",
+    typeIds: [1, 2, 5, 22],
+  },
+  {
+    shipIds: [622, 623, 624],
+    slotIndex: 4,
+    mode: "allow-only",
+    typeIds: [12, 21, 43],
+  },
+  {
+    shipIds: [662, 663, 668],
+    slotIndex: 3,
+    mode: "exclude",
+    typeIds: [5],
+  },
+  {
+    shipIds: [963, 968],
+    slotIndex: 3,
+    mode: "exclude",
+    typeIds: [1, 5, 13],
+  },
+  {
+    shipIds: [978],
+    slotIndex: 2,
+    mode: "exclude",
+    typeIds: [2],
+  },
+];
+
 export type EquipSelectionRequirement = {
   level: number;
   alv: number;
+};
+
+type NormalSlotTypeRestriction = {
+  mode: "exclude" | "allow-only";
+  typeIds: Set<number>;
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -92,6 +141,68 @@ function getNormalSlotRule(shipId: number): NormalSlotRule | null {
     allowedTypes,
     itemAllowListByType: new Map<number, Set<number>>(),
   };
+}
+
+function getNormalSlotTypeRestriction(
+  shipId: number,
+  slotIdx: number | null | undefined,
+): NormalSlotTypeRestriction | null {
+  if (slotIdx == null || slotIdx < 0) return null;
+
+  for (const rule of NORMAL_SLOT_EXCLUDED_TYPES_BY_SHIP) {
+    if (!rule.shipIds.includes(shipId)) continue;
+
+    const matchesSlot =
+      typeof rule.slotIndex === "number"
+        ? slotIdx === rule.slotIndex
+        : slotIdx >= rule.slotIndex.min;
+    if (!matchesSlot) continue;
+
+    return {
+      mode: rule.mode,
+      typeIds: new Set(rule.typeIds),
+    };
+  }
+
+  return null;
+}
+
+function passesNormalSlotTypeRestriction(
+  shipId: number,
+  slotIdx: number | null | undefined,
+  equipType: number,
+): boolean {
+  const restriction = getNormalSlotTypeRestriction(shipId, slotIdx);
+  if (!restriction) return true;
+
+  if (restriction.mode === "exclude") {
+    return !restriction.typeIds.has(equipType);
+  }
+
+  return restriction.typeIds.has(equipType);
+}
+
+export function getNormalSlotAllowedIndexes(
+  shipId: number | null,
+  equip: MstSlotItemData,
+): number[] {
+  if (shipId == null) return [];
+
+  const ship = getMasterShip(shipId);
+  if (!ship || ship.slot_num <= 0) return [];
+
+  const baseFiltered = filterForNormalSlot(shipId, [equip]);
+  if (baseFiltered && baseFiltered.length === 0) return [];
+
+  const indexes: number[] = [];
+  for (let slotIdx = 0; slotIdx < ship.slot_num; slotIdx += 1) {
+    const filtered = filterForNormalSlot(shipId, [equip], slotIdx);
+    if (filtered == null || filtered.length > 0) {
+      indexes.push(slotIdx);
+    }
+  }
+
+  return indexes;
 }
 
 /**
@@ -209,6 +320,7 @@ export function getExslotSelectionRequirement(
 export function filterForNormalSlot(
   shipId: number | null,
   items: MstSlotItemData[],
+  slotIdx?: number | null,
 ): MstSlotItemData[] | null {
   if (shipId == null) return null;
 
@@ -222,6 +334,7 @@ export function filterForNormalSlot(
   return items.filter((e) => {
     const equipType = e.type?.[2];
     if (equipType == null || !rule.allowedTypes.has(equipType)) return false;
+    if (!passesNormalSlotTypeRestriction(shipId, slotIdx, equipType)) return false;
 
     const allowItems = rule.itemAllowListByType.get(equipType);
     if (!allowItems) return true;

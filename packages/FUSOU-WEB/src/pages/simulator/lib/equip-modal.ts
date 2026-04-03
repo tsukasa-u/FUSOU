@@ -490,7 +490,11 @@ function renderEquipGrid(
     );
     if (filtered) items = filtered;
   } else {
-    const filtered = filterForNormalSlot(equipTarget.shipId, items);
+    const filtered = filterForNormalSlot(
+      equipTarget.shipId,
+      items,
+      equipTarget.slotIdx,
+    );
     if (filtered) items = filtered;
   }
 

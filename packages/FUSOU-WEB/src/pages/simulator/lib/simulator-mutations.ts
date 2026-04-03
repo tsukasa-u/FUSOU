@@ -117,7 +117,7 @@ export function applyFleetEquipSelection(
     const equip = getMasterSlotItem(selection.id);
     if (!equip || shipId == null || getMasterShip(shipId) == null) return;
 
-    const filtered = filterForNormalSlot(shipId, [equip]);
+    const filtered = filterForNormalSlot(shipId, [equip], equipIdx);
     if (filtered && filtered.length === 0) return;
   }
 
