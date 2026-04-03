@@ -7,6 +7,9 @@ import {
   getCardMap,
   getEquipCardMap,
   getEquipItemUpMap,
+  getShipTypeIconFrame,
+  getShipTypeSpriteSheetMeta,
+  getShipIconMap,
   getMasterSlotItem,
   getSlotItemEffects,
   getSpriteSheetMeta,
@@ -160,6 +163,13 @@ export function cardUrl(shipId: number): string {
   return bannerUrl(shipId);
 }
 
+export function shipIconUrl(shipId: number): string {
+  const assetBaseUrl = getAssetBaseUrl();
+  const key = getShipIconMap()[String(shipId)];
+  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
+  return "";
+}
+
 export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
   const frame = getWeaponIconFrame(iconNum);
   const spriteSheet = getSpriteSheetMeta();
@@ -190,10 +200,40 @@ export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
   return el;
 }
 
+export function createShipTypeIconEl(stype: number, width = 66, height = 18): HTMLElement {
+  const frame = getShipTypeIconFrame(stype);
+  const spriteSheet = getShipTypeSpriteSheetMeta();
+  if (frame && spriteSheet.url) {
+    const [fx, fy, fw, fh] = frame;
+    const scaleX = width / fw;
+    const scaleY = height / fh;
+    const wrapper = document.createElement("div");
+    wrapper.className = "shrink-0 overflow-hidden";
+    wrapper.style.width = `${width}px`;
+    wrapper.style.height = `${height}px`;
+    const img = document.createElement("img");
+    img.src = spriteSheet.url;
+    img.alt = "";
+    img.style.width = `${spriteSheet.width * scaleX}px`;
+    img.style.height = `${spriteSheet.height * scaleY}px`;
+    img.style.marginLeft = `-${fx * scaleX}px`;
+    img.style.marginTop = `-${fy * scaleY}px`;
+    img.style.maxWidth = "none";
+    img.style.display = "block";
+    wrapper.appendChild(img);
+    return wrapper;
+  }
+  const el = document.createElement("div");
+  el.style.width = `${width}px`;
+  el.style.height = `${height}px`;
+  el.className = "shrink-0";
+  return el;
+}
+
 export function equipImageUrl(equipId: number): string {
   const id = String(equipId);
   const assetBaseUrl = getAssetBaseUrl();
-  const key = getEquipCardMap()[id] || getEquipItemUpMap()[id];
+  const key = getEquipItemUpMap()[id] || getEquipCardMap()[id];
   if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
   return "";
 }

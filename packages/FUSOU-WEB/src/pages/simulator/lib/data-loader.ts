@@ -3,6 +3,7 @@
 import {
   addEquipExslotId,
   resetWeaponIconFrames,
+  resetShipTypeIconFrames,
   setAssetBaseUrl,
   setBannerMap,
   setCardMap,
@@ -16,6 +17,10 @@ import {
   setMasterShip,
   setMasterSlotItem,
   setMasterStype,
+  setShipIconMap,
+  setShipTypeIconFrame,
+  setShipTypeSpriteSheetMeta,
+  setShipTypeSpriteSheetUrl,
   setSlotItemEffects,
   setSpriteSheetMeta,
   setSpriteSheetUrl,
@@ -306,8 +311,10 @@ export async function loadMasterData(renderAll: () => void) {
       equipData,
       bannerMapData,
       cardMapData,
+      shipIconMapData,
       equipImageData,
       iconFrameData,
+      shipTypeIconFrameData,
       synergyData,
       equipTypeData,
       stypeData,
@@ -334,6 +341,10 @@ export async function loadMasterData(renderAll: () => void) {
     }>("/api/asset-sync/ship-card-map", "ship-card-map"),
     fetchJsonSafe<{
       base_url: string;
+      icons: Record<string, string>;
+    }>("/api/asset-sync/ship-icon-map", "ship-icon-map"),
+    fetchJsonSafe<{
+      base_url: string;
       card: Record<string, string>;
       item_up: Record<string, string>;
     }>("/api/asset-sync/equip-image-map", "equip-image-map"),
@@ -344,6 +355,13 @@ export async function loadMasterData(renderAll: () => void) {
       >;
       meta?: { size?: { w: number; h: number } };
     }>("/api/asset-sync/weapon-icon-frames?v=2", "weapon-icon-frames"),
+    fetchJsonSafe<{
+      frames: Record<
+        string,
+        { frame: { x: number; y: number; w: number; h: number } }
+      >;
+      meta?: { size?: { w: number; h: number } };
+    }>("/api/asset-sync/ship-type-icon-frames?v=1", "ship-type-icon-frames"),
     fetchJsonSafe<SlotItemEffectsData>(
       "/data/slot_item_effects.json",
       "slot_item_effects",
@@ -394,6 +412,10 @@ export async function loadMasterData(renderAll: () => void) {
       setAssetBaseUrl(cardMapData.base_url);
     if (cardMapData?.cards) setCardMap(cardMapData.cards);
 
+    if (shipIconMapData?.base_url && !getAssetBaseUrl())
+      setAssetBaseUrl(shipIconMapData.base_url);
+    if (shipIconMapData?.icons) setShipIconMap(shipIconMapData.icons);
+
     if (equipImageData?.base_url && !getAssetBaseUrl())
       setAssetBaseUrl(equipImageData.base_url);
     if (equipImageData?.card) setEquipCardMap(equipImageData.card);
@@ -411,6 +433,23 @@ export async function loadMasterData(renderAll: () => void) {
 
     if (iconFrameData?.meta?.size) {
     setSpriteSheetMeta(iconFrameData.meta.size.w ?? 0, iconFrameData.meta.size.h ?? 0);
+  }
+
+    if (shipTypeIconFrameData?.frames) {
+    resetShipTypeIconFrames();
+    for (const [name, entry] of Object.entries(shipTypeIconFrameData.frames)) {
+      const m = name.match(/_([0-9]+)$/);
+      if (!m) continue;
+      const { x, y, w, h } = entry.frame;
+      setShipTypeIconFrame(parseInt(m[1], 10), [x, y, w, h]);
+    }
+  }
+
+    if (shipTypeIconFrameData?.meta?.size) {
+    setShipTypeSpriteSheetMeta(
+      shipTypeIconFrameData.meta.size.w ?? 0,
+      shipTypeIconFrameData.meta.size.h ?? 0,
+    );
   }
 
     if (iconFrameData) {
@@ -436,6 +475,32 @@ export async function loadMasterData(renderAll: () => void) {
       setSpriteSheetUrl(assetBaseUrl
         ? `${assetBaseUrl}/${pngKey}`
         : "/api/asset-sync/weapon-icons");
+    }
+  }
+
+    if (shipTypeIconFrameData) {
+    const pngKey = "assets/kcs2/img/organize/organize_ship.png";
+    try {
+      const pngRes = await fetch("/api/asset-sync/ship-type-icons");
+      if (pngRes.ok) {
+        const pngBlob = await pngRes.blob();
+        setShipTypeSpriteSheetUrl(await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(pngBlob);
+        }));
+      } else {
+        const assetBaseUrl = getAssetBaseUrl();
+        setShipTypeSpriteSheetUrl(assetBaseUrl
+          ? `${assetBaseUrl}/${pngKey}`
+          : "/api/asset-sync/ship-type-icons");
+      }
+    } catch {
+      const assetBaseUrl = getAssetBaseUrl();
+      setShipTypeSpriteSheetUrl(assetBaseUrl
+        ? `${assetBaseUrl}/${pngKey}`
+        : "/api/asset-sync/ship-type-icons");
     }
   }
 

@@ -426,6 +426,11 @@ export function setCardMap(cardMap: Record<string, string>): void {
   markSimulatorStateDirty();
 }
 
+export function setShipIconMap(shipIconMap: Record<string, string>): void {
+  state.shipIconMap = shipIconMap;
+  markSimulatorStateDirty();
+}
+
 export function setEquipCardMap(equipCardMap: Record<string, string>): void {
   state.equipCardMap = equipCardMap;
   markSimulatorStateDirty();
@@ -454,6 +459,27 @@ export function setSpriteSheetMeta(width: number, height: number): void {
 
 export function setSpriteSheetUrl(spriteSheetUrl: string): void {
   state.spriteSheetUrl = spriteSheetUrl;
+  markSimulatorStateDirty();
+}
+
+export function resetShipTypeIconFrames(): void {
+  state.shipTypeIconFrames = {};
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeIconFrame(stype: number, frame: [number, number, number, number]): void {
+  state.shipTypeIconFrames[stype] = frame;
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeSpriteSheetMeta(width: number, height: number): void {
+  state.shipTypeSpriteSheetW = width;
+  state.shipTypeSpriteSheetH = height;
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeSpriteSheetUrl(spriteSheetUrl: string): void {
+  state.shipTypeSpriteSheetUrl = spriteSheetUrl;
   markSimulatorStateDirty();
 }
 

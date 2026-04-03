@@ -215,6 +215,18 @@ export function getSpriteSheetMeta(): { width: number; height: number; url: stri
   };
 }
 
+export function getShipTypeIconFrame(stype: number): [number, number, number, number] | undefined {
+  return state.shipTypeIconFrames[stype];
+}
+
+export function getShipTypeSpriteSheetMeta(): { width: number; height: number; url: string } {
+  return {
+    width: state.shipTypeSpriteSheetW,
+    height: state.shipTypeSpriteSheetH,
+    url: state.shipTypeSpriteSheetUrl,
+  };
+}
+
 export function getSlotItemEffects(): SlotItemEffectsData | null {
   return state.slotItemEffects;
 }
@@ -229,6 +241,10 @@ export function getBannerMap(): typeof state.bannerMap {
 
 export function getCardMap(): typeof state.cardMap {
   return state.cardMap;
+}
+
+export function getShipIconMap(): typeof state.shipIconMap {
+  return state.shipIconMap;
 }
 
 export function getEquipCardMap(): typeof state.equipCardMap {

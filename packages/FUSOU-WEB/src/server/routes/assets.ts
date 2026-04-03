@@ -498,6 +498,73 @@ app.get("/ship-card-map", async (c) => {
 });
 
 /**
+ * GET /ship-icon-map - Bulk mapping of ship IDs to R2 keys for icon images
+ *
+ * Returns { base_url, icons: { [shipId]: r2Key } }
+ * Uses reward_icon assets when available.
+ */
+app.get("/ship-icon-map", async (c) => {
+  const envCtx = createEnvContext(c);
+  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  if (!db && !bucket) {
+    return c.json({ error: "Asset storage not configured" }, 503);
+  }
+
+  try {
+    const icons: Record<string, string> = {};
+
+    if (db) {
+      try {
+        const rows = await db
+          .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/reward_icon/%'")
+          .all();
+        if (rows.results) {
+          for (const row of rows.results as { key: string }[]) {
+            const match = row.key.match(/\/reward_icon\/(\d{4})_/);
+            if (match) {
+              const shipId = String(parseInt(match[1], 10));
+              if (!icons[shipId]) icons[shipId] = row.key;
+            }
+          }
+        }
+      } catch {
+        // D1 unavailable
+      }
+    }
+
+    if (Object.keys(icons).length === 0 && bucket) {
+      const listed = await bucket.list({
+        prefix: "assets/kcs2/resources/ship/reward_icon/",
+        limit: 1000,
+      });
+      for (const obj of listed.objects) {
+        const match = obj.key.match(/\/reward_icon\/(\d{4})_/);
+        if (match) {
+          const shipId = String(parseInt(match[1], 10));
+          if (!icons[shipId]) icons[shipId] = obj.key;
+        }
+      }
+    }
+
+    const cacheControl = envCtx.isDev
+      ? "public, max-age=600, stale-while-revalidate=3600"
+      : "public, max-age=86400, stale-while-revalidate=604800";
+
+    return c.json(
+      { base_url: assetBaseUrl, icons },
+      200,
+      { "Cache-Control": cacheControl, ...CORS_HEADERS },
+    );
+  } catch (err) {
+    console.error("[asset-sync] ship-icon-map error:", err);
+    return c.json({ error: "Failed to build icon map" }, 500);
+  }
+});
+
+/**
  * GET /equip-image-map - Bulk mapping of equipment IDs to R2 keys
  *
  * Returns { base_url, card: { [equipId]: r2Key }, item_up: { [equipId]: r2Key } }
@@ -685,6 +752,54 @@ app.get("/weapon-icons", async (c) => {
 });
 
 /**
+ * GET /ship-type-icons - Serve ship type icon sprite sheet
+ *
+ * Returns organize_ship.png used for ship type icon badges.
+ */
+app.get("/ship-type-icons", async (c) => {
+  const envCtx = createEnvContext(c);
+  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+
+  if (!bucket) {
+    return c.json({ error: "Asset storage not configured" }, 503);
+  }
+
+  const r2Key = "assets/kcs2/img/organize/organize_ship.png";
+
+  try {
+    const ifNoneMatch = c.req.header("If-None-Match");
+    const r2Object = await bucket.get(r2Key);
+
+    if (!r2Object) {
+      return new Response(null, { status: 404 });
+    }
+
+    const etag = r2Object.httpEtag;
+    if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
+      return new Response(null, {
+        status: 304,
+        headers: { "ETag": etag, ...CORS_HEADERS },
+      });
+    }
+
+    const body = await r2Object.arrayBuffer();
+    return new Response(body, {
+      status: 200,
+      headers: {
+        "Content-Type": "image/png",
+        "Content-Length": String(body.byteLength),
+        "Cache-Control": "public, max-age=604800, stale-while-revalidate=604800",
+        "ETag": etag,
+        ...CORS_HEADERS,
+      },
+    });
+  } catch (err) {
+    console.error("[asset-sync] ship-type-icons error:", err);
+    return c.json({ error: "Failed to fetch ship type icons" }, 500);
+  }
+});
+
+/**
  * GET /weapon-icon-frames - Return weapon icon sprite frame atlas
  *
  * Serves the TexturePacker atlas JSON for common_icon_weapon.
@@ -737,6 +852,51 @@ app.get("/weapon-icon-frames", async (c) => {
       ? { error: "Failed to parse sprite atlas", detail: String(err) }
       : { error: "Failed to parse sprite atlas" };
     return c.json(payload, 500);
+  }
+});
+
+/**
+ * GET /ship-type-icon-frames - Return ship type icon sprite frame atlas
+ */
+app.get("/ship-type-icon-frames", async (c) => {
+  const envCtx = createEnvContext(c);
+  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+
+  if (!bucket) {
+    return c.json({ error: "Asset storage not configured" }, 503);
+  }
+
+  try {
+    const jsonKey = "assets/kcs2/img/organize/organize_ship.json";
+    const r2Object = await bucket.get(jsonKey);
+    if (!r2Object) {
+      return c.json({ error: "Sprite atlas not found" }, 404);
+    }
+
+    const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
+    let decodedJson: string;
+    const isBrotli = atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
+    if (isBrotli) {
+      const ds = new DecompressionStream("brotli");
+      const decompressed = new Response(
+        new Blob([atlasRaw]).stream().pipeThrough(ds),
+      );
+      decodedJson = await decompressed.text();
+    } else {
+      decodedJson = new TextDecoder().decode(atlasRaw);
+    }
+
+    return new Response(decodedJson, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=604800, stale-while-revalidate=604800",
+        ...CORS_HEADERS,
+      },
+    });
+  } catch (err) {
+    console.error("[asset-sync] ship-type-icon-frames error:", err);
+    return c.json({ error: "Failed to load ship type atlas" }, 500);
   }
 });
 

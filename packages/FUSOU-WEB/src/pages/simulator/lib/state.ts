@@ -177,9 +177,16 @@ export const state = {
   spriteSheetH: 0,
   spriteSheetUrl: "",
 
+  // Ship type icon sprite sheet (organize_ship)
+  shipTypeIconFrames: {} as Record<number, [number, number, number, number]>,
+  shipTypeSpriteSheetW: 0,
+  shipTypeSpriteSheetH: 0,
+  shipTypeSpriteSheetUrl: "",
+
   // Asset URL maps
   bannerMap: {} as Record<string, string>,
   cardMap: {} as Record<string, string>,
+  shipIconMap: {} as Record<string, string>,
   assetBaseUrl: "",
   equipCardMap: {} as Record<string, string>,
   equipItemUpMap: {} as Record<string, string>,
