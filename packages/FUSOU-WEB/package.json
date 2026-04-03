@@ -30,6 +30,7 @@
     "seed:fleet-data": "node scripts/seed-local-fleet-data.mjs --all",
     "seed:battle-data": "node scripts/seed-local-battle-data.mjs --period latest",
     "seed:battle-data:all": "node scripts/seed-local-battle-data.mjs --period all",
+    "seed:assets": "node scripts/seed-local-assets.mjs",
     "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
   },
   "dependencies": {

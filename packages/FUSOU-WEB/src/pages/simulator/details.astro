@@ -1,0 +1,61 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+
+export const prerender = false;
+---
+
+<PageLayout title="FUSOU - Ship & Equipment Details">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-[1500px] mx-auto px-4 py-6">
+      <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5">
+        <div>
+          <h1 class="text-2xl font-bold tracking-tight">艦詳細 / 装備詳細</h1>
+          <p class="text-sm text-base-content/55 mt-0.5">
+            艦隊シミュレータと並列に、艦と装備の詳細を確認
+          </p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <a href="/simulator" class="btn btn-ghost btn-sm">シミュレータへ戻る</a>
+        </div>
+      </div>
+
+      <div id="data-status" class="alert alert-info mb-4 py-2">
+        <span id="data-status-text" class="text-sm">マスターデータを読込中...</span>
+      </div>
+
+      <div id="simulator-details-root" class="min-h-96"></div>
+    </div>
+  </div>
+</PageLayout>
+
+<script>
+  import { loadMasterData, updateDataStatus } from "./lib/data-loader";
+  import { loadFromUrl } from "./lib/io-handlers";
+  import { mountSimulatorDetailsCatalog } from "../../components/solid/simulator/simulator-details-catalog";
+
+  async function bootstrap() {
+    const root = document.getElementById("simulator-details-root");
+    if (!(root instanceof HTMLElement)) return;
+
+    root.innerHTML = `
+      <div class="rounded-2xl border border-base-300/70 bg-base-100 p-6">
+        <span class="loading loading-spinner loading-sm"></span>
+        <span class="ml-2 text-sm text-base-content/60">詳細データを準備しています...</span>
+      </div>
+    `;
+
+    updateDataStatus();
+    await loadFromUrl();
+    await loadMasterData(() => {
+      updateDataStatus();
+    });
+
+    root.innerHTML = "";
+    mountSimulatorDetailsCatalog(root);
+    updateDataStatus();
+  }
+
+  bootstrap();
+</script>
