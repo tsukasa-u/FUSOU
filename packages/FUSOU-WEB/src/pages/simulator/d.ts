@@ -5,6 +5,8 @@ export const prerender = false;
 const BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
 const KEY_RE = /^(ship|equip):(\d{1,7})$/;
 
+type Selection = { kind: "ship" | "equip"; id: number };
+
 type LookupData = {
   ships: Record<string, { name?: string }>;
   items: Record<string, { name?: string }>;
@@ -31,7 +33,7 @@ function parsePositiveInt(raw: string | null): number | null {
   return value;
 }
 
-function parseKey(key: string | null): { kind: "ship" | "equip"; id: number } | null {
+function parseKey(key: string | null): Selection | null {
   if (!key) return null;
   const match = KEY_RE.exec(key.trim());
   if (!match) return null;
@@ -41,7 +43,7 @@ function parseKey(key: string | null): { kind: "ship" | "equip"; id: number } | 
   };
 }
 
-function resolveSelectionFromQuery(url: URL): { kind: "ship" | "equip"; id: number } | null {
+function resolveSelectionFromQuery(url: URL): Selection | null {
   const byKey = parseKey(url.searchParams.get("key"));
   if (byKey) return byKey;
 
@@ -54,7 +56,7 @@ function resolveSelectionFromQuery(url: URL): { kind: "ship" | "equip"; id: numb
   return null;
 }
 
-function buildTargetUrl(requestUrl: URL, selection: { kind: "ship" | "equip"; id: number }): string {
+function buildTargetUrl(requestUrl: URL, selection: Selection): string {
   const target = new URL("/simulator/details", requestUrl.origin);
   if (selection.kind === "ship") {
     target.searchParams.set("tab", "ship");
@@ -94,7 +96,7 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
 }
 
 function buildPreviewMeta(
-  selection: { kind: "ship" | "equip"; id: number },
+  selection: Selection,
   lookup: LookupData,
 ): { title: string; description: string } {
   if (selection.kind === "ship") {
@@ -143,7 +145,7 @@ function buildBotHtml(args: {
   <main>
     <h1>${safeTitle}</h1>
     <p>${safeDescription}</p>
-    <p><a href="${safeTargetUrl}">詳細ページを開く</a></p>
+    <p><a href="${safeTargetUrl}" rel="noopener noreferrer nofollow">詳細ページを開く</a></p>
   </main>
 </body>
 </html>`;
@@ -160,7 +162,14 @@ export const GET: APIRoute = async ({ request }) => {
   const ua = request.headers.get("user-agent") ?? "";
 
   if (!isBot(ua)) {
-    return Response.redirect(targetUrl, 302);
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: targetUrl,
+        "cache-control": "no-store",
+        Vary: "User-Agent",
+      },
+    });
   }
 
   const lookup = await getLookupData(requestUrl);
@@ -177,6 +186,7 @@ export const GET: APIRoute = async ({ request }) => {
     headers: {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=60, s-maxage=300",
+      Vary: "User-Agent",
     },
   });
 };
