@@ -5,6 +5,7 @@ export const prerender = false;
 const BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
 const KEY_RE = /^(ship|equip):(\d{1,7})$/;
 const LOOKUP_CACHE_MAX_ENTRIES = 8;
+const LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type Selection = { kind: "ship" | "equip"; id: number };
 
@@ -13,10 +14,23 @@ type LookupData = {
   items: Record<string, { name?: string }>;
 };
 
-const lookupCacheByOrigin = new Map<string, LookupData>();
+type LookupCacheEntry = {
+  data: LookupData;
+  expiresAt: number;
+};
+
+const lookupCacheByOrigin = new Map<string, LookupCacheEntry>();
 
 function setLookupCache(origin: string, data: LookupData): void {
-  lookupCacheByOrigin.set(origin, data);
+  // Do not cache empty lookup data to avoid sticky fallback after transient failures.
+  if (Object.keys(data.ships).length === 0 && Object.keys(data.items).length === 0) {
+    return;
+  }
+
+  lookupCacheByOrigin.set(origin, {
+    data,
+    expiresAt: Date.now() + LOOKUP_CACHE_TTL_MS,
+  });
   if (lookupCacheByOrigin.size <= LOOKUP_CACHE_MAX_ENTRIES) return;
 
   const oldestKey = lookupCacheByOrigin.keys().next().value;
@@ -82,15 +96,18 @@ function buildTargetUrl(requestUrl: URL, selection: Selection): string {
 async function getLookupData(requestUrl: URL): Promise<LookupData> {
   const origin = requestUrl.origin;
   const cached = lookupCacheByOrigin.get(origin);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+    lookupCacheByOrigin.delete(origin);
+  }
 
   try {
     const dataUrl = new URL("/data/slot_item_effects.json", origin);
     const res = await fetch(dataUrl.toString());
     if (!res.ok) {
-      const empty = { ships: {}, items: {} };
-      setLookupCache(origin, empty);
-      return empty;
+      return { ships: {}, items: {} };
     }
 
     const json = (await res.json()) as {
@@ -105,9 +122,7 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
     setLookupCache(origin, lookup);
     return lookup;
   } catch {
-    const empty = { ships: {}, items: {} };
-    setLookupCache(origin, empty);
-    return empty;
+    return { ships: {}, items: {} };
   }
 }
 
