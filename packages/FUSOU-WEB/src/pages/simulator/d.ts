@@ -4,6 +4,7 @@ export const prerender = false;
 
 const BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
 const KEY_RE = /^(ship|equip):(\d{1,7})$/;
+const LOOKUP_CACHE_MAX_ENTRIES = 8;
 
 type Selection = { kind: "ship" | "equip"; id: number };
 
@@ -13,6 +14,16 @@ type LookupData = {
 };
 
 const lookupCacheByOrigin = new Map<string, LookupData>();
+
+function setLookupCache(origin: string, data: LookupData): void {
+  lookupCacheByOrigin.set(origin, data);
+  if (lookupCacheByOrigin.size <= LOOKUP_CACHE_MAX_ENTRIES) return;
+
+  const oldestKey = lookupCacheByOrigin.keys().next().value;
+  if (typeof oldestKey === "string") {
+    lookupCacheByOrigin.delete(oldestKey);
+  }
+}
 
 function escHtml(value: string): string {
   return value
@@ -78,7 +89,7 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
     const res = await fetch(dataUrl.toString());
     if (!res.ok) {
       const empty = { ships: {}, items: {} };
-      lookupCacheByOrigin.set(origin, empty);
+      setLookupCache(origin, empty);
       return empty;
     }
 
@@ -91,11 +102,11 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
       ships: json._ships ?? {},
       items: json._items ?? {},
     };
-    lookupCacheByOrigin.set(origin, lookup);
+    setLookupCache(origin, lookup);
     return lookup;
   } catch {
     const empty = { ships: {}, items: {} };
-    lookupCacheByOrigin.set(origin, empty);
+    setLookupCache(origin, empty);
     return empty;
   }
 }
@@ -201,6 +212,7 @@ export const GET: APIRoute = async ({ request }) => {
       Vary: "User-Agent",
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     },
   });
 };

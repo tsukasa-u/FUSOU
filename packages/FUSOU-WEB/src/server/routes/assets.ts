@@ -26,6 +26,7 @@ import {
 import { handleTwoStageUpload } from "../utils/upload";
 
 const app = new Hono<{ Bindings: Bindings }>();
+const BROTLI_DECOMPRESSION_FORMAT = "brotli" as unknown as CompressionFormat;
 
 // OPTIONS（CORS）
 app.options(
@@ -877,7 +878,7 @@ app.get("/ship-type-icon-frames", async (c) => {
     let decodedJson: string;
     const isBrotli = atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
     if (isBrotli) {
-      const ds = new DecompressionStream("brotli");
+      const ds = new DecompressionStream(BROTLI_DECOMPRESSION_FORMAT);
       const decompressed = new Response(
         new Blob([atlasRaw]).stream().pipeThrough(ds),
       );
