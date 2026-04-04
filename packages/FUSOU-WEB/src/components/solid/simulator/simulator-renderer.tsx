@@ -473,7 +473,7 @@ function ShipCard(props: {
           >
             <span class="text-[10px] font-bold text-base-content/20">{props.idx + 1}</span>
             <div class="text-2xl leading-none text-base-content/15 group-hover:text-primary/50 transition-colors">+</div>
-            <span class="text-[10px] text-base-content/20 group-hover:text-primary/40 transition-colors">艦娘を配置</span>
+            <span class="text-[10px] text-base-content/20 group-hover:text-primary/40 transition-colors">艦を配置</span>
           </div>
         }
       >

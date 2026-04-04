@@ -118,7 +118,7 @@ export class ShipSelector extends LitElement {
                 </button>
               `
             : html`<span class="flex-1 text-sm text-base-content/40"
-                >艦娘を選択...</span
+              >艦を選択...</span
               >`}
         </div>
 

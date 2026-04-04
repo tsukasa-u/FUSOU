@@ -81,12 +81,12 @@ export function updateDataStatus() {
     setHasMasterData(true);
     setAlertType("success");
     showIcon("success");
-    textEl.textContent = `マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
+    textEl.textContent = `マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
   } else if (shipCount > 0 || equipCount > 0) {
     setHasMasterData(true);
     setAlertType("warning");
     showIcon("warning");
-    textEl.textContent = `一部マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
+    textEl.textContent = `一部マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
   } else {
     setHasMasterData(false);
     setAlertType("warning");

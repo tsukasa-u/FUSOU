@@ -723,7 +723,7 @@ export default function BattleMapFlowPanel() {
         resultCounts.set(result.win_rank, (resultCounts.get(result.win_rank) ?? 0) + 1);
       }
       if (result?.drop_ship_id) {
-        const dropName = mstShipNameById().get(result.drop_ship_id) ?? `艦娘ID:${result.drop_ship_id}`;
+        const dropName = mstShipNameById().get(result.drop_ship_id) ?? `艦ID:${result.drop_ship_id}`;
         dropCounts.set(dropName, (dropCounts.get(dropName) ?? 0) + 1);
       }
     }

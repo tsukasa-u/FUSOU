@@ -40,7 +40,7 @@ async function openShipModalFromFleet1Slot(page: Page): Promise<void> {
 
   for (let i = 0; i < 3; i++) {
     const emptySlot = page.locator("#fleet-1-slots div.cursor-pointer", {
-      hasText: "艦娘を配置",
+      hasText: "艦を配置",
     }).first();
     await emptySlot.click({ force: true });
     if (await page.locator("#ship-select-modal:visible").count()) {

@@ -127,7 +127,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
 
   test("opens ship selection modal from first fleet slot", async ({ page }) => {
     const emptySlot = page.locator("#fleet-1-slots div.cursor-pointer", {
-      hasText: "艦娘を配置",
+      hasText: "艦を配置",
     }).first();
 
     await expect(emptySlot).toBeVisible();

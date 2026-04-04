@@ -307,7 +307,7 @@ function renderShipGrid(
   if (ships.length === 0) {
     const empty = document.createElement("p");
     empty.className = "text-sm text-base-content/30 text-center py-12";
-    empty.textContent = "該当する艦娘が見つかりません";
+    empty.textContent = "該当する艦が見つかりません";
     grid.appendChild(empty);
     renderShipCategoryNav([]);
     return;
@@ -586,7 +586,7 @@ function resetShipDetail() {
   if (panel instanceof HTMLElement) {
     const message = document.createElement("p");
     message.className = "text-sm text-base-content/30 text-center pt-10";
-    message.appendChild(document.createTextNode("艦娘にカーソルを合わせると"));
+    message.appendChild(document.createTextNode("艦にカーソルを合わせると"));
     message.appendChild(document.createElement("br"));
     message.appendChild(document.createTextNode("詳細が表示されます"));
     panel.replaceChildren(message);
