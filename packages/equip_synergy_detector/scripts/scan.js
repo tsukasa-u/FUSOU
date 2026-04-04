@@ -21,6 +21,7 @@ const {
 // ── Parse arguments ────────────────────────────────────────────────
 const args = process.argv.slice(2);
 const useMain = args.includes('--main');
+const deterministic = !args.includes('--volatile-generated');
 const outputIdx = args.indexOf('--output');
 const outputPath = outputIdx >= 0 && args[outputIdx + 1]
   ? path.resolve(args[outputIdx + 1])
@@ -35,8 +36,8 @@ if (!masterPath) {
 console.log(`[scan] Master data: ${path.relative(ROOT, masterPath)}`);
 
 const masterData = parseMasterData(masterPath);
-const mstShips = masterData.api_mst_ship;
-const mstSlotitems = masterData.api_mst_slotitem;
+const mstShips = [...masterData.api_mst_ship].sort((a, b) => a.api_id - b.api_id);
+const mstSlotitems = [...masterData.api_mst_slotitem].sort((a, b) => a.api_id - b.api_id);
 console.log(`[scan] Ships: ${mstShips.length}, Items: ${mstSlotitems.length}`);
 
 // ── Build mstDict and load bundle ──────────────────────────────────
@@ -208,7 +209,7 @@ for (const s of mstShips) shipById[s.api_id] = s;
 const synergies = new Map();
 let synergyCount = 0;
 let pairsTested = 0;
-const allItemIds = slotInfos.map(s => s.id);
+const allItemIds = slotInfos.map(s => s.id).sort((a, b) => a - b);
 
 for (let ai = 0; ai < bonusItemIds.length; ai++) {
   const itemA = bonusItemIds[ai];
@@ -334,7 +335,8 @@ for (const [pairKey, profileMap] of synergies) {
 
 const output = {
   _meta: {
-    generated: new Date().toISOString(),
+    generated: deterministic ? '1970-01-01T00:00:00.000Z' : new Date().toISOString(),
+    deterministic,
     source: path.basename(useMain ? 'main.js' : 'output/deobfuscated.js'),
     total_ships: mstShips.length,
     total_items: mstSlotitems.length,
