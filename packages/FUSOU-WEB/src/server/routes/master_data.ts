@@ -31,6 +31,14 @@ const ALLOWED_MASTER_TABLES = new Set([
   "mst_ship_upgrade",
 ]);
 
+// Strict table version format for object-key safety and predictability.
+// Examples: 0.4, 0.5, 1.0.0
+const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
+
+function isValidMasterTableVersion(value: string): boolean {
+  return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
 // OPTIONS (CORS)
 app.options(
   "*",
@@ -153,11 +161,11 @@ app.post("/upload", async (c) => {
       if (!tableVersion) {
         return c.json({ error: "table_version is required" }, 400);
       }
-      if (tableVersion.length > 32 || !/^[a-zA-Z0-9._-]+$/.test(tableVersion)) {
+      if (tableVersion.length > 32 || !isValidMasterTableVersion(tableVersion)) {
         return c.json(
           {
             error:
-              "table_version must contain only ASCII alphanumeric characters, dot, underscore, and hyphen",
+              "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
           },
           400,
         );
@@ -631,7 +639,7 @@ app.post("/upload", async (c) => {
 
         for (const offset of tableOffsets) {
           const tableData = data.slice(offset.start, offset.end);
-          const r2Key = `master_data/${tableVersion}/${periodTag}/r${periodRevision}/${offset.table_name}.avro`;
+          const r2Key = `master_data/${tableVersion}/${periodTag}/rev${periodRevision}/${offset.table_name}.avro`;
 
           console.info(
             `[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`,
@@ -753,7 +761,7 @@ app.post("/upload", async (c) => {
             // Reuse hash computed during R2 upload (avoids duplicate SHA-256 computation)
             const tableContentHash = tableHashes.get(offset.table_name) ?? "";
 
-            const r2Key = `master_data/${tableVersion}/${periodTag}/r${periodRevision}/${offset.table_name}.avro`;
+            const r2Key = `master_data/${tableVersion}/${periodTag}/rev${periodRevision}/${offset.table_name}.avro`;
             const now = Date.now();
 
             await tableStmt
@@ -909,6 +917,16 @@ app.get("/json", async (c) => {
     );
   }
 
+  if (requestedVersion && !isValidMasterTableVersion(requestedVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
+
   try {
     let sql = `
       SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
@@ -1040,6 +1058,16 @@ app.get("/exists", async (c) => {
     return c.json({ error: "period_tag is required" }, 400);
   }
 
+  if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
+
   try {
     let sql = `
       SELECT id, period_tag, table_version, period_revision, content_hash, r2_keys, upload_status, created_at, completed_at, table_count, table_offsets
@@ -1111,6 +1139,15 @@ app.get("/latest", async (c) => {
 
   try {
     const tableVersion = c.req.query("table_version");
+    if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+      return c.json(
+        {
+          error:
+            "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+        },
+        400,
+      );
+    }
     let sql = `
       SELECT id, period_tag, table_version, period_revision, content_hash, r2_keys, upload_status, created_at, completed_at, table_count, table_offsets
       FROM master_data_index
@@ -1192,6 +1229,16 @@ app.get("/download", async (c) => {
 
   if (!tableName) {
     return c.json({ error: "table_name is required" }, 400);
+  }
+
+  if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
   }
 
   // Validate table_name

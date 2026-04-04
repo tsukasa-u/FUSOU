@@ -28,6 +28,12 @@ const DATA_LOADER_CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, X-API-KEY, X-CLIENT-ID",
 };
 
+const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
+
+function isValidMasterTableVersion(value: string): boolean {
+  return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
 // Helper to add RU headers
 function jsonResponse(
   data: object,
@@ -325,6 +331,17 @@ app.get("/data/:table", async (c) => {
   const scopeParam = c.req.query("scope") || "all";
   const tableVersionParam = c.req.query("table_version") || undefined;
   const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
+
+  if (tableVersionParam && !isValidMasterTableVersion(tableVersionParam)) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
 
   if (!apiKey) {
     return jsonResponse(
@@ -1346,6 +1363,13 @@ app.get("/download-master", async (c) => {
     return new Response("period_tag and table_name parameters are required", {
       status: 400,
     });
+  }
+
+  if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+    return new Response(
+      "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      { status: 400 },
+    );
   }
 
   const VALID_MASTER_TABLE_NAMES = new Set([
