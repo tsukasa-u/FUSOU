@@ -26,6 +26,7 @@ const outputIdx = args.indexOf('--output');
 const outputPath = outputIdx >= 0 && args[outputIdx + 1]
   ? path.resolve(args[outputIdx + 1])
   : path.join(ROOT, 'output', 'slot_item_effects.json');
+const previewNameManifestPath = path.join(path.dirname(outputPath), 'preview_name_manifest.json');
 
 // ── Load master data ───────────────────────────────────────────────
 const masterPath = findMasterData();
@@ -305,6 +306,26 @@ for (const si of mstSlotitems) {
   }
 }
 
+const previewNameManifest = {
+  _meta: {
+    generated: deterministic ? '1970-01-01T00:00:00.000Z' : new Date().toISOString(),
+    deterministic,
+    source: path.basename(useMain ? 'main.js' : 'output/deobfuscated.js'),
+    total_ships: mstShips.length,
+    total_items: mstSlotitems.length
+  },
+  ships: Object.fromEntries(
+    mstShips
+      .map((ship) => [String(ship.api_id), ship.api_name])
+      .filter(([, name]) => typeof name === 'string' && name.length > 0)
+  ),
+  items: Object.fromEntries(
+    mstSlotitems
+      .map((item) => [String(item.api_id), item.api_name])
+      .filter(([, name]) => typeof name === 'string' && name.length > 0)
+  )
+};
+
 // Single-item effects
 const effects = {};
 for (const [slotId, profileMap] of equipResults) {
@@ -372,3 +393,8 @@ const jsonOut = JSON.stringify(output);
 fs.writeFileSync(outputPath, jsonOut, 'utf-8');
 const sizeKB = (Buffer.byteLength(jsonOut) / 1024).toFixed(1);
 console.log(`[output] Saved: ${path.relative(ROOT, outputPath)} (${sizeKB} KB)`);
+
+const previewManifestJson = JSON.stringify(previewNameManifest);
+fs.writeFileSync(previewNameManifestPath, previewManifestJson, 'utf-8');
+const previewManifestSizeKB = (Buffer.byteLength(previewManifestJson) / 1024).toFixed(1);
+console.log(`[output] Saved: ${path.relative(ROOT, previewNameManifestPath)} (${previewManifestSizeKB} KB)`);

@@ -9,33 +9,47 @@ const LOOKUP_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type Selection = { kind: "ship" | "equip"; id: number };
 
-type LookupData = {
-  ships: Record<string, { name?: string }>;
-  items: Record<string, { name?: string }>;
+type PreviewNameManifest = {
+  ships: Record<string, string>;
+  items: Record<string, string>;
 };
 
-type LookupCacheEntry = {
-  data: LookupData;
+type PreviewNameCacheEntry = {
+  name: string | null;
   expiresAt: number;
 };
 
-const lookupCacheByOrigin = new Map<string, LookupCacheEntry>();
+type PreviewManifestCacheEntry = {
+  data: PreviewNameManifest;
+  expiresAt: number;
+};
 
-function setLookupCache(origin: string, data: LookupData): void {
-  // Do not cache empty lookup data to avoid sticky fallback after transient failures.
-  if (Object.keys(data.ships).length === 0 && Object.keys(data.items).length === 0) {
-    return;
+const previewNameCacheByKey = new Map<string, PreviewNameCacheEntry>();
+const previewManifestCacheByOrigin = new Map<string, PreviewManifestCacheEntry>();
+
+function setPreviewNameCache(cacheKey: string, name: string | null): void {
+  previewNameCacheByKey.set(cacheKey, {
+    name,
+    expiresAt: Date.now() + LOOKUP_CACHE_TTL_MS,
+  });
+  if (previewNameCacheByKey.size <= LOOKUP_CACHE_MAX_ENTRIES) return;
+
+  const oldestKey = previewNameCacheByKey.keys().next().value;
+  if (typeof oldestKey === "string") {
+    previewNameCacheByKey.delete(oldestKey);
   }
+}
 
-  lookupCacheByOrigin.set(origin, {
+function setPreviewManifestCache(origin: string, data: PreviewNameManifest): void {
+  previewManifestCacheByOrigin.set(origin, {
     data,
     expiresAt: Date.now() + LOOKUP_CACHE_TTL_MS,
   });
-  if (lookupCacheByOrigin.size <= LOOKUP_CACHE_MAX_ENTRIES) return;
+  if (previewManifestCacheByOrigin.size <= LOOKUP_CACHE_MAX_ENTRIES) return;
 
-  const oldestKey = lookupCacheByOrigin.keys().next().value;
+  const oldestKey = previewManifestCacheByOrigin.keys().next().value;
   if (typeof oldestKey === "string") {
-    lookupCacheByOrigin.delete(oldestKey);
+    previewManifestCacheByOrigin.delete(oldestKey);
   }
 }
 
@@ -93,45 +107,103 @@ function buildTargetUrl(requestUrl: URL, selection: Selection): string {
   return target.toString();
 }
 
-async function getLookupData(requestUrl: URL): Promise<LookupData> {
+async function getMasterNames(
+  requestUrl: URL,
+  tableName: "mst_ship" | "mst_slotitem",
+  recordId: number,
+): Promise<string | null> {
+  const cacheKey = `${requestUrl.origin}:${tableName}:${recordId}`;
+  const cached = previewNameCacheByKey.get(cacheKey);
+  if (cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.name;
+    }
+    previewNameCacheByKey.delete(cacheKey);
+  }
+
+  try {
+    const dataUrl = new URL("/api/master-data/json", requestUrl.origin);
+    dataUrl.searchParams.set("table_name", tableName);
+    dataUrl.searchParams.set("record_id", String(recordId));
+    const res = await fetch(dataUrl.toString());
+    if (!res.ok) return null;
+
+    const json = (await res.json()) as {
+      records?: Array<{ id?: number; api_id?: number; name?: string; api_name?: string }>;
+    };
+
+    const row = json.records?.[0];
+    const name = typeof row?.name === "string"
+      ? row.name
+      : typeof row?.api_name === "string"
+        ? row.api_name
+        : null;
+
+    setPreviewNameCache(cacheKey, name);
+    return name;
+  } catch {
+    return null;
+  }
+}
+
+async function getPreviewNameManifest(requestUrl: URL): Promise<PreviewNameManifest> {
   const origin = requestUrl.origin;
-  const cached = lookupCacheByOrigin.get(origin);
+  const cached = previewManifestCacheByOrigin.get(origin);
   if (cached) {
     if (cached.expiresAt > Date.now()) {
       return cached.data;
     }
-    lookupCacheByOrigin.delete(origin);
+    previewManifestCacheByOrigin.delete(origin);
   }
 
   try {
-    const dataUrl = new URL("/data/slot_item_effects.json", origin);
-    const res = await fetch(dataUrl.toString());
+    const manifestUrl = new URL("/data/preview_name_manifest.json", origin);
+    const res = await fetch(manifestUrl.toString());
     if (!res.ok) {
       return { ships: {}, items: {} };
     }
 
     const json = (await res.json()) as {
-      _ships?: Record<string, { name?: string }>;
-      _items?: Record<string, { name?: string }>;
+      ships?: Record<string, string>;
+      items?: Record<string, string>;
     };
-
-    const lookup = {
-      ships: json._ships ?? {},
-      items: json._items ?? {},
+    const manifest = {
+      ships: json.ships ?? {},
+      items: json.items ?? {},
     };
-    setLookupCache(origin, lookup);
-    return lookup;
+    if (Object.keys(manifest.ships).length > 0 || Object.keys(manifest.items).length > 0) {
+      setPreviewManifestCache(origin, manifest);
+    }
+    return manifest;
   } catch {
     return { ships: {}, items: {} };
   }
 }
 
+async function resolvePreviewName(
+  requestUrl: URL,
+  selection: Selection,
+): Promise<string | null> {
+  const manifest = await getPreviewNameManifest(requestUrl);
+  const manifestName = selection.kind === "ship"
+    ? manifest.ships[String(selection.id)] ?? null
+    : manifest.items[String(selection.id)] ?? null;
+  if (manifestName) {
+    return manifestName;
+  }
+
+  return getMasterNames(
+    requestUrl,
+    selection.kind === "ship" ? "mst_ship" : "mst_slotitem",
+    selection.id,
+  );
+}
+
 function buildPreviewMeta(
   selection: Selection,
-  lookup: LookupData,
+  name: string | null,
 ): { title: string; description: string } {
   if (selection.kind === "ship") {
-    const name = lookup.ships[String(selection.id)]?.name;
     return {
       title: name
         ? `FUSOU 艦詳細: ${name}`
@@ -142,7 +214,6 @@ function buildPreviewMeta(
     };
   }
 
-  const name = lookup.items[String(selection.id)]?.name;
   return {
     title: name
       ? `FUSOU 装備詳細: ${name}`
@@ -218,8 +289,8 @@ export const GET: APIRoute = async ({ request }) => {
     });
   }
 
-  const lookup = await getLookupData(requestUrl);
-  const meta = buildPreviewMeta(selection, lookup);
+  const name = await resolvePreviewName(requestUrl, selection);
+  const meta = buildPreviewMeta(selection, name);
   const html = buildBotHtml({
     title: meta.title,
     description: meta.description,

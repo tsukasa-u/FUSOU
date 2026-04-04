@@ -3,11 +3,9 @@ import type { Bindings } from "../types";
 import {
   CORS_HEADERS,
   MAX_UPLOAD_BYTES,
-  SIGNED_URL_TTL_SECONDS,
 } from "../constants";
 import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
-import { ERROR_CODES, createErrorResponse } from "../error-codes";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -37,6 +35,13 @@ const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
 
 function isValidMasterTableVersion(value: string): boolean {
   return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
+function parsePositiveRecordId(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
 }
 
 // OPTIONS (CORS)
@@ -888,6 +893,7 @@ app.post("/upload", async (c) => {
  * Query params:
  * - table_name: required (e.g. mst_ship, mst_slotitem)
  * - table_version: optional (defaults to latest)
+ * - record_id: optional positive integer; when provided, returns only the matching record
  *
  * No authentication required — master data is public reference data.
  * Returns decoded JSON records with aggressive caching (immutable data).
@@ -903,6 +909,8 @@ app.get("/json", async (c) => {
 
   const tableName = c.req.query("table_name");
   const requestedVersion = c.req.query("table_version");
+  const requestedRecordIdRaw = c.req.query("record_id");
+  const requestedRecordId = parsePositiveRecordId(requestedRecordIdRaw);
 
   if (!tableName) {
     return c.json({ error: "table_name is required" }, 400);
@@ -922,6 +930,15 @@ app.get("/json", async (c) => {
       {
         error:
           "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
+
+  if (requestedRecordIdRaw && requestedRecordId == null) {
+    return c.json(
+      {
+        error: "record_id must be a positive integer",
       },
       400,
     );
@@ -994,7 +1011,17 @@ app.get("/json", async (c) => {
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
-    const records = decodeAvroOcfToJson(avroBytes);
+    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
+    const records = requestedRecordId == null
+      ? decodedRecords
+      : decodedRecords.filter((row) => {
+        const rowId = typeof row.id === "number"
+          ? row.id
+          : typeof row.api_id === "number"
+            ? row.api_id
+            : null;
+        return rowId === requestedRecordId;
+      });
 
     // When an explicit version is requested the data is immutable — cache aggressively.
     // When serving the latest version the key changes after each upload, so use a short
