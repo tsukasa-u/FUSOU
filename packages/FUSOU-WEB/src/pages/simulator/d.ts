@@ -12,7 +12,7 @@ type LookupData = {
   items: Record<string, { name?: string }>;
 };
 
-let lookupCache: LookupData | null = null;
+const lookupCacheByOrigin = new Map<string, LookupData>();
 
 function escHtml(value: string): string {
   return value
@@ -69,14 +69,17 @@ function buildTargetUrl(requestUrl: URL, selection: Selection): string {
 }
 
 async function getLookupData(requestUrl: URL): Promise<LookupData> {
-  if (lookupCache) return lookupCache;
+  const origin = requestUrl.origin;
+  const cached = lookupCacheByOrigin.get(origin);
+  if (cached) return cached;
 
   try {
     const dataUrl = new URL("/data/slot_item_effects.json", requestUrl.origin);
     const res = await fetch(dataUrl.toString());
     if (!res.ok) {
-      lookupCache = { ships: {}, items: {} };
-      return lookupCache;
+      const empty = { ships: {}, items: {} };
+      lookupCacheByOrigin.set(origin, empty);
+      return empty;
     }
 
     const json = (await res.json()) as {
@@ -84,14 +87,16 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
       _items?: Record<string, { name?: string }>;
     };
 
-    lookupCache = {
+    const lookup = {
       ships: json._ships ?? {},
       items: json._items ?? {},
     };
-    return lookupCache;
+    lookupCacheByOrigin.set(origin, lookup);
+    return lookup;
   } catch {
-    lookupCache = { ships: {}, items: {} };
-    return lookupCache;
+    const empty = { ships: {}, items: {} };
+    lookupCacheByOrigin.set(origin, empty);
+    return empty;
   }
 }
 
@@ -155,7 +160,13 @@ export const GET: APIRoute = async ({ request }) => {
   const requestUrl = new URL(request.url);
   const selection = resolveSelectionFromQuery(requestUrl);
   if (!selection) {
-    return new Response("invalid key", { status: 400 });
+    return new Response("invalid key", {
+      status: 400,
+      headers: {
+        "content-type": "text/plain; charset=utf-8",
+        "cache-control": "no-store",
+      },
+    });
   }
 
   const targetUrl = buildTargetUrl(requestUrl, selection);
@@ -168,6 +179,7 @@ export const GET: APIRoute = async ({ request }) => {
         Location: targetUrl,
         "cache-control": "no-store",
         Vary: "User-Agent",
+        "x-content-type-options": "nosniff",
       },
     });
   }
@@ -187,6 +199,8 @@ export const GET: APIRoute = async ({ request }) => {
       "content-type": "text/html; charset=utf-8",
       "cache-control": "public, max-age=60, s-maxage=300",
       Vary: "User-Agent",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "strict-origin-when-cross-origin",
     },
   });
 };
