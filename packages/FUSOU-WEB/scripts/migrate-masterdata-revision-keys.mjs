@@ -84,9 +84,27 @@ function runR2Put({ bucket, remote }, key, filePath) {
   run(cmd);
 }
 
-function convertKey(oldKey) {
-  // Convert only revision segment /r{n}/ -> /rev{n}/
-  return oldKey.replace(/\/r(\d+)\//, "/rev$1/");
+function convertKey(oldKey, periodRevision) {
+  const key = String(oldKey || "");
+
+  // Already migrated.
+  if (/\/rev\d+\//.test(key)) return key;
+
+  // Convert revision segment /r{n}/ -> /rev{n}/
+  if (/\/r\d+\//.test(key)) {
+    return key.replace(/\/r(\d+)\//, "/rev$1/");
+  }
+
+  // Legacy key without revision segment:
+  // master_data/<version>/<period>/<table>.avro -> master_data/<version>/<period>/rev{periodRevision>/<table>.avro
+  const m = key.match(/^(master_data\/[^/]+\/[^/]+\/)([^/]+\.avro)$/);
+  if (m) {
+    const rev = Number(periodRevision);
+    if (!Number.isInteger(rev) || rev < 1) return key;
+    return `${m[1]}rev${rev}/${m[2]}`;
+  }
+
+  return key;
 }
 
 async function main() {
@@ -106,7 +124,7 @@ async function main() {
 
   const rows = runD1(
     { db: args.db, remote: args.remote },
-    "SELECT id, master_data_id, table_name, table_index, r2_key FROM master_data_tables ORDER BY master_data_id ASC, table_index ASC;",
+    "SELECT mdt.id, mdt.master_data_id, mdt.table_name, mdt.table_index, mdt.r2_key, mdi.period_revision FROM master_data_tables mdt JOIN master_data_index mdi ON mdi.id = mdt.master_data_id ORDER BY mdt.master_data_id ASC, mdt.table_index ASC;",
   );
 
   if (!rows.length) {
@@ -117,21 +135,22 @@ async function main() {
   const mappings = [];
   for (const row of rows) {
     const oldKey = String(row.r2_key || "");
-    if (!/\/r\d+\//.test(oldKey)) continue;
-    const newKey = convertKey(oldKey);
+    const periodRevision = Number(row.period_revision || 1);
+    const newKey = convertKey(oldKey, periodRevision);
     if (newKey === oldKey) continue;
     mappings.push({
       id: Number(row.id),
       masterDataId: Number(row.master_data_id),
       tableName: String(row.table_name || ""),
       tableIndex: Number(row.table_index || 0),
+      periodRevision,
       oldKey,
       newKey,
     });
   }
 
   if (!mappings.length) {
-    console.log("No old-style /r{n}/ keys found. Nothing to migrate.");
+    console.log("No keys requiring migration found. Nothing to migrate.");
     return;
   }
 
@@ -174,7 +193,7 @@ async function main() {
     // Verify
     const remain = runD1(
       { db: args.db, remote: args.remote },
-      "SELECT COUNT(*) AS cnt FROM master_data_tables WHERE r2_key LIKE '%/r%/%' AND r2_key NOT LIKE '%/rev%/%';",
+      "SELECT COUNT(*) AS cnt FROM master_data_tables WHERE r2_key NOT LIKE '%/rev%/%';",
     );
     const remaining = Number(remain?.[0]?.cnt || 0);
 
