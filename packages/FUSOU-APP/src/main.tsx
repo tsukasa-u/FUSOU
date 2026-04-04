@@ -8,6 +8,7 @@ import Start from "./pages/start.tsx";
 import NotFound from "./pages/not_found.tsx";
 import Debug from "./pages/debug.tsx";
 import Updater from "./pages/update.tsx";
+import Policy from "./pages/policy.tsx";
 
 import "./global.css";
 import { ErrorBoundary, onMount } from "solid-js";
@@ -54,6 +55,7 @@ render(
         <Route path="*" component={NotFound} />
         <Route path="/debug" component={Debug} />
         <Route path="/update" component={Updater} />
+        <Route path="/policy" component={Policy} />
       </Router>
     </ErrorBoundary>
   ),

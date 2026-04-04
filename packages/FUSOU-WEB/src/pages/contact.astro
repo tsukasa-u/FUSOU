@@ -1,0 +1,131 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+---
+
+<PageLayout title="FUSOU - お問い合わせ・削除申請">
+  <Navigation filled={true} />
+  <div class="pt-16 min-h-screen bg-base-200">
+    <div class="max-w-2xl mx-auto px-4 py-12">
+
+      <h1 class="text-2xl font-bold tracking-tight mb-1">お問い合わせ・削除申請</h1>
+      <p class="text-sm text-base-content/50 mb-8">Contact &amp; Takedown Request</p>
+
+      <!-- Copyright Notice -->
+      <section class="bg-base-100 rounded-xl border border-base-300/60 p-6 mb-6">
+        <h2 class="text-base font-semibold mb-3">著作権について</h2>
+        <p class="text-sm text-base-content/70 leading-relaxed">
+          本サービスで使用する画像・データは、著作権法第32条に基づき引用しています。著作権は各権利者に帰属します。
+        </p>
+        <p class="text-sm text-base-content/70 leading-relaxed mt-2">
+          権利者からの削除依頼・警告は速やかに対処いたします。
+          下記よりお知らせください。
+        </p>
+      </section>
+
+      <!-- Takedown Request -->
+      <section class="bg-base-100 rounded-xl border border-base-300/60 p-6 mb-6">
+        <h2 class="text-base font-semibold mb-1">削除申請・著作権侵害の申告</h2>
+        <p class="text-xs text-base-content/50 mb-4">Takedown / DMCA-style Request</p>
+        <p class="text-sm text-base-content/70 leading-relaxed mb-4">
+          以下の情報を含めて GitHub Issues にてご連絡ください。対応できる限り速やかに処理します。
+        </p>
+        <ul class="text-sm text-base-content/70 space-y-1 mb-5 list-disc list-inside leading-relaxed">
+          <li>権利者名または組織名</li>
+          <li>問題となるコンテンツの URL またはページ名</li>
+          <li>侵害されている権利の内容（著作権・商標権など）</li>
+        </ul>
+        <p class="text-sm text-base-content/70 leading-relaxed mb-4">
+          連絡先を公開したくない場合は、メールにて非公開でご連絡いただけます。
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/issues/new?template=takedown_request.md&labels=takedown"
+            class="btn btn-error btn-sm gap-1.5"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M10.293 6.293a1 1 0 011.414 0L12 6.586l.293-.293a1 1 0 111.414 1.414L12 9.414l-1.707-1.707a1 1 0 010-1.414z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z" />
+            </svg>
+            GitHub Issues で申請する
+          </a>
+          <a
+            href="&#109;&#97;&#105;&#108;&#116;&#111;&#58;&#111;&#103;&#117;&#46;&#104;&#105;&#100;&#101;&#46;&#117;&#64;&#103;&#109;&#97;&#105;&#108;&#46;&#99;&#111;&#109;"
+            class="btn btn-ghost btn-sm gap-1.5"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            メールで直接連絡する
+          </a>
+        </div>
+      </section>
+
+      <!-- General Inquiry -->
+      <section class="bg-base-100 rounded-xl border border-base-300/60 p-6 mb-6">
+        <h2 class="text-base font-semibold mb-1">一般のお問い合わせ</h2>
+        <p class="text-xs text-base-content/50 mb-4">General Inquiry</p>
+        <p class="text-sm text-base-content/70 leading-relaxed mb-4">
+          バグ報告、機能要望、その他のご連絡は GitHub または Wavebox をご利用ください。
+        </p>
+        <div class="flex flex-wrap gap-2">
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/discussions"
+            class="btn btn-ghost btn-sm gap-1.5"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.373 0 0 5.373 0 12c0 5.303 3.438 9.8 8.207 11.387.6.113.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0112 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
+            </svg>
+            GitHub Discussions
+          </a>
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/issues/new"
+            class="btn btn-ghost btn-sm gap-1.5"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Bug Report / Feature Request
+          </a>
+          <a
+            href="https://wavebox.me/wave/byvjx7nrs7350t54/"
+            class="btn btn-primary btn-sm gap-1.5"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-4l-3 3-3-3z" />
+            </svg>
+            Wavebox で問い合わせ
+          </a>
+        </div>
+      </section>
+
+      <!-- Response Policy -->
+      <section class="bg-base-100 rounded-xl border border-base-300/60 p-6">
+        <h2 class="text-base font-semibold mb-3">対応ポリシー</h2>
+        <ul class="text-sm text-base-content/70 space-y-2 leading-relaxed">
+          <li class="flex gap-2">
+            <span class="text-success font-bold shrink-0">✓</span>
+            著作権侵害の申告は内容確認後、速やかにコンテンツを削除または修正します。
+          </li>
+          <li class="flex gap-2">
+            <span class="text-success font-bold shrink-0">✓</span>
+            削除申請には権利者確認のため、返信に数日かかる場合があります。
+          </li>
+          <li class="flex gap-2">
+            <span class="text-success font-bold shrink-0">✓</span>
+            虚偽の申告に対しては対応いたしかねます。
+          </li>
+        </ul>
+      </section>
+
+    </div>
+  </div>
+</PageLayout>

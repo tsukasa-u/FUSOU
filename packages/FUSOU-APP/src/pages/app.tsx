@@ -20,6 +20,7 @@ import { BattlesComponent } from "../components/battles/battles.tsx";
 import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
 import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
+import { PolicyPanelComponent } from "../components/policy/policy_panel.tsx";
 import { createEffect } from "solid-js";
 import { location_route } from "../utility/location";
 import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
@@ -122,36 +123,6 @@ function App() {
           name="tabs_fleet"
           role="tab"
           class="tab [&::after]:w-18 bg-base-100"
-          aria-label="Equip Info"
-          style={{
-            position: "sticky",
-            top: "0px",
-            left: "0px",
-            "z-index": "100",
-            "border-radius": 0,
-          }}
-        />
-        <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
-          <MstSlotItemsProvider>
-            <SlotItemsProvider>
-              {/* <ShipsProvider>
-                  <MstShipsProvider>
-                    <MstStypesProvider> */}
-              <MstSlotItemEquipTypesProvider>
-                <EquipmentListComponent />
-              </MstSlotItemEquipTypesProvider>
-              {/* </MstStypesProvider>
-                  </MstShipsProvider>
-                </ShipsProvider> */}
-            </SlotItemsProvider>
-          </MstSlotItemsProvider>
-        </div>
-
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab [&::after]:w-18 bg-base-100"
           aria-label="Settings"
           style={{
             position: "sticky",
@@ -181,6 +152,24 @@ function App() {
         />
         <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
           <LogViewerComponent />
+        </div>
+
+        <input
+          type="radio"
+          name="tabs_fleet"
+          role="tab"
+          class="tab [&::after]:w-18 bg-base-100"
+          aria-label="Policy"
+          style={{
+            position: "sticky",
+            top: "0px",
+            left: "0px",
+            "z-index": "100",
+            "border-radius": 0,
+          }}
+        />
+        <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
+          <PolicyPanelComponent />
         </div>
       </div>
     </>
