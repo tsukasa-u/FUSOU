@@ -47,6 +47,6 @@ The developer reserves the right to modify these Terms at any time. The modified
 **9. Contact Information**
 If you have any questions about these Terms, please contact us at:
 
-- Contact: <ogu.hide.u@gmail.com>
+- Contact: ogu.hide.u [at] gmail [dot] com
 
 **Effective Date**: 2025-12-4
