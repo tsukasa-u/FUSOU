@@ -1,0 +1,102 @@
+---
+/**
+ * Shared master-data loading status notification bar.
+ * Used by simulator/index.astro and simulator/details.astro.
+ *
+ * JS-facing API (via data-loader.ts updateDataStatus()):
+ *   - #data-status           outer element – hidden/visible controlled by JS
+ *   - #data-status-icon-info | #data-status-icon-success | #data-status-icon-warning
+ *                            exactly one shown at a time
+ *   - #data-status-text      text content updated by JS
+ */
+
+interface Props {
+  /** Tailwind margin-bottom class, e.g. "mb-4" or "mb-5". */
+  mb?: string;
+  /** Initial text before JS updates it. */
+  initialText?: string;
+  /** If true the element starts hidden until JS reveals it. */
+  startHidden?: boolean;
+}
+
+const {
+  mb = "mb-4",
+  initialText = "マスターデータを読込中...",
+  startHidden = false,
+} = Astro.props;
+---
+
+<div
+  id="data-status"
+  class:list={[
+    "alert",
+    "alert-info",
+    "bg-success/10",
+    "border",
+    "border-success/45",
+    "text-base-content/80",
+    "text-sm",
+    "py-2",
+    mb,
+    { hidden: startHidden },
+  ]}
+>
+  <!-- info / loading icon (shown by default) -->
+  <svg
+    id="data-status-icon-info"
+    class="shrink-0 w-5 h-5 stroke-current text-info"
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="2 2 22 22"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"
+    ></path>
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M12 16h.01"
+    ></path>
+  </svg>
+
+  <!-- success / check icon -->
+  <svg
+    id="data-status-icon-success"
+    class="shrink-0 w-5 h-5 stroke-current text-success hidden"
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+    ></path>
+  </svg>
+
+  <!-- warning / triangle icon -->
+  <svg
+    id="data-status-icon-warning"
+    class="shrink-0 w-5 h-5 stroke-current text-warning hidden"
+    aria-hidden="true"
+    xmlns="http://www.w3.org/2000/svg"
+    fill="none"
+    viewBox="0 0 24 24"
+  >
+    <path
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      stroke-width="2"
+      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+    ></path>
+  </svg>
+
+  <span id="data-status-text" class="text-sm">{initialText}</span>
+</div>

@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
+import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
@@ -185,23 +186,7 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 
       <div id="deck-capture-area">
         <!-- Status -->
-        <div id="data-status" class="alert alert-info mb-5 py-2 hidden">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-            class="stroke-current shrink-0 w-5 h-5"
-            ><path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            ></path></svg
-          >
-          <span id="data-status-text" class="text-sm"
-            >マスターデータ読込中...</span
-          >
-        </div>
+        <DataStatusAlert mb="mb-5" startHidden={true} />
 
         <div id="combined-fleet-validation" class="alert alert-warning mb-4 py-2 hidden">
           <svg

@@ -60,17 +60,37 @@ export function updateDataStatus() {
     return;
   }
 
+  // Swap the alert color modifier without touching other classes (mb-*, py-*, hidden, …).
+  function setAlertType(type: "info" | "success" | "warning") {
+    for (const cls of ["alert-info", "alert-success", "alert-warning", "alert-error"] as const) {
+      statusEl!.classList.remove(cls);
+    }
+    statusEl!.classList.add(`alert-${type}`);
+  }
+
+  // Show only the icon that matches the current state.
+  function showIcon(active: "info" | "success" | "warning") {
+    for (const t of ["info", "success", "warning"] as const) {
+      document.getElementById(`data-status-icon-${t}`)?.classList.toggle("hidden", t !== active);
+    }
+  }
+
+  statusEl.classList.remove("hidden");
+
   if (shipCount > 0 && equipCount > 0) {
     setHasMasterData(true);
-    statusEl.className = "alert alert-success mb-5 py-2";
+    setAlertType("success");
+    showIcon("success");
     textEl.textContent = `マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
   } else if (shipCount > 0 || equipCount > 0) {
     setHasMasterData(true);
-    statusEl.className = "alert alert-warning mb-5 py-2";
+    setAlertType("warning");
+    showIcon("warning");
     textEl.textContent = `一部マスターデータ読込済み — 艦娘 ${shipCount}件 / 装備 ${equipCount}件`;
   } else {
     setHasMasterData(false);
-    statusEl.className = "alert alert-warning mb-5 py-2";
+    setAlertType("warning");
+    showIcon("warning");
     textEl.textContent = "マスターデータが未読込です";
   }
 }

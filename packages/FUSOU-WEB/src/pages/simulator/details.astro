@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
+import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
 
 export const prerender = false;
 ---
@@ -21,9 +22,7 @@ export const prerender = false;
         </div>
       </div>
 
-      <div id="data-status" class="alert alert-info mb-4 py-2">
-        <span id="data-status-text" class="text-sm">マスターデータを読込中...</span>
-      </div>
+      <DataStatusAlert mb="mb-4" initialText="マスターデータを読込中..." />
 
       <div id="simulator-details-root" class="min-h-96"></div>
     </div>
@@ -39,12 +38,16 @@ export const prerender = false;
     const root = document.getElementById("simulator-details-root");
     if (!(root instanceof HTMLElement)) return;
 
-    root.innerHTML = `
-      <div class="rounded-2xl border border-base-300/70 bg-base-100 p-6">
-        <span class="loading loading-spinner loading-sm"></span>
-        <span class="ml-2 text-sm text-base-content/60">詳細データを準備しています...</span>
-      </div>
-    `;
+    const loadingDiv = document.createElement("div");
+    loadingDiv.className = "rounded-2xl border border-base-300/70 bg-base-100 p-6 flex items-center";
+    const spinner = document.createElement("span");
+    spinner.className = "loading loading-spinner loading-sm";
+    const label = document.createElement("span");
+    label.className = "ml-2 text-sm text-base-content/60";
+    label.textContent = "詳細データを準備しています...";
+    loadingDiv.appendChild(spinner);
+    loadingDiv.appendChild(label);
+    root.appendChild(loadingDiv);
 
     updateDataStatus();
     await loadFromUrl();
@@ -52,7 +55,7 @@ export const prerender = false;
       updateDataStatus();
     });
 
-    root.innerHTML = "";
+    root.replaceChildren();
     mountSimulatorDetailsCatalog(root);
     updateDataStatus();
   }
