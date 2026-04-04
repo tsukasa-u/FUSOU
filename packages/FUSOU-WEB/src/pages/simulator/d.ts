@@ -131,17 +131,25 @@ function buildPreviewMeta(
   lookup: LookupData,
 ): { title: string; description: string } {
   if (selection.kind === "ship") {
-    const name = lookup.ships[String(selection.id)]?.name ?? `艦ID ${selection.id}`;
+    const name = lookup.ships[String(selection.id)]?.name;
     return {
-      title: `FUSOU 艦詳細共有: ${name}`,
-      description: `${name} (ID ${selection.id}) の詳細ページ共有リンクです。`,
+      title: name
+        ? `FUSOU 艦詳細: ${name}`
+        : `FUSOU 艦詳細: ID ${selection.id}`,
+      description: name
+        ? `${name} (艦ID ${selection.id}) の詳細ページ共有リンク`
+        : `艦 ID ${selection.id} の詳細ページ共有リンク`,
     };
   }
 
-  const name = lookup.items[String(selection.id)]?.name ?? `装備ID ${selection.id}`;
+  const name = lookup.items[String(selection.id)]?.name;
   return {
-    title: `FUSOU 装備詳細共有: ${name}`,
-    description: `${name} (ID ${selection.id}) の詳細ページ共有リンクです。`,
+    title: name
+      ? `FUSOU 装備詳細: ${name}`
+      : `FUSOU 装備詳細: ID ${selection.id}`,
+    description: name
+      ? `${name} (装備ID ${selection.id}) の詳細ページ共有リンク`
+      : `装備 ID ${selection.id} の詳細ページ共有リンク`,
   };
 }
 
