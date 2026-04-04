@@ -449,7 +449,7 @@ app.get("/data/:table", async (c) => {
           `SELECT mdi.period_tag FROM master_data_tables mdt
            JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
            WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'
-           ORDER BY mdi.created_at DESC LIMIT 1`,
+            ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1`,
         );
         const latestResult = await latestStmt.bind(tableName).first();
         const latestPeriodTag = (latestResult as { period_tag?: string } | null)
@@ -475,9 +475,10 @@ app.get("/data/:table", async (c) => {
            mdt.id AS id,
            mdi.period_tag AS period_tag,
            mdi.table_version AS table_version,
+         mdi.period_revision AS period_revision,
            mdt.table_name AS table_name,
            mdt.r2_key AS r2_key,
-           mdi.created_at AS created_at
+         mdi.completed_at AS completed_at
          FROM master_data_tables mdt
          JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
          WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'`;
@@ -493,7 +494,7 @@ app.get("/data/:table", async (c) => {
         masterParams.push(tableVersionParam);
       }
 
-      masterSql += ` ORDER BY created_at DESC LIMIT ?`;
+      masterSql += ` ORDER BY completed_at DESC, period_revision DESC LIMIT ?`;
       masterParams.push(limit);
 
       const masterStmt = masterDb.prepare(masterSql);
@@ -518,10 +519,11 @@ app.get("/data/:table", async (c) => {
         id: r.id,
         period_tag: r.period_tag,
         table_version: r.table_version,
+        period_revision: r.period_revision,
         table_name: r.table_name,
         r2_key: r.r2_key,
-        created_at: r.created_at,
-        download_url: `/api/data-loader/download-master?period_tag=${encodeURIComponent(r.period_tag)}&table_name=${encodeURIComponent(r.table_name)}${r.table_version ? `&table_version=${encodeURIComponent(r.table_version)}` : ""}`,
+        completed_at: r.completed_at,
+        download_url: `/api/data-loader/download-master?period_tag=${encodeURIComponent(r.period_tag)}&table_name=${encodeURIComponent(r.table_name)}${r.table_version ? `&table_version=${encodeURIComponent(r.table_version)}` : ""}${r.period_revision ? `&period_revision=${encodeURIComponent(String(r.period_revision))}` : ""}`,
         type: "master",
       }));
 
@@ -1334,6 +1336,7 @@ app.get("/download-master", async (c) => {
   const periodTag = c.req.query("period_tag");
   const tableName = c.req.query("table_name");
   const tableVersion = c.req.query("table_version");
+  const periodRevision = c.req.query("period_revision");
 
   if (!apiKey || !clientId) {
     return new Response("Authentication required", { status: 401 });
@@ -1343,6 +1346,16 @@ app.get("/download-master", async (c) => {
     return new Response("period_tag and table_name parameters are required", {
       status: 400,
     });
+  }
+
+  const VALID_MASTER_TABLE_NAMES = new Set([
+    "mst_ship", "mst_shipgraph", "mst_slotitem", "mst_slotitem_equiptype",
+    "mst_payitem", "mst_equip_exslot", "mst_equip_exslot_ship",
+    "mst_equip_limit_exslot", "mst_equip_ship", "mst_stype",
+    "mst_map_area", "mst_map_info", "mst_ship_upgrade",
+  ]);
+  if (!VALID_MASTER_TABLE_NAMES.has(tableName)) {
+    return new Response("Invalid table_name", { status: 400 });
   }
 
   try {
@@ -1402,7 +1415,15 @@ app.get("/download-master", async (c) => {
       sql += " AND mdi.table_version = ?";
       params.push(tableVersion);
     }
-    sql += " ORDER BY mdi.created_at DESC LIMIT 1";
+    if (periodRevision) {
+      const parsedRevision = Number(periodRevision);
+      if (!Number.isInteger(parsedRevision) || parsedRevision < 1) {
+        return new Response("Invalid period_revision", { status: 400 });
+      }
+      sql += " AND mdi.period_revision = ?";
+      params.push(parsedRevision);
+    }
+    sql += " ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1";
     const stmt = masterDb.prepare(sql);
     const row = await stmt.bind(...params).first();
     const r2Key = (row as { r2_key?: string } | null)?.r2_key;

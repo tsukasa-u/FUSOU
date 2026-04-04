@@ -246,17 +246,12 @@ async function handleExecution(
   }
 
   try {
-    // Read body and compute hash
+    // Read body into memory for processing
     const arrayBuf = await new Response(bodyStream).arrayBuffer();
     const data = new Uint8Array(arrayBuf);
-    const hashBuf = await crypto.subtle.digest("SHA-256", data);
-    const hashHex = Array.from(new Uint8Array(hashBuf))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
 
-    // [Issue #14] Content hash is already verified in master_data.ts
-    // (validateMasterDataRequest function), so we skip redundant check here
-    // to improve performance and reduce duplicated validation logic
+    // Hash verification is performed inside executionProcessor (e.g. master_data.ts)
+    // where actual vs. token-embedded expected hash is compared.
 
     // Run custom processing
     const processingResult = await executionProcessor(
