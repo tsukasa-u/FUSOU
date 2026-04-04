@@ -84,24 +84,37 @@ async function getLookupData(requestUrl: URL): Promise<LookupData> {
   const cached = lookupCacheByOrigin.get(origin);
   if (cached) return cached;
 
+  const shipUrl = new URL("/api/master-data/json?table_name=mst_ship", origin);
+  const itemUrl = new URL("/api/master-data/json?table_name=mst_slotitem", origin);
+
   try {
-    const dataUrl = new URL("/data/slot_item_effects.json", requestUrl.origin);
-    const res = await fetch(dataUrl.toString());
-    if (!res.ok) {
-      const empty = { ships: {}, items: {} };
-      setLookupCache(origin, empty);
-      return empty;
+    const [shipRes, itemRes] = await Promise.all([
+      fetch(shipUrl.toString()),
+      fetch(itemUrl.toString()),
+    ]);
+
+    const ships: Record<string, { name?: string }> = {};
+    const items: Record<string, { name?: string }> = {};
+
+    if (shipRes.ok) {
+      const json = (await shipRes.json()) as {
+        records?: Array<{ id?: number; name?: string }>;
+      };
+      for (const r of json.records ?? []) {
+        if (r.id != null) ships[String(r.id)] = { name: r.name };
+      }
     }
 
-    const json = (await res.json()) as {
-      _ships?: Record<string, { name?: string }>;
-      _items?: Record<string, { name?: string }>;
-    };
+    if (itemRes.ok) {
+      const json = (await itemRes.json()) as {
+        records?: Array<{ id?: number; name?: string }>;
+      };
+      for (const r of json.records ?? []) {
+        if (r.id != null) items[String(r.id)] = { name: r.name };
+      }
+    }
 
-    const lookup = {
-      ships: json._ships ?? {},
-      items: json._items ?? {},
-    };
+    const lookup = { ships, items };
     setLookupCache(origin, lookup);
     return lookup;
   } catch {
