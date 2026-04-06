@@ -23,6 +23,7 @@ pub mod mst_slot_item_equip_type;
 pub mod mst_stype;
 pub mod mst_use_item;
 pub mod n_dock;
+pub mod quest;
 pub mod ship;
 pub mod slot_item;
 pub mod use_items;

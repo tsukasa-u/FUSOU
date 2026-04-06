@@ -1,5 +1,6 @@
 use kc_api_interface::air_base::AirBases;
 use kc_api_interface::interface::{EmitData, Identifier, Set};
+use kc_api_interface::quest::Quests;
 use kc_api_interface::slot_item::SlotItems;
 use kc_api_interface::deck_port::DeckPorts;
 
@@ -25,7 +26,6 @@ register_trait!(
         practice,
         preset_deck,
         preset_slot,
-        questlist,
         record,
         require_info,
         ship_deck,
@@ -53,7 +53,6 @@ register_trait!(
         practice,
         preset_deck,
         preset_slot,
-        questlist,
         record,
         ship_deck,
         ship2,
@@ -112,5 +111,23 @@ impl TraitForConvert for slot_item::Res {
         let slot_item = InterfaceWrapper::<SlotItems>::from(self.api_data.clone()).unwrap();
 
         Some(vec![EmitData::Set(Set::SlotItems(slot_item))])
+    }
+}
+
+impl TraitForConvert for questlist::Res {
+    type Output = EmitData;
+
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let quests = InterfaceWrapper::<Quests>::from(self.clone()).unwrap();
+        Some(vec![EmitData::Set(Set::Quests(quests))])
+    }
+}
+
+impl TraitForConvert for questlist::Req {
+    type Output = EmitData;
+
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        kc_api_interface::quest::Quests::set_current_page(self.api_tab_id);
+        None
     }
 }

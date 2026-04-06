@@ -19,6 +19,7 @@ use crate::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::mst_stype::MstStypes;
 use crate::mst_use_item::MstUseItems;
 use crate::n_dock::NDocks;
+use crate::quest::{QuestEvent, Quests};
 use crate::ship::Ships;
 use crate::slot_item::SlotItems;
 
@@ -40,6 +41,7 @@ pub enum Add {
     Ships(Ships),
     Battle(Battle),
     Cell(Cell),
+    QuestEvent(QuestEvent),
     // Logs(Logs),
     // AirBase,(AirBase),
     // Battle(Battle),
@@ -73,6 +75,7 @@ pub enum Set {
     MstMapAreas(MstMapAreas),
     MstShipGraphs(MstShipGraphs),
     MstShipUpgrades(MstShipUpgrades),
+    Quests(Quests),
     Dammy(()),
 }
 

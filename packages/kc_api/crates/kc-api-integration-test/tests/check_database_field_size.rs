@@ -30,6 +30,7 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Add::Cell(data) => {
                 data.add_or();
             }
+            Add::QuestEvent(_) => {}
             Add::Dammy(_) => {}
         },
         EmitData::Set(data) => match data {
@@ -94,6 +95,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::MstEquipLimitExslots(data) => {
+                data.restore();
+            }
+            Set::Quests(data) => {
                 data.restore();
             }
             Set::Dammy(_) => {}
