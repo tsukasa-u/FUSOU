@@ -55,15 +55,14 @@ pub async fn launch_with_options(
 
                         let period_tag = supabase::get_period_tag().await;
 
-                        #[cfg(dev)]
-                        let save_path = format!("./../../FUSOU-PROXY-DATA/{}", period_tag);
-                        #[cfg(any(not(dev), check_release))]
-                        let save_path = window
-                            .app_handle()
-                            .path()
-                            .document_dir()
-                            .expect_or_log("failed to get doc dirs")
-                            .join("FUSOU")
+                        let app_data_dir = match window.app_handle().path().app_data_dir() {
+                            Ok(path) => path,
+                            Err(e) => {
+                                tracing::error!("failed to get app_data_dir: {}", e);
+                                return Err(());
+                            }
+                        };
+                        let save_path = app_data_dir
                             .join("FUSOU-PROXY-DATA")
                             .join(&period_tag)
                             .as_path()

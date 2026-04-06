@@ -8,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dashmap::DashSet;
 use fusou_auth::{AuthManager, FileStorage};
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
@@ -26,13 +25,17 @@ use tracing;
 use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
 
-use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
+use fusou_upload::{
+    LocalRequestSuppressionCache, PendingStore, UploadContext, UploadRequest, UploadResult,
+    Uploader,
+};
 use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 // Phase 2: Changed from UnboundedSender to bounded mpsc::Sender with capacity 100
 static ASSET_SYNC_QUEUE: OnceLock<mpsc::Sender<PathBuf>> = OnceLock::new();
-static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
+static ASSET_REQUEST_CACHE: Lazy<LocalRequestSuppressionCache> =
+    Lazy::new(|| LocalRequestSuppressionCache::new(Duration::from_secs(24 * 60 * 60)));
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPABASE_AUTH_FAILED: AtomicBool = AtomicBool::new(false);
@@ -44,6 +47,7 @@ static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| 
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
 // Counter for monitoring dropped assets due to queue backpressure
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
+const ASSET_REQUEST_CACHE_FILE: &str = "asset_request_suppression_cache.json";
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
@@ -89,17 +93,6 @@ struct PeriodCache {
     expires_at: Instant,
 }
 
-#[derive(Serialize)]
-struct UploadHandshakeRequest {
-    key: String,
-    relative_path: String,
-    file_size: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    finder_tag: Option<String>,
-    file_name: String,
-    content_type: String,
-}
-
 #[derive(Deserialize)]
 struct PeriodApiResponse {
     tag: Option<String>,
@@ -129,9 +122,9 @@ struct ExistingKeyItem {
     #[serde(default)]
     content_hash: Option<String>,
     #[serde(default)]
-    size: Option<u64>,
+    _size: Option<u64>,
     #[serde(default, rename = "uploadedAt")]
-    uploaded_at: Option<u64>,
+    _uploaded_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -231,6 +224,10 @@ pub fn start(
             "failed to create asset sync directory {}: {err}",
             init.save_root.display()
         ));
+    }
+
+    if let Err(err) = ASSET_REQUEST_CACHE.enable_persistence(asset_request_cache_path(&init.save_root)) {
+        tracing::warn!(error = %err, "failed to enable persistent asset suppression cache");
     }
 
     // Initialize PendingStore
@@ -421,20 +418,6 @@ async fn process_path(
         None => return Err("unable to derive remote key".into()),
     };
 
-    tracing::info!(check_key = key, "checking if remote key exists");
-
-    if PROCESSED_KEYS.contains(&key) {
-        tracing::info!(key, "skipping because already processed in this session");
-        return Ok(());
-    }
-
-    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
-        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
-            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
-        }
-        return Err(err.to_string());
-    }
-
     let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
     if metadata.len() == 0 {
         tracing::info!(file = %path.display(), "skipping zero-length file");
@@ -454,12 +437,26 @@ async fn process_path(
     .await
     .map_err(|e| format!("spawn_blocking hash computation failed: {}", e))?;
 
+    if ASSET_REQUEST_CACHE.should_skip(&key, &local_hash) {
+        tracing::info!(key, local_hash, "skipping because same content hash is cached locally");
+        return Ok(());
+    }
+
+    tracing::info!(check_key = key, "checking if remote key exists");
+
+    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
+        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
+            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
+        }
+        return Err(err.to_string());
+    }
+
     // Check if remote has this key with a hash
     if let Some(remote_hash_opt) = remote_content_hash(&key) {
         if let Some(remote_hash) = remote_hash_opt {
             // Remote has hash - compare with local
             if remote_hash == local_hash {
-                PROCESSED_KEYS.insert(key.clone());
+                ASSET_REQUEST_CACHE.mark_processed(key.clone(), local_hash.clone());
                 tracing::info!(
                     key,
                     local_hash,
@@ -501,7 +498,7 @@ async fn process_path(
         Some(pending_store),
     )
     .await?;
-    PROCESSED_KEYS.insert(key);
+    ASSET_REQUEST_CACHE.mark_processed(key, local_hash);
     Ok(())
 }
 
@@ -773,6 +770,8 @@ fn duration_until(iso: &str) -> Option<Duration> {
 }
 
 fn apply_period_transition(new_tag: Option<String>) {
+    ASSET_REQUEST_CACHE.rotate_scope(new_tag.as_deref());
+
     let mut guard = LAST_PERIOD_TAG.write().expect("period tag lock poisoned");
 
     let changed = match (&*guard, &new_tag) {
@@ -783,7 +782,6 @@ fn apply_period_transition(new_tag: Option<String>) {
     };
 
     if changed {
-        PROCESSED_KEYS.clear();
         let label = new_tag.as_deref().unwrap_or("<none>");
         tracing::info!(
             period_tag = label,
@@ -1009,17 +1007,6 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
     tracing::debug!(count = count, "existing remote asset key cache refreshed");
 }
 
-fn remote_key_exists(key: &str) -> bool {
-    match EXISTING_KEYS_CACHE
-        .read()
-        .expect("existing keys cache lock poisoned")
-        .as_ref()
-    {
-        Some(cache) => cache.keys.contains(key),
-        None => false,
-    }
-}
-
 fn register_remote_key(key: &str, hash: Option<&str>) {
     let mut guard = EXISTING_KEYS_CACHE
         .write()
@@ -1067,7 +1054,23 @@ fn remote_content_hash(key: &str) -> Option<Option<String>> {
 
 // ==================== Persistent Cache Helpers ====================
 
-const PERSISTENT_CACHE_FILENAME: &str = ".asset_sync_cache.json";
+const PERSISTENT_CACHE_FILENAME: &str = "asset_sync_cache.json";
+
+fn asset_request_cache_path(save_root: &Path) -> PathBuf {
+    save_root
+        .join("cache")
+        .join("request_suppression")
+        .join("asset_sync")
+        .join(ASSET_REQUEST_CACHE_FILE)
+}
+
+fn persistent_remote_cache_path(save_root: &Path) -> PathBuf {
+    save_root
+        .join("cache")
+        .join("remote_keys")
+        .join("asset_sync")
+        .join(PERSISTENT_CACHE_FILENAME)
+}
 
 /// Parse ISO8601 datetime string to milliseconds since epoch
 fn parse_iso_to_millis(iso: &str) -> Option<u64> {
@@ -1087,7 +1090,7 @@ fn get_last_sync_timestamp() -> Option<u64> {
 
 /// Load persistent cache from disk into memory
 fn load_persistent_cache(save_root: &Path) {
-    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+    let cache_path = persistent_remote_cache_path(save_root);
 
     if !cache_path.exists() {
         tracing::info!("No persistent asset cache found at {:?}; will perform full sync on first API call", cache_path);
@@ -1166,7 +1169,13 @@ fn save_persistent_cache(
     hashes: &HashMap<String, Option<String>>,
     last_sync_ts: Option<u64>,
 ) {
-    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+    let cache_path = persistent_remote_cache_path(save_root);
+    if let Some(parent) = cache_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create persistent asset cache directory: {}", e);
+            return;
+        }
+    }
 
     // Get cache_expires_at from current in-memory cache
     let cache_expires_at = EXISTING_KEYS_CACHE

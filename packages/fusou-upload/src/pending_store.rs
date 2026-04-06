@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -154,5 +154,9 @@ impl PendingStore {
     
     pub fn read_data(&self, meta: &PendingMeta) -> Result<Vec<u8>, io::Error> {
         fs::read(&meta.file_path)
+    }
+
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
     }
 }
