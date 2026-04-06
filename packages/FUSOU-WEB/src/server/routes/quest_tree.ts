@@ -680,8 +680,8 @@ async function processIngestEvents(
 }
 
 app.post("/ingest", async (c) => {
-  const db = c.env.BATTLE_INDEX_DB;
-  if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 503);
+  const db = c.env.QUEST_INDEX_DB;
+  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
   const env = createEnvContext(c);
   let collectionEnabled = false;
@@ -840,8 +840,8 @@ app.post("/ingest", async (c) => {
 });
 
 app.get("/rules", async (c) => {
-  const db = c.env.BATTLE_INDEX_DB;
-  if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 503);
+  const db = c.env.QUEST_INDEX_DB;
+  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
   const targetRaw = c.req.query("target");
   const target = toInt(targetRaw);
@@ -871,8 +871,8 @@ app.get("/rules", async (c) => {
 });
 
 app.get("/graph", async (c) => {
-  const db = c.env.BATTLE_INDEX_DB;
-  if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 503);
+  const db = c.env.QUEST_INDEX_DB;
+  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
   const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
   const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
@@ -923,8 +923,8 @@ app.get("/graph", async (c) => {
 });
 
 app.get("/changes", async (c) => {
-  const db = c.env.BATTLE_INDEX_DB;
-  if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 503);
+  const db = c.env.QUEST_INDEX_DB;
+  if (!db) return c.json({ error: "QUEST_INDEX_DB not configured" }, 503);
 
   const datasetId = (c.req.query("dataset_id") ?? "").trim();
   const since = Math.max(0, toInt(c.req.query("since")) ?? 0);

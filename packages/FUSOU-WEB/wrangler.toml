@@ -69,6 +69,11 @@ database_name = "dev-kc-battle-index"
 database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
 
 [[d1_databases]]
+binding = "QUEST_INDEX_DB"
+database_name = "dev-kc-quest-index"
+database_id = "f6d4f2c0-e48b-4539-bd9e-28ab46cdbfb8"
+
+[[d1_databases]]
 binding = "MASTER_DATA_INDEX_DB"
 database_name = "dev_kc_master_data_index"
 database_id = "c10cd489-87cb-4995-8daf-b75f557d1b09"

@@ -10,6 +10,7 @@ import {
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
@@ -95,7 +96,11 @@ async function runQuestInferenceCron(env: Env): Promise<void> {
   }
 
   const limit = Math.min(200, parsePositiveInt(env.QUEST_TREE_CRON_LIMIT, 100));
-  const result = await runQuestInferenceTasks(env.BATTLE_INDEX_DB as D1Database, { limit });
+  if (!env.QUEST_INDEX_DB) {
+    console.warn("[scheduled] quest inference cron skipped: QUEST_INDEX_DB is not configured");
+    return;
+  }
+  const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, { limit });
   console.log("[scheduled] quest inference cron completed", result);
 }
 

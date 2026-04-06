@@ -175,6 +175,7 @@ export function injectEnv(_locals?: unknown): Bindings {
     ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
     ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
     BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
+    QUEST_INDEX_DB: ctx.runtime.QUEST_INDEX_DB!,
     FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
     BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
     MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
