@@ -278,6 +278,15 @@ save_file_location = ""
     # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
     anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
 
+    [app.quest_tree_sender]
+    # Whether to enable quest tree data ingestion
+    # default is false
+    enable = false
+
+    # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
+    # If empty, quest tree sender is disabled
+    ingest_endpoint = ""
+
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
     # This option is used when you use linux platform and the system internally uses wayland instead of X11

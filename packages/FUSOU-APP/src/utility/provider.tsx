@@ -6,6 +6,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
 
 import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
+import type { Quest, Quests } from "@ipc-bindings/quest";
 import {
   default_deck_ports,
   default_materials,
@@ -487,6 +488,59 @@ export function useMaterials() {
     throw new Error("useMaterials: cannot find a MaterialsContext");
   }
   return context as [Materials, SetStoreFunction<Materials>];
+}
+
+export const QuestsContext =
+  createContext<(Quests | SetStoreFunction<Quests>)[]>();
+
+export function QuestsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<Quests>({
+    timestamp: null,
+    page_no: 1,
+    count: 0,
+    completed_kind: 0,
+    exec_count: 0,
+    exec_type: 0,
+    quests: {},
+    completed: {},
+  });
+  const setter = [data, setData];
+
+  createEffect(() => {
+    let unlisten_data: UnlistenFn;
+    (async () => {
+      unlisten_data = await listen<Quests>("set-kcs-quests", (event) => {
+        if (import.meta.env.DEV) console.log("set-kcs-quests");
+
+        const filteredQuests = Object.fromEntries(
+          Object.entries(event.payload.quests).filter(([, quest]) => Boolean(quest))
+        ) as { [key in number]?: Quest };
+
+        setData({
+          ...event.payload,
+          quests: filteredQuests,
+        });
+      });
+    })();
+
+    onCleanup(() => {
+      if (unlisten_data) unlisten_data();
+    });
+  });
+
+  return (
+    <QuestsContext.Provider value={setter}>
+      {props.children}
+    </QuestsContext.Provider>
+  );
+}
+
+export function useQuests() {
+  const context = useContext(QuestsContext);
+  if (!context) {
+    throw new Error("useQuests: cannot find a QuestsContext");
+  }
+  return context as [Quests, SetStoreFunction<Quests>];
 }
 
 export const DeckPortsContext =

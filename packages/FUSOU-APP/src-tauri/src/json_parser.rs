@@ -33,6 +33,9 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 data.add_or();
                 let _ = handle.emit_to("main", "add-kcs-cell", data);
             }
+            Add::QuestEvent(data) => {
+                crate::quest_tree_sender::enqueue(data);
+            }
             Add::Dammy(_) => {
                 let _ = handle.emit_to("main", "add-kcs-dammy", ());
             }
@@ -126,6 +129,11 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::MstEquipLimitExslots(data) => {
                 data.restore();
+            }
+            Set::Quests(data) => {
+                data.restore();
+                crate::quest_tree_sender::enqueue_snapshot(data.clone());
+                let _ = handle.emit_to("main", "set-kcs-quests", data);
             }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());

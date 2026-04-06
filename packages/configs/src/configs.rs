@@ -710,6 +710,26 @@ impl ConfigsAppWindow {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppQuestTreeSender {
+    enable: Option<bool>,
+    ingest_endpoint: Option<String>,
+}
+
+impl ConfigsAppQuestTreeSender {
+    pub fn get_enable(&self) -> bool {
+        self.enable.unwrap_or_else(|| get_default_configs().app.quest_tree_sender.enable.unwrap())
+    }
+
+    pub fn get_ingest_endpoint(&self) -> Option<String> {
+        match self.ingest_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
@@ -721,6 +741,7 @@ pub struct ConfigsApp {
     pub asset_sync: ConfigsAppAssetSync,
     pub auth: ConfigsAppAuth,
     pub kc_window: ConfigsAppWindow,
+    pub quest_tree_sender: ConfigsAppQuestTreeSender,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

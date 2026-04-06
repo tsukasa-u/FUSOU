@@ -25,6 +25,7 @@ mod util;
 mod window;
 mod wrap_proxy;
 mod notify;
+mod quest_tree_sender;
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
@@ -226,6 +227,31 @@ pub async fn run() {
                     auth_manager_for_bootstrap,
                 ).await;
             });
+
+            // Initialize quest tree sender if configured
+            {
+                let app_configs = configs::get_user_configs_for_app();
+                if app_configs.quest_tree_sender.get_enable() {
+                    if let Some(ingest_endpoint) = app_configs.quest_tree_sender.get_ingest_endpoint() {
+                        let auth_manager_for_quest = Arc::new(auth_manager.clone());
+                        let quest_cache_root = roaming_dir
+                            .join("cache")
+                            .join("request_suppression")
+                            .join("quest_tree_sender");
+                        tracing::info!("starting quest tree sender");
+                        quest_tree_sender::start(
+                            ingest_endpoint,
+                            auth_manager_for_quest,
+                            pending_store.clone(),
+                            retry_service.clone(),
+                            quest_cache_root,
+                        );
+                    } else {
+                        tracing::warn!("quest_tree_sender enabled but ingest_endpoint not configured");
+                    }
+                }
+            }
+
             Ok(())
         })
         .on_window_event(move |window: &tauri::Window, event: &tauri::WindowEvent| {

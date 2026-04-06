@@ -2,6 +2,7 @@ import { DecksComponent } from "./../components/deck_port/decks.tsx";
 import { SettingsComponent } from "../components/settings/settings.tsx";
 
 import { MaterialsComponent } from "./../components/materials/materials.tsx";
+import { QuestsComponent } from "./../components/quests/quests.tsx";
 import {
   AirBasesPortsProvider,
   AirBasesBattlesProvider,
@@ -9,8 +10,9 @@ import {
   DeckPortsProvider,
   DeckBattlesProvider,
   MaterialsProvider,
-  MstShipsProvider,
   MstSlotItemEquipTypesProvider,
+  QuestsProvider,
+  MstShipsProvider,
   MstSlotItemsProvider,
   MstStypesProvider,
   ShipsProvider,
@@ -116,6 +118,52 @@ function App() {
               </ShipsProvider>
             </SlotItemsProvider>
           </MstSlotItemsProvider>
+        </div>
+
+        <input
+          type="radio"
+          name="tabs_fleet"
+          role="tab"
+          class="tab [&::after]:w-18 bg-base-100"
+          aria-label="Equip Info"
+          style={{
+            position: "sticky",
+            top: "0px",
+            left: "0px",
+            "z-index": "100",
+            "border-radius": 0,
+          }}
+        />
+        <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
+          <MstSlotItemsProvider>
+            <SlotItemsProvider>
+              <MstSlotItemEquipTypesProvider>
+                <EquipmentListComponent />
+              </MstSlotItemEquipTypesProvider>
+            </SlotItemsProvider>
+          </MstSlotItemsProvider>
+        </div>
+
+        <input
+          type="radio"
+          name="tabs_fleet"
+          role="tab"
+          class="tab [&::after]:w-18 bg-base-100"
+          aria-label="Quest Info"
+          style={{
+            position: "sticky",
+            top: "0px",
+            left: "0px",
+            "z-index": "100",
+            "border-radius": 0,
+          }}
+        />
+        <div role="tabpanel" class="tab-content p-0 h-full">
+          <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
+            <QuestsProvider>
+              <QuestsComponent />
+            </QuestsProvider>
+          </ul>
         </div>
 
         <input
