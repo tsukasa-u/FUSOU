@@ -1,6 +1,7 @@
 import { handleRead as handleHybridRead } from "./reader";
 import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
+import { runQuestInferenceTasks } from "./quest_tree_inference";
 import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
@@ -17,6 +18,10 @@ interface Env {
   TIDB_KC_DB_URL?: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
+  // Optional cap for task batch size. Defaults to 100.
+  QUEST_TREE_CRON_LIMIT?: string;
+  // Required explicit switch for experimental quest collection/inference.
+  QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED?: string;
 }
 
 const CORS_HEADERS = {
@@ -65,6 +70,34 @@ const queueDLQ = {
     }
   },
 };
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
+function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
+}
+
+async function runQuestInferenceCron(env: Env): Promise<void> {
+  const enabled = parseStrictBoolean(
+    env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
+    "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
+  );
+  if (!enabled) {
+    console.log("[scheduled] quest inference cron skipped: experimental collection disabled");
+    return;
+  }
+
+  const limit = Math.min(200, parsePositiveInt(env.QUEST_TREE_CRON_LIMIT, 100));
+  const result = await runQuestInferenceTasks(env.BATTLE_INDEX_DB as D1Database, { limit });
+  console.log("[scheduled] quest inference cron completed", result);
+}
 
 export default {
   async fetch(
@@ -210,5 +243,11 @@ export default {
         }),
       );
     }
+
+    ctx.waitUntil(
+      runQuestInferenceCron(env).catch((err) => {
+        console.error("[scheduled] Quest inference cron error:", err);
+      }),
+    );
   },
 };
