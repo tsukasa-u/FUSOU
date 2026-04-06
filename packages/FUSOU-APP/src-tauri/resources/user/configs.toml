@@ -209,6 +209,18 @@ save_file_location = ""
     window_title_bar_height = 68
 
 
+    [app.quest_tree_sender]
+    # Whether to enable quest tree data ingestion (experimental feature)
+    # This sends your quest list observations to the shared inference pipeline to help
+    # build a quest unlock prerequisite graph. Requires user authentication.
+    # default is false
+    enable = false
+
+    # Endpoint to ingest quest tree data
+    # Must be set to the FUSOU-WEB quest-tree ingest API endpoint to use this feature
+    ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
+
+
 [env]
 # Environment-specific configurations
 # Keep it empty for now

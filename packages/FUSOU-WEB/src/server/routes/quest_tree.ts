@@ -285,7 +285,7 @@ async function upsertQuestMasterEntries(
            master_hash,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(quest_id, period_tag, table_version) DO UPDATE SET
            title = excluded.title,
            detail = excluded.detail,

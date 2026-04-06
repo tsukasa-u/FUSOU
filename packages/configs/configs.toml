@@ -285,7 +285,7 @@ save_file_location = ""
 
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled
-    ingest_endpoint = ""
+    ingest_endpoint = "https://dev.fusou.pages.dev/api/quest-tree/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
