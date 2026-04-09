@@ -189,6 +189,8 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
       body: {
         error: "request_id conflict",
         message: "Same request_id already exists with different payload_hash",
+        existing_request_id: requestId,
+        existing_payload_hash: sameRequestDifferentPayload.payload_hash ?? null,
       },
     };
   }
