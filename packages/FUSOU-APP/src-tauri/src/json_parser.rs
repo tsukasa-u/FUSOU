@@ -135,6 +135,9 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 crate::quest_tree_sender::enqueue_snapshot(data.clone());
                 let _ = handle.emit_to("main", "set-kcs-quests", data);
             }
+            Set::ShipGrowthSnapshot(data) => {
+                crate::ship_growth_sender::enqueue_snapshot(data);
+            }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());
             }

@@ -21,6 +21,7 @@ use crate::mst_use_item::MstUseItems;
 use crate::n_dock::NDocks;
 use crate::quest::{QuestEvent, Quests};
 use crate::ship::Ships;
+use crate::ship_growth::ShipGrowthSnapshot;
 use crate::slot_item::SlotItems;
 
 use serde::{Deserialize, Serialize};
@@ -76,6 +77,7 @@ pub enum Set {
     MstShipGraphs(MstShipGraphs),
     MstShipUpgrades(MstShipUpgrades),
     Quests(Quests),
+    ShipGrowthSnapshot(ShipGrowthSnapshot),
     Dammy(()),
 }
 

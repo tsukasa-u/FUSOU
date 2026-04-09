@@ -129,6 +129,14 @@ save_file_location = ""
     # kc_server_name = "w16s.kancolle-server.com" # This is example
     kc_server_name = "w16s.kancolle-server.com"
 
+        [app.ship_growth_sender]
+        # Whether to enable ship growth data ingestion
+        # default is false
+        enable = false
+
+        # Endpoint to ingest ship growth data
+        # If empty, ship growth sender is disabled
+        ingest_endpoint = "https://dev.fusou.pages.dev/api/ship-growth/ingest"
 
     [app.browser]
     # The URL to open first in the browser
@@ -250,14 +258,14 @@ save_file_location = ""
 
     [app.asset_sync.retry]
     # Maximum number of retry attempts for failed uploads
-    max_attempts = 5
+    max_attempts = 10
 
     # Time to live (in seconds) for pending upload files
     # Files older than this will be deleted
-    ttl_seconds = 86400 # 24 hours
+    ttl_seconds = 2592000 # 30 days
 
     # Interval (in seconds) between retry attempts
-    interval_seconds = 300 # 5 minutes
+    interval_seconds = 900 # 15 minutes (base for exponential backoff)
 
     # Cooldown (in seconds) after an authentication failure before retrying
     auth_backoff_seconds = 600

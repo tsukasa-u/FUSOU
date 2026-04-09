@@ -107,6 +107,39 @@ impl RetryHandler for AppUploadRetryHandler {
                             .map(|_| ())
                             .map_err(|e| e.into())
                     }
+                    "ship_growth_ingest" => {
+                        let endpoint = context
+                            .get("endpoint")
+                            .and_then(|v| v.as_str())
+                            .ok_or("missing endpoint")?;
+                        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
+                        if let Some(obj) = handshake_body.as_object_mut() {
+                            obj.insert(
+                                "file_size".to_string(),
+                                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
+                            );
+                        }
+
+                        let request = UploadRequest {
+                            endpoint,
+                            handshake_body,
+                            data: data.to_vec(),
+                            headers: {
+                                let mut h = std::collections::HashMap::new();
+                                if let Some(hash) = context.get("payload_hash").and_then(|v| v.as_str()) {
+                                    h.insert("content-hash".to_string(), hash.to_string());
+                                }
+                                h
+                            },
+                            context: UploadContext::Custom(context.clone()),
+                        };
+
+                        let client = reqwest::Client::new();
+                        Uploader::upload(&client, &self.auth_manager, request, None)
+                            .await
+                            .map(|_| ())
+                            .map_err(|e| e.into())
+                    }
                     // Google Drive re-upload (only available with gdrive feature)
                     #[cfg(feature = "gdrive")]
                     "upload" => {

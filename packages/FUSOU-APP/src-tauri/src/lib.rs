@@ -26,6 +26,7 @@ mod window;
 mod wrap_proxy;
 mod notify;
 mod quest_tree_sender;
+mod ship_growth_sender;
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
@@ -168,6 +169,9 @@ pub async fn run() {
             cmd::tauri_cmd::check_supabase_session_health,
             cmd::tauri_cmd::force_local_sign_out,
             cmd::tauri_cmd::perform_snapshot_sync,
+            cmd::tauri_cmd::retry_pending_uploads_now,
+            cmd::tauri_cmd::get_pending_upload_retry_status,
+            cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_all_logs,
             #[cfg(dev)]
             cmd::tauri_cmd::open_debug_window,
@@ -201,6 +205,28 @@ pub async fn run() {
             
             app.manage(pending_store.clone());
             app.manage(retry_service.clone());
+
+            // Kick retry on startup and keep retrying on configured interval.
+            let retry_service_for_background = retry_service.clone();
+            let retry_interval_seconds = configs::get_user_configs_for_app()
+                .asset_sync
+                .retry
+                .get_interval_seconds()
+                .max(1);
+            tokio::spawn(async move {
+                tracing::info!(
+                    retry_interval_seconds,
+                    "starting background pending upload retry loop"
+                );
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+                    retry_interval_seconds,
+                ));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    retry_service_for_background.trigger_retry().await;
+                }
+            });
 
             // Initialize storage dependencies for submit_data
             let pending_store_clone = pending_store.clone();
@@ -248,6 +274,26 @@ pub async fn run() {
                         );
                     } else {
                         tracing::warn!("quest_tree_sender enabled but ingest_endpoint not configured");
+                    }
+                }
+
+                if app_configs.ship_growth_sender.get_enable() {
+                    if let Some(ingest_endpoint) = app_configs.ship_growth_sender.get_ingest_endpoint() {
+                        let auth_manager_for_ship_growth = Arc::new(auth_manager.clone());
+                        let ship_growth_cache_root = roaming_dir
+                            .join("cache")
+                            .join("request_suppression")
+                            .join("ship_growth_sender");
+                        tracing::info!("starting ship growth sender");
+                        ship_growth_sender::start(
+                            ingest_endpoint,
+                            auth_manager_for_ship_growth,
+                            pending_store.clone(),
+                            retry_service.clone(),
+                            ship_growth_cache_root,
+                        );
+                    } else {
+                        tracing::warn!("ship_growth_sender enabled but ingest_endpoint not configured");
                     }
                 }
             }

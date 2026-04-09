@@ -220,6 +220,15 @@ save_file_location = ""
     # Must be set to the FUSOU-WEB quest-tree ingest API endpoint to use this feature
     ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
 
+    [app.ship_growth_sender]
+    # Whether to enable ship growth data ingestion
+    # default is false
+    enable = false
+
+    # Endpoint to ingest ship growth data
+    # If empty, ship growth sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
 
 [env]
 # Environment-specific configurations

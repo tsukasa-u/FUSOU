@@ -23,6 +23,7 @@ use crate::interface::mst_use_item::MstUseItems;
 use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
+use fusou_upload::{PendingStore, UploadRetryService};
 use tracing_unwrap::OptionExt;
 
 // use tauri_plugin_notification::NotificationExt; // replaced by notify wrapper where needed
@@ -351,6 +352,117 @@ pub async fn perform_snapshot_sync(
         &_window.app_handle(),
         auth_manager.inner().clone(),
     ).await
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn retry_pending_uploads_now(
+    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
+) -> Result<String, String> {
+    retry_service.trigger_retry_force().await;
+    Ok("Pending upload retry triggered".to_string())
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingRetryItemStatus {
+    pub id: String,
+    pub attempt_count: u32,
+    pub created_at: u64,
+    pub last_attempt_at: Option<u64>,
+    pub next_due_at: u64,
+    pub seconds_until_next_due: u64,
+    pub expires_at: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingRetryStatus {
+    pub total_pending: usize,
+    pub due_now_count: usize,
+    pub max_attempts: u32,
+    pub interval_seconds: u64,
+    pub ttl_seconds: u64,
+    pub now_epoch_seconds: u64,
+    pub next_due_at: Option<u64>,
+    pub items: Vec<PendingRetryItemStatus>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShipGrowthSuppressionEntryStatus {
+    pub key: String,
+    pub expires_at_ms: u64,
+    pub hash_prefix: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ShipGrowthSuppressionStatus {
+    pub scope: Option<String>,
+    pub entries: Vec<ShipGrowthSuppressionEntryStatus>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_pending_upload_retry_status(
+    pending_store: tauri::State<'_, Arc<PendingStore>>,
+) -> Result<PendingRetryStatus, String> {
+    let configs = configs::get_user_configs_for_app();
+    let retry = &configs.asset_sync.retry;
+    let interval_seconds = retry.get_interval_seconds();
+    let ttl_seconds = retry.get_ttl_seconds();
+    let max_attempts = retry.get_max_attempts();
+    let now = UploadRetryService::now_epoch_seconds();
+
+    let pending_items = pending_store.list_pending();
+    let mut due_now_count = 0usize;
+
+    let mut items: Vec<PendingRetryItemStatus> = pending_items
+        .into_iter()
+        .map(|meta| {
+            let next_due_at = UploadRetryService::next_due_epoch_seconds(&meta, interval_seconds);
+            let seconds_until_next_due = next_due_at.saturating_sub(now);
+            if seconds_until_next_due == 0 {
+                due_now_count += 1;
+            }
+
+            PendingRetryItemStatus {
+                id: meta.id,
+                attempt_count: meta.attempt_count,
+                created_at: meta.created_at,
+                last_attempt_at: meta.last_attempt_at,
+                next_due_at,
+                seconds_until_next_due,
+                expires_at: meta.created_at.saturating_add(ttl_seconds),
+            }
+        })
+        .collect();
+
+    items.sort_by_key(|item| item.next_due_at);
+    let next_due_at = items.first().map(|item| item.next_due_at);
+
+    Ok(PendingRetryStatus {
+        total_pending: items.len(),
+        due_now_count,
+        max_attempts,
+        interval_seconds,
+        ttl_seconds,
+        now_epoch_seconds: now,
+        next_due_at,
+        items,
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_ship_growth_suppression_status(
+) -> Result<Option<ShipGrowthSuppressionStatus>, String> {
+    Ok(crate::ship_growth_sender::get_suppression_status().map(|status| ShipGrowthSuppressionStatus {
+        scope: status.scope,
+        entries: status
+            .entries
+            .into_iter()
+            .map(|entry| ShipGrowthSuppressionEntryStatus {
+                key: entry.key,
+                expires_at_ms: entry.expires_at_ms,
+                hash_prefix: entry.hash.chars().take(12).collect(),
+            })
+            .collect(),
+    }))
 }
 
 // Removed: use notify::show via internal callers when needed.

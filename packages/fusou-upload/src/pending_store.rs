@@ -14,6 +14,8 @@ pub struct PendingMeta {
     pub headers: HashMap<String, String>,
     pub created_at: u64,
     pub attempt_count: u32,
+    #[serde(default)]
+    pub last_attempt_at: Option<u64>,
     pub file_path: PathBuf,
     pub context: Option<String>,
 }
@@ -31,13 +33,15 @@ impl PendingMeta {
             headers,
             created_at,
             attempt_count: 0,
+            last_attempt_at: None,
             file_path,
             context,
         }
     }
 
-    pub fn increment_attempt(&mut self) {
+    pub fn increment_attempt(&mut self, attempted_at: u64) {
         self.attempt_count += 1;
+        self.last_attempt_at = Some(attempted_at);
     }
 }
 

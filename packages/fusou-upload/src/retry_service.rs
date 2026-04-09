@@ -1,8 +1,9 @@
 use std::future::Future;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -46,6 +47,14 @@ impl UploadRetryService {
     }
 
     pub async fn trigger_retry(&self) {
+        self.trigger_retry_internal(false).await;
+    }
+
+    pub async fn trigger_retry_force(&self) {
+        self.trigger_retry_internal(true).await;
+    }
+
+    async fn trigger_retry_internal(&self, force: bool) {
         let mut running = self.is_running.lock().await;
         if *running {
             tracing::debug!("Retry process already running, skipping duplicate trigger");
@@ -60,7 +69,7 @@ impl UploadRetryService {
         let custom_handler = self.custom_handler.clone();
 
         tokio::spawn(async move {
-            tracing::info!("Starting upload retry process");
+            tracing::info!(force, "Starting upload retry process");
 
             let configs = get_user_configs();
             let retry_config = &configs.app.asset_sync.retry;
@@ -104,6 +113,10 @@ impl UploadRetryService {
                         continue;
                     }
 
+                    if !force && !Self::is_due_for_retry(&meta, retry_config.get_interval_seconds()) {
+                        continue;
+                    }
+
                     tracing::info!(
                         "Retrying upload {} (attempt {}/{})",
                         meta.id,
@@ -111,7 +124,7 @@ impl UploadRetryService {
                         retry_config.get_max_attempts()
                     );
 
-                    if let Err(e) = Self::retry_one(
+                    let retry_result = Self::retry_one(
                         &store,
                         &mut meta,
                         &client,
@@ -119,10 +132,28 @@ impl UploadRetryService {
                         custom_handler.as_deref(),
                     )
                     .await
-                    {
-                        tracing::error!("Failed to retry upload {}: {}", meta.id, e);
-                        meta.increment_attempt();
-                        let _ = store.update_meta(&meta);
+                    .map_err(|e| e.to_string());
+
+                    if let Err(error_text) = retry_result {
+                        let is_auth_error = Self::is_auth_related_error(&error_text);
+
+                        if is_auth_error {
+                            tracing::warn!(
+                                "Authentication-related retry failure for {}. Backing off for {} seconds before next retry cycle: {}",
+                                meta.id,
+                                retry_config.get_auth_backoff_seconds(),
+                                error_text
+                            );
+                        } else {
+                            tracing::error!("Failed to retry upload {}: {}", meta.id, error_text);
+                            meta.increment_attempt(Self::now_epoch_seconds());
+                            let _ = store.update_meta(&meta);
+                        }
+
+                        if is_auth_error {
+                            sleep(Duration::from_secs(retry_config.get_auth_backoff_seconds())).await;
+                            break;
+                        }
                     } else {
                         tracing::info!("Successfully retried upload {}", meta.id);
                         let _ = store.delete_pending(&meta.id);
@@ -136,6 +167,58 @@ impl UploadRetryService {
                 tracing::info!("Upload retry process finished");
             }
         });
+    }
+
+    pub fn now_epoch_seconds() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+    }
+
+    fn exponential_delay_seconds(base_interval_seconds: u64, attempt_count: u32) -> u64 {
+        let shift = attempt_count.min(20);
+        let multiplier = 1u64 << shift;
+        base_interval_seconds.saturating_mul(multiplier)
+    }
+
+    fn jittered_delay_seconds(base_delay_seconds: u64, id: &str, attempt_count: u32) -> u64 {
+        if base_delay_seconds == 0 {
+            return 0;
+        }
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        id.hash(&mut hasher);
+        attempt_count.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        // Deterministic jitter in range [-20.00%, +20.00%]
+        let jitter_bp = (hash % 4001) as i64 - 2000;
+        let factor_bp = (10_000i64 + jitter_bp).max(1);
+        let adjusted = (base_delay_seconds as u128)
+            .saturating_mul(factor_bp as u128)
+            .saturating_div(10_000u128);
+        adjusted.max(1) as u64
+    }
+
+    pub fn next_due_epoch_seconds(meta: &PendingMeta, base_interval_seconds: u64) -> u64 {
+        let reference = meta.last_attempt_at.unwrap_or(meta.created_at);
+        let base_wait = Self::exponential_delay_seconds(base_interval_seconds, meta.attempt_count);
+        let jittered_wait = Self::jittered_delay_seconds(base_wait, &meta.id, meta.attempt_count);
+        reference.saturating_add(jittered_wait)
+    }
+
+    fn is_due_for_retry(meta: &PendingMeta, base_interval_seconds: u64) -> bool {
+        let now = Self::now_epoch_seconds();
+        now >= Self::next_due_epoch_seconds(meta, base_interval_seconds)
+    }
+
+    fn is_auth_related_error(message: &str) -> bool {
+        let normalized = message.to_ascii_lowercase();
+        normalized.contains("authentication error")
+            || normalized.contains("failed to obtain access token")
+            || normalized.contains("401")
+            || normalized.contains("403")
     }
 
     async fn retry_one(

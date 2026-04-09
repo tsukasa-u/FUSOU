@@ -11,6 +11,19 @@ struct CacheEntry {
     expires_at: Instant,
 }
 
+#[derive(Debug, Clone)]
+pub struct SuppressionCacheEntryStatus {
+    pub key: String,
+    pub hash: String,
+    pub expires_at_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SuppressionCacheStatus {
+    pub scope: Option<String>,
+    pub entries: Vec<SuppressionCacheEntryStatus>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistedEntry {
     key: String,
@@ -101,6 +114,35 @@ impl LocalRequestSuppressionCache {
     pub fn clear(&self) {
         self.entries.clear();
         let _ = self.flush_to_disk();
+    }
+
+    pub fn snapshot_status(&self) -> SuppressionCacheStatus {
+        let now = Instant::now();
+        let now_ms = Self::now_epoch_millis();
+        let mut entries = Vec::new();
+
+        for item in self.entries.iter() {
+            if item.expires_at <= now {
+                continue;
+            }
+            let remain = item.expires_at.duration_since(now).as_millis() as u64;
+            entries.push(SuppressionCacheEntryStatus {
+                key: item.key().clone(),
+                hash: item.hash.clone(),
+                expires_at_ms: now_ms + remain,
+            });
+        }
+
+        entries.sort_by(|a, b| a.key.cmp(&b.key));
+
+        SuppressionCacheStatus {
+            scope: self
+                .scope
+                .read()
+                .expect("request cache scope lock poisoned")
+                .clone(),
+            entries,
+        }
     }
 
     fn now_epoch_millis() -> u64 {
