@@ -354,9 +354,16 @@ for (const [pairKey, profileMap] of synergies) {
   crossEffects[pairKey] = entries;
 }
 
+const pkgVersion = (() => {
+  try {
+    return 'v' + JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8')).version;
+  } catch { return 'v0.0.0'; }
+})();
+
 const output = {
   _meta: {
     generated: deterministic ? '1970-01-01T00:00:00.000Z' : new Date().toISOString(),
+    generator_version: pkgVersion,
     deterministic,
     source: path.basename(useMain ? 'main.js' : 'output/deobfuscated.js'),
     total_ships: mstShips.length,

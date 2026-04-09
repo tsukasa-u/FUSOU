@@ -15,7 +15,6 @@
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
-    "gen:licenses": "node ../../scripts/generate-licenses.js",
     "verify:battle-data": "node scripts/verify-battle-data.mjs",
     "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts",
     "e2e:simulator": "playwright test -c playwright.config.ts e2e/simulator.spec.ts",
@@ -31,7 +30,10 @@
     "seed:battle-data": "node scripts/seed-local-battle-data.mjs --period latest",
     "seed:battle-data:all": "node scripts/seed-local-battle-data.mjs --period all",
     "seed:assets": "node scripts/seed-local-assets.mjs",
-    "sync:banners": "node scripts/sync-remote-d1-banners.mjs"
+    "sync:banners": "node scripts/sync-remote-d1-banners.mjs",
+    "upload:synergy": "node scripts/upload-synergy.mjs",
+    "upload:synergy:dry": "node scripts/upload-synergy.mjs --dry-run",
+    "upload:synergy:prod": "node scripts/upload-synergy.mjs --env production"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.5",

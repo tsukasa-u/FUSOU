@@ -383,7 +383,7 @@ export async function loadMasterData(renderAll: () => void) {
       meta?: { size?: { w: number; h: number } };
     }>("/api/asset-sync/ship-type-icon-frames?v=1", "ship-type-icon-frames"),
     fetchJsonSafe<SlotItemEffectsData>(
-      "/data/slot_item_effects.json",
+      "/api/master-data/synergy-data",
       "slot_item_effects",
     ),
     fetchJsonSafe<{ records: MstSlotItemEquipTypeData[] }>(

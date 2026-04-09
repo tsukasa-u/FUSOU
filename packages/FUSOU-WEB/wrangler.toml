@@ -58,6 +58,11 @@ binding = "MASTER_DATA_BUCKET"
 bucket_name = "dev-kc-master-data"
 # location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
+[[r2_buckets]]
+binding = "SHIP_GROWTH_ARCHIVE_BUCKET"
+bucket_name = "dev-kc-ship-growth-archive"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
+
 [[d1_databases]]
 binding = "ASSET_INDEX_DB"
 database_name = "dev-kc-asset-index"
@@ -67,16 +72,25 @@ database_id = "c625d190-44b7-4a80-85fe-6fddbba64248"
 binding = "BATTLE_INDEX_DB"
 database_name = "dev-kc-battle-index"
 database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
+migrations_dir = "migrations/battle-index"
 
 [[d1_databases]]
 binding = "QUEST_INDEX_DB"
 database_name = "dev-kc-quest-index"
 database_id = "f6d4f2c0-e48b-4539-bd9e-28ab46cdbfb8"
+migrations_dir = "migrations/quest-index"
 
 [[d1_databases]]
 binding = "MASTER_DATA_INDEX_DB"
 database_name = "dev_kc_master_data_index"
 database_id = "c10cd489-87cb-4995-8daf-b75f557d1b09"
+migrations_dir = "migrations/master-data"
+
+[[d1_databases]]
+binding = "SHIP_GROWTH_DB"
+database_name = "dev-kc-ship-growth"
+database_id = "d2acda7f-d0f4-4adc-9292-19c7523ef4e1"
+migrations_dir = "migrations/ship-growth"
 
 # ===== KV Namespace Bindings =====
 [[kv_namespaces]]

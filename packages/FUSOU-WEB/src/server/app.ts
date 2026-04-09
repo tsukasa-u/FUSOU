@@ -14,6 +14,8 @@ import userApp from './routes/user';
 import adminApp from './routes/admin';
 import dataLoaderApp from './routes/data_loader';
 import masterDataApp from './routes/master_data';
+import synergyApp from './routes/synergy';
+import shipGrowthApp from './routes/ship_growth';
 import apiKeysApp from './routes/api_keys';
 import memberLookupApp from './routes/member-lookup';
 import anonymousSyncApp from './routes/anonymous-sync';
@@ -182,6 +184,8 @@ app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
 app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 app.route('/data-loader', dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 app.route('/master-data', masterDataApp); // masterDataApp declares /upload (Stage 1), /download-master (Stage 2+3)
+app.route('/master-data', synergyApp); // synergyApp declares /synergy-manifest, /synergy-manifest/*
+app.route('/ship-growth', shipGrowthApp); // shipGrowthApp declares /ingest
 app.route('/api-keys', apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
 app.route('/member-lookup', memberLookupApp); // memberLookupApp declares /check-hash, /verify-ownership
 app.route('/auth', anonymousSyncApp); // anonymousSyncApp declares /anonymous-sync

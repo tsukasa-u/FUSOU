@@ -1,0 +1,1135 @@
+import { Hono } from 'hono';
+import type { Bindings, D1Database } from '../types';
+import { decodeAvroOcfToJson } from '../utils/avro-decoder';
+import { getSynergyManifestR2Keys } from '../types/synergy';
+import {
+  createEnvContext,
+  generateSignedToken,
+  getEnv,
+  validateJWT,
+  validateTokenPayload,
+  verifySignedToken,
+} from '../utils';
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+// ── Types ──────────────────────────────────────────────────────────
+
+interface ShipEntry {
+  master_id: number;
+  lv: number;
+  exp_current: number;
+  exp_to_next?: number | null;
+  kyouka: number[];
+  sp_effect_items_json?: string | null;
+  kaihi_observed: number;
+  taisen_observed: number;
+  sakuteki_observed: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+  slots: { slotitem_id: number; locked: boolean; level: number; alv: number }[];
+  exslot?: { slotitem_id: number; locked: boolean; level: number; alv: number } | null;
+}
+
+interface IngestBody {
+  dataset_id: string;
+  request_id: string;
+  payload_hash: string;
+  event_type: string;
+  timestamp_ms: number;
+  period_tag: string;
+  table_version: string;
+  ships: ShipEntry[];
+  content_hash?: string;
+  file_size?: number | string;
+}
+
+interface MasterSlotStats {
+  houk: number;
+  tais: number;
+  saku: number;
+}
+
+interface DerivedNakedStats {
+  kaihi: number;
+  taisen: number;
+  sakuteki: number;
+}
+
+interface DeriveResult {
+  stats: DerivedNakedStats;
+  missingSlotItemIds: number[];
+  breakdown: ServerDerivationBreakdown;
+}
+
+interface AggregatedExpRow {
+  lv: number;
+  exp_current: number;
+}
+
+interface AggregatedBoundRow {
+  master_id: number;
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+}
+
+interface AggregatedCapRow {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+}
+
+interface ShipGrowthArchiveBoundRow {
+  row_id: number;
+  period_tag: string;
+  table_version: string;
+  master_id: number;
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+}
+
+interface ShipGrowthArchiveCapRow {
+  row_id: number;
+  period_tag: string;
+  table_version: string;
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+}
+
+type SpEffectItem = {
+  api_kind?: number | null;
+  api_houg?: number | null;
+  api_kaih?: number | null;
+  api_raig?: number | null;
+  api_souk?: number | null;
+};
+
+interface SpEffectStats {
+  kind: number;
+  houg: number;
+  kaih: number;
+  raig: number;
+  souk: number;
+}
+
+interface SynergyStatTotals {
+  kaihi: number;
+  taisen: number;
+  sakuteki: number;
+}
+
+interface SynergySingleRule {
+  ships?: unknown;
+  b?: Record<string, unknown>;
+  l?: Record<string, unknown>;
+  c2?: Record<string, unknown>;
+  c3?: Record<string, unknown>;
+}
+
+interface SynergyCrossRule {
+  ships?: unknown;
+  synergy?: Record<string, unknown>;
+}
+
+interface SynergyDataSet {
+  singleByItem: Map<number, SynergySingleRule[]>;
+  crossByPair: Map<string, SynergyCrossRule[]>;
+}
+
+interface ServerDerivationBreakdown {
+  removed: {
+    slot: SynergyStatTotals;
+    spEffect: SynergyStatTotals;
+    synergy: {
+      single: SynergyStatTotals;
+      cross: SynergyStatTotals;
+      total: SynergyStatTotals;
+    };
+  };
+  spEffectItems: SpEffectStats[];
+}
+
+const MASTER_SLOTITEM_CACHE_TTL_MS = 5 * 60 * 1000;
+const SYNERGY_CACHE_TTL_MS = 5 * 60 * 1000;
+const masterSlotItemCache = new Map<
+  string,
+  {
+    loadedAt: number;
+    statsMap: Map<number, MasterSlotStats>;
+  }
+>();
+const synergyDataCache = new Map<
+  string,
+  {
+    loadedAt: number;
+    dataSet: SynergyDataSet;
+  }
+>();
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', data as unknown as BufferSource);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function isValidInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
+}
+
+function parseMasterSlotStatsMap(records: Array<Record<string, unknown>>): Map<number, MasterSlotStats> {
+  const statsMap = new Map<number, MasterSlotStats>();
+  for (const row of records) {
+    const rawId = row.id;
+    const id = typeof rawId === 'number' && Number.isFinite(rawId) ? Math.trunc(rawId) : null;
+    if (id == null || id <= 0) continue;
+
+    const houkRaw = row.houk;
+    const taisRaw = row.tais;
+    const sakuRaw = row.saku;
+
+    const houk = typeof houkRaw === 'number' && Number.isFinite(houkRaw) ? Math.trunc(houkRaw) : 0;
+    const tais = typeof taisRaw === 'number' && Number.isFinite(taisRaw) ? Math.trunc(taisRaw) : 0;
+    const saku = typeof sakuRaw === 'number' && Number.isFinite(sakuRaw) ? Math.trunc(sakuRaw) : 0;
+
+    statsMap.set(id, { houk, tais, saku });
+  }
+  return statsMap;
+}
+
+async function loadMasterSlotStatsMap(
+  env: Bindings,
+  periodTag: string,
+  tableVersion: string,
+): Promise<Map<number, MasterSlotStats>> {
+  const cacheKey = `${periodTag}:${tableVersion}`;
+  const cached = masterSlotItemCache.get(cacheKey);
+  if (cached && Date.now() - cached.loadedAt < MASTER_SLOTITEM_CACHE_TTL_MS) {
+    return cached.statsMap;
+  }
+
+  const record = (await env.MASTER_DATA_INDEX_DB
+    .prepare(
+      `SELECT t.r2_key
+       FROM master_data_tables t
+       JOIN master_data_index i ON i.id = t.master_data_id
+       WHERE i.upload_status = 'completed'
+         AND i.period_tag = ?
+         AND i.table_version = ?
+         AND t.table_name = 'mst_slotitem'
+       ORDER BY i.period_revision DESC
+       LIMIT 1`,
+    )
+    .bind(periodTag, tableVersion)
+    .first()) as { r2_key?: string } | null;
+
+  if (!record?.r2_key) {
+    throw new Error(
+      `master data not found for mst_slotitem (period_tag=${periodTag}, table_version=${tableVersion})`,
+    );
+  }
+
+  const r2Object = await env.MASTER_DATA_BUCKET.get(record.r2_key);
+  if (!r2Object) {
+    throw new Error(`R2 object missing for mst_slotitem: ${record.r2_key}`);
+  }
+
+  const arrayBuffer = await r2Object.arrayBuffer();
+  const avroBytes = new Uint8Array(arrayBuffer);
+  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
+  const statsMap = parseMasterSlotStatsMap(decodedRecords);
+
+  masterSlotItemCache.set(cacheKey, {
+    loadedAt: Date.now(),
+    statsMap,
+  });
+
+  return statsMap;
+}
+
+function parseSpEffectItems(json: string | null | undefined): SpEffectItem[] {
+  if (!json || !json.trim()) return [];
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((item): item is SpEffectItem => typeof item === 'object' && item != null);
+  } catch {
+    return [];
+  }
+}
+
+function toInt(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+}
+
+function emptyTotals(): SynergyStatTotals {
+  return { kaihi: 0, taisen: 0, sakuteki: 0 };
+}
+
+function addTotals(a: SynergyStatTotals, b: SynergyStatTotals): SynergyStatTotals {
+  return {
+    kaihi: a.kaihi + b.kaihi,
+    taisen: a.taisen + b.taisen,
+    sakuteki: a.sakuteki + b.sakuteki,
+  };
+}
+
+function scaleTotals(value: SynergyStatTotals, n: number): SynergyStatTotals {
+  return {
+    kaihi: value.kaihi * n,
+    taisen: value.taisen * n,
+    sakuteki: value.sakuteki * n,
+  };
+}
+
+function toShipTotals(raw: Record<string, unknown> | undefined): SynergyStatTotals {
+  if (!raw) return emptyTotals();
+  const kaihi = toInt(raw.kaih) + toInt(raw.houk) + toInt(raw.kaihi);
+  const taisen = toInt(raw.tais) + toInt(raw.taisen);
+  const sakuteki = toInt(raw.saku) + toInt(raw.sakuteki);
+  return { kaihi, taisen, sakuteki };
+}
+
+function hasShipRule(rule: SynergySingleRule | SynergyCrossRule, masterId: number): boolean {
+  return Array.isArray(rule.ships) && rule.ships.some((id) => toInt(id) === masterId);
+}
+
+function pickSingleSynergyTotals(
+  rule: SynergySingleRule,
+  count: number,
+  hasStar10: boolean,
+): SynergyStatTotals {
+  const base = toShipTotals((hasStar10 ? rule.l : rule.b) ?? rule.b ?? rule.l);
+  if (count <= 1) return base;
+
+  if (count === 2) {
+    const c2 = toShipTotals(rule.c2);
+    return c2.kaihi !== 0 || c2.taisen !== 0 || c2.sakuteki !== 0 ? c2 : scaleTotals(base, 2);
+  }
+
+  const c3 = toShipTotals(rule.c3);
+  return c3.kaihi !== 0 || c3.taisen !== 0 || c3.sakuteki !== 0 ? c3 : scaleTotals(base, count);
+}
+
+async function loadSynergyDataSet(env: Bindings, periodTag: string): Promise<SynergyDataSet> {
+  const manifest = (await env.MASTER_DATA_INDEX_DB.prepare(
+    `SELECT period_tag, period_revision, content_hash
+     FROM synergy_manifest
+     WHERE period_tag = ?
+       AND upload_status = 'completed'
+     ORDER BY period_revision DESC
+     LIMIT 1`,
+  )
+    .bind(periodTag)
+    .first()) as { period_tag?: string; period_revision?: number; content_hash?: string } | null;
+
+  const periodRevision = manifest?.period_revision;
+  if (!manifest?.period_tag || typeof periodRevision !== 'number' || !Number.isInteger(periodRevision) || !manifest.content_hash) {
+    throw new Error(`synergy manifest not found for period_tag=${periodTag}`);
+  }
+
+  const cacheKey = `${manifest.period_tag}:${periodRevision}:${manifest.content_hash}`;
+  const cached = synergyDataCache.get(cacheKey);
+  if (cached && Date.now() - cached.loadedAt < SYNERGY_CACHE_TTL_MS) {
+    return cached.dataSet;
+  }
+
+  const r2Keys = getSynergyManifestR2Keys(
+    manifest.period_tag,
+    periodRevision,
+    manifest.content_hash,
+  );
+  const object = await env.MASTER_DATA_BUCKET.get(r2Keys.sp_effect_json);
+  if (!object) {
+    throw new Error(`synergy data missing in R2: ${r2Keys.sp_effect_json}`);
+  }
+
+  const parsed = JSON.parse(new TextDecoder().decode(await object.arrayBuffer())) as {
+    effects?: Record<string, unknown>;
+    cross_effects?: Record<string, unknown>;
+  };
+
+  const singleByItem = new Map<number, SynergySingleRule[]>();
+  for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
+    const itemId = Number(itemKey);
+    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) continue;
+    singleByItem.set(
+      itemId,
+      rawRules.filter((rule) => typeof rule === 'object' && rule != null) as SynergySingleRule[],
+    );
+  }
+
+  const crossByPair = new Map<string, SynergyCrossRule[]>();
+  for (const [pairKey, rawRules] of Object.entries(parsed.cross_effects ?? {})) {
+    if (!Array.isArray(rawRules)) continue;
+    crossByPair.set(
+      pairKey,
+      rawRules.filter((rule) => typeof rule === 'object' && rule != null) as SynergyCrossRule[],
+    );
+  }
+
+  const dataSet: SynergyDataSet = {
+    singleByItem,
+    crossByPair,
+  };
+  synergyDataCache.set(cacheKey, {
+    loadedAt: Date.now(),
+    dataSet,
+  });
+  return dataSet;
+}
+
+function deriveServerNakedStats(
+  ship: ShipEntry,
+  slotStatsMap: Map<number, MasterSlotStats>,
+  synergyDataSet: SynergyDataSet,
+): DeriveResult {
+  const allSlots = [...ship.slots, ...(ship.exslot ? [ship.exslot] : [])];
+  const missingSlotItemIds: number[] = [];
+
+  let slotKaihi = 0;
+  let slotTaisen = 0;
+  let slotSakuteki = 0;
+  for (const slot of allSlots) {
+    if (!Number.isInteger(slot.slotitem_id) || slot.slotitem_id <= 0) continue;
+    const stats = slotStatsMap.get(slot.slotitem_id);
+    if (!stats) {
+      missingSlotItemIds.push(slot.slotitem_id);
+      continue;
+    }
+    slotKaihi += stats.houk;
+    slotTaisen += stats.tais;
+    slotSakuteki += stats.saku;
+  }
+
+  const spEffectItems = parseSpEffectItems(ship.sp_effect_items_json).map((item) => ({
+    kind: toInt(item.api_kind),
+    houg: toInt(item.api_houg),
+    kaih: toInt(item.api_kaih),
+    raig: toInt(item.api_raig),
+    souk: toInt(item.api_souk),
+  }));
+  const spEffectKaihi = spEffectItems.reduce((acc, item) => acc + item.kaih, 0);
+
+  const itemCountMap = new Map<number, { count: number; hasStar10: boolean }>();
+  for (const slot of allSlots) {
+    if (!Number.isInteger(slot.slotitem_id) || slot.slotitem_id <= 0) continue;
+    const current = itemCountMap.get(slot.slotitem_id) ?? { count: 0, hasStar10: false };
+    current.count += 1;
+    current.hasStar10 = current.hasStar10 || slot.level >= 10;
+    itemCountMap.set(slot.slotitem_id, current);
+  }
+
+  let singleSynergyTotals = emptyTotals();
+  for (const [itemId, state] of itemCountMap.entries()) {
+    const rules = synergyDataSet.singleByItem.get(itemId);
+    if (!rules || rules.length === 0) continue;
+    const matched = rules.find((rule) => hasShipRule(rule, ship.master_id));
+    if (!matched) continue;
+    singleSynergyTotals = addTotals(
+      singleSynergyTotals,
+      pickSingleSynergyTotals(matched, state.count, state.hasStar10),
+    );
+  }
+
+  const equippedItemIds = Array.from(itemCountMap.keys()).sort((a, b) => a - b);
+  let crossSynergyTotals = emptyTotals();
+  for (let i = 0; i < equippedItemIds.length; i += 1) {
+    for (let j = i + 1; j < equippedItemIds.length; j += 1) {
+      const pairKey = `${equippedItemIds[i]}:${equippedItemIds[j]}`;
+      const rules = synergyDataSet.crossByPair.get(pairKey);
+      if (!rules || rules.length === 0) continue;
+      const matched = rules.find((rule) => hasShipRule(rule, ship.master_id));
+      if (!matched) continue;
+      crossSynergyTotals = addTotals(crossSynergyTotals, toShipTotals(matched.synergy));
+    }
+  }
+
+  const totalSynergyTotals = addTotals(singleSynergyTotals, crossSynergyTotals);
+
+  // Server-side normalization: strip known additive contributions from observed stats.
+  // Remaining unknown contributions (if any) are intentionally not guessed.
+  const kaihi = Math.max(0, ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi);
+  const taisen = Math.max(0, ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen);
+  const sakuteki = Math.max(0, ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki);
+
+  const breakdown: ServerDerivationBreakdown = {
+    removed: {
+      slot: {
+        kaihi: slotKaihi,
+        taisen: slotTaisen,
+        sakuteki: slotSakuteki,
+      },
+      spEffect: {
+        kaihi: spEffectKaihi,
+        taisen: 0,
+        sakuteki: 0,
+      },
+      synergy: {
+        single: singleSynergyTotals,
+        cross: crossSynergyTotals,
+        total: totalSynergyTotals,
+      },
+    },
+    spEffectItems,
+  };
+
+  return {
+    stats: { kaihi, taisen, sakuteki },
+    missingSlotItemIds,
+    breakdown,
+  };
+}
+
+function validateIngestBody(
+  body: IngestBody | null,
+): { ok: true; datasetId: string; requestId: string; eventType: string } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: 'Missing body' };
+
+  const datasetId = String(body.dataset_id ?? '').trim();
+  if (!datasetId) return { ok: false, error: 'dataset_id is required' };
+
+  const requestId = String(body.request_id ?? '').trim();
+  if (!requestId) return { ok: false, error: 'request_id is required' };
+
+  const payloadHash = String(body.payload_hash ?? '').trim();
+  if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
+    return { ok: false, error: 'payload_hash must be a valid 64-char SHA-256 hex string' };
+  }
+
+  const eventType = String(body.event_type ?? '').trim();
+  if (eventType !== 'snapshot') return { ok: false, error: 'event_type must be "snapshot"' };
+
+  if (!body.period_tag || !/^\d{4}-\d{2}-\d{2}$/.test(body.period_tag)) {
+    return { ok: false, error: 'Invalid period_tag (expected YYYY-MM-DD)' };
+  }
+
+  if (!body.table_version) {
+    return { ok: false, error: 'table_version is required' };
+  }
+
+  if (!Array.isArray(body.ships) || body.ships.length === 0) {
+    return { ok: false, error: 'ships array is required and must not be empty' };
+  }
+
+  for (const [index, ship] of body.ships.entries()) {
+    if (
+      !isValidInt(ship.master_id) ||
+      !isValidInt(ship.lv) ||
+      !isValidInt(ship.exp_current) ||
+      !isValidInt(ship.exp_to_next) ||
+      ship.exp_current < 0 ||
+      ship.exp_to_next < 0 ||
+      !Array.isArray(ship.kyouka) ||
+      ship.kyouka.some((value) => !isValidInt(value)) ||
+      !isValidInt(ship.kaihi_observed) ||
+      !isValidInt(ship.taisen_observed) ||
+      !isValidInt(ship.sakuteki_observed) ||
+      !isValidInt(ship.kaihi_max) ||
+      !isValidInt(ship.taisen_max) ||
+      !isValidInt(ship.sakuteki_max)
+    ) {
+      return {
+        ok: false,
+        error: `ships[${index}] has invalid numeric fields`,
+      };
+    }
+
+    if (
+      !Array.isArray(ship.slots) ||
+      ship.slots.some(
+        (slot) =>
+          !isValidInt(slot.slotitem_id) ||
+          typeof slot.locked !== 'boolean' ||
+          !isValidInt(slot.level) ||
+          !isValidInt(slot.alv),
+      )
+    ) {
+      return {
+        ok: false,
+        error: `ships[${index}].slots has invalid fields`,
+      };
+    }
+
+    if (
+      ship.exslot != null &&
+      (
+        !isValidInt(ship.exslot.slotitem_id) ||
+        typeof ship.exslot.locked !== 'boolean' ||
+        !isValidInt(ship.exslot.level) ||
+        !isValidInt(ship.exslot.alv)
+      )
+    ) {
+      return {
+        ok: false,
+        error: `ships[${index}].exslot has invalid fields`,
+      };
+    }
+  }
+
+  return { ok: true, datasetId, requestId, eventType };
+}
+
+function buildAggregatedShipGrowthRows(
+  ships: ShipEntry[],
+  derivedByIndex: DeriveResult[],
+): {
+  expRows: AggregatedExpRow[];
+  boundRows: AggregatedBoundRow[];
+  capRows: AggregatedCapRow[];
+  expInconsistencies: Array<{ lv: number; expected: number; actual: number; shipIndex: number }>;
+} {
+  const expByLv = new Map<number, number>();
+  const expInconsistencies: Array<{ lv: number; expected: number; actual: number; shipIndex: number }> = [];
+  const boundsByKey = new Map<string, AggregatedBoundRow>();
+  const capsByMaster = new Map<number, AggregatedCapRow>();
+
+  for (const [index, ship] of ships.entries()) {
+    const derived = derivedByIndex[index];
+
+    if (
+      ship.lv > 0 &&
+      ship.exp_current >= 0 &&
+      isValidInt(ship.exp_to_next) &&
+      ship.exp_to_next >= 0
+    ) {
+      const boundaryLv = ship.lv + 1;
+      const boundary = ship.exp_current + ship.exp_to_next;
+      const current = expByLv.get(boundaryLv);
+      if (current == null) {
+        expByLv.set(boundaryLv, boundary);
+      } else if (current !== boundary) {
+        expInconsistencies.push({
+          lv: boundaryLv,
+          expected: current,
+          actual: boundary,
+          shipIndex: index,
+        });
+      }
+    }
+
+    if (ship.lv > 0) {
+      const boundKey = `${ship.master_id}:${ship.lv}`;
+      const existingBound = boundsByKey.get(boundKey);
+      if (!existingBound) {
+        boundsByKey.set(boundKey, {
+          master_id: ship.master_id,
+          lv: ship.lv,
+          kaihi_naked: derived.stats.kaihi,
+          taisen_naked: derived.stats.taisen,
+          sakuteki_naked: derived.stats.sakuteki,
+        });
+      } else {
+        existingBound.kaihi_naked = Math.min(existingBound.kaihi_naked, derived.stats.kaihi);
+        existingBound.taisen_naked = Math.min(existingBound.taisen_naked, derived.stats.taisen);
+        existingBound.sakuteki_naked = Math.min(existingBound.sakuteki_naked, derived.stats.sakuteki);
+      }
+    }
+
+    if (ship.kaihi_max > 0 || ship.taisen_max > 0 || ship.sakuteki_max > 0) {
+      const existingCap = capsByMaster.get(ship.master_id);
+      if (!existingCap) {
+        capsByMaster.set(ship.master_id, {
+          master_id: ship.master_id,
+          kaihi_max: ship.kaihi_max,
+          taisen_max: ship.taisen_max,
+          sakuteki_max: ship.sakuteki_max,
+        });
+      } else {
+        existingCap.kaihi_max = Math.max(existingCap.kaihi_max, ship.kaihi_max);
+        existingCap.taisen_max = Math.max(existingCap.taisen_max, ship.taisen_max);
+        existingCap.sakuteki_max = Math.max(existingCap.sakuteki_max, ship.sakuteki_max);
+      }
+    }
+  }
+
+  const expRows = Array.from(expByLv.entries())
+    .map(([lv, exp_current]) => ({ lv, exp_current }))
+    .sort((a, b) => a.lv - b.lv);
+  const boundRows = Array.from(boundsByKey.values()).sort(
+    (a, b) => a.master_id - b.master_id || a.lv - b.lv,
+  );
+  const capRows = Array.from(capsByMaster.values()).sort((a, b) => a.master_id - b.master_id);
+
+  return { expRows, boundRows, capRows, expInconsistencies };
+}
+
+async function archiveAndPruneShipGrowthHistory(
+  db: D1Database,
+  oldBounds: ShipGrowthArchiveBoundRow[],
+  oldCaps: ShipGrowthArchiveCapRow[],
+): Promise<void> {
+  const boundRowIds = Array.from(new Set(oldBounds.map((row) => row.row_id)));
+  for (const rowId of boundRowIds) {
+    await db
+      .prepare(
+        `DELETE FROM ship_growth_bounds
+         WHERE rowid = ?`,
+      )
+      .bind(rowId)
+      .run();
+  }
+
+  const capRowIds = Array.from(new Set(oldCaps.map((row) => row.row_id)));
+  for (const rowId of capRowIds) {
+    await db
+      .prepare(
+        `DELETE FROM ship_growth_caps
+         WHERE rowid = ?`,
+      )
+      .bind(rowId)
+      .run();
+  }
+}
+
+async function collectShipGrowthHistoryForArchive(
+  db: D1Database,
+  periodTag: string,
+  tableVersion: string,
+): Promise<{ oldBounds: ShipGrowthArchiveBoundRow[]; oldCaps: ShipGrowthArchiveCapRow[] }> {
+  const oldBoundsResult = await db
+    .prepare(
+      `SELECT rowid AS row_id, period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
+       FROM ship_growth_bounds
+       WHERE (period_tag <> ? OR table_version <> ?)`,
+    )
+    .bind(periodTag, tableVersion)
+    .all<ShipGrowthArchiveBoundRow>();
+
+  const oldCapsResult = await db
+    .prepare(
+      `SELECT rowid AS row_id, period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max
+       FROM ship_growth_caps
+       WHERE (period_tag <> ? OR table_version <> ?)`,
+    )
+    .bind(periodTag, tableVersion)
+    .all<ShipGrowthArchiveCapRow>();
+
+  const oldBounds = oldBoundsResult.results ?? [];
+  const oldCaps = oldCapsResult.results ?? [];
+
+  return { oldBounds, oldCaps };
+}
+
+async function uploadShipGrowthArchiveIfNeeded(
+  env: Bindings,
+  periodTag: string,
+  tableVersion: string,
+  archivedAt: number,
+  oldBounds: ShipGrowthArchiveBoundRow[],
+  oldCaps: ShipGrowthArchiveCapRow[],
+): Promise<void> {
+  if (!env.SHIP_GROWTH_ARCHIVE_BUCKET) {
+    throw new Error('SHIP_GROWTH_ARCHIVE_BUCKET is not configured');
+  }
+
+  // Write old period/version rows to R2 first; prune only after successful archive upload.
+  if (oldBounds.length > 0 || oldCaps.length > 0) {
+    const archivePayload = {
+      archived_at: archivedAt,
+      period_tag_new: periodTag,
+      table_version_new: tableVersion,
+      keys: {
+        ship_levels: Array.from(
+          new Set(oldBounds.map((row) => `${row.master_id}:${row.lv}`)),
+        ).map((key) => {
+          const [masterId, lv] = key.split(':').map((v) => Number(v));
+          return { master_id: masterId, lv };
+        }),
+        master_ids: Array.from(new Set(oldCaps.map((row) => row.master_id))),
+      },
+      rows: {
+        bounds: oldBounds,
+        caps: oldCaps,
+      },
+    };
+    const archiveText = JSON.stringify(archivePayload);
+    const archiveHash = await sha256Hex(new TextEncoder().encode(archiveText));
+    const archiveKey =
+      `ship-growth/archive/${periodTag}/${tableVersion}/${archivedAt}-` +
+      `${archiveHash.slice(0, 16)}-${crypto.randomUUID()}.json`;
+
+    await env.SHIP_GROWTH_ARCHIVE_BUCKET.put(archiveKey, archiveText, {
+      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+      customMetadata: {
+        period_tag: periodTag,
+        table_version: tableVersion,
+        archived_at: String(archivedAt),
+        archive_hash: archiveHash,
+      },
+    });
+  }
+
+}
+
+// ── Ingest processing ──────────────────────────────────────────────
+
+async function processShipGrowthIngest(
+  env: Bindings,
+  db: D1Database,
+  body: IngestBody,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const { period_tag, table_version, ships } = body;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+
+  let slotStatsMap: Map<number, MasterSlotStats>;
+  try {
+    slotStatsMap = await loadMasterSlotStatsMap(env, period_tag, table_version);
+  } catch (error) {
+    return {
+      status: 503,
+      body: {
+        error: 'Server-side normalization prerequisite missing',
+        detail: String(error),
+        action: 'Upload/complete master-data mst_slotitem for the same period_tag and table_version',
+      },
+    };
+  }
+
+  let synergyDataSet: SynergyDataSet;
+  try {
+    synergyDataSet = await loadSynergyDataSet(env, period_tag);
+  } catch (error) {
+    return {
+      status: 503,
+      body: {
+        error: 'Synergy data prerequisite missing',
+        detail: String(error),
+        action: 'Upload/complete synergy manifest and sp_effect_item.json for the same period_tag',
+      },
+    };
+  }
+
+  const derivedByIndex = ships.map((ship) => deriveServerNakedStats(ship, slotStatsMap, synergyDataSet));
+  for (const derived of derivedByIndex) {
+    if (derived.missingSlotItemIds.length > 0) {
+      return {
+        status: 500,
+        body: {
+          error: 'Failed to derive naked stats',
+          detail: `missing mst_slotitem entries for slotitem_id(s): ${Array.from(new Set(derived.missingSlotItemIds)).join(', ')}`,
+        },
+      };
+    }
+  }
+
+  // De-duplicate request rows by natural keys before DB writes:
+  // - bounds: master_id + lv
+  // - caps: master_id
+  // - exp: boundary-lv (= current lv + 1) using exp_current + exp_to_next
+  const { expRows, boundRows, capRows, expInconsistencies } = buildAggregatedShipGrowthRows(ships, derivedByIndex);
+
+  if (expInconsistencies.length > 0) {
+    return {
+      status: 400,
+      body: {
+        error: 'Inconsistent EXP boundary candidates for same boundary level',
+        detail: expInconsistencies.slice(0, 5),
+      },
+    };
+  }
+
+  let oldBounds: ShipGrowthArchiveBoundRow[];
+  let oldCaps: ShipGrowthArchiveCapRow[];
+  try {
+    ({ oldBounds, oldCaps } = await collectShipGrowthHistoryForArchive(
+      db,
+      period_tag,
+      table_version,
+    ));
+    await uploadShipGrowthArchiveIfNeeded(
+      env,
+      period_tag,
+      table_version,
+      nowSec,
+      oldBounds,
+      oldCaps,
+    );
+  } catch (error) {
+    const detail = String(error);
+    if (detail.includes('SHIP_GROWTH_ARCHIVE_BUCKET is not configured')) {
+      return {
+        status: 503,
+        body: {
+          error: 'Ship growth archive bucket is not configured',
+          action: 'Configure SHIP_GROWTH_ARCHIVE_BUCKET in worker bindings',
+        },
+      };
+    }
+
+    return {
+      status: 500,
+      body: {
+        error: 'Failed to archive ship growth history to R2',
+        detail,
+      },
+    };
+  }
+
+  // Apply archive, prune, and derived-table upserts atomically.
+  await db.prepare('BEGIN IMMEDIATE').run();
+  try {
+    await archiveAndPruneShipGrowthHistory(
+      db,
+      oldBounds,
+      oldCaps,
+    );
+
+    // Insert ship_level_exp_pairs (boundary-lv exp_current only).
+    // If a row already exists with a different value, reject with rollback.
+    for (const expRow of expRows) {
+      const insertResult = await db
+        .prepare(
+          `INSERT INTO ship_level_exp_pairs (period_tag, table_version, lv, exp_current)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(period_tag, table_version, lv) DO NOTHING`,
+        )
+        .bind(period_tag, table_version, expRow.lv, expRow.exp_current)
+        .run();
+
+      if ((insertResult.meta?.rows_written ?? 0) === 0) {
+        const existing = (await db
+          .prepare(
+            `SELECT exp_current
+             FROM ship_level_exp_pairs
+             WHERE period_tag = ? AND table_version = ? AND lv = ?
+             LIMIT 1`,
+          )
+          .bind(period_tag, table_version, expRow.lv)
+          .first()) as { exp_current?: number } | null;
+
+        if (!existing || typeof existing.exp_current !== 'number') {
+          throw new Error(`failed to verify existing EXP boundary row for lv=${expRow.lv}`);
+        }
+
+        if (existing.exp_current !== expRow.exp_current) {
+          throw new Error(
+            `exp boundary conflict for lv=${expRow.lv}: existing=${existing.exp_current}, incoming=${expRow.exp_current}`,
+          );
+        }
+      }
+    }
+
+    // Upsert ship_growth_bounds (per master_id × lv, take min naked values)
+    for (const row of boundRows) {
+      await db
+        .prepare(
+          `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(period_tag, table_version, master_id, lv) DO UPDATE SET
+             kaihi_naked = CASE WHEN excluded.kaihi_naked < kaihi_naked THEN excluded.kaihi_naked ELSE kaihi_naked END,
+             taisen_naked = CASE WHEN excluded.taisen_naked < taisen_naked THEN excluded.taisen_naked ELSE taisen_naked END,
+             sakuteki_naked = CASE WHEN excluded.sakuteki_naked < sakuteki_naked THEN excluded.sakuteki_naked ELSE sakuteki_naked END`,
+        )
+        .bind(
+          period_tag,
+          table_version,
+          row.master_id,
+          row.lv,
+          row.kaihi_naked,
+          row.taisen_naked,
+          row.sakuteki_naked,
+        )
+        .run();
+    }
+
+    // Upsert ship_growth_caps (per master_id, take max cap values)
+    for (const row of capRows) {
+      await db
+        .prepare(
+          `INSERT INTO ship_growth_caps (period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(period_tag, table_version, master_id) DO UPDATE SET
+             kaihi_max = CASE WHEN excluded.kaihi_max > kaihi_max THEN excluded.kaihi_max ELSE kaihi_max END,
+             taisen_max = CASE WHEN excluded.taisen_max > taisen_max THEN excluded.taisen_max ELSE taisen_max END,
+             sakuteki_max = CASE WHEN excluded.sakuteki_max > sakuteki_max THEN excluded.sakuteki_max ELSE sakuteki_max END`,
+        )
+        .bind(
+          period_tag,
+          table_version,
+          row.master_id,
+          row.kaihi_max,
+          row.taisen_max,
+          row.sakuteki_max,
+        )
+        .run();
+    }
+
+    await db.prepare('COMMIT').run();
+  } catch (error) {
+    const detail = String(error);
+    await db.prepare('ROLLBACK').run().catch(() => null);
+    if (detail.includes('exp boundary conflict')) {
+      return {
+        status: 409,
+        body: {
+          error: 'EXP boundary conflicts with existing DB rows',
+          detail,
+        },
+      };
+    }
+    return {
+      status: 500,
+      body: {
+        error: 'Failed to persist ship growth ingest atomically',
+        detail,
+      },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      ok: true,
+      ingested: ships.length,
+      period_tag,
+      message: `Ingested ${ships.length} ship growth entries`,
+    },
+  };
+}
+
+// ── Two-stage ingest endpoint ──────────────────────────────────────
+
+app.post('/ingest', async (c) => {
+  const db = c.env.SHIP_GROWTH_DB;
+  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+
+  const env = createEnvContext(c);
+  const signingSecret = getEnv(env, 'SHIP_GROWTH_SIGNING_SECRET');
+  if (!signingSecret) {
+    return c.json({ error: 'SHIP_GROWTH_SIGNING_SECRET is required' }, 500);
+  }
+
+  const uploadToken = c.req.header('X-Upload-Token');
+
+  // ── Stage 1: Handshake ───────────────────────────────────────────
+  if (!uploadToken) {
+    const authHeader = c.req.header('Authorization');
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
+
+    const user = await validateJWT(bearer);
+    if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+
+    const handshakeBody = (await c.req.json().catch(() => null)) as IngestBody | null;
+
+    const validated = validateIngestBody(handshakeBody);
+    if (!validated.ok) return c.json({ error: validated.error }, 400);
+
+    const contentHash = String(handshakeBody?.content_hash ?? '').trim();
+    if (!contentHash) return c.json({ error: 'content_hash is required' }, 400);
+
+    const declaredSize = Number(handshakeBody?.file_size ?? 0);
+    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+      return c.json({ error: 'file_size must be > 0' }, 400);
+    }
+
+    const token = await generateSignedToken(
+      {
+        user_id: user.id,
+        content_hash: contentHash,
+        declared_size: declaredSize,
+        dataset_id: validated.datasetId,
+        request_id: validated.requestId,
+        event_type: validated.eventType,
+      },
+      signingSecret,
+      300,
+    );
+
+    const uploadUrl = new URL(c.req.url);
+    return c.json({
+      uploadUrl: uploadUrl.toString(),
+      token,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    });
+  }
+
+  // ── Stage 2: Execution ───────────────────────────────────────────
+  const authHeader = c.req.header('Authorization');
+  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
+
+  const user = await validateJWT(bearer);
+  if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+
+  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
+  if (!tokenPayload) return c.json({ error: 'Invalid or expired upload token' }, 401);
+
+  const payloadValidation = validateTokenPayload(tokenPayload, [
+    'content_hash',
+    'declared_size',
+    'dataset_id',
+    'request_id',
+    'event_type',
+  ]);
+  if (!payloadValidation.valid) {
+    return c.json({ error: payloadValidation.error ?? 'Invalid upload token payload' }, 400);
+  }
+  if (tokenPayload.user_id !== user.id) {
+    return c.json({ error: 'User mismatch - token generated for different user' }, 403);
+  }
+
+  // Read binary body
+  const bodyStream = c.req.raw.body;
+  if (!bodyStream) return c.json({ error: 'Upload payload is missing' }, 400);
+  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+
+  // Size check
+  const declaredSize = Number(tokenPayload.declared_size);
+  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
+    return c.json(
+      { error: 'Data size mismatch', expected: declaredSize, actual: uploaded.byteLength },
+      400,
+    );
+  }
+
+  // Hash check
+  const actualHash = await sha256Hex(uploaded);
+  const expectedHash = String(tokenPayload.content_hash ?? '').toLowerCase();
+  if (actualHash.toLowerCase() !== expectedHash) {
+    return c.json(
+      { error: 'Content hash mismatch - data may be corrupted', expected: expectedHash, actual: actualHash },
+      400,
+    );
+  }
+
+  // Parse JSON payload
+  let body: IngestBody;
+  try {
+    body = JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
+  } catch {
+    return c.json({ error: 'Invalid JSON upload payload' }, 400);
+  }
+
+  const verified = validateIngestBody(body);
+  if (!verified.ok) return c.json({ error: verified.error }, 400);
+
+  // Verify claims match payload
+  if (
+    verified.datasetId !== String(tokenPayload.dataset_id) ||
+    verified.requestId !== String(tokenPayload.request_id) ||
+    verified.eventType !== String(tokenPayload.event_type)
+  ) {
+    return c.json({ error: 'Upload payload does not match upload token claims' }, 400);
+  }
+
+  const result = await processShipGrowthIngest(c.env, db, body);
+  return c.json(result.body, result.status as 200 | 400 | 409 | 500 | 503);
+});
+
+export default app;
