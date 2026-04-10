@@ -58,7 +58,7 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         // Different from anonymous auth which is local-only
         if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
             let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-            let manager = { auth_manager.lock().unwrap().clone() };
+            let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
             
             let expires_at = expires_at_str
                 .parse::<i64>()

@@ -90,8 +90,17 @@ app.get("/tables", async (c) => {
       );
     }
 
-    // RU Check
+    // RU Check (fail-closed: reject if KV unavailable)
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    if (!kv) {
+      return jsonResponse(
+        {
+          error: "SERVICE_UNAVAILABLE",
+          message: "Rate limiting system is unavailable. Please try again later.",
+        },
+        503,
+      );
+    }
     let ruStatus:
       | {
           allowed: boolean;
@@ -100,9 +109,8 @@ app.get("/tables", async (c) => {
           resetAt?: number;
         }
       | undefined;
-    if (kv) {
-      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
-      if (!ruStatus.allowed) {
+    ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
+    if (!ruStatus.allowed) {
         return jsonResponse(
           {
             error: "RATE_LIMITED",
@@ -111,7 +119,6 @@ app.get("/tables", async (c) => {
           429,
           ruStatus,
         );
-      }
     }
 
     const trusted = await isDeviceTrusted(

@@ -70,7 +70,7 @@ where
     // let proxy_addr = proxy::proxy_server_http::serve_proxy(proxy_target, 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
     
     let auth_manager_for_proxy = {
-        let guard = auth_manager.lock().unwrap();
+        let guard = auth_manager.lock().unwrap_or_else(|e| e.into_inner());
         Arc::new(guard.clone())
     };
 

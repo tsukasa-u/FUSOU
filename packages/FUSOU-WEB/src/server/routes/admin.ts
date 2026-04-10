@@ -158,7 +158,8 @@ adminApp.get('/fix-mime-types', async (c) => {
         
         results.fixed++;
       } catch (err) {
-        results.errors.push({ key: obj.key, error: err instanceof Error ? err.message : String(err) });
+        console.error(`[admin] backfill error for key=${obj.key}:`, err);
+        results.errors.push({ key: obj.key, error: 'Operation failed' });
       }
     } else {
       results.fixed++;

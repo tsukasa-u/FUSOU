@@ -4,6 +4,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  timingSafeEqual,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
@@ -92,6 +93,9 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
     }
     if (!Array.isArray(body.entries) || body.entries.length === 0) {
       return { ok: false, error: 'entries array is required and must not be empty' };
+    }
+    if (body.entries.length > 2000) {
+      return { ok: false, error: 'entries array exceeds maximum of 2000 elements' };
     }
     const intFields = [
       'remodel_id',
@@ -207,9 +211,13 @@ app.post('/ingest', async (c) => {
     const contentHash = String(handshakeBody?.content_hash ?? '').trim();
     if (!contentHash) return c.json({ error: 'content_hash is required' }, 400);
 
+    const MAX_UPLOAD_SIZE = 5_000_000; // 5 MB
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: 'file_size must be > 0' }, 400);
+    }
+    if (declaredSize > MAX_UPLOAD_SIZE) {
+      return c.json({ error: `file_size exceeds maximum of ${MAX_UPLOAD_SIZE} bytes` }, 400);
     }
 
     const token = await generateSignedToken(
@@ -272,10 +280,10 @@ app.post('/ingest', async (c) => {
     );
   }
 
-  // Hash check
-  const actualHash = await sha256Hex(uploaded);
+  // Hash check (timing-safe)
+  const actualHash = (await sha256Hex(uploaded)).toLowerCase();
   const expectedHash = String(tokenPayload.content_hash ?? '').toLowerCase();
-  if (actualHash.toLowerCase() !== expectedHash) {
+  if (!timingSafeEqual(actualHash, expectedHash)) {
     return c.json(
       {
         error: 'Content hash mismatch - data may be corrupted',
@@ -379,10 +387,8 @@ app.post('/ingest', async (c) => {
         .run();
     }
   } catch (error) {
-    return c.json(
-      { error: 'Database write failed', detail: String(error) },
-      500,
-    );
+    console.error('remodel ingest DB write failed:', error);
+    return c.json({ error: 'Database write failed' }, 500);
   }
 
   return c.json({

@@ -66,7 +66,7 @@ impl LocalRequestSuppressionCache {
             let mut guard = self
                 .persistence_file
                 .write()
-                .expect("request cache persistence lock poisoned");
+                .unwrap_or_else(|e| e.into_inner());
             *guard = Some(file_path.clone());
         }
 
@@ -76,7 +76,7 @@ impl LocalRequestSuppressionCache {
     }
 
     pub fn rotate_scope(&self, new_scope: Option<&str>) -> bool {
-        let mut guard = self.scope.write().expect("request cache scope lock poisoned");
+        let mut guard = self.scope.write().unwrap_or_else(|e| e.into_inner());
         let next = new_scope.map(str::to_string);
         let changed = *guard != next;
         if changed {
@@ -139,7 +139,7 @@ impl LocalRequestSuppressionCache {
             scope: self
                 .scope
                 .read()
-                .expect("request cache scope lock poisoned")
+                .unwrap_or_else(|e| e.into_inner())
                 .clone(),
             entries,
         }
@@ -155,7 +155,7 @@ impl LocalRequestSuppressionCache {
     fn read_persistence_path(&self) -> Option<PathBuf> {
         self.persistence_file
             .read()
-            .expect("request cache persistence lock poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
 
@@ -170,7 +170,7 @@ impl LocalRequestSuppressionCache {
             .map_err(|e| format!("failed to parse suppression cache file: {}", e))?;
 
         {
-            let mut scope_guard = self.scope.write().expect("request cache scope lock poisoned");
+            let mut scope_guard = self.scope.write().unwrap_or_else(|e| e.into_inner());
             *scope_guard = parsed.scope;
         }
 
@@ -217,7 +217,7 @@ impl LocalRequestSuppressionCache {
         let scope = self
             .scope
             .read()
-            .expect("request cache scope lock poisoned")
+            .unwrap_or_else(|e| e.into_inner())
             .clone();
 
         let payload = PersistedState { scope, entries };

@@ -82,7 +82,10 @@ impl ShipGrowthSender {
         boundaries.sort_unstable();
         boundaries.dedup();
 
-        let payload = serde_json::to_vec(&boundaries).unwrap_or_default();
+        let payload = serde_json::to_vec(&boundaries).unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to serialize boundaries for suppression hash");
+            Vec::new()
+        });
         let mut hasher = Sha256::new();
         hasher.update(payload);
         format!("{:x}", hasher.finalize())
@@ -100,7 +103,10 @@ impl ShipGrowthSender {
         boundary_lvs.sort_unstable();
         boundary_lvs.dedup();
 
-        let payload = serde_json::to_vec(&boundary_lvs).unwrap_or_default();
+        let payload = serde_json::to_vec(&boundary_lvs).unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to serialize boundary_lvs for suppression hash");
+            Vec::new()
+        });
         let mut hasher = Sha256::new();
         hasher.update(payload);
         format!("{:x}", hasher.finalize())
@@ -117,7 +123,10 @@ impl ShipGrowthSender {
         master_ids.sort_unstable();
         master_ids.dedup();
 
-        let payload = serde_json::to_vec(&master_ids).unwrap_or_default();
+        let payload = serde_json::to_vec(&master_ids).unwrap_or_else(|e| {
+            tracing::error!(error = %e, "failed to serialize master_ids for suppression hash");
+            Vec::new()
+        });
         let mut hasher = Sha256::new();
         hasher.update(payload);
         format!("{:x}", hasher.finalize())

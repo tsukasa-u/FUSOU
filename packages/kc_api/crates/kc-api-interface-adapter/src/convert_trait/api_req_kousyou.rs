@@ -1,6 +1,7 @@
 use kc_api_interface::interface::{EmitData, Set};
 use kc_api_interface::remodel::{
-    RemodelDetail, RemodelSlotList, RemodelSlotListEntry, PENDING_DETAIL_REQ,
+    PENDING_DETAIL_REQ_CAP, RemodelDetail, RemodelSlotList, RemodelSlotListEntry,
+    PENDING_DETAIL_REQ,
 };
 use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::ship::Ships;
@@ -97,10 +98,15 @@ impl TraitForConvert for remodel_slotlist::Res {
 impl TraitForConvert for remodel_slotlist_detail::Req {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        PENDING_DETAIL_REQ
-            .lock()
-            .unwrap()
-            .push_back((self.api_slot_id, self.api_id));
+        let mut q = PENDING_DETAIL_REQ.lock().unwrap();
+        if q.len() >= PENDING_DETAIL_REQ_CAP {
+            eprintln!(
+                "PENDING_DETAIL_REQ overflow (cap={}); dropping oldest entry",
+                PENDING_DETAIL_REQ_CAP
+            );
+            q.pop_front();
+        }
+        q.push_back((self.api_slot_id, self.api_id));
         Some(vec![])
     }
 }

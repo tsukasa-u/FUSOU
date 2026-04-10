@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
+import { createEnvContext, getEnv, timingSafeEqual, validateDatasetToken } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -416,6 +416,22 @@ app.post("/upload", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
+      // Content hash verification
+      const expectedContentHash = tokenPayload.content_hash as string;
+      if (expectedContentHash) {
+        const hashBuffer = await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          data as unknown as BufferSource,
+        );
+        const actualHash = Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        if (!timingSafeEqual(actualHash.toLowerCase(), expectedContentHash.toLowerCase())) {
+          console.error("[battle-data] Content hash mismatch");
+          return c.json({ error: "Content hash mismatch - data may be corrupted" }, 400);
+        }
+      }
+
       const datasetId = tokenPayload.dataset_id as string;
       const table = tokenPayload.table as string;
       const periodTag = (tokenPayload as any).period_tag as string;
@@ -716,7 +732,8 @@ app.get("/chunks", async (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
-  const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
+  const MAX_OFFSET = 100000;
+  const offset = Math.min(Math.max(0, parseInt(c.req.query("offset") || "0", 10)), MAX_OFFSET);
 
   if (!datasetId || !table) {
     return c.json({ error: "dataset_id and table are required" }, 400);
@@ -888,7 +905,8 @@ app.get("/global/chunks", async (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
-  const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
+  const MAX_GLOBAL_OFFSET = 100000;
+  const offset = Math.min(Math.max(0, parseInt(c.req.query("offset") || "0", 10)), MAX_GLOBAL_OFFSET);
 
   if (!table) {
     return c.json({ error: "table is required" }, 400);

@@ -30,14 +30,14 @@ pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Sen
 }
 
 pub fn set_activity(state: &str, details: &str) {
-    if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
+    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
         return;
     }
 
     if get_enable_integration() {
         let _ = DISCORD_CLIENT
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .as_mut()
             .unwrap()
             .set_activity(
@@ -50,7 +50,7 @@ pub fn set_activity(state: &str, details: &str) {
 }
 
 pub fn set_activity_button(state: &str, details: &str, label: &str, url: &str) {
-    if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
+    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
         return;
     }
 
@@ -101,17 +101,17 @@ pub fn set_activity_button(state: &str, details: &str, label: &str, url: &str) {
 
     let _ = DISCORD_CLIENT
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .as_mut()
         .unwrap()
         .set_activity(activity_payload);
 }
 
 pub fn connect() {
-    if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
+    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
         return;
     }
-    let result = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().connect();
+    let result = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).as_mut().unwrap().connect();
 
     match result {
         Ok(_) => tracing::info!("Connected to Discord"),
@@ -120,10 +120,10 @@ pub fn connect() {
 }
 
 pub fn close() {
-    if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
+    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
         return;
     }
-    let result = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().close();
+    let result = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).as_mut().unwrap().close();
 
     match result {
         Ok(_) => tracing::info!("Disconnected from Discord"),

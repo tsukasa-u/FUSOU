@@ -447,7 +447,7 @@ fn setup_tray(
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         let app_handle_clone = app_handle.clone();
                         let auth_manager_clone = auth_manager.inner().clone();
@@ -498,7 +498,7 @@ fn setup_tray(
                     "check-session-health" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         tauri::async_runtime::spawn(async move {
                             match manager.peek_session().await {
@@ -545,7 +545,7 @@ fn setup_tray(
                     "force-local-sign-out" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         tauri::async_runtime::spawn(async move {
                             match manager.clear().await {
@@ -573,7 +573,7 @@ fn setup_tray(
                     "open-auth-page" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         tauri::async_runtime::spawn(async move {
                             // Use as an explicit trigger to switch anonymous → social login

@@ -10,6 +10,9 @@ use std::sync::Mutex;
 pub static PENDING_DETAIL_REQ: Lazy<Mutex<VecDeque<(i64, i64)>>> =
     Lazy::new(|| Mutex::new(VecDeque::new()));
 
+/// PENDING_DETAIL_REQ の最大長。超過時は古いエントリを破棄する。
+pub const PENDING_DETAIL_REQ_CAP: usize = 64;
+
 // --- remodel_slotlist: 改修条件一覧（秘書艦×曜日 → 利用可能レシピ） ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

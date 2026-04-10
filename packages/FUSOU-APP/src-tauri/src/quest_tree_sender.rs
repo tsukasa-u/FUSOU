@@ -91,13 +91,19 @@ impl QuestTreeSender {
     fn payload_hash(packet: &QuestPacket) -> String {
         let payload = match packet {
             QuestPacket::Event(event) => {
-                serde_json::to_vec(&QuestIngestEvent::from(event.clone())).unwrap_or_default()
+                serde_json::to_vec(&QuestIngestEvent::from(event.clone())).unwrap_or_else(|e| {
+                    tracing::error!(error = %e, "failed to serialize quest event for suppression hash");
+                    Vec::new()
+                })
             }
             QuestPacket::Snapshot(snapshot) => {
                 let mut converted = QuestIngestSnapshot::from(snapshot.clone());
                 // Ignore volatile timestamp for suppression hash.
                 converted.timestamp_ms = 0;
-                serde_json::to_vec(&converted).unwrap_or_default()
+                serde_json::to_vec(&converted).unwrap_or_else(|e| {
+                    tracing::error!(error = %e, "failed to serialize quest snapshot for suppression hash");
+                    Vec::new()
+                })
             }
         };
         let mut hasher = Sha256::new();

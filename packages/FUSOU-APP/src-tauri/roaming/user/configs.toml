@@ -132,7 +132,7 @@ save_file_location = ""
         [app.ship_growth_sender]
         # Whether to enable ship growth data ingestion
         # default is false
-        enable = false
+        enable = true
 
         # Endpoint to ingest ship growth data
         # If empty, ship growth sender is disabled
@@ -141,7 +141,7 @@ save_file_location = ""
         [app.remodel_sender]
         # Whether to enable remodel tree data ingestion (experimental feature)
         # default is false
-        enable = false
+        enable = true
 
         # Endpoint to ingest remodel data
         # Must be set when enable=true
@@ -298,7 +298,7 @@ save_file_location = ""
     [app.quest_tree_sender]
     # Whether to enable quest tree data ingestion
     # default is false
-    enable = false
+    enable = true
 
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled

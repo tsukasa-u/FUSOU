@@ -157,7 +157,7 @@ pub async fn check_supabase_session_health(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<SessionHealth, String> {
     let manager = {
-        let guard = auth_manager.lock().unwrap();
+        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -190,7 +190,7 @@ pub async fn force_local_sign_out(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<(), String> {
     let manager = {
-        let guard = auth_manager.lock().unwrap();
+        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -212,7 +212,7 @@ pub async fn get_access_token(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<String, String> {
     let manager = {
-        let guard = auth_manager.lock().unwrap();
+        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 
@@ -541,7 +541,7 @@ pub async fn get_user_tokens(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<Option<String>, String> {
     let manager = {
-        let guard = auth_manager.lock().unwrap();
+        let guard = auth_manager.lock().map_err(|e| format!("auth_manager lock poisoned: {e}"))?;
         guard.clone()
     };
 

@@ -107,7 +107,7 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
         },
         tauri::WindowEvent::Resized(size) => {
             {
-                let mut ctx = LAST_RESIZE_CONTEXT.lock().unwrap();
+                let mut ctx = LAST_RESIZE_CONTEXT.lock().unwrap_or_else(|e| e.into_inner());
                 *ctx = Some((window.clone(), *size));
             }
             #[cfg(target_os = "linux")]
@@ -125,7 +125,7 @@ fn trigger_resize_debouncer() {
 }
 
 fn handle_external_resize() {
-    let Some((window, size)) = LAST_RESIZE_CONTEXT.lock().unwrap().take() else {
+    let Some((window, size)) = LAST_RESIZE_CONTEXT.lock().unwrap_or_else(|e| e.into_inner()).take() else {
         return;
     };
 
@@ -167,7 +167,7 @@ fn handle_external_resize() {
         };
 
     let target_size = {
-        let mut size_before = EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap();
+        let mut size_before = EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap_or_else(|e| e.into_inner());
         if size.width != size_before.width {
             size_before.width = size.width;
             #[cfg(target_os = "linux")]

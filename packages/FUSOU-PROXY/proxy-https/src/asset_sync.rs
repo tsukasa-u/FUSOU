@@ -723,7 +723,7 @@ async fn maybe_refresh_period(client: &Client, settings: &AssetSyncInit) -> Resu
 fn should_refresh_period_cache() -> bool {
     match PERIOD_CACHE
         .read()
-        .expect("period cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
         Some(cache) => cache.expires_at <= Instant::now(),
@@ -737,7 +737,7 @@ fn cache_period_value(payload: PeriodApiResponse) {
     let tag = payload.tag.clone();
 
     {
-        let mut guard = PERIOD_CACHE.write().expect("period cache lock poisoned");
+        let mut guard = PERIOD_CACHE.write().unwrap_or_else(|e| e.into_inner());
         *guard = Some(PeriodCache { expires_at });
     }
 
@@ -772,7 +772,7 @@ fn duration_until(iso: &str) -> Option<Duration> {
 fn apply_period_transition(new_tag: Option<String>) {
     ASSET_REQUEST_CACHE.rotate_scope(new_tag.as_deref());
 
-    let mut guard = LAST_PERIOD_TAG.write().expect("period tag lock poisoned");
+    let mut guard = LAST_PERIOD_TAG.write().unwrap_or_else(|e| e.into_inner());
 
     let changed = match (&*guard, &new_tag) {
         (Some(prev), Some(curr)) => prev != curr,
@@ -904,7 +904,7 @@ async fn wait_for_remote_cache_jitter() {
 fn remote_cache_is_fresh() -> bool {
     match EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
         Some(cache) => cache.expires_at > Instant::now(),
@@ -943,7 +943,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
         // Merge with existing cache
         let existing_guard = EXISTING_KEYS_CACHE
             .read()
-            .expect("existing keys cache lock poisoned");
+            .unwrap_or_else(|e| e.into_inner());
 
         let (mut merged_keys, mut merged_hashes, _old_ts) = match existing_guard.as_ref() {
             Some(cache) => (
@@ -967,7 +967,6 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
             "incremental sync: merged {} new keys into cache",
             new_keys.len()
         );
-
         (merged_keys, merged_hashes, new_sync_ts)
     } else {
         // Full sync - replace entire cache
@@ -992,7 +991,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
     {
         let mut guard = EXISTING_KEYS_CACHE
             .write()
-            .expect("existing keys cache lock poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         *guard = Some(RemoteKeyCache {
             keys: final_keys.clone(),
             hashes: final_hashes.clone(),
@@ -1010,7 +1009,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
 fn register_remote_key(key: &str, hash: Option<&str>) {
     let mut guard = EXISTING_KEYS_CACHE
         .write()
-        .expect("existing keys cache lock poisoned");
+        .unwrap_or_else(|e| e.into_inner());
 
     match guard.as_mut() {
         Some(cache) => {
@@ -1047,7 +1046,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn remote_content_hash(key: &str) -> Option<Option<String>> {
     EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| cache.hashes.get(key).cloned())
 }
@@ -1083,7 +1082,7 @@ fn parse_iso_to_millis(iso: &str) -> Option<u64> {
 fn get_last_sync_timestamp() -> Option<u64> {
     EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| cache.last_sync_timestamp)
 }
@@ -1133,7 +1132,7 @@ fn load_persistent_cache(save_root: &Path) {
 
                     let mut guard = EXISTING_KEYS_CACHE
                         .write()
-                        .expect("existing keys cache lock poisoned");
+                        .unwrap_or_else(|e| e.into_inner());
 
                     // Only load if cache is empty (not already populated)
                     if guard.is_none() {
@@ -1180,7 +1179,7 @@ fn save_persistent_cache(
     // Get cache_expires_at from current in-memory cache
     let cache_expires_at = EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| {
             // Only save expiry time if it's still in the future
