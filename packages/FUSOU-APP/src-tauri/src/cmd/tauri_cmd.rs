@@ -465,6 +465,66 @@ pub async fn get_ship_growth_suppression_status(
     }))
 }
 
+#[derive(Debug, Serialize)]
+pub struct QuestTreeSuppressionEntryStatus {
+    pub key: String,
+    pub expires_at_ms: u64,
+    pub hash_prefix: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct QuestTreeSuppressionStatus {
+    pub scope: Option<String>,
+    pub entries: Vec<QuestTreeSuppressionEntryStatus>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_quest_tree_suppression_status(
+) -> Result<Option<QuestTreeSuppressionStatus>, String> {
+    Ok(crate::quest_tree_sender::get_suppression_status().map(|status| QuestTreeSuppressionStatus {
+        scope: status.scope,
+        entries: status
+            .entries
+            .into_iter()
+            .map(|entry| QuestTreeSuppressionEntryStatus {
+                key: entry.key,
+                expires_at_ms: entry.expires_at_ms,
+                hash_prefix: entry.hash.chars().take(12).collect(),
+            })
+            .collect(),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemodelSuppressionEntryStatus {
+    pub key: String,
+    pub expires_at_ms: u64,
+    pub hash_prefix: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemodelSuppressionStatus {
+    pub scope: Option<String>,
+    pub entries: Vec<RemodelSuppressionEntryStatus>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_remodel_suppression_status(
+) -> Result<Option<RemodelSuppressionStatus>, String> {
+    Ok(crate::remodel_sender::get_suppression_status().map(|status| RemodelSuppressionStatus {
+        scope: status.scope,
+        entries: status
+            .entries
+            .into_iter()
+            .map(|entry| RemodelSuppressionEntryStatus {
+                key: entry.key,
+                expires_at_ms: entry.expires_at_ms,
+                hash_prefix: entry.hash.chars().take(12).collect(),
+            })
+            .collect(),
+    }))
+}
+
 // Removed: use notify::show via internal callers when needed.
 
 /// Tauri command to get all stored logs

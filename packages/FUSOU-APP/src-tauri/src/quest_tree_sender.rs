@@ -1,7 +1,7 @@
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{
-    LocalRequestSuppressionCache, PendingStore, UploadContext, UploadRequest,
-    UploadRetryService, Uploader,
+    LocalRequestSuppressionCache, PendingStore, SuppressionCacheEntryStatus,
+    SuppressionCacheStatus, UploadContext, UploadRequest, UploadRetryService, Uploader,
 };
 use kc_api::database::models::quest::{QuestIngestEvent, QuestIngestSnapshot};
 use kc_api::interface::quest::{QuestEvent, Quests};
@@ -296,4 +296,17 @@ pub fn enqueue_snapshot(snapshot: Quests) {
             sender.submit(seq, QuestPacket::Snapshot(snapshot)).await;
         });
     }
+}
+
+#[derive(Clone)]
+pub struct QuestTreeSuppressionStatus {
+    pub scope: Option<String>,
+    pub entries: Vec<SuppressionCacheEntryStatus>,
+}
+
+pub fn get_suppression_status() -> Option<QuestTreeSuppressionStatus> {
+    QUEST_TREE_SENDER.get().map(|sender| {
+        let SuppressionCacheStatus { scope, entries } = sender.request_cache.snapshot_status();
+        QuestTreeSuppressionStatus { scope, entries }
+    })
 }

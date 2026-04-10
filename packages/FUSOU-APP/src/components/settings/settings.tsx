@@ -44,6 +44,28 @@ type ShipGrowthSuppressionStatus = {
   entries: ShipGrowthSuppressionEntryStatus[];
 };
 
+type QuestTreeSuppressionEntryStatus = {
+  key: string;
+  expires_at_ms: number;
+  hash_prefix: string;
+};
+
+type QuestTreeSuppressionStatus = {
+  scope?: string | null;
+  entries: QuestTreeSuppressionEntryStatus[];
+};
+
+type RemodelSuppressionEntryStatus = {
+  key: string;
+  expires_at_ms: number;
+  hash_prefix: string;
+};
+
+type RemodelSuppressionStatus = {
+  scope?: string | null;
+  entries: RemodelSuppressionEntryStatus[];
+};
+
 const formatEpochMillis = (value?: number | null) => {
   if (!value) return "-";
   return new Date(value).toLocaleString();
@@ -80,6 +102,14 @@ export function SettingsComponent() {
     createSignal<ShipGrowthSuppressionStatus | null>(null);
   const [loadingSuppressionStatus, setLoadingSuppressionStatus] =
     createSignal<boolean>(false);
+  const [questSuppressionStatus, setQuestSuppressionStatus] =
+    createSignal<QuestTreeSuppressionStatus | null>(null);
+  const [loadingQuestSuppression, setLoadingQuestSuppression] =
+    createSignal<boolean>(false);
+  const [remodelSuppressionStatus, setRemodelSuppressionStatus] =
+    createSignal<RemodelSuppressionStatus | null>(null);
+  const [loadingRemodelSuppression, setLoadingRemodelSuppression] =
+    createSignal<boolean>(false);
 
   const refreshPendingRetryStatus = async () => {
     try {
@@ -99,6 +129,8 @@ export function SettingsComponent() {
   onMount(() => {
     refreshPendingRetryStatus();
     refreshSuppressionStatus();
+    refreshQuestSuppressionStatus();
+    refreshRemodelSuppressionStatus();
   });
 
   const refreshSuppressionStatus = async () => {
@@ -116,6 +148,42 @@ export function SettingsComponent() {
       );
     } finally {
       setLoadingSuppressionStatus(false);
+    }
+  };
+
+  const refreshQuestSuppressionStatus = async () => {
+    try {
+      setLoadingQuestSuppression(true);
+      const status = await invoke<QuestTreeSuppressionStatus | null>(
+        "get_quest_tree_suppression_status"
+      );
+      setQuestSuppressionStatus(status);
+    } catch (e: any) {
+      console.error("Failed to fetch quest tree suppression status:", e);
+      showFadeToast(
+        "setting_toast",
+        "Failed to load quest tree suppression status"
+      );
+    } finally {
+      setLoadingQuestSuppression(false);
+    }
+  };
+
+  const refreshRemodelSuppressionStatus = async () => {
+    try {
+      setLoadingRemodelSuppression(true);
+      const status = await invoke<RemodelSuppressionStatus | null>(
+        "get_remodel_suppression_status"
+      );
+      setRemodelSuppressionStatus(status);
+    } catch (e: any) {
+      console.error("Failed to fetch remodel suppression status:", e);
+      showFadeToast(
+        "setting_toast",
+        "Failed to load remodel suppression status"
+      );
+    } finally {
+      setLoadingRemodelSuppression(false);
     }
   };
 
@@ -159,6 +227,8 @@ export function SettingsComponent() {
       showFadeToast("setting_toast", "Pending upload retry triggered");
       await refreshPendingRetryStatus();
       await refreshSuppressionStatus();
+      await refreshQuestSuppressionStatus();
+      await refreshRemodelSuppressionStatus();
     } catch (e: any) {
       console.error("Failed to trigger pending upload retry:", e);
       showFadeToast("setting_toast", "Failed to trigger pending upload retry");
@@ -345,6 +415,102 @@ export function SettingsComponent() {
           </button>
         </div>
         <Show when={suppressionStatus()}>
+          {(status) => (
+            <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
+              <div>Scope: {status().scope ?? "-"}</div>
+              <div>Active keys: {status().entries.length}</div>
+              <Show when={status().entries.length > 0}>
+                <div class="overflow-x-auto mt-2">
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Key</th>
+                        <th>Hash</th>
+                        <th>Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={status().entries}>
+                        {(entry) => (
+                          <tr>
+                            <td class="font-mono">{entry.key}</td>
+                            <td class="font-mono">{entry.hash_prefix}</td>
+                            <td>{formatEpochMillis(entry.expires_at_ms)}</td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Quest Tree Suppression</p>
+        <p class="px-px leading-5">
+          Track the current local suppression keys for quest tree data uploads.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-secondary border-secondary-content"
+            onClick={refreshQuestSuppressionStatus}
+            disabled={loadingQuestSuppression()}
+          >
+            {loadingQuestSuppression() ? "Refreshing..." : "Refresh suppression"}
+          </button>
+        </div>
+        <Show when={questSuppressionStatus()}>
+          {(status) => (
+            <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
+              <div>Scope: {status().scope ?? "-"}</div>
+              <div>Active keys: {status().entries.length}</div>
+              <Show when={status().entries.length > 0}>
+                <div class="overflow-x-auto mt-2">
+                  <table class="table table-xs">
+                    <thead>
+                      <tr>
+                        <th>Key</th>
+                        <th>Hash</th>
+                        <th>Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={status().entries}>
+                        {(entry) => (
+                          <tr>
+                            <td class="font-mono">{entry.key}</td>
+                            <td class="font-mono">{entry.hash_prefix}</td>
+                            <td>{formatEpochMillis(entry.expires_at_ms)}</td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Remodel Suppression</p>
+        <p class="px-px leading-5">
+          Track the current local suppression keys for remodel data uploads.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-secondary border-secondary-content"
+            onClick={refreshRemodelSuppressionStatus}
+            disabled={loadingRemodelSuppression()}
+          >
+            {loadingRemodelSuppression() ? "Refreshing..." : "Refresh suppression"}
+          </button>
+        </div>
+        <Show when={remodelSuppressionStatus()}>
           {(status) => (
             <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
               <div>Scope: {status().scope ?? "-"}</div>
