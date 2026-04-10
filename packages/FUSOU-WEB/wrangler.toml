@@ -92,6 +92,12 @@ database_name = "dev-kc-ship-growth"
 database_id = "d2acda7f-d0f4-4adc-9292-19c7523ef4e1"
 migrations_dir = "migrations/ship-growth"
 
+[[d1_databases]]
+binding = "REMODEL_INDEX_DB"
+database_name = "dev-kc-remodel-index"
+database_id = "7da1ac34-ec76-42eb-b272-6288a522de98"
+migrations_dir = "migrations/remodel-index"
+
 # ===== KV Namespace Bindings =====
 [[kv_namespaces]]
 binding = "DATA_LOADER_CACHE_KV"

@@ -18,6 +18,7 @@ export type Bindings = {
   SHIP_GROWTH_ARCHIVE_BUCKET: R2BucketBinding;
   MASTER_DATA_INDEX_DB: D1Database;
   SHIP_GROWTH_DB: D1Database;
+  REMODEL_INDEX_DB: D1Database;
 
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
@@ -29,6 +30,7 @@ export type Bindings = {
   MASTER_DATA_SIGNING_SECRET: string;
   QUEST_TREE_SIGNING_SECRET?: string;
   SHIP_GROWTH_SIGNING_SECRET?: string;
+  REMODEL_DATA_SIGNING_SECRET?: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
   DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails

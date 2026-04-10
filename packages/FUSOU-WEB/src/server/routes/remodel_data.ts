@@ -1,0 +1,396 @@
+import { Hono } from 'hono';
+import type { Bindings } from '../types';
+import {
+  createEnvContext,
+  generateSignedToken,
+  getEnv,
+  validateJWT,
+  validateTokenPayload,
+  verifySignedToken,
+} from '../utils';
+
+const REMODEL_COLLECTION_SWITCH_ENV = 'REMODEL_DATA_COLLECTION_ENABLED';
+const VALID_EVENT_TYPES = new Set(['slotlist', 'detail']);
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+// ── Helpers ────────────────────────────────────────────────────────
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', data as unknown as BufferSource);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
+  const normalized = (value ?? '').trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1') return true;
+  if (normalized === 'false' || normalized === '0') return false;
+  throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
+}
+
+function isValidInt(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && Number.isInteger(v);
+}
+
+// ── Validation ─────────────────────────────────────────────────────
+
+type ValidResult = {
+  ok: true;
+  datasetId: string;
+  requestId: string;
+  payloadHash: string;
+  eventType: 'slotlist' | 'detail';
+  periodTag: string;
+  tableVersion: string;
+  timestampMs: number;
+};
+type InvalidResult = { ok: false; error: string };
+
+function validateIngestBody(body: any): ValidResult | InvalidResult {
+  if (!body || typeof body !== 'object') {
+    return { ok: false, error: 'Invalid JSON body' };
+  }
+
+  const datasetId = String(body.dataset_id ?? '').trim();
+  if (!datasetId) return { ok: false, error: 'dataset_id is required' };
+
+  const requestId = String(body.request_id ?? '').trim();
+  if (!requestId) return { ok: false, error: 'request_id is required' };
+
+  const payloadHash = String(body.payload_hash ?? '').trim();
+  if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
+    return { ok: false, error: 'payload_hash must be a valid 64-char SHA-256 hex string' };
+  }
+
+  const eventType = String(body.event_type ?? '').trim();
+  if (!VALID_EVENT_TYPES.has(eventType)) {
+    return { ok: false, error: `event_type must be one of: ${[...VALID_EVENT_TYPES].join(', ')}` };
+  }
+
+  const periodTag = String(body.period_tag ?? '').trim();
+  if (!/^\d{4}-\d{2}$/.test(periodTag)) {
+    return { ok: false, error: 'period_tag must match YYYY-MM format' };
+  }
+
+  const tableVersion = String(body.table_version ?? '').trim();
+  if (!tableVersion) return { ok: false, error: 'table_version is required' };
+
+  const timestampMs = Number(body.timestamp_ms);
+  if (!isValidInt(timestampMs) || timestampMs <= 0) {
+    return { ok: false, error: 'timestamp_ms must be a positive integer' };
+  }
+
+  // --- event_type 別フィールド検証 ---
+  if (eventType === 'slotlist') {
+    if (!isValidInt(body.secretary_ship_master_id) || body.secretary_ship_master_id <= 0) {
+      return { ok: false, error: 'secretary_ship_master_id must be a positive integer' };
+    }
+    if (!isValidInt(body.weekday_jst) || body.weekday_jst < 0 || body.weekday_jst > 6) {
+      return { ok: false, error: 'weekday_jst must be 0-6' };
+    }
+    if (!Array.isArray(body.entries) || body.entries.length === 0) {
+      return { ok: false, error: 'entries array is required and must not be empty' };
+    }
+    const intFields = [
+      'remodel_id',
+      'slotitem_master_id',
+      'sp_type',
+      'req_fuel',
+      'req_bull',
+      'req_steel',
+      'req_bauxite',
+      'req_buildkit',
+      'req_remodelkit',
+      'req_slot_id',
+      'req_slot_num',
+    ];
+    for (const [i, entry] of body.entries.entries()) {
+      for (const f of intFields) {
+        if (!isValidInt(entry[f])) {
+          return { ok: false, error: `entries[${i}].${f} must be an integer` };
+        }
+      }
+    }
+  }
+
+  if (eventType === 'detail') {
+    if (!isValidInt(body.slotitem_master_id) || body.slotitem_master_id <= 0) {
+      return { ok: false, error: 'slotitem_master_id must be a positive integer' };
+    }
+    if (!isValidInt(body.remodel_id)) {
+      return { ok: false, error: 'remodel_id must be an integer' };
+    }
+    if (!isValidInt(body.certain_buildkit) || !isValidInt(body.certain_remodelkit)) {
+      return { ok: false, error: 'certain_buildkit and certain_remodelkit must be integers' };
+    }
+    if (!isValidInt(body.change_flag)) {
+      return { ok: false, error: 'change_flag must be an integer' };
+    }
+    for (const f of [
+      'req_useitem_id',
+      'req_useitem_id2',
+      'req_useitem_num',
+      'req_useitem_num2',
+    ]) {
+      if (body[f] != null && !isValidInt(body[f])) {
+        return { ok: false, error: `${f} must be an integer or null` };
+      }
+    }
+  }
+
+  return {
+    ok: true,
+    datasetId,
+    requestId,
+    payloadHash,
+    eventType: eventType as 'slotlist' | 'detail',
+    periodTag,
+    tableVersion,
+    timestampMs,
+  };
+}
+
+// ── Ingest route ───────────────────────────────────────────────────
+
+app.post('/ingest', async (c) => {
+  const db = c.env.REMODEL_INDEX_DB;
+  if (!db) return c.json({ error: 'REMODEL_INDEX_DB not configured' }, 503);
+
+  // kill switch
+  const env = createEnvContext(c);
+  let collectionEnabled = false;
+  try {
+    collectionEnabled = parseStrictBoolean(
+      getEnv(env, REMODEL_COLLECTION_SWITCH_ENV),
+      REMODEL_COLLECTION_SWITCH_ENV,
+    );
+  } catch (err) {
+    return c.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : `${REMODEL_COLLECTION_SWITCH_ENV} is invalid`,
+      },
+      500,
+    );
+  }
+  if (!collectionEnabled) {
+    return c.json({ error: 'Remodel data collection is disabled' }, 503);
+  }
+
+  const signingSecret = getEnv(env, 'REMODEL_DATA_SIGNING_SECRET');
+  if (!signingSecret) {
+    return c.json({ error: 'REMODEL_DATA_SIGNING_SECRET is required' }, 500);
+  }
+
+  const uploadToken = c.req.header('X-Upload-Token');
+
+  // ── Stage 1: Handshake ─────────────────────────────────────────
+  if (!uploadToken) {
+    const authHeader = c.req.header('Authorization');
+    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+    if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
+
+    const user = await validateJWT(bearer);
+    if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+
+    const handshakeBody = (await c.req.json().catch(() => null)) as
+      | (Record<string, unknown> & { content_hash?: string; file_size?: number | string })
+      | null;
+
+    const validated = validateIngestBody(handshakeBody);
+    if (!validated.ok) return c.json({ error: validated.error }, 400);
+
+    const contentHash = String(handshakeBody?.content_hash ?? '').trim();
+    if (!contentHash) return c.json({ error: 'content_hash is required' }, 400);
+
+    const declaredSize = Number(handshakeBody?.file_size ?? 0);
+    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+      return c.json({ error: 'file_size must be > 0' }, 400);
+    }
+
+    const token = await generateSignedToken(
+      {
+        user_id: user.id,
+        content_hash: contentHash,
+        declared_size: declaredSize,
+        dataset_id: validated.datasetId,
+        request_id: validated.requestId,
+        event_type: validated.eventType,
+      },
+      signingSecret,
+      300,
+    );
+
+    const uploadUrl = new URL(c.req.url);
+    return c.json({
+      uploadUrl: uploadUrl.toString(),
+      token,
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+    });
+  }
+
+  // ── Stage 2: Execution ─────────────────────────────────────────
+  const authHeader = c.req.header('Authorization');
+  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
+
+  const user = await validateJWT(bearer);
+  if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+
+  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
+  if (!tokenPayload) return c.json({ error: 'Invalid or expired upload token' }, 401);
+
+  const payloadValidation = validateTokenPayload(tokenPayload, [
+    'content_hash',
+    'declared_size',
+    'dataset_id',
+    'request_id',
+    'event_type',
+  ]);
+  if (!payloadValidation.valid) {
+    return c.json({ error: payloadValidation.error ?? 'Invalid upload token payload' }, 400);
+  }
+  if (tokenPayload.user_id !== user.id) {
+    return c.json({ error: 'User mismatch - token generated for different user' }, 403);
+  }
+
+  // Read binary body
+  const bodyStream = c.req.raw.body;
+  if (!bodyStream) return c.json({ error: 'Upload payload is missing' }, 400);
+  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
+
+  // Size check
+  const declaredSize = Number(tokenPayload.declared_size);
+  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
+    return c.json(
+      { error: 'Data size mismatch', expected: declaredSize, actual: uploaded.byteLength },
+      400,
+    );
+  }
+
+  // Hash check
+  const actualHash = await sha256Hex(uploaded);
+  const expectedHash = String(tokenPayload.content_hash ?? '').toLowerCase();
+  if (actualHash.toLowerCase() !== expectedHash) {
+    return c.json(
+      {
+        error: 'Content hash mismatch - data may be corrupted',
+        expected: expectedHash,
+        actual: actualHash,
+      },
+      400,
+    );
+  }
+
+  // Parse JSON payload
+  let body: Record<string, any>;
+  try {
+    body = JSON.parse(new TextDecoder().decode(uploaded));
+  } catch {
+    return c.json({ error: 'Invalid JSON upload payload' }, 400);
+  }
+
+  const verified = validateIngestBody(body);
+  if (!verified.ok) return c.json({ error: verified.error }, 400);
+
+  // Verify claims match payload
+  if (
+    verified.datasetId !== String(tokenPayload.dataset_id) ||
+    verified.requestId !== String(tokenPayload.request_id) ||
+    verified.eventType !== String(tokenPayload.event_type)
+  ) {
+    return c.json({ error: 'Upload payload does not match upload token claims' }, 400);
+  }
+
+  // ── INSERT ─────────────────────────────────────────────────────
+  try {
+    if (verified.eventType === 'slotlist') {
+      await db.prepare('BEGIN IMMEDIATE').run();
+      try {
+        for (const entry of body.entries) {
+          await db
+            .prepare(
+              `INSERT OR REPLACE INTO remodel_slotlist_entries (
+                dataset_id, period_tag, table_version,
+                secretary_ship_master_id, weekday_jst,
+                remodel_id, slotitem_master_id, sp_type,
+                req_fuel, req_bull, req_steel, req_bauxite,
+                req_buildkit, req_remodelkit,
+                req_slot_id, req_slot_num
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              verified.datasetId,
+              verified.periodTag,
+              verified.tableVersion,
+              body.secretary_ship_master_id,
+              body.weekday_jst,
+              entry.remodel_id,
+              entry.slotitem_master_id,
+              entry.sp_type,
+              entry.req_fuel,
+              entry.req_bull,
+              entry.req_steel,
+              entry.req_bauxite,
+              entry.req_buildkit,
+              entry.req_remodelkit,
+              entry.req_slot_id,
+              entry.req_slot_num,
+            )
+            .run();
+        }
+        await db.prepare('COMMIT').run();
+      } catch (error) {
+        await db
+          .prepare('ROLLBACK')
+          .run()
+          .catch(() => null);
+        throw error;
+      }
+    } else if (verified.eventType === 'detail') {
+      await db
+        .prepare(
+          `INSERT OR REPLACE INTO remodel_detail_entries (
+            dataset_id, period_tag, table_version,
+            slotitem_master_id, remodel_id,
+            certain_buildkit, certain_remodelkit,
+            change_flag,
+            req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          verified.datasetId,
+          verified.periodTag,
+          verified.tableVersion,
+          body.slotitem_master_id,
+          body.remodel_id,
+          body.certain_buildkit,
+          body.certain_remodelkit,
+          body.change_flag,
+          body.req_useitem_id ?? null,
+          body.req_useitem_id2 ?? null,
+          body.req_useitem_num ?? null,
+          body.req_useitem_num2 ?? null,
+        )
+        .run();
+    }
+  } catch (error) {
+    return c.json(
+      { error: 'Database write failed', detail: String(error) },
+      500,
+    );
+  }
+
+  return c.json({
+    ok: true,
+    event_type: verified.eventType,
+    dataset_id: verified.datasetId,
+    request_id: verified.requestId,
+  });
+});
+
+export default app;
