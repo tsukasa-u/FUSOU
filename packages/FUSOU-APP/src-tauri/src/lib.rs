@@ -185,6 +185,14 @@ pub async fn run() {
         ])
         .setup(move |app: &mut tauri::App| {
             // Initialize AuthManager
+            // Dev: use CARGO_MANIFEST_DIR/roaming (same as set_paths in setup.rs)
+            // Release: use app_data_dir (same as set_paths in setup.rs)
+            #[cfg(dev)]
+            let roaming_dir = std::path::PathBuf::from(format!(
+                "{}/roaming",
+                env!("CARGO_MANIFEST_DIR")
+            ));
+            #[cfg(not(dev))]
             let roaming_dir = app.path().app_data_dir().expect("failed to get roaming dir");
             let session_path = roaming_dir.join("fusou-auth-session.json");
             let storage = Arc::new(FileStorage::new(session_path.clone()));
