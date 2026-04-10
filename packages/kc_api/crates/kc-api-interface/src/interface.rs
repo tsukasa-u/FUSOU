@@ -20,6 +20,7 @@ use crate::mst_stype::MstStypes;
 use crate::mst_use_item::MstUseItems;
 use crate::n_dock::NDocks;
 use crate::quest::{QuestEvent, Quests};
+use crate::remodel::{RemodelDetail, RemodelSlotList};
 use crate::ship::Ships;
 use crate::ship_growth::ShipGrowthSnapshot;
 use crate::slot_item::SlotItems;
@@ -78,6 +79,8 @@ pub enum Set {
     MstShipUpgrades(MstShipUpgrades),
     Quests(Quests),
     ShipGrowthSnapshot(ShipGrowthSnapshot),
+    RemodelSlotList(RemodelSlotList),
+    RemodelDetail(RemodelDetail),
     Dammy(()),
 }
 
