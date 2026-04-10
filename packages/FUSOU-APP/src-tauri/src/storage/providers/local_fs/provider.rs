@@ -3,11 +3,9 @@ use std::path::{Path, PathBuf};
 use kc_api::database::table::PORT_TABLE_NAMES;
 use tokio::fs;
 
+use crate::storage::constants::LOCAL_STORAGE_PROVIDER_NAME;
 #[cfg(any(not(dev), check_release))]
-use crate::storage::constants::STORAGE_ROOT_DIR_NAME;
-use crate::storage::constants::{
-    LOCAL_STORAGE_PROVIDER_NAME, STORAGE_SUB_DIR_NAME,
-};
+use crate::storage::constants::STORAGE_SUB_DIR_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::{
     get_all_get_data_tables, get_all_port_tables,
@@ -54,25 +52,22 @@ impl LocalFileSystemProvider {
 fn default_root_directory() -> PathBuf {
     #[cfg(dev)]
     {
-        // In dev, place DB at the same hierarchy as packages/FUSOU-PROXY-DATA
-        // From src-tauri, two levels up is packages/
-        return PathBuf::from("./../../")
-            // .join(STORAGE_ROOT_DIR_NAME)
-            .join(STORAGE_SUB_DIR_NAME);
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../FUSOU-DATABASE");
     }
 
     #[cfg(any(not(dev), check_release))]
     {
         if let Some(doc_dir) = dirs::document_dir() {
             doc_dir
-                .join(STORAGE_ROOT_DIR_NAME)
+                .join("fusou")
                 .join(STORAGE_SUB_DIR_NAME)
         } else if let Ok(current_dir) = std::env::current_dir() {
             current_dir
-                .join(STORAGE_ROOT_DIR_NAME)
+                .join("fusou")
                 .join(STORAGE_SUB_DIR_NAME)
         } else {
-            PathBuf::from(STORAGE_ROOT_DIR_NAME).join(STORAGE_SUB_DIR_NAME)
+            PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME)
         }
     }
 }

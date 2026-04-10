@@ -55,17 +55,19 @@ pub async fn launch_with_options(
 
                         let period_tag = supabase::get_period_tag().await;
 
-                        let app_data_dir = match window.app_handle().path().app_data_dir() {
-                            Ok(path) => path,
+                        #[cfg(dev)]
+                        let proxy_base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("../../FUSOU-PROXY-DATA");
+                        #[cfg(any(not(dev), check_release))]
+                        let proxy_base_dir = match window.app_handle().path().document_dir() {
+                            Ok(path) => path.join("fusou").join("FUSOU-PROXY-DATA"),
                             Err(e) => {
-                                tracing::error!("failed to get app_data_dir: {}", e);
+                                tracing::error!("failed to get document_dir: {}", e);
                                 return Err(());
                             }
                         };
-                        let save_path = app_data_dir
-                            .join("FUSOU-PROXY-DATA")
+                        let save_path = proxy_base_dir
                             .join(&period_tag)
-                            .as_path()
                             .to_str()
                             .expect_or_log("failed to convert str")
                             .to_string();
