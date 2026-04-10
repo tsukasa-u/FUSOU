@@ -138,6 +138,15 @@ save_file_location = ""
         # If empty, ship growth sender is disabled
         ingest_endpoint = "https://dev.fusou.pages.dev/api/ship-growth/ingest"
 
+        [app.remodel_sender]
+        # Whether to enable remodel tree data ingestion (experimental feature)
+        # default is false
+        enable = false
+
+        # Endpoint to ingest remodel data
+        # Must be set when enable=true
+        ingest_endpoint = "https://dev.fusou.pages.dev/api/remodel-data/ingest"
+
     [app.browser]
     # The URL to open first in the browser
     url = "https://play.games.dmm.com/game/kancolle"

@@ -26,6 +26,7 @@ mod window;
 mod wrap_proxy;
 mod notify;
 mod quest_tree_sender;
+mod remodel_sender;
 mod ship_growth_sender;
 
 use fusou_upload::PendingStore;
@@ -172,6 +173,8 @@ pub async fn run() {
             cmd::tauri_cmd::retry_pending_uploads_now,
             cmd::tauri_cmd::get_pending_upload_retry_status,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
+            cmd::tauri_cmd::get_quest_tree_suppression_status,
+            cmd::tauri_cmd::get_remodel_suppression_status,
             cmd::tauri_cmd::get_all_logs,
             #[cfg(dev)]
             cmd::tauri_cmd::open_debug_window,
@@ -295,6 +298,26 @@ pub async fn run() {
                     } else {
                         tracing::warn!("ship_growth_sender enabled but ingest_endpoint not configured");
                     }
+                }
+
+                if app_configs.remodel_sender.get_enable() {
+                    let ingest_endpoint = app_configs
+                        .remodel_sender
+                        .get_ingest_endpoint()
+                        .expect("remodel_sender.enable=true but ingest_endpoint is empty");
+                    let auth_manager_for_remodel = Arc::new(auth_manager.clone());
+                    let remodel_cache_root = roaming_dir
+                        .join("cache")
+                        .join("request_suppression")
+                        .join("remodel_sender");
+                    tracing::info!("starting remodel sender");
+                    remodel_sender::start(
+                        ingest_endpoint,
+                        auth_manager_for_remodel,
+                        pending_store.clone(),
+                        retry_service.clone(),
+                        remodel_cache_root,
+                    );
                 }
             }
 

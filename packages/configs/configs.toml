@@ -296,6 +296,16 @@ save_file_location = ""
     # If empty, ship growth sender is disabled
     ingest_endpoint = "https://dev.fusou.pages.dev/api/ship-growth/ingest"
 
+    [app.remodel_sender]
+    # Whether to enable remodel tree data ingestion (experimental feature)
+    # This sends your remodel recipe observations to help build the remodel tree.
+    # default is false
+    enable = false
+
+    # Endpoint to ingest remodel data
+    # Must be set when enable=true
+    ingest_endpoint = "https://dev.fusou.pages.dev/api/remodel-data/ingest"
+
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
     # This option is used when you use linux platform and the system internally uses wayland instead of X11

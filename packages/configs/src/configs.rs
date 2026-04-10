@@ -750,6 +750,26 @@ impl ConfigsAppShipGrowthSender {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppRemodelSender {
+    enable: Option<bool>,
+    ingest_endpoint: Option<String>,
+}
+
+impl ConfigsAppRemodelSender {
+    pub fn get_enable(&self) -> bool {
+        self.enable
+            .unwrap_or_else(|| get_default_configs().app.remodel_sender.enable.unwrap())
+    }
+
+    pub fn get_ingest_endpoint(&self) -> Option<String> {
+        match self.ingest_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
@@ -763,6 +783,7 @@ pub struct ConfigsApp {
     pub kc_window: ConfigsAppWindow,
     pub quest_tree_sender: ConfigsAppQuestTreeSender,
     pub ship_growth_sender: ConfigsAppShipGrowthSender,
+    pub remodel_sender: ConfigsAppRemodelSender,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

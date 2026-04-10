@@ -138,6 +138,12 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::ShipGrowthSnapshot(data) => {
                 crate::ship_growth_sender::enqueue_snapshot(data);
             }
+            Set::RemodelSlotList(data) => {
+                crate::remodel_sender::enqueue_slotlist(data);
+            }
+            Set::RemodelDetail(data) => {
+                crate::remodel_sender::enqueue_detail(data);
+            }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());
             }
