@@ -49,7 +49,7 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn set_paths(
+pub fn set_paths(
     #[allow(unused_variables)] app: &mut tauri::App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(dev)]
@@ -773,7 +773,8 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     cli::prepare_terminal_logs(&cli_invocation);
     cli::handle_metadata_commands(app, &cli_invocation)?;
 
-    set_paths(app)?;
+    // set_paths() is called by lib.rs before setup_init() to initialize ROAMING_DIR
+    // early enough for PendingStore/AuthManager construction. Do not call it again here.
     logger::setup(app);
     #[cfg(any(not(dev), check_release))]
     setup_updater(app)?;

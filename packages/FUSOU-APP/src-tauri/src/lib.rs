@@ -184,17 +184,11 @@ pub async fn run() {
             cmd::tauri_cmd::read_emit_file,
         ])
         .setup(move |app: &mut tauri::App| {
+            // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
+            builder_setup::setup::set_paths(app)?;
+
             // Initialize AuthManager
-            // Dev: use CARGO_MANIFEST_DIR/roaming (same as set_paths in setup.rs)
-            // Release: use app_data_dir (same as set_paths in setup.rs)
-            #[cfg(dev)]
-            let roaming_dir = std::path::PathBuf::from(format!(
-                "{}/roaming",
-                env!("CARGO_MANIFEST_DIR")
-            ));
-            #[cfg(not(dev))]
-            let roaming_dir = app.path().app_data_dir().expect("failed to get roaming dir");
-            let session_path = roaming_dir.join("fusou-auth-session.json");
+            let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
             let storage = Arc::new(FileStorage::new(session_path.clone()));
             let auth_manager = AuthManager::from_env(storage.clone())
                 .expect("failed to create auth manager");
@@ -203,7 +197,7 @@ pub async fn run() {
             app.manage(auth_manager_state.clone());
 
             // Initialize PendingStore and UploadRetryService
-            let pending_dir = roaming_dir.join("pending_uploads");
+            let pending_dir = util::get_ROAMING_DIR().join("pending_uploads");
             let pending_store = Arc::new(PendingStore::new(pending_dir));
             
             // Register app-level custom retry handler so pending items are retried and deleted on success
@@ -271,7 +265,7 @@ pub async fn run() {
                 if app_configs.quest_tree_sender.get_enable() {
                     if let Some(ingest_endpoint) = app_configs.quest_tree_sender.get_ingest_endpoint() {
                         let auth_manager_for_quest = Arc::new(auth_manager.clone());
-                        let quest_cache_root = roaming_dir
+                        let quest_cache_root = util::get_ROAMING_DIR()
                             .join("cache")
                             .join("request_suppression")
                             .join("quest_tree_sender");
@@ -291,7 +285,7 @@ pub async fn run() {
                 if app_configs.ship_growth_sender.get_enable() {
                     if let Some(ingest_endpoint) = app_configs.ship_growth_sender.get_ingest_endpoint() {
                         let auth_manager_for_ship_growth = Arc::new(auth_manager.clone());
-                        let ship_growth_cache_root = roaming_dir
+                        let ship_growth_cache_root = util::get_ROAMING_DIR()
                             .join("cache")
                             .join("request_suppression")
                             .join("ship_growth_sender");
@@ -314,7 +308,7 @@ pub async fn run() {
                         .get_ingest_endpoint()
                         .expect("remodel_sender.enable=true but ingest_endpoint is empty");
                     let auth_manager_for_remodel = Arc::new(auth_manager.clone());
-                    let remodel_cache_root = roaming_dir
+                    let remodel_cache_root = util::get_ROAMING_DIR()
                         .join("cache")
                         .join("request_suppression")
                         .join("remodel_sender");
