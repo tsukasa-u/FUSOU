@@ -25,9 +25,8 @@ mod util;
 mod window;
 mod wrap_proxy;
 mod notify;
-mod quest_tree_sender;
-mod remodel_sender;
-mod ship_growth_sender;
+mod senders;
+use senders::{quest_tree_sender, remodel_sender, ship_growth_sender};
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
