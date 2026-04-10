@@ -51,6 +51,27 @@ function nowMs(): number {
   return Date.now();
 }
 
+async function putQuestTreeCache(
+  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  cache: Cache,
+  cacheKey: Request,
+  response: Response,
+): Promise<void> {
+  const putPromise = cache.put(cacheKey, response.clone());
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil(putPromise);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn("[quest-tree] ExecutionContext unavailable for cache put", err);
+    }
+  }
+  await putPromise;
+}
+
 function toInt(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -855,6 +876,17 @@ app.get("/rules", async (c) => {
     return c.json({ error: "target query is required" }, 400);
   }
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
+
   const rules = ((await db
     .prepare(
       `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
@@ -869,7 +901,13 @@ app.get("/rules", async (c) => {
     .all())
     .results ?? []);
 
-  return c.json({ ok: true, target, period_tag: periodTag, table_version: tableVersion, rules });
+  const response = c.json({ ok: true, target, period_tag: periodTag, table_version: tableVersion, rules });
+  response.headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  response.headers.set("X-FUSOU-Cache", "MISS");
+  if (cache) {
+    await putQuestTreeCache(c, cache, cacheKey, response);
+  }
+  return response;
 });
 
 app.get("/graph", async (c) => {
@@ -878,6 +916,17 @@ app.get("/graph", async (c) => {
 
   const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
   const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
 
   const edges = ((await db
     .prepare(
@@ -915,13 +964,19 @@ app.get("/graph", async (c) => {
     }
   }
 
-  return c.json({
+  const response = c.json({
     ok: true,
     period_tag: periodTag,
     table_version: tableVersion,
     nodes: [...nodes].sort((a, b) => a - b),
     edges: graphEdges,
   });
+  response.headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  response.headers.set("X-FUSOU-Cache", "MISS");
+  if (cache) {
+    await putQuestTreeCache(c, cache, cacheKey, response);
+  }
+  return response;
 });
 
 app.get("/changes", async (c) => {

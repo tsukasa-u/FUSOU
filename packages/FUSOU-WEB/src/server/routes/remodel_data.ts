@@ -156,6 +156,82 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
   };
 }
 
+// ── Cache helper ───────────────────────────────────────────────────
+
+async function putRemodelCache(
+  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  cache: Cache,
+  cacheKey: Request,
+  response: Response,
+): Promise<void> {
+  const putPromise = cache.put(cacheKey, response.clone());
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === 'function') {
+      waitUntil(putPromise);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn('[remodel-data] ExecutionContext unavailable for cache put', err);
+    }
+  }
+  await putPromise;
+}
+
+// ── Public READ endpoint ───────────────────────────────────────────
+
+/**
+ * GET /summary — Aggregated overview of collected remodel data.
+ * Returns distinct period_tags, dataset count, and slotitem coverage per period.
+ * Cache: 1 h CF Cache.
+ */
+app.get('/summary', async (c) => {
+  const db = c.env.REMODEL_INDEX_DB;
+  if (!db) return c.json({ error: 'REMODEL_INDEX_DB not configured' }, 503);
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      return hit;
+    }
+  }
+
+  try {
+    const periodRows = ((await db
+      .prepare(
+        `SELECT period_tag, table_version,
+                COUNT(DISTINCT dataset_id)         AS dataset_count,
+                COUNT(DISTINCT slotitem_master_id) AS slotitem_count
+         FROM remodel_slotlist_entries
+         GROUP BY period_tag, table_version
+         ORDER BY period_tag DESC, table_version DESC
+         LIMIT 20`,
+      )
+      .all()).results ?? []) as Array<{
+        period_tag: string;
+        table_version: string;
+        dataset_count: number;
+        slotitem_count: number;
+      }>;
+
+    const response = c.json({ ok: true, periods: periodRows });
+    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    response.headers.set('X-FUSOU-Cache', 'MISS');
+    if (cache) {
+      await putRemodelCache(c, cache, cacheKey, response);
+    }
+    return response;
+  } catch (err) {
+    console.error('[remodel-data] Failed to query summary:', err);
+    return c.json({ error: 'Failed to retrieve remodel summary' }, 500);
+  }
+});
+
 // ── Ingest route ───────────────────────────────────────────────────
 
 app.post('/ingest', async (c) => {

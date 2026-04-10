@@ -29,6 +29,15 @@ const CACHEABLE_PATHS = new Set([
   "/api/battle-data/global/records",
   "/api/master-data/json",
   "/api/asset-sync/weapon-icon-frames",
+  // ship-growth read endpoints (1 h CF Cache on server, 10 min client cache)
+  "/api/ship-growth/summary",
+  "/api/ship-growth/exp",
+  "/api/ship-growth/bounds",
+  // quest-tree read endpoints
+  "/api/quest-tree/graph",
+  "/api/quest-tree/rules",
+  // remodel summary
+  "/api/remodel-data/summary",
 ]);
 
 function buildCacheKey(url: string, init?: RequestInit): string {

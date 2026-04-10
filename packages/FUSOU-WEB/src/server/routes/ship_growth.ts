@@ -1002,6 +1002,207 @@ async function processShipGrowthIngest(
   };
 }
 
+// ── Cache helper ───────────────────────────────────────────────────
+
+async function putShipGrowthCache(
+  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  cache: Cache,
+  cacheKey: Request,
+  response: Response,
+): Promise<void> {
+  const putPromise = cache.put(cacheKey, response.clone());
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === 'function') {
+      waitUntil(putPromise);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn('[ship-growth] ExecutionContext unavailable for cache put', err);
+    }
+  }
+  await putPromise;
+}
+
+// ── Public READ endpoints ──────────────────────────────────────────
+
+/**
+ * GET /summary — Available period_tag/table_version combinations.
+ * Cache: 1 h CF Cache, 1 h max-age, 24 h stale-while-revalidate.
+ */
+app.get('/summary', async (c) => {
+  const db = c.env.SHIP_GROWTH_DB;
+  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      return hit;
+    }
+  }
+
+  try {
+    const periods = ((await db
+      .prepare(
+        `SELECT DISTINCT period_tag, table_version
+         FROM ship_growth_bounds
+         ORDER BY period_tag DESC, table_version DESC
+         LIMIT 20`,
+      )
+      .all()).results ?? []) as Array<{ period_tag: string; table_version: string }>;
+
+    const response = c.json({ ok: true, periods });
+    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    response.headers.set('X-FUSOU-Cache', 'MISS');
+    if (cache) {
+      await putShipGrowthCache(c, cache, cacheKey, response);
+    }
+    return response;
+  } catch (err) {
+    console.error('[ship-growth] Failed to query summary:', err);
+    return c.json({ error: 'Failed to retrieve summary' }, 500);
+  }
+});
+
+/**
+ * GET /exp — Exp-per-level table for a period (ship_level_exp_pairs).
+ * Query params: period_tag, table_version (both required).
+ * Cache: 1 h CF Cache.
+ */
+app.get('/exp', async (c) => {
+  const db = c.env.SHIP_GROWTH_DB;
+  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+
+  const periodTag = (c.req.query('period_tag') ?? '').trim();
+  const tableVersion = (c.req.query('table_version') ?? '').trim();
+
+  if (!periodTag || !tableVersion) {
+    return c.json({ error: 'period_tag and table_version are required' }, 400);
+  }
+  if (!/^[\w\-]+$/.test(periodTag)) {
+    return c.json({ error: 'period_tag contains invalid characters' }, 400);
+  }
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      return hit;
+    }
+  }
+
+  try {
+    const rows = ((await db
+      .prepare(
+        `SELECT lv, exp_current
+         FROM ship_level_exp_pairs
+         WHERE period_tag = ? AND table_version = ?
+         ORDER BY lv ASC`,
+      )
+      .bind(periodTag, tableVersion)
+      .all()).results ?? []) as Array<{ lv: number; exp_current: number }>;
+
+    const response = c.json({ ok: true, period_tag: periodTag, table_version: tableVersion, exp: rows });
+    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    response.headers.set('X-FUSOU-Cache', 'MISS');
+    if (cache) {
+      await putShipGrowthCache(c, cache, cacheKey, response);
+    }
+    return response;
+  } catch (err) {
+    console.error('[ship-growth] Failed to query exp:', err);
+    return c.json({ error: 'Failed to retrieve exp data' }, 500);
+  }
+});
+
+/**
+ * GET /bounds — Naked parameter growth by level (ship_growth_bounds + ship_growth_caps).
+ * Query params: period_tag, table_version (required), master_id (optional — filters to one ship).
+ * Without master_id: returns all ships' bounds (may be large, 1 h cache).
+ * Cache: 1 h CF Cache.
+ */
+app.get('/bounds', async (c) => {
+  const db = c.env.SHIP_GROWTH_DB;
+  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+
+  const periodTag = (c.req.query('period_tag') ?? '').trim();
+  const tableVersion = (c.req.query('table_version') ?? '').trim();
+  const masterIdRaw = c.req.query('master_id');
+  const masterId = masterIdRaw != null ? parseInt(masterIdRaw, 10) : null;
+
+  if (!periodTag || !tableVersion) {
+    return c.json({ error: 'period_tag and table_version are required' }, 400);
+  }
+  if (!/^[\w\-]+$/.test(periodTag)) {
+    return c.json({ error: 'period_tag contains invalid characters' }, 400);
+  }
+  if (masterId !== null && (!Number.isFinite(masterId) || masterId <= 0)) {
+    return c.json({ error: 'master_id must be a positive integer' }, 400);
+  }
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      return hit;
+    }
+  }
+
+  try {
+    let boundsSql = `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
+                     FROM ship_growth_bounds
+                     WHERE period_tag = ? AND table_version = ?`;
+    const boundsParams: unknown[] = [periodTag, tableVersion];
+    if (masterId !== null) {
+      boundsSql += ` AND master_id = ?`;
+      boundsParams.push(masterId);
+    }
+    boundsSql += ` ORDER BY master_id ASC, lv ASC LIMIT 10000`;
+
+    const bounds = ((await db.prepare(boundsSql).bind(...boundsParams).all()).results ?? []) as Array<{
+      master_id: number;
+      lv: number;
+      kaihi_naked: number;
+      taisen_naked: number;
+      sakuteki_naked: number;
+    }>;
+
+    let caps: Array<{ master_id: number; kaihi_max: number; taisen_max: number; sakuteki_max: number }> = [];
+    if (masterId !== null) {
+      caps = ((await db
+        .prepare(
+          `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
+           FROM ship_growth_caps
+           WHERE period_tag = ? AND table_version = ? AND master_id = ?`,
+        )
+        .bind(periodTag, tableVersion, masterId)
+        .all()).results ?? []) as typeof caps;
+    }
+
+    const response = c.json({ ok: true, period_tag: periodTag, table_version: tableVersion, bounds, caps });
+    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    response.headers.set('X-FUSOU-Cache', 'MISS');
+    if (cache) {
+      await putShipGrowthCache(c, cache, cacheKey, response);
+    }
+    return response;
+  } catch (err) {
+    console.error('[ship-growth] Failed to query bounds:', err);
+    return c.json({ error: 'Failed to retrieve bounds data' }, 500);
+  }
+});
+
 // ── Two-stage ingest endpoint ──────────────────────────────────────
 
 app.post('/ingest', async (c) => {
