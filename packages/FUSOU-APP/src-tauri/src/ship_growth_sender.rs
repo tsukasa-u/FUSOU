@@ -23,6 +23,7 @@ pub struct ShipGrowthSender {
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
     request_cache: Arc<LocalRequestSuppressionCache>,
+    client: reqwest::Client,
     next_seq: AtomicU64,
     next_to_send: AtomicU64,
     send_notify: Notify,
@@ -49,6 +50,7 @@ impl ShipGrowthSender {
                 }
                 cache
             },
+            client: reqwest::Client::new(),
             next_seq: AtomicU64::new(0),
             next_to_send: AtomicU64::new(0),
             send_notify: Notify::new(),
@@ -312,9 +314,8 @@ impl ShipGrowthSender {
             })),
         };
 
-        let client = reqwest::Client::new();
         match Uploader::upload(
-            &client,
+            &self.client,
             &self.auth_manager,
             request,
             Some(self.pending_store.as_ref()),

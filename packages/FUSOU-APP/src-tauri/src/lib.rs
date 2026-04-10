@@ -303,23 +303,23 @@ pub async fn run() {
                 }
 
                 if app_configs.remodel_sender.get_enable() {
-                    let ingest_endpoint = app_configs
-                        .remodel_sender
-                        .get_ingest_endpoint()
-                        .expect("remodel_sender.enable=true but ingest_endpoint is empty");
-                    let auth_manager_for_remodel = Arc::new(auth_manager.clone());
-                    let remodel_cache_root = util::get_ROAMING_DIR()
-                        .join("cache")
-                        .join("request_suppression")
-                        .join("remodel_sender");
-                    tracing::info!("starting remodel sender");
-                    remodel_sender::start(
-                        ingest_endpoint,
-                        auth_manager_for_remodel,
-                        pending_store.clone(),
-                        retry_service.clone(),
-                        remodel_cache_root,
-                    );
+                    if let Some(ingest_endpoint) = app_configs.remodel_sender.get_ingest_endpoint() {
+                        let auth_manager_for_remodel = Arc::new(auth_manager.clone());
+                        let remodel_cache_root = util::get_ROAMING_DIR()
+                            .join("cache")
+                            .join("request_suppression")
+                            .join("remodel_sender");
+                        tracing::info!("starting remodel sender");
+                        remodel_sender::start(
+                            ingest_endpoint,
+                            auth_manager_for_remodel,
+                            pending_store.clone(),
+                            retry_service.clone(),
+                            remodel_cache_root,
+                        );
+                    } else {
+                        tracing::warn!("remodel_sender enabled but ingest_endpoint not configured");
+                    }
                 }
             }
 
