@@ -3,6 +3,8 @@
 import { For, Show, createEffect, createMemo, createSignal, onMount, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import { bannerUrl, cardUrl, createWeaponIconEl, equipImageUrl } from "../../../pages/simulator/lib/equip-calc";
+import { cachedFetch } from "@/utility/fetchCache";
+import { ShipListRow } from "../common/ship-list-row";
 import {
   filterForExslot,
   getExslotSelectionRequirement,
@@ -21,10 +23,98 @@ import type { MstShipData, MstSlotItemData } from "../../../pages/simulator/lib/
 
 type DetailsTab = "ship" | "equip";
 
+type ShipGrowthSummary = {
+  ok: boolean;
+  periods?: Array<{ period_tag: string; table_version: string }>;
+};
+
+type ShipGrowthCaps = {
+  master_id: number;
+  kaihi_max?: number;
+  taisen_max?: number;
+  sakuteki_max?: number;
+  kaih_max?: number;
+  tais_max?: number;
+  saku_max?: number;
+};
+
+type NormalizedShipGrowthCaps = {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+};
+
+type ShipGrowthBoundRow = {
+  master_id: number;
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+};
+
+function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrowthCaps | null {
+  if (!raw) return null;
+  return {
+    master_id: raw.master_id,
+    kaihi_max: Number(raw.kaihi_max ?? raw.kaih_max ?? 0),
+    taisen_max: Number(raw.taisen_max ?? raw.tais_max ?? 0),
+    sakuteki_max: Number(raw.sakuteki_max ?? raw.saku_max ?? 0),
+  };
+}
+
+function deriveShipGrowthCapsFromBounds(masterId: number, bounds: ShipGrowthBoundRow[]): NormalizedShipGrowthCaps | null {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+
+  const kaihiMax = Math.max(0, ...bounds.map((row) => Number(row.kaihi_naked || 0)));
+  const taisenMax = Math.max(0, ...bounds.map((row) => Number(row.taisen_naked || 0)));
+  const sakutekiMax = Math.max(0, ...bounds.map((row) => Number(row.sakuteki_naked || 0)));
+
+  return {
+    master_id: masterId,
+    kaihi_max: kaihiMax,
+    taisen_max: taisenMax,
+    sakuteki_max: sakutekiMax,
+  };
+}
+
+function mergeShipGrowthCaps(
+  primary: NormalizedShipGrowthCaps | null,
+  fallback: NormalizedShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+
+  return {
+    master_id: primary.master_id,
+    kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
+    taisen_max: primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
+    sakuteki_max: primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
+  };
+}
+
 function statRangeLabel(value: number[] | null | undefined): string {
   if (!value || value.length === 0) return "-";
   if (value.length === 1) return String(value[0]);
   return `${value[0]} - ${value[value.length - 1]}`;
+}
+
+function hasStatRange(value: number[] | null | undefined): boolean {
+  return Array.isArray(value) && value.length > 0;
+}
+
+function needsStatFallback(value: number[] | null | undefined): boolean {
+  if (!Array.isArray(value) || value.length === 0) return true;
+  return value.every((v) => !Number.isFinite(v) || v <= 0);
+}
+
+function statRangeLabelWithFallback(value: number[] | null | undefined, fallbackMax: number | null | undefined): string {
+  if (hasStatRange(value) && !needsStatFallback(value)) return statRangeLabel(value);
+  if (typeof fallbackMax === "number" && fallbackMax > 0) {
+    return `- / ${fallbackMax}`;
+  }
+  return "-";
 }
 
 function equipTypeName(typeId: number | null): string {
@@ -325,36 +415,6 @@ function CompatibilityBadges(props: {
   );
 }
 
-function ShipListRow(props: {
-  ship: MstShipData;
-  active: boolean;
-  onSelect: () => void;
-}): JSX.Element {
-  return (
-    <button
-      class={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg transition border ${
-        props.active
-          ? "bg-primary/12 border-primary/35"
-          : "hover:bg-primary/8 active:bg-primary/15 border-transparent"
-      }`}
-      onClick={props.onSelect}
-    >
-      <ImageFallbackBox
-        src={bannerUrl(props.ship.id)}
-        alt={props.ship.name}
-        class="w-24 h-7 rounded shrink-0"
-        fallbackText="No Image"
-      />
-      <div class="min-w-0 text-left">
-        <p class="text-sm leading-tight truncate font-medium" title={props.ship.name}>{props.ship.name}</p>
-        <p class="text-[11px] text-base-content/45 leading-tight mt-0.5">
-          ID {props.ship.id} / {STYPE_NAMES[props.ship.stype] ?? `艦種${props.ship.stype}`}
-        </p>
-      </div>
-    </button>
-  );
-}
-
 function EquipListRow(props: {
   equip: MstSlotItemData;
   active: boolean;
@@ -391,6 +451,53 @@ function ShipDetailPanel(props: {
   expandSingleSynergy: boolean;
   expandPairSynergy: boolean;
 }): JSX.Element {
+  const [shipGrowthCap, setShipGrowthCap] = createSignal<NormalizedShipGrowthCaps | null>(null);
+
+  createEffect(() => {
+    const shipId = props.ship.id;
+    setShipGrowthCap(null);
+
+    let alive = true;
+    (async () => {
+      try {
+        const summaryRes = await cachedFetch("/api/ship-growth/summary");
+        if (!summaryRes.ok) return;
+
+        const summaryJson = (await summaryRes.json()) as ShipGrowthSummary;
+        const latest = summaryJson.periods?.[0];
+        if (!latest) return;
+
+        const boundsRes = await cachedFetch(
+          `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}&master_id=${shipId}`,
+        );
+        if (!boundsRes.ok) return;
+
+        const boundsJson = (await boundsRes.json()) as { caps?: ShipGrowthCaps[]; bounds?: ShipGrowthBoundRow[] };
+        const capFromCaps = normalizeShipGrowthCaps((boundsJson.caps ?? []).find((row) => row.master_id === shipId) ?? null);
+        const capFromBounds = deriveShipGrowthCapsFromBounds(shipId, boundsJson.bounds ?? []);
+        const cap = mergeShipGrowthCaps(capFromCaps, capFromBounds);
+
+        if (alive) setShipGrowthCap(cap);
+      } catch {
+        // Non-critical: keep master-data original display when ship-growth lookup fails.
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  });
+
+  const usesShipGrowthFallback = createMemo(() => {
+    const cap = shipGrowthCap();
+    if (!cap) return false;
+    return (
+      (needsStatFallback(props.ship.tais) && cap.taisen_max > 0) ||
+      (needsStatFallback(props.ship.kaih) && cap.kaihi_max > 0) ||
+      (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
+    );
+  });
+
   const shipSynergy = createMemo(() => {
     const effects = getSlotItemEffects();
     if (!effects) return { single: [], pair: [] } as {
@@ -452,9 +559,9 @@ function ShipDetailPanel(props: {
     ["火力", statRangeLabel(props.ship.houg)],
     ["雷装", statRangeLabel(props.ship.raig)],
     ["対空", statRangeLabel(props.ship.tyku)],
-    ["対潜", statRangeLabel(props.ship.tais)],
-    ["回避", statRangeLabel(props.ship.kaih)],
-    ["索敵", statRangeLabel(props.ship.saku)],
+    ["対潜", statRangeLabelWithFallback(props.ship.tais, shipGrowthCap()?.taisen_max)],
+    ["回避", statRangeLabelWithFallback(props.ship.kaih, shipGrowthCap()?.kaihi_max)],
+    ["索敵", statRangeLabelWithFallback(props.ship.saku, shipGrowthCap()?.sakuteki_max)],
     ["運", statRangeLabel(props.ship.luck)],
     ["搭載内訳", props.ship.maxeq ? props.ship.maxeq.slice(0, props.ship.slot_num).join(" / ") : "-"],
   ]);
@@ -478,6 +585,11 @@ function ShipDetailPanel(props: {
           </div>
           <div class="min-w-0 h-full flex flex-col gap-2">
             <h3 class="text-2xl font-bold leading-tight">{props.ship.name}</h3>
+            <Show when={usesShipGrowthFallback()}>
+              <p class="text-xs text-base-content/60">
+                対潜/回避/索敵の欠損値は ship-growth データの上限値で補完表示しています。
+              </p>
+            </Show>
             <div>
               <SpecTable rows={specRows()} />
             </div>

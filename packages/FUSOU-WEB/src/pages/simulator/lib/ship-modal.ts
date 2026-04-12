@@ -39,6 +39,36 @@ import {
   hasSnapshotShips,
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
+import { cachedFetch } from "../../../utility/fetchCache";
+
+type ShipGrowthSummary = {
+  ok: boolean;
+  periods?: Array<{ period_tag: string; table_version: string }>;
+};
+
+type ShipGrowthCaps = {
+  master_id: number;
+  kaihi_max?: number;
+  taisen_max?: number;
+  sakuteki_max?: number;
+  kaih_max?: number;
+  tais_max?: number;
+  saku_max?: number;
+};
+
+type NormalizedShipGrowthCaps = {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+};
+
+type ShipGrowthBoundRow = {
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+};
 
 type ShipVRow =
   | { kind: "header"; stype: number }
@@ -49,6 +79,111 @@ const ShipVList = VList as unknown as Component<Record<string, unknown>>;
 let _shipModalVisibilityBound = false;
 let _shipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
 let _currentShipRowIndex = -1;
+let _shipDetailRenderSeq = 0;
+let _shipGrowthPeriodPromise: Promise<{ period_tag: string; table_version: string } | null> | null = null;
+const _shipGrowthCapsCache = new Map<number, NormalizedShipGrowthCaps | null>();
+
+function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrowthCaps | null {
+  if (!raw) return null;
+  return {
+    master_id: raw.master_id,
+    kaihi_max: Number(raw.kaihi_max ?? raw.kaih_max ?? 0),
+    taisen_max: Number(raw.taisen_max ?? raw.tais_max ?? 0),
+    sakuteki_max: Number(raw.sakuteki_max ?? raw.saku_max ?? 0),
+  };
+}
+
+function deriveShipGrowthCapsFromBounds(masterId: number, bounds: ShipGrowthBoundRow[]): NormalizedShipGrowthCaps | null {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+
+  const kaihiMax = Math.max(0, ...bounds.map((row) => Number(row.kaihi_naked || 0)));
+  const taisenMax = Math.max(0, ...bounds.map((row) => Number(row.taisen_naked || 0)));
+  const sakutekiMax = Math.max(0, ...bounds.map((row) => Number(row.sakuteki_naked || 0)));
+
+  return {
+    master_id: masterId,
+    kaihi_max: kaihiMax,
+    taisen_max: taisenMax,
+    sakuteki_max: sakutekiMax,
+  };
+}
+
+function mergeShipGrowthCaps(
+  primary: NormalizedShipGrowthCaps | null,
+  fallback: NormalizedShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+
+  return {
+    master_id: primary.master_id,
+    kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
+    taisen_max: primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
+    sakuteki_max: primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
+  };
+}
+
+function needsStatFallback(value: number[] | null | undefined): boolean {
+  if (!Array.isArray(value) || value.length === 0) return true;
+  return value.every((v) => !Number.isFinite(v) || v <= 0);
+}
+
+function statValueOrDash(value: number | null | undefined): string | number {
+  return value == null || value === 0 ? "-" : value;
+}
+
+function statValueWithFallback(value: number[] | null | undefined, fallbackMax: number | null | undefined): string {
+  if (Array.isArray(value) && value.length > 0 && !needsStatFallback(value)) {
+    return String(value[0]);
+  }
+  if (typeof fallbackMax === "number" && fallbackMax > 0) {
+    return `- / ${fallbackMax}`;
+  }
+  return "-";
+}
+
+function getLatestShipGrowthPeriod(): Promise<{ period_tag: string; table_version: string } | null> {
+  if (_shipGrowthPeriodPromise) return _shipGrowthPeriodPromise;
+  _shipGrowthPeriodPromise = (async () => {
+    const res = await cachedFetch("/api/ship-growth/summary");
+    if (!res.ok) return null;
+    const json = (await res.json()) as ShipGrowthSummary;
+    const latest = json.periods?.[0];
+    return latest ? { period_tag: latest.period_tag, table_version: latest.table_version } : null;
+  })().catch(() => null);
+  return _shipGrowthPeriodPromise;
+}
+
+async function getShipGrowthCaps(masterId: number): Promise<NormalizedShipGrowthCaps | null> {
+  if (_shipGrowthCapsCache.has(masterId)) return _shipGrowthCapsCache.get(masterId) ?? null;
+
+  try {
+    const latest = await getLatestShipGrowthPeriod();
+    if (!latest) {
+      _shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+
+    const boundsRes = await cachedFetch(
+      `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}&master_id=${masterId}`,
+    );
+    if (!boundsRes.ok) {
+      _shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+
+    const boundsJson = (await boundsRes.json()) as { caps?: ShipGrowthCaps[]; bounds?: ShipGrowthBoundRow[] };
+    const capFromCaps = normalizeShipGrowthCaps((boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null);
+    const capFromBounds = deriveShipGrowthCapsFromBounds(masterId, boundsJson.bounds ?? []);
+    const merged = mergeShipGrowthCaps(capFromCaps, capFromBounds);
+    _shipGrowthCapsCache.set(masterId, merged);
+    return merged;
+  } catch {
+    _shipGrowthCapsCache.set(masterId, null);
+    return null;
+  }
+}
 
 function syncShipModalDisplay(modal: HTMLDialogElement): void {
   modal.style.display = modal.open ? "grid" : "none";
@@ -504,7 +639,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
   return item;
 }
 
-function renderShipDetail(ship: MstShipData) {
+async function renderShipDetail(ship: MstShipData) {
+  const renderSeq = ++_shipDetailRenderSeq;
   const panel = document.getElementById("ship-modal-detail");
   if (!(panel instanceof HTMLElement)) return;
   panel.replaceChildren();
@@ -540,21 +676,28 @@ function renderShipDetail(ship: MstShipData) {
   badgeDiv.appendChild(badge);
   panel.appendChild(badgeDiv);
 
+  const isMasterSource = getShipModalSource() === "master";
+  const shouldLookupFallback =
+    !isMasterSource &&
+    (needsStatFallback(ship.tais) || needsStatFallback(ship.kaih) || needsStatFallback(ship.saku));
+  const shipGrowthCap = shouldLookupFallback ? await getShipGrowthCaps(ship.id) : null;
+  if (renderSeq !== _shipDetailRenderSeq) return;
+
   const stats: [string, string | number][] = [
-    ["耐久", ship.taik?.[0] ?? "—"],
-    ["装甲", ship.souk?.[0] ?? "—"],
-    ["回避", ship.kaih?.[0] ?? "—"],
-    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).reduce((sum, slot) => sum + slot, 0) : "—"],
+    ["耐久", statValueOrDash(ship.taik?.[0])],
+    ["装甲", statValueOrDash(ship.souk?.[0])],
+    ["回避", isMasterSource ? statValueOrDash(ship.kaih?.[0]) : statValueWithFallback(ship.kaih, shipGrowthCap?.kaihi_max)],
+    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).reduce((sum, slot) => sum + slot, 0) : "-"],
     ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
-    ["射程", ship.leng != null ? String(ship.leng) : "—"],
-    ["火力", ship.houg?.[0] ?? "—"],
-    ["雷装", ship.raig?.[0] ?? "—"],
-    ["対空", ship.tyku?.[0] ?? "—"],
-    ["対潜", ship.tais?.[0] ?? "—"],
-    ["索敵", ship.saku?.[0] ?? "—"],
-    ["運", ship.luck?.[0] ?? "—"],
+    ["射程", ship.leng != null ? String(ship.leng) : "-"],
+    ["火力", statValueOrDash(ship.houg?.[0])],
+    ["雷装", statValueOrDash(ship.raig?.[0])],
+    ["対空", statValueOrDash(ship.tyku?.[0])],
+    ["対潜", isMasterSource ? statValueOrDash(ship.tais?.[0]) : statValueWithFallback(ship.tais, shipGrowthCap?.taisen_max)],
+    ["索敵", isMasterSource ? statValueOrDash(ship.saku?.[0]) : statValueWithFallback(ship.saku, shipGrowthCap?.sakuteki_max)],
+    ["運", statValueOrDash(ship.luck?.[0])],
     ["スロット数", ship.slot_num],
-    ["搭載内訳", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
+    ["搭載内訳", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "-"],
   ];
 
   const grid = document.createElement("div");

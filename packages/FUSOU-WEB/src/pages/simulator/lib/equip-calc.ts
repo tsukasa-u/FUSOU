@@ -160,7 +160,7 @@ export function cardUrl(shipId: number): string {
   const assetBaseUrl = getAssetBaseUrl();
   const key = getCardMap()[String(shipId)];
   if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
-  return bannerUrl(shipId);
+  return "";
 }
 
 export function shipIconUrl(shipId: number): string {

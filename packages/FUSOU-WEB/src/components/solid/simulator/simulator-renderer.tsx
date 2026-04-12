@@ -3,9 +3,10 @@
 import { Index, Show, createContext, createEffect, createMemo, createSignal, onMount, useContext, type JSX } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { render } from "solid-js/web";
-import type { AirBaseSlot, FleetSlot } from "../../../pages/simulator/lib/types";
+import type { AirBaseSlot, FleetSlot, StatOverrides } from "../../../pages/simulator/lib/types";
 import { AIRCRAFT_TYPES, RANGE_NAMES, SPEED_NAMES, STYPE_SHORT } from "../../../pages/simulator/lib/constants";
 import { cardUrl, computeEquipBonuses, computeEquipSum, createWeaponIconEl } from "../../../pages/simulator/lib/equip-calc";
+import { cachedFetch } from "../../../utility/fetchCache";
 import { prefetchExternalUrlForExport } from "../../../pages/simulator/lib/image-capture";
 import { openShipModal } from "../../../pages/simulator/lib/ship-modal";
 import { openEquipModal } from "../../../pages/simulator/lib/equip-modal";
@@ -49,6 +50,120 @@ const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
 const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
 const AIRBASE_EQUIP_SLOT_INDEXES = [0, 1, 2, 3] as const;
+
+type ShipGrowthSummary = {
+  ok: boolean;
+  periods?: Array<{ period_tag: string; table_version: string }>;
+};
+
+type ShipGrowthCaps = {
+  master_id: number;
+  kaihi_max?: number;
+  taisen_max?: number;
+  sakuteki_max?: number;
+  kaih_max?: number;
+  tais_max?: number;
+  saku_max?: number;
+};
+
+type NormalizedShipGrowthCaps = {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+};
+
+type ShipGrowthBoundRow = {
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+};
+
+let shipGrowthPeriodPromise: Promise<{ period_tag: string; table_version: string } | null> | null = null;
+const shipGrowthCapsCache = new Map<number, NormalizedShipGrowthCaps | null>();
+
+function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrowthCaps | null {
+  if (!raw) return null;
+  return {
+    master_id: raw.master_id,
+    kaihi_max: Number(raw.kaihi_max ?? raw.kaih_max ?? 0),
+    taisen_max: Number(raw.taisen_max ?? raw.tais_max ?? 0),
+    sakuteki_max: Number(raw.sakuteki_max ?? raw.saku_max ?? 0),
+  };
+}
+
+function deriveShipGrowthCapsFromBounds(masterId: number, bounds: ShipGrowthBoundRow[]): NormalizedShipGrowthCaps | null {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+  const kaihiMax = Math.max(0, ...bounds.map((row) => Number(row.kaihi_naked || 0)));
+  const taisenMax = Math.max(0, ...bounds.map((row) => Number(row.taisen_naked || 0)));
+  const sakutekiMax = Math.max(0, ...bounds.map((row) => Number(row.sakuteki_naked || 0)));
+  return {
+    master_id: masterId,
+    kaihi_max: kaihiMax,
+    taisen_max: taisenMax,
+    sakuteki_max: sakutekiMax,
+  };
+}
+
+function mergeShipGrowthCaps(
+  primary: NormalizedShipGrowthCaps | null,
+  fallback: NormalizedShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+  return {
+    master_id: primary.master_id,
+    kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
+    taisen_max: primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
+    sakuteki_max: primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
+  };
+}
+
+function needsStatFallback(value: number[] | null | undefined): boolean {
+  if (!Array.isArray(value) || value.length === 0) return true;
+  return value.every((v) => !Number.isFinite(v) || v <= 0);
+}
+
+async function getLatestShipGrowthPeriod(): Promise<{ period_tag: string; table_version: string } | null> {
+  if (shipGrowthPeriodPromise) return shipGrowthPeriodPromise;
+  shipGrowthPeriodPromise = (async () => {
+    const res = await cachedFetch("/api/ship-growth/summary");
+    if (!res.ok) return null;
+    const json = (await res.json()) as ShipGrowthSummary;
+    const latest = json.periods?.[0];
+    return latest ? { period_tag: latest.period_tag, table_version: latest.table_version } : null;
+  })().catch(() => null);
+  return shipGrowthPeriodPromise;
+}
+
+async function getShipGrowthCaps(masterId: number): Promise<NormalizedShipGrowthCaps | null> {
+  if (shipGrowthCapsCache.has(masterId)) return shipGrowthCapsCache.get(masterId) ?? null;
+  try {
+    const latest = await getLatestShipGrowthPeriod();
+    if (!latest) {
+      shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+    const boundsRes = await cachedFetch(
+      `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}&master_id=${masterId}`,
+    );
+    if (!boundsRes.ok) {
+      shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+    const boundsJson = (await boundsRes.json()) as { caps?: ShipGrowthCaps[]; bounds?: ShipGrowthBoundRow[] };
+    const capFromCaps = normalizeShipGrowthCaps((boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null);
+    const capFromBounds = deriveShipGrowthCapsFromBounds(masterId, boundsJson.bounds ?? []);
+    const merged = mergeShipGrowthCaps(capFromCaps, capFromBounds);
+    shipGrowthCapsCache.set(masterId, merged);
+    return merged;
+  } catch {
+    shipGrowthCapsCache.set(masterId, null);
+    return null;
+  }
+}
 
 const isReadOnly = () => isWorkspaceReadOnly();
 
@@ -127,7 +242,14 @@ function DeleteIcon(): JSX.Element {
   );
 }
 
-type StatDef = [label: string, key: string, base: number | null, max: number | null, isNumeric: boolean];
+type StatDef = [
+  label: string,
+  key: string,
+  base: number | null,
+  max: number | null,
+  isNumeric: boolean,
+  fallbackBase?: number | null,
+];
 
 interface ShipCardContextValue {
   fleetIndex: 1 | 2 | 3 | 4;
@@ -239,19 +361,17 @@ function StatCell(props: {
   base: number | null;
   max: number | null;
   isNumeric: boolean;
+  fallbackBase?: number | null;
   equipSums: Record<string, number>;
   equipBonuses: Record<string, number>;
+  overrides: StatOverrides;
 }): JSX.Element {
-  const card = useShipCardContext();
-  const overrides = ensureFleetStatOverrides(getLiveFleetSlot(card.fleetIndex, card.idx));
-  const [editing, setEditing] = createSignal(false);
-
-  const currentNumericVal = (key: string, base: number | null): number => overrides[key] ?? base ?? 0;
-
   const formatStatVal = (): string => {
-    const ov = overrides[props.keyName];
+    const ov = props.overrides[props.keyName];
     const baseVal = ov ?? props.base;
-    if (baseVal == null) return "—";
+    if (baseVal == null) {
+      return "-";
+    }
 
     const bonusContrib = props.equipBonuses[props.keyName] || 0;
     const total =
@@ -264,26 +384,11 @@ function StatCell(props: {
     return String(total);
   };
 
-  const updateDelta = (sign: 1 | -1): void => {
-    if (isReadOnly()) return;
-    if (props.base == null && overrides[props.keyName] == null) return;
-
-    const cur = currentNumericVal(props.keyName, props.base);
-    const lo = props.base ?? 0;
-    const hi = props.max ?? 9999;
-    const step = props.keyName === "soku" ? 5 : 1;
-    const next = Math.max(lo, Math.min(hi, cur + step * sign));
-
-    if (next === props.base) delete overrides[props.keyName];
-    else overrides[props.keyName] = next;
-
-    markSimulatorStateDirty("fleet");
-  };
-
   const bonusInfo = createMemo(() => {
     const eqStatVal = props.equipSums[props.keyName] || 0;
     const bonusVal = props.equipBonuses[props.keyName] || 0;
-    const baseForDisplay = currentNumericVal(props.keyName, props.base);
+    const baseRef = props.base ?? props.fallbackBase ?? 0;
+    const baseForDisplay = props.overrides[props.keyName] ?? baseRef;
     const effectiveEqDelta = props.keyName === "leng" ? Math.max(baseForDisplay, eqStatVal) - baseForDisplay : eqStatVal;
     const totalBonus = effectiveEqDelta + bonusVal;
     return { effectiveEqDelta, bonusVal, totalBonus, baseForDisplay };
@@ -294,83 +399,20 @@ function StatCell(props: {
       <span class="text-base-content/40 font-medium text-[10px]">{props.label}</span>
 
       <div class="flex items-center gap-0 justify-end min-w-0">
-        <button
-          class="w-3.5 h-3.5 flex items-center justify-center rounded text-base-content/20 hover:text-primary hover:bg-primary/10 opacity-0 group-hover/stat:opacity-100 transition-all text-[9px] font-bold shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            updateDelta(-1);
-          }}
+        <span
+          class={`font-mono text-base-content/70 text-right tabular-nums w-[1.55rem] transition-colors text-[10px] ${
+            props.overrides[props.keyName] != null ? "text-primary/80 font-bold" : ""
+          }`}
+          title={
+            bonusInfo().totalBonus !== 0
+              ? `素: ${bonusInfo().baseForDisplay}` +
+                (bonusInfo().effectiveEqDelta ? `, 装備: ${bonusInfo().effectiveEqDelta > 0 ? "+" : ""}${bonusInfo().effectiveEqDelta}` : "") +
+                (bonusInfo().bonusVal ? `, ボーナス: ${bonusInfo().bonusVal > 0 ? "+" : ""}${bonusInfo().bonusVal}` : "")
+              : undefined
+          }
         >
-          -
-        </button>
-
-        {!editing() ? (
-          <span
-            class={`font-mono text-base-content/70 text-right tabular-nums w-[1.55rem] cursor-pointer hover:text-primary transition-colors text-[10px] ${
-              overrides[props.keyName] != null ? "text-primary/80 font-bold" : ""
-            }`}
-            title={
-              bonusInfo().totalBonus !== 0
-                ? `素: ${bonusInfo().baseForDisplay}` +
-                  (bonusInfo().effectiveEqDelta ? `, 装備: ${bonusInfo().effectiveEqDelta > 0 ? "+" : ""}${bonusInfo().effectiveEqDelta}` : "") +
-                  (bonusInfo().bonusVal ? `, ボーナス: ${bonusInfo().bonusVal > 0 ? "+" : ""}${bonusInfo().bonusVal}` : "")
-                : undefined
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              if (isReadOnly()) return;
-              if (props.base == null && overrides[props.keyName] == null) return;
-              setEditing(true);
-            }}
-          >
-            {formatStatVal()}
-          </span>
-        ) : (
-          <input
-            type="number"
-            class="w-[1.55rem] h-3.5 text-[10px] font-mono text-right border border-primary/40 rounded px-0.5 bg-base-100 outline-none focus:border-primary"
-            value={String(currentNumericVal(props.keyName, props.base))}
-            min={String(props.base ?? 0)}
-            max={props.max != null ? String(props.max) : undefined}
-            onBlur={(e) => {
-              const v = Number.parseInt((e.currentTarget as HTMLInputElement).value, 10);
-              if (!Number.isNaN(v)) {
-                const lo = props.base ?? 0;
-                const hi = props.max ?? 9999;
-                const clamped = Math.max(lo, Math.min(hi, v));
-                if (clamped === props.base) delete overrides[props.keyName];
-                else overrides[props.keyName] = clamped;
-              }
-              setEditing(false);
-              markSimulatorStateDirty("fleet");
-            }}
-            onKeyDown={(ev) => {
-              if (ev.key === "Enter") (ev.currentTarget as HTMLInputElement).blur();
-              if (ev.key === "Escape") {
-                delete overrides[props.keyName];
-                setEditing(false);
-                markSimulatorStateDirty("fleet");
-              }
-            }}
-            ref={(el) => {
-              queueMicrotask(() => {
-                if (!editing()) return;
-                el.focus();
-                el.select();
-              });
-            }}
-          />
-        )}
-
-        <button
-          class="w-3.5 h-3.5 flex items-center justify-center rounded text-base-content/20 hover:text-primary hover:bg-primary/10 opacity-0 group-hover/stat:opacity-100 transition-all text-[9px] font-bold shrink-0"
-          onClick={(e) => {
-            e.stopPropagation();
-            updateDelta(1);
-          }}
-        >
-          +
-        </button>
+          {formatStatVal()}
+        </span>
       </div>
 
       <span
@@ -419,6 +461,23 @@ function ShipCard(props: {
     return slot?.shipId != null ? getMasterShip(slot.shipId) : null;
   });
 
+  const [shipGrowthCap, setShipGrowthCap] = createSignal<NormalizedShipGrowthCaps | null>(null);
+  let shipGrowthFetchSeq = 0;
+  createEffect(() => {
+    const s = ship();
+    const seq = ++shipGrowthFetchSeq;
+    setShipGrowthCap(null);
+    if (!s) return;
+
+    const shouldLookupFallback = needsStatFallback(s.tais) || needsStatFallback(s.kaih) || needsStatFallback(s.saku);
+    if (!shouldLookupFallback) return;
+
+    void getShipGrowthCaps(s.id).then((cap) => {
+      if (seq !== shipGrowthFetchSeq) return;
+      setShipGrowthCap(cap);
+    });
+  });
+
   const shipData = createMemo(() => {
     const s = ship();
     if (!s) return null;
@@ -437,7 +496,7 @@ function ShipCard(props: {
     const leftStats: StatDef[] = [
       ["耐久", "taik", s.taik?.[0] ?? null, s.taik?.[1] ?? null, true],
       ["装甲", "souk", ist?.souk ?? s.souk?.[0] ?? null, s.souk?.[1] ?? null, true],
-      ["回避", "kaih", ist?.kaih ?? null, null, true],
+      ["回避", "kaih", ist?.kaih ?? null, null, true, shipGrowthCap()?.kaihi_max ?? null],
       ["搭載", "maxeq", s.maxeq ? s.maxeq.slice(0, slotCount).reduce((a, b) => a + b, 0) : null, null, true],
       ["速力", "soku", s.soku, 20, false],
       ["射程", "leng", s.leng, 5, false],
@@ -447,12 +506,12 @@ function ShipCard(props: {
       ["火力", "houg", ist?.houg ?? s.houg?.[0] ?? null, s.houg?.[1] ?? null, true],
       ["雷装", "raig", ist?.raig ?? s.raig?.[0] ?? null, s.raig?.[1] ?? null, true],
       ["対空", "tyku", ist?.tyku ?? s.tyku?.[0] ?? null, s.tyku?.[1] ?? null, true],
-      ["対潜", "tais", ist?.tais ?? s.tais?.[0] ?? null, s.tais?.[1] ?? null, true],
-      ["索敵", "saku", ist?.saku ?? null, null, true],
+      ["対潜", "tais", ist?.tais ?? s.tais?.[0] ?? null, s.tais?.[1] ?? null, true, shipGrowthCap()?.taisen_max ?? null],
+      ["索敵", "saku", ist?.saku ?? null, null, true, shipGrowthCap()?.sakuteki_max ?? null],
       ["運", "luck", ist?.luck ?? s.luck?.[0] ?? null, s.luck?.[1] ?? null, true],
     ];
 
-    return { s, slot, slotCount, leftStats, rightStats, equipBonuses, equipSums };
+    return { s, slot, slotCount, leftStats, rightStats, equipBonuses, equipSums, statOverrides: slot.statOverrides ?? {} as StatOverrides };
   });
 
   return (
@@ -482,11 +541,81 @@ function ShipCard(props: {
           if (imageUrl) prefetchCardOnce(imageUrl);
           const [cardImageUnavailable, setCardImageUnavailable] = createSignal(!imageUrl);
           const [exRowHovered, setExRowHovered] = createSignal(false);
+          const [bulkEditOpen, setBulkEditOpen] = createSignal(false);
+          const [bulkDraft, setBulkDraft] = createSignal<Record<string, number>>({});
+          const [overrideEnabled, setOverrideEnabled] = createSignal(false);
+
+          const NON_EDITABLE_KEYS = new Set(["maxeq", "soku", "leng"]);
+
+          const editableStats = createMemo(() => {
+            return [...d.leftStats, ...d.rightStats].filter((st) => st[4] && !NON_EDITABLE_KEYS.has(st[1]));
+          });
+
+          const openBulkEdit = () => {
+            if (isReadOnly()) return;
+            const overrides = ensureFleetStatOverrides(liveSlot());
+            const next: Record<string, number> = {};
+            const allStats = [...d.leftStats, ...d.rightStats];
+            for (const st of allStats) {
+              const key = st[1];
+              const baseRef = st[2] ?? st[5] ?? 0;
+              next[key] = Number(overrides[key] ?? baseRef);
+            }
+            setBulkDraft(next);
+            setOverrideEnabled(false);
+            setBulkEditOpen(true);
+          };
+
+          const setBulkValue = (key: string, value: number) => {
+            setBulkDraft((prev) => ({ ...prev, [key]: value }));
+          };
+
+          const getBulkBounds = (st: StatDef): { lo: number; hi: number } => {
+            const key = st[1];
+            const baseRef = st[2] ?? st[5] ?? 0;
+            const lo = baseRef;
+            if (overrideEnabled()) return { lo, hi: Infinity };
+            const normalHi = st[3] ?? st[5] ?? baseRef;
+            const hi = key === "tais" ? Math.max(normalHi, lo + 9) : normalHi;
+            return { lo, hi };
+          };
+
+          const bumpBulkValue = (st: StatDef, sign: 1 | -1) => {
+            const key = st[1];
+            const isNonEditable = NON_EDITABLE_KEYS.has(key);
+            if (isNonEditable && !overrideEnabled()) return;
+            const { lo, hi } = getBulkBounds(st);
+            const step = st[1] === "soku" ? 5 : 1;
+            const baseRef = st[2] ?? st[5] ?? 0;
+            const cur = Number(bulkDraft()[key] ?? baseRef);
+            const next = hi === Infinity ? cur + step * sign : Math.max(lo, Math.min(hi, cur + step * sign));
+            setBulkValue(key, next);
+          };
+
+          const saveBulkEdit = () => {
+            const overrides = ensureFleetStatOverrides(liveSlot());
+            const allStats = [...d.leftStats, ...d.rightStats];
+            for (const st of allStats) {
+              const key = st[1];
+              const isNonEditable = NON_EDITABLE_KEYS.has(key);
+              if (isNonEditable && !overrideEnabled()) continue;
+              const baseRef = st[2] ?? st[5] ?? 0;
+              const { lo, hi } = getBulkBounds(st);
+              const raw = Number(bulkDraft()[key] ?? baseRef);
+              const next = hi === Infinity ? raw : Math.max(lo, Math.min(hi, Number.isFinite(raw) ? raw : baseRef));
+              if (next === baseRef) delete overrides[key];
+              else overrides[key] = next;
+            }
+            setBulkEditOpen(false);
+            markSimulatorStateDirty("fleet");
+          };
+
           createEffect(() => {
             setCardImageUnavailable(!imageUrl);
           });
 
           return (
+            <>
             <div
               class="rounded-lg overflow-hidden border border-base-300/60 bg-base-100 group/card relative w-full max-w-md mx-auto"
               onMouseEnter={() => setCardHovered(true)}
@@ -542,6 +671,16 @@ function ShipCard(props: {
                   <span class="text-xs font-bold truncate flex-1 leading-tight">{d.s.name}</span>
                   <span class="text-[9px] px-1 py-0.5 rounded text-base-content/50 font-bold shrink-0">{d.slot.shipLevel != null ? `Lv.${d.slot.shipLevel}` : "Lv.—"}</span>
                   <span class="text-[9px] px-1 py-0.5 rounded bg-base-200/60 text-base-content/50 font-bold shrink-0">{STYPE_SHORT[d.s.stype] ?? ""}</span>
+                  <button
+                    class="w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-primary transition-all duration-150 shrink-0"
+                    title="諸元を一括編集"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openBulkEdit();
+                    }}
+                  >
+                    <span class="text-[10px]">✎</span>
+                  </button>
                   <button
                     class={`sim-delete-btn w-5 h-5 inline-flex items-center justify-center leading-none rounded-md text-base-content/75 hover:text-error transition-all duration-150 shrink-0 ${cardHovered() ? "opacity-100 scale-100" : "opacity-0 scale-95"}`}
                     title="艦を外す"
@@ -696,8 +835,10 @@ function ShipCard(props: {
                           base={ls[2]}
                           max={ls[3]}
                           isNumeric={ls[4]}
+                          fallbackBase={ls[5] ?? null}
                           equipSums={d.equipSums}
                           equipBonuses={d.equipBonuses}
+                          overrides={d.statOverrides}
                         />
                         <span></span>
                         <StatCell
@@ -706,8 +847,10 @@ function ShipCard(props: {
                           base={rs[2]}
                           max={rs[3]}
                           isNumeric={rs[4]}
+                          fallbackBase={rs[5] ?? null}
                           equipSums={d.equipSums}
                           equipBonuses={d.equipBonuses}
+                          overrides={d.statOverrides}
                         />
                       </>
                     );
@@ -715,6 +858,181 @@ function ShipCard(props: {
                 </div>
               </div>
             </div>
+            <Show when={bulkEditOpen()}>
+              <div class="fixed inset-0 z-120 bg-black/45 flex items-center justify-center p-3" onClick={() => setBulkEditOpen(false)}>
+                <div
+                  class="w-full max-w-xl bg-base-100 border border-base-300 rounded-lg shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div class="px-3 py-2.5 border-b border-base-200 flex items-center justify-between gap-2">
+                    <h3 class="text-sm font-bold">諸元を一括編集</h3>
+                    <div class="flex items-center gap-1.5">
+                      <button 
+                        class={`px-2 py-1 text-xs rounded transition-colors ${overrideEnabled() ? 'bg-warning/30 text-warning' : 'bg-base-200 text-base-content'}`}
+                        onClick={() => setOverrideEnabled(!overrideEnabled())}
+                        title="有効化すると全パラメータを範囲外まで編集可能"
+                      >
+                        {overrideEnabled() ? '制限外編集: ON' : '制限外編集: OFF'}
+                      </button>
+                      <button class="btn btn-ghost btn-xs w-6 h-6 min-h-0 p-0 flex items-center justify-center" onClick={() => setBulkEditOpen(false)}>✕</button>
+                    </div>
+                  </div>
+                  <div class="max-h-[65vh] overflow-y-auto p-2.5">
+                    {(() => {
+                      const rowCount = Math.max(d.leftStats.length, d.rightStats.length);
+
+                      return Array.from({ length: rowCount }).map((_, idx) => {
+                        const ls = d.leftStats[idx] ?? null;
+                        const rs = d.rightStats[idx] ?? null;
+                      const renderControl = (st: StatDef) => {
+                        const key = st[1];
+                        const isNonEditable = NON_EDITABLE_KEYS.has(key);
+                        const isSpeedStat = key === "soku";
+                        const isRangeStat = key === "leng";
+                        const isLabeledStat = isSpeedStat || isRangeStat;
+                        const baseRef = st[2] ?? st[5] ?? 0;
+                        const { lo: minVal, hi: maxVal } = getBulkBounds(st);
+                        const current = Number(bulkDraft()[key] ?? baseRef);
+                        const pct = maxVal <= minVal || maxVal === Infinity ? 0 : Math.max(0, Math.min(100, ((current - minVal) / (maxVal - minVal)) * 100));
+                        const isDisabled = isNonEditable && !overrideEnabled();
+                        const labelMap = isSpeedStat ? SPEED_NAMES : RANGE_NAMES;
+                        const selectOptions = Object.entries(labelMap)
+                          .map(([value, label]) => [Number(value), label] as const)
+                          .sort((a, b) => a[0] - b[0]);
+                        const hasCurrentOption = selectOptions.some(([value]) => value === current);
+                        const currentLabel = labelMap[current] ?? "不明";
+                        
+                        return (
+                          <div class={`rounded-md border px-2 py-1.5 text-xs ${isDisabled ? 'border-base-200/30 bg-base-200/20 opacity-60' : 'border-base-200/70 bg-base-100'}`}>
+                            {isLabeledStat ? (
+                              <>
+                                <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
+                                  <span class="font-medium text-base-content/70">{st[0]}</span>
+                                  <div class="justify-self-end flex items-center justify-end leading-6">
+                                    <div class="w-[7.5rem] flex items-center justify-end">
+                                      <select
+                                        class="select select-xs select-bordered h-6 py-0 px-2 w-24 text-xs"
+                                        value={String(current)}
+                                        disabled={isDisabled}
+                                        onInput={(e) => {
+                                          if (isDisabled) return;
+                                          const next = Number((e.currentTarget as HTMLSelectElement).value);
+                                          if (!Number.isFinite(next)) return;
+                                          setBulkValue(key, next);
+                                        }}
+                                      >
+                                        {selectOptions.map(([value, label]) => (
+                                          <option value={String(value)}>{label}</option>
+                                        ))}
+                                        {!hasCurrentOption && <option value={String(current)}>{currentLabel}</option>}
+                                      </select>
+                                    </div>
+                                  </div>
+                                </div>
+                                {isDisabled && (
+                                  <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
+                                )}
+                              </>
+                            ) : (
+                              <div>
+                                <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
+                                  <span class="font-medium text-base-content/70">{st[0]}</span>
+                                  <div class="justify-self-end flex items-center justify-end gap-1">
+                                    <div class="w-[7.5rem] flex items-center justify-end gap-1">
+                                      <button
+                                        class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
+                                        onClick={() => bumpBulkValue(st, -1)}
+                                        disabled={isDisabled}
+                                      >
+                                        -
+                                      </button>
+                                      <input
+                                        type="number"
+                                        min={String(minVal)}
+                                        value={String(current)}
+                                        class="input input-xs input-bordered w-14 text-center font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                        disabled={isDisabled}
+                                        onInput={(e) => {
+                                          if (isDisabled) return;
+                                          const next = Number((e.currentTarget as HTMLInputElement).value);
+                                          if (!Number.isFinite(next)) return;
+                                          if (overrideEnabled()) {
+                                            setBulkValue(key, next);
+                                          } else {
+                                            setBulkValue(key, Math.max(minVal, Math.min(maxVal, next)));
+                                          }
+                                        }}
+                                      />
+                                      <button
+                                        class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
+                                        onClick={() => bumpBulkValue(st, 1)}
+                                        disabled={isDisabled}
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                                {isDisabled && (
+                                  <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
+                                )}
+                              </div>
+                            )}
+                            {!isLabeledStat && (
+                              <div class="mt-1">
+                                {!isDisabled ? (
+                                  <>
+                                    <input
+                                      type="range"
+                                      min={String(minVal)}
+                                      max={String(maxVal === Infinity ? minVal + 1000 : maxVal)}
+                                      value={String(Math.min(current, maxVal === Infinity ? minVal + 1000 : maxVal))}
+                                      class="w-full h-1 align-middle cursor-pointer appearance-none rounded-none bg-base-300 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-0 [&::-webkit-slider-thumb]:h-0 [&::-moz-range-thumb]:w-0 [&::-moz-range-thumb]:h-0 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-transparent"
+                                      style={{
+                                        background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct}%, var(--color-base-300) ${pct}%, var(--color-base-300) 100%)`
+                                      } as any}
+                                      onInput={(e) => {
+                                        const next = Number((e.currentTarget as HTMLInputElement).value);
+                                        setBulkValue(key, next);
+                                      }}
+                                    />
+                                    <div class="mt-0.5 flex items-center justify-between text-[9px] text-base-content/40 font-mono">
+                                      <span>min {minVal}</span>
+                                      <span>
+                                        {maxVal === Infinity
+                                          ? "max 制限外"
+                                          : key === "tais"
+                                          ? `max ${maxVal}(+9)`
+                                          : `max ${maxVal}`}
+                                      </span>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <div class="text-[9px] text-base-content/40 font-mono">編集不可</div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      };
+
+                      return (
+                        <div class="grid grid-cols-2 gap-1.5">
+                          {ls ? renderControl(ls) : <div />}
+                          {rs ? renderControl(rs) : <div />}
+                        </div>
+                      );
+                      });
+                    })()}
+                  </div>
+                  <div class="px-3 py-2.5 border-t border-base-200 flex items-center justify-end gap-2">
+                    <button class="btn btn-ghost btn-sm h-8 min-h-0" onClick={() => setBulkEditOpen(false)}>キャンセル</button>
+                    <button class="btn btn-primary btn-sm h-8 min-h-0" onClick={saveBulkEdit}>保存</button>
+                  </div>
+                </div>
+              </div>
+            </Show>
+            </>
           );
         }}
       </Show>
