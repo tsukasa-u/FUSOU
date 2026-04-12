@@ -14,6 +14,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const { createHash } = require('crypto');
 const {
   ROOT, findMasterData, parseMasterData, buildMstDict, createGetMst, loadBundle
 } = require('../lib/loader');
@@ -28,6 +29,21 @@ const outputPath = outputIdx >= 0 && args[outputIdx + 1]
   : path.join(ROOT, 'output', 'slot_item_effects.json');
 const previewNameManifestPath = path.join(path.dirname(outputPath), 'preview_name_manifest.json');
 
+// --period-tag YYYY-MM-DD: the KanColle game period tag to associate with this scan.
+// This must match the period_tag used by the server for master-data and ship-growth uploads.
+// If not provided, remains null and upload-synergy.mjs will require --period-tag explicitly.
+const periodTagIdx = args.indexOf('--period-tag');
+const scanPeriodTag = periodTagIdx >= 0 && args[periodTagIdx + 1] ? args[periodTagIdx + 1] : null;
+if (scanPeriodTag && !/^\d{4}-\d{2}-\d{2}$/.test(scanPeriodTag)) {
+  console.error(`Error: --period-tag must be YYYY-MM-DD, got: ${scanPeriodTag}`);
+  process.exit(1);
+}
+if (scanPeriodTag) {
+  console.log(`[scan] period_tag: ${scanPeriodTag}`);
+} else {
+  console.warn('[scan] WARNING: --period-tag not specified. Add it to _meta manually or pass --period-tag to upload-synergy.mjs.');
+}
+
 // ── Load master data ───────────────────────────────────────────────
 const masterPath = findMasterData();
 if (!masterPath) {
@@ -35,6 +51,10 @@ if (!masterPath) {
   process.exit(1);
 }
 console.log(`[scan] Master data: ${path.relative(ROOT, masterPath)}`);
+
+// Compute hash of the raw master data file bytes for provenance tracking.
+const apiStart2BatchHash = createHash('sha256').update(fs.readFileSync(masterPath)).digest('hex');
+console.log(`[scan] api_start2_batch_hash: ${apiStart2BatchHash}`);
 
 const masterData = parseMasterData(masterPath);
 const mstShips = [...masterData.api_mst_ship].sort((a, b) => a.api_id - b.api_id);
@@ -364,6 +384,8 @@ const output = {
   _meta: {
     generated: deterministic ? '1970-01-01T00:00:00.000Z' : new Date().toISOString(),
     generator_version: pkgVersion,
+    api_start2_batch_hash: apiStart2BatchHash,
+    period_tag: scanPeriodTag,
     deterministic,
     source: path.basename(useMain ? 'main.js' : 'output/deobfuscated.js'),
     total_ships: mstShips.length,

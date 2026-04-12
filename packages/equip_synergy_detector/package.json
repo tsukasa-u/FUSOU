@@ -9,7 +9,8 @@
     "scan:main": "node scripts/scan.js --main",
     "scan:deterministic": "node scripts/scan.js",
     "scan:volatile": "node scripts/scan.js --volatile-generated",
-    "scan:upload": "node scripts/scan.js --volatile-generated && echo 'Scan complete. Run upload from FUSOU-WEB: pnpm --filter fusou-web upload:synergy -- --file ../equip_synergy_detector/output/slot_item_effects.json --period-tag <YYYY-MM-DD> --api-start2-hash <hash>'",
+    "scan:upload": "dotenvx run -fk ../.env.keys -f ../FUSOU-WEB/.env -- node scripts/scan-upload.mjs --env production",
+    "scan:upload:dry": "dotenvx run -fk ../.env.keys -f ../FUSOU-WEB/.env -- node scripts/scan-upload.mjs --env production --dry-run",
     "start": "node scripts/run.js",
     "start:main": "node scripts/run.js --main",
     "repl": "node scripts/run.js --repl",
@@ -19,6 +20,7 @@
     "jsdom": "^25.0.0"
   },
   "devDependencies": {
+    "@dotenvx/dotenvx": "^1.59.1",
     "webcrack": "^2.0.0"
   }
 }
