@@ -29,6 +29,8 @@ pub struct AuthManager<S: Storage + 'static> {
     client: Client,
     // mutex to ensure single-flight refresh
     refresh_lock: Arc<Mutex<()>>,
+    // in-memory cache shared across all clones of this manager
+    dataset_token_cache: Arc<Mutex<Option<crate::types::DatasetToken>>>,
 }
 
 impl<S: Storage> Clone for AuthManager<S> {
@@ -38,6 +40,7 @@ impl<S: Storage> Clone for AuthManager<S> {
             storage: self.storage.clone(),
             client: self.client.clone(),
             refresh_lock: self.refresh_lock.clone(),
+            dataset_token_cache: self.dataset_token_cache.clone(),
         }
     }
 }
@@ -49,6 +52,7 @@ impl<S: Storage> AuthManager<S> {
             storage,
             client: Client::new(),
             refresh_lock: Arc::new(Mutex::new(())),
+            dataset_token_cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -185,7 +189,8 @@ impl<S: Storage> AuthManager<S> {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            tracing::warn!(status = %status, url = %url, body = %text, "supabase refresh request failed");
+            let text_preview = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
+            tracing::warn!(status = %status, url = %url, body = %text_preview, "supabase refresh request failed");
 
             // If the refresh token is invalid/expired/already used, clear and signal re-auth.
             if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
@@ -194,7 +199,7 @@ impl<S: Storage> AuthManager<S> {
                 return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
             }
 
-            return Err(AuthError::RefreshFailed(format!("status {}: {}", status, text)));
+            return Err(AuthError::RefreshFailed(format!("status {}: {}", status, text_preview)));
         }
 
         let body: serde_json::Value = resp.json().await?;
@@ -363,15 +368,16 @@ impl<S: Storage> AuthManager<S> {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            let text_preview = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
             tracing::warn!(
                 status = %status,
                 url = %url,
-                body = %text,
+                body = %text_preview,
                 "anonymous-sync request failed"
             );
             return Err(AuthError::RefreshFailed(format!(
                 "anonymous-sync failed: status {}: {}",
-                status, text
+                status, text_preview
             )));
         }
 
@@ -441,21 +447,15 @@ impl<S: Storage> AuthManager<S> {
 
     /// dataset_tokenをストレージに保存
     pub async fn save_dataset_token(&self, token: &crate::types::DatasetToken) -> Result<(), AuthError> {
-        // Note: This requires storage that supports DatasetToken
-        // For now, this is a placeholder that could be extended to support MultiSessionStorage
-        let token_preview = if token.token.len() > 20 {
-            format!("{}...{}", &token.token[..10], &token.token[token.token.len()-10..])
-        } else {
-            "<short-token>".to_string()
-        };
-        tracing::debug!("dataset_token saved (token: {})", token_preview);
+        let mut cache = self.dataset_token_cache.lock().await;
+        *cache = Some(token.clone());
+        tracing::debug!("dataset_token stored in memory cache");
         Ok(())
     }
 
     /// ストレージからdataset_tokenを読み込む
     pub async fn load_dataset_token(&self) -> Result<Option<crate::types::DatasetToken>, AuthError> {
-        // Note: This requires storage that supports DatasetToken
-        // For now, this is a placeholder that could be extended to support MultiSessionStorage
-        Ok(None)
+        let cache = self.dataset_token_cache.lock().await;
+        Ok(cache.clone())
     }
 }
