@@ -12,6 +12,7 @@ apache-avro = { version = "0.17", default-features = false, features = ["snappy"
 register_trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = "0.10"
 tokio = { workspace = true, optional = true }
 uuid = { workspace = true }
 tracing = { workspace = true }

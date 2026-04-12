@@ -100,6 +100,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::Quests(data) => {
                 data.restore();
             }
+            Set::ShipGrowthSnapshot(_) => {}
+            Set::RemodelSlotList(_) => {}
+            Set::RemodelDetail(_) => {}
             Set::Dammy(_) => {}
         },
         EmitData::Identifier(data) => match data {
