@@ -93,15 +93,21 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
     match event {
         tauri::WindowEvent::CloseRequested { api, .. } => match window.label() {
             "main" => {
-                window.hide().unwrap();
+                if let Err(e) = window.hide() {
+                    tracing::warn!("failed to hide main window on close request: {}", e);
+                }
                 api.prevent_close();
             }
             "external" => {
-                window.close().unwrap();
+                if let Err(e) = window.close() {
+                    tracing::warn!("failed to close external window: {}", e);
+                }
             }
             #[cfg(dev)]
             "debug" => {
-                window.close().unwrap();
+                if let Err(e) = window.close() {
+                    tracing::warn!("failed to close debug window: {}", e);
+                }
             }
             _ => {}
         },

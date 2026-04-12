@@ -24,7 +24,6 @@ use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
 use fusou_upload::{PendingStore, UploadRetryService};
-use tracing_unwrap::OptionExt;
 
 // use tauri_plugin_notification::NotificationExt; // replaced by notify wrapper where needed
 
@@ -96,33 +95,41 @@ pub async fn get_mst_useitems(window: tauri::Window) {
 #[tauri::command]
 pub async fn show_splashscreen(window: tauri::Window) {
     // Show splashscreen
-    window
-        .get_webview_window("splashscreen")
-        .expect_or_log("no window labeled 'splashscreen' found")
-        .show()
-        .unwrap();
+    if let Some(splash) = window.get_webview_window("splashscreen") {
+        if let Err(e) = splash.show() {
+            tracing::warn!("failed to show splashscreen: {}", e);
+        }
+    } else {
+        tracing::warn!("no window labeled 'splashscreen' found");
+    }
 }
 
 #[allow(dead_code)]
 #[tauri::command]
 pub async fn close_splashscreen(window: tauri::Window) {
     // Close splashscreen
-    window
-        .get_webview_window("splashscreen")
-        .expect_or_log("no window labeled 'splashscreen' found")
-        .close()
-        .unwrap();
+    if let Some(splash) = window.get_webview_window("splashscreen") {
+        if let Err(e) = splash.close() {
+            tracing::warn!("failed to close splashscreen: {}", e);
+        }
+    } else {
+        tracing::warn!("no window labeled 'splashscreen' found");
+    }
     // Show main window
-    window
-        .get_webview_window("main")
-        .expect_or_log("no window labeled 'main' found")
-        .show()
-        .unwrap();
-    window
-        .get_webview_window("external")
-        .expect_or_log("no window labeled 'external' found")
-        .show()
-        .unwrap();
+    if let Some(main) = window.get_webview_window("main") {
+        if let Err(e) = main.show() {
+            tracing::warn!("failed to show main window: {}", e);
+        }
+    } else {
+        tracing::warn!("no window labeled 'main' found");
+    }
+    if let Some(external) = window.get_webview_window("external") {
+        if let Err(e) = external.show() {
+            tracing::warn!("failed to show external window: {}", e);
+        }
+    } else {
+        tracing::warn!("no window labeled 'external' found");
+    }
 }
 
 #[cfg(feature = "gdrive")]
@@ -556,10 +563,12 @@ pub async fn get_user_tokens(
 pub async fn open_debug_window(window: tauri::Window) {
     match window.get_webview_window("debug") {
         Some(debug_window) => {
-            debug_window.show().unwrap();
+            if let Err(e) = debug_window.show() {
+                tracing::warn!("failed to show debug window: {}", e);
+            }
         }
         None => {
-            let _window = tauri::WebviewWindowBuilder::new(
+            if let Err(e) = tauri::WebviewWindowBuilder::new(
                 window.app_handle(),
                 "debug",
                 tauri::WebviewUrl::App("/debug".into()),
@@ -567,7 +576,9 @@ pub async fn open_debug_window(window: tauri::Window) {
             .fullscreen(false)
             .title("fusou-debug")
             .build()
-            .unwrap();
+            {
+                tracing::warn!("failed to build debug window: {}", e);
+            }
         }
     }
 }
@@ -575,10 +586,12 @@ pub async fn open_debug_window(window: tauri::Window) {
 #[cfg(dev)]
 #[tauri::command]
 pub async fn close_debug_window(window: tauri::Window) {
-    window
-        .get_webview_window("debug")
-        .expect_or_log("no window labeled 'debug' found")
-        .close()
-        .unwrap();
+    if let Some(debug_window) = window.get_webview_window("debug") {
+        if let Err(e) = debug_window.close() {
+            tracing::warn!("failed to close debug window: {}", e);
+        }
+    } else {
+        tracing::warn!("no window labeled 'debug' found");
+    }
 }
 

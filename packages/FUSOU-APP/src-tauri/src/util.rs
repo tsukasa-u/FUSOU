@@ -137,7 +137,7 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
                 tracing::debug!("member_id upsert already completed for this member_id_hash, skipping");
                 return;
             } else {
-                tracing::info!("member_id changed ({} -> {}), resetting upsert flag for new game", last_id, member_id_hash);
+                tracing::info!("member_id changed, resetting upsert flag for new game");
                 MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
             }
         } else {
@@ -251,7 +251,7 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
                 tracing::debug!("anonymous auth already attempted for this member_id_hash, skipping");
                 return;
             } else {
-                tracing::info!("member_id changed ({} -> {}), resetting anonymous auth flag for new game", last_id, member_id_hash);
+                tracing::info!("member_id changed, resetting anonymous auth flag for new game");
                 ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
             }
         } else {

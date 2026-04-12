@@ -62,10 +62,18 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
 
         let init_script = include_str!("./scripts/external_init_script.js");
 
+        let game_url = match get_game_url().parse() {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::error!("Invalid game URL in config, cannot open external window: {}", e);
+                return;
+            }
+        };
+
         let external = tauri::WebviewWindowBuilder::new(
             app,
             "external",
-            tauri::WebviewUrl::External(get_game_url().parse().unwrap()),
+            tauri::WebviewUrl::External(game_url),
         );
 
         let app_configs = configs::get_user_configs_for_app();
@@ -92,6 +100,12 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             .show()
             .expect_or_log("can not show external window");
     } else {
-        open_browser(browser.unwrap(), &get_game_url()).unwrap();
+        if let Some(browser) = browser {
+            if let Err(e) = open_browser(browser, &get_game_url()) {
+                tracing::error!("Failed to open external browser: {}", e);
+            }
+        } else {
+            tracing::error!("browse_webview=false but no browser was provided");
+        }
     }
 }

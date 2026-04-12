@@ -61,9 +61,26 @@ impl CloudTableStorageProvider {
     async fn upload_bytes(&self, remote_path: &str, bytes: &[u8]) -> Result<(), StorageError> {
         let mut temp_path = std::env::temp_dir();
         temp_path.push(format!("fusou-upload-{}", Uuid::new_v4()));
-        tokio::fs::write(&temp_path, bytes)
-            .await
-            .map_err(|e| StorageError::Io(e))?;
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
+                .await
+                .map_err(StorageError::Io)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                tokio::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600))
+                    .await
+                    .map_err(StorageError::Io)?;
+            }
+            if let Err(e) = file.write_all(bytes).await {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(StorageError::Io(e));
+            }
+        }
 
         // Create a hash of the data to detect duplicates
         use sha2::{Digest, Sha256};

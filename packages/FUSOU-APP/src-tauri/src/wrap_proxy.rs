@@ -106,13 +106,19 @@ where
     } else {
         Some(proxy_target.as_str())
     };
-    let proxy_addr_string = proxy_addr.unwrap().to_string();
+    let proxy_addr_string = match proxy_addr {
+        Ok(addr) => addr.to_string(),
+        Err(_) => return Err("Failed to start proxy server".into()),
+    };
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
-    native_cmd::add_pac(
-        format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()),
-        app,
-    );
+    if let Ok(pac_socket) = pac_addr {
+        native_cmd::add_pac(format!("http://localhost:{}/proxy.pac", pac_socket.port()), app);
+    } else {
+        return Err("Failed to start pac server".into());
+    }
 
-    return Ok(Url::parse(&format!("http://{proxy_addr_string}")).unwrap());
+    let proxy_url = Url::parse(&format!("http://{proxy_addr_string}"))
+        .map_err(|_| "Failed to parse proxy URL")?;
+    return Ok(proxy_url);
 }

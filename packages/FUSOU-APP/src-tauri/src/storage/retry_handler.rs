@@ -63,7 +63,11 @@ impl RetryHandler for AppUploadRetryHandler {
                             context: UploadContext::Custom(context.clone()),
                         };
 
-                        let client = reqwest::Client::new();
+                        let client = reqwest::Client::builder()
+                            .connect_timeout(std::time::Duration::from_secs(10))
+                            .timeout(std::time::Duration::from_secs(60))
+                            .build()
+                            .unwrap_or_default();
                         // Use the same auth manager to obtain token inside Uploader
                         Uploader::upload(&client, &self.auth_manager, request, None)
                             .await
@@ -93,6 +97,8 @@ impl RetryHandler for AppUploadRetryHandler {
                             data: data.to_vec(),
                             headers: {
                                 let mut h = std::collections::HashMap::new();
+                                // payload_hash is used as the content-hash header for quest retries
+                                // (consistent with the original send path which also uses payload_hash)
                                 if let Some(hash) = context.get("payload_hash").and_then(|v| v.as_str()) {
                                     h.insert("content-hash".to_string(), hash.to_string());
                                 }
@@ -101,7 +107,11 @@ impl RetryHandler for AppUploadRetryHandler {
                             context: UploadContext::Custom(context.clone()),
                         };
 
-                        let client = reqwest::Client::new();
+                        let client = reqwest::Client::builder()
+                            .connect_timeout(std::time::Duration::from_secs(10))
+                            .timeout(std::time::Duration::from_secs(60))
+                            .build()
+                            .unwrap_or_default();
                         Uploader::upload(&client, &self.auth_manager, request, None)
                             .await
                             .map(|_| ())
@@ -113,6 +123,9 @@ impl RetryHandler for AppUploadRetryHandler {
                             .and_then(|v| v.as_str())
                             .ok_or("missing endpoint")?;
                         let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
+                        // The persisted data is the raw upload payload (no file_size or
+                        // content_hash). Add file_size here; content_hash is injected by the
+                        // uploader (sha256 of request.data).
                         if let Some(obj) = handshake_body.as_object_mut() {
                             obj.insert(
                                 "file_size".to_string(),
@@ -120,21 +133,31 @@ impl RetryHandler for AppUploadRetryHandler {
                             );
                         }
 
+                        // content-hash header must match actual upload content, not payload_hash.
+                        let content_hash = {
+                            use sha2::{Digest, Sha256};
+                            let mut h = Sha256::new();
+                            h.update(data);
+                            format!("{:x}", h.finalize())
+                        };
+
                         let request = UploadRequest {
                             endpoint,
                             handshake_body,
                             data: data.to_vec(),
                             headers: {
                                 let mut h = std::collections::HashMap::new();
-                                if let Some(hash) = context.get("payload_hash").and_then(|v| v.as_str()) {
-                                    h.insert("content-hash".to_string(), hash.to_string());
-                                }
+                                h.insert("content-hash".to_string(), content_hash);
                                 h
                             },
                             context: UploadContext::Custom(context.clone()),
                         };
 
-                        let client = reqwest::Client::new();
+                        let client = reqwest::Client::builder()
+                            .connect_timeout(std::time::Duration::from_secs(10))
+                            .timeout(std::time::Duration::from_secs(60))
+                            .build()
+                            .unwrap_or_default();
                         Uploader::upload(&client, &self.auth_manager, request, None)
                             .await
                             .map(|_| ())
@@ -151,15 +174,73 @@ impl RetryHandler for AppUploadRetryHandler {
                         // Write data to a temporary file then upload
                         let mut temp_path = std::env::temp_dir();
                         temp_path.push(format!("fusou-retry-{}", uuid::Uuid::new_v4()));
-                        tokio::fs::write(&temp_path, data).await?;
+                        {
+                            use tokio::io::AsyncWriteExt;
+                            let mut file = tokio::fs::OpenOptions::new()
+                                .write(true)
+                                .create_new(true)
+                                .open(&temp_path)
+                                .await?;
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                tokio::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await?;
+                            }
+                            file.write_all(data).await?;
+                        }
 
-                        cloud
+                        let upload_result = cloud
                             .upload_file(temp_path.as_path(), remote_path)
                             .await
-                            .map_err(|e| format!("cloud upload failed: {}", e))?;
+                            .map_err(|e| format!("cloud upload failed: {}", e));
 
                         let _ = tokio::fs::remove_file(&temp_path).await;
+                        upload_result?;
                         Ok(())
+                    }
+                    "remodel_data_ingest" => {
+                        let endpoint = context
+                            .get("endpoint")
+                            .and_then(|v| v.as_str())
+                            .ok_or("missing endpoint")?;
+                        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
+                        if let Some(obj) = handshake_body.as_object_mut() {
+                            obj.insert(
+                                "file_size".to_string(),
+                                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
+                            );
+                        }
+
+                        // content-hash header must match actual upload content, not payload_hash
+                        // (payload_hash is sha256 of the inner struct, not the full envelope bytes)
+                        let content_hash = {
+                            use sha2::{Digest, Sha256};
+                            let mut h = Sha256::new();
+                            h.update(data);
+                            format!("{:x}", h.finalize())
+                        };
+
+                        let request = UploadRequest {
+                            endpoint,
+                            handshake_body,
+                            data: data.to_vec(),
+                            headers: {
+                                let mut h = std::collections::HashMap::new();
+                                h.insert("content-hash".to_string(), content_hash);
+                                h
+                            },
+                            context: UploadContext::Custom(context.clone()),
+                        };
+
+                        let client = reqwest::Client::builder()
+                            .connect_timeout(std::time::Duration::from_secs(10))
+                            .timeout(std::time::Duration::from_secs(60))
+                            .build()
+                            .unwrap_or_default();
+                        Uploader::upload(&client, &self.auth_manager, request, None)
+                            .await
+                            .map(|_| ())
+                            .map_err(|e| e.into())
                     }
                     _ => Err("unsupported operation".into()),
                 }

@@ -129,23 +129,6 @@ save_file_location = ""
     # kc_server_name = "w16s.kancolle-server.com" # This is example
     kc_server_name = "w16s.kancolle-server.com"
 
-        [app.ship_growth_sender]
-        # Whether to enable ship growth data ingestion
-        # default is false
-        enable = true
-
-        # Endpoint to ingest ship growth data
-        # If empty, ship growth sender is disabled
-        ingest_endpoint = "https://dev.fusou.pages.dev/api/ship-growth/ingest"
-
-        [app.remodel_sender]
-        # Whether to enable remodel tree data ingestion (experimental feature)
-        # default is false
-        enable = true
-
-        # Endpoint to ingest remodel data
-        # Must be set when enable=true
-        ingest_endpoint = "https://dev.fusou.pages.dev/api/remodel-data/ingest"
 
     [app.browser]
     # The URL to open first in the browser
@@ -303,6 +286,25 @@ save_file_location = ""
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled
     ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
+
+    [app.ship_growth_sender]
+    # Whether to enable ship growth data ingestion
+    # default is false
+    enable = true
+
+    # Endpoint to ingest ship growth data
+    # If empty, ship growth sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
+    [app.remodel_sender]
+    # Whether to enable remodel tree data ingestion (experimental feature)
+    # This sends your remodel recipe observations to help build the remodel tree.
+    # default is false
+    enable = true
+
+    # Endpoint to ingest remodel data
+    # Must be set when enable=true
+    ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events

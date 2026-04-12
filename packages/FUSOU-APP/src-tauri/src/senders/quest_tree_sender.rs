@@ -49,13 +49,19 @@ impl QuestTreeSender {
             pending_store,
             retry_service,
             request_cache: {
-                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(10 * 60)));
+                // quest tree data is cross-period; use a long TTL so the same payload is not
+                // re-sent every 10 minutes within the same session.
+                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(7 * 24 * 60 * 60)));
                 if let Err(e) = cache.enable_persistence(cache_file) {
                     tracing::warn!(error = %e, "failed to enable persistent quest suppression cache");
                 }
                 cache
             },
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(60))
+                .build()
+                .expect("failed to build quest_tree_sender reqwest client"),
             next_seq: AtomicU64::new(0),
             next_to_send: AtomicU64::new(0),
             send_notify: Notify::new(),
@@ -132,11 +138,8 @@ impl QuestTreeSender {
         let event_type = Self::packet_event_type(packet).to_string();
 
         let period_tag = crate::auth::supabase::get_period_tag().await;
-        self.request_cache.rotate_scope(Some(&format!(
-            "{}:{}",
-            period_tag,
-            kc_api::database::DATABASE_TABLE_VERSION
-        )));
+        // quest tree data is cross-period: only invalidate on table version change
+        self.request_cache.rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
 
         if self.request_cache.should_skip(&key, &payload_hash) {
             return Ok(());
@@ -240,11 +243,17 @@ impl QuestTreeSender {
     async fn submit(self: Arc<Self>, seq: u64, packet: QuestPacket) {
         // Enforce strict in-order submission without relying on task scheduling order.
         loop {
+            // Subscribe BEFORE checking the condition to prevent a missed-wakeup race:
+            // if notify_waiters() fires between the load() and notified().await, the
+            // notification would be lost and this task would hang forever.
+            let notified = self.send_notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
             let turn = self.next_to_send.load(Ordering::Acquire);
             if turn == seq {
                 break;
             }
-            self.send_notify.notified().await;
+            notified.await;
         }
 
         if let Err(e) = self.send_if_new(&packet).await {
