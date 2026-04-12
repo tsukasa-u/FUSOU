@@ -325,16 +325,28 @@ function SpecTable(props: {
 
   return (
     <div class="overflow-x-auto rounded-xl border border-base-300/70">
-      <table class="table table-fixed table-zebra table-sm w-full">
+      <table class="table table-fixed table-zebra table-sm w-full sm:hidden">
+        <tbody>
+          <For each={props.rows}>
+            {(row) => (
+              <tr>
+                <th class="w-28 md:w-36 text-base-content/65 font-medium">{row[0]}</th>
+                <td class="font-mono text-right md:text-left">{row[1]}</td>
+              </tr>
+            )}
+          </For>
+        </tbody>
+      </table>
+      <table class="hidden sm:table table-fixed table-zebra table-sm w-full">
         <tbody>
           <For each={pairedRows()}>
             {(pair) => (
               <tr>
                 <th class="w-28 md:w-36 text-base-content/65 font-medium">{pair[0]?.[0]}</th>
                 <td class="font-mono text-right md:text-left">{pair[0]?.[1]}</td>
-                <Show when={pair[1]} fallback={<><th class="hidden xl:table-cell"></th><td class="hidden xl:table-cell"></td></>}>
-                  <th class="hidden xl:table-cell w-28 md:w-36 text-base-content/65 font-medium">{pair[1]?.[0]}</th>
-                  <td class="hidden xl:table-cell font-mono text-right md:text-left">{pair[1]?.[1]}</td>
+                <Show when={pair[1]} fallback={<><th></th><td></td></>}>
+                  <th class="w-28 md:w-36 text-base-content/65 font-medium">{pair[1]?.[0]}</th>
+                  <td class="font-mono text-right md:text-left">{pair[1]?.[1]}</td>
                 </Show>
               </tr>
             )}
