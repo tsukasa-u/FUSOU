@@ -297,25 +297,13 @@ async function recomputeRulesForTarget(
 
   candidates.sort((a, b) => b.score - a.score);
 
-  await db
-    .prepare(
-      `DELETE FROM quest_rule_candidates
-       WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
-    )
-    .bind(targetQuestId, periodTag, tableVersion)
-    .run();
-
-  await db
-    .prepare(
-      `DELETE FROM quest_rule_edges
-       WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
-    )
-    .bind(targetQuestId, periodTag, tableVersion)
-    .run();
-
+  // Pass 1: collect metadata and build INSERT stmts for quest_rule_candidates
+  // (no DB I/O here — allows a single batched write below)
   let bestSingle: CandidateMetric | null = null;
   let bestPair: CandidateMetric | null = null;
   const candidateByHash = new Map<string, CandidateMetric>();
+  const candidateInsertStmts: ReturnType<D1DatabaseLike["prepare"]>[] = [];
+  const nowForCandidates = nowMs();
 
   for (const candidate of candidates) {
     if (candidate.setSize === 1 && !bestSingle) bestSingle = candidate;
@@ -324,40 +312,62 @@ async function recomputeRulesForTarget(
     const prereqJson = JSON.stringify(candidate.prereq);
     const hash = prereqHash(candidate.prereq);
     candidateByHash.set(hash, candidate);
-    await db
+    candidateInsertStmts.push(
+      db
+        .prepare(
+          `INSERT INTO quest_rule_candidates (
+             target_quest_id,
+             prereq_set_hash,
+             prereq_set_json,
+             set_size,
+             support,
+             exposure,
+             confidence,
+             lift,
+             score,
+             period_tag,
+             table_version,
+             quality_tier,
+             updated_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          targetQuestId,
+          hash,
+          prereqJson,
+          candidate.setSize,
+          candidate.support,
+          candidate.exposure,
+          candidate.confidence,
+          candidate.lift,
+          candidate.score,
+          periodTag,
+          tableVersion,
+          "high",
+          nowForCandidates,
+        )
+    );
+  }
+
+  // Batch 1: DELETEs + candidate INSERTs (100-stmt D1 limit enforced)
+  // DELETEs come first so the old data is cleared before new rows land.
+  const deletePlusCandidates = [
+    db
       .prepare(
-        `INSERT INTO quest_rule_candidates (
-           target_quest_id,
-           prereq_set_hash,
-           prereq_set_json,
-           set_size,
-           support,
-           exposure,
-           confidence,
-           lift,
-           score,
-           period_tag,
-           table_version,
-           quality_tier,
-           updated_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `DELETE FROM quest_rule_candidates
+         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
       )
-      .bind(
-        targetQuestId,
-        hash,
-        prereqJson,
-        candidate.setSize,
-        candidate.support,
-        candidate.exposure,
-        candidate.confidence,
-        candidate.lift,
-        candidate.score,
-        periodTag,
-        tableVersion,
-        "high",
-        nowMs(),
+      .bind(targetQuestId, periodTag, tableVersion),
+    db
+      .prepare(
+        `DELETE FROM quest_rule_edges
+         WHERE target_quest_id = ? AND period_tag = ? AND table_version = ?`
       )
-      .run();
+      .bind(targetQuestId, periodTag, tableVersion),
+    ...candidateInsertStmts,
+  ];
+  for (let i = 0; i < deletePlusCandidates.length; i += 100) {
+    await db.batch(deletePlusCandidates.slice(i, i + 100));
   }
 
   let primaryPairHash: string | null = null;
@@ -384,6 +394,10 @@ async function recomputeRulesForTarget(
     primarySingleHash = prereqHash(bestSingle.prereq);
   }
 
+  // Pass 2: build INSERT stmts for quest_rule_edges, then batch
+  const edgeInsertStmts: ReturnType<D1DatabaseLike["prepare"]>[] = [];
+  const nowForEdges = nowMs();
+
   for (const candidate of candidates) {
     const prereqJson = JSON.stringify(candidate.prereq);
     const hash = prereqHash(candidate.prereq);
@@ -402,42 +416,48 @@ async function recomputeRulesForTarget(
     const isPrimary = primaryPairHash === hash || primarySingleHash === hash ? 1 : 0;
     if (isPrimary) className = "accepted_primary";
 
-    await db
-      .prepare(
-        `INSERT INTO quest_rule_edges (
-           rule_id,
-           target_quest_id,
-           prereq_set_json,
-           set_size,
-           class,
-           support,
-           confidence,
-           lift,
-           score,
-           period_tag,
-           table_version,
-           is_primary,
-           quality_tier,
-           updated_at_ms
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        makeId("qrule"),
-        targetQuestId,
-        prereqJson,
-        candidate.setSize,
-        className,
-        candidate.support,
-        candidate.confidence,
-        candidate.lift,
-        candidate.score,
-        periodTag,
-        tableVersion,
-        isPrimary,
-        "high",
-        nowMs(),
-      )
-      .run();
+    edgeInsertStmts.push(
+      db
+        .prepare(
+          `INSERT INTO quest_rule_edges (
+             rule_id,
+             target_quest_id,
+             prereq_set_json,
+             set_size,
+             class,
+             support,
+             confidence,
+             lift,
+             score,
+             period_tag,
+             table_version,
+             is_primary,
+             quality_tier,
+             updated_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          makeId("qrule"),
+          targetQuestId,
+          prereqJson,
+          candidate.setSize,
+          className,
+          candidate.support,
+          candidate.confidence,
+          candidate.lift,
+          candidate.score,
+          periodTag,
+          tableVersion,
+          isPrimary,
+          "high",
+          nowForEdges,
+        )
+    );
+  }
+
+  // Batch 2: edge INSERTs
+  for (let i = 0; i < edgeInsertStmts.length; i += 100) {
+    await db.batch(edgeInsertStmts.slice(i, i + 100));
   }
 }
 

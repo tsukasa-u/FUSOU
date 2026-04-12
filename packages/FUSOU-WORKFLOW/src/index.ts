@@ -19,6 +19,8 @@ interface Env {
   TIDB_KC_DB_URL?: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
+  // Bearer token required for /battle-data/upload (must be set; endpoint is disabled without it)
+  UPLOAD_INGEST_TOKEN?: string;
   // Optional cap for task batch size. Defaults to 100.
   QUEST_TREE_CRON_LIMIT?: string;
   // Required explicit switch for experimental quest collection/inference.
@@ -78,6 +80,19 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Math.trunc(parsed);
 }
 
+/** Timing-safe string equality using XOR byte-by-byte comparison */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
 function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
   const normalized = (value ?? "").trim().toLowerCase();
   if (normalized === "true" || normalized === "1") return true;
@@ -118,7 +133,23 @@ export default {
     }
 
     if (path === "/battle-data/upload" && request.method === "POST") {
-      // Inline upload handler: accept base64 Avro slices and enqueue
+      // Require bearer token auth (fail closed if not configured)
+      const uploadToken = env.UPLOAD_INGEST_TOKEN;
+      if (!uploadToken) {
+        return new Response(
+          JSON.stringify({ error: "Upload endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
+          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const authHeader = request.headers.get("Authorization") ?? "";
+      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (!timingSafeEqual(provided, uploadToken)) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
         const payload: any = await request.json();
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
@@ -132,6 +163,15 @@ export default {
         if (!dataset_id || !table || !slices.length) {
           return new Response(
             JSON.stringify({ error: "Missing dataset_id, table, or slices" }),
+            {
+              status: 400,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (!/^[a-f0-9]{64}$/i.test(String(dataset_id))) {
+          return new Response(
+            JSON.stringify({ error: "dataset_id must be a 64-character SHA-256 hex string" }),
             {
               status: 400,
               headers: { ...CORS_HEADERS, "Content-Type": "application/json" },

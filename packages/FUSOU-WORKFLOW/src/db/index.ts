@@ -27,6 +27,7 @@ import {
   createTiDBClient as _createTiDBClient,
   createTiDBClientFromEnv as _createTiDBClientFromEnv,
   insertBufferLog as _tidbInsertBufferLog,
+  bulkInsertBufferLogs as _tidbBulkInsertBufferLogs,
   fetchBufferedData as _tidbFetchBufferedData,
   fetchHotData as _tidbFetchHotData,
   cleanupBuffer as _tidbCleanupBuffer,
@@ -241,17 +242,15 @@ export async function insertBufferLogsWithFallback(
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
 
-      let insertedCount = 0;
-      for (const record of records) {
-        await _tidbInsertBufferLog(conn, {
-          ...record,
-          data:
-            record.data instanceof Uint8Array
-              ? record.data
-              : new Uint8Array(record.data),
-        });
-        insertedCount++;
-      }
+      const typedRecords = records.map((r) => ({
+        ...r,
+        data:
+          r.data instanceof Uint8Array ? r.data : new Uint8Array(r.data),
+      }));
+      const { insertedCount } = await _tidbBulkInsertBufferLogs(
+        conn,
+        typedRecords,
+      );
 
       console.log(`[DB] Inserted ${insertedCount} records to TiDB`);
       return { source: "tidb", insertedCount, rateLimited: false };

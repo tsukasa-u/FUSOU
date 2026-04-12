@@ -243,6 +243,52 @@ export async function insertBufferLog(
 }
 
 /**
+ * Bulk-insert multiple buffer log entries in a single round-trip.
+ *
+ * Rows are sent as a multi-value INSERT: VALUES (…),(…),… which is far more
+ * efficient than N individual INSERTs when batching many records.
+ *
+ * The chunk size is capped at CHUNK_SIZE to stay within TiDB's per-statement
+ * parameter limits. Each chunk is executed sequentially (awaited) so that
+ * errors are surfaced immediately and callers can fall back to D1.
+ */
+const TIDB_BULK_CHUNK_SIZE = 100;
+
+export async function bulkInsertBufferLogs(
+  conn: TiDBConnection,
+  records: InsertBufferLogParams[],
+): Promise<{ insertedCount: number }> {
+  if (records.length === 0) return { insertedCount: 0 };
+
+  let insertedCount = 0;
+
+  for (let i = 0; i < records.length; i += TIDB_BULK_CHUNK_SIZE) {
+    const chunk = records.slice(i, i + TIDB_BULK_CHUNK_SIZE);
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
+    const values = chunk.flatMap((r) => [
+      r.dataset_id,
+      r.table_name,
+      r.period_tag,
+      r.table_version,
+      r.timestamp,
+      r.data,
+      r.uploaded_by || null,
+    ]);
+
+    await conn.execute(
+      `INSERT INTO buffer_logs
+        (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
+       VALUES ${placeholders}`,
+      values,
+    );
+
+    insertedCount += chunk.length;
+  }
+
+  return { insertedCount };
+}
+
+/**
  * Fetch all buffered data for archiving
  */
 export async function fetchBufferedData(
