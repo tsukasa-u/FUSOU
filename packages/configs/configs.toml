@@ -195,9 +195,9 @@ save_file_location = ""
 
     [app.database.r2]
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    upload_endpoint = "https://dev.fusou.pages.dev/api/battle-data/upload"
+    upload_endpoint = "https://fusou.dev/api/battle-data/upload"
     # Master-data upload endpoint
-    master_data_upload_endpoint = "https://dev.fusou.pages.dev/api/master-data/upload"
+    master_data_upload_endpoint = "https://fusou.dev/api/master-data/upload"
 
     [app.database.local]
     # Base directory used when writing KanColle data locally
@@ -230,16 +230,16 @@ save_file_location = ""
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    asset_upload_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/upload"
+    asset_upload_endpoint = "https://fusou.dev/api/asset-sync/upload"
 
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
-    fleet_snapshot_endpoint = "https://dev.fusou.pages.dev/api/fleet/snapshot"
+    fleet_snapshot_endpoint = "https://fusou.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
-    kc_period_endpoint = "https://dev.fusou.pages.dev/api/kc-period/latest"
+    kc_period_endpoint = "https://fusou.dev/api/kc-period/latest"
 
     # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
-    asset_existing_keys_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/keys"
+    asset_existing_keys_endpoint = "https://fusou.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     asset_skip_extensions = ["mp3", "woff2", "js"]
@@ -273,10 +273,10 @@ save_file_location = ""
     auth_page_url = "https://fusou.dev/auth/local/signin"
 
     # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
-    member_map_endpoint = "https://dev.fusou.pages.dev/api/user/member-map/upsert"
+    member_map_endpoint = "https://fusou.dev/api/user/member-map/upsert"
 
     # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
-    anonymous_sync_endpoint = "https://dev.fusou.pages.dev/api/auth/anonymous-sync"
+    anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
 
     [app.quest_tree_sender]
     # Whether to enable quest tree data ingestion
@@ -285,7 +285,7 @@ save_file_location = ""
 
     # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
     # If empty, quest tree sender is disabled
-    ingest_endpoint = "https://dev.fusou.pages.dev/api/quest-tree/ingest"
+    ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
 
     [app.ship_growth_sender]
     # Whether to enable ship growth data ingestion
@@ -294,7 +294,7 @@ save_file_location = ""
 
     # Endpoint to ingest ship growth data
     # If empty, ship growth sender is disabled
-    ingest_endpoint = "https://dev.fusou.pages.dev/api/ship-growth/ingest"
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
 
     [app.remodel_sender]
     # Whether to enable remodel tree data ingestion (experimental feature)
@@ -304,7 +304,7 @@ save_file_location = ""
 
     # Endpoint to ingest remodel data
     # Must be set when enable=true
-    ingest_endpoint = "https://dev.fusou.pages.dev/api/remodel-data/ingest"
+    ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
