@@ -47,6 +47,7 @@ static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| 
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
 // Counter for monitoring dropped assets due to queue backpressure
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
+static BLOCKED_EXTENSIONS: OnceLock<Vec<String>> = OnceLock::new();
 const ASSET_REQUEST_CACHE_FILE: &str = "asset_request_suppression_cache.json";
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
@@ -235,6 +236,8 @@ pub fn start(
     let pending_store = Arc::new(PendingStore::new(pending_dir));
     let _ = PENDING_STORE.set(pending_store.clone());
 
+    let _ = BLOCKED_EXTENSIONS.set(init.blocked_extensions.clone());
+
     // Phase 2: Use bounded channel instead of unbounded for backpressure handling
     let (tx, rx) = mpsc::channel(ASSET_SYNC_QUEUE_CAPACITY);
     let _ = ASSET_SYNC_QUEUE.set(tx);
@@ -263,6 +266,15 @@ pub fn start(
 
 // Phase 2: Implement backpressure handling with try_send
 pub fn notify_new_asset(path: PathBuf) {
+    // Pre-filter blocked extensions before enqueuing to avoid filling the queue
+    // with files that would be discarded anyway in process_path
+    if let Some(blocked) = BLOCKED_EXTENSIONS.get() {
+        if has_blocked_extension(&path, blocked) {
+            tracing::debug!(path = ?path, "skipping blocked extension before queuing");
+            return;
+        }
+    }
+
     if let Some(queue) = ASSET_SYNC_QUEUE.get() {
         match queue.try_send(path.clone()) {
             Ok(()) => {
@@ -309,8 +321,14 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
-    // Load persistent cache from disk BEFORE checking if refresh is needed
-    load_persistent_cache(&settings.save_root);
+    // Load persistent cache from disk BEFORE checking if refresh is needed.
+    // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
+    {
+        let save_root = settings.save_root.clone();
+        tokio::task::spawn_blocking(move || load_persistent_cache(&save_root))
+            .await
+            .unwrap_or_else(|e| tracing::warn!("load_persistent_cache task panicked: {e:?}"));
+    }
 
     // Only attempt to refresh existing keys if authentication is ready
     if check_auth_ready(&settings, &auth_manager).await {
@@ -319,18 +337,32 @@ async fn run_worker(
         }
     }
 
-    loop {
-        if let Some(path) = rx.recv().await {
-            if check_auth_ready(&settings, &auth_manager).await {
-                tracing::info!(file = %path.display(), "received new asset notification, processing...");
-                if let Err(err) =
-                    process_path(&client, &settings, &path, &auth_manager, &pending_store).await
-                {
-                    tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
+    while let Some(path) = rx.recv().await {
+        if check_auth_ready(&settings, &auth_manager).await {
+            tracing::info!(file = %path.display(), "received new asset notification, processing...");
+            if let Err(err) =
+                process_path(&client, &settings, &path, &auth_manager, &pending_store).await
+            {
+                tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
+            }
+        } else {
+            // Auth not ready: re-enqueue so the path is not silently dropped.
+            // If the queue is full we warn and drop; brief sleep avoids a tight loop
+            // during extended auth-unavailability windows.
+            if let Some(tx) = ASSET_SYNC_QUEUE.get() {
+                match tx.try_send(path.clone()) {
+                    Ok(()) => {}
+                    Err(_) => {
+                        tracing::warn!(path = ?path, "auth not ready and queue full; dropping asset path");
+                    }
                 }
             }
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
+
+    tracing::info!("asset sync worker: receiver channel closed; shutting down");
+    Ok(())
 }
 
 async fn check_auth_ready(
@@ -583,7 +615,10 @@ fn detect_mime_type(path: &Path) -> String {
     .to_string()
 }
 fn build_client() -> Result<Client, reqwest::Error> {
-    reqwest::Client::builder().build()
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .build()
 }
 
 fn now_epoch_secs() -> u64 {
@@ -770,7 +805,10 @@ fn duration_until(iso: &str) -> Option<Duration> {
 }
 
 fn apply_period_transition(new_tag: Option<String>) {
-    ASSET_REQUEST_CACHE.rotate_scope(new_tag.as_deref());
+    // Assets are content-addressed and cross-period: do NOT clear the suppression cache
+    // on period change. Use a fixed scope string so rotate_scope never triggers a clear,
+    // regardless of what scope was persisted to disk from a previous run.
+    ASSET_REQUEST_CACHE.rotate_scope(Some("asset:global"));
 
     let mut guard = LAST_PERIOD_TAG.write().unwrap_or_else(|e| e.into_inner());
 
@@ -785,7 +823,7 @@ fn apply_period_transition(new_tag: Option<String>) {
         let label = new_tag.as_deref().unwrap_or("<none>");
         tracing::info!(
             period_tag = label,
-            "asset sync period advanced; cleared processed asset cache"
+            "asset sync period advanced (asset suppression cache preserved across periods)"
         );
         *guard = new_tag;
     }
@@ -886,7 +924,7 @@ async fn maybe_refresh_existing_keys(
     })?;
 
     let is_incremental = payload.incremental.unwrap_or(false);
-    cache_remote_keys(payload, is_incremental, &settings.save_root);
+    cache_remote_keys(payload, is_incremental, &settings.save_root).await;
     Ok(())
 }
 
@@ -912,7 +950,7 @@ fn remote_cache_is_fresh() -> bool {
     }
 }
 
-fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
+async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
     let ttl = payload
         .cache_expires_at
         .as_deref()
@@ -1000,8 +1038,14 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
         });
     }
 
-    // Persist to disk for recovery after restart
-    save_persistent_cache(save_root, &final_keys, &final_hashes, final_sync_ts);
+    // Persist to disk for recovery after restart.
+    // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
+    let save_root_buf = save_root.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        save_persistent_cache(&save_root_buf, &final_keys, &final_hashes, final_sync_ts)
+    })
+    .await
+    .unwrap_or_else(|e| tracing::warn!("save_persistent_cache task panicked: {e:?}"));
 
     tracing::debug!(count = count, "existing remote asset key cache refreshed");
 }

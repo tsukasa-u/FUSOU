@@ -351,10 +351,14 @@ fn log_request(
         for (key, value) in parts.headers {
             match key {
                 Some(HEADER_NAME_CONTENT_TYPE) => {
-                    content_type = value.to_str().unwrap().to_string();
+                    content_type = value.to_str().unwrap_or_default().to_string();
                 }
                 Some(HEADER_NAME_CONTENT_LENGTH) => {
-                    _content_length = value.to_str().unwrap().parse::<i64>().unwrap();
+                    _content_length = value
+                        .to_str()
+                        .ok()
+                        .and_then(|s| s.parse::<i64>().ok())
+                        .unwrap_or(-1);
                 }
                 _ => {}
             };
@@ -489,8 +493,14 @@ impl HttpHandler for LogHandler {
 
         let (part, body) = req.into_parts();
 
-        let collected = body.collect().await.unwrap();
-        let body = collected.to_bytes().clone();
+        let body_vec = match body.collect().await {
+            Ok(collected) => collected.to_bytes().to_vec(),
+            Err(e) => {
+                tracing::warn!("failed to collect request body for logging: {}", e);
+                Vec::new()
+            }
+        };
+        let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
@@ -513,8 +523,14 @@ impl HttpHandler for LogHandler {
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
         let (part, body) = res.into_parts();
 
-        let collected = body.collect().await.unwrap();
-        let body = collected.to_bytes().clone();
+        let body_vec = match body.collect().await {
+            Ok(collected) => collected.to_bytes().to_vec(),
+            Err(e) => {
+                tracing::warn!("failed to collect response body for logging: {}", e);
+                Vec::new()
+            }
+        };
+        let body = hyper::body::Bytes::from(body_vec);
         let full_body = http_body_util::Full::from(body.clone());
 
         let body_vec = body.to_vec();
