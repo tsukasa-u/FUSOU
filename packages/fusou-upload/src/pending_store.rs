@@ -71,6 +71,11 @@ impl PendingStore {
             let _ = fs::remove_file(&file_path);
             return Err(e);
         }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&file_path, fs::Permissions::from_mode(0o600));
+        }
 
         // Create metadata
         let meta = PendingMeta::new(id, target_url.to_string(), headers.clone(), file_path.clone(), context);
@@ -89,6 +94,11 @@ impl PendingStore {
         if let Err(e) = fs::write(&meta_path, meta_json) {
             let _ = fs::remove_file(&file_path);
             return Err(e);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&meta_path, fs::Permissions::from_mode(0o600));
         }
 
         Ok(meta)

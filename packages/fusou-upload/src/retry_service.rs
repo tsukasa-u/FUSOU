@@ -88,7 +88,11 @@ impl UploadRetryService {
 
                 tracing::info!("Found {} pending uploads to retry", pending_items.len());
 
-                let client = reqwest::Client::new();
+                let client = reqwest::Client::builder()
+                    .connect_timeout(std::time::Duration::from_secs(10))
+                    .timeout(std::time::Duration::from_secs(60))
+                    .build()
+                    .unwrap_or_default();
 
                 // Track processed hashes to avoid retrying exact duplicates in single batch
                 let mut processed_hashes = std::collections::HashSet::new();
@@ -215,10 +219,11 @@ impl UploadRetryService {
 
     fn is_auth_related_error(message: &str) -> bool {
         let normalized = message.to_ascii_lowercase();
+        // Use specific prefixes only; substring-matching "401"/"403" risks false-positive
+        // matches against response bodies that happen to contain those digit sequences.
+        // All UploadError::AuthenticationError variants already produce "authentication error" prefix.
         normalized.contains("authentication error")
             || normalized.contains("failed to obtain access token")
-            || normalized.contains("401")
-            || normalized.contains("403")
     }
 
     async fn retry_one(

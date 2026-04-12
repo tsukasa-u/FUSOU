@@ -76,12 +76,17 @@ impl LocalRequestSuppressionCache {
     }
 
     pub fn rotate_scope(&self, new_scope: Option<&str>) -> bool {
-        let mut guard = self.scope.write().unwrap_or_else(|e| e.into_inner());
         let next = new_scope.map(str::to_string);
-        let changed = *guard != next;
+        let changed = {
+            let mut guard = self.scope.write().unwrap_or_else(|e| e.into_inner());
+            let changed = *guard != next;
+            if changed {
+                self.entries.clear();
+                *guard = next;
+            }
+            changed
+        }; // write lock dropped before flush_to_disk to avoid RwLock reentry deadlock
         if changed {
-            self.entries.clear();
-            *guard = next;
             let _ = self.flush_to_disk();
         }
         changed
@@ -89,15 +94,19 @@ impl LocalRequestSuppressionCache {
 
     pub fn should_skip(&self, key: &str, hash: &str) -> bool {
         let now = Instant::now();
-        if let Some(entry) = self.entries.get(key) {
-            if entry.expires_at > now && entry.hash == hash {
-                return true;
-            }
-        }
-        if self.entries.remove(key).is_some() {
+        // Atomically remove the entry only if it is expired or the hash no longer matches.
+        // Using remove_if (single shard lock) avoids a TOCTOU where a concurrent mark_processed
+        // inserts a fresh entry between our get() and a separate remove() call.
+        let removed = self.entries.remove_if(key, |_, entry| {
+            entry.expires_at <= now || entry.hash != hash
+        });
+        if removed.is_some() {
+            // Stale entry was removed; flush and signal "don't skip".
             let _ = self.flush_to_disk();
+            return false;
         }
-        false
+        // remove_if returned None: either no entry exists, or it exists and is still valid.
+        self.entries.contains_key(key)
     }
 
     pub fn mark_processed(&self, key: impl Into<String>, hash: impl Into<String>) {

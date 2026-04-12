@@ -182,8 +182,10 @@ impl Uploader {
                 ) {
                     tracing::error!("Failed to save pending upload: {}", e);
                 } else {
-                    tracing::info!("Saved pending upload due to error: {}", err_str);
+                    tracing::warn!(error = %err_str, "Upload failed, saved to pending store");
                 }
+            } else {
+                tracing::warn!(error = %err_str, "Upload failed (no pending store configured)");
             }
         }
 
