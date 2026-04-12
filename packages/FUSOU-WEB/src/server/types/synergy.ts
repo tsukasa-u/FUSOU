@@ -58,7 +58,7 @@ export function validatePeriodTag(tag: string): boolean {
 }
 
 export function validateGeneratorVersion(version: string): boolean {
-  return /^v\d+\.\d+\.\d+/.test(version);
+  return /^v\d+\.\d+\.\d+$/.test(version);
 }
 
 export function getSynergyManifestR2Keys(

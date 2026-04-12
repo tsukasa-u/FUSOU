@@ -22,6 +22,7 @@ import {
   parseSize,
   createEnvContext,
   getEnv,
+  timingSafeEqual,
 } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 
@@ -162,6 +163,21 @@ app.post("/upload", async (c) => {
 
       if (!key || !declaredSize) {
         return c.json({ error: "Invalid token payload" }, 400);
+      }
+
+      // Verify content_hash of uploaded data against the hash committed in Stage 1.
+      const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+      if (!expectedHash) {
+        return c.json({ error: "Invalid token payload (missing content_hash)" }, 400);
+      }
+      const actualHashBuf = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+      const actualHash = Array.from(new Uint8Array(actualHashBuf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .toLowerCase();
+      if (!timingSafeEqual(actualHash, expectedHash)) {
+        console.warn("[asset-sync] Content hash mismatch", { key, expected: expectedHash, actual: actualHash });
+        return c.json({ error: "Content hash mismatch - data may be corrupted" }, 400);
       }
 
       const result = await bucket.put(key, data, {
@@ -315,6 +331,16 @@ app.get("/keys", async (c) => {
 // GET /check-hash
 // Check if a file with the same content hash already exists
 app.get("/check-hash", async (c) => {
+  // Require valid Supabase access token (same as GET /keys)
+  const accessToken = extractBearer(c.req.header("Authorization"));
+  if (!accessToken) {
+    return c.json({ error: "Missing Authorization bearer token" }, 401);
+  }
+  const supabaseUser = await validateJWT(accessToken);
+  if (!supabaseUser) {
+    return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
+
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
 
@@ -392,8 +418,8 @@ app.get("/ship-banner-map", async (c) => {
             }
           }
         }
-      } catch {
-        // D1 unavailable
+      } catch (d1Err) {
+        console.warn("[ship-banner-map] D1 query failed, using R2 fallback:", d1Err);
       }
     }
 

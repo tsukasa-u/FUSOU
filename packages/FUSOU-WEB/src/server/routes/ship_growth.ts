@@ -6,6 +6,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  timingSafeEqual,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
@@ -501,6 +502,9 @@ function validateIngestBody(
 
   const datasetId = String(body.dataset_id ?? '').trim();
   if (!datasetId) return { ok: false, error: 'dataset_id is required' };
+  if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+    return { ok: false, error: 'dataset_id must be a 64-character SHA-256 hex string' };
+  }
 
   const requestId = String(body.request_id ?? '').trim();
   if (!requestId) return { ok: false, error: 'request_id is required' };
@@ -667,32 +671,21 @@ function buildAggregatedShipGrowthRows(
   return { expRows, boundRows, capRows, expInconsistencies };
 }
 
-async function archiveAndPruneShipGrowthHistory(
+function buildArchivePruneStatements(
   db: D1Database,
   oldBounds: ShipGrowthArchiveBoundRow[],
   oldCaps: ShipGrowthArchiveCapRow[],
-): Promise<void> {
+): ReturnType<D1Database['prepare']>[] {
+  const stmts: ReturnType<D1Database['prepare']>[] = [];
   const boundRowIds = Array.from(new Set(oldBounds.map((row) => row.row_id)));
   for (const rowId of boundRowIds) {
-    await db
-      .prepare(
-        `DELETE FROM ship_growth_bounds
-         WHERE rowid = ?`,
-      )
-      .bind(rowId)
-      .run();
+    stmts.push(db.prepare(`DELETE FROM ship_growth_bounds WHERE rowid = ?`).bind(rowId));
   }
-
   const capRowIds = Array.from(new Set(oldCaps.map((row) => row.row_id)));
   for (const rowId of capRowIds) {
-    await db
-      .prepare(
-        `DELETE FROM ship_growth_caps
-         WHERE rowid = ?`,
-      )
-      .bind(rowId)
-      .run();
+    stmts.push(db.prepare(`DELETE FROM ship_growth_caps WHERE rowid = ?`).bind(rowId));
   }
+  return stmts;
 }
 
 async function collectShipGrowthHistoryForArchive(
@@ -880,53 +873,57 @@ async function processShipGrowthIngest(
     };
   }
 
-  // Apply archive, prune, and derived-table upserts atomically.
-  await db.prepare('BEGIN IMMEDIATE').run();
-  try {
-    await archiveAndPruneShipGrowthHistory(
-      db,
-      oldBounds,
-      oldCaps,
-    );
+  // Pre-check EXP boundary conflicts against existing DB rows before writing.
+  // Batch all LV lookups into a single IN-clause query instead of N sequential queries.
+  if (expRows.length > 0) {
+    const placeholders = expRows.map(() => '?').join(', ');
+    const existingExpRows = (
+      await db
+        .prepare(
+          `SELECT lv, exp_current
+           FROM ship_level_exp_pairs
+           WHERE period_tag = ? AND table_version = ? AND lv IN (${placeholders})`,
+        )
+        .bind(period_tag, table_version, ...expRows.map((r) => r.lv))
+        .all()
+    ).results as { lv: number; exp_current: number }[];
 
-    // Insert ship_level_exp_pairs (boundary-lv exp_current only).
-    // If a row already exists with a different value, reject with rollback.
+    const existingExpMap = new Map(existingExpRows.map((r) => [r.lv, r.exp_current]));
     for (const expRow of expRows) {
-      const insertResult = await db
+      const existingValue = existingExpMap.get(expRow.lv);
+      if (existingValue !== undefined && existingValue !== expRow.exp_current) {
+        return {
+          status: 409,
+          body: {
+            error: 'EXP boundary conflicts with existing DB rows',
+            detail: `exp boundary conflict for lv=${expRow.lv}: existing=${existingValue}, incoming=${expRow.exp_current}`,
+          },
+        };
+      }
+    }
+  }
+
+  // Build all write statements: archive prune + exp inserts + bounds upserts + caps upserts.
+  // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity (100-stmt chunks).
+  const stmts: ReturnType<D1Database['prepare']>[] = [];
+
+  stmts.push(...buildArchivePruneStatements(db, oldBounds, oldCaps));
+
+  for (const expRow of expRows) {
+    stmts.push(
+      db
         .prepare(
           `INSERT INTO ship_level_exp_pairs (period_tag, table_version, lv, exp_current)
            VALUES (?, ?, ?, ?)
            ON CONFLICT(period_tag, table_version, lv) DO NOTHING`,
         )
-        .bind(period_tag, table_version, expRow.lv, expRow.exp_current)
-        .run();
+        .bind(period_tag, table_version, expRow.lv, expRow.exp_current),
+    );
+  }
 
-      if ((insertResult.meta?.rows_written ?? 0) === 0) {
-        const existing = (await db
-          .prepare(
-            `SELECT exp_current
-             FROM ship_level_exp_pairs
-             WHERE period_tag = ? AND table_version = ? AND lv = ?
-             LIMIT 1`,
-          )
-          .bind(period_tag, table_version, expRow.lv)
-          .first()) as { exp_current?: number } | null;
-
-        if (!existing || typeof existing.exp_current !== 'number') {
-          throw new Error(`failed to verify existing EXP boundary row for lv=${expRow.lv}`);
-        }
-
-        if (existing.exp_current !== expRow.exp_current) {
-          throw new Error(
-            `exp boundary conflict for lv=${expRow.lv}: existing=${existing.exp_current}, incoming=${expRow.exp_current}`,
-          );
-        }
-      }
-    }
-
-    // Upsert ship_growth_bounds (per master_id × lv, take min naked values)
-    for (const row of boundRows) {
-      await db
+  for (const row of boundRows) {
+    stmts.push(
+      db
         .prepare(
           `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked)
            VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -943,13 +940,13 @@ async function processShipGrowthIngest(
           row.kaihi_naked,
           row.taisen_naked,
           row.sakuteki_naked,
-        )
-        .run();
-    }
+        ),
+    );
+  }
 
-    // Upsert ship_growth_caps (per master_id, take max cap values)
-    for (const row of capRows) {
-      await db
+  for (const row of capRows) {
+    stmts.push(
+      db
         .prepare(
           `INSERT INTO ship_growth_caps (period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max)
            VALUES (?, ?, ?, ?, ?, ?)
@@ -965,28 +962,21 @@ async function processShipGrowthIngest(
           row.kaihi_max,
           row.taisen_max,
           row.sakuteki_max,
-        )
-        .run();
-    }
+        ),
+    );
+  }
 
-    await db.prepare('COMMIT').run();
-  } catch (error) {
-    const detail = String(error);
-    await db.prepare('ROLLBACK').run().catch(() => null);
-    if (detail.includes('exp boundary conflict')) {
-      return {
-        status: 409,
-        body: {
-          error: 'EXP boundary conflicts with existing DB rows',
-          detail,
-        },
-      };
+  const BATCH_SIZE = 100;
+  try {
+    for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+      await db.batch(stmts.slice(i, i + BATCH_SIZE));
     }
+  } catch (error) {
     return {
       status: 500,
       body: {
         error: 'Failed to persist ship growth ingest atomically',
-        detail,
+        detail: String(error),
       },
     };
   }
@@ -1253,6 +1243,10 @@ app.post('/ingest', async (c) => {
     );
 
     const uploadUrl = new URL(c.req.url);
+    // stripApiPrefix() removes /api/ before Hono sees the URL; restore it for Stage-2 clients.
+    if (!uploadUrl.pathname.startsWith("/api/")) {
+      uploadUrl.pathname = "/api" + (uploadUrl.pathname.startsWith("/") ? uploadUrl.pathname : "/" + uploadUrl.pathname);
+    }
     return c.json({
       uploadUrl: uploadUrl.toString(),
       token,
@@ -1302,9 +1296,9 @@ app.post('/ingest', async (c) => {
   // Hash check
   const actualHash = await sha256Hex(uploaded);
   const expectedHash = String(tokenPayload.content_hash ?? '').toLowerCase();
-  if (actualHash.toLowerCase() !== expectedHash) {
+  if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
     return c.json(
-      { error: 'Content hash mismatch - data may be corrupted', expected: expectedHash, actual: actualHash },
+      { error: 'Content hash mismatch - data may be corrupted' },
       400,
     );
   }

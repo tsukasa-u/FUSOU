@@ -9,6 +9,7 @@ import {
   validateJWT,
   resolveSupabaseConfig,
   validateDatasetToken,
+  timingSafeEqual,
 } from "../utils";
 import {
   CORS_HEADERS,
@@ -157,7 +158,8 @@ app.post("/snapshot", async (c) => {
     signingSecret,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _userId) => {
-      // Validate dataset_token if provided
+      // dataset_token is required to bind the upload to a specific dataset_id.
+      // Without it any authenticated user could write snapshots under arbitrary dataset_ids.
       const datasetTokenHeader = c.req.header("X-Dataset-Token");
       const datasetTokenBody =
         typeof body?.dataset_token === "string"
@@ -165,32 +167,34 @@ app.post("/snapshot", async (c) => {
           : "";
       const datasetToken = datasetTokenHeader || datasetTokenBody;
 
-      if (datasetToken) {
-        const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-        if (!datasetTokenSecret) {
-          console.error("[fleet-snapshot] DATASET_TOKEN_SECRET not configured");
-          return c.json({ error: "Server configuration error" }, 500);
-        }
-
-        const validatedToken = await validateDatasetToken(
-          datasetToken,
-          datasetTokenSecret,
-        );
-        if (!validatedToken) {
-          console.warn("[fleet-snapshot] Invalid or expired dataset_token");
-          return c.json({ error: "Invalid or expired dataset_token" }, 401);
-        }
-
-        // Verify dataset_id matches token
-        const requestedDatasetId =
-          typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-        if (requestedDatasetId !== validatedToken.dataset_id) {
-          console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
-          return c.json({ error: "dataset_id does not match token" }, 403);
-        }
-
-        console.log(`[fleet-snapshot] dataset_token validated successfully`);
+      if (!datasetToken) {
+        return c.json({ error: "dataset_token is required" }, 401);
       }
+
+      const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+      if (!datasetTokenSecret) {
+        console.error("[fleet-snapshot] DATASET_TOKEN_SECRET not configured");
+        return c.json({ error: "Server configuration error" }, 500);
+      }
+
+      const validatedToken = await validateDatasetToken(
+        datasetToken,
+        datasetTokenSecret,
+      );
+      if (!validatedToken) {
+        console.warn("[fleet-snapshot] Invalid or expired dataset_token");
+        return c.json({ error: "Invalid or expired dataset_token" }, 401);
+      }
+
+      // Verify dataset_id matches token
+      const requestedDatasetId =
+        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      if (requestedDatasetId !== validatedToken.dataset_id) {
+        console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
+        return c.json({ error: "dataset_id does not match token" }, 403);
+      }
+
+      console.log(`[fleet-snapshot] dataset_token validated successfully`);
 
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
       const datasetId =
@@ -252,6 +256,28 @@ app.post("/snapshot", async (c) => {
 
       if (!ownerId) {
         return c.json({ error: "User authentication required" }, 401);
+      }
+
+      // Verify content_hash of the uploaded data against the hash committed in Stage 1.
+      // This ensures data integrity across the two-stage upload and matches the pattern
+      // used by remodel_data.ts, ship_growth.ts and master_data.ts.
+      const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+      if (!expectedHash) {
+        return c.json({ error: "Invalid token payload (missing content_hash)" }, 400);
+      }
+      const actualHashBuf = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+      const actualHash = Array.from(new Uint8Array(actualHashBuf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("")
+        .toLowerCase();
+      if (!timingSafeEqual(actualHash, expectedHash)) {
+        console.warn(
+          `[fleet-snapshot] Content hash mismatch: expected=${expectedHash}, actual=${actualHash}`,
+        );
+        return c.json(
+          { error: "Content hash mismatch - data may be corrupted" },
+          400,
+        );
       }
 
       // Treat very small payloads as empty and skip upload
@@ -347,8 +373,12 @@ app.post("/snapshot", async (c) => {
           .map((o: any) => o.key)
           .filter((key: string) => !toKeep.has(key));
 
-        for (const key of keysToDelete) {
-          await bucket.delete?.(key);
+        if (typeof bucket.delete !== "function") {
+          console.warn("[fleet] bucket.delete unavailable — skipping old snapshot cleanup");
+        } else {
+          for (const key of keysToDelete) {
+            await bucket.delete(key);
+          }
         }
       } catch (err) {
         console.warn("snapshot cleanup failed", err);

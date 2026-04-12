@@ -58,6 +58,13 @@ app.post('/check-hash', async (c) => {
       }, 400);
     }
 
+    if (!/^[a-f0-9]{64}$/i.test(member_id_hash)) {
+      return jsonResponse({
+        error: 'INVALID_FORMAT',
+        message: 'member_id_hash must be a 64-character SHA-256 hex string',
+      }, 400);
+    }
+
     // Get Supabase config from environment
     const envCtx = createEnvContext(c);
     const { url: supabaseUrl, serviceRoleKey: supabaseServiceKey } = resolveSupabaseConfig(envCtx);
@@ -97,33 +104,16 @@ app.post('/check-hash', async (c) => {
       // Member ID not found - this is a new user
       return jsonResponse({
         exists: false,
-        user_id: null,
-        email: null,
         message: 'This member ID is not yet linked to any account. You can create a new account or link to an existing one.',
       }, 200);
     }
 
-    // Member ID found - get user details via Admin API
-    const record = data[0] as any;
-    const userId: string = record.user_id;
-    let email: string | null = null;
-
-    try {
-      const { data: userAdmin, error: adminErr } = await supabaseAdmin.auth.admin.getUserById(userId);
-      if (!adminErr && userAdmin?.user?.email) {
-        email = userAdmin.user.email;
-      }
-    } catch (e) {
-      // If admin lookup fails, proceed without email
-    }
-
+    // Member ID found — deliberately omit user_id and email to prevent
+    // unauthenticated enumeration of user accounts (game member IDs are a
+    // small numeric space that can be brute-forced via SHA-256 preimages).
     return jsonResponse({
       exists: true,
-      user_id: userId,
-      email: email,
-      message: email
-        ? `This member ID is linked to the account: ${email}. Please log in with this account.`
-        : 'This member ID is already linked to an existing account.',
+      message: 'This member ID is already linked to an existing FUSOU account. Please log in to that account.',
     }, 200);
 
   } catch (error) {

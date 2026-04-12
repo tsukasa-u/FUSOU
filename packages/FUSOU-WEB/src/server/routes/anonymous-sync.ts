@@ -91,6 +91,9 @@ app.post('/anonymous-sync', async (c) => {
     if (!member_id_hash || typeof member_id_hash !== 'string') {
       return c.json({ error: 'member_id_hash is required' }, 400);
     }
+    if (!/^[a-f0-9]{64}$/i.test(member_id_hash)) {
+      return c.json({ error: 'member_id_hash must be a 64-character SHA-256 hex string' }, 400);
+    }
 
     // Get environment configuration
     const envCtx = createEnvContext({ env: c.env });
@@ -209,43 +212,29 @@ app.post('/anonymous-sync', async (c) => {
         refreshToken = sessionData.session.refresh_token;
         status = 'recreated';
       } else {
-        // User exists - just issue dataset_token without creating new session
-        // (Supabase anonymous sessions are per-request; we rely on dataset_token for auth)
-        // Retrieve existing tokens if available
-        const { data: sessionData, error: sessionError } = await anonClient.auth.signInAnonymously({
-          options: {
-            data: { member_id_hash }
-          }
+        // User exists — issue dataset_token only. Do NOT call signInAnonymously:
+        // each call creates a new orphan Supabase anonymous user (different user_id
+        // than the existing mapping) and its access_token is inconsistent with
+        // dataset_token.sub. The client handles absent access_token by reusing its
+        // stored session (see fusou-auth/src/manager.rs get_or_refresh_anonymous_session).
+        const now = Math.floor(Date.now() / 1000);
+        const secretKey = new TextEncoder().encode(datasetTokenSecret);
+        const datasetToken = await new SignJWT({
+          sub: userId,
+          dataset_id: member_id_hash,
+          typ: 'dataset',
+          aud: 'fusou-upload',
+        })
+          .setProtectedHeader({ alg: 'HS256' })
+          .setIssuedAt(now)
+          .setExpirationTime(now + 7 * 24 * 60 * 60)
+          .sign(secretKey);
+
+        return c.json({
+          status: 'restored' as const,
+          dataset_token: datasetToken,
+          dataset_token_expires_at: now + 7 * 24 * 60 * 60,
         });
-
-        if (sessionError || !sessionData.session) {
-          // Fallback: issue dataset_token based on existing mapping without new session
-          console.warn('[anonymous-sync] Failed to create new session for restored user, issuing dataset token only:', {
-            message: (sessionError as any)?.message,
-          });
-
-          const now = Math.floor(Date.now() / 1000);
-          const secretKey = new TextEncoder().encode(datasetTokenSecret);
-          const datasetToken = await new SignJWT({
-            sub: userId,
-            dataset_id: member_id_hash,
-            typ: 'dataset',
-            aud: 'fusou-upload'
-          })
-            .setProtectedHeader({ alg: 'HS256' })
-            .setIssuedAt(now)
-            .setExpirationTime(now + (7 * 24 * 60 * 60)) // 7 days
-            .sign(secretKey);
-
-          return c.json({
-            status: 'restored_no_session',
-            dataset_token: datasetToken,
-            dataset_token_expires_at: now + (7 * 24 * 60 * 60)
-          });
-        }
-
-        accessToken = sessionData.session.access_token;
-        refreshToken = sessionData.session.refresh_token;
       }
 
     } else {
@@ -286,8 +275,44 @@ app.post('/anonymous-sync', async (c) => {
         });
 
       if (insertError) {
-        console.error('[anonymous-sync] Failed to insert mapping:', insertError);
-        return c.json({ error: 'Failed to create mapping' }, 500);
+        if ((insertError as any).code === '23505') {
+          // Lost concurrent-request race on the unique constraint — re-query for the winning user_id.
+          const { data: winner, error: winnerErr } = await supabaseAdmin
+            .from('user_member_map')
+            .select('user_id')
+            .eq('member_id_hash', member_id_hash)
+            .maybeSingle();
+          if (winnerErr || !winner) {
+            console.error('[anonymous-sync] Race recovery lookup failed:', winnerErr);
+            return c.json({ error: 'Failed to create mapping' }, 500);
+          }
+          userId = winner.user_id;
+          console.info('[anonymous-sync] Race resolved: using existing mapping user_id', { member_id_hash: member_id_hash.substring(0, 8) });
+
+          // Return early with only dataset_token — the loser's Supabase session tokens
+          // belong to a different user and must not be sent to the client.
+          const raceNow = Math.floor(Date.now() / 1000);
+          const raceSecretKey = new TextEncoder().encode(datasetTokenSecret);
+          const raceDatasetToken = await new SignJWT({
+            sub: userId,
+            dataset_id: member_id_hash,
+            typ: 'dataset',
+            aud: 'fusou-upload',
+          })
+            .setProtectedHeader({ alg: 'HS256' })
+            .setIssuedAt(raceNow)
+            .setExpirationTime(raceNow + 7 * 24 * 60 * 60)
+            .sign(raceSecretKey);
+
+          return c.json({
+            status: 'restored' as const,
+            dataset_token: raceDatasetToken,
+            dataset_token_expires_at: raceNow + 7 * 24 * 60 * 60,
+          });
+        } else {
+          console.error('[anonymous-sync] Failed to insert mapping:', insertError);
+          return c.json({ error: 'Failed to create mapping' }, 500);
+        }
       }
     }
 

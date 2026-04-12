@@ -11,6 +11,7 @@ import {
   getSynergyManifestR2Keys,
 } from '../types/synergy';
 import type { Bindings } from '../types';
+import { createEnvContext, verifyAdminToken } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -197,11 +198,17 @@ app.get('/synergy-data', async (c) => {
 /**
  * POST /synergy-manifest
  * (Mounted at /master-data → full path: /api/master-data/synergy-manifest)
- * 
- * Create new synergy manifest entry (allocate period_revision)
- * User will upload files to R2 at returned r2_keys, then call /complete endpoint
+ *
+ * Create new synergy manifest entry (allocate period_revision).
+ * Security: requires X-ADMIN-TOKEN header.
+ * User will upload files to R2 at returned r2_keys, then call /complete endpoint.
  */
 app.post('/synergy-manifest', async (c) => {
+  const adminCheck = verifyAdminToken(createEnvContext({ env: c.env }), c.req.header('X-ADMIN-TOKEN'));
+  if (!adminCheck.ok) {
+    return c.json({ error: adminCheck.error }, adminCheck.status as 401 | 403);
+  }
+
   const body = (await c.req.json()) as SynergyManifestRequest;
 
   // Validation
@@ -301,9 +308,9 @@ app.post('/synergy-manifest', async (c) => {
       period_tag: string;
       period_revision: number;
       content_hash: string;
-    };
+    } | null;
 
-    if (!inserted.id) {
+    if (!inserted || !inserted.id) {
       return c.json({ error: 'Failed to allocate period_revision' }, 500);
     }
 
@@ -325,6 +332,14 @@ app.post('/synergy-manifest', async (c) => {
       201
     );
   } catch (error) {
+    // D1 UNIQUE constraint on (period_tag, period_revision) fires when two concurrent requests
+    // race to allocate the same revision number. Return 409 so the caller can retry.
+    if (String(error).includes('UNIQUE constraint failed')) {
+      return c.json(
+        { error: 'Concurrent conflict: period_revision already allocated. Please retry.' },
+        409
+      );
+    }
     console.error('Error creating synergy manifest:', error);
     return c.json({ error: 'Internal server error', details: String(error) }, 500);
   }
@@ -333,11 +348,17 @@ app.post('/synergy-manifest', async (c) => {
 /**
  * POST /synergy-manifest/complete/:periodTag/:periodRevision
  * (Mounted at /master-data → full path: /api/master-data/synergy-manifest/complete/:periodTag/:periodRevision)
- * 
+ *
  * Mark manifest as completed after files uploaded to R2.
+ * Security: requires X-ADMIN-TOKEN header.
  * Verifies that the sp_effect_item.json actually exists in R2 before marking completed.
  */
 app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
+  const adminCheck = verifyAdminToken(createEnvContext({ env: c.env }), c.req.header('X-ADMIN-TOKEN'));
+  if (!adminCheck.ok) {
+    return c.json({ error: adminCheck.error }, adminCheck.status as 401 | 403);
+  }
+
   const periodTag = c.req.param('periodTag');
   const periodRevisionStr = c.req.param('periodRevision');
 

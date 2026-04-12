@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { extractBearer, resolveSupabaseConfig, createEnvContext } from "../utils";
+import { extractBearer, resolveSupabaseConfig, createEnvContext, getEnv } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -78,8 +78,12 @@ app.post("/google/refresh_token", async (c) => {
     }
 
     const googleRefreshToken = tokenData.refresh_token;
-    const googleClientId = import.meta.env.GOOGLE_CLIENT_ID;
-    const googleClientSecret = import.meta.env.GOOGLE_CLIENT_SECRET;
+    const googleClientId = getEnv(envCtx, "GOOGLE_CLIENT_ID");
+    const googleClientSecret = getEnv(envCtx, "GOOGLE_CLIENT_SECRET");
+    if (!googleClientId || !googleClientSecret) {
+      console.error("[auth/google/refresh_token] GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not configured in runtime env");
+      return c.json({ error: "Server misconfiguration" }, 500);
+    }
 
     const response = await fetch(tokenEndpoint, {
       method: "POST",
@@ -105,11 +109,14 @@ app.post("/google/refresh_token", async (c) => {
     const data = await response.json() as GoogleTokenResponse;
 
     if (data.refresh_token) {
-      await supabase
+      const { error: updateErr } = await supabase
         .from("provider_tokens")
         .update({ refresh_token: data.refresh_token })
         .eq("user_id", user.user.id)
         .eq("provider_name", "google");
+      if (updateErr) {
+        console.error("[auth/google/refresh_token] Failed to persist refresh_token:", updateErr);
+      }
     }
 
     return c.json({

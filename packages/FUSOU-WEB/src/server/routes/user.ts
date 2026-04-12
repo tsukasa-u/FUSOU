@@ -65,6 +65,10 @@ app.post("/member-map/upsert", async (c) => {
     return c.json({ error: "member_id_hash is required" }, 400);
   }
 
+  if (!/^[a-f0-9]{64}$/i.test(memberIdHash)) {
+    return c.json({ error: "member_id_hash must be a 64-character SHA-256 hex string" }, 400);
+  }
+
   const clientVersion =
     typeof body?.client_version === "string"
       ? body.client_version.trim()

@@ -1629,13 +1629,16 @@ app.post("/verify-google", async (c) => {
     );
   }
 
-  const { email, google_token } = body;
+  const { email: _unusedEmail, google_token } = body;
 
-  if (!email && !google_token) {
+  // google_token is required — accepting a client-supplied email without proof of
+  // ownership would allow any API key holder to register arbitrary devices by simply
+  // echoing back the email address associated with their key.
+  if (!google_token) {
     return jsonResponse(
       {
-        error: "MISSING_CREDENTIALS",
-        message: "Email or Google token is required",
+        error: "MISSING_TOKEN",
+        message: "google_token is required for Google-based device verification",
       },
       400,
     );
@@ -1650,36 +1653,35 @@ app.post("/verify-google", async (c) => {
       );
     }
 
-    // If google_token is provided, verify it and get email
-    let verifiedEmail = email;
-    if (google_token) {
-      try {
-        // Use userinfo endpoint (recommended by Google, v3/tokeninfo is deprecated)
-        const userinfoResp = await fetch(
-          `https://www.googleapis.com/oauth2/v2/userinfo`,
-          {
-            method: "GET",
-            headers: { Authorization: `Bearer ${google_token}` },
-          },
-        );
-        if (userinfoResp.ok) {
-          const userinfo = (await userinfoResp.json()) as { email?: string };
-          verifiedEmail = userinfo.email || email;
-        } else if (userinfoResp.status === 401) {
-          throw new Error("Invalid or expired Google token");
-        } else {
-          throw new Error(`Google userinfo failed: ${userinfoResp.status}`);
-        }
-      } catch (e) {
-        console.error("Failed to verify Google token:", e);
-        return jsonResponse(
-          {
-            error: "INVALID_TOKEN",
-            message: "Failed to verify Google account token",
-          },
-          401,
-        );
+    // Verify google_token and extract the email it belongs to.
+    // google_token is guaranteed to be present by the early-return check above.
+    let verifiedEmail: string | undefined;
+    try {
+      // Use userinfo endpoint (recommended by Google, v3/tokeninfo is deprecated)
+      const userinfoResp = await fetch(
+        `https://www.googleapis.com/oauth2/v2/userinfo`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${google_token}` },
+        },
+      );
+      if (userinfoResp.ok) {
+        const userinfo = (await userinfoResp.json()) as { email?: string };
+        verifiedEmail = userinfo.email;
+      } else if (userinfoResp.status === 401) {
+        throw new Error("Invalid or expired Google token");
+      } else {
+        throw new Error(`Google userinfo failed: ${userinfoResp.status}`);
       }
+    } catch (e) {
+      console.error("Failed to verify Google token:", e);
+      return jsonResponse(
+        {
+          error: "INVALID_TOKEN",
+          message: "Failed to verify Google account token",
+        },
+        401,
+      );
     }
 
     // Check if email matches

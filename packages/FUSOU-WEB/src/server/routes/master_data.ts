@@ -4,7 +4,7 @@ import {
   CORS_HEADERS,
   MAX_UPLOAD_BYTES,
 } from "../constants";
-import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
+import { createEnvContext, getEnv, validateJWT, extractBearer, timingSafeEqual } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -355,6 +355,9 @@ app.post("/upload", async (c) => {
       }
 
       // Dedupe and claim a revision row for this period/version.
+      // IMPORTANT: Only suppress on 'completed'. A 'pending' record may be from a previous
+      // failed upload (Stage 2 never ran). Suppressing on 'pending' would permanently block
+      // re-uploads for the same content. 'failed' records are also not suppressed (allow retry).
       try {
         const sameHashStmt = db.prepare(`
           SELECT id, period_revision, upload_status
@@ -371,13 +374,9 @@ app.post("/upload", async (c) => {
           upload_status?: string;
         } | null;
 
-        if (
-          sameHashRecord &&
-          (sameHashRecord.upload_status === "pending" ||
-            sameHashRecord.upload_status === "completed")
-        ) {
+        if (sameHashRecord && sameHashRecord.upload_status === "completed") {
           console.info(
-            `[master-data] Duplicate content detected: period=${periodTag}, version=${tableVersion}, revision=${sameHashRecord.period_revision}`,
+            `[master-data] Duplicate content detected (completed): period=${periodTag}, version=${tableVersion}, revision=${sameHashRecord.period_revision}`,
           );
           return c.json(
             {
@@ -433,11 +432,7 @@ app.post("/upload", async (c) => {
             period_revision?: number;
             upload_status?: string;
           } | null;
-          if (
-            conflictSameHash &&
-            (conflictSameHash.upload_status === "pending" ||
-              conflictSameHash.upload_status === "completed")
-          ) {
+          if (conflictSameHash && conflictSameHash.upload_status === "completed") {
             return c.json(
               {
                 error: "Master data with the same content has already been uploaded",
@@ -487,7 +482,6 @@ app.post("/upload", async (c) => {
         return c.json(
           {
             error: "Failed to process upload request",
-            details: err instanceof Error ? err.message : String(err),
           },
           500,
         );
@@ -574,7 +568,7 @@ app.post("/upload", async (c) => {
 
         // [Bug Fix #15] Hash comparison must be case-insensitive
         if (
-          actualContentHash.toLowerCase() !== expectedContentHash.toLowerCase()
+          !timingSafeEqual(actualContentHash.toLowerCase(), expectedContentHash.toLowerCase())
         ) {
           console.warn(
             `[master-data] Content hash mismatch for id=${recordId}: expected ${expectedContentHash}, got ${actualContentHash}`,
@@ -754,22 +748,18 @@ app.post("/upload", async (c) => {
         );
 
         try {
-          // Insert master_data_tables records for querying by data-loader
-          for (let i = 0; i < tableOffsets.length; i++) {
-            const offset = tableOffsets[i];
-            const tableStmt = db.prepare(`
-              INSERT INTO master_data_tables 
-                (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            // Reuse hash computed during R2 upload (avoids duplicate SHA-256 computation)
+          // Build all D1 statements and submit atomically via db.batch() to avoid
+          // partial writes if the Worker is killed mid-loop.
+          const now = Date.now();
+          const batchStmts = tableOffsets.map((offset, i) => {
             const tableContentHash = tableHashes.get(offset.table_name) ?? "";
-
             const r2Key = `master_data/${tableVersion}/${periodTag}/rev${periodRevision}/${offset.table_name}.avro`;
-            const now = Date.now();
-
-            await tableStmt
+            return db
+              .prepare(
+                `INSERT INTO master_data_tables 
+                  (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              )
               .bind(
                 recordId,
                 offset.table_name,
@@ -781,22 +771,24 @@ app.post("/upload", async (c) => {
                 r2Key,
                 tableContentHash,
                 now,
+              );
+          });
+
+          batchStmts.push(
+            db
+              .prepare(
+                `UPDATE master_data_index
+                SET upload_status = 'completed', 
+                    r2_keys = ?,
+                    table_offsets = ?,
+                    table_count = ?,
+                    completed_at = ?
+                WHERE id = ?`,
               )
-              .run();
-          }
+              .bind(JSON.stringify(r2Keys), tableOffsetsStr, tableOffsets.length, now, recordId),
+          );
 
-          const stmt = db.prepare(`
-            UPDATE master_data_index
-            SET upload_status = 'completed', 
-                r2_keys = ?,
-                table_offsets = ?,
-                table_count = ?,
-                completed_at = ?
-            WHERE id = ?
-          `);
-
-          const now = Date.now();
-          await stmt.bind(JSON.stringify(r2Keys), tableOffsetsStr, tableOffsets.length, now, recordId).run();
+          await db.batch(batchStmts);
 
           console.info(
             `[master-data] D1 record updated: id=${recordId}, status=completed, tables=${r2Keys.length}`,

@@ -324,9 +324,13 @@ export function sanitizeFileName(input: string | null): string | null {
 // ========================
 
 // Cache RemoteJWKSet globally to leverage Cloudflare Workers hot-instance caching.
-// Use build-time env for initial JWKS setup (runtime env not available at module load)
+// `cfEnv` is used for runtime env (Workers Dashboard vars) so that PUBLIC_SUPABASE_URL
+// does not need to be decrypted/embedded at build time. Without cfEnv here,
+// getEnv() falls through to import.meta.env which contains the "encrypted:..." string
+// that getEnv() refuses to return, leaving SUPABASE_URL=null and all JWT validation
+// failing with 401.
 const initCtx: EnvContext = {
-  runtime: {},
+  runtime: cfEnv as unknown as Record<string, any>,
   buildtime: import.meta.env as Record<string, any>,
   isDev: import.meta.env.DEV,
 };

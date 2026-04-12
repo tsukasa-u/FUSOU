@@ -5,6 +5,7 @@ import {
   generateSignedToken,
   getEnv,
   timingSafeEqual,
+  validateDatasetToken,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
@@ -71,8 +72,12 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
   }
 
   const periodTag = String(body.period_tag ?? '').trim();
-  if (!/^\d{4}-\d{2}$/.test(periodTag)) {
-    return { ok: false, error: 'period_tag must match YYYY-MM format' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodTag)) {
+    return { ok: false, error: 'period_tag must match YYYY-MM-DD format' };
+  }
+  const parsedDate = new Date(periodTag + 'T00:00:00Z');
+  if (isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== periodTag) {
+    return { ok: false, error: 'period_tag must be a valid calendar date' };
   }
 
   const tableVersion = String(body.table_version ?? '').trim();
@@ -284,6 +289,28 @@ app.post('/ingest', async (c) => {
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
 
+    // Require dataset_token to prove ownership of dataset_id
+    const datasetTokenHeader = c.req.header('X-Dataset-Token');
+    const datasetTokenBody =
+      typeof (handshakeBody as Record<string, unknown>)?.dataset_token === 'string'
+        ? ((handshakeBody as Record<string, unknown>).dataset_token as string).trim()
+        : '';
+    const datasetToken = datasetTokenHeader || datasetTokenBody;
+    if (!datasetToken) {
+      console.warn('[remodel-data] Upload rejected: dataset_token is required');
+      return c.json({ error: 'dataset_token is required' }, 401);
+    }
+    const datasetTokenSecret = getEnv(env, 'DATASET_TOKEN_SECRET');
+    if (!datasetTokenSecret) {
+      console.error('[remodel-data] DATASET_TOKEN_SECRET not configured');
+      return c.json({ error: 'Server configuration error' }, 500);
+    }
+    const validatedDatasetToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+    if (!validatedDatasetToken || validatedDatasetToken.dataset_id !== validated.datasetId) {
+      console.warn('[remodel-data] Invalid or expired dataset_token');
+      return c.json({ error: 'Invalid or expired dataset_token' }, 401);
+    }
+
     const contentHash = String(handshakeBody?.content_hash ?? '').trim();
     if (!contentHash) return c.json({ error: 'content_hash is required' }, 400);
 
@@ -393,47 +420,41 @@ app.post('/ingest', async (c) => {
   // ── INSERT ─────────────────────────────────────────────────────
   try {
     if (verified.eventType === 'slotlist') {
-      await db.prepare('BEGIN IMMEDIATE').run();
-      try {
-        for (const entry of body.entries) {
-          await db
-            .prepare(
-              `INSERT OR REPLACE INTO remodel_slotlist_entries (
-                dataset_id, period_tag, table_version,
-                secretary_ship_master_id, weekday_jst,
-                remodel_id, slotitem_master_id, sp_type,
-                req_fuel, req_bull, req_steel, req_bauxite,
-                req_buildkit, req_remodelkit,
-                req_slot_id, req_slot_num
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            )
-            .bind(
-              verified.datasetId,
-              verified.periodTag,
-              verified.tableVersion,
-              body.secretary_ship_master_id,
-              body.weekday_jst,
-              entry.remodel_id,
-              entry.slotitem_master_id,
-              entry.sp_type,
-              entry.req_fuel,
-              entry.req_bull,
-              entry.req_steel,
-              entry.req_bauxite,
-              entry.req_buildkit,
-              entry.req_remodelkit,
-              entry.req_slot_id,
-              entry.req_slot_num,
-            )
-            .run();
-        }
-        await db.prepare('COMMIT').run();
-      } catch (error) {
-        await db
-          .prepare('ROLLBACK')
-          .run()
-          .catch(() => null);
-        throw error;
+      // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity.
+      const stmts = (body.entries as Array<Record<string, unknown>>).map((entry) =>
+        db
+          .prepare(
+            `INSERT OR REPLACE INTO remodel_slotlist_entries (
+              dataset_id, period_tag, table_version,
+              secretary_ship_master_id, weekday_jst,
+              remodel_id, slotitem_master_id, sp_type,
+              req_fuel, req_bull, req_steel, req_bauxite,
+              req_buildkit, req_remodelkit,
+              req_slot_id, req_slot_num
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            verified.datasetId,
+            verified.periodTag,
+            verified.tableVersion,
+            body.secretary_ship_master_id,
+            body.weekday_jst,
+            entry.remodel_id,
+            entry.slotitem_master_id,
+            entry.sp_type,
+            entry.req_fuel,
+            entry.req_bull,
+            entry.req_steel,
+            entry.req_bauxite,
+            entry.req_buildkit,
+            entry.req_remodelkit,
+            entry.req_slot_id,
+            entry.req_slot_num,
+          ),
+      );
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+        await db.batch(stmts.slice(i, i + BATCH_SIZE));
       }
     } else if (verified.eventType === 'detail') {
       await db

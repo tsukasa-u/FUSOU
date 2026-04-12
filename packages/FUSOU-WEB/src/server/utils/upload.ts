@@ -144,10 +144,12 @@ async function handlePreparation(
     effectiveTTL,
   );
 
-  // Build upload URL (without token - see below)
-  const usingAdapter = !!(c.env as any)?.env;
+  // Build upload URL for Stage 2.
+  // stripApiPrefix() in [...route].ts always removes the /api/ segment before Hono sees
+  // the request, so c.req.url never starts with /api/. Re-add it so Stage-2 clients
+  // POST to the correct publicly-accessible path.
   const uploadUrl = new URL(url);
-  if (usingAdapter && !uploadUrl.pathname.startsWith("/api/")) {
+  if (!uploadUrl.pathname.startsWith("/api/")) {
     uploadUrl.pathname =
       "/api" +
       (uploadUrl.pathname.startsWith("/")

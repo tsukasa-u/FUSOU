@@ -5,6 +5,8 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  timingSafeEqual,
+  validateDatasetToken,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
@@ -269,70 +271,86 @@ async function upsertQuestMasterEntries(
   tableVersion: string,
   quests: QuestListEntry[],
 ) {
-  for (const q of quests) {
-    const questId = toInt(q.quest_id);
-    if (questId == null || questId <= 0) continue;
+  // Compute SHA-256 hashes in parallel, then batch-insert to avoid N sequential D1 round-trips.
+  type QuestCandidate = {
+    questId: number;
+    title: string;
+    detail: string;
+    questType: number;
+    category: number;
+    labelType: number;
+    masterHash: string;
+  };
 
-    const title = typeof q.title === "string" ? q.title.trim() : "";
-    const detail = typeof q.detail === "string" ? q.detail.trim() : "";
-    if (!title || !detail) continue;
+  const candidates = await Promise.all(
+    quests.map(async (q): Promise<QuestCandidate | null> => {
+      const questId = toInt(q.quest_id);
+      if (questId == null || questId <= 0) return null;
 
-    const questType = toInt(q.type) ?? 0;
-    const category = toInt(q.category) ?? 0;
-    const labelType = toInt(q.label_type) ?? 0;
+      const title = typeof q.title === "string" ? q.title.trim() : "";
+      const detail = typeof q.detail === "string" ? q.detail.trim() : "";
+      if (!title || !detail) return null;
 
-    const masterHash = await sha256Hex(
-      new TextEncoder().encode(
-        JSON.stringify({
-          questId,
-          title,
-          detail,
-          questType,
-          category,
-          labelType,
-        }),
-      ),
+      const questType = toInt(q.type) ?? 0;
+      const category = toInt(q.category) ?? 0;
+      const labelType = toInt(q.label_type) ?? 0;
+
+      const masterHash = await sha256Hex(
+        new TextEncoder().encode(
+          JSON.stringify({ questId, title, detail, questType, category, labelType }),
+        ),
+      );
+
+      return { questId, title, detail, questType, category, labelType, masterHash };
+    }),
+  );
+
+  const stmts = candidates
+    .filter((c): c is QuestCandidate => c !== null)
+    .map((c) =>
+      db
+        .prepare(
+          `INSERT INTO quest_master_entries (
+             quest_id,
+             period_tag,
+             table_version,
+             title,
+             detail,
+             quest_type,
+             category,
+             label_type,
+             master_hash,
+             created_at,
+             updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(quest_id, period_tag, table_version) DO UPDATE SET
+             title = excluded.title,
+             detail = excluded.detail,
+             quest_type = excluded.quest_type,
+             category = excluded.category,
+             label_type = excluded.label_type,
+             master_hash = excluded.master_hash,
+             updated_at = excluded.updated_at
+           WHERE quest_master_entries.master_hash <> excluded.master_hash`,
+        )
+        .bind(
+          c.questId,
+          periodTag,
+          tableVersion,
+          c.title,
+          c.detail,
+          c.questType,
+          c.category,
+          c.labelType,
+          c.masterHash,
+          nowMs(),
+          nowMs(),
+        ),
     );
 
-    await db
-      .prepare(
-        `INSERT INTO quest_master_entries (
-           quest_id,
-           period_tag,
-           table_version,
-           title,
-           detail,
-           quest_type,
-           category,
-           label_type,
-           master_hash,
-           created_at,
-           updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(quest_id, period_tag, table_version) DO UPDATE SET
-           title = excluded.title,
-           detail = excluded.detail,
-           quest_type = excluded.quest_type,
-           category = excluded.category,
-           label_type = excluded.label_type,
-           master_hash = excluded.master_hash,
-           updated_at = excluded.updated_at
-         WHERE quest_master_entries.master_hash <> excluded.master_hash`
-      )
-      .bind(
-        questId,
-        periodTag,
-        tableVersion,
-        title,
-        detail,
-        questType,
-        category,
-        labelType,
-        masterHash,
-        nowMs(),
-        nowMs(),
-      )
-      .run();
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
+    await db.batch(stmts.slice(i, i + BATCH_SIZE));
   }
 }
 
@@ -380,9 +398,9 @@ async function getOrCreateSession(
   }
 
   const sessionId = makeId("qsess");
-  await db
+  const insertResult = await db
     .prepare(
-      `INSERT INTO quest_collection_sessions (
+      `INSERT OR IGNORE INTO quest_collection_sessions (
          collection_session_id,
          dataset_id,
          started_at_ms,
@@ -395,7 +413,25 @@ async function getOrCreateSession(
     .bind(sessionId, datasetId, atMs, atMs, latestSessionId ? "resume" : "bootstrap", latestSessionId ? 1 : 0, atMs)
     .run();
 
-  return { sessionId, isNew: true, bootstrapCompleted: false };
+  // INSERT OR IGNORE returns rows_written = 0 when UNIQUE(dataset_id, started_at_ms) fires,
+  // meaning a concurrent request already inserted a session for this exact millisecond.
+  // Re-query to get the canonical (winning) session so both requests converge on the same row.
+  const effectiveSessionId =
+    (insertResult.meta?.rows_written ?? 1) === 0
+      ? (
+          (await db
+            .prepare(
+              `SELECT collection_session_id FROM quest_collection_sessions
+               WHERE dataset_id = ? AND started_at_ms = ?`
+            )
+            .bind(datasetId, atMs)
+            .first<{ collection_session_id: string }>()) as {
+            collection_session_id?: string;
+          } | null
+        )?.collection_session_id ?? sessionId
+      : sessionId;
+
+  return { sessionId: effectiveSessionId, isNew: true, bootstrapCompleted: false };
 }
 
 async function markBootstrapCompleted(db: D1Database, sessionId: string, atMs: number): Promise<void> {
@@ -620,33 +656,39 @@ async function processIngestEvents(
       bootstrapNowCompleted = true;
     } else {
       const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
-      for (const targetQuestId of appeared) {
-        await db
-          .prepare(
-            `INSERT OR IGNORE INTO quest_appearance_events (
-               dataset_id,
-               collection_session_id,
-               target_quest_id,
-               appeared_at_ms,
-               source_event_type,
-               source_event_id,
-               period_tag,
-               table_version,
-               is_bootstrap_unknown,
-               created_at
-             ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`
-          )
-          .bind(
-            params.datasetId,
-            params.sessionId,
-            targetQuestId,
-            params.atMs,
-            params.eventType,
-            params.periodTag,
-            params.tableVersion,
-            nowMs(),
-          )
-          .run();
+      if (appeared.length > 0) {
+        const appearanceMs = nowMs();
+        const appearStmts = appeared.map((targetQuestId) =>
+          db
+            .prepare(
+              `INSERT OR IGNORE INTO quest_appearance_events (
+                 dataset_id,
+                 collection_session_id,
+                 target_quest_id,
+                 appeared_at_ms,
+                 source_event_type,
+                 source_event_id,
+                 period_tag,
+                 table_version,
+                 is_bootstrap_unknown,
+                 created_at
+               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`
+            )
+            .bind(
+              params.datasetId,
+              params.sessionId,
+              targetQuestId,
+              params.atMs,
+              params.eventType,
+              params.periodTag,
+              params.tableVersion,
+              appearanceMs,
+            )
+        );
+        // D1 batch limit: 100 statements per call
+        for (let i = 0; i < appearStmts.length; i += 100) {
+          await db.batch(appearStmts.slice(i, i + 100));
+        }
       }
     }
   } else if (params.questId != null && params.questId > 0) {
@@ -657,46 +699,71 @@ async function processIngestEvents(
           ? "visible_inactive"
           : "claimed";
 
-    await db
-      .prepare(
-        `INSERT INTO quest_state_events (
-           dataset_id,
-           collection_session_id,
-           quest_id,
-           event_type,
-           state_after,
-           timestamp_ms,
-           period_tag,
-           table_version,
-           payload_hash,
-           created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        params.datasetId,
-        params.sessionId,
-        params.questId,
-        params.eventType,
-        stateAfter,
-        params.atMs,
-        params.periodTag,
-        params.tableVersion,
-        params.payloadHash,
-        nowMs(),
-      )
-      .run();
-
-    await upsertQuestStateLatest(db, {
-      datasetId: params.datasetId,
-      questId: params.questId,
-      sessionId: params.sessionId,
-      state: stateAfter,
-      eventType: params.eventType,
-      atMs: params.atMs,
-      periodTag: params.periodTag,
-      tableVersion: params.tableVersion,
-      isClaimed: params.eventType === "complete" ? 1 : 0,
-    });
+    const stateEventMs = nowMs();
+    // Batch both writes atomically: if the Worker is killed between them the
+    // quest_state_events row and quest_state_latest row would diverge.
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO quest_state_events (
+             dataset_id,
+             collection_session_id,
+             quest_id,
+             event_type,
+             state_after,
+             timestamp_ms,
+             period_tag,
+             table_version,
+             payload_hash,
+             created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          params.datasetId,
+          params.sessionId,
+          params.questId,
+          params.eventType,
+          stateAfter,
+          params.atMs,
+          params.periodTag,
+          params.tableVersion,
+          params.payloadHash,
+          stateEventMs,
+        ),
+      db
+        .prepare(
+          `INSERT INTO quest_state_latest (
+             dataset_id,
+             quest_id,
+             collection_session_id,
+             state,
+             updated_at_ms,
+             last_event_type,
+             period_tag,
+             table_version,
+             is_claimed
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(dataset_id, quest_id) DO UPDATE SET
+             collection_session_id = excluded.collection_session_id,
+             state = excluded.state,
+             updated_at_ms = excluded.updated_at_ms,
+             last_event_type = excluded.last_event_type,
+             period_tag = excluded.period_tag,
+             table_version = excluded.table_version,
+             is_claimed = excluded.is_claimed`
+        )
+        .bind(
+          params.datasetId,
+          params.questId,
+          params.sessionId,
+          stateAfter,
+          params.atMs,
+          params.eventType,
+          params.periodTag,
+          params.tableVersion,
+          params.eventType === "complete" ? 1 : 0,
+        ),
+    ]);
   }
 
   return { bootstrapNowCompleted };
@@ -749,6 +816,28 @@ app.post("/ingest", async (c) => {
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
+
+    // Require dataset_token to prove ownership of dataset_id
+    const datasetTokenHeader = c.req.header("X-Dataset-Token");
+    const datasetTokenBody =
+      typeof (handshakeBody as Record<string, unknown>)?.dataset_token === "string"
+        ? ((handshakeBody as Record<string, unknown>).dataset_token as string).trim()
+        : "";
+    const datasetToken = datasetTokenHeader || datasetTokenBody;
+    if (!datasetToken) {
+      console.warn("[quest-tree] Upload rejected: dataset_token is required");
+      return c.json({ error: "dataset_token is required" }, 401);
+    }
+    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    if (!datasetTokenSecret) {
+      console.error("[quest-tree] DATASET_TOKEN_SECRET not configured");
+      return c.json({ error: "Server configuration error" }, 500);
+    }
+    const validatedDatasetToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+    if (!validatedDatasetToken || validatedDatasetToken.dataset_id !== validated.datasetId) {
+      console.warn("[quest-tree] Invalid or expired dataset_token");
+      return c.json({ error: "Invalid or expired dataset_token" }, 401);
+    }
 
     const contentHash = (handshakeBody?.content_hash ?? "").toString().trim();
     if (!contentHash) {
@@ -825,12 +914,10 @@ app.post("/ingest", async (c) => {
 
   const actualHash = await sha256Hex(uploaded);
   const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
-  if (actualHash.toLowerCase() !== expectedHash) {
+  if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
     return c.json(
       {
         error: "Content hash mismatch - data may be corrupted",
-        expected: expectedHash,
-        actual: actualHash,
       },
       400,
     );
@@ -988,6 +1075,24 @@ app.get("/changes", async (c) => {
 
   if (!datasetId) {
     return c.json({ error: "dataset_id query is required" }, 400);
+  }
+
+  // Require dataset_token to prove ownership of dataset_id
+  const env = createEnvContext(c);
+  const datasetTokenHeader = c.req.header("X-Dataset-Token");
+  const datasetTokenQuery = (c.req.query("dataset_token") ?? "").trim();
+  const datasetToken = datasetTokenHeader || datasetTokenQuery;
+  if (!datasetToken) {
+    return c.json({ error: "dataset_token is required" }, 401);
+  }
+  const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+  if (!datasetTokenSecret) {
+    console.error("[quest-tree] DATASET_TOKEN_SECRET not configured");
+    return c.json({ error: "Server configuration error" }, 500);
+  }
+  const validatedDatasetToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+  if (!validatedDatasetToken || validatedDatasetToken.dataset_id !== datasetId) {
+    return c.json({ error: "Invalid or expired dataset_token" }, 401);
   }
 
   const appearances = ((await db

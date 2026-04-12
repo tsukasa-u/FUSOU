@@ -5,39 +5,6 @@ import { validateJWT, createEnvContext, verifyAdminToken } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-/**
- * Retry utility for handling rate limits and transient errors
- * Implements exponential backoff to respect Supabase Free tier limits
- */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  baseDelay = 1000
-): Promise<T> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries - 1;
-      const isRateLimitError = 
-        (error as any)?.message?.includes('429') ||
-        (error as any)?.message?.includes('Too Many Requests') ||
-        (error as any)?.status === 429;
-
-      if (isLastAttempt || !isRateLimitError) {
-        throw error;
-      }
-
-      // Exponential backoff: 1s, 2s, 4s
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.warn(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
-        error: (error as any)?.message,
-      });
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('Max retries exceeded');
-}
 
 
 /**
@@ -143,17 +110,14 @@ app.post('/sanitize-state', async (c) => {
         console.warn('[compact-sanitize] COMPACTION_QUEUE binding not available');
         return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
       }
-      await withRetry(async () => {
-        console.info(`[compact-sanitize] Calling env.runtime.COMPACTION_QUEUE.send()...`);
-        const sendResult = await env.runtime.COMPACTION_QUEUE.send({
-          datasetId,
-          triggeredAt: new Date().toISOString(),
-          priority: 'manual',
-          userId: supabaseUser.id,
-        });
-        console.info(`[compact-sanitize] Queue send result:`, { sendResult });
-        return sendResult;
+      console.info(`[compact-sanitize] Calling env.runtime.COMPACTION_QUEUE.send()...`);
+      const sendResult = await env.runtime.COMPACTION_QUEUE.send({
+        datasetId,
+        triggeredAt: new Date().toISOString(),
+        priority: 'manual',
+        userId: supabaseUser.id,
       });
+      console.info(`[compact-sanitize] Queue send result:`, { sendResult });
       console.info(`[compact-sanitize] Successfully enqueued dataset`, { datasetId, datasetName: ds.dataset_name });
     } catch (queueError) {
       console.error(`[compact-sanitize] FAILED to enqueue dataset`, {
@@ -239,16 +203,12 @@ app.post('/trigger-scheduled', async (c) => {
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
     const enqueuePromises = (datasets.results as Array<{ id: string; user_id: string; dataset_name: string }>).map((dataset) =>
-      withRetry(() =>
-        Promise.resolve(
-          env.runtime.COMPACTION_QUEUE.send({
-            datasetId: dataset.id,
-            triggeredAt: new Date().toISOString(),
-            priority: 'scheduled',
-            userId: dataset.user_id,
-          })
-        )
-      )
+      env.runtime.COMPACTION_QUEUE.send({
+        datasetId: dataset.id,
+        triggeredAt: new Date().toISOString(),
+        priority: 'scheduled',
+        userId: dataset.user_id,
+      })
         .then(() => {
           console.info(`[compact-scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
           enqueueResults.push({ datasetId: dataset.id, status: 'success' });
@@ -275,6 +235,19 @@ app.post('/trigger-scheduled', async (c) => {
       failures: enqueueResults.filter((r) => r.status === 'failed'),
       timestamp: new Date().toISOString(),
     });
+
+    // Mark successfully enqueued datasets as in-progress so next trigger doesn't re-enqueue them.
+    const successfulIds = enqueueResults
+      .filter((r) => r.status === 'success')
+      .map((r) => r.datasetId);
+
+    if (successfulIds.length > 0) {
+      const flagStmts = successfulIds.map((id) =>
+        db.prepare('UPDATE datasets SET compaction_in_progress = 1 WHERE id = ?').bind(id)
+      );
+      await db.batch(flagStmts);
+      console.info('[compact-scheduled] Marked datasets as compaction_in_progress=1', { successfulIds });
+    }
 
     const datasetIds = (datasets.results as Array<{ id: string }>).map((d) => d.id);
     console.info('[compact-scheduled] Enqueued datasets', {

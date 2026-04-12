@@ -261,7 +261,9 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     preparationValidator: async (body, _user) => {
-      // Extract and validate dataset_token (X-Dataset-Token header or dataset_token in body)
+      // dataset_token is REQUIRED to prove ownership of dataset_id.
+      // Without it, any authenticated Supabase user could submit data under an arbitrary
+      // dataset_id (another user's member_id_hash), polluting the public dataset.
       const datasetTokenHeader = c.req.header("X-Dataset-Token");
       const datasetTokenBody =
         typeof body?.dataset_token === "string"
@@ -269,32 +271,35 @@ app.post("/upload", async (c) => {
           : "";
       const datasetToken = datasetTokenHeader || datasetTokenBody;
 
-      if (datasetToken) {
-        const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-        if (!datasetTokenSecret) {
-          console.error("[battle-data] DATASET_TOKEN_SECRET not configured");
-          return c.json({ error: "Server configuration error" }, 500);
-        }
-
-        const validatedToken = await validateDatasetToken(
-          datasetToken,
-          datasetTokenSecret,
-        );
-        if (!validatedToken) {
-          console.warn("[battle-data] Invalid or expired dataset_token");
-          return c.json({ error: "Invalid or expired dataset_token" }, 401);
-        }
-
-        // Verify dataset_id matches token
-        const requestedDatasetId =
-          typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-        if (requestedDatasetId !== validatedToken.dataset_id) {
-          console.warn(`[battle-data] dataset_id mismatch detected`);
-          return c.json({ error: "dataset_id does not match token" }, 403);
-        }
-
-        console.log(`[battle-data] dataset_token validated successfully`);
+      if (!datasetToken) {
+        console.warn("[battle-data] Upload rejected: dataset_token is required");
+        return c.json({ error: "dataset_token is required" }, 401);
       }
+
+      const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+      if (!datasetTokenSecret) {
+        console.error("[battle-data] DATASET_TOKEN_SECRET not configured");
+        return c.json({ error: "Server configuration error" }, 500);
+      }
+
+      const validatedToken = await validateDatasetToken(
+        datasetToken,
+        datasetTokenSecret,
+      );
+      if (!validatedToken) {
+        console.warn("[battle-data] Invalid or expired dataset_token");
+        return c.json({ error: "Invalid or expired dataset_token" }, 401);
+      }
+
+      // Verify dataset_id matches token
+      const requestedDatasetId =
+        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      if (requestedDatasetId !== validatedToken.dataset_id) {
+        console.warn(`[battle-data] dataset_id mismatch detected`);
+        return c.json({ error: "dataset_id does not match token" }, 403);
+      }
+
+      console.log(`[battle-data] dataset_token validated successfully`);
 
       const datasetId =
         typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";

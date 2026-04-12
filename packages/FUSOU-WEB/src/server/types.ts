@@ -113,6 +113,7 @@ export type BucketPutOptions = {
 
 export type D1Database = {
   prepare(sql: string): D1Statement;
+  batch<T = D1Row>(statements: D1Statement[]): Promise<{ results?: T[] }[]>;
 };
 
 export type D1Statement = {
