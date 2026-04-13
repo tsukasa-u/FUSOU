@@ -8,7 +8,9 @@ const year = new Date().getFullYear();
     class="hero min-h-screen overflow-hidden bg-cover bg-center"
     style={"background-image: url('" + HeroImg.src + "');"}
   >
-    <div class="hero-content relative z-10 text-center flex flex-col gap-0 w-full max-w-4xl px-4 pt-24 pb-10 sm:pt-28">
+    <div
+      class="hero-content relative z-10 text-center flex flex-col gap-0 w-full max-w-4xl px-4 pt-24 pb-10 sm:pt-28"
+    >
       <div class="mb-10">
         <h1 class="mb-4 text-5xl font-bold">FUSOU</h1>
         <p class="text-lg text-base-content/80 max-w-xl mx-auto">
@@ -17,158 +19,373 @@ const year = new Date().getFullYear();
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 w-full">
-        <div class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-primary">
+        <div
+          class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-primary"
+        >
           <div class="card-body gap-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-primary/10">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary" viewBox="0 0 20 20" fill="currentColor"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" /></svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6 text-primary"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  ><path
+                    d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"
+                  ></path></svg
+                >
               </div>
               <h2 class="card-title text-xl">データ表示</h2>
             </div>
-            <p class="text-sm text-base-content/70">戦闘記録・艦成長データ・クエスト達成率など、収集したデータを多角的に可視化。</p>
+            <p class="text-sm text-base-content/70">
+              戦闘記録・パラメータ推移・クエストツリーなど、収集したデータを可視化。
+            </p>
             <div class="flex flex-col gap-1.5">
-              <a href="/battles" class="btn btn-sm btn-ghost justify-start gap-2">Battles - 戦闘記録閲覧</a>
-              <a href="/ship-growth" class="btn btn-sm btn-ghost justify-start gap-2">艦成長 - 艦レベル・パラメータ成長</a>
-              <a href="/quests" class="btn btn-sm btn-ghost justify-start gap-2">クエスト - 達成率ツリー閲覧</a>
+              <a
+                href="/battles"
+                class="btn btn-sm btn-ghost justify-start gap-2"
+                >Battles - 戦闘記録閲覧</a
+              >
+              <a
+                href="/ship-growth"
+                class="btn btn-sm btn-ghost justify-start gap-2"
+                >パラメータ推移 - 艦レベル・パラメータ成長</a
+              >
+              <a href="/quests" class="btn btn-sm btn-ghost justify-start gap-2"
+                >クエスト - 推定クエストツリー閲覧</a
+              >
             </div>
             <div class="card-actions mt-1">
-              <a href="/battles" class="btn btn-primary btn-sm w-full">データを見る</a>
+              <a href="/battles" class="btn btn-primary btn-sm w-full"
+                >データを見る</a
+              >
             </div>
           </div>
         </div>
 
-        <div class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-secondary">
+        <div
+          class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-secondary"
+        >
           <div class="card-body gap-4">
             <div class="flex items-center gap-3">
               <div class="p-2 rounded-lg bg-secondary/10">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-secondary" viewBox="0 0 20 20" fill="currentColor"><path d="M2 4.75A1.75 1.75 0 013.75 3h12.5A1.75 1.75 0 0118 4.75v7.5A1.75 1.75 0 0116.25 14H3.75A1.75 1.75 0 012 12.25v-7.5z" /><path d="M6 16.5a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 016 16.5z" /></svg>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-6 w-6 text-secondary"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  ><path
+                    d="M2 4.75A1.75 1.75 0 013.75 3h12.5A1.75 1.75 0 0118 4.75v7.5A1.75 1.75 0 0116.25 14H3.75A1.75 1.75 0 012 12.25v-7.5z"
+                  ></path><path
+                    d="M6 16.5a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 016 16.5z"
+                  ></path></svg
+                >
               </div>
               <h2 class="card-title text-xl">Simulator</h2>
             </div>
-            <p class="text-sm text-base-content/70">編成を自由に組み立て・共有。艦・装備の詳細スペックなども参照可能。</p>
+            <p class="text-sm text-base-content/70">
+              編成を自由に組み立て・共有。艦・装備の詳細スペックなども参照可能。
+            </p>
             <div class="flex flex-col gap-1.5">
-              <a href="/simulator" class="btn btn-sm btn-ghost justify-start gap-2">編成シミュレータ - 編成を組む</a>
-              <a href="/simulator/details" class="btn btn-sm btn-ghost justify-start gap-2">艦/装備詳細 - 評価値・相性参照</a>
+              <a
+                href="/simulator"
+                class="btn btn-sm btn-ghost justify-start gap-2"
+                >編成シミュレータ - 編成を組む</a
+              >
+              <a
+                href="/simulator/details"
+                class="btn btn-sm btn-ghost justify-start gap-2"
+                >艦/装備詳細 - 評価値・相性参照</a
+              >
             </div>
             <div class="card-actions mt-1">
-              <a href="/simulator" class="btn btn-secondary btn-sm w-full">シミュレータを開く</a>
+              <a href="/simulator" class="btn btn-secondary btn-sm w-full"
+                >シミュレータを開く</a
+              >
             </div>
           </div>
         </div>
       </div>
 
-      <div class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-accent w-full mt-5 sm:mt-6">
-        <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 sm:p-5">
+      <div
+        class="card bg-base-100 shadow-2xl border border-base-200 border-t-4 border-t-accent w-full mt-5 sm:mt-6"
+      >
+        <div
+          class="flex flex-col sm:flex-row items-start sm:items-center gap-4 p-4 sm:p-5"
+        >
           <div class="text-left flex-1 min-w-0">
             <p class="font-bold text-base">FUSOU-APP をインストール</p>
-            <p class="text-xs text-base-content/60 mt-0.5">データ収集にはローカルアプリが必要です。艦これのプロキシとして動作します。</p>
+            <p class="text-xs text-base-content/60 mt-0.5">
+              データ収集にはローカルアプリが必要です。艦これのプロキシとして動作します。専ブラとしても活用できます。
+            </p>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto shrink-0">
+          <div class="w-full sm:w-auto shrink-0">
             <a
-              href="https://github.com/tsukasa-u/FUSOU/releases/latest"
+              href="/download"
               target="_blank"
               rel="noreferrer"
               class="btn btn-accent btn-sm"
             >
-              Windows (x64)
-            </a>
-            <a
-              href="https://github.com/tsukasa-u/FUSOU/releases/latest"
-              target="_blank"
-              rel="noreferrer"
-              class="btn btn-outline btn-sm"
-            >
-              Linux (x64/arm64)
+              ダウンロード
             </a>
           </div>
         </div>
       </div>
 
-      <div class="mt-5 w-full sm:mt-6 flex flex-col sm:flex-row gap-3 justify-center">
-        <a class="btn btn-primary btn-sm sm:btn-md w-full sm:w-auto shadow-lg border border-primary/30" href="/docs/start/quick_start">
-          Getting Started
+      <div
+        class="mt-5 w-full sm:mt-6 flex flex-col sm:flex-row gap-3 justify-center"
+      >
+        <a
+          class="btn btn-primary btn-sm sm:btn-md w-full sm:w-auto shadow-lg border border-primary/30"
+          href="/docs/start/quick_start"
+        >
+          Quick Start
         </a>
-        <a class="btn btn-outline btn-sm sm:btn-md w-full sm:w-auto" href="#project-guide">
+        <a
+          class="btn btn-outline btn-sm sm:btn-md w-full sm:w-auto"
+          href="#project-guide"
+        >
           詳細を見る
         </a>
       </div>
     </div>
   </section>
 
-  <section id="project-guide" class="scroll-mt-24 border-t border-zinc-300 bg-white">
+  <section
+    id="project-guide"
+    class="scroll-mt-24 border-t border-zinc-300 bg-white"
+  >
     <div class="max-w-4xl mx-auto px-6 py-14">
       <header class="mb-10">
-        <h2 class="text-2xl md:text-3xl font-bold text-zinc-900 tracking-tight mb-3">はじめての方へ</h2>
+        <h2
+          class="text-2xl md:text-3xl font-bold text-zinc-900 tracking-tight mb-3"
+        >
+          FUSOUについて
+        </h2>
         <p class="text-sm text-zinc-800 leading-7">
-          FUSOUは「編成を考える時間」と「戦闘を振り返る時間」を、ひとつの流れで使えるようにしたサービスです。
-          ここでは、はじめて使う方が迷わないように、紹介ページとして必要な情報だけをまとめています。
+          FUSOUは、艦これのプレイ記録を収集・可視化し、可視データを利用した継続的な検証とデータの公開を目指すとオープンソースプロジェクトです。ローカルで動作するデータ収集用(データ表示用)アプリ(FUSOU-APP)と、収集されたデータを可視化、利用するWEBアプリ(FUSOU-WEB)、および検証用途でのデータ利用を支援するSDK(fusou-datasets)を提供しています。
         </p>
       </header>
 
       <div class="space-y-10 text-zinc-800">
         <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">FUSOUでできること</h3>
+          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+            FUSOUでできること
+          </h3>
           <p class="text-sm leading-7 mb-4">
-            出撃前は編成を比較し、出撃後はログを見ながら改善点を確認できます。
-            その日のプレイを感覚ではなく、記録にもとづいて振り返れるのがFUSOUの強みです。
+            FUSOUでは、専ら艦これのプレイ記録を収集し、その結果を検証に利用することを目的としています。収集されたデータは、戦闘記録やパラメータ推移、クエストツリーなどの形で可視化され、ユーザーに可視、検証結果として提供されます。
           </p>
           <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
-            <li>編成シミュレータで制空・索敵・火力を見比べる</li>
-            <li>戦闘記録・艦成長・クエストの進行をまとめて確認する</li>
-            <li>艦娘や装備の詳細データを参照しながら次の編成を決める</li>
+            <li>
+              FUSOUはプロキシーアプリとして動作し、他の専ブラと併用できます。通信の安全性を確保しつつ、必要なデータを収集します。また、FUSOU-APPは単体でも利用でき、専ブラとしての機能も提供しています。
+            </li>
+            <li>
+              収集されたデータは、FUSOU-WEBで可視化されます。戦闘記録、艦のパラメータ推移、クエストツリーなど、様々な形で提供されます。
+            </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a href="/simulator" class="link link-hover text-blue-700">シミュレータを見る</a>
-            <a href="/battles" class="link link-hover text-blue-700">戦闘記録を見る</a>
-            <a href="/quests" class="link link-hover text-blue-700">クエスト状況を見る</a>
+            <a href="/simulator" class="link link-hover text-blue-700"
+              >シミュレータを見る</a
+            >
+            <a href="/battles" class="link link-hover text-blue-700"
+              >戦闘記録を見る</a
+            >
+            <a href="/quests" class="link link-hover text-blue-700"
+              >クエスト状況を見る</a
+            >
           </div>
         </section>
 
         <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">はじめる前に知っておきたいこと</h3>
+          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+            サービスの構成と公開情報
+          </h3>
           <p class="text-sm leading-7 mb-4">
-            ログの収集にはFUSOU-APPを使います。現在はWindows 11での利用を前提に案内しています。
-            具体的なセットアップ手順はGetting Startedにまとめているため、このページでは概要のみを案内します。
+            FUSOUはGitHub上で管理されており、コードやドキュメントを公開しています。プロジェクトは、FUSOU-APP、FUSOU-WEB、fusou-datasetsの3つの主要コンポーネントで構成されており、それぞれの役割と機能があります。
           </p>
           <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
-            <li>まずはFUSOU-APPを入れて起動する</li>
-            <li>Web版にサインインして、シミュレータと記録閲覧を使い始める</li>
-            <li>細かな初期設定や画面ごとの使い方はGetting Startedで確認する</li>
+            <li>
+              FUSOU-APP
+              はローカルで動作し、ゲーム通信から必要なデータを収集します。
+            </li>
+            <li>
+              FUSOU-WEB
+              は収集データを管理し、可視化・比較・参照の機能を提供します。
+            </li>
+            <li>
+              fusou-datasets
+              は認証付きSDKとして、検証・研究用途でのデータ利用を支援します。
+            </li>
+            <li>
+              GitHub
+              では実装、課題、変更履歴を公開し、運用の透明性を確保しています。
+            </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a href="/download" class="link link-hover text-blue-700">ダウンロードページ</a>
-            <a href="/docs/start/quick_start" class="link link-hover text-blue-700">Getting Started</a>
+            <a
+              href="/docs/start/what_is_fusou"
+              class="link link-hover text-blue-700">プロジェクト概要</a
+            >
+            <a
+              href="/docs/guide/api_overview"
+              class="link link-hover text-blue-700">API概要</a
+            >
+            <a
+              href="https://github.com/tsukasa-u/FUSOU"
+              target="_blank"
+              rel="noreferrer"
+              class="link link-hover text-blue-700">GitHub</a
+            >
           </div>
         </section>
 
         <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">安心して使える理由</h3>
+          <h3 class="text-xl font-semibold text-zinc-900 mb-3">方針と目的</h3>
           <p class="text-sm leading-7 mb-4">
-            FUSOUは、普段のプレイ情報を整理して見やすくするためのツールです。
-            不安なく使えるように、規約やプライバシー方針、通信の考え方を公開しています。
+            FUSOUは、ユーザーがアクセス可能なデータを利用することを重視し、継続的に検証可能な分析および公開基盤を育てることを目的に開発されています。
           </p>
           <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
-            <li>利用規約とプライバシー方針をいつでも確認できる</li>
-            <li>通信の扱い方を公開し、方針を明確にしている</li>
-            <li>困ったときは問い合わせ窓口から相談できる</li>
+            <li>
+              クリアなデータ提供は、利用者が本来確認可能な情報を中心に扱う方針です。従来の検証で組み込まれていた不可視の情報を排除し、利用者がアクセスできるデータに基づいて分析を行いその限界に挑戦します。
+            </li>
+            <li>
+              オープンな分析は、データと手法を検証可能にする方針です。結果だけでなく過程を追えるようにし、継続的にかつ再現性のある議論を可能にします。
+            </li>
+            <li>
+              データの個人所有は、利用者が自身のデータを公開するかどうか選べるようにする方針です。データの収集と利用の選択肢を提供し、利用者が自身のデータを管理できる手段を提供します。
+            </li>
+            <li>
+              透明性のある開発は、コードと運用ルールを公開して継続改善する方針です。仕様変更の背景を追跡できる状態を重視します。
+            </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a href="/docs/policy/terms" class="link link-hover text-blue-700">利用規約</a>
-            <a href="/docs/policy/privacy" class="link link-hover text-blue-700">プライバシー方針</a>
-            <a href="/docs/policy/communication_integrity_policy" class="link link-hover text-blue-700">通信安全基準</a>
-            <a href="/contact" class="link link-hover text-blue-700">問い合わせ</a>
+            <a
+              href="/docs/start/what_is_fusou"
+              class="link link-hover text-blue-700">プロジェクト概要</a
+            >
+            <a
+              href="/docs/guide/fusou_datasets/getting_started"
+              class="link link-hover text-blue-700">Datasets ガイド</a
+            >
+            <a
+              href="https://github.com/tsukasa-u/FUSOU"
+              target="_blank"
+              rel="noreferrer"
+              class="link link-hover text-blue-700">GitHub</a
+            >
+          </div>
+        </section>
+
+        <section class="border-l-2 border-zinc-300 pl-5">
+          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+            公開している方針とポリシー
+          </h3>
+          <p class="text-sm leading-7 mb-4">
+            FUSOUでは、利用条件・個人情報の扱い・通信運用・データ利用条件・著作権と引用に関する文書を公開しています。
+            利用者が事前に確認できる状態を維持し、運用方針を変更する場合も追跡可能にしています。
+          </p>
+          <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
+            <li>
+              通信安全基準では、通信機能の取り扱い範囲と運用原則を公開しています。
+            </li>
+            <li>
+              データセット利用方針では、SDKライセンスとデータ本体の利用条件を分けて提示しています。
+            </li>
+            <li>
+              著作権・引用ポリシーでは、引用時のルールと権利配慮の基準を公開しています。
+            </li>
+            <li>
+              問い合わせ窓口では、方針の確認や利用条件の相談先を明示しています。
+            </li>
+          </ul>
+          <div class="mt-4 flex flex-wrap gap-3 text-sm">
+            <a
+              href="/docs/policy/communication_integrity_policy"
+              class="link link-hover text-blue-700">通信安全基準</a
+            >
+            <a
+              href="/docs/policy/fusou_dataset_license_policy"
+              class="link link-hover text-blue-700">データセット利用方針</a
+            >
+            <a
+              href="/docs/policy/copyright_quotation_policy"
+              class="link link-hover text-blue-700">著作権・引用ポリシー</a
+            >
+            <a href="/contact" class="link link-hover text-blue-700"
+              >問い合わせ</a
+            >
+          </div>
+        </section>
+
+        <section class="border-l-2 border-zinc-300 pl-5">
+          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+            意見・お問い合わせ
+          </h3>
+          <p class="text-sm leading-7 mb-4">
+            バグ報告、機能要望、その他のご連絡は GitHub または Wavebox
+            をご利用ください。
+          </p>
+          <div class="flex flex-wrap gap-3 text-sm">
+            <a
+              href="https://github.com/tsukasa-u/FUSOU/discussions"
+              target="_blank"
+              rel="noreferrer"
+              class="link link-hover text-blue-700">GitHub Discussions</a
+            >
+            <a
+              href="https://github.com/tsukasa-u/FUSOU/issues/new"
+              target="_blank"
+              rel="noreferrer"
+              class="link link-hover text-blue-700"
+              >Bug Report / Feature Request</a
+            >
+            <a
+              href="https://wavebox.me/wave/byvjx7nrs7350t54/"
+              target="_blank"
+              rel="noreferrer"
+              class="link link-hover text-blue-700">Wavebox で問い合わせ</a
+            >
           </div>
         </section>
       </div>
 
-      <footer class="pt-9 mt-10 border-t border-zinc-200 text-sm text-zinc-500 flex flex-col sm:flex-row justify-between items-center gap-4">
+      <footer
+        class="pt-9 mt-10 border-t border-zinc-200 text-sm text-zinc-500 flex flex-col sm:flex-row justify-between items-center gap-4"
+      >
         <div>
           &copy; {year} FUSOU Project.
         </div>
         <div class="flex gap-4">
-          <a href="https://github.com/tsukasa-u/FUSOU/issues" target="_blank" rel="noreferrer" class="hover:text-zinc-900 transition-colors">Issues</a>
-          <a href="https://github.com/tsukasa-u/FUSOU/pulls" target="_blank" rel="noreferrer" class="hover:text-zinc-900 transition-colors">Pull Requests</a>
-          <a href="https://github.com/tsukasa-u/FUSOU/blob/main/LICENSE" target="_blank" rel="noreferrer" class="hover:text-zinc-900 transition-colors">License</a>
+          <a
+            href="/docs/policy/terms"
+            class="hover:text-zinc-900 transition-colors">利用規約</a
+          >
+          <a
+            href="/docs/policy/privacy"
+            class="hover:text-zinc-900 transition-colors">プライバシー方針</a
+          >
+          <a
+            href="/docs/policy/copyright_quotation_policy"
+            class="hover:text-zinc-900 transition-colors">著作権・引用</a
+          >
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/issues"
+            target="_blank"
+            rel="noreferrer"
+            class="hover:text-zinc-900 transition-colors">Issues</a
+          >
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/pulls"
+            target="_blank"
+            rel="noreferrer"
+            class="hover:text-zinc-900 transition-colors">Pull Requests</a
+          >
+          <a
+            href="https://github.com/tsukasa-u/FUSOU/blob/main/LICENSE"
+            target="_blank"
+            rel="noreferrer"
+            class="hover:text-zinc-900 transition-colors">License</a
+          >
         </div>
       </footer>
     </div>
