@@ -7,6 +7,7 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
   class=`navbar border-base-300 border-b z-50 fixed top-0 left-0 ${css_filled}`
 >
   <div class="flex w-full max-w-[1440px] mx-auto px-4 sm:px-8 py-1 flex-wrap items-center gap-1 sm:gap-2">
+      <div class="flex w-full max-w-[1440px] mx-auto px-4 sm:px-8 py-1 flex-nowrap items-center gap-1 sm:gap-2">
     <div class="flex items-center gap-1 min-w-0">
       <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
       <div class="tooltip tooltip-bottom" data-tip="GitHub">
@@ -51,7 +52,35 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
         </a>
       </div>
     </div>
-    <div class="flex items-center gap-1 sm:gap-2 ml-auto w-full sm:w-auto justify-end">
+    <!-- Mobile hamburger menu -->
+    <div class="mobile-menu dropdown dropdown-bottom dropdown-end">
+      <div tabindex="0" role="button" class="btn btn-ghost btn-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </div>
+      <ul tabindex="0" class="dropdown-content menu menu-sm bg-base-100 rounded-box z-50 mt-1 w-48 shadow-lg border border-base-300">
+        <li class="menu-title"><span>データ</span></li>
+        <li><a href="/battles">Battles</a></li>
+        <li><a href="/ship-growth">艦成長</a></li>
+        <li><a href="/quests">クエスト</a></li>
+        <hr class="my-1 border-base-200" />
+        <li class="menu-title"><span>シミュレータ</span></li>
+        <li><a href="/simulator">編成シミュレータ</a></li>
+        <li><a href="/simulator/details">艦/装備詳細</a></li>
+        <hr class="my-1 border-base-200" />
+        <li><a href="/docs">Docs</a></li>
+        <li><a href="/contact">Contact</a></li>
+        <hr class="my-1 border-base-200" />
+        <li class="menu-title"><span>アカウント</span></li>
+        <li><a href="/auth/signin">Webサービスにサインイン</a></li>
+        <li><a href="/auth/local/signin">ローカルアプリと連携</a></li>
+        <hr class="my-1 border-base-200" />
+        <li class="menu-title"><span>開発者</span></li>
+        <li><a href="/dashboard/api-keys">APIキー管理</a></li>
+        <hr class="my-1 border-base-200" />
+        <li><a href="/download">Download</a></li>
+      </ul>
+    </div>
+    <div class="desktop-menu flex items-center gap-1 sm:gap-2 ml-auto w-full sm:w-auto justify-end">
       <!-- データ表示系ドロップダウン -->
       <div class="dropdown dropdown-bottom dropdown-end">
         <div tabindex="0" role="button" class="btn btn-ghost btn-sm gap-1">
@@ -142,5 +171,26 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
 <style>
   .bg-navbar {
     background-color: color(from var(--color-base-100) srgb r g b / 0.6);
+  }
+</style>
+
+<style is:global>
+  /* Mobile: show hamburger, hide desktop menu */
+  @media (max-width: 1023px) {
+    .mobile-menu {
+      display: flex !important;
+    }
+    .navbar .desktop-menu {
+      display: none !important;
+    }
+  }
+  /* Desktop: hide hamburger, show desktop menu */
+  @media (min-width: 1024px) {
+    .mobile-menu {
+      display: none !important;
+    }
+    .navbar .desktop-menu {
+      display: flex !important;
+    }
   }
 </style>
