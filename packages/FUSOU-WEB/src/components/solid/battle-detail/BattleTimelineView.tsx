@@ -546,12 +546,26 @@ export default function BattleTimelineView(props: {
                 };
                 const atkIdx = ev.attackerIdx;
                 const defIdx = ev.defenderIdx;
-                const atkLabel = atkIdx !== null ? `${atkIdx + 1}番` : "?";
+                const atkGroup = Array.isArray(ev.attackerGroup)
+                  ? ev.attackerGroup.filter((v) => Number.isFinite(Number(v)) && Number(v) >= 0)
+                  : [];
+                const atkLabel =
+                  atkIdx !== null
+                    ? `${atkIdx + 1}番`
+                    : ev.type === "air"
+                      ? atkGroup.length > 0
+                        ? `${atkGroup.map((v) => Number(v) + 1).join("+")}番`
+                        : "航空"
+                      : "?";
                 const defLabel = `${defIdx + 1}番`;
                 const atkShort = createMemo(() => {
                   const n = atkIdx !== null
                     ? shipNameFromIndex(ev.attackerSide, atkIdx, props.fleets)
-                    : "-";
+                    : ev.type === "air" && atkGroup.length > 0
+                      ? atkGroup
+                          .map((v) => shipNameFromIndex(ev.attackerSide, Number(v), props.fleets))
+                          .join("+")
+                      : "-";
                   return n.length > 6 ? n.slice(0, 5) + "…" : n;
                 });
                 const defShort = createMemo(() => {

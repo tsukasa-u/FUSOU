@@ -37,6 +37,9 @@ function normalizeShellingRows(
 ): Array<Record<string, unknown>> {
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
+  if (obj && (obj.at !== undefined || Array.isArray(obj.df))) {
+    return [obj];
+  }
   if (obj?.at_list) {
     const atList = obj.at_list as unknown[];
     return atList.map((at, idx) => ({
@@ -52,6 +55,22 @@ function normalizeShellingRows(
     }));
   }
   return [];
+}
+
+function pickHougekiRowsByRound(
+  data: unknown,
+  roundIdx: number | null,
+): unknown {
+  if (!Array.isArray(data)) return data;
+  if (roundIdx == null) return data;
+
+  const rows = data as Array<Record<string, unknown>>;
+  const byIndex1 = rows.filter(
+    (row) => Number(row.index_1 ?? Number.NaN) === roundIdx,
+  );
+  if (byIndex1.length > 0) return byIndex1;
+
+  return rows[roundIdx] ?? data;
 }
 
 export function buildTimelineEvents(
@@ -112,14 +131,24 @@ export function buildTimelineEvents(
     }
   }
 
-  function extractRaigekiEvents(
+  function extractAirAttackEvents(
     data: unknown,
     phaseLabel: string,
   ): void {
-    if (!data) return;
+    if (!data || typeof data === "string") return;
     const d = data as Record<string, unknown>;
-    const fDam = Array.isArray(d.f_dam) ? (d.f_dam as unknown[]) : [];
-    const eDam = Array.isArray(d.e_dam) ? (d.e_dam as unknown[]) : [];
+    const fDam = Array.isArray(d.f_damages) ? (d.f_damages as unknown[]) : [];
+    const eDam = Array.isArray(d.e_damages) ? (d.e_damages as unknown[]) : [];
+    const fFrom = Array.isArray(d.f_plane_from)
+      ? (d.f_plane_from as unknown[])
+          .map((v) => Number(v))
+          .filter((v) => Number.isFinite(v) && v >= 0)
+      : [];
+    const eFrom = Array.isArray(d.e_plane_from)
+      ? (d.e_plane_from as unknown[])
+          .map((v) => Number(v))
+          .filter((v) => Number.isFinite(v) && v >= 0)
+      : [];
     const fNow = (Array.isArray(d.f_now_hps)
       ? d.f_now_hps
       : Array.isArray(d.f_nowhps)
@@ -138,9 +167,10 @@ export function buildTimelineEvents(
       const afterHp = Math.max(0, beforeHp - dmg);
       events.push({
         phase: phaseLabel,
-        type: "raigeki",
+        type: "air",
         attackerSide: "enemy",
         attackerIdx: null,
+        attackerGroup: eFrom,
         defenderSide: "friend",
         defenderIdx: i,
         damage: dmg,
@@ -158,9 +188,10 @@ export function buildTimelineEvents(
       const afterHp = Math.max(0, beforeHp - dmg);
       events.push({
         phase: phaseLabel,
-        type: "raigeki",
+        type: "air",
         attackerSide: "friend",
         attackerIdx: null,
+        attackerGroup: fFrom,
         defenderSide: "enemy",
         defenderIdx: i,
         damage: dmg,
@@ -170,6 +201,134 @@ export function buildTimelineEvents(
         fHps: fNow,
         eHps: eNow,
       });
+    }
+  }
+
+  function extractRaigekiEvents(
+    data: unknown,
+    phaseLabel: string,
+  ): void {
+    if (!data) return;
+    const d = data as Record<string, unknown>;
+    const fDam = Array.isArray(d.f_dam) ? (d.f_dam as unknown[]) : [];
+    const eDam = Array.isArray(d.e_dam) ? (d.e_dam as unknown[]) : [];
+    const fCl = Array.isArray(d.f_cl) ? (d.f_cl as unknown[]) : [];
+    const eCl = Array.isArray(d.e_cl) ? (d.e_cl as unknown[]) : [];
+    const fRai = Array.isArray(d.f_rai) ? (d.f_rai as unknown[]) : [];
+    const eRai = Array.isArray(d.e_rai) ? (d.e_rai as unknown[]) : [];
+    const fNow = (Array.isArray(d.f_now_hps)
+      ? d.f_now_hps
+      : Array.isArray(d.f_nowhps)
+        ? d.f_nowhps
+        : []) as number[];
+    const eNow = (Array.isArray(d.e_now_hps)
+      ? d.e_now_hps
+      : Array.isArray(d.e_nowhps)
+        ? d.e_nowhps
+        : []) as number[];
+
+    function pushHit(
+      atkSide: "friend" | "enemy",
+      atkIdx: number | null,
+      defSide: "friend" | "enemy",
+      defIdx: number,
+      dmg: number,
+      crit: boolean,
+    ): void {
+      if (dmg <= 0) return;
+      const hpArr = defSide === "friend" ? fNow : eNow;
+      const beforeHp = Number(hpArr[defIdx] ?? 0) || 0;
+      const afterHp = Math.max(0, beforeHp - dmg);
+      events.push({
+        phase: phaseLabel,
+        type: "raigeki",
+        attackerSide: atkSide,
+        attackerIdx: atkIdx,
+        defenderSide: defSide,
+        defenderIdx: defIdx,
+        damage: dmg,
+        crit,
+        sunk: afterHp <= 0 && beforeHp > 0,
+        slotItems: [],
+        fHps: fNow,
+        eHps: eNow,
+      });
+    }
+
+    if (fRai.length > 0 || eRai.length > 0) {
+      fRai.forEach((targets, atkIdx) => {
+        if (Array.isArray(targets)) {
+          for (const t of targets) {
+            const defIdx = Number(t);
+            if (!Number.isFinite(defIdx) || defIdx < 0) continue;
+            pushHit(
+              "friend",
+              atkIdx,
+              "enemy",
+              defIdx,
+              Number(eDam[defIdx] ?? 0) || 0,
+              Number(eCl[defIdx] ?? 0) >= 2,
+            );
+          }
+        } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
+          const defIdx = Number(targets);
+          pushHit(
+            "friend",
+            atkIdx,
+            "enemy",
+            defIdx,
+            Number(eDam[defIdx] ?? 0) || 0,
+            Number(eCl[defIdx] ?? 0) >= 2,
+          );
+        }
+      });
+      eRai.forEach((targets, atkIdx) => {
+        if (Array.isArray(targets)) {
+          for (const t of targets) {
+            const defIdx = Number(t);
+            if (!Number.isFinite(defIdx) || defIdx < 0) continue;
+            pushHit(
+              "enemy",
+              atkIdx,
+              "friend",
+              defIdx,
+              Number(fDam[defIdx] ?? 0) || 0,
+              Number(fCl[defIdx] ?? 0) >= 2,
+            );
+          }
+        } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
+          const defIdx = Number(targets);
+          pushHit(
+            "enemy",
+            atkIdx,
+            "friend",
+            defIdx,
+            Number(fDam[defIdx] ?? 0) || 0,
+            Number(fCl[defIdx] ?? 0) >= 2,
+          );
+        }
+      });
+    } else {
+      for (let i = 0; i < fDam.length; i++) {
+        pushHit(
+          "enemy",
+          null,
+          "friend",
+          i,
+          Number(fDam[i] ?? 0) || 0,
+          Number(fCl[i] ?? 0) >= 2,
+        );
+      }
+      for (let i = 0; i < eDam.length; i++) {
+        pushHit(
+          "friend",
+          null,
+          "enemy",
+          i,
+          Number(eDam[i] ?? 0) || 0,
+          Number(eCl[i] ?? 0) >= 2,
+        );
+      }
     }
   }
 
@@ -196,13 +355,21 @@ export function buildTimelineEvents(
       ) {
         const raw =
           key === "Hougeki"
-            ? Array.isArray(battle.hougeki)
-              ? ((battle.hougeki as unknown[])[idx ?? 0] ?? battle.hougeki)
-              : battle.hougeki
+            ? pickHougekiRowsByRound(battle.hougeki, idx)
             : key === "OpeningTaisen"
               ? battle.opening_taisen
               : battle.midnight_hougeki;
         extractShellingEvents(normalizeShellingRows(raw), phaseLabel);
+      } else if (key === "OpeningAirAttack") {
+        const rawAir =
+          Array.isArray(battle.opening_air_attack)
+            ? ((battle.opening_air_attack as unknown[])[idx ?? 0] ??
+              battle.opening_air_attack)
+            : battle.opening_air_attack;
+        const airRow = Array.isArray(rawAir)
+          ? ((rawAir as unknown[])[0] ?? null)
+          : rawAir;
+        if (airRow) extractAirAttackEvents(airRow, phaseLabel);
       } else if (key === "OpeningRaigeki") {
         extractRaigekiEvents(battle.opening_raigeki, phaseLabel);
       } else if (key === "ClosingRaigeki") {
@@ -215,6 +382,13 @@ export function buildTimelineEvents(
         normalizeShellingRows(battle.opening_taisen),
         PHASE_NAMES.OpeningTaisen,
       );
+    }
+    if (battle.opening_air_attack) {
+      const raw = battle.opening_air_attack;
+      const airRow = Array.isArray(raw) ? (raw[0] as unknown) : raw;
+      if (airRow) {
+        extractAirAttackEvents(airRow, PHASE_NAMES.OpeningAirAttack);
+      }
     }
     if (battle.opening_raigeki) {
       extractRaigekiEvents(
@@ -573,12 +747,24 @@ export function renderTimelineView(
 
     const atkIdx = ev.attackerIdx;
     const defIdx = ev.defenderIdx;
+    const atkGroup = Array.isArray(ev.attackerGroup) ? ev.attackerGroup : [];
+    const atkGroupLabel =
+      atkGroup.length > 0 ? atkGroup.map((v) => `${v + 1}`).join("+") + "番" : "航空";
     const atkName =
       atkIdx !== null
         ? shipNameFromIndex(ev.attackerSide, atkIdx, fleets)
-        : "-";
+        : ev.type === "air" && atkGroup.length > 0
+          ? atkGroup
+              .map((v) => shipNameFromIndex(ev.attackerSide, v, fleets))
+              .join("+")
+          : "-";
     const defName = shipNameFromIndex(ev.defenderSide, defIdx, fleets);
-    const atkLabel = atkIdx !== null ? `${atkIdx + 1}番` : "?";
+    const atkLabel =
+      atkIdx !== null
+        ? `${atkIdx + 1}番`
+        : ev.type === "air"
+          ? atkGroupLabel
+          : "?";
     const defLabel = `${defIdx + 1}番`;
     const atkShort =
       atkName.length > 6 ? atkName.slice(0, 5) + "…" : atkName;
@@ -610,10 +796,10 @@ export function renderTimelineView(
     rightPanel +=
       `<div class="flex items-center gap-1.5 ${topBorder} transition-all duration-100 min-w-0" style="height:${ROW_H}px;overflow:hidden;" data-timeline-step="${i}" data-timeline-kind="row" onmouseenter="setTimelineStepHover(${i})" onmouseleave="setTimelineStepHover(null)">` +
       `<span class="shrink-0 font-bold text-[10px] tabular-nums" style="color:${atkColor}">${atkLabel}</span>` +
-      `<span class="shrink-0 text-[9px] opacity-55 w-[44px] truncate">${escHtml(atkShort)}</span>` +
+      `<span class="shrink-0 text-[9px] opacity-55 w-11 truncate">${escHtml(atkShort)}</span>` +
       `<span class="text-[9px] text-base-content/30 shrink-0">→</span>` +
       `<span class="shrink-0 font-bold text-[10px] tabular-nums" style="color:${defColor}">${defLabel}</span>` +
-      `<span class="shrink-0 text-[9px] opacity-55 w-[44px] truncate">${escHtml(defShort)}</span>` +
+      `<span class="shrink-0 text-[9px] opacity-55 w-11 truncate">${escHtml(defShort)}</span>` +
       dmgHtml +
       ciText +
       `</div>`;

@@ -50,7 +50,11 @@ const SUPPORTED_TABLES = [
 const DEFAULT_TABLES = [...SUPPORTED_TABLES];
 
 function run(cmd) {
-  return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  return execSync(cmd, {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
 }
 
 function runQuiet(cmd) {
@@ -63,6 +67,17 @@ function runQuiet(cmd) {
 
 function esc(value) {
   return String(value).replace(/'/g, "''");
+}
+
+function normalizeSql(sql) {
+  return String(sql)
+    .replace(/\r?\n/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function quoteForCommand(sql) {
+  return normalizeSql(sql).replace(/"/g, '\\"');
 }
 
 function parseArgs() {
@@ -134,15 +149,14 @@ function parseArgs() {
 function d1Query(dbName, sql, remote = false) {
   const remoteFlag = remote ? "--remote" : "";
   const out = run(
-    `npx wrangler d1 execute ${dbName} ${remoteFlag} --command "${sql}" --json`,
+    `npx wrangler d1 execute ${dbName} ${remoteFlag} --command "${quoteForCommand(sql)}" --json`,
   );
   const parsed = JSON.parse(out);
   return parsed?.[0]?.results || [];
 }
 
 function ensureLocalSchema(dbName) {
-  runQuiet(
-    `npx wrangler d1 execute ${dbName} --command "
+  const schemaSql = `
 CREATE TABLE IF NOT EXISTS archived_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL UNIQUE,
@@ -170,7 +184,9 @@ CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
 CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start_byte);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
-"`,
+`;
+  runQuiet(
+    `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
   );
 }
 

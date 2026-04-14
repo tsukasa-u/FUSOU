@@ -53,6 +53,14 @@ function isCacheableRequest(url: string, init?: RequestInit): boolean {
     const parsed = typeof window !== "undefined"
       ? new URL(url, window.location.origin)
       : new URL(url, "http://localhost");
+    if (
+      parsed.pathname === "/api/battle-data/global/records" &&
+      parsed.searchParams.has("filter_json")
+    ) {
+      // Detail resolvers rely on filtered lookups and should reflect newly-seeded
+      // data immediately; caching old empty responses causes false "データなし".
+      return false;
+    }
     return CACHEABLE_PATHS.has(parsed.pathname);
   } catch {
     return false;

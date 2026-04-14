@@ -36,6 +36,7 @@ export interface TimelineEvent {
   type: string;
   attackerSide: "friend" | "enemy";
   attackerIdx: number | null;
+  attackerGroup?: number[];
   defenderSide: "friend" | "enemy";
   defenderIdx: number;
   damage: number;

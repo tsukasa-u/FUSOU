@@ -240,6 +240,18 @@ export async function resolveOpeningAirAttack(
   return rows.length ? rows : raw;
 }
 
+export async function resolveOpeningRaigeki(raw: unknown): Promise<unknown> {
+  if (!raw || typeof raw !== "string") return raw;
+  const rows = await fetchRecordsByUuid("opening_raigeki", raw);
+  return rows.length ? rows[0] : raw;
+}
+
+export async function resolveClosingRaigeki(raw: unknown): Promise<unknown> {
+  if (!raw || typeof raw !== "string") return raw;
+  const rows = await fetchRecordsByUuid("closing_raigeki", raw);
+  return rows.length ? rows[0] : raw;
+}
+
 export async function resolveFriendlyFleet(
   battle: Record<string, unknown>,
 ): Promise<ShipInfo[]> {

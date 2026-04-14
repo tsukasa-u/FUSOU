@@ -116,18 +116,26 @@ const year = new Date().getFullYear();
           <div class="text-left flex-1 min-w-0">
             <p class="font-bold text-base">FUSOU-APP をインストール</p>
             <p class="text-xs text-base-content/60 mt-0.5">
-              データ収集にはローカルアプリが必要です。艦これのプロキシとして動作します。専ブラとしても活用できます。
+              データ収集にはローカルアプリが必要です。艦これのプロキシとして動作します。また専ブラとしても活用することもできます。
             </p>
           </div>
           <div class="w-full sm:w-auto shrink-0">
-            <a
-              href="/download"
-              target="_blank"
-              rel="noreferrer"
-              class="btn btn-accent btn-sm"
-            >
-              ダウンロード
-            </a>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 my-auto">
+              <a
+                href="/docs/start/quick_start#app-installation"
+                class="btn btn-sm w-full"
+              >
+                ローカル連携
+              </a>
+              <a
+                href="/download"
+                target="_blank"
+                rel="noreferrer"
+                class="btn btn-accent btn-sm"
+              >
+                ダウンロード
+              </a>
+            </div>
           </div>
         </div>
       </div>

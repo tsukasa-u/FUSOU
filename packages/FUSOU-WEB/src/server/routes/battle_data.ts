@@ -988,7 +988,7 @@ app.get("/global/chunks", async (c) => {
  *   - table: battle | cells | enemy_deck | enemy_ship
  *   - period_tag: latest | all | specific tag
  *   - dataset_id: optional dataset filter
- *   - limit_blocks: max archived blocks to decode (default 10, max 40)
+ *   - limit_blocks: max archived blocks to decode (default 10; when filter_json is set, default 120)
  *   - limit_records: max records in response (default 3000, max 20000)
  */
 app.get("/global/records", async (c) => {
@@ -1007,7 +1007,12 @@ app.get("/global/records", async (c) => {
     (c.req.query("include_sortie_key") || "1").trim().toLowerCase();
   const includeSortieKey = !["0", "false", "off", "no"].includes(includeSortieKeyRaw);
   const filterJsonRaw = c.req.query("filter_json")?.trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 10, 40);
+  const hasFilter = Boolean(filterJsonRaw);
+  const limitBlocks = parsePositiveInt(
+    c.req.query("limit_blocks"),
+    hasFilter ? 120 : 10,
+    hasFilter ? 400 : 40,
+  );
   const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
   const cacheControl = periodTagParam === "latest"
     ? "public, max-age=600, stale-while-revalidate=3600"

@@ -20,6 +20,8 @@ import {
   resolveOpeningTaisen,
   resolveHougeki,
   resolveOpeningAirAttack,
+  resolveOpeningRaigeki,
+  resolveClosingRaigeki,
   resolveFriendlyFleet,
   resolveEnemyFleet,
 } from "@/pages/battles/lib/data-service";
@@ -233,17 +235,27 @@ export default function BattleDetailPanel(props: {
       }
 
       if (matched) {
-        let resolvedBattleResult: { win_rank: string; drop_ship_id: unknown } | null = null;
-        if (typeof matched.battle_result === "string") {
-          resolvedBattleResult = await fetchBattleResultByUuid(matched.battle_result);
-        } else {
-          resolvedBattleResult = resolveBattleResult(matched.battle_result, new Map());
-        }
+        const resolvedBattleResultPromise = typeof matched.battle_result === "string"
+          ? fetchBattleResultByUuid(matched.battle_result)
+          : Promise.resolve(resolveBattleResult(matched.battle_result, new Map()));
 
-        const resolvedMidnightHougeki = await resolveMidnightHougeki(matched.midnight_hougeki);
-        const resolvedOpeningTaisen = await resolveOpeningTaisen(matched.opening_taisen);
-        const resolvedHougeki = await resolveHougeki(matched.hougeki);
-        const resolvedOpeningAirAttack = await resolveOpeningAirAttack(matched.opening_air_attack);
+        const [
+          resolvedBattleResult,
+          resolvedMidnightHougeki,
+          resolvedOpeningTaisen,
+          resolvedHougeki,
+          resolvedOpeningAirAttack,
+          resolvedOpeningRaigeki,
+          resolvedClosingRaigeki,
+        ] = await Promise.all([
+          resolvedBattleResultPromise,
+          resolveMidnightHougeki(matched.midnight_hougeki),
+          resolveOpeningTaisen(matched.opening_taisen),
+          resolveHougeki(matched.hougeki),
+          resolveOpeningAirAttack(matched.opening_air_attack),
+          resolveOpeningRaigeki(matched.opening_raigeki),
+          resolveClosingRaigeki(matched.closing_raigeki),
+        ]);
 
         const merged = {
           ...matched,
@@ -256,6 +268,8 @@ export default function BattleDetailPanel(props: {
           opening_taisen: resolvedOpeningTaisen,
           hougeki: resolvedHougeki,
           opening_air_attack: resolvedOpeningAirAttack,
+          opening_raigeki: resolvedOpeningRaigeki,
+          closing_raigeki: resolvedClosingRaigeki,
         };
 
         const label = matched.uuid
