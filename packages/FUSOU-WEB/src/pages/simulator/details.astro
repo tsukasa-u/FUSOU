@@ -6,11 +6,58 @@ import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - Ship & Equipment Details">
+<PageLayout
+  title="FUSOU - Ship & Equipment Details"
+  tutorial={{
+    id: "simulator-details",
+    title: "艦/装備詳細ページの使い方",
+    summary:
+      "艦娘・装備の詳細値、装備可能条件、シナジー効果まで横断的に確認できます。",
+    controls: [
+      {
+        label: "シミュレータへ戻る",
+        description: "編成編集画面へ戻り、確認した内容をすぐ反映できます。",
+        tone: "outline",
+      },
+      {
+        label: "艦タブ",
+        description: "艦娘の能力・搭載・速力・射程・成長関連情報を確認します。",
+        tone: "ghost",
+      },
+      {
+        label: "装備タブ",
+        description: "装備の種別・性能・装備可能艦・シナジーを確認します。",
+        tone: "ghost",
+      },
+      {
+        label: "検索・フィルタ",
+        description: "名称や艦種/装備種別で対象を絞り込みます。",
+        tone: "outline",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "ページ表示後、マスターデータ読込が完了してから検索・比較を開始してください。",
+      "艦タブでは基本値/最大値、搭載数、速力、射程、艦種など編成判断に必要な情報を確認します。",
+      "装備タブでは火力・雷装・対空・命中などの性能値と装備種別を確認できます。",
+      "装備詳細のシナジー表示で、単体ボーナス・複数積み効果・艦別適用条件を確認します。",
+      "装備可能艦や補強増設条件は一覧を展開して、実運用で積める組み合わせを先に確認します。",
+      "検索とカテゴリ絞り込みを併用して、候補装備や艦を短時間で比較できます。",
+      "候補が固まったらシミュレータへ戻るボタンで編成画面へ戻り、実際のスロットに反映します。",
+      "必要に応じて本ページとシミュレータを往復し、理論値確認と実編成調整を繰り返してください。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1500px] mx-auto px-4 py-6">
-      <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5">
+      <div
+        class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5"
+      >
         <div>
           <h1 class="text-2xl font-bold tracking-tight">艦詳細 / 装備詳細</h1>
           <p class="text-sm text-base-content/55 mt-0.5">
@@ -18,7 +65,9 @@ export const prerender = false;
           </p>
         </div>
         <div class="flex gap-2 flex-wrap">
-          <a href="/simulator" class="btn btn-ghost btn-sm">シミュレータへ戻る</a>
+          <a href="/simulator" class="btn btn-ghost btn-sm"
+            >シミュレータへ戻る</a
+          >
         </div>
       </div>
 
@@ -29,10 +78,18 @@ export const prerender = false;
   </div>
 
   <!-- Copyright footer -->
-  <footer class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1500px] mx-auto text-center">
-    <p class="text-xs text-base-content/40 leading-relaxed inline-block text-left [text-wrap:balance] max-w-2xl">
+  <footer
+    class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1500px] mx-auto text-center"
+  >
+    <p
+      class="text-xs text-base-content/40 leading-relaxed inline-block text-left text-balance max-w-2xl"
+    >
       本サービスで使用する画像・データは著作権法第32条に基づき引用しています。著作権は各権利者に帰属します。権利者からの削除依頼・警告には速やかに対処いたします。お問い合わせは
-      <a href="/contact" class="underline underline-offset-2 hover:text-base-content/60">お問い合わせ・削除申請</a>よりご連絡ください。
+      <a
+        href="/contact"
+        class="underline underline-offset-2 hover:text-base-content/60"
+        >お問い合わせ・削除申請</a
+      >よりご連絡ください。
     </p>
   </footer>
 </PageLayout>
@@ -47,7 +104,8 @@ export const prerender = false;
     if (!(root instanceof HTMLElement)) return;
 
     const loadingDiv = document.createElement("div");
-    loadingDiv.className = "rounded-2xl border border-base-300/70 bg-base-100 p-6 flex items-center";
+    loadingDiv.className =
+      "rounded-2xl border border-base-300/70 bg-base-100 p-6 flex items-center";
     const spinner = document.createElement("span");
     spinner.className = "loading loading-spinner loading-sm";
     const label = document.createElement("span");

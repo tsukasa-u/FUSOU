@@ -44,7 +44,7 @@ function providerInitial(provider?: string): string {
 try {
   const { data, error } = await supabase.rpc(
     "rpc_get_current_user_member_map",
-    {}
+    {},
   );
 
   console.log(`[MemberCheck] User: ${user?.id} (${user?.email})`);
@@ -53,7 +53,7 @@ try {
   if (error) {
     console.error(
       "Member ID Check Failed (RPC Error):",
-      JSON.stringify(error, null, 2)
+      JSON.stringify(error, null, 2),
     );
     console.error("User ID:", user?.id);
   }
@@ -69,7 +69,36 @@ if (!user) {
 }
 ---
 
-<Layout title="API Keys - FUSOU">
+<Layout
+  title="API Keys - FUSOU"
+  tutorial={{
+    id: "dashboard-api-keys",
+    title: "APIキー管理ページの使い方",
+    summary: "APIキーの発行・確認・削除とデバイス確認を行います。",
+    controls: [
+      {
+        label: "Create New Key",
+        description: "新しいAPIキーを発行します。",
+        tone: "primary",
+      },
+      {
+        label: "Copy",
+        description: "発行直後のキー文字列をコピーします。",
+        tone: "outline",
+      },
+      {
+        label: "Back to Dashboard",
+        description: "ダッシュボードへ戻ります。",
+        tone: "outline",
+      },
+    ],
+    steps: [
+      "Create New Key でキーを作成します。",
+      "表示されたキーは一度だけなので、すぐにコピーして保管します。",
+      "不要なキーやデバイスは一覧から削除してください。",
+    ],
+  }}
+>
   <div class="min-h-screen flex flex-col">
     <div class="flex justify-center flex-1 py-8">
       <div class="w-full max-w-2xl px-4">
@@ -367,7 +396,11 @@ if (!user) {
     document.getElementById("new-key-display").classList.add("hidden");
   }
 
-  function setContainerMessage(containerId, message, className = "text-center py-4 text-base-content/60") {
+  function setContainerMessage(
+    containerId,
+    message,
+    className = "text-center py-4 text-base-content/60",
+  ) {
     const container = document.getElementById(containerId);
     const div = document.createElement("div");
     div.className = className;
@@ -378,7 +411,8 @@ if (!user) {
   function createDangerButton(title, pathD, onClick) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "btn btn-sm btn-ghost btn-error border border-error-content";
+    button.className =
+      "btn btn-sm btn-ghost btn-error border border-error-content";
     button.title = title;
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -408,10 +442,18 @@ if (!user) {
       if (data.success) {
         renderApiKeys(data.api_keys);
       } else {
-        setContainerMessage("api-keys-list", "Failed to load API keys", "text-center py-4 text-error");
+        setContainerMessage(
+          "api-keys-list",
+          "Failed to load API keys",
+          "text-center py-4 text-error",
+        );
       }
     } catch (error) {
-      setContainerMessage("api-keys-list", "Failed to load API keys", "text-center py-4 text-error");
+      setContainerMessage(
+        "api-keys-list",
+        "Failed to load API keys",
+        "text-center py-4 text-error",
+      );
     }
   }
 
@@ -426,10 +468,18 @@ if (!user) {
       if (data.success) {
         renderDevices(data.devices);
       } else {
-        setContainerMessage("devices-list", "Failed to load devices", "text-center py-4 text-error");
+        setContainerMessage(
+          "devices-list",
+          "Failed to load devices",
+          "text-center py-4 text-error",
+        );
       }
     } catch (error) {
-      setContainerMessage("devices-list", "Failed to load devices", "text-center py-4 text-error");
+      setContainerMessage(
+        "devices-list",
+        "Failed to load devices",
+        "text-center py-4 text-error",
+      );
     }
   }
 
@@ -464,14 +514,18 @@ if (!user) {
   function renderApiKeys(keys) {
     const container = document.getElementById("api-keys-list");
     if (keys.length === 0) {
-      setContainerMessage("api-keys-list", "No API keys yet. Create one to get started.");
+      setContainerMessage(
+        "api-keys-list",
+        "No API keys yet. Create one to get started.",
+      );
       return;
     }
 
     container.replaceChildren();
     keys.forEach((key) => {
       const row = document.createElement("div");
-      row.className = "flex items-center justify-between p-3 bg-base-200 rounded-md";
+      row.className =
+        "flex items-center justify-between p-3 bg-base-200 rounded-md";
       row.dataset.keyId = String(key.id ?? "");
 
       const content = document.createElement("div");
@@ -493,10 +547,10 @@ if (!user) {
         "Delete API Key",
         "M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2",
         () => {
-        showDeleteModal(
-          "Are you sure you want to delete this API key? This action cannot be undone.",
-          () => deleteApiKey(keyId)
-        );
+          showDeleteModal(
+            "Are you sure you want to delete this API key? This action cannot be undone.",
+            () => deleteApiKey(keyId),
+          );
         },
       );
 
@@ -516,7 +570,8 @@ if (!user) {
     container.replaceChildren();
     devices.forEach((device) => {
       const row = document.createElement("div");
-      row.className = "flex items-center justify-between p-3 bg-base-200 rounded-md";
+      row.className =
+        "flex items-center justify-between p-3 bg-base-200 rounded-md";
       row.dataset.deviceId = String(device.id ?? "");
 
       const content = document.createElement("div");
@@ -543,10 +598,10 @@ if (!user) {
         "Revoke Device",
         "M18 6L6 18M6 6l12 12",
         () => {
-        showDeleteModal(
-          "Are you sure you want to revoke this device? It will need to be re-verified.",
-          () => revokeDevice(deviceId)
-        );
+          showDeleteModal(
+            "Are you sure you want to revoke this device? It will need to be re-verified.",
+            () => revokeDevice(deviceId),
+          );
         },
       );
 

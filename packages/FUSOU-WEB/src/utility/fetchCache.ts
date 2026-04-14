@@ -50,9 +50,10 @@ function isCacheableRequest(url: string, init?: RequestInit): boolean {
   if (method !== "GET") return false;
 
   try {
-    const parsed = typeof window !== "undefined"
-      ? new URL(url, window.location.origin)
-      : new URL(url, "http://localhost");
+    const parsed =
+      typeof window !== "undefined"
+        ? new URL(url, window.location.origin)
+        : new URL(url, "http://localhost");
     if (
       parsed.pathname === "/api/battle-data/global/records" &&
       parsed.searchParams.has("filter_json")
@@ -68,7 +69,8 @@ function isCacheableRequest(url: string, init?: RequestInit): boolean {
 }
 
 function isCacheableResponse(response: Response): boolean {
-  const cacheControl = response.headers.get("cache-control")?.toLowerCase() || "";
+  const cacheControl =
+    response.headers.get("cache-control")?.toLowerCase() || "";
   const contentType = response.headers.get("content-type")?.toLowerCase() || "";
   const vary = response.headers.get("vary")?.toLowerCase() || "";
 
@@ -81,7 +83,10 @@ function isCacheableResponse(response: Response): boolean {
   if (vary.includes("cookie") || vary.includes("authorization")) {
     return false;
   }
-  if (!contentType.includes("application/json") && !contentType.includes("+json")) {
+  if (
+    !contentType.includes("application/json") &&
+    !contentType.includes("+json")
+  ) {
     return false;
   }
   return true;
@@ -107,7 +112,10 @@ function evictStaleEntries(): void {
     }
   }
 
-  while (responseCache.size > MAX_CACHE_ENTRIES || totalCacheBytes() > MAX_TOTAL_CACHE_BYTES) {
+  while (
+    responseCache.size > MAX_CACHE_ENTRIES ||
+    totalCacheBytes() > MAX_TOTAL_CACHE_BYTES
+  ) {
     const sorted = [...responseCache.entries()].sort(
       (a, b) => a[1].storedAt - b[1].storedAt,
     );

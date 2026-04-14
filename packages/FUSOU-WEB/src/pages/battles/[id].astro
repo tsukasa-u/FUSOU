@@ -8,7 +8,36 @@ export const prerender = false;
 const { id } = Astro.params;
 ---
 
-<PageLayout title="FUSOU - Battle Detail">
+<PageLayout
+  title="FUSOU - Battle Detail"
+  tutorial={{
+    id: "battles-detail",
+    title: "戦闘詳細ページの使い方",
+    summary: "フェーズ表示とタイムライン表示で戦闘の流れを確認できます。",
+    controls: [
+      {
+        label: "フェーズ",
+        description: "攻撃艦→対象艦の詳細を段階ごとに表示します。",
+        tone: "outline",
+      },
+      {
+        label: "タイムライン",
+        description: "時系列で戦闘イベントを追跡表示します。",
+        tone: "outline",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "「フェーズ / タイムライン」で表示形式を切り替えます。",
+      "フェーズ表示では攻撃艦→対象艦と結果ラベルを確認します。",
+      "タイムライン表示では時系列で与ダメ・被ダメの推移を追います。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <BattleDetailPanel client:only="solid-js" battleId={id ?? ""} />

@@ -6,7 +6,19 @@ import QuestTreePanel from "@/components/solid/QuestTreePanel";
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - クエストツリー">
+<PageLayout
+  title="FUSOU - クエストツリー"
+  tutorial={{
+    id: "quests-tree",
+    title: "クエストツリーページの使い方",
+    summary: "クエストの依存関係をグラフで追跡できます。",
+    steps: [
+      "ノードを選択して前提クエストと後続クエストを確認します。",
+      "条件表示を切り替えて達成ルートを整理します。",
+      "必要な進行順を把握して攻略計画に活用します。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1440px] mx-auto px-4 py-8">

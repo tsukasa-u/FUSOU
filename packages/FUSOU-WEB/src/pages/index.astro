@@ -7,7 +7,18 @@ import Hero from "@/components/Hero.astro";
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
-<PageLayout>
+<PageLayout
+  tutorial={{
+    id: "home",
+    title: "トップページの使い方",
+    summary: "FUSOU の主要機能へここから移動できます。",
+    steps: [
+      "上部ナビゲーションの「データ」「Simulator」「Docs」から目的の機能へ進みます。",
+      "戦闘分析を行う場合は Battles、編成検討は Simulator を使います。",
+      "初めて使う機能はこの操作説明ボタンから再確認できます。",
+    ],
+  }}
+>
   <div class="static">
     <Hero />
     <Navigation filled={true}>

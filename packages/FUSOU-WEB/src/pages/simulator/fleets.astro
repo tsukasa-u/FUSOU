@@ -5,15 +5,55 @@ import Navigation from "@/components/Navigation.astro";
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - Fleet List">
+<PageLayout
+  title="FUSOU - Fleet List"
+  tutorial={{
+    id: "simulator-fleets",
+    title: "保存済み艦隊ページの使い方",
+    summary: "保存済み編成の一覧管理、再読み込み、削除整理を行うページです。",
+    controls: [
+      {
+        label: "新規編成",
+        description: "シミュレータを空編成で開いて新規作成します。",
+        tone: "primary",
+      },
+      {
+        label: "シミュレータで開く",
+        description: "選択した保存編成を即座にシミュレータへ復元します。",
+        tone: "outline",
+      },
+      {
+        label: "削除",
+        description: "不要な保存編成を一覧から削除します。",
+        tone: "ghost",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "一覧のタグ名と保存日時を確認し、再利用したい編成を特定します。",
+      "シミュレータで開くを押すと、対象編成を読み込んだ状態で編集画面へ移動します。",
+      "複数編成を比較したい場合は、順番に開いて共有URLや画像保存を組み合わせて記録します。",
+      "不要な編成は削除して、一覧の検索性と管理性を維持します。",
+      "新規作業を開始するときは新規編成から空状態で作成を始めてください。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1440px] mx-auto px-4 py-8">
       <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+      <div
+        class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4"
+      >
         <div>
           <h1 class="text-3xl font-bold">保存済み艦隊</h1>
-          <p class="text-base-content/60 mt-1">R2に保存された艦隊スナップショットの一覧</p>
+          <p class="text-base-content/60 mt-1">
+            R2に保存された艦隊スナップショットの一覧
+          </p>
         </div>
         <a href="/simulator" class="btn btn-primary btn-sm">新規編成</a>
       </div>
@@ -46,16 +86,27 @@ export const prerender = false;
   </div>
 
   <!-- Copyright footer -->
-  <footer class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1440px] mx-auto text-center">
-    <p class="text-xs text-base-content/40 leading-relaxed inline-block text-left [text-wrap:balance] max-w-2xl">
+  <footer
+    class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1440px] mx-auto text-center"
+  >
+    <p
+      class="text-xs text-base-content/40 leading-relaxed inline-block text-left text-balance max-w-2xl"
+    >
       本サービスで使用する画像・データは著作権法第32条に基づき引用しています。著作権は各権利者に帰属します。権利者からの削除依頼・警告には速やかに対処いたします。お問い合わせは
-      <a href="/contact" class="underline underline-offset-2 hover:text-base-content/60">お問い合わせ・削除申請</a>よりご連絡ください。
+      <a
+        href="/contact"
+        class="underline underline-offset-2 hover:text-base-content/60"
+        >お問い合わせ・削除申請</a
+      >よりご連絡ください。
     </p>
   </footer>
 </PageLayout>
 
 <script>
-  function renderMessageRow(message: string, className = "text-base-content/40") {
+  function renderMessageRow(
+    message: string,
+    className = "text-base-content/40",
+  ) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 3;
@@ -105,13 +156,17 @@ export const prerender = false;
     try {
       const res = await fetch("/api/fleet/snapshots/list");
       if (!res.ok) {
-        tbody.replaceChildren(renderMessageRow("読込に失敗しました", "text-error"));
+        tbody.replaceChildren(
+          renderMessageRow("読込に失敗しました", "text-error"),
+        );
         return;
       }
 
       const data = (await res.json()) as { tags: string[] };
       if (!data.tags || data.tags.length === 0) {
-        tbody.replaceChildren(renderMessageRow("保存された艦隊データがありません"));
+        tbody.replaceChildren(
+          renderMessageRow("保存された艦隊データがありません"),
+        );
         return;
       }
 

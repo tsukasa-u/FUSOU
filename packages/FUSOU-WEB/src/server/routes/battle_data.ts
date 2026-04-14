@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext, getEnv, timingSafeEqual, validateDatasetToken } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  timingSafeEqual,
+  validateDatasetToken,
+} from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -53,7 +58,11 @@ const PUBLIC_RECORD_TABLES = new Set([
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
 
-function parsePositiveInt(value: string | undefined, fallbackValue: number, max: number): number {
+function parsePositiveInt(
+  value: string | undefined,
+  fallbackValue: number,
+  max: number,
+): number {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallbackValue;
@@ -84,10 +93,14 @@ function attachSortieIds(records: any[]): void {
   };
 
   const sortable: Item[] = records
-    .filter((rec): rec is Record<string, unknown> => !!rec && typeof rec === "object")
+    .filter(
+      (rec): rec is Record<string, unknown> => !!rec && typeof rec === "object",
+    )
     .map((rec) => ({
       rec,
-      ts: normalizeTimestamp(rec.timestamp) ?? normalizeTimestamp(rec.midnight_timestamp),
+      ts:
+        normalizeTimestamp(rec.timestamp) ??
+        normalizeTimestamp(rec.midnight_timestamp),
     }))
     .sort((a, b) => {
       const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
@@ -95,12 +108,16 @@ function attachSortieIds(records: any[]): void {
       return aTs - bTs;
     });
 
-  const byDataset = new Map<string, { mapKey: string; ts: number | null; sortieNo: number }>();
+  const byDataset = new Map<
+    string,
+    { mapKey: string; ts: number | null; sortieNo: number }
+  >();
 
   for (const item of sortable) {
-    const datasetId = typeof item.rec.dataset_id === "string" && item.rec.dataset_id
-      ? item.rec.dataset_id
-      : "global";
+    const datasetId =
+      typeof item.rec.dataset_id === "string" && item.rec.dataset_id
+        ? item.rec.dataset_id
+        : "global";
     const mapArea = Number(item.rec.maparea_id ?? 0) || 0;
     const mapInfo = Number(item.rec.mapinfo_no ?? 0) || 0;
     const mapKey = `${mapArea}-${mapInfo}`;
@@ -121,7 +138,10 @@ function attachSortieIds(records: any[]): void {
   }
 }
 
-function matchesRecordFilter(record: unknown, filterObj: Record<string, unknown>): boolean {
+function matchesRecordFilter(
+  record: unknown,
+  filterObj: Record<string, unknown>,
+): boolean {
   if (!record || typeof record !== "object") {
     return false;
   }
@@ -181,7 +201,10 @@ async function putCacheSafely(
   } catch (err) {
     // Hono can throw this in stateless contexts; direct await keeps behavior correct.
     if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[battle-data] ExecutionContext unavailable for cache put", err);
+      console.warn(
+        "[battle-data] ExecutionContext unavailable for cache put",
+        err,
+      );
     }
   }
   await putPromise;
@@ -202,7 +225,9 @@ async function decodeIndexedBlock(
   if (!sourceObject?.body) {
     return [];
   }
-  const sourceBytes = new Uint8Array(await new Response(sourceObject.body).arrayBuffer());
+  const sourceBytes = new Uint8Array(
+    await new Response(sourceObject.body).arrayBuffer(),
+  );
   const endByte = Math.min(sourceBytes.byteLength, startByte + length);
   if (startByte >= endByte) {
     return [];
@@ -210,7 +235,9 @@ async function decodeIndexedBlock(
 
   const headerBytes = sourceBytes.subarray(0, startByte);
   const dataBytes = sourceBytes.subarray(startByte, endByte);
-  const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
+  const combined = new Uint8Array(
+    headerBytes.byteLength + dataBytes.byteLength,
+  );
   combined.set(headerBytes, 0);
   combined.set(dataBytes, headerBytes.byteLength);
 
@@ -272,7 +299,9 @@ app.post("/upload", async (c) => {
       const datasetToken = datasetTokenHeader || datasetTokenBody;
 
       if (!datasetToken) {
-        console.warn("[battle-data] Upload rejected: dataset_token is required");
+        console.warn(
+          "[battle-data] Upload rejected: dataset_token is required",
+        );
         return c.json({ error: "dataset_token is required" }, 401);
       }
 
@@ -431,9 +460,17 @@ app.post("/upload", async (c) => {
         const actualHash = Array.from(new Uint8Array(hashBuffer))
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");
-        if (!timingSafeEqual(actualHash.toLowerCase(), expectedContentHash.toLowerCase())) {
+        if (
+          !timingSafeEqual(
+            actualHash.toLowerCase(),
+            expectedContentHash.toLowerCase(),
+          )
+        ) {
           console.error("[battle-data] Content hash mismatch");
-          return c.json({ error: "Content hash mismatch - data may be corrupted" }, 400);
+          return c.json(
+            { error: "Content hash mismatch - data may be corrupted" },
+            400,
+          );
         }
       }
 
@@ -738,7 +775,10 @@ app.get("/chunks", async (c) => {
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
   const MAX_OFFSET = 100000;
-  const offset = Math.min(Math.max(0, parseInt(c.req.query("offset") || "0", 10)), MAX_OFFSET);
+  const offset = Math.min(
+    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    MAX_OFFSET,
+  );
 
   if (!datasetId || !table) {
     return c.json({ error: "dataset_id and table are required" }, 400);
@@ -911,7 +951,10 @@ app.get("/global/chunks", async (c) => {
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
   const MAX_GLOBAL_OFFSET = 100000;
-  const offset = Math.min(Math.max(0, parseInt(c.req.query("offset") || "0", 10)), MAX_GLOBAL_OFFSET);
+  const offset = Math.min(
+    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    MAX_GLOBAL_OFFSET,
+  );
 
   if (!table) {
     return c.json({ error: "table is required" }, 400);
@@ -997,15 +1040,21 @@ app.get("/global/records", async (c) => {
   const bucket = env.runtime.BATTLE_DATA_BUCKET;
 
   if (!indexDb || !bucket) {
-    return c.json({ error: "BATTLE index DB or R2 bucket is not configured" }, 500);
+    return c.json(
+      { error: "BATTLE index DB or R2 bucket is not configured" },
+      500,
+    );
   }
 
   const table = (c.req.query("table") || "battle").trim();
   const periodTagParam = (c.req.query("period_tag") || "latest").trim();
   const datasetId = c.req.query("dataset_id")?.trim();
-  const includeSortieKeyRaw =
-    (c.req.query("include_sortie_key") || "1").trim().toLowerCase();
-  const includeSortieKey = !["0", "false", "off", "no"].includes(includeSortieKeyRaw);
+  const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
+    .trim()
+    .toLowerCase();
+  const includeSortieKey = !["0", "false", "off", "no"].includes(
+    includeSortieKeyRaw,
+  );
   const filterJsonRaw = c.req.query("filter_json")?.trim();
   const hasFilter = Boolean(filterJsonRaw);
   const limitBlocks = parsePositiveInt(
@@ -1013,21 +1062,35 @@ app.get("/global/records", async (c) => {
     hasFilter ? 120 : 10,
     hasFilter ? 400 : 40,
   );
-  const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
-  const cacheControl = periodTagParam === "latest"
-    ? "public, max-age=600, stale-while-revalidate=3600"
-    : "public, max-age=3600, stale-while-revalidate=86400";
+  const limitRecords = parsePositiveInt(
+    c.req.query("limit_records"),
+    3000,
+    20000,
+  );
+  const cacheControl =
+    periodTagParam === "latest"
+      ? "public, max-age=600, stale-while-revalidate=3600"
+      : "public, max-age=3600, stale-while-revalidate=86400";
 
   let recordFilter: Record<string, unknown> | null = null;
   if (filterJsonRaw) {
     try {
       const parsed = JSON.parse(filterJsonRaw) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return c.json({ error: "INVALID_FILTER", message: "filter_json must be a JSON object" }, 400);
+        return c.json(
+          {
+            error: "INVALID_FILTER",
+            message: "filter_json must be a JSON object",
+          },
+          400,
+        );
       }
       recordFilter = parsed as Record<string, unknown>;
     } catch {
-      return c.json({ error: "INVALID_FILTER", message: "filter_json must be valid JSON" }, 400);
+      return c.json(
+        { error: "INVALID_FILTER", message: "filter_json must be valid JSON" },
+        400,
+      );
     }
   }
 
@@ -1041,7 +1104,8 @@ app.get("/global/records", async (c) => {
     );
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -1084,7 +1148,10 @@ app.get("/global/records", async (c) => {
     sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
     params.push(limitBlocks);
 
-    const blockResult = await indexDb.prepare(sql).bind(...params).all?.();
+    const blockResult = await indexDb
+      .prepare(sql)
+      .bind(...params)
+      .all?.();
     const rows = (blockResult?.results || []) as Array<{
       id: number;
       dataset_id: string;
@@ -1098,9 +1165,10 @@ app.get("/global/records", async (c) => {
 
     // Build a lightweight ETag from the block IDs so conditional requests can
     // skip the expensive R2 decode step entirely.
-    const blockEtag = rows.length > 0
-      ? `"br-${rows.map((r) => r.id).join("-")}-${limitRecords}"`
-      : null;
+    const blockEtag =
+      rows.length > 0
+        ? `"br-${rows.map((r) => r.id).join("-")}-${limitRecords}"`
+        : null;
 
     const ifNoneMatch = c.req.header("If-None-Match");
     if (blockEtag && ifNoneMatch === blockEtag) {
@@ -1124,10 +1192,7 @@ app.get("/global/records", async (c) => {
         source_blocks: 0,
       };
       const response = c.json(payload);
-      response.headers.set(
-        "Cache-Control",
-        cacheControl,
-      );
+      response.headers.set("Cache-Control", cacheControl);
       response.headers.set("X-FUSOU-Cache", "MISS");
       if (cache) {
         await putCacheSafely(c, cache, cacheKey, response);
@@ -1157,12 +1222,15 @@ app.get("/global/records", async (c) => {
           break;
         }
       } catch (err) {
-        console.warn("[battle-data] failed to decode block in /global/records", {
-          table,
-          blockId: row.id,
-          filePath: row.file_path,
-          error: String(err),
-        });
+        console.warn(
+          "[battle-data] failed to decode block in /global/records",
+          {
+            table,
+            blockId: row.id,
+            filePath: row.file_path,
+            error: String(err),
+          },
+        );
       }
     }
 
@@ -1179,10 +1247,7 @@ app.get("/global/records", async (c) => {
       source_blocks: rows.length,
     };
     const response = c.json(payload);
-    response.headers.set(
-      "Cache-Control",
-      cacheControl,
-    );
+    response.headers.set("Cache-Control", cacheControl);
     response.headers.set("X-FUSOU-Cache", "MISS");
     if (blockEtag) {
       response.headers.set("ETag", blockEtag);

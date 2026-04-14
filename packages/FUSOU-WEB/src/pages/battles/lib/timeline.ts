@@ -32,9 +32,7 @@ function yStep(si: number): string {
 
 // ── Event extraction ──────────────────────────────────────────────────────
 
-function normalizeShellingRows(
-  data: unknown,
-): Array<Record<string, unknown>> {
+function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
   if (obj && (obj.at !== undefined || Array.isArray(obj.df))) {
@@ -78,10 +76,7 @@ export function buildTimelineEvents(
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
-  function extractShellingEvents(
-    rows: unknown,
-    phaseLabel: string,
-  ): void {
+  function extractShellingEvents(rows: unknown, phaseLabel: string): void {
     if (!Array.isArray(rows)) return;
     for (const row of rows) {
       const r = row as Record<string, unknown>;
@@ -93,16 +88,20 @@ export function buildTimelineEvents(
       const dmgs = Array.isArray(r.damage) ? (r.damage as unknown[]) : [];
       const clsMask = Array.isArray(r.cl) ? (r.cl as unknown[]) : [];
       const sis = Array.isArray(r.si) ? (r.si as unknown[]) : [];
-      const fHps = (Array.isArray(r.f_now_hps)
-        ? r.f_now_hps
-        : Array.isArray(r.f_nowhps)
-          ? r.f_nowhps
-          : []) as number[];
-      const eHps = (Array.isArray(r.e_now_hps)
-        ? r.e_now_hps
-        : Array.isArray(r.e_nowhps)
-          ? r.e_nowhps
-          : []) as number[];
+      const fHps = (
+        Array.isArray(r.f_now_hps)
+          ? r.f_now_hps
+          : Array.isArray(r.f_nowhps)
+            ? r.f_nowhps
+            : []
+      ) as number[];
+      const eHps = (
+        Array.isArray(r.e_now_hps)
+          ? r.e_now_hps
+          : Array.isArray(r.e_nowhps)
+            ? r.e_nowhps
+            : []
+      ) as number[];
 
       for (let i = 0; i < defs.length; i++) {
         const defenderIdx = Number(defs[i] ?? 0) || 0;
@@ -131,10 +130,7 @@ export function buildTimelineEvents(
     }
   }
 
-  function extractAirAttackEvents(
-    data: unknown,
-    phaseLabel: string,
-  ): void {
+  function extractAirAttackEvents(data: unknown, phaseLabel: string): void {
     if (!data || typeof data === "string") return;
     const d = data as Record<string, unknown>;
     const fDam = Array.isArray(d.f_damages) ? (d.f_damages as unknown[]) : [];
@@ -149,16 +145,20 @@ export function buildTimelineEvents(
           .map((v) => Number(v))
           .filter((v) => Number.isFinite(v) && v >= 0)
       : [];
-    const fNow = (Array.isArray(d.f_now_hps)
-      ? d.f_now_hps
-      : Array.isArray(d.f_nowhps)
-        ? d.f_nowhps
-        : []) as number[];
-    const eNow = (Array.isArray(d.e_now_hps)
-      ? d.e_now_hps
-      : Array.isArray(d.e_nowhps)
-        ? d.e_nowhps
-        : []) as number[];
+    const fNow = (
+      Array.isArray(d.f_now_hps)
+        ? d.f_now_hps
+        : Array.isArray(d.f_nowhps)
+          ? d.f_nowhps
+          : []
+    ) as number[];
+    const eNow = (
+      Array.isArray(d.e_now_hps)
+        ? d.e_now_hps
+        : Array.isArray(d.e_nowhps)
+          ? d.e_nowhps
+          : []
+    ) as number[];
 
     for (let i = 0; i < fDam.length; i++) {
       const dmg = Number(fDam[i] ?? 0) || 0;
@@ -204,10 +204,7 @@ export function buildTimelineEvents(
     }
   }
 
-  function extractRaigekiEvents(
-    data: unknown,
-    phaseLabel: string,
-  ): void {
+  function extractRaigekiEvents(data: unknown, phaseLabel: string): void {
     if (!data) return;
     const d = data as Record<string, unknown>;
     const fDam = Array.isArray(d.f_dam) ? (d.f_dam as unknown[]) : [];
@@ -216,16 +213,20 @@ export function buildTimelineEvents(
     const eCl = Array.isArray(d.e_cl) ? (d.e_cl as unknown[]) : [];
     const fRai = Array.isArray(d.f_rai) ? (d.f_rai as unknown[]) : [];
     const eRai = Array.isArray(d.e_rai) ? (d.e_rai as unknown[]) : [];
-    const fNow = (Array.isArray(d.f_now_hps)
-      ? d.f_now_hps
-      : Array.isArray(d.f_nowhps)
-        ? d.f_nowhps
-        : []) as number[];
-    const eNow = (Array.isArray(d.e_now_hps)
-      ? d.e_now_hps
-      : Array.isArray(d.e_nowhps)
-        ? d.e_nowhps
-        : []) as number[];
+    const fNow = (
+      Array.isArray(d.f_now_hps)
+        ? d.f_now_hps
+        : Array.isArray(d.f_nowhps)
+          ? d.f_nowhps
+          : []
+    ) as number[];
+    const eNow = (
+      Array.isArray(d.e_now_hps)
+        ? d.e_now_hps
+        : Array.isArray(d.e_nowhps)
+          ? d.e_nowhps
+          : []
+    ) as number[];
 
     function pushHit(
       atkSide: "friend" | "enemy",
@@ -341,11 +342,8 @@ export function buildTimelineEvents(
   if (hasObjectOrder) {
     for (const phaseType of rawOrder!) {
       const key = Object.keys(phaseType as Record<string, unknown>)[0];
-      const idx = (phaseType as Record<string, unknown>)[key] as
-        | number
-        | null;
-      const subLabel =
-        idx !== null && idx !== undefined ? ` (${idx + 1})` : "";
+      const idx = (phaseType as Record<string, unknown>)[key] as number | null;
+      const subLabel = idx !== null && idx !== undefined ? ` (${idx + 1})` : "";
       const phaseLabel = (PHASE_NAMES[key] ?? key) + subLabel;
 
       if (
@@ -361,11 +359,10 @@ export function buildTimelineEvents(
               : battle.midnight_hougeki;
         extractShellingEvents(normalizeShellingRows(raw), phaseLabel);
       } else if (key === "OpeningAirAttack") {
-        const rawAir =
-          Array.isArray(battle.opening_air_attack)
-            ? ((battle.opening_air_attack as unknown[])[idx ?? 0] ??
-              battle.opening_air_attack)
-            : battle.opening_air_attack;
+        const rawAir = Array.isArray(battle.opening_air_attack)
+          ? ((battle.opening_air_attack as unknown[])[idx ?? 0] ??
+            battle.opening_air_attack)
+          : battle.opening_air_attack;
         const airRow = Array.isArray(rawAir)
           ? ((rawAir as unknown[])[0] ?? null)
           : rawAir;
@@ -391,10 +388,7 @@ export function buildTimelineEvents(
       }
     }
     if (battle.opening_raigeki) {
-      extractRaigekiEvents(
-        battle.opening_raigeki,
-        PHASE_NAMES.OpeningRaigeki,
-      );
+      extractRaigekiEvents(battle.opening_raigeki, PHASE_NAMES.OpeningRaigeki);
     }
     if (battle.hougeki) {
       const rows = Array.isArray(battle.hougeki)
@@ -408,10 +402,7 @@ export function buildTimelineEvents(
       });
     }
     if (battle.closing_raigeki) {
-      extractRaigekiEvents(
-        battle.closing_raigeki,
-        PHASE_NAMES.ClosingRaigeki,
-      );
+      extractRaigekiEvents(battle.closing_raigeki, PHASE_NAMES.ClosingRaigeki);
     }
     if (battle.midnight_hougeki) {
       extractShellingEvents(
@@ -485,7 +476,8 @@ function buildPhaseRegions(events: TimelineEvent[]): Array<{
       phStart = i;
     }
   }
-  if (ph !== "") regions.push({ phase: ph, start: phStart, end: events.length });
+  if (ph !== "")
+    regions.push({ phase: ph, start: phStart, end: events.length });
   return regions;
 }
 
@@ -500,10 +492,9 @@ function renderShipLine(
   eInit: number[],
   fleets: BattleFleets | null,
 ): string {
-  const ship =
-    (side === "friend"
-      ? fleets?.friendlyShips
-      : fleets?.enemyShips)?.[si];
+  const ship = (
+    side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
+  )?.[si];
   const initArr = side === "friend" ? fInit : eInit;
   const initHp = Math.max(0, Number(initArr[si] ?? 0) || 0);
   const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
@@ -542,8 +533,7 @@ function renderShipLine(
   d += ` L ${endX.toFixed(1)} ${endY.toFixed(1)}`;
 
   const dashAttr = dashed ? `stroke-dasharray="6,2"` : "";
-  let svg =
-    `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" ${dashAttr} opacity="0.9"/>`;
+  let svg = `<path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" ${dashAttr} opacity="0.9"/>`;
 
   // Start dot
   const initPct = Math.min(100, (initHp / maxHp) * 100);
@@ -659,14 +649,28 @@ export function renderTimelineView(
   let lines = "";
   for (let si = 0; si < fCount; si++) {
     lines += renderShipLine(
-      "friend", si, "fHps", FRIEND_COLORS, false,
-      steps, fInit, eInit, fleets,
+      "friend",
+      si,
+      "fHps",
+      FRIEND_COLORS,
+      false,
+      steps,
+      fInit,
+      eInit,
+      fleets,
     );
   }
   for (let si = 0; si < eCount; si++) {
     lines += renderShipLine(
-      "enemy", si, "eHps", ENEMY_COLORS, true,
-      steps, fInit, eInit, fleets,
+      "enemy",
+      si,
+      "eHps",
+      ENEMY_COLORS,
+      true,
+      steps,
+      fInit,
+      eInit,
+      fleets,
     );
   }
 
@@ -683,10 +687,11 @@ export function renderTimelineView(
     if (ev.defenderIdx !== null) {
       const hpKey: "fHps" | "eHps" =
         ev.defenderSide === "friend" ? "fHps" : "eHps";
-      const ship =
-        (ev.defenderSide === "friend"
+      const ship = (
+        ev.defenderSide === "friend"
           ? fleets?.friendlyShips
-          : fleets?.enemyShips)?.[ev.defenderIdx];
+          : fleets?.enemyShips
+      )?.[ev.defenderIdx];
       const initArr = ev.defenderSide === "friend" ? fInit : eInit;
       const initHp = Math.max(0, Number(initArr[ev.defenderIdx] ?? 0) || 0);
       const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
@@ -721,7 +726,14 @@ export function renderTimelineView(
   const leftPanel =
     `<div class="shrink-0 select-none" style="width:${CHART_W}px;">` +
     `<svg width="${CHART_W}" height="${chartH}" style="overflow:visible;display:block;" class="text-base-content">` +
-    zoneBgs + nightBg + xAxis + guides + phaseBounds + chartBands + lines + chartAnchors +
+    zoneBgs +
+    nightBg +
+    xAxis +
+    guides +
+    phaseBounds +
+    chartBands +
+    lines +
+    chartAnchors +
     `</svg></div>`;
 
   // ── Bridge panel ──────────────────────────────────────────────────
@@ -749,7 +761,9 @@ export function renderTimelineView(
     const defIdx = ev.defenderIdx;
     const atkGroup = Array.isArray(ev.attackerGroup) ? ev.attackerGroup : [];
     const atkGroupLabel =
-      atkGroup.length > 0 ? atkGroup.map((v) => `${v + 1}`).join("+") + "番" : "航空";
+      atkGroup.length > 0
+        ? atkGroup.map((v) => `${v + 1}`).join("+") + "番"
+        : "航空";
     const atkName =
       atkIdx !== null
         ? shipNameFromIndex(ev.attackerSide, atkIdx, fleets)
@@ -766,10 +780,8 @@ export function renderTimelineView(
           ? atkGroupLabel
           : "?";
     const defLabel = `${defIdx + 1}番`;
-    const atkShort =
-      atkName.length > 6 ? atkName.slice(0, 5) + "…" : atkName;
-    const defShort =
-      defName.length > 6 ? defName.slice(0, 5) + "…" : defName;
+    const atkShort = atkName.length > 6 ? atkName.slice(0, 5) + "…" : atkName;
+    const defShort = defName.length > 6 ? defName.slice(0, 5) + "…" : defName;
     const atkColor = ev.attackerSide === "friend" ? "#3b82f6" : "#ef4444";
     const defColor = ev.defenderSide === "friend" ? "#3b82f6" : "#ef4444";
 
@@ -820,7 +832,9 @@ export function setTimelineStepHover(stepIdx: number | null): void {
   if (!timelineContent) return;
 
   const normalized = Number.isInteger(stepIdx) ? stepIdx : null;
-  const nodes = Array.from(timelineContent.querySelectorAll("[data-timeline-step]"));
+  const nodes = Array.from(
+    timelineContent.querySelectorAll("[data-timeline-step]"),
+  );
   for (const el of nodes) {
     const htmlEl = el as HTMLElement;
     const elStep = Number(htmlEl.getAttribute("data-timeline-step"));
@@ -828,9 +842,7 @@ export function setTimelineStepHover(stepIdx: number | null): void {
     const active = normalized !== null && elStep === normalized;
 
     if (kind === "row") {
-      htmlEl.style.backgroundColor = active
-        ? "rgba(59, 130, 246, 0.08)"
-        : "";
+      htmlEl.style.backgroundColor = active ? "rgba(59, 130, 246, 0.08)" : "";
       htmlEl.style.transform = active ? "translateX(2px)" : "";
     } else if (kind === "connector") {
       htmlEl.style.opacity = active ? "0.9" : "0.22";

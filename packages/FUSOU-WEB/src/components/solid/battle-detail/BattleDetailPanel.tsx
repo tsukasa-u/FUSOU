@@ -9,7 +9,10 @@ import {
   AIR_STATE,
   RANK_COLORS,
 } from "@/pages/battles/lib/constants";
-import { normalizeEpochMs, resolveBattleResult } from "@/pages/battles/lib/helpers";
+import {
+  normalizeEpochMs,
+  resolveBattleResult,
+} from "@/pages/battles/lib/helpers";
 import {
   fetchBattleResultByUuid,
   fetchBattleRecordsByUuid,
@@ -34,9 +37,14 @@ import BattleTimelineView from "./BattleTimelineView";
 export default function BattleDetailPanel(props: {
   battleId: string;
 }): JSX.Element {
-  const [battle, setBattle] = createSignal<Record<string, unknown> | null>(null);
+  const [battle, setBattle] = createSignal<Record<string, unknown> | null>(
+    null,
+  );
   const [fleets, setFleets] = createSignal<BattleFleets | null>(null);
-  const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<number, Record<string, unknown>> | null>(null);
+  const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<
+    number,
+    Record<string, unknown>
+  > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
   const [cellLabel, setCellLabel] = createSignal<string>("-");
   const [loading, setLoading] = createSignal(true);
@@ -47,7 +55,8 @@ export default function BattleDetailPanel(props: {
   const ts = createMemo(() => {
     const b = battle();
     if (!b) return "-";
-    const tsValue = normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
+    const tsValue =
+      normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
     return tsValue
       ? new Date(tsValue).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
       : "-";
@@ -75,14 +84,21 @@ export default function BattleDetailPanel(props: {
     return label;
   };
 
-  async function resolveBattleCellLabel(battleRecord: Record<string, unknown>): Promise<string> {
+  async function resolveBattleCellLabel(
+    battleRecord: Record<string, unknown>,
+  ): Promise<string> {
     const rawCellId = Number(battleRecord.cell_id ?? NaN);
     if (!Number.isFinite(rawCellId)) return "-";
     if (rawCellId === 0) return "港";
 
     const mapAreaId = Number(battleRecord.maparea_id ?? NaN);
     const mapInfoNo = Number(battleRecord.mapinfo_no ?? NaN);
-    if (!Number.isFinite(mapAreaId) || !Number.isFinite(mapInfoNo) || mapAreaId <= 0 || mapInfoNo <= 0) {
+    if (
+      !Number.isFinite(mapAreaId) ||
+      !Number.isFinite(mapInfoNo) ||
+      mapAreaId <= 0 ||
+      mapInfoNo <= 0
+    ) {
       return alphaCellLabel(rawCellId);
     }
 
@@ -95,7 +111,9 @@ export default function BattleDetailPanel(props: {
       if (!response.ok) return alphaCellLabel(rawCellId);
       const payload = (await response.json()) as Record<string, string>;
       const label = payload?.[String(rawCellId)];
-      return typeof label === "string" && label ? label : alphaCellLabel(rawCellId);
+      return typeof label === "string" && label
+        ? label
+        : alphaCellLabel(rawCellId);
     } catch {
       return alphaCellLabel(rawCellId);
     }
@@ -174,8 +192,7 @@ export default function BattleDetailPanel(props: {
     const records = await fetchRecordsByField("cells", "battles", uuid, 50);
     const first = records.find(
       (cell) =>
-        Number(cell?.maparea_id ?? 0) > 0 &&
-        Number(cell?.mapinfo_no ?? 0) > 0,
+        Number(cell?.maparea_id ?? 0) > 0 && Number(cell?.mapinfo_no ?? 0) > 0,
     );
     if (!first) return null;
     return `${first.maparea_id}-${first.mapinfo_no}`;
@@ -213,7 +230,10 @@ export default function BattleDetailPanel(props: {
       let matched: Record<string, unknown> | null = null;
 
       if (isLikelyUuid) {
-        const latestCandidates = await fetchBattleRecordsByUuid(idText, "latest");
+        const latestCandidates = await fetchBattleRecordsByUuid(
+          idText,
+          "latest",
+        );
         const allCandidates =
           latestCandidates.length > 0
             ? latestCandidates
@@ -235,9 +255,12 @@ export default function BattleDetailPanel(props: {
       }
 
       if (matched) {
-        const resolvedBattleResultPromise = typeof matched.battle_result === "string"
-          ? fetchBattleResultByUuid(matched.battle_result)
-          : Promise.resolve(resolveBattleResult(matched.battle_result, new Map()));
+        const resolvedBattleResultPromise =
+          typeof matched.battle_result === "string"
+            ? fetchBattleResultByUuid(matched.battle_result)
+            : Promise.resolve(
+                resolveBattleResult(matched.battle_result, new Map()),
+              );
 
         const [
           resolvedBattleResult,
@@ -321,7 +344,11 @@ export default function BattleDetailPanel(props: {
         <div class="card bg-base-100 shadow-sm mb-6">
           <div class="card-body">
             <h2 class="card-title">戦闘詳細</h2>
-            <span class={error()!.includes("エラー") ? "text-error" : "text-warning"}>
+            <span
+              class={
+                error()!.includes("エラー") ? "text-error" : "text-warning"
+              }
+            >
               {error()}
             </span>
           </div>
@@ -336,10 +363,18 @@ export default function BattleDetailPanel(props: {
               <div class="card-body">
                 <h2 class="card-title">戦闘詳細</h2>
                 <div class="flex flex-wrap gap-6 text-sm">
-                  <span>日時: <strong>{ts()}</strong></span>
-                  <span>海域: <strong>{mapText()}</strong></span>
-                  <span>セル: <strong>{cellLabel()}</strong></span>
-                  <span>デッキ: <strong>{String(b().deck_id ?? "-")}</strong></span>
+                  <span>
+                    日時: <strong>{ts()}</strong>
+                  </span>
+                  <span>
+                    海域: <strong>{mapText()}</strong>
+                  </span>
+                  <span>
+                    セル: <strong>{cellLabel()}</strong>
+                  </span>
+                  <span>
+                    デッキ: <strong>{String(b().deck_id ?? "-")}</strong>
+                  </span>
                 </div>
               </div>
             </div>
@@ -363,13 +398,19 @@ export default function BattleDetailPanel(props: {
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">制空状態</h3>
-                  <p class={`text-lg font-bold ${airInfo().cls}`}>{airInfo().label}</p>
+                  <h3 class="font-bold text-sm text-base-content/60">
+                    制空状態
+                  </h3>
+                  <p class={`text-lg font-bold ${airInfo().cls}`}>
+                    {airInfo().label}
+                  </p>
                 </div>
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">戦闘結果</h3>
+                  <h3 class="font-bold text-sm text-base-content/60">
+                    戦闘結果
+                  </h3>
                   <p class={`text-2xl font-bold ${rankCls()}`}>{rank()}</p>
                   <Show when={dropInfo()}>
                     <p class="text-sm">{dropInfo()}</p>
@@ -382,20 +423,27 @@ export default function BattleDetailPanel(props: {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">味方艦隊</h3>
+                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
+                    味方艦隊
+                  </h3>
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.friendlyShips?.length}
                       fallback={<FleetLoadingFallback />}
                     >
-                      <ShipRows ships={fleets()!.friendlyShips} sideLabel="味方" />
+                      <ShipRows
+                        ships={fleets()!.friendlyShips}
+                        sideLabel="味方"
+                      />
                     </Show>
                   </div>
                 </div>
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">敵艦隊</h3>
+                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
+                    敵艦隊
+                  </h3>
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}

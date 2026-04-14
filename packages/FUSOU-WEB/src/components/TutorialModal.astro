@@ -1,0 +1,99 @@
+---
+type TutorialGuide = {
+  id: string;
+  title: string;
+  summary: string;
+  steps: string[];
+  controls?: Array<{
+    label: string;
+    description: string;
+    tone?: "primary" | "outline" | "ghost";
+  }>;
+  buttonLabel?: string;
+};
+
+const { guide } = Astro.props as { guide: TutorialGuide };
+const buttonLabel = guide.buttonLabel ?? "操作説明";
+const storageKey = `fusou:tutorial:seen:${guide.id}`;
+---
+
+<button
+  id="tutorial-open-btn"
+  type="button"
+  class="btn btn-primary btn-sm fixed bottom-4 right-4 z-1200 shadow-lg"
+  aria-label="操作説明を開く"
+>
+  {buttonLabel}
+</button>
+
+<dialog id="tutorial-modal" class="modal z-1300">
+  <div class="modal-box max-w-2xl rounded-xl">
+    <h3 class="font-bold text-lg">{guide.title}</h3>
+    <p class="text-sm text-base-content/70 mt-1">{guide.summary}</p>
+
+    {
+      Array.isArray(guide.controls) && guide.controls.length > 0 && (
+        <div class="mt-4 space-y-2">
+          <p class="text-xs font-semibold text-base-content/60">
+            主な操作ボタン
+          </p>
+          <div class="space-y-2">
+            {guide.controls.map((c) => (
+              <div class="flex items-start gap-2">
+                <span
+                  class={`btn btn-xs pointer-events-none select-none ${
+                    c.tone === "primary"
+                      ? "btn-primary"
+                      : c.tone === "ghost"
+                        ? "btn-ghost"
+                        : "btn-outline"
+                  }`}
+                >
+                  {c.label}
+                </span>
+                <span class="text-xs text-base-content/70 leading-relaxed">
+                  {c.description}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    }
+
+    <ul class="list-disc pl-5 mt-3 space-y-1 text-sm">
+      {guide.steps.map((step) => <li>{step}</li>)}
+    </ul>
+    <div class="modal-action">
+      <button
+        id="tutorial-close-btn"
+        class="btn btn-primary btn-sm"
+        type="button">閉じる</button
+      >
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>close</button></form>
+</dialog>
+
+<script is:inline define:vars={{ guide, storageKey }}>
+  (() => {
+    const modal = document.getElementById("tutorial-modal");
+    const openBtn = document.getElementById("tutorial-open-btn");
+    const closeBtn = document.getElementById("tutorial-close-btn");
+    if (!(modal instanceof HTMLDialogElement)) return;
+    if (!(openBtn instanceof HTMLButtonElement)) return;
+    if (!(closeBtn instanceof HTMLButtonElement)) return;
+
+    const openModal = () => {
+      if (!modal.open) modal.showModal();
+    };
+
+    openBtn.addEventListener("click", openModal);
+    closeBtn.addEventListener("click", () => modal.close());
+
+    if (!window.localStorage.getItem(storageKey)) {
+      window.localStorage.setItem(storageKey, "1");
+      window.setTimeout(openModal, 120);
+    }
+  })();
+</script>

@@ -1,8 +1,25 @@
 ---
 import "../assets/app.css";
 import "../styles/global.css";
+import TutorialModal from "@/components/TutorialModal.astro";
 
-const { title = "FUSOU" } = Astro.props;
+type TutorialGuide = {
+  id: string;
+  title: string;
+  summary: string;
+  steps: string[];
+  controls?: Array<{
+    label: string;
+    description: string;
+    tone?: "primary" | "outline" | "ghost";
+  }>;
+  buttonLabel?: string;
+};
+
+const { title = "FUSOU", tutorial = null } = Astro.props as {
+  title?: string;
+  tutorial?: TutorialGuide | null;
+};
 ---
 
 <!doctype html>
@@ -33,6 +50,7 @@ const { title = "FUSOU" } = Astro.props;
   </head>
   <body>
     <slot />
+    {tutorial && <TutorialModal guide={tutorial} />}
   </body>
 </html>
 

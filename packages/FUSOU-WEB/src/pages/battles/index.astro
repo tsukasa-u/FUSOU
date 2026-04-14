@@ -6,18 +6,53 @@ import BattlesListPanel from "@/components/solid/BattlesListPanel";
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - Battles">
+<PageLayout
+  title="FUSOU - Battles"
+  tutorial={{
+    id: "battles-index",
+    title: "戦闘一覧ページの使い方",
+    summary: "条件で絞り込みながら対象戦闘を探せます。",
+    controls: [
+      {
+        label: "マップ進行",
+        description: "進軍ルート表示ページへ移動します。",
+        tone: "outline",
+      },
+      {
+        label: "統計",
+        description: "統計ダッシュボードへ移動します。",
+        tone: "outline",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "フィルタで期間・海域・勝敗を絞り込みます。",
+      "行をクリックして戦闘詳細へ遷移します。",
+      "右上導線からマップ進行・統計に切り替えて分析します。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1440px] mx-auto px-4 py-8">
       <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+      <div
+        class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4"
+      >
         <div>
           <h1 class="text-3xl font-bold">戦闘データ</h1>
-          <p class="text-base-content/60 mt-1">R2に保存された戦闘履歴を閲覧・分析</p>
+          <p class="text-base-content/60 mt-1">
+            R2に保存された戦闘履歴を閲覧・分析
+          </p>
         </div>
         <div class="flex gap-2">
-          <a href="/battles/map-flow" class="btn btn-outline btn-sm">マップ進行</a>
+          <a href="/battles/map-flow" class="btn btn-outline btn-sm"
+            >マップ進行</a
+          >
           <a href="/battles/stats" class="btn btn-outline btn-sm">統計</a>
         </div>
       </div>

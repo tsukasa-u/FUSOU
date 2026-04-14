@@ -70,10 +70,7 @@ function esc(value) {
 }
 
 function normalizeSql(sql) {
-  return String(sql)
-    .replace(/\r?\n/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(sql).replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
 }
 
 function quoteForCommand(sql) {
@@ -83,16 +80,20 @@ function quoteForCommand(sql) {
 function parseArgs() {
   const args = process.argv.slice(2);
   const wranglerPath = join(process.cwd(), "wrangler.toml");
-  const wranglerText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : "";
+  const wranglerText = existsSync(wranglerPath)
+    ? readFileSync(wranglerPath, "utf8")
+    : "";
 
   const bucketFromWrangler = (() => {
-    const pattern = /\[\[r2_buckets\]\][\s\S]*?binding\s*=\s*"BATTLE_DATA_BUCKET"[\s\S]*?bucket_name\s*=\s*"([^"]+)"/m;
+    const pattern =
+      /\[\[r2_buckets\]\][\s\S]*?binding\s*=\s*"BATTLE_DATA_BUCKET"[\s\S]*?bucket_name\s*=\s*"([^"]+)"/m;
     const match = wranglerText.match(pattern);
     return match?.[1] || "";
   })();
 
   const dbFromWrangler = (() => {
-    const pattern = /\[\[d1_databases\]\][\s\S]*?binding\s*=\s*"BATTLE_INDEX_DB"[\s\S]*?database_name\s*=\s*"([^"]+)"/m;
+    const pattern =
+      /\[\[d1_databases\]\][\s\S]*?binding\s*=\s*"BATTLE_INDEX_DB"[\s\S]*?database_name\s*=\s*"([^"]+)"/m;
     const match = wranglerText.match(pattern);
     return match?.[1] || "";
   })();
@@ -117,7 +118,8 @@ function parseArgs() {
     const arg = args[i];
     if (arg === "--bucket") options.bucket = (args[++i] || "").trim();
     else if (arg === "--db") options.db = (args[++i] || "").trim();
-    else if (arg === "--period") options.period = (args[++i] || "latest").trim();
+    else if (arg === "--period")
+      options.period = (args[++i] || "latest").trim();
     else if (arg === "--tables") {
       options.tables = (args[++i] || "")
         .split(",")
@@ -132,10 +134,14 @@ function parseArgs() {
   }
 
   if (!options.bucket) {
-    throw new Error("Missing battle bucket name. Pass --bucket, set SEED_BATTLE_BUCKET/BATTLE_DATA_BUCKET_NAME, or configure BATTLE_DATA_BUCKET in wrangler.toml");
+    throw new Error(
+      "Missing battle bucket name. Pass --bucket, set SEED_BATTLE_BUCKET/BATTLE_DATA_BUCKET_NAME, or configure BATTLE_DATA_BUCKET in wrangler.toml",
+    );
   }
   if (!options.db) {
-    throw new Error("Missing D1 database name. Pass --db, set SEED_BATTLE_DB/BATTLE_INDEX_DB_NAME, or configure BATTLE_INDEX_DB in wrangler.toml");
+    throw new Error(
+      "Missing D1 database name. Pass --db, set SEED_BATTLE_DB/BATTLE_INDEX_DB_NAME, or configure BATTLE_INDEX_DB in wrangler.toml",
+    );
   }
 
   const invalid = options.tables.filter((t) => !SUPPORTED_TABLES.includes(t));
@@ -243,8 +249,12 @@ function seedR2Files(bucket, rows) {
     const localFile = join(TMP_DIR, safeName);
     process.stdout.write(`  R2 ${filePath} ... `);
     try {
-      run(`npx wrangler r2 object get ${bucket}/${filePath} --file "${localFile}" --remote`);
-      run(`npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}"`);
+      run(
+        `npx wrangler r2 object get ${bucket}/${filePath} --file "${localFile}" --remote`,
+      );
+      run(
+        `npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}"`,
+      );
       ok++;
       uploadedPaths.add(filePath);
       console.log("OK");
@@ -262,7 +272,9 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
   const tableListSql = tables.map((t) => `'${esc(t)}'`).join(",");
 
   if (period === "all" || period === "latest") {
-    runQuiet(`npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql});"`);
+    runQuiet(
+      `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql});"`,
+    );
   } else {
     runQuiet(
       `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql}) AND period_tag='${esc(period)}';"`,
@@ -336,7 +348,9 @@ async function main() {
     opts.period,
     uploadedPaths,
   );
-  console.log(`  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`);
+  console.log(
+    `  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`,
+  );
 
   console.log();
   console.log("Done! Local battle data has been seeded to R2 + D1.");

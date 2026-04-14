@@ -90,9 +90,7 @@ export async function fetchRecordsByField(
 ): Promise<Array<Record<string, unknown>>> {
   if (!table || !field || value == null) return [];
   try {
-    const filterJson = encodeURIComponent(
-      JSON.stringify({ [field]: value }),
-    );
+    const filterJson = encodeURIComponent(JSON.stringify({ [field]: value }));
     const payload = (await fetchJson(
       `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=${limitRecords}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
@@ -197,9 +195,7 @@ export async function fetchBattleRecordsByUuid(
   return records.filter((r) => String(r?.uuid || "") === uuid);
 }
 
-export async function resolveMidnightHougeki(
-  raw: unknown,
-): Promise<unknown> {
+export async function resolveMidnightHougeki(raw: unknown): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("midnight_hougeki_list", raw);
   const detailUuid = (listRows[0] as Record<string, unknown>)?.midnight_hougeki;
@@ -228,12 +224,11 @@ export async function resolveHougeki(raw: unknown): Promise<unknown> {
   return rows.length ? rows : raw;
 }
 
-export async function resolveOpeningAirAttack(
-  raw: unknown,
-): Promise<unknown> {
+export async function resolveOpeningAirAttack(raw: unknown): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("opening_airattack_list", raw);
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.opening_air_attack;
+  const detailUuid = (listRows?.[0] as Record<string, unknown>)
+    ?.opening_air_attack;
   const rows = detailUuid
     ? await fetchRecordsByUuid("opening_airattack", String(detailUuid))
     : await fetchRecordsByUuid("opening_airattack", raw);
@@ -316,9 +311,7 @@ export async function resolveFriendlyFleet(
     const shipId = Number(ship.ship_id ?? 0) || null;
     const mstShip = shipId ? mstShipById.get(shipId) : null;
     const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
-    const slotRows = slotGroupId
-      ? slotRowsByUuid.get(slotGroupId) || []
-      : [];
+    const slotRows = slotGroupId ? slotRowsByUuid.get(slotGroupId) || [] : [];
     const equips = slotRows
       .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
       .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
@@ -329,14 +322,14 @@ export async function resolveFriendlyFleet(
           Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
           ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
             ? Number(
-                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
+                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ??
+                  0,
               ) || null
             : null;
         return {
-          name:
-            (mstSlot as Record<string, unknown>)?.name
-              ? String((mstSlot as Record<string, unknown>).name)
-              : `装備ID:${slotId}`,
+          name: (mstSlot as Record<string, unknown>)?.name
+            ? String((mstSlot as Record<string, unknown>).name)
+            : `装備ID:${slotId}`,
           level: (row.level as number) ?? null,
           iconType,
           slotItemId: slotId,
@@ -345,7 +338,10 @@ export async function resolveFriendlyFleet(
 
     return {
       name: mstShip
-        ? String((mstShip as Record<string, unknown>).name ?? `艦ID:${shipId ?? "-"}`)
+        ? String(
+            (mstShip as Record<string, unknown>).name ??
+              `艦ID:${shipId ?? "-"}`,
+          )
         : `艦ID:${shipId ?? "-"}`,
       shipId,
       level: Number(ship.lv ?? 0) || null,
@@ -398,9 +394,7 @@ export async function resolveEnemyFleet(
     const mstId = Number(ship.mst_ship_id ?? 0) || null;
     const mstShip = mstId ? mstShipById.get(mstId) : null;
     const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
-    const slotRows = slotGroupId
-      ? slotRowsByUuid.get(slotGroupId) || []
-      : [];
+    const slotRows = slotGroupId ? slotRowsByUuid.get(slotGroupId) || [] : [];
     const equips = slotRows
       .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
       .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
@@ -411,14 +405,14 @@ export async function resolveEnemyFleet(
           Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
           ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
             ? Number(
-                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ?? 0,
+                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ??
+                  0,
               ) || null
             : null;
         return {
-          name:
-            (mstSlot as Record<string, unknown>)?.name
-              ? String((mstSlot as Record<string, unknown>).name)
-              : `装備ID:${slotId}`,
+          name: (mstSlot as Record<string, unknown>)?.name
+            ? String((mstSlot as Record<string, unknown>).name)
+            : `装備ID:${slotId}`,
           level: null,
           iconType,
           slotItemId: slotId,
@@ -427,7 +421,10 @@ export async function resolveEnemyFleet(
 
     ships.push({
       name: mstShip
-        ? String((mstShip as Record<string, unknown>).name ?? `敵艦ID:${mstId ?? "-"}`)
+        ? String(
+            (mstShip as Record<string, unknown>).name ??
+              `敵艦ID:${mstId ?? "-"}`,
+          )
         : `敵艦ID:${mstId ?? "-"}`,
       shipId: mstId,
       level: Number(ship.lv ?? 0) || null,

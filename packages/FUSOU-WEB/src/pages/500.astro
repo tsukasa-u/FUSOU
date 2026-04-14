@@ -10,7 +10,30 @@ interface Props {
 const { error } = Astro.props;
 ---
 
-<Layout>
+<Layout
+  tutorial={{
+    id: "error-500",
+    title: "500ページの見方",
+    summary: "サーバー内部エラー時の案内ページです。",
+    controls: [
+      {
+        label: "Back to App Page",
+        description: "トップページへ戻ります。",
+        tone: "primary",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "一時的な障害の可能性があるため、時間を置いて再試行してください。",
+      "表示されたエラーメッセージを確認して原因特定に利用します。",
+      "Back to App Page で通常画面へ戻れます。",
+    ],
+  }}
+>
   <div class="flex">
     <div class="flex-1"></div>
     <div class="flex justify-center items-center h-dvh max-w-5xl">

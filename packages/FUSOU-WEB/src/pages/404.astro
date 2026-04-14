@@ -4,7 +4,30 @@ import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 ---
 
-<Layout>
+<Layout
+  tutorial={{
+    id: "error-404",
+    title: "404ページの見方",
+    summary: "存在しないページにアクセスしたときの案内画面です。",
+    controls: [
+      {
+        label: "Back to App Page",
+        description: "トップページへ戻ります。",
+        tone: "primary",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "URLに誤りがないか確認してください。",
+      "必要に応じて Back to App Page からトップへ戻ります。",
+      "繰り返し表示される場合はリンク元を確認してください。",
+    ],
+  }}
+>
   <div class="flex">
     <div class="flex-1"></div>
     <div class="flex justify-center items-center h-dvh max-w-5xl">

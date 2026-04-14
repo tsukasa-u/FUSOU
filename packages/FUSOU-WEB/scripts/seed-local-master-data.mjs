@@ -82,9 +82,7 @@ function toSafeInt(value, fallback = 0) {
 }
 
 function normalizeSql(sql) {
-  return String(sql)
-    .replace(/\s+/g, " ")
-    .trim();
+  return String(sql).replace(/\s+/g, " ").trim();
 }
 
 function quoteForCommand(sql) {
@@ -95,12 +93,14 @@ function d1ExecuteSql(sql, { remote = false, json = false } = {}) {
   const remoteFlag = remote ? " --remote" : "";
   const jsonFlag = json ? " --json" : "";
   return run(
-    `npx wrangler d1 execute ${DB_NAME}${remoteFlag} --command "${quoteForCommand(sql)}"${jsonFlag}`
+    `npx wrangler d1 execute ${DB_NAME}${remoteFlag} --command "${quoteForCommand(sql)}"${jsonFlag}`,
   );
 }
 
 function getLocalColumns(tableName) {
-  const output = d1ExecuteSql(`PRAGMA table_info(${tableName});`, { json: true });
+  const output = d1ExecuteSql(`PRAGMA table_info(${tableName});`, {
+    json: true,
+  });
   const parsed = JSON.parse(output);
   const rows = parsed?.[0]?.results || [];
   return new Set(rows.map((row) => String(row.name)));
@@ -121,7 +121,7 @@ async function main() {
   try {
     const output = d1ExecuteSql(
       "SELECT id, period_tag, table_version, period_revision, content_hash FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1;",
-      { remote: true, json: true }
+      { remote: true, json: true },
     );
     const parsed = JSON.parse(output);
     const results = parsed?.[0]?.results;
@@ -131,7 +131,7 @@ async function main() {
     }
     remoteRecord = results[0];
     console.log(
-      `  Found: period=${remoteRecord.period_tag}, version=${remoteRecord.table_version}, revision=${remoteRecord.period_revision}`
+      `  Found: period=${remoteRecord.period_tag}, version=${remoteRecord.table_version}, revision=${remoteRecord.period_revision}`,
     );
 
     const remoteMasterId = toSafeInt(remoteRecord.id, -1);
@@ -142,7 +142,7 @@ async function main() {
 
     const tableOutput = d1ExecuteSql(
       `SELECT table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at FROM master_data_tables WHERE master_data_id = ${remoteMasterId} ORDER BY table_index ASC;`,
-      { remote: true, json: true }
+      { remote: true, json: true },
     );
     const tableParsed = JSON.parse(tableOutput);
     remoteTableRows = tableParsed?.[0]?.results || [];
@@ -151,38 +151,51 @@ async function main() {
       process.exit(1);
     }
   } catch (e) {
-    console.error("Failed to query remote D1. Are you logged in? (npx wrangler login)");
+    console.error(
+      "Failed to query remote D1. Are you logged in? (npx wrangler login)",
+    );
     console.error(e.message);
     process.exit(1);
   }
 
-  const { period_tag, table_version, period_revision, content_hash } = remoteRecord;
-  const selectedRows = remoteTableRows.filter((row) => tables.includes(row.table_name));
+  const { period_tag, table_version, period_revision, content_hash } =
+    remoteRecord;
+  const selectedRows = remoteTableRows.filter((row) =>
+    tables.includes(row.table_name),
+  );
 
   if (!selectedRows.length) {
-    console.error("None of requested tables exist in selected remote revision.");
+    console.error(
+      "None of requested tables exist in selected remote revision.",
+    );
     process.exit(1);
   }
 
   // Step 2: Create local D1 schema if needed
   console.log("[2/4] Ensuring local D1 schema...");
   runQuiet(
-    `npx wrangler d1 execute ${DB_NAME} --command "${quoteForCommand("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS master_data_index (id INTEGER PRIMARY KEY AUTOINCREMENT, period_tag TEXT NOT NULL, table_version TEXT NOT NULL DEFAULT '0.4', period_revision INTEGER NOT NULL DEFAULT 1, content_hash TEXT NOT NULL, r2_keys TEXT, table_offsets TEXT, table_count INTEGER, upload_status TEXT DEFAULT 'pending', uploaded_by TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER, UNIQUE(period_tag, table_version, period_revision)); CREATE TABLE IF NOT EXISTS master_data_tables (id INTEGER PRIMARY KEY AUTOINCREMENT, master_data_id INTEGER NOT NULL, table_name TEXT NOT NULL, table_version TEXT NOT NULL DEFAULT '0.4', table_index INTEGER NOT NULL, start_byte INTEGER NOT NULL, end_byte INTEGER NOT NULL, record_count INTEGER, r2_key TEXT NOT NULL, content_hash TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY (master_data_id) REFERENCES master_data_index(id), UNIQUE(master_data_id, table_name)); CREATE INDEX IF NOT EXISTS idx_master_data_by_period ON master_data_index(period_tag); CREATE INDEX IF NOT EXISTS idx_master_data_by_status_created ON master_data_index(upload_status, created_at); CREATE INDEX IF NOT EXISTS idx_master_tables_by_master_id ON master_data_tables(master_data_id); CREATE INDEX IF NOT EXISTS idx_master_tables_by_table_name ON master_data_tables(table_name);")}"`
+    `npx wrangler d1 execute ${DB_NAME} --command "${quoteForCommand("PRAGMA foreign_keys = ON; CREATE TABLE IF NOT EXISTS master_data_index (id INTEGER PRIMARY KEY AUTOINCREMENT, period_tag TEXT NOT NULL, table_version TEXT NOT NULL DEFAULT '0.4', period_revision INTEGER NOT NULL DEFAULT 1, content_hash TEXT NOT NULL, r2_keys TEXT, table_offsets TEXT, table_count INTEGER, upload_status TEXT DEFAULT 'pending', uploaded_by TEXT NOT NULL, created_at INTEGER NOT NULL, completed_at INTEGER, UNIQUE(period_tag, table_version, period_revision)); CREATE TABLE IF NOT EXISTS master_data_tables (id INTEGER PRIMARY KEY AUTOINCREMENT, master_data_id INTEGER NOT NULL, table_name TEXT NOT NULL, table_version TEXT NOT NULL DEFAULT '0.4', table_index INTEGER NOT NULL, start_byte INTEGER NOT NULL, end_byte INTEGER NOT NULL, record_count INTEGER, r2_key TEXT NOT NULL, content_hash TEXT NOT NULL, created_at INTEGER NOT NULL, FOREIGN KEY (master_data_id) REFERENCES master_data_index(id), UNIQUE(master_data_id, table_name)); CREATE INDEX IF NOT EXISTS idx_master_data_by_period ON master_data_index(period_tag); CREATE INDEX IF NOT EXISTS idx_master_data_by_status_created ON master_data_index(upload_status, created_at); CREATE INDEX IF NOT EXISTS idx_master_tables_by_master_id ON master_data_tables(master_data_id); CREATE INDEX IF NOT EXISTS idx_master_tables_by_table_name ON master_data_tables(table_name);")}"`,
   );
 
   const indexCols = getLocalColumns("master_data_index");
   const tableCols = getLocalColumns("master_data_tables");
 
   if (!indexCols.has("period_revision")) {
-    d1ExecuteSql("ALTER TABLE master_data_index ADD COLUMN period_revision INTEGER NOT NULL DEFAULT 1;");
+    d1ExecuteSql(
+      "ALTER TABLE master_data_index ADD COLUMN period_revision INTEGER NOT NULL DEFAULT 1;",
+    );
     indexCols.add("period_revision");
   }
   if (!indexCols.has("table_offsets")) {
-    d1ExecuteSql("ALTER TABLE master_data_index ADD COLUMN table_offsets TEXT;");
+    d1ExecuteSql(
+      "ALTER TABLE master_data_index ADD COLUMN table_offsets TEXT;",
+    );
     indexCols.add("table_offsets");
   }
   if (!indexCols.has("table_count")) {
-    d1ExecuteSql("ALTER TABLE master_data_index ADD COLUMN table_count INTEGER;");
+    d1ExecuteSql(
+      "ALTER TABLE master_data_index ADD COLUMN table_count INTEGER;",
+    );
     indexCols.add("table_count");
   }
 
@@ -203,7 +216,7 @@ async function main() {
   }
   const whereClause = whereParts.join(" AND ");
   d1ExecuteSql(
-    `DELETE FROM master_data_tables WHERE master_data_id IN (SELECT id FROM master_data_index WHERE ${whereClause}); DELETE FROM master_data_index WHERE ${whereClause};`
+    `DELETE FROM master_data_tables WHERE master_data_id IN (SELECT id FROM master_data_index WHERE ${whereClause}); DELETE FROM master_data_index WHERE ${whereClause};`,
   );
 
   // Insert master_data_index row
@@ -265,7 +278,7 @@ async function main() {
 
   const insertOutput = d1ExecuteSql(
     `INSERT INTO master_data_index (${indexInsertColumns.join(", ")}) VALUES (${indexInsertValues.join(", ")}) RETURNING id;`,
-    { json: true }
+    { json: true },
   );
   const insertParsed = JSON.parse(insertOutput);
   const localMasterId = toSafeInt(insertParsed?.[0]?.results?.[0]?.id, -1);
@@ -283,7 +296,10 @@ async function main() {
     const startByte = toSafeInt(row.start_byte, 0);
     const endByte = toSafeInt(row.end_byte, 0);
     const createdAt = toSafeInt(row.created_at, now);
-    const recordCountSql = row.record_count == null ? "NULL" : String(toSafeInt(row.record_count, 0));
+    const recordCountSql =
+      row.record_count == null
+        ? "NULL"
+        : String(toSafeInt(row.record_count, 0));
 
     const tableInsertColumns = [
       "master_data_id",
@@ -316,7 +332,7 @@ async function main() {
     }
 
     d1ExecuteSql(
-      `INSERT INTO master_data_tables (${tableInsertColumns.join(", ")}) VALUES (${tableInsertValues.join(", ")});`
+      `INSERT INTO master_data_tables (${tableInsertColumns.join(", ")}) VALUES (${tableInsertValues.join(", ")});`,
     );
   }
   console.log(`  D1 rows created: index=1 tables=${selectedRows.length}`);
@@ -333,7 +349,7 @@ async function main() {
     process.stdout.write(`  ${table}...`);
     try {
       run(
-        `npx wrangler r2 object get ${shellQuote(`${BUCKET}/${r2Key}`)} --file ${shellQuote(localFile)} --remote`
+        `npx wrangler r2 object get ${shellQuote(`${BUCKET}/${r2Key}`)} --file ${shellQuote(localFile)} --remote`,
       );
       console.log(" OK");
     } catch {
@@ -351,7 +367,7 @@ async function main() {
     process.stdout.write(`  ${table}...`);
     try {
       run(
-        `npx wrangler r2 object put ${shellQuote(`${BUCKET}/${r2Key}`)} --file ${shellQuote(localFile)}`
+        `npx wrangler r2 object put ${shellQuote(`${BUCKET}/${r2Key}`)} --file ${shellQuote(localFile)}`,
       );
       console.log(" OK");
     } catch (e) {

@@ -210,7 +210,19 @@ const platforms: Platform[] = [
 ];
 ---
 
-<Layout title="Download FUSOU" />
+<Layout
+  title="Download FUSOU"
+  tutorial={{
+    id: "download",
+    title: "ダウンロードページの使い方",
+    summary: "OS とアーキテクチャに合ったインストーラを選択できます。",
+    steps: [
+      "最初に利用するOSタブを選択します。",
+      "次にアーキテクチャ（x64 / ARM64 など）を選びます。",
+      "推奨ラベル付きのインストーラを優先してダウンロードします。",
+    ],
+  }}
+/>
 <div class="h-16"></div>
 <div class="bg-base-100 flex flex-col items-center py-6 px-6">
   <div class="w-full max-w-3xl flex flex-col gap-8">
@@ -334,17 +346,17 @@ const platforms: Platform[] = [
   const platformTabs =
     document.querySelectorAll<HTMLButtonElement>("[data-platform]");
   const platformPanels = document.querySelectorAll<HTMLElement>(
-    "[data-platform-panel]"
+    "[data-platform-panel]",
   );
 
   platformTabs.forEach((btn) => {
     btn.addEventListener("click", () => {
       const target = btn.dataset.platform;
       platformTabs.forEach((tab) =>
-        tab.classList.replace("btn-primary", "btn-outline")
+        tab.classList.replace("btn-primary", "btn-outline"),
       );
       platformTabs.forEach((tab) =>
-        tab.classList.replace("border-primary-content", "border-base-300")
+        tab.classList.replace("border-primary-content", "border-base-300"),
       );
       btn.classList.replace("btn-outline", "btn-primary");
       btn.classList.replace("border-base-300", "border-primary-content");
@@ -381,7 +393,7 @@ const platforms: Platform[] = [
       container.querySelectorAll<HTMLButtonElement>("[data-arch]");
     const archPanels =
       container.parentElement?.querySelectorAll<HTMLElement>(
-        "[data-arch-panel]"
+        "[data-arch-panel]",
       ) ?? [];
     archTabs.forEach((archBtn: HTMLButtonElement) => {
       archBtn.addEventListener("click", () => {

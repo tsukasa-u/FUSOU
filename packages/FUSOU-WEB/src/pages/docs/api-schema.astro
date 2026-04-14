@@ -6,7 +6,36 @@ import Layout from "@/layouts/Layout.astro";
 import SchemaGraph from "@/components/react/SchemaGraph";
 ---
 
-<Layout title="API Schema | FUSOU">
+<Layout
+  title="API Schema | FUSOU"
+  tutorial={{
+    id: "docs-api-schema",
+    title: "API Schema Explorerの使い方",
+    summary: "テーブルとAPIエンドポイントの関連を視覚的に確認できます。",
+    controls: [
+      {
+        label: "ノード選択",
+        description: "対象テーブルやエンドポイントの詳細を確認します。",
+        tone: "outline",
+      },
+      {
+        label: "ズーム/パン",
+        description: "グラフ全体の位置と拡大率を調整します。",
+        tone: "ghost",
+      },
+      {
+        label: "操作説明",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "興味のあるノードをクリックして関連情報を確認します。",
+      "接続線をたどって依存関係や入出力の流れを把握します。",
+      "ズームとパンで全体構造と局所詳細を行き来します。",
+    ],
+  }}
+>
   <div class="h-16"></div>
   <div class="flex max-w-[1440px] mx-auto">
     <div class="flex-1 min-w-0"></div>

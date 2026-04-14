@@ -18,9 +18,7 @@ import {
 
 // ── Phase data helpers ────────────────────────────────────────────────────
 
-function normalizeShellingRows(
-  data: unknown,
-): Array<Record<string, unknown>> {
+function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
   if (obj?.at_list) {
@@ -86,14 +84,23 @@ function ShellingRows(props: {
           {(row) => {
             const atkEnemy = Number(row.at_eflag ?? 0) !== 0;
             const attackerIdx = Number(row.at ?? 0) || 0;
-            const attackerSide = atkEnemy ? ("enemy" as const) : ("friend" as const);
-            const defenderSide = atkEnemy ? ("friend" as const) : ("enemy" as const);
+            const attackerSide = atkEnemy
+              ? ("enemy" as const)
+              : ("friend" as const);
+            const defenderSide = atkEnemy
+              ? ("friend" as const)
+              : ("enemy" as const);
             const attackerHpSnapshot = getRowHpSnapshot(row, attackerSide);
-            const attackerCurrentHp = Number(attackerHpSnapshot[attackerIdx] ?? 0) || 0;
+            const attackerCurrentHp =
+              Number(attackerHpSnapshot[attackerIdx] ?? 0) || 0;
             const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
-            const dmgs = Array.isArray(row.damage) ? (row.damage as unknown[]) : [];
+            const dmgs = Array.isArray(row.damage)
+              ? (row.damage as unknown[])
+              : [];
             const cls = Array.isArray(row.cl) ? (row.cl as unknown[]) : [];
-            const protects = Array.isArray(row.protect_flag) ? (row.protect_flag as unknown[]) : [];
+            const protects = Array.isArray(row.protect_flag)
+              ? (row.protect_flag as unknown[])
+              : [];
             const sis = Array.isArray(row.si) ? (row.si as unknown[]) : [];
             const defenderHpSnapshot = getRowHpSnapshot(row, defenderSide);
 
@@ -102,11 +109,20 @@ function ShellingRows(props: {
                 <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start overflow-visible">
                   <div class="space-y-1">
                     <PhaseParticipant
-                      name={shipNameFromIndex(attackerSide, attackerIdx, props.fleets)}
+                      name={shipNameFromIndex(
+                        attackerSide,
+                        attackerIdx,
+                        props.fleets,
+                      )}
                       side={attackerSide}
                       idx={attackerIdx}
                       hpCurrent={attackerCurrentHp}
-                      hpMax={maxHpForShip(attackerSide, attackerIdx, attackerCurrentHp, props.fleets)}
+                      hpMax={maxHpForShip(
+                        attackerSide,
+                        attackerIdx,
+                        attackerCurrentHp,
+                        props.fleets,
+                      )}
                     />
                     <Show when={sis.length > 0}>
                       <div class="text-[10px] text-base-content/55 overflow-visible relative z-10">
@@ -125,7 +141,9 @@ function ShellingRows(props: {
                   <div class="space-y-1">
                     <Show
                       when={defs.length > 0}
-                      fallback={<div class="text-xs text-base-content/40">対象不明</div>}
+                      fallback={
+                        <div class="text-xs text-base-content/40">対象不明</div>
+                      }
                     >
                       <For each={defs}>
                         {(d, i) => {
@@ -133,10 +151,20 @@ function ShellingRows(props: {
                           const dmg = Number(dmgs[i()] ?? 0) || 0;
                           const crit = Number(cls[i()] ?? 0) >= 2;
                           const protect = Boolean(protects[i()]);
-                          const beforeHp = Number(defenderHpSnapshot[defenderIdx] ?? 0) || 0;
+                          const beforeHp =
+                            Number(defenderHpSnapshot[defenderIdx] ?? 0) || 0;
                           const afterHp = Math.max(0, beforeHp - dmg);
-                          const mHp = createMemo(() => maxHpForShip(defenderSide, defenderIdx, beforeHp, props.fleets));
-                          const state = createMemo(() => transitionState(beforeHp, afterHp, mHp()));
+                          const mHp = createMemo(() =>
+                            maxHpForShip(
+                              defenderSide,
+                              defenderIdx,
+                              beforeHp,
+                              props.fleets,
+                            ),
+                          );
+                          const state = createMemo(() =>
+                            transitionState(beforeHp, afterHp, mHp()),
+                          );
                           return (
                             <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
                               <div class="flex flex-wrap items-center gap-2 justify-between">
@@ -146,13 +174,25 @@ function ShellingRows(props: {
                                     <div
                                       class={`text-xs font-semibold ${defenderSide === "enemy" ? "text-error" : "text-info"}`}
                                     >
-                                      {shipNameFromIndex(defenderSide, defenderIdx, props.fleets)}
+                                      {shipNameFromIndex(
+                                        defenderSide,
+                                        defenderIdx,
+                                        props.fleets,
+                                      )}
                                     </div>
                                   </div>
                                   <div class="text-[10px] text-base-content/65">
-                                    <InlineHpMeter current={beforeHp} max={mHp()} />
-                                    <span class="text-base-content/40">{" -> "}</span>
-                                    <InlineHpMeter current={afterHp} max={mHp()} />
+                                    <InlineHpMeter
+                                      current={beforeHp}
+                                      max={mHp()}
+                                    />
+                                    <span class="text-base-content/40">
+                                      {" -> "}
+                                    </span>
+                                    <InlineHpMeter
+                                      current={afterHp}
+                                      max={mHp()}
+                                    />
                                   </div>
                                 </div>
                                 <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
@@ -188,12 +228,18 @@ function RaigekiRows(props: {
 }): JSX.Element {
   const fNow = () => getRowHpSnapshot(props.data, "friend");
   const eNow = () => getRowHpSnapshot(props.data, "enemy");
-  const fDam = () => (Array.isArray(props.data?.f_dam) ? (props.data.f_dam as number[]) : []);
-  const eDam = () => (Array.isArray(props.data?.e_dam) ? (props.data.e_dam as number[]) : []);
-  const fCl = () => (Array.isArray(props.data?.f_cl) ? (props.data.f_cl as number[]) : []);
-  const eCl = () => (Array.isArray(props.data?.e_cl) ? (props.data.e_cl as number[]) : []);
-  const fRai = () => (Array.isArray(props.data?.f_rai) ? (props.data.f_rai as unknown[]) : []);
-  const eRai = () => (Array.isArray(props.data?.e_rai) ? (props.data.e_rai as unknown[]) : []);
+  const fDam = () =>
+    Array.isArray(props.data?.f_dam) ? (props.data.f_dam as number[]) : [];
+  const eDam = () =>
+    Array.isArray(props.data?.e_dam) ? (props.data.e_dam as number[]) : [];
+  const fCl = () =>
+    Array.isArray(props.data?.f_cl) ? (props.data.f_cl as number[]) : [];
+  const eCl = () =>
+    Array.isArray(props.data?.e_cl) ? (props.data.e_cl as number[]) : [];
+  const fRai = () =>
+    Array.isArray(props.data?.f_rai) ? (props.data.f_rai as unknown[]) : [];
+  const eRai = () =>
+    Array.isArray(props.data?.e_rai) ? (props.data.e_rai as unknown[]) : [];
 
   interface RaigekiHit {
     atkSide: "friend" | "enemy";
@@ -223,11 +269,25 @@ function RaigekiRows(props: {
         for (const t of targets) {
           const defIdx = Number(t);
           if (!Number.isFinite(defIdx) || defIdx < 0) continue;
-          addHit("friend", atkIdx, "enemy", defIdx, Number(eDam()[defIdx] ?? 0) || 0, Number(eCl()[defIdx] ?? 0) >= 2);
+          addHit(
+            "friend",
+            atkIdx,
+            "enemy",
+            defIdx,
+            Number(eDam()[defIdx] ?? 0) || 0,
+            Number(eCl()[defIdx] ?? 0) >= 2,
+          );
         }
       } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
         const defIdx = Number(targets);
-        addHit("friend", atkIdx, "enemy", defIdx, Number(eDam()[defIdx] ?? 0) || 0, Number(eCl()[defIdx] ?? 0) >= 2);
+        addHit(
+          "friend",
+          atkIdx,
+          "enemy",
+          defIdx,
+          Number(eDam()[defIdx] ?? 0) || 0,
+          Number(eCl()[defIdx] ?? 0) >= 2,
+        );
       }
     });
     eRai().forEach((targets, atkIdx) => {
@@ -235,17 +295,53 @@ function RaigekiRows(props: {
         for (const t of targets) {
           const defIdx = Number(t);
           if (!Number.isFinite(defIdx) || defIdx < 0) continue;
-          addHit("enemy", atkIdx, "friend", defIdx, Number(fDam()[defIdx] ?? 0) || 0, Number(fCl()[defIdx] ?? 0) >= 2);
+          addHit(
+            "enemy",
+            atkIdx,
+            "friend",
+            defIdx,
+            Number(fDam()[defIdx] ?? 0) || 0,
+            Number(fCl()[defIdx] ?? 0) >= 2,
+          );
         }
       } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
         const defIdx = Number(targets);
-        addHit("enemy", atkIdx, "friend", defIdx, Number(fDam()[defIdx] ?? 0) || 0, Number(fCl()[defIdx] ?? 0) >= 2);
+        addHit(
+          "enemy",
+          atkIdx,
+          "friend",
+          defIdx,
+          Number(fDam()[defIdx] ?? 0) || 0,
+          Number(fCl()[defIdx] ?? 0) >= 2,
+        );
       }
     });
     // Fallback when no rai mapping data available
     if (hits.length === 0) {
-      fDam().forEach((d, i) => { const dmg = Number(d ?? 0) || 0; if (dmg > 0) hits.push({ atkSide: "enemy", atkIdx: i, defSide: "friend", defIdx: i, dmg, crit: Number(fCl()[i] ?? 0) >= 2 }); });
-      eDam().forEach((d, i) => { const dmg = Number(d ?? 0) || 0; if (dmg > 0) hits.push({ atkSide: "friend", atkIdx: i, defSide: "enemy", defIdx: i, dmg, crit: Number(eCl()[i] ?? 0) >= 2 }); });
+      fDam().forEach((d, i) => {
+        const dmg = Number(d ?? 0) || 0;
+        if (dmg > 0)
+          hits.push({
+            atkSide: "enemy",
+            atkIdx: i,
+            defSide: "friend",
+            defIdx: i,
+            dmg,
+            crit: Number(fCl()[i] ?? 0) >= 2,
+          });
+      });
+      eDam().forEach((d, i) => {
+        const dmg = Number(d ?? 0) || 0;
+        if (dmg > 0)
+          hits.push({
+            atkSide: "friend",
+            atkIdx: i,
+            defSide: "enemy",
+            defIdx: i,
+            dmg,
+            crit: Number(eCl()[i] ?? 0) >= 2,
+          });
+      });
     }
     return hits;
   };
@@ -255,7 +351,11 @@ function RaigekiRows(props: {
   return (
     <Show
       when={hits().length > 0}
-      fallback={<div class="text-xs text-base-content/50">{props.title}: 有効打なし</div>}
+      fallback={
+        <div class="text-xs text-base-content/50">
+          {props.title}: 有効打なし
+        </div>
+      }
     >
       <div class="mb-1 hidden text-[10px] uppercase tracking-wide text-base-content/45 md:grid md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-center">
         <span>攻撃艦</span>
@@ -270,26 +370,47 @@ function RaigekiRows(props: {
             const beforeHp = Number(defHpSnap[hit.defIdx] ?? 0) || 0;
             const afterHp = Math.max(0, beforeHp - hit.dmg);
             const atkHp = Number(atkHpSnap[hit.atkIdx] ?? 0) || 0;
-            const mHp = createMemo(() => maxHpForShip(hit.defSide, hit.defIdx, beforeHp, props.fleets));
-            const state = createMemo(() => transitionState(beforeHp, afterHp, mHp()));
+            const mHp = createMemo(() =>
+              maxHpForShip(hit.defSide, hit.defIdx, beforeHp, props.fleets),
+            );
+            const state = createMemo(() =>
+              transitionState(beforeHp, afterHp, mHp()),
+            );
             return (
               <div class="rounded border border-base-300 bg-base-200 p-2">
                 <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
                   <PhaseParticipant
-                    name={shipNameFromIndex(hit.atkSide, hit.atkIdx, props.fleets)}
+                    name={shipNameFromIndex(
+                      hit.atkSide,
+                      hit.atkIdx,
+                      props.fleets,
+                    )}
                     side={hit.atkSide}
                     idx={hit.atkIdx}
                     hpCurrent={atkHp}
-                    hpMax={maxHpForShip(hit.atkSide, hit.atkIdx, atkHp, props.fleets)}
+                    hpMax={maxHpForShip(
+                      hit.atkSide,
+                      hit.atkIdx,
+                      atkHp,
+                      props.fleets,
+                    )}
                   />
-                  <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">→</div>
+                  <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+                    →
+                  </div>
                   <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
                     <div class="flex flex-wrap items-center gap-2 justify-between">
                       <div class="min-w-0">
                         <div class="mb-1 flex items-center gap-1.5">
                           <ShipIndexBadge idx={hit.defIdx} />
-                          <div class={`text-xs font-semibold ${hit.defSide === "enemy" ? "text-error" : "text-info"}`}>
-                            {shipNameFromIndex(hit.defSide, hit.defIdx, props.fleets)}
+                          <div
+                            class={`text-xs font-semibold ${hit.defSide === "enemy" ? "text-error" : "text-info"}`}
+                          >
+                            {shipNameFromIndex(
+                              hit.defSide,
+                              hit.defIdx,
+                              props.fleets,
+                            )}
                           </div>
                         </div>
                         <div class="text-[10px] text-base-content/65">
@@ -299,7 +420,13 @@ function RaigekiRows(props: {
                         </div>
                       </div>
                       <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
-                        <OutcomeBadges damage={hit.dmg} crit={hit.crit} protect={false} sunk={state().sunk} afterState={state().afterState} />
+                        <OutcomeBadges
+                          damage={hit.dmg}
+                          crit={hit.crit}
+                          protect={false}
+                          sunk={state().sunk}
+                          afterState={state().afterState}
+                        />
                       </div>
                     </div>
                   </div>
@@ -319,27 +446,68 @@ function AirAttackRows(props: {
 }): JSX.Element {
   const fNow = () => getRowHpSnapshot(props.data, "friend");
   const eNow = () => getRowHpSnapshot(props.data, "enemy");
-  const fPlaneFrom = () => (Array.isArray(props.data?.f_plane_from) ? (props.data.f_plane_from as number[]) : []);
-  const ePlaneFrom = () => (Array.isArray(props.data?.e_plane_from) ? (props.data.e_plane_from as number[]) : []);
-  const fDamages = () => (Array.isArray(props.data?.f_damages) ? (props.data.f_damages as number[]) : []);
-  const eDamages = () => (Array.isArray(props.data?.e_damages) ? (props.data.e_damages as number[]) : []);
-  const fCl = () => (Array.isArray(props.data?.f_cl) ? (props.data.f_cl as number[]) : []);
-  const eCl = () => (Array.isArray(props.data?.e_cl) ? (props.data.e_cl as number[]) : []);
-  const fBak = () => (Array.isArray(props.data?.f_bak_flag) ? (props.data.f_bak_flag as (number | null)[]) : []);
-  const eBak = () => (Array.isArray(props.data?.e_bak_flag) ? (props.data.e_bak_flag as (number | null)[]) : []);
-  const fRaiFlag = () => (Array.isArray(props.data?.f_rai_flag) ? (props.data.f_rai_flag as (number | null)[]) : []);
-  const eRaiFlag = () => (Array.isArray(props.data?.e_rai_flag) ? (props.data.e_rai_flag as (number | null)[]) : []);
-  const airLabel = () => AIR_STATE[Number(props.data?.air_superiority ?? -1)]?.label ?? "-";
+  const fPlaneFrom = () =>
+    Array.isArray(props.data?.f_plane_from)
+      ? (props.data.f_plane_from as number[])
+      : [];
+  const ePlaneFrom = () =>
+    Array.isArray(props.data?.e_plane_from)
+      ? (props.data.e_plane_from as number[])
+      : [];
+  const fDamages = () =>
+    Array.isArray(props.data?.f_damages)
+      ? (props.data.f_damages as number[])
+      : [];
+  const eDamages = () =>
+    Array.isArray(props.data?.e_damages)
+      ? (props.data.e_damages as number[])
+      : [];
+  const fCl = () =>
+    Array.isArray(props.data?.f_cl) ? (props.data.f_cl as number[]) : [];
+  const eCl = () =>
+    Array.isArray(props.data?.e_cl) ? (props.data.e_cl as number[]) : [];
+  const fBak = () =>
+    Array.isArray(props.data?.f_bak_flag)
+      ? (props.data.f_bak_flag as (number | null)[])
+      : [];
+  const eBak = () =>
+    Array.isArray(props.data?.e_bak_flag)
+      ? (props.data.e_bak_flag as (number | null)[])
+      : [];
+  const fRaiFlag = () =>
+    Array.isArray(props.data?.f_rai_flag)
+      ? (props.data.f_rai_flag as (number | null)[])
+      : [];
+  const eRaiFlag = () =>
+    Array.isArray(props.data?.e_rai_flag)
+      ? (props.data.e_rai_flag as (number | null)[])
+      : [];
+  const airLabel = () =>
+    AIR_STATE[Number(props.data?.air_superiority ?? -1)]?.label ?? "-";
 
   const eDefs = () =>
     eDamages()
-      .map((dmg, i) => ({ idx: i, dmg: Number(dmg) || 0, crit: Number(eCl()[i] ?? 0) >= 2 }))
-      .filter((d) => d.dmg > 0 || (eBak()[d.idx] ?? 0) > 0 || (eRaiFlag()[d.idx] ?? 0) > 0);
+      .map((dmg, i) => ({
+        idx: i,
+        dmg: Number(dmg) || 0,
+        crit: Number(eCl()[i] ?? 0) >= 2,
+      }))
+      .filter(
+        (d) =>
+          d.dmg > 0 || (eBak()[d.idx] ?? 0) > 0 || (eRaiFlag()[d.idx] ?? 0) > 0,
+      );
 
   const fDefs = () =>
     fDamages()
-      .map((dmg, i) => ({ idx: i, dmg: Number(dmg) || 0, crit: Number(fCl()[i] ?? 0) >= 2 }))
-      .filter((d) => d.dmg > 0 || (fBak()[d.idx] ?? 0) > 0 || (fRaiFlag()[d.idx] ?? 0) > 0);
+      .map((dmg, i) => ({
+        idx: i,
+        dmg: Number(dmg) || 0,
+        crit: Number(fCl()[i] ?? 0) >= 2,
+      }))
+      .filter(
+        (d) =>
+          d.dmg > 0 || (fBak()[d.idx] ?? 0) > 0 || (fRaiFlag()[d.idx] ?? 0) > 0,
+      );
 
   const renderDefenders = (
     defs: { idx: number; dmg: number; crit: boolean }[],
@@ -355,15 +523,21 @@ function AirAttackRows(props: {
           {(def) => {
             const beforeHp = Number(hpSnap()[def.idx] ?? 0) || 0;
             const afterHp = Math.max(0, beforeHp - def.dmg);
-            const mHp = createMemo(() => maxHpForShip(defSide, def.idx, beforeHp, props.fleets));
-            const state = createMemo(() => transitionState(beforeHp, afterHp, mHp()));
+            const mHp = createMemo(() =>
+              maxHpForShip(defSide, def.idx, beforeHp, props.fleets),
+            );
+            const state = createMemo(() =>
+              transitionState(beforeHp, afterHp, mHp()),
+            );
             return (
               <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
                 <div class="flex flex-wrap items-center gap-2 justify-between">
                   <div class="min-w-0">
                     <div class="mb-1 flex items-center gap-1.5">
                       <ShipIndexBadge idx={def.idx} />
-                      <div class={`text-xs font-semibold ${defSide === "enemy" ? "text-error" : "text-info"}`}>
+                      <div
+                        class={`text-xs font-semibold ${defSide === "enemy" ? "text-error" : "text-info"}`}
+                      >
                         {shipNameFromIndex(defSide, def.idx, props.fleets)}
                       </div>
                     </div>
@@ -374,7 +548,13 @@ function AirAttackRows(props: {
                     </div>
                   </div>
                   <div class="ml-auto flex min-w-[200px] flex-wrap justify-end gap-1">
-                    <OutcomeBadges damage={def.dmg} crit={def.crit} protect={false} sunk={state().sunk} afterState={state().afterState} />
+                    <OutcomeBadges
+                      damage={def.dmg}
+                      crit={def.crit}
+                      protect={false}
+                      sunk={state().sunk}
+                      afterState={state().afterState}
+                    />
                   </div>
                 </div>
               </div>
@@ -395,7 +575,9 @@ function AirAttackRows(props: {
         <div class="rounded border border-base-300 bg-base-200 p-2">
           <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
             <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wide text-base-content/45 mb-1">友軍艦載機</div>
+              <div class="text-[10px] uppercase tracking-wide text-base-content/45 mb-1">
+                友軍艦載機
+              </div>
               <For each={fPlaneFrom()}>
                 {(shipIdx) => {
                   const h = Number(fNow()[shipIdx] ?? 0) || 0;
@@ -411,7 +593,9 @@ function AirAttackRows(props: {
                 }}
               </For>
             </div>
-            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">→</div>
+            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+              →
+            </div>
             {renderDefenders(eDefs(), "enemy", eNow)}
           </div>
         </div>
@@ -421,7 +605,9 @@ function AirAttackRows(props: {
         <div class="rounded border border-base-300 bg-base-200 p-2">
           <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
             <div class="space-y-1">
-              <div class="text-[10px] uppercase tracking-wide text-base-content/45 mb-1">敵艦載機</div>
+              <div class="text-[10px] uppercase tracking-wide text-base-content/45 mb-1">
+                敵艦載機
+              </div>
               <For each={ePlaneFrom()}>
                 {(shipIdx) => {
                   const h = Number(eNow()[shipIdx] ?? 0) || 0;
@@ -437,7 +623,9 @@ function AirAttackRows(props: {
                 }}
               </For>
             </div>
-            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">→</div>
+            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+              →
+            </div>
             {renderDefenders(fDefs(), "friend", fNow)}
           </div>
         </div>
@@ -462,7 +650,11 @@ function PhaseCard(props: {
 
   const summaryBadges = (): (string | null)[] => {
     const key = phaseKey();
-    if (key === "Hougeki" || key === "OpeningTaisen" || key === "MidnightHougeki") {
+    if (
+      key === "Hougeki" ||
+      key === "OpeningTaisen" ||
+      key === "MidnightHougeki"
+    ) {
       const rows = normalizeShellingRows(props.phaseData);
       if (rows.length > 0) {
         return [`${rows.length}行動`, `総与ダメ ${sumDamage(rows)}`];
@@ -470,10 +662,16 @@ function PhaseCard(props: {
     } else if (key === "OpeningRaigeki" || key === "ClosingRaigeki") {
       const pd = props.phaseData as Record<string, unknown> | null;
       const fTotal = Array.isArray(pd?.f_dam)
-        ? (pd!.f_dam as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)
+        ? (pd!.f_dam as unknown[]).reduce(
+            (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+            0,
+          )
         : 0;
       const eTotal = Array.isArray(pd?.e_dam)
-        ? (pd!.e_dam as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)
+        ? (pd!.e_dam as unknown[]).reduce(
+            (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+            0,
+          )
         : 0;
       return [`味方被ダメ ${fTotal}`, `敵被ダメ ${eTotal}`];
     } else if (key === "OpeningAirAttack" || key === "AirBaseAirAttack") {
@@ -482,23 +680,39 @@ function PhaseCard(props: {
         : (props.phaseData as Record<string, unknown>);
       if (first) {
         const fTotal = Array.isArray(first.f_damages)
-          ? (first.f_damages as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)
+          ? (first.f_damages as unknown[]).reduce(
+              (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+              0,
+            )
           : 0;
         const eTotal = Array.isArray(first.e_damages)
-          ? (first.e_damages as unknown[]).reduce((s: number, d: unknown) => s + (Number(d ?? 0) || 0), 0)
+          ? (first.e_damages as unknown[]).reduce(
+              (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+              0,
+            )
           : 0;
-        const airLabel = AIR_STATE[Number(first.air_superiority ?? -1)]?.label ?? "-";
+        const airLabel =
+          AIR_STATE[Number(first.air_superiority ?? -1)]?.label ?? "-";
         return [airLabel, `味方被ダメ ${fTotal}`, `敵被ダメ ${eTotal}`];
       }
     } else if (key === "SupportAttack") {
       const pd = props.phaseData as Record<string, unknown> | null;
       const badges: string[] = [];
       if ((pd as any)?.support_hourai) {
-        const totalDmg = ((pd as any).support_hourai.damage as number[] | undefined)?.reduce((s: number, d: number) => s + d, 0) ?? 0;
+        const totalDmg =
+          ((pd as any).support_hourai.damage as number[] | undefined)?.reduce(
+            (s: number, d: number) => s + d,
+            0,
+          ) ?? 0;
         badges.push(`砲雷 ${totalDmg}`);
       }
       if ((pd as any)?.support_airatack) {
-        const eDmg = ((pd as any).support_airatack.e_damage?.damages as number[] | undefined)?.reduce((s: number, d: number) => s + d, 0) ?? 0;
+        const eDmg =
+          (
+            (pd as any).support_airatack.e_damage?.damages as
+              | number[]
+              | undefined
+          )?.reduce((s: number, d: number) => s + d, 0) ?? 0;
         badges.push(`航空 ${eDmg}`);
       }
       return badges;
@@ -508,7 +722,11 @@ function PhaseCard(props: {
 
   const phaseContent = (): JSX.Element => {
     const key = phaseKey();
-    if (key === "Hougeki" || key === "OpeningTaisen" || key === "MidnightHougeki") {
+    if (
+      key === "Hougeki" ||
+      key === "OpeningTaisen" ||
+      key === "MidnightHougeki"
+    ) {
       const rows = normalizeShellingRows(props.phaseData);
       if (rows.length > 0) {
         return (
@@ -540,7 +758,10 @@ function PhaseCard(props: {
             <div class="text-sm">
               敵被ダメ合計:{" "}
               <span class="font-mono text-error">
-                {pd.support_hourai.damage?.reduce((s: number, d: number) => s + d, 0) ?? 0}
+                {pd.support_hourai.damage?.reduce(
+                  (s: number, d: number) => s + d,
+                  0,
+                ) ?? 0}
               </span>
             </div>
           </Show>
@@ -632,23 +853,71 @@ function extractPhaseEntries(
     for (const phaseType of battle.battle_order as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
       const idx = phaseType[key] as number | null;
-      entries.push({ type: phaseType, data: phaseDataForKey(battle, key, idx) });
+      entries.push({
+        type: phaseType,
+        data: phaseDataForKey(battle, key, idx),
+      });
     }
   } else {
     // Fallback for compact/legacy records
-    if (battle.air_base_assault) entries.push({ type: { AirBaseAssult: 0 }, data: battle.air_base_assault });
-    if (battle.carrier_base_assault) entries.push({ type: { CarrierBaseAssault: 0 }, data: battle.carrier_base_assault });
-    if ((battle.air_base_air_attacks as any)?.attacks?.length || Array.isArray(battle.air_base_air_attacks))
-      entries.push({ type: { AirBaseAirAttack: 0 }, data: phaseDataForKey(battle, "AirBaseAirAttack", 0) });
-    if ((battle.opening_air_attack as any)?.length || Array.isArray(battle.opening_air_attack))
-      entries.push({ type: { OpeningAirAttack: 0 }, data: phaseDataForKey(battle, "OpeningAirAttack", 0) });
-    if (battle.support_hourai || battle.support_airattack) entries.push({ type: { SupportAttack: 0 }, data: phaseDataForKey(battle, "SupportAttack", null) });
-    if (battle.opening_taisen) entries.push({ type: { OpeningTaisen: 0 }, data: battle.opening_taisen });
-    if (battle.opening_raigeki) entries.push({ type: { OpeningRaigeki: 0 }, data: battle.opening_raigeki });
-    if ((battle.hougeki as any)?.length || Array.isArray(battle.hougeki)) entries.push({ type: { Hougeki: 0 }, data: phaseDataForKey(battle, "Hougeki", null) });
-    if (battle.closing_raigeki) entries.push({ type: { ClosingRaigeki: 0 }, data: battle.closing_raigeki });
-    if (battle.friendly_force_attack) entries.push({ type: { FriendlyForceAttack: 0 }, data: battle.friendly_force_attack });
-    if (battle.midnight_hougeki) entries.push({ type: { MidnightHougeki: 0 }, data: battle.midnight_hougeki });
+    if (battle.air_base_assault)
+      entries.push({
+        type: { AirBaseAssult: 0 },
+        data: battle.air_base_assault,
+      });
+    if (battle.carrier_base_assault)
+      entries.push({
+        type: { CarrierBaseAssault: 0 },
+        data: battle.carrier_base_assault,
+      });
+    if (
+      (battle.air_base_air_attacks as any)?.attacks?.length ||
+      Array.isArray(battle.air_base_air_attacks)
+    )
+      entries.push({
+        type: { AirBaseAirAttack: 0 },
+        data: phaseDataForKey(battle, "AirBaseAirAttack", 0),
+      });
+    if (
+      (battle.opening_air_attack as any)?.length ||
+      Array.isArray(battle.opening_air_attack)
+    )
+      entries.push({
+        type: { OpeningAirAttack: 0 },
+        data: phaseDataForKey(battle, "OpeningAirAttack", 0),
+      });
+    if (battle.support_hourai || battle.support_airattack)
+      entries.push({
+        type: { SupportAttack: 0 },
+        data: phaseDataForKey(battle, "SupportAttack", null),
+      });
+    if (battle.opening_taisen)
+      entries.push({ type: { OpeningTaisen: 0 }, data: battle.opening_taisen });
+    if (battle.opening_raigeki)
+      entries.push({
+        type: { OpeningRaigeki: 0 },
+        data: battle.opening_raigeki,
+      });
+    if ((battle.hougeki as any)?.length || Array.isArray(battle.hougeki))
+      entries.push({
+        type: { Hougeki: 0 },
+        data: phaseDataForKey(battle, "Hougeki", null),
+      });
+    if (battle.closing_raigeki)
+      entries.push({
+        type: { ClosingRaigeki: 0 },
+        data: battle.closing_raigeki,
+      });
+    if (battle.friendly_force_attack)
+      entries.push({
+        type: { FriendlyForceAttack: 0 },
+        data: battle.friendly_force_attack,
+      });
+    if (battle.midnight_hougeki)
+      entries.push({
+        type: { MidnightHougeki: 0 },
+        data: battle.midnight_hougeki,
+      });
   }
   return entries;
 }

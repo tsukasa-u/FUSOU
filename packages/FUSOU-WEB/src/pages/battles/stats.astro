@@ -6,12 +6,26 @@ import BattleStatsPanel from "@/components/solid/BattleStatsPanel";
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - Statistics">
+<PageLayout
+  title="FUSOU - Statistics"
+  tutorial={{
+    id: "battles-stats",
+    title: "統計ダッシュボードの使い方",
+    summary: "戦闘データを集計して傾向を把握できます。",
+    steps: [
+      "グラフと集計値を見て海域・敵編成の傾向を確認します。",
+      "必要に応じて戦闘一覧へ戻り、個別戦闘と突き合わせます。",
+      "分析結果をもとに編成・装備の改善方針を検討します。",
+    ],
+  }}
+>
   <Navigation filled={true} />
   <div class="pt-16 min-h-screen bg-base-200">
     <div class="max-w-[1440px] mx-auto px-4 py-8">
       <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+      <div
+        class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4"
+      >
         <div>
           <h1 class="text-3xl font-bold">統計ダッシュボード</h1>
           <p class="text-base-content/60 mt-1">戦闘データの統計情報を可視化</p>

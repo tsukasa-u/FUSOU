@@ -2,6 +2,7 @@
 import "@/assets/app.css";
 import "@/styles/global.css";
 import Navigation from "@/components/Navigation.astro";
+import TutorialModal from "@/components/TutorialModal.astro";
 import LeftMenu from "@/components/docs/LeftMenu.astro";
 import RightMenu from "@/components/docs/RightMenu.astro";
 import Breadcrumb from "@/components/docs/Breadcrumb.astro";
@@ -14,6 +15,17 @@ const authors = await Promise.all(
     return await getEntry("authors", contributor);
   })
 );
+
+const tutorial = {
+  id: `docs:${entry.slug}`,
+  title: `ドキュメントの使い方: ${entry.data.title}`,
+  summary: "目次とメニューを使って必要な情報へ素早く移動できます。",
+  steps: [
+    "左メニューからセクションを選択して記事を切り替えます。",
+    "右側の目次で見出し単位にジャンプします。",
+    "ページ下部の更新日・関連情報を確認して運用手順の差分を把握します。",
+  ],
+};
 ---
 
 <html>
@@ -93,6 +105,7 @@ const authors = await Promise.all(
       </div>
       <div class="flex-1 min-w-0"></div>
     </div>
+    <TutorialModal guide={tutorial} />
   </body>
 </html>
 
