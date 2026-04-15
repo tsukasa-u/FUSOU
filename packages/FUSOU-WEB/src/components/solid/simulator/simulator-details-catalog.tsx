@@ -1,8 +1,21 @@
 /** @jsxImportSource solid-js */
 
-import { For, Show, createEffect, createMemo, createSignal, onMount, type JSX } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+  type JSX,
+} from "solid-js";
 import { render } from "solid-js/web";
-import { bannerUrl, cardUrl, createWeaponIconEl, equipImageUrl } from "../../../pages/simulator/lib/equip-calc";
+import {
+  bannerUrl,
+  cardUrl,
+  createWeaponIconEl,
+  equipImageUrl,
+} from "../../../pages/simulator/lib/equip-calc";
 import { cachedFetch } from "@/utility/fetchCache";
 import { ShipListRow } from "../common/ship-list-row";
 import {
@@ -18,8 +31,17 @@ import {
   getMasterSlotItems,
   getSlotItemEffects,
 } from "../../../pages/simulator/lib/simulator-selectors";
-import { ENEMY_ID_THRESHOLD, EQUIP_TYPE_NAMES, RANGE_NAMES, SPEED_NAMES, STYPE_NAMES } from "../../../pages/simulator/lib/constants";
-import type { MstShipData, MstSlotItemData } from "../../../pages/simulator/lib/types";
+import {
+  ENEMY_ID_THRESHOLD,
+  EQUIP_TYPE_NAMES,
+  RANGE_NAMES,
+  SPEED_NAMES,
+  STYPE_NAMES,
+} from "../../../pages/simulator/lib/constants";
+import type {
+  MstShipData,
+  MstSlotItemData,
+} from "../../../pages/simulator/lib/types";
 
 type DetailsTab = "ship" | "equip";
 
@@ -53,7 +75,9 @@ type ShipGrowthBoundRow = {
   sakuteki_naked: number;
 };
 
-function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrowthCaps | null {
+function normalizeShipGrowthCaps(
+  raw: ShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
   if (!raw) return null;
   return {
     master_id: raw.master_id,
@@ -63,12 +87,24 @@ function normalizeShipGrowthCaps(raw: ShipGrowthCaps | null): NormalizedShipGrow
   };
 }
 
-function deriveShipGrowthCapsFromBounds(masterId: number, bounds: ShipGrowthBoundRow[]): NormalizedShipGrowthCaps | null {
+function deriveShipGrowthCapsFromBounds(
+  masterId: number,
+  bounds: ShipGrowthBoundRow[],
+): NormalizedShipGrowthCaps | null {
   if (!Array.isArray(bounds) || bounds.length === 0) return null;
 
-  const kaihiMax = Math.max(0, ...bounds.map((row) => Number(row.kaihi_naked || 0)));
-  const taisenMax = Math.max(0, ...bounds.map((row) => Number(row.taisen_naked || 0)));
-  const sakutekiMax = Math.max(0, ...bounds.map((row) => Number(row.sakuteki_naked || 0)));
+  const kaihiMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.kaihi_naked || 0)),
+  );
+  const taisenMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.taisen_naked || 0)),
+  );
+  const sakutekiMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.sakuteki_naked || 0)),
+  );
 
   return {
     master_id: masterId,
@@ -89,8 +125,10 @@ function mergeShipGrowthCaps(
   return {
     master_id: primary.master_id,
     kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
-    taisen_max: primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
-    sakuteki_max: primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
+    taisen_max:
+      primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
+    sakuteki_max:
+      primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
   };
 }
 
@@ -109,8 +147,12 @@ function needsStatFallback(value: number[] | null | undefined): boolean {
   return value.every((v) => !Number.isFinite(v) || v <= 0);
 }
 
-function statRangeLabelWithFallback(value: number[] | null | undefined, fallbackMax: number | null | undefined): string {
-  if (hasStatRange(value) && !needsStatFallback(value)) return statRangeLabel(value);
+function statRangeLabelWithFallback(
+  value: number[] | null | undefined,
+  fallbackMax: number | null | undefined,
+): string {
+  if (hasStatRange(value) && !needsStatFallback(value))
+    return statRangeLabel(value);
   if (typeof fallbackMax === "number" && fallbackMax > 0) {
     return `- / ${fallbackMax}`;
   }
@@ -181,7 +223,9 @@ const SYNERGY_STAT_ORDER = [
 
 type SynergyStatRows = Array<{ key: string; label: string; value: number }>;
 
-function toSynergyStatRows(stats: Record<string, number> | undefined): SynergyStatRows {
+function toSynergyStatRows(
+  stats: Record<string, number> | undefined,
+): SynergyStatRows {
   if (!stats) return [];
   const rows: SynergyStatRows = [];
   for (const key of SYNERGY_STAT_ORDER) {
@@ -190,7 +234,11 @@ function toSynergyStatRows(stats: Record<string, number> | undefined): SynergySt
     rows.push({ key, label: SYNERGY_STAT_LABELS[key] ?? key, value });
   }
   for (const [key, value] of Object.entries(stats)) {
-    if (!value || SYNERGY_STAT_ORDER.includes(key as (typeof SYNERGY_STAT_ORDER)[number])) continue;
+    if (
+      !value ||
+      SYNERGY_STAT_ORDER.includes(key as (typeof SYNERGY_STAT_ORDER)[number])
+    )
+      continue;
     rows.push({ key, label: SYNERGY_STAT_LABELS[key] ?? key, value });
   }
   return rows;
@@ -198,7 +246,10 @@ function toSynergyStatRows(stats: Record<string, number> | undefined): SynergySt
 
 function scoreSynergy(stats: Record<string, number> | undefined): number {
   if (!stats) return 0;
-  return Object.values(stats).reduce((sum, value) => sum + Math.abs(value || 0), 0);
+  return Object.values(stats).reduce(
+    (sum, value) => sum + Math.abs(value || 0),
+    0,
+  );
 }
 
 function synergySignature(stats: Record<string, number> | undefined): string {
@@ -213,7 +264,11 @@ function stackingSynergyRows(
   const hasC2 = scoreSynergy(c2 ?? undefined) > 0;
   const hasC3 = scoreSynergy(c3 ?? undefined) > 0;
   if (!hasC2 && !hasC3) return [];
-  if (hasC2 && hasC3 && synergySignature(c2 ?? undefined) === synergySignature(c3 ?? undefined)) {
+  if (
+    hasC2 &&
+    hasC3 &&
+    synergySignature(c2 ?? undefined) === synergySignature(c3 ?? undefined)
+  ) {
     return [{ label: "2積み以上", stats: c2! }];
   }
   return [
@@ -222,7 +277,9 @@ function stackingSynergyRows(
   ];
 }
 
-function SynergyStatInline(props: { stats: Record<string, number> }): JSX.Element {
+function SynergyStatInline(props: {
+  stats: Record<string, number>;
+}): JSX.Element {
   const rows = createMemo(() => toSynergyStatRows(props.stats));
   return (
     <Show
@@ -239,7 +296,8 @@ function SynergyStatInline(props: { stats: Record<string, number> }): JSX.Elemen
                   : "border-error/45 text-error"
               }`}
             >
-              {row.label}{row.value > 0 ? `+${row.value}` : row.value}
+              {row.label}
+              {row.value > 0 ? `+${row.value}` : row.value}
             </span>
           )}
         </For>
@@ -248,7 +306,10 @@ function SynergyStatInline(props: { stats: Record<string, number> }): JSX.Elemen
   );
 }
 
-function groupBy<T>(items: T[], keyOf: (item: T) => string): Array<{ key: string; items: T[] }> {
+function groupBy<T>(
+  items: T[],
+  keyOf: (item: T) => string,
+): Array<{ key: string; items: T[] }> {
   const map = new Map<string, T[]>();
   for (const item of items) {
     const key = keyOf(item);
@@ -330,7 +391,9 @@ function SpecTable(props: {
           <For each={props.rows}>
             {(row) => (
               <tr>
-                <th class="w-28 md:w-36 text-base-content/65 font-medium">{row[0]}</th>
+                <th class="w-28 md:w-36 text-base-content/65 font-medium">
+                  {row[0]}
+                </th>
                 <td class="font-mono text-right md:text-left">{row[1]}</td>
               </tr>
             )}
@@ -342,11 +405,27 @@ function SpecTable(props: {
           <For each={pairedRows()}>
             {(pair) => (
               <tr>
-                <th class="w-28 md:w-36 text-base-content/65 font-medium">{pair[0]?.[0]}</th>
-                <td class="font-mono text-right md:text-left">{pair[0]?.[1]}</td>
-                <Show when={pair[1]} fallback={<><th></th><td></td></>}>
-                  <th class="w-28 md:w-36 text-base-content/65 font-medium">{pair[1]?.[0]}</th>
-                  <td class="font-mono text-right md:text-left">{pair[1]?.[1]}</td>
+                <th class="w-28 md:w-36 text-base-content/65 font-medium">
+                  {pair[0]?.[0]}
+                </th>
+                <td class="font-mono text-right md:text-left">
+                  {pair[0]?.[1]}
+                </td>
+                <Show
+                  when={pair[1]}
+                  fallback={
+                    <>
+                      <th></th>
+                      <td></td>
+                    </>
+                  }
+                >
+                  <th class="w-28 md:w-36 text-base-content/65 font-medium">
+                    {pair[1]?.[0]}
+                  </th>
+                  <td class="font-mono text-right md:text-left">
+                    {pair[1]?.[1]}
+                  </td>
                 </Show>
               </tr>
             )}
@@ -384,10 +463,17 @@ function formatSlotIndexes(indexes: number[]): string {
   return `${ranges.join(",")}番`;
 }
 
-function getCompatibilityMeta(ship: MstShipData, equip: MstSlotItemData): CompatibilityMeta {
-  const normalSlots = ship.slot_num > 0 ? getNormalSlotAllowedIndexes(ship.id, equip) : [];
+function getCompatibilityMeta(
+  ship: MstShipData,
+  equip: MstSlotItemData,
+): CompatibilityMeta {
+  const normalSlots =
+    ship.slot_num > 0 ? getNormalSlotAllowedIndexes(ship.id, equip) : [];
   const exslotList = filterForExslot(ship.id, [equip]);
-  const exslotReq = exslotList && exslotList.length > 0 ? getExslotSelectionRequirement(ship.id, equip) : null;
+  const exslotReq =
+    exslotList && exslotList.length > 0
+      ? getExslotSelectionRequirement(ship.id, equip)
+      : null;
 
   return {
     normalSlots,
@@ -400,7 +486,9 @@ function CompatibilityBadges(props: {
   slotCount: number;
   exslot: EquipSelectionRequirement | null;
 }): JSX.Element {
-  const exslotOnly = createMemo(() => props.normalSlots.length === 0 && props.exslot != null);
+  const exslotOnly = createMemo(
+    () => props.normalSlots.length === 0 && props.exslot != null,
+  );
   const partialNormalSlots = createMemo(() =>
     props.normalSlots.length > 0 && props.normalSlots.length < props.slotCount
       ? formatSlotIndexes(props.normalSlots)
@@ -415,12 +503,19 @@ function CompatibilityBadges(props: {
       <Show when={exslotOnly()}>
         <span class="badge badge-warning badge-xs">補強のみ</span>
       </Show>
-      <Show when={props.exslot != null && (props.exslot.level > 0 || props.exslot.alv > 0)}>
+      <Show
+        when={
+          props.exslot != null &&
+          (props.exslot.level > 0 || props.exslot.alv > 0)
+        }
+      >
         <span class="badge badge-outline badge-xs border-warning text-warning">
           {[
             props.exslot!.level > 0 ? `補強★${props.exslot!.level}` : null,
             props.exslot!.alv > 0 ? `熟${props.exslot!.alv}` : null,
-          ].filter(Boolean).join(" /")}
+          ]
+            .filter(Boolean)
+            .join(" /")}
         </span>
       </Show>
     </span>
@@ -447,7 +542,12 @@ function EquipListRow(props: {
         <WeaponIcon iconNum={iconNum} />
       </span>
       <div class="min-w-0 text-left">
-        <p class="text-sm leading-tight truncate font-medium" title={props.equip.name}>{props.equip.name}</p>
+        <p
+          class="text-sm leading-tight truncate font-medium"
+          title={props.equip.name}
+        >
+          {props.equip.name}
+        </p>
         <p class="text-[11px] text-base-content/45 leading-tight mt-0.5">
           ID {props.equip.id} / {equipDisplayTypeName(props.equip)}
         </p>
@@ -463,7 +563,8 @@ function ShipDetailPanel(props: {
   expandSingleSynergy: boolean;
   expandPairSynergy: boolean;
 }): JSX.Element {
-  const [shipGrowthCap, setShipGrowthCap] = createSignal<NormalizedShipGrowthCaps | null>(null);
+  const [shipGrowthCap, setShipGrowthCap] =
+    createSignal<NormalizedShipGrowthCaps | null>(null);
 
   createEffect(() => {
     const shipId = props.ship.id;
@@ -484,9 +585,18 @@ function ShipDetailPanel(props: {
         );
         if (!boundsRes.ok) return;
 
-        const boundsJson = (await boundsRes.json()) as { caps?: ShipGrowthCaps[]; bounds?: ShipGrowthBoundRow[] };
-        const capFromCaps = normalizeShipGrowthCaps((boundsJson.caps ?? []).find((row) => row.master_id === shipId) ?? null);
-        const capFromBounds = deriveShipGrowthCapsFromBounds(shipId, boundsJson.bounds ?? []);
+        const boundsJson = (await boundsRes.json()) as {
+          caps?: ShipGrowthCaps[];
+          bounds?: ShipGrowthBoundRow[];
+        };
+        const capFromCaps = normalizeShipGrowthCaps(
+          (boundsJson.caps ?? []).find((row) => row.master_id === shipId) ??
+            null,
+        );
+        const capFromBounds = deriveShipGrowthCapsFromBounds(
+          shipId,
+          boundsJson.bounds ?? [],
+        );
         const cap = mergeShipGrowthCaps(capFromCaps, capFromBounds);
 
         if (alive) setShipGrowthCap(cap);
@@ -512,19 +622,44 @@ function ShipDetailPanel(props: {
 
   const shipSynergy = createMemo(() => {
     const effects = getSlotItemEffects();
-    if (!effects) return { single: [], pair: [] } as {
-      single: Array<{ equip: MstSlotItemData; base: Record<string, number>; star10: Record<string, number> | null; c2: Record<string, number> | null; c3: Record<string, number> | null }>;
-      pair: Array<{ a: MstSlotItemData; b: MstSlotItemData; stats: Record<string, number> }>;
-    };
+    if (!effects)
+      return { single: [], pair: [] } as {
+        single: Array<{
+          equip: MstSlotItemData;
+          base: Record<string, number>;
+          star10: Record<string, number> | null;
+          c2: Record<string, number> | null;
+          c3: Record<string, number> | null;
+        }>;
+        pair: Array<{
+          a: MstSlotItemData;
+          b: MstSlotItemData;
+          stats: Record<string, number>;
+        }>;
+      };
 
-    const single: Array<{ equip: MstSlotItemData; base: Record<string, number>; star10: Record<string, number> | null; c2: Record<string, number> | null; c3: Record<string, number> | null }> = [];
+    const single: Array<{
+      equip: MstSlotItemData;
+      base: Record<string, number>;
+      star10: Record<string, number> | null;
+      c2: Record<string, number> | null;
+      c3: Record<string, number> | null;
+    }> = [];
     for (const [equipIdRaw, entries] of Object.entries(effects.effects)) {
       const equipId = Number(equipIdRaw);
       const equip = getMasterSlotItem(equipId);
       if (!equip || equip.id >= ENEMY_ID_THRESHOLD) continue;
-      const matched = entries.find((entry) => entry.ships.includes(props.ship.id));
+      const matched = entries.find((entry) =>
+        entry.ships.includes(props.ship.id),
+      );
       if (!matched) continue;
-      if (scoreSynergy(matched.b) === 0 && scoreSynergy(matched.l) === 0 && scoreSynergy(matched.c2) === 0 && scoreSynergy(matched.c3) === 0) continue;
+      if (
+        scoreSynergy(matched.b) === 0 &&
+        scoreSynergy(matched.l) === 0 &&
+        scoreSynergy(matched.c2) === 0 &&
+        scoreSynergy(matched.c3) === 0
+      )
+        continue;
       single.push({
         equip,
         base: matched.b,
@@ -534,13 +669,23 @@ function ShipDetailPanel(props: {
       });
     }
 
-    const pair: Array<{ a: MstSlotItemData; b: MstSlotItemData; stats: Record<string, number> }> = [];
+    const pair: Array<{
+      a: MstSlotItemData;
+      b: MstSlotItemData;
+      stats: Record<string, number>;
+    }> = [];
     for (const entries of Object.values(effects.cross_effects)) {
       for (const entry of entries) {
         if (!entry.ships.includes(props.ship.id)) continue;
         const a = getMasterSlotItem(entry.items[0]);
         const b = getMasterSlotItem(entry.items[1]);
-        if (!a || !b || a.id >= ENEMY_ID_THRESHOLD || b.id >= ENEMY_ID_THRESHOLD) continue;
+        if (
+          !a ||
+          !b ||
+          a.id >= ENEMY_ID_THRESHOLD ||
+          b.id >= ENEMY_ID_THRESHOLD
+        )
+          continue;
         if (scoreSynergy(entry.synergy) === 0) continue;
         pair.push({ a, b, stats: entry.synergy });
       }
@@ -555,28 +700,55 @@ function ShipDetailPanel(props: {
     const allies = Object.values(getMasterSlotItems())
       .filter((equip) => equip.id < ENEMY_ID_THRESHOLD)
       .sort((a, b) => a.sortno - b.sortno)
-      .map((equip) => ({ equip, compat: getCompatibilityMeta(props.ship, equip) }))
-      .filter((row) => row.compat.normalSlots.length > 0 || row.compat.exslot != null);
+      .map((equip) => ({
+        equip,
+        compat: getCompatibilityMeta(props.ship, equip),
+      }))
+      .filter(
+        (row) => row.compat.normalSlots.length > 0 || row.compat.exslot != null,
+      );
     return groupBy(allies, (row) => equipDisplayTypeName(row.equip));
   });
 
-  const specRows = createMemo<Array<[label: string, value: string | number]>>(() => [
-    ["ID", props.ship.id],
-    ["艦種", STYPE_NAMES[props.ship.stype] ?? `艦種${props.ship.stype}`],
-    ["速力", SPEED_NAMES[props.ship.soku] ?? props.ship.soku],
-    ["射程", rangeDisplay(props.ship.leng)],
-    ["搭載スロット数", props.ship.slot_num],
-    ["耐久", statRangeLabel(props.ship.taik)],
-    ["装甲", statRangeLabel(props.ship.souk)],
-    ["火力", statRangeLabel(props.ship.houg)],
-    ["雷装", statRangeLabel(props.ship.raig)],
-    ["対空", statRangeLabel(props.ship.tyku)],
-    ["対潜", statRangeLabelWithFallback(props.ship.tais, shipGrowthCap()?.taisen_max)],
-    ["回避", statRangeLabelWithFallback(props.ship.kaih, shipGrowthCap()?.kaihi_max)],
-    ["索敵", statRangeLabelWithFallback(props.ship.saku, shipGrowthCap()?.sakuteki_max)],
-    ["運", statRangeLabel(props.ship.luck)],
-    ["搭載内訳", props.ship.maxeq ? props.ship.maxeq.slice(0, props.ship.slot_num).join(" / ") : "-"],
-  ]);
+  const specRows = createMemo<Array<[label: string, value: string | number]>>(
+    () => [
+      ["ID", props.ship.id],
+      ["艦種", STYPE_NAMES[props.ship.stype] ?? `艦種${props.ship.stype}`],
+      ["速力", SPEED_NAMES[props.ship.soku] ?? props.ship.soku],
+      ["射程", rangeDisplay(props.ship.leng)],
+      ["搭載スロット数", props.ship.slot_num],
+      ["耐久", statRangeLabel(props.ship.taik)],
+      ["装甲", statRangeLabel(props.ship.souk)],
+      ["火力", statRangeLabel(props.ship.houg)],
+      ["雷装", statRangeLabel(props.ship.raig)],
+      ["対空", statRangeLabel(props.ship.tyku)],
+      [
+        "対潜",
+        statRangeLabelWithFallback(
+          props.ship.tais,
+          shipGrowthCap()?.taisen_max,
+        ),
+      ],
+      [
+        "回避",
+        statRangeLabelWithFallback(props.ship.kaih, shipGrowthCap()?.kaihi_max),
+      ],
+      [
+        "索敵",
+        statRangeLabelWithFallback(
+          props.ship.saku,
+          shipGrowthCap()?.sakuteki_max,
+        ),
+      ],
+      ["運", statRangeLabel(props.ship.luck)],
+      [
+        "搭載内訳",
+        props.ship.maxeq
+          ? props.ship.maxeq.slice(0, props.ship.slot_num).join(" / ")
+          : "-",
+      ],
+    ],
+  );
 
   return (
     <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
@@ -599,7 +771,8 @@ function ShipDetailPanel(props: {
             <h3 class="text-2xl font-bold leading-tight">{props.ship.name}</h3>
             <Show when={usesShipGrowthFallback()}>
               <p class="text-xs text-base-content/60">
-                対潜/回避/索敵の欠損値は ship-growth データの上限値で補完表示しています。
+                対潜/回避/索敵の欠損値は ship-growth
+                データの上限値で補完表示しています。
               </p>
             </Show>
             <div>
@@ -610,7 +783,9 @@ function ShipDetailPanel(props: {
 
         <section>
           <h4 class="font-medium mb-2">装備可能な装備</h4>
-          <div class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
+          <div
+            class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}
+          >
             <For each={equippableGroups()}>
               {(group) => (
                 <div class="rounded-lg border border-base-300/70 p-2">
@@ -626,7 +801,9 @@ function ShipDetailPanel(props: {
                           <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
                             <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
                           </span>
-                          <span class="text-xs truncate flex-1">{row.equip.name}</span>
+                          <span class="text-xs truncate flex-1">
+                            {row.equip.name}
+                          </span>
                           <CompatibilityBadges
                             normalSlots={row.compat.normalSlots}
                             slotCount={props.ship.slot_num}
@@ -645,29 +822,55 @@ function ShipDetailPanel(props: {
         <section>
           <h4 class="font-medium mb-2">装備シナジー</h4>
           <div class="space-y-3">
-            <Show when={shipSynergy().single.length > 0} fallback={<div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">この艦に設定された単体装備シナジーはありません</div>}>
+            <Show
+              when={shipSynergy().single.length > 0}
+              fallback={
+                <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                  この艦に設定された単体装備シナジーはありません
+                </div>
+              }
+            >
               <div class="rounded-lg border border-base-300/70 p-2">
                 <h5 class="text-sm font-medium mb-2">単体装備シナジー</h5>
-                <div class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                <div
+                  class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
+                >
                   <For each={shipSynergy().single.slice(0, 80)}>
                     {(row) => (
                       <div class="rounded border border-base-300/70 p-2 space-y-1">
-                        <button class="flex items-center gap-2 min-w-0 w-full text-left hover:underline" onClick={() => props.onOpenEquip(row.equip.id)} title={row.equip.name}>
+                        <button
+                          class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
+                          onClick={() => props.onOpenEquip(row.equip.id)}
+                          title={row.equip.name}
+                        >
                           <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
                             <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
                           </span>
-                          <span class="text-sm font-medium truncate">{row.equip.name}</span>
+                          <span class="text-sm font-medium truncate">
+                            {row.equip.name}
+                          </span>
                         </button>
-                        <div class="text-xs text-base-content/70 inline-flex items-center h-5">基本</div>
+                        <div class="text-xs text-base-content/70 inline-flex items-center h-5">
+                          基本
+                        </div>
                         <SynergyStatInline stats={row.base} />
-                        <Show when={row.star10 != null && scoreSynergy(row.star10 ?? undefined) > 0}>
-                          <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">改修★10</div>
+                        <Show
+                          when={
+                            row.star10 != null &&
+                            scoreSynergy(row.star10 ?? undefined) > 0
+                          }
+                        >
+                          <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
+                            改修★10
+                          </div>
                           <SynergyStatInline stats={row.star10!} />
                         </Show>
                         <For each={stackingSynergyRows(row.c2, row.c3)}>
                           {(stackRow) => (
                             <>
-                              <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">{stackRow.label}</div>
+                              <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
+                                {stackRow.label}
+                              </div>
                               <SynergyStatInline stats={stackRow.stats} />
                             </>
                           )}
@@ -679,22 +882,39 @@ function ShipDetailPanel(props: {
               </div>
             </Show>
 
-            <Show when={shipSynergy().pair.length > 0} fallback={<div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">この艦に設定された装備組み合わせシナジーはありません</div>}>
+            <Show
+              when={shipSynergy().pair.length > 0}
+              fallback={
+                <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
+                  この艦に設定された装備組み合わせシナジーはありません
+                </div>
+              }
+            >
               <div class="rounded-lg border border-base-300/70 p-2">
                 <h5 class="text-sm font-medium mb-2">装備組み合わせシナジー</h5>
-                <div class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
+                <div
+                  class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
+                >
                   <For each={shipSynergy().pair.slice(0, 80)}>
                     {(row) => (
                       <div class="rounded border border-base-300/70 p-2 space-y-1">
                         <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                          <button class="inline-flex items-center gap-1 min-w-0 hover:underline" onClick={() => props.onOpenEquip(row.a.id)} title={row.a.name}>
+                          <button
+                            class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                            onClick={() => props.onOpenEquip(row.a.id)}
+                            title={row.a.name}
+                          >
                             <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
                               <WeaponIcon iconNum={row.a.type?.[3] ?? 0} />
                             </span>
                             <span class="truncate max-w-40">{row.a.name}</span>
                           </button>
                           <span>+</span>
-                          <button class="inline-flex items-center gap-1 min-w-0 hover:underline" onClick={() => props.onOpenEquip(row.b.id)} title={row.b.name}>
+                          <button
+                            class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                            onClick={() => props.onOpenEquip(row.b.id)}
+                            title={row.b.name}
+                          >
                             <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
                               <WeaponIcon iconNum={row.b.type?.[3] ?? 0} />
                             </span>
@@ -724,19 +944,27 @@ function EquipDetailPanel(props: {
 }): JSX.Element {
   const equipSynergyShips = createMemo(() => {
     const effects = getSlotItemEffects();
-    if (!effects) return [] as Array<{
-      ship: MstShipData;
-      base: Record<string, number> | null;
-      star10: Record<string, number> | null;
-      c2: Record<string, number> | null;
-      c3: Record<string, number> | null;
-      partners: Array<{ equip: MstSlotItemData; stats: Record<string, number> }>;
-    }>;
+    if (!effects)
+      return [] as Array<{
+        ship: MstShipData;
+        base: Record<string, number> | null;
+        star10: Record<string, number> | null;
+        c2: Record<string, number> | null;
+        c3: Record<string, number> | null;
+        partners: Array<{
+          equip: MstSlotItemData;
+          stats: Record<string, number>;
+        }>;
+      }>;
 
     const singleEntries = effects.effects[String(props.equip.id)] ?? [];
     const crossEntries = Object.values(effects.cross_effects)
       .flat()
-      .filter((entry) => entry.items[0] === props.equip.id || entry.items[1] === props.equip.id);
+      .filter(
+        (entry) =>
+          entry.items[0] === props.equip.id ||
+          entry.items[1] === props.equip.id,
+      );
 
     const rows: Array<{
       ship: MstShipData;
@@ -744,25 +972,44 @@ function EquipDetailPanel(props: {
       star10: Record<string, number> | null;
       c2: Record<string, number> | null;
       c3: Record<string, number> | null;
-      partners: Array<{ equip: MstSlotItemData; stats: Record<string, number> }>;
+      partners: Array<{
+        equip: MstSlotItemData;
+        stats: Record<string, number>;
+      }>;
     }> = [];
 
     for (const ship of Object.values(getMasterShips())) {
       if (ship.id >= ENEMY_ID_THRESHOLD) continue;
 
-      const single = singleEntries.find((entry) => entry.ships.includes(ship.id));
+      const single = singleEntries.find((entry) =>
+        entry.ships.includes(ship.id),
+      );
       const partners = crossEntries
         .filter((entry) => entry.ships.includes(ship.id))
         .map((entry) => {
-          const partnerId = entry.items[0] === props.equip.id ? entry.items[1] : entry.items[0];
+          const partnerId =
+            entry.items[0] === props.equip.id ? entry.items[1] : entry.items[0];
           const partnerEquip = getMasterSlotItem(partnerId);
-          if (!partnerEquip || partnerEquip.id >= ENEMY_ID_THRESHOLD || scoreSynergy(entry.synergy) === 0) return null;
+          if (
+            !partnerEquip ||
+            partnerEquip.id >= ENEMY_ID_THRESHOLD ||
+            scoreSynergy(entry.synergy) === 0
+          )
+            return null;
           return { equip: partnerEquip, stats: entry.synergy };
         })
-        .filter((x): x is { equip: MstSlotItemData; stats: Record<string, number> } => x != null)
+        .filter(
+          (x): x is { equip: MstSlotItemData; stats: Record<string, number> } =>
+            x != null,
+        )
         .sort((a, b) => scoreSynergy(b.stats) - scoreSynergy(a.stats));
 
-      const hasSingle = single && (scoreSynergy(single.b) > 0 || scoreSynergy(single.l) > 0 || scoreSynergy(single.c2) > 0 || scoreSynergy(single.c3) > 0);
+      const hasSingle =
+        single &&
+        (scoreSynergy(single.b) > 0 ||
+          scoreSynergy(single.l) > 0 ||
+          scoreSynergy(single.c2) > 0 ||
+          scoreSynergy(single.c3) > 0);
       if (!hasSingle && partners.length === 0) continue;
 
       rows.push({
@@ -775,7 +1022,9 @@ function EquipDetailPanel(props: {
       });
     }
 
-    rows.sort((a, b) => (a.ship.sort_id ?? a.ship.id) - (b.ship.sort_id ?? b.ship.id));
+    rows.sort(
+      (a, b) => (a.ship.sort_id ?? a.ship.id) - (b.ship.sort_id ?? b.ship.id),
+    );
     return rows;
   });
 
@@ -785,30 +1034,40 @@ function EquipDetailPanel(props: {
       .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
 
     const rows = ships
-      .map((ship) => ({ ship, compat: getCompatibilityMeta(ship, props.equip) }))
-      .filter((row) => row.compat.normalSlots.length > 0 || row.compat.exslot != null);
+      .map((ship) => ({
+        ship,
+        compat: getCompatibilityMeta(ship, props.equip),
+      }))
+      .filter(
+        (row) => row.compat.normalSlots.length > 0 || row.compat.exslot != null,
+      );
 
-    return groupBy(rows, (row) => STYPE_NAMES[row.ship.stype] ?? `艦種${row.ship.stype}`);
+    return groupBy(
+      rows,
+      (row) => STYPE_NAMES[row.ship.stype] ?? `艦種${row.ship.stype}`,
+    );
   });
 
-  const specRows = createMemo<Array<[label: string, value: string | number]>>(() => {
-    const rows: Array<[label: string, value: string | number]> = [
-      ["ID", props.equip.id],
-      ["種別", equipDisplayTypeName(props.equip)],
-      ["射程", rangeDisplay(props.equip.leng)],
-      ["半径", statValueOrDash(props.equip.distance)],
-      ["火力", statValueOrDash(props.equip.houg)],
-      ["雷装", statValueOrDash(props.equip.raig)],
-      ["対空", statValueOrDash(props.equip.tyku)],
-      ["対潜", statValueOrDash(props.equip.tais)],
-      ["爆装", statValueOrDash(props.equip.baku)],
-      ["索敵", statValueOrDash(props.equip.saku)],
-      ["命中", statValueOrDash(props.equip.houm)],
-      ["装甲", statValueOrDash(props.equip.souk)],
-      ["回避", statValueOrDash(props.equip.kaih)],
-    ];
-    return rows;
-  });
+  const specRows = createMemo<Array<[label: string, value: string | number]>>(
+    () => {
+      const rows: Array<[label: string, value: string | number]> = [
+        ["ID", props.equip.id],
+        ["種別", equipDisplayTypeName(props.equip)],
+        ["射程", rangeDisplay(props.equip.leng)],
+        ["半径", statValueOrDash(props.equip.distance)],
+        ["火力", statValueOrDash(props.equip.houg)],
+        ["雷装", statValueOrDash(props.equip.raig)],
+        ["対空", statValueOrDash(props.equip.tyku)],
+        ["対潜", statValueOrDash(props.equip.tais)],
+        ["爆装", statValueOrDash(props.equip.baku)],
+        ["索敵", statValueOrDash(props.equip.saku)],
+        ["命中", statValueOrDash(props.equip.houm)],
+        ["装甲", statValueOrDash(props.equip.souk)],
+        ["回避", statValueOrDash(props.equip.kaih)],
+      ];
+      return rows;
+    },
+  );
 
   return (
     <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
@@ -840,13 +1099,20 @@ function EquipDetailPanel(props: {
 
         <section>
           <h4 class="font-medium mb-2">この装備のシナジー対象艦</h4>
-          <Show when={equipSynergyShips().length > 0} fallback={<div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">この装備に設定されたシナジー対象艦はありません</div>}>
-            <div class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 mb-4 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+          <Show
+            when={equipSynergyShips().length > 0}
+            fallback={
+              <div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center">
+                この装備に設定されたシナジー対象艦はありません
+              </div>
+            }
+          >
+            <div
+              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 mb-4 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
+            >
               <For each={equipSynergyShips()}>
                 {(row) => (
-                  <div
-                    class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 hover:border-primary/45 transition"
-                  >
+                  <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 hover:border-primary/45 transition">
                     <button
                       class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                       onClick={() => props.onOpenShip(row.ship.id)}
@@ -858,45 +1124,85 @@ function EquipDetailPanel(props: {
                         class="w-20 h-6 rounded shrink-0"
                         fallbackText="No Image"
                       />
-                      <span class="text-sm font-medium truncate">{row.ship.name}</span>
+                      <span class="text-sm font-medium truncate">
+                        {row.ship.name}
+                      </span>
                     </button>
 
-                    <Show when={row.base != null && scoreSynergy(row.base ?? undefined) > 0}>
-                      <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">単体シナジー</div>
+                    <Show
+                      when={
+                        row.base != null &&
+                        scoreSynergy(row.base ?? undefined) > 0
+                      }
+                    >
+                      <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                        単体シナジー
+                      </div>
                       <SynergyStatInline stats={row.base!} />
                     </Show>
-                    <Show when={row.star10 != null && scoreSynergy(row.star10 ?? undefined) > 0}>
-                      <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">改修★10</div>
+                    <Show
+                      when={
+                        row.star10 != null &&
+                        scoreSynergy(row.star10 ?? undefined) > 0
+                      }
+                    >
+                      <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
+                        改修★10
+                      </div>
                       <SynergyStatInline stats={row.star10!} />
                     </Show>
                     <For each={stackingSynergyRows(row.c2, row.c3)}>
                       {(stackRow) => (
                         <>
-                          <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">{stackRow.label}</div>
+                          <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
+                            {stackRow.label}
+                          </div>
                           <SynergyStatInline stats={stackRow.stats} />
                         </>
                       )}
                     </For>
 
                     <Show when={row.partners.length > 0}>
-                      <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">他装備組み合わせ</div>
+                      <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                        他装備組み合わせ
+                      </div>
                       <div class="space-y-1 mt-1">
                         <For each={row.partners.slice(0, 8)}>
                           {(partner) => (
                             <div class="rounded border border-base-300/70 p-1.5">
                               <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                <button class="inline-flex items-center gap-1 min-w-0 hover:underline" onClick={() => props.onOpenEquip(props.equip.id)} title={props.equip.name}>
+                                <button
+                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                  onClick={() =>
+                                    props.onOpenEquip(props.equip.id)
+                                  }
+                                  title={props.equip.name}
+                                >
                                   <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                    <WeaponIcon iconNum={props.equip.type?.[3] ?? 0} />
+                                    <WeaponIcon
+                                      iconNum={props.equip.type?.[3] ?? 0}
+                                    />
                                   </span>
-                                  <span class="truncate max-w-40">{props.equip.name}</span>
+                                  <span class="truncate max-w-40">
+                                    {props.equip.name}
+                                  </span>
                                 </button>
                                 <span>+</span>
-                                <button class="inline-flex items-center gap-1 min-w-0 hover:underline" onClick={() => props.onOpenEquip(partner.equip.id)} title={partner.equip.name}>
+                                <button
+                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                  onClick={() =>
+                                    props.onOpenEquip(partner.equip.id)
+                                  }
+                                  title={partner.equip.name}
+                                >
                                   <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                    <WeaponIcon iconNum={partner.equip.type?.[3] ?? 0} />
+                                    <WeaponIcon
+                                      iconNum={partner.equip.type?.[3] ?? 0}
+                                    />
                                   </span>
-                                  <span class="truncate max-w-40">{partner.equip.name}</span>
+                                  <span class="truncate max-w-40">
+                                    {partner.equip.name}
+                                  </span>
                                 </button>
                               </div>
                               <SynergyStatInline stats={partner.stats} />
@@ -910,7 +1216,6 @@ function EquipDetailPanel(props: {
               </For>
             </div>
           </Show>
-
         </section>
 
         <section>
@@ -918,7 +1223,9 @@ function EquipDetailPanel(props: {
           <p class="text-xs text-base-content/55 mb-2">
             補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
           </p>
-          <div class={`space-y-3 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}>
+          <div
+            class={`space-y-3 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}
+          >
             <For each={compatibleShips()}>
               {(group) => (
                 <div class="rounded-lg border border-base-300/70 p-2">
@@ -939,19 +1246,33 @@ function EquipDetailPanel(props: {
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
                               />
-                              <span class="text-xs truncate flex-1">{row.ship.name}</span>
+                              <span class="text-xs truncate flex-1">
+                                {row.ship.name}
+                              </span>
                               <CompatibilityBadges
                                 normalSlots={row.compat.normalSlots}
                                 slotCount={row.ship.slot_num}
                                 exslot={row.compat.exslot}
                               />
                             </div>
-                            <Show when={row.compat.exslot != null && (row.compat.exslot.level > 0 || row.compat.exslot.alv > 0)}>
+                            <Show
+                              when={
+                                row.compat.exslot != null &&
+                                (row.compat.exslot.level > 0 ||
+                                  row.compat.exslot.alv > 0)
+                              }
+                            >
                               <p class="text-[10px] text-warning mt-1">
                                 {`補強枠条件: ${[
-                                  row.compat.exslot!.level > 0 ? `改修★${row.compat.exslot!.level}` : null,
-                                  row.compat.exslot!.alv > 0 ? `熟練${row.compat.exslot!.alv}` : null,
-                                ].filter(Boolean).join(" / ")}`}
+                                  row.compat.exslot!.level > 0
+                                    ? `改修★${row.compat.exslot!.level}`
+                                    : null,
+                                  row.compat.exslot!.alv > 0
+                                    ? `熟練${row.compat.exslot!.alv}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" / ")}`}
                               </p>
                             </Show>
                           </button>
@@ -981,14 +1302,20 @@ function SimulatorDetailsCatalog(): JSX.Element {
   const [selectedShipCategory, setSelectedShipCategory] = createSignal("all");
   const [selectedEquipCategory, setSelectedEquipCategory] = createSignal("all");
   const [selectedShipId, setSelectedShipId] = createSignal<number | null>(null);
-  const [selectedEquipId, setSelectedEquipId] = createSignal<number | null>(null);
-  const [expandSettings, setExpandSettings] = createSignal<ListExpandSettings>(DEFAULT_EXPAND_SETTINGS);
+  const [selectedEquipId, setSelectedEquipId] = createSignal<number | null>(
+    null,
+  );
+  const [expandSettings, setExpandSettings] = createSignal<ListExpandSettings>(
+    DEFAULT_EXPAND_SETTINGS,
+  );
   const [settingsOpen, setSettingsOpen] = createSignal(false);
   let settingsDialogRef!: HTMLDialogElement;
   const [helpOpen, setHelpOpen] = createSignal(false);
   let helpDialogRef!: HTMLDialogElement;
 
-  const allExpanded = createMemo(() => Object.values(expandSettings()).every(Boolean));
+  const allExpanded = createMemo(() =>
+    Object.values(expandSettings()).every(Boolean),
+  );
 
   createEffect(() => {
     if (settingsOpen()) settingsDialogRef.showModal();
@@ -1013,13 +1340,19 @@ function SimulatorDetailsCatalog(): JSX.Element {
   );
 
   const shipCategories = createMemo(() =>
-    [...new Set(allShips().map((ship) => STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`))]
-      .sort((a, b) => a.localeCompare(b, "ja")),
+    [
+      ...new Set(
+        allShips().map(
+          (ship) => STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`,
+        ),
+      ),
+    ].sort((a, b) => a.localeCompare(b, "ja")),
   );
 
   const equipCategories = createMemo(() =>
-    [...new Set(allEquips().map((equip) => equipDisplayTypeName(equip)))]
-      .sort((a, b) => a.localeCompare(b, "ja")),
+    [...new Set(allEquips().map((equip) => equipDisplayTypeName(equip)))].sort(
+      (a, b) => a.localeCompare(b, "ja"),
+    ),
   );
 
   const filteredShips = createMemo(() => {
@@ -1027,7 +1360,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
     const q = shipQuery().trim().toLowerCase();
     return allShips().filter((ship) => {
       const category = STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`;
-      if (selectedCategory !== "all" && category !== selectedCategory) return false;
+      if (selectedCategory !== "all" && category !== selectedCategory)
+        return false;
       if (!q) return true;
       return ship.name.toLowerCase().includes(q) || String(ship.id).includes(q);
     });
@@ -1038,9 +1372,12 @@ function SimulatorDetailsCatalog(): JSX.Element {
     const q = equipQuery().trim().toLowerCase();
     return allEquips().filter((equip) => {
       const category = equipDisplayTypeName(equip);
-      if (selectedCategory !== "all" && category !== selectedCategory) return false;
+      if (selectedCategory !== "all" && category !== selectedCategory)
+        return false;
       if (!q) return true;
-      return equip.name.toLowerCase().includes(q) || String(equip.id).includes(q);
+      return (
+        equip.name.toLowerCase().includes(q) || String(equip.id).includes(q)
+      );
     });
   });
 
@@ -1055,7 +1392,10 @@ function SimulatorDetailsCatalog(): JSX.Element {
   });
 
   const groupedShips = createMemo(() =>
-    groupBy(filteredShips(), (ship) => STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`),
+    groupBy(
+      filteredShips(),
+      (ship) => STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`,
+    ),
   );
 
   const groupedEquips = createMemo(() =>
@@ -1085,9 +1425,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
     const currentTab = tab();
     const currentShipId = selectedShipId();
     const currentEquipId = selectedEquipId();
-    const key = currentTab === "ship"
-      ? (currentShipId != null ? `ship:${currentShipId}` : null)
-      : (currentEquipId != null ? `equip:${currentEquipId}` : null);
+    const key =
+      currentTab === "ship"
+        ? currentShipId != null
+          ? `ship:${currentShipId}`
+          : null
+        : currentEquipId != null
+          ? `equip:${currentEquipId}`
+          : null;
     if (!key) return null;
 
     const shareUrl = new URL("/simulator/d", window.location.origin);
@@ -1108,7 +1453,10 @@ function SimulatorDetailsCatalog(): JSX.Element {
       return;
     }
 
-    window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", shareUrl);
+    window.prompt(
+      "自動コピーに失敗しました。以下を手動でコピーしてください:",
+      shareUrl,
+    );
   }
 
   createEffect(() => {
@@ -1163,16 +1511,27 @@ function SimulatorDetailsCatalog(): JSX.Element {
   return (
     <div class="space-y-4">
       <div class="rounded-xl border border-base-300/70 bg-base-100 p-2 flex flex-wrap gap-1.5">
-        <a href="/simulator" class="btn btn-sm btn-outline">艦隊シミュレータ</a>
-        <button class={`btn btn-sm ${tab() === "ship" ? "btn-primary" : "btn-ghost"}`} onClick={() => setTab("ship")}>艦詳細</button>
-        <button class={`btn btn-sm ${tab() === "equip" ? "btn-primary" : "btn-ghost"}`} onClick={() => setTab("equip")}>装備詳細</button>
-        <button class="btn btn-sm btn-ghost gap-1.5 ml-auto" onClick={() => { void issueShareUrl(); }}>
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-          </svg>
-          共有URL
+        <a href="/simulator" class="btn btn-sm btn-outline">
+          艦隊シミュレータ
+        </a>
+        <button
+          class={`btn btn-sm ${tab() === "ship" ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => setTab("ship")}
+        >
+          艦詳細
         </button>
-        <button class="btn btn-sm btn-ghost gap-1.5" onClick={() => setSettingsOpen(true)}>
+        <button
+          class={`btn btn-sm ${tab() === "equip" ? "btn-primary" : "btn-ghost"}`}
+          onClick={() => setTab("equip")}
+        >
+          装備詳細
+        </button>
+        <button
+          class="btn btn-sm btn-ghost gap-1.5 ml-auto"
+          onClick={() => {
+            void issueShareUrl();
+          }}
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="h-4 w-4"
@@ -1180,99 +1539,205 @@ function SimulatorDetailsCatalog(): JSX.Element {
             viewBox="0 0 24 24"
             stroke="currentColor"
             stroke-width="2"
-          ><path
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+            />
+          </svg>
+          共有URL
+        </button>
+        <button
+          class="btn btn-sm btn-ghost gap-1.5"
+          onClick={() => setSettingsOpen(true)}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
               stroke-linecap="round"
               stroke-linejoin="round"
               d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
-            ></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9a3 3 0 100 6 3 3 0 000-6z"></path></svg>
+            ></path>
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9a3 3 0 100 6 3 3 0 000-6z"
+            ></path>
+          </svg>
           表示設定
         </button>
-        <button class="btn btn-sm btn-ghost gap-1.5" onClick={() => setHelpOpen(true)}>
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        <button
+          class="btn btn-sm btn-ghost gap-1.5"
+          onClick={() => setHelpOpen(true)}
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="2"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
           </svg>
           使い方
         </button>
       </div>
 
-      <dialog ref={settingsDialogRef} class="modal" onClose={() => setSettingsOpen(false)}>
+      <dialog
+        ref={settingsDialogRef}
+        class="modal"
+        onClose={() => setSettingsOpen(false)}
+      >
         <div class="modal-box rounded-xl">
           <h3 class="font-bold text-lg mb-1">表示設定</h3>
-          <p class="text-xs text-base-content/60 mb-4">各リストをスクロールなしで全件表示するかどうかを設定します。</p>
+          <p class="text-xs text-base-content/60 mb-4">
+            各リストをスクロールなしで全件表示するかどうかを設定します。
+          </p>
           <div class="space-y-3 text-sm">
             <label class="label w-full cursor-pointer justify-start gap-3 py-1">
               <input
                 type="checkbox"
                 class="checkbox checkbox-sm shrink-0"
                 checked={allExpanded()}
-                onChange={(e) => setExpandSettings({
-                  expandEquippableEquip: e.currentTarget.checked,
-                  expandSingleSynergy: e.currentTarget.checked,
-                  expandPairSynergy: e.currentTarget.checked,
-                  expandSynergyShips: e.currentTarget.checked,
-                  expandCompatibleShips: e.currentTarget.checked,
-                })}
+                onChange={(e) =>
+                  setExpandSettings({
+                    expandEquippableEquip: e.currentTarget.checked,
+                    expandSingleSynergy: e.currentTarget.checked,
+                    expandPairSynergy: e.currentTarget.checked,
+                    expandSynergyShips: e.currentTarget.checked,
+                    expandCompatibleShips: e.currentTarget.checked,
+                  })
+                }
               />
               <span class="label-text font-medium">すべてのリストを展開</span>
             </label>
             <p class="text-xs text-base-content/50 font-medium pt-1">艦詳細</p>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input type="checkbox" class="checkbox checkbox-sm shrink-0"
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
                 checked={expandSettings().expandEquippableEquip}
-                onChange={(e) => setExpandSettings((prev) => ({ ...prev, expandEquippableEquip: e.currentTarget.checked }))}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandEquippableEquip: e.currentTarget.checked,
+                  }))
+                }
               />
               <span class="label-text">装備可能な装備</span>
             </label>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input type="checkbox" class="checkbox checkbox-sm shrink-0"
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
                 checked={expandSettings().expandSingleSynergy}
-                onChange={(e) => setExpandSettings((prev) => ({ ...prev, expandSingleSynergy: e.currentTarget.checked }))}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandSingleSynergy: e.currentTarget.checked,
+                  }))
+                }
               />
               <span class="label-text">単体装備シナジー</span>
             </label>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input type="checkbox" class="checkbox checkbox-sm shrink-0"
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
                 checked={expandSettings().expandPairSynergy}
-                onChange={(e) => setExpandSettings((prev) => ({ ...prev, expandPairSynergy: e.currentTarget.checked }))}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandPairSynergy: e.currentTarget.checked,
+                  }))
+                }
               />
               <span class="label-text">装備組み合わせシナジー</span>
             </label>
-            <p class="text-xs text-base-content/50 font-medium pt-1">装備詳細</p>
+            <p class="text-xs text-base-content/50 font-medium pt-1">
+              装備詳細
+            </p>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input type="checkbox" class="checkbox checkbox-sm shrink-0"
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
                 checked={expandSettings().expandSynergyShips}
-                onChange={(e) => setExpandSettings((prev) => ({ ...prev, expandSynergyShips: e.currentTarget.checked }))}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandSynergyShips: e.currentTarget.checked,
+                  }))
+                }
               />
               <span class="label-text">シナジー対象艦</span>
             </label>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input type="checkbox" class="checkbox checkbox-sm shrink-0"
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
                 checked={expandSettings().expandCompatibleShips}
-                onChange={(e) => setExpandSettings((prev) => ({ ...prev, expandCompatibleShips: e.currentTarget.checked }))}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandCompatibleShips: e.currentTarget.checked,
+                  }))
+                }
               />
               <span class="label-text">装備可能な艦</span>
             </label>
           </div>
           <div class="modal-action">
-            <button class="btn btn-primary btn-sm" onClick={() => setSettingsOpen(false)}>閉じる</button>
+            <button
+              class="btn btn-primary btn-sm"
+              onClick={() => setSettingsOpen(false)}
+            >
+              閉じる
+            </button>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
-      <dialog ref={helpDialogRef} class="modal" onClose={() => setHelpOpen(false)}>
+      <dialog
+        ref={helpDialogRef}
+        class="modal"
+        onClose={() => setHelpOpen(false)}
+      >
         <div class="modal-box rounded-xl max-w-2xl max-h-[82vh] overflow-y-auto">
           <h3 class="font-bold text-lg mb-4">使い方 / 表示の見かた</h3>
 
           <section class="mb-5">
-            <h4 class="font-semibold text-sm mb-2 text-base-content/80">ページ概要</h4>
+            <h4 class="font-semibold text-sm mb-2 text-base-content/80">
+              ページ概要
+            </h4>
             <p class="text-sm text-base-content/70 leading-relaxed">
-              艦・装備のマスターデータを検索・閲覧できます。<strong>艦詳細</strong>タブでは艦のステータス・搭載可能装備・装備シナジーを、<strong>装備詳細</strong>タブでは装備のステータス・シナジー対象艦・装備可能艦を確認できます。
+              艦・装備のマスターデータを検索・閲覧できます。
+              <strong>艦詳細</strong>
+              タブでは艦のステータス・搭載可能装備・装備シナジーを、
+              <strong>装備詳細</strong>
+              タブでは装備のステータス・シナジー対象艦・装備可能艦を確認できます。
             </p>
           </section>
 
           <section class="mb-5">
-            <h4 class="font-semibold text-sm mb-2 text-base-content/80">表示ラベルの規則</h4>
+            <h4 class="font-semibold text-sm mb-2 text-base-content/80">
+              表示ラベルの規則
+            </h4>
             <div class="overflow-x-auto rounded-lg border border-base-300/70">
               <table class="table table-sm w-full text-sm">
                 <thead>
@@ -1284,47 +1749,73 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 <tbody>
                   <tr>
                     <td class="font-medium">基本</td>
-                    <td class="text-base-content/70">★0 で1枠装備したときの追加ステータス</td>
+                    <td class="text-base-content/70">
+                      ★0 で1枠装備したときの追加ステータス
+                    </td>
                   </tr>
                   <tr>
                     <td class="font-medium">改修★10</td>
-                    <td class="text-base-content/70">★10 で1枠装備したときのボーナス（基本と値が異なる場合のみ表示）</td>
+                    <td class="text-base-content/70">
+                      ★10
+                      で1枠装備したときのボーナス（基本と値が異なる場合のみ表示）
+                    </td>
                   </tr>
                   <tr>
                     <td class="font-medium">2積み</td>
-                    <td class="text-base-content/70">同じ装備を2枠装備したときの<strong>合計</strong>ボーナス（単純に 基本×2 と異なる場合のみ表示）</td>
+                    <td class="text-base-content/70">
+                      同じ装備を2枠装備したときの<strong>合計</strong>
+                      ボーナス（単純に 基本×2 と異なる場合のみ表示）
+                    </td>
                   </tr>
                   <tr>
                     <td class="font-medium">3積み以上</td>
-                    <td class="text-base-content/70">同じ装備を3枠以上装備したときの合計ボーナス（2積みと値が異なる場合のみ表示）</td>
+                    <td class="text-base-content/70">
+                      同じ装備を3枠以上装備したときの合計ボーナス（2積みと値が異なる場合のみ表示）
+                    </td>
                   </tr>
                   <tr>
                     <td class="font-medium">2積み以上</td>
-                    <td class="text-base-content/70">2積みと3積みで合計ボーナスが同じとき、まとめて表示</td>
+                    <td class="text-base-content/70">
+                      2積みと3積みで合計ボーナスが同じとき、まとめて表示
+                    </td>
                   </tr>
                   <tr>
                     <td>
-                      <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+2</span>
+                      <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                        対空+2
+                      </span>
                     </td>
-                    <td class="text-base-content/70">青バッジ — バフ（プラス効果）</td>
+                    <td class="text-base-content/70">
+                      青バッジ — バフ（プラス効果）
+                    </td>
                   </tr>
                   <tr>
                     <td>
-                      <span class="badge badge-outline badge-sm font-mono border-error/45 text-error">対空-2</span>
+                      <span class="badge badge-outline badge-sm font-mono border-error/45 text-error">
+                        対空-2
+                      </span>
                     </td>
-                    <td class="text-base-content/70">赤バッジ — デバフ（マイナス効果）</td>
+                    <td class="text-base-content/70">
+                      赤バッジ — デバフ（マイナス効果）
+                    </td>
                   </tr>
                   <tr>
                     <td>
                       <span class="badge badge-warning badge-xs">補強のみ</span>
                     </td>
-                    <td class="text-base-content/70">補強増設スロットにのみ装備可能</td>
+                    <td class="text-base-content/70">
+                      補強増設スロットにのみ装備可能
+                    </td>
                   </tr>
                   <tr>
                     <td>
-                      <span class="badge badge-outline badge-xs border-warning text-warning">補強★5</span>
+                      <span class="badge badge-outline badge-xs border-warning text-warning">
+                        補強★5
+                      </span>
                     </td>
-                    <td class="text-base-content/70">補強増設スロットへの装備に改修値またはそうていが必要</td>
+                    <td class="text-base-content/70">
+                      補強増設スロットへの装備に改修値またはそうていが必要
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -1332,64 +1823,154 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </section>
 
           <section class="mb-5">
-            <h4 class="font-semibold text-sm mb-3 text-base-content/80">装備シナジーの計算方法</h4>
+            <h4 class="font-semibold text-sm mb-3 text-base-content/80">
+              装備シナジーの計算方法
+            </h4>
             <div class="space-y-3 text-sm text-base-content/70 leading-relaxed">
               <p>
-                装備によるステータス増減は <strong>単体装備シナジー</strong> と <strong>装備組み合わせシナジー</strong> の2種類があり、それらの合計が実際の効果です。
+                装備によるステータス増減は <strong>単体装備シナジー</strong> と{" "}
+                <strong>装備組み合わせシナジー</strong>{" "}
+                の2種類があり、それらの合計が実際の効果です。
               </p>
               <div class="rounded-lg bg-base-200 border border-base-300/70 px-4 py-3 font-mono text-xs text-center">
                 合計効果 ＝ Σ（単体シナジー） ＋ Σ（組み合わせシナジー）
               </div>
               <ul class="space-y-1 list-disc list-inside text-base-content/65">
-                <li><strong>単体装備シナジー</strong>：その装備を1枠でも持つだけで発動するボーナス</li>
-                <li><strong>装備組み合わせシナジー</strong>：特定の2種類を同時装備したときに加算される追加効果（単体シナジーとは独立して加減算される）</li>
+                <li>
+                  <strong>単体装備シナジー</strong>
+                  ：その装備を1枠でも持つだけで発動するボーナス
+                </li>
+                <li>
+                  <strong>装備組み合わせシナジー</strong>
+                  ：特定の2種類を同時装備したときに加算される追加効果（単体シナジーとは独立して加減算される）
+                </li>
               </ul>
             </div>
           </section>
 
           <section class="mb-5">
-            <h4 class="font-semibold text-sm mb-3 text-base-content/80">計算例</h4>
+            <h4 class="font-semibold text-sm mb-3 text-base-content/80">
+              計算例
+            </h4>
             <div class="space-y-4 text-sm">
-
               <div class="rounded-lg border border-base-300/70 p-3">
                 <p class="font-medium mb-2">例1 — 単体バフ ＋ 組み合わせバフ</p>
                 <div class="space-y-1 text-base-content/70">
-                  <p>装備A（単体シナジー: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+3</span>）と 装備B（単体シナジー: なし）を同時装備</p>
-                  <p>組み合わせシナジー A＋B: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+2</span></p>
-                  <p class="mt-2 font-medium text-base-content">→ 対空ボーナス合計 ＝ +3（単体A）＋ 0（単体B）＋ +2（組み合わせ）＝ <span class="text-info">+5</span></p>
+                  <p>
+                    装備A（単体シナジー:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+3
+                    </span>
+                    ）と 装備B（単体シナジー: なし）を同時装備
+                  </p>
+                  <p>
+                    組み合わせシナジー A＋B:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+2
+                    </span>
+                  </p>
+                  <p class="mt-2 font-medium text-base-content">
+                    → 対空ボーナス合計 ＝ +3（単体A）＋ 0（単体B）＋
+                    +2（組み合わせ）＝ <span class="text-info">+5</span>
+                  </p>
                 </div>
               </div>
 
               <div class="rounded-lg border border-base-300/70 p-3">
-                <p class="font-medium mb-2">例2 — 組み合わせシナジーがデバフ（赤）の場合</p>
+                <p class="font-medium mb-2">
+                  例2 — 組み合わせシナジーがデバフ（赤）の場合
+                </p>
                 <div class="space-y-1 text-base-content/70">
-                  <p>装備X（単体シナジー: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+4</span>）と 装備Z（単体シナジー: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+1</span>）を同時装備</p>
-                  <p>組み合わせシナジー X＋Z: <span class="badge badge-outline badge-sm font-mono border-error/45 text-error">対空-2</span></p>
-                  <p class="mt-2 font-medium text-base-content">→ 対空ボーナス合計 ＝ +4（単体X）＋ +1（単体Z）＋ (−2)（組み合わせ）＝ <span class="text-info">+3</span></p>
-                  <p class="text-xs text-base-content/55 mt-1">組み合わせが赤（デバフ）でも単体シナジーは別途有効。単体の+効果が完全に消えるわけではない。</p>
+                  <p>
+                    装備X（単体シナジー:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+4
+                    </span>
+                    ）と 装備Z（単体シナジー:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+1
+                    </span>
+                    ）を同時装備
+                  </p>
+                  <p>
+                    組み合わせシナジー X＋Z:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-error/45 text-error">
+                      対空-2
+                    </span>
+                  </p>
+                  <p class="mt-2 font-medium text-base-content">
+                    → 対空ボーナス合計 ＝ +4（単体X）＋ +1（単体Z）＋
+                    (−2)（組み合わせ）＝ <span class="text-info">+3</span>
+                  </p>
+                  <p class="text-xs text-base-content/55 mt-1">
+                    組み合わせが赤（デバフ）でも単体シナジーは別途有効。単体の+効果が完全に消えるわけではない。
+                  </p>
                 </div>
               </div>
 
               <div class="rounded-lg border border-base-300/70 p-3">
-                <p class="font-medium mb-2">例3 — 2積みシナジーの読み方（表示値 ＝ <em>合計</em>）</p>
+                <p class="font-medium mb-2">
+                  例3 — 2積みシナジーの読み方（表示値 ＝ <em>合計</em>）
+                </p>
                 <div class="space-y-1 text-base-content/70">
                   <p>装備Wの単体シナジー</p>
-                  <p class="pl-3">基本: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+3</span></p>
-                  <p class="pl-3">2積み: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">対空+4</span>　← これは2枠装備時の<strong>合計</strong>ボーナス</p>
+                  <p class="pl-3">
+                    基本:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+3
+                    </span>
+                  </p>
+                  <p class="pl-3">
+                    2積み:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      対空+4
+                    </span>
+                    　← これは2枠装備時の<strong>合計</strong>ボーナス
+                  </p>
                   <div class="mt-2 space-y-0.5 font-medium text-base-content">
-                    <p>1枠装備時の対空ボーナス ＝ <span class="text-info">+3</span></p>
-                    <p>2枠装備時の対空ボーナス ＝ <span class="text-info">+4</span>（単純な 2×3＝+6 にはならない）</p>
-                    <p>2枠目の追加分 ＝ +4 − +3 ＝ <span class="text-base-content/70">+1 のみ</span></p>
+                    <p>
+                      1枠装備時の対空ボーナス ＝{" "}
+                      <span class="text-info">+3</span>
+                    </p>
+                    <p>
+                      2枠装備時の対空ボーナス ＝{" "}
+                      <span class="text-info">+4</span>（単純な 2×3＝+6
+                      にはならない）
+                    </p>
+                    <p>
+                      2枠目の追加分 ＝ +4 − +3 ＝{" "}
+                      <span class="text-base-content/70">+1 のみ</span>
+                    </p>
                   </div>
                 </div>
               </div>
 
               <div class="rounded-lg border border-base-300/70 p-3">
-                <p class="font-medium mb-2">例4 — 2積みと3積みでシナジーが異なる場合</p>
+                <p class="font-medium mb-2">
+                  例4 — 2積みと3積みでシナジーが異なる場合
+                </p>
                 <div class="space-y-1 text-base-content/70">
-                  <p>基本: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">火力+1</span>　2積み: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">火力+3</span>　3積み以上: <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">火力+4</span></p>
+                  <p>
+                    基本:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      火力+1
+                    </span>
+                    　2積み:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      火力+3
+                    </span>
+                    　3積み以上:{" "}
+                    <span class="badge badge-outline badge-sm font-mono border-info/55 text-info">
+                      火力+4
+                    </span>
+                  </p>
                   <div class="mt-2 space-y-0.5 font-medium text-base-content">
-                    <p>1枠: <span class="text-info">+1</span>　／　2枠: <span class="text-info">+3</span>（2枠目の追加 +2）　／　3枠以上: <span class="text-info">+4</span>（3枠目の追加 +1）</p>
+                    <p>
+                      1枠: <span class="text-info">+1</span>　／　2枠:{" "}
+                      <span class="text-info">+3</span>（2枠目の追加
+                      +2）　／　3枠以上: <span class="text-info">+4</span>
+                      （3枠目の追加 +1）
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1397,10 +1978,17 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </section>
 
           <div class="modal-action">
-            <button class="btn btn-primary btn-sm" onClick={() => setHelpOpen(false)}>閉じる</button>
+            <button
+              class="btn btn-primary btn-sm"
+              onClick={() => setHelpOpen(false)}
+            >
+              閉じる
+            </button>
           </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
       </dialog>
 
       <Show when={tab() === "ship"}>
@@ -1410,7 +1998,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
               <select
                 class="select select-bordered select-sm w-full"
                 value={selectedShipCategory()}
-                onChange={(event) => setSelectedShipCategory(event.currentTarget.value)}
+                onChange={(event) =>
+                  setSelectedShipCategory(event.currentTarget.value)
+                }
               >
                 <option value="all">すべての艦種</option>
                 <For each={shipCategories()}>
@@ -1448,7 +2038,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show when={selectedShip()} fallback={<div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">艦を選択してください。</div>}>
+          <Show
+            when={selectedShip()}
+            fallback={
+              <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
+                艦を選択してください。
+              </div>
+            }
+          >
             {(ship) => (
               <ShipDetailPanel
                 ship={ship()}
@@ -1473,7 +2070,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
               <select
                 class="select select-bordered select-sm w-full"
                 value={selectedEquipCategory()}
-                onChange={(event) => setSelectedEquipCategory(event.currentTarget.value)}
+                onChange={(event) =>
+                  setSelectedEquipCategory(event.currentTarget.value)
+                }
               >
                 <option value="all">すべての装備種別</option>
                 <For each={equipCategories()}>
@@ -1511,7 +2110,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show when={selectedEquip()} fallback={<div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">装備を選択してください。</div>}>
+          <Show
+            when={selectedEquip()}
+            fallback={
+              <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
+                装備を選択してください。
+              </div>
+            }
+          >
             {(equip) => (
               <EquipDetailPanel
                 equip={equip()}
