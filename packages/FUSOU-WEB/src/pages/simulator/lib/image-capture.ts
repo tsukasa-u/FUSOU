@@ -2,9 +2,13 @@
 
 import { toBlob as htmlToImageToBlob } from "html-to-image";
 
-type HtmlToImageToBlobFn = (el: HTMLElement, opts?: Record<string, unknown>) => Promise<Blob | null>;
+type HtmlToImageToBlobFn = (
+  el: HTMLElement,
+  opts?: Record<string, unknown>,
+) => Promise<Blob | null>;
 const toBlobImpl = htmlToImageToBlob as unknown as HtmlToImageToBlobFn;
-const TRANSPARENT_PIXEL = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+const TRANSPARENT_PIXEL =
+  "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
 function hasUrlResource(v: string | null | undefined): boolean {
   if (!v) return false;
@@ -13,7 +17,7 @@ function hasUrlResource(v: string | null | undefined): boolean {
 
 function hasHashUrlResource(v: string | null | undefined): boolean {
   if (!v) return false;
-  return v.includes("url(#") || v.includes("url(\"#") || v.includes("url('#");
+  return v.includes("url(#") || v.includes('url("#') || v.includes("url('#");
 }
 
 function extractCssUrl(v: string): string | null {
@@ -22,7 +26,10 @@ function extractCssUrl(v: string): string | null {
 }
 
 function sanitizeFileName(name: string): string {
-  const n = name.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, "-");
+  const n = name
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, "-");
   return n || "fleet-deck";
 }
 
@@ -49,13 +56,21 @@ interface SaveImageDiagnostics extends CaptureStats {
 
 function emptyCaptureStats(): CaptureStats {
   return {
-    totalImages: 0, externalImages: 0, proxiedImages: 0,
-    cacheHitImages: 0, cacheMissImages: 0, proxyFetchImages: 0,
-    hiddenImages: 0, sanitizedStyleNodes: 0,
+    totalImages: 0,
+    externalImages: 0,
+    proxiedImages: 0,
+    cacheHitImages: 0,
+    cacheMissImages: 0,
+    proxyFetchImages: 0,
+    hiddenImages: 0,
+    sanitizedStyleNodes: 0,
   };
 }
 
-function addCaptureStats(base: CaptureStats, extra: CaptureStats): CaptureStats {
+function addCaptureStats(
+  base: CaptureStats,
+  extra: CaptureStats,
+): CaptureStats {
   return {
     totalImages: base.totalImages + extra.totalImages,
     externalImages: base.externalImages + extra.externalImages,
@@ -78,7 +93,9 @@ function renderSaveDiagnostics(diag: SaveImageDiagnostics): string {
     `スタイル無効化ノード: ${diag.sanitizedStyleNodes}`,
     `処理時間: ${diag.elapsedMs}ms`,
     diag.note ? `備考: ${diag.note}` : "",
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
@@ -130,8 +147,12 @@ function flashPressedEffect(btn: HTMLButtonElement): void {
 }
 
 function syncSaveTargetControls(): void {
-  const checked = document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null;
-  const includeAirbase = document.getElementById("saveimg-include-airbase") as HTMLInputElement | null;
+  const checked = document.querySelector(
+    'input[name="saveimg-fleet-target"]:checked',
+  ) as HTMLInputElement | null;
+  const includeAirbase = document.getElementById(
+    "saveimg-include-airbase",
+  ) as HTMLInputElement | null;
   if (!checked || !includeAirbase) return;
 
   const isAirbaseOnly = checked.value === "airbase";
@@ -145,7 +166,9 @@ function syncSaveTargetControls(): void {
   }
 }
 
-async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> {
+async function fetchProxyImageAsDataUrl(
+  absUrl: string,
+): Promise<string | null> {
   const proxied = `/api/asset-sync/image-proxy?url=${encodeURIComponent(absUrl)}`;
   try {
     const res = await fetch(proxied, { cache: "force-cache" });
@@ -164,7 +187,10 @@ async function fetchProxyImageAsDataUrl(absUrl: string): Promise<string | null> 
   }
 }
 
-async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): Promise<string | null> {
+async function getCachedExternalDataUrl(
+  absUrl: string,
+  stats?: CaptureStats,
+): Promise<string | null> {
   const cached = externalImageDataUrlCache.get(absUrl);
   if (cached) {
     if (stats) stats.cacheHitImages += 1;
@@ -179,10 +205,9 @@ async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): P
     stats.cacheMissImages += 1;
     stats.proxyFetchImages += 1;
   }
-  const request = fetchProxyImageAsDataUrl(absUrl)
-    .finally(() => {
-      externalImageInFlight.delete(absUrl);
-    });
+  const request = fetchProxyImageAsDataUrl(absUrl).finally(() => {
+    externalImageInFlight.delete(absUrl);
+  });
   externalImageInFlight.set(absUrl, request);
   return request;
 }
@@ -194,16 +219,25 @@ async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): P
  * fire-and-forget; duplicates and same-origin URLs are silently ignored.
  */
 export function prefetchExternalUrlForExport(absUrl: string): void {
-  if (!absUrl || absUrl.startsWith("data:") || externalImageDataUrlCache.has(absUrl)) return;
+  if (
+    !absUrl ||
+    absUrl.startsWith("data:") ||
+    externalImageDataUrlCache.has(absUrl)
+  )
+    return;
   try {
     const u = new URL(absUrl, window.location.href);
     if (u.origin === window.location.origin) return; // same-origin: no proxy needed
-    if (u.protocol !== "https:") return;             // proxy only accepts https
-  } catch { return; }
+    if (u.protocol !== "https:") return; // proxy only accepts https
+  } catch {
+    return;
+  }
   getCachedExternalDataUrl(absUrl).catch(() => {});
 }
 
-export async function prewarmVisibleExternalImageCache(root: Pick<Element, "querySelectorAll">) {
+export async function prewarmVisibleExternalImageCache(
+  root: Pick<Element, "querySelectorAll">,
+) {
   const targets = new Set<string>();
   root.querySelectorAll("img").forEach((img) => {
     if (!(img instanceof HTMLImageElement)) return;
@@ -213,7 +247,9 @@ export async function prewarmVisibleExternalImageCache(root: Pick<Element, "quer
     try {
       const u = new URL(srcAttr, window.location.href);
       if (u.origin !== window.location.origin) targets.add(u.toString());
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
   root.querySelectorAll<HTMLElement>("*").forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
@@ -224,7 +260,9 @@ export async function prewarmVisibleExternalImageCache(root: Pick<Element, "quer
     try {
       const u = new URL(rawUrl, window.location.href);
       if (u.origin !== window.location.origin) targets.add(u.toString());
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   });
   if (targets.size === 0) return;
   await Promise.all(Array.from(targets, (u) => getCachedExternalDataUrl(u)));
@@ -237,18 +275,27 @@ async function buildCaptureNode(opts: {
   hideExternalImages: boolean;
   useImageProxy?: boolean;
   safeMode?: boolean;
-}): Promise<{ host: HTMLElement; node: HTMLElement; stats: CaptureStats } | null> {
+}): Promise<{
+  host: HTMLElement;
+  node: HTMLElement;
+  stats: CaptureStats;
+} | null> {
   const src = document.getElementById("deck-capture-area");
   if (!(src instanceof HTMLElement)) return null;
   const stats = emptyCaptureStats();
 
-  const originalFleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
+  const originalFleetSectionMap: Record<
+    "fleet1" | "fleet2" | "fleet3" | "fleet4",
+    HTMLElement | null
+  > = {
     fleet1: src.querySelector("#fleet-1-section") as HTMLElement | null,
     fleet2: src.querySelector("#fleet-2-section") as HTMLElement | null,
     fleet3: src.querySelector("#fleet-3-section") as HTMLElement | null,
     fleet4: src.querySelector("#fleet-4-section") as HTMLElement | null,
   };
-  const originalAirbaseSection = src.querySelector("#airbase-section") as HTMLElement | null;
+  const originalAirbaseSection = src.querySelector(
+    "#airbase-section",
+  ) as HTMLElement | null;
   const measureWidth = (el: HTMLElement | null): number => {
     if (!el) return 0;
     return Math.ceil(el.getBoundingClientRect().width);
@@ -260,7 +307,11 @@ async function buildCaptureNode(opts: {
   } else if (opts.fleetTarget !== "both") {
     const fleetWidth = measureWidth(originalFleetSectionMap[opts.fleetTarget]);
     if (opts.includeAirBase) {
-      captureWidth = Math.max(fleetWidth, measureWidth(originalAirbaseSection), 1);
+      captureWidth = Math.max(
+        fleetWidth,
+        measureWidth(originalAirbaseSection),
+        1,
+      );
     } else {
       captureWidth = Math.max(fleetWidth, 1);
     }
@@ -275,18 +326,27 @@ async function buildCaptureNode(opts: {
 
   const clone = src.cloneNode(true) as HTMLElement;
   clone.style.width = `${captureWidth}px`;
-  clone.style.background = opts.transparentBackground ? "transparent" : "#eceff3";
+  clone.style.background = opts.transparentBackground
+    ? "transparent"
+    : "#eceff3";
   clone.style.padding = "0";
 
   clone.querySelector("#data-status")?.remove();
-  const fleetSections = clone.querySelector("#fleet-sections") as HTMLElement | null;
-  const fleetSectionMap: Record<"fleet1" | "fleet2" | "fleet3" | "fleet4", HTMLElement | null> = {
+  const fleetSections = clone.querySelector(
+    "#fleet-sections",
+  ) as HTMLElement | null;
+  const fleetSectionMap: Record<
+    "fleet1" | "fleet2" | "fleet3" | "fleet4",
+    HTMLElement | null
+  > = {
     fleet1: clone.querySelector("#fleet-1-section") as HTMLElement | null,
     fleet2: clone.querySelector("#fleet-2-section") as HTMLElement | null,
     fleet3: clone.querySelector("#fleet-3-section") as HTMLElement | null,
     fleet4: clone.querySelector("#fleet-4-section") as HTMLElement | null,
   };
-  const airbaseSection = clone.querySelector("#airbase-section") as HTMLElement | null;
+  const airbaseSection = clone.querySelector(
+    "#airbase-section",
+  ) as HTMLElement | null;
 
   if (opts.fleetTarget === "airbase") {
     fleetSections?.remove();
@@ -294,7 +354,12 @@ async function buildCaptureNode(opts: {
   } else {
     if (!opts.includeAirBase) airbaseSection?.remove();
     if (opts.fleetTarget !== "both") {
-      const fleetKeys: Array<"fleet1" | "fleet2" | "fleet3" | "fleet4"> = ["fleet1", "fleet2", "fleet3", "fleet4"];
+      const fleetKeys: Array<"fleet1" | "fleet2" | "fleet3" | "fleet4"> = [
+        "fleet1",
+        "fleet2",
+        "fleet3",
+        "fleet4",
+      ];
       for (const key of fleetKeys) {
         if (key !== opts.fleetTarget) fleetSectionMap[key]?.remove();
       }
@@ -320,32 +385,44 @@ async function buildCaptureNode(opts: {
     const bgImage = st.backgroundImage || "";
     const bg = st.background || "";
     const filter = st.filter || "";
-    const maskImage = (st as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage || st.maskImage || "";
+    const maskImage =
+      (st as CSSStyleDeclaration & { webkitMaskImage?: string })
+        .webkitMaskImage ||
+      st.maskImage ||
+      "";
     const cBgImage = cs.backgroundImage || "";
     const cFilter = cs.filter || "";
     const cMaskImage = cs.maskImage || "";
-    const cWebkitMaskImage = (cs as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage || "";
+    const cWebkitMaskImage =
+      (cs as CSSStyleDeclaration & { webkitMaskImage?: string })
+        .webkitMaskImage || "";
     const cClipPath = cs.clipPath || "";
 
     const bgImageUrl = bgImage ? extractCssUrl(bgImage) : null;
-    const bgImageIsInlineExternal = !!(bgImageUrl &&
-      (bgImageUrl.startsWith("http://") || bgImageUrl.startsWith("https://")));
+    const bgImageIsInlineExternal = !!(
+      bgImageUrl &&
+      (bgImageUrl.startsWith("http://") || bgImageUrl.startsWith("https://"))
+    );
     const skipExternalImageFetch = opts.hideExternalImages || opts.safeMode;
     if (bgImageIsInlineExternal && !skipExternalImageFetch) {
       const rawUrl = bgImageUrl!;
-      tasks.push((async () => {
-        try {
-          const absUrl = new URL(rawUrl, window.location.href).toString();
-          const dataUrl = await getCachedExternalDataUrl(absUrl, stats);
-          if (dataUrl) {
-            node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
-          } else {
-            // Proxy failed: clear to prevent html-to-image from fetching the
-            // external URL directly (which would be CORS-blocked).
-            node.style.backgroundImage = "none";
+      tasks.push(
+        (async () => {
+          try {
+            const absUrl = new URL(rawUrl, window.location.href).toString();
+            const dataUrl = await getCachedExternalDataUrl(absUrl, stats);
+            if (dataUrl) {
+              node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
+            } else {
+              // Proxy failed: clear to prevent html-to-image from fetching the
+              // external URL directly (which would be CORS-blocked).
+              node.style.backgroundImage = "none";
+            }
+          } catch {
+            /* leave as-is */
           }
-        } catch { /* leave as-is */ }
-      })());
+        })(),
+      );
     } else if (bgImageIsInlineExternal && skipExternalImageFetch) {
       node.style.backgroundImage = "none";
       stats.hiddenImages += 1;
@@ -367,13 +444,17 @@ async function buildCaptureNode(opts: {
       st.background = st.backgroundColor || "transparent";
       st.filter = "none";
       st.maskImage = "none";
-      (st as CSSStyleDeclaration & { webkitMaskImage?: string }).webkitMaskImage = "none";
+      (
+        st as CSSStyleDeclaration & { webkitMaskImage?: string }
+      ).webkitMaskImage = "none";
       st.clipPath = "none";
     }
 
     if (opts.safeMode) {
       st.backdropFilter = "none";
-      (st as CSSStyleDeclaration & { webkitBackdropFilter?: string }).webkitBackdropFilter = "none";
+      (
+        st as CSSStyleDeclaration & { webkitBackdropFilter?: string }
+      ).webkitBackdropFilter = "none";
     }
 
     if (node instanceof HTMLImageElement) {
@@ -397,20 +478,23 @@ async function buildCaptureNode(opts: {
       }
       if (isExternal) stats.externalImages += 1;
 
-      const shouldHideExternal = (opts.hideExternalImages || opts.safeMode) && isExternal;
+      const shouldHideExternal =
+        (opts.hideExternalImages || opts.safeMode) && isExternal;
       if (opts.useImageProxy && isExternal && absSrc && !shouldHideExternal) {
-        tasks.push((async () => {
-          const dataUrl = await getCachedExternalDataUrl(absSrc, stats);
-          if (dataUrl) {
-            node.src = dataUrl;
-            stats.proxiedImages += 1;
-          } else {
-            // Proxy failed: replace with transparent placeholder to prevent
-            // html-to-image from falling back to the external URL (CORS-blocked).
-            node.src = TRANSPARENT_PIXEL;
-            stats.hiddenImages += 1;
-          }
-        })());
+        tasks.push(
+          (async () => {
+            const dataUrl = await getCachedExternalDataUrl(absSrc, stats);
+            if (dataUrl) {
+              node.src = dataUrl;
+              stats.proxiedImages += 1;
+            } else {
+              // Proxy failed: replace with transparent placeholder to prevent
+              // html-to-image from falling back to the external URL (CORS-blocked).
+              node.src = TRANSPARENT_PIXEL;
+              stats.hiddenImages += 1;
+            }
+          })(),
+        );
       }
       if (shouldHideExternal) {
         node.removeAttribute("src");
@@ -445,126 +529,177 @@ export function initImageCaptureEvents() {
     }
   });
 
-  document.querySelectorAll<HTMLInputElement>('input[name="saveimg-fleet-target"]').forEach((radio) => {
-    radio.addEventListener("change", syncSaveTargetControls);
-  });
+  document
+    .querySelectorAll<HTMLInputElement>('input[name="saveimg-fleet-target"]')
+    .forEach((radio) => {
+      radio.addEventListener("change", syncSaveTargetControls);
+    });
 
-  document.getElementById("btn-save-image-confirm")?.addEventListener("click", async () => {
-    const btn = document.getElementById("btn-save-image-confirm");
-    const modal = document.getElementById("save-image-modal");
-    if (!(btn instanceof HTMLButtonElement)) return;
-    flashPressedEffect(btn);
+  document
+    .getElementById("btn-save-image-confirm")
+    ?.addEventListener("click", async () => {
+      const btn = document.getElementById("btn-save-image-confirm");
+      const modal = document.getElementById("save-image-modal");
+      if (!(btn instanceof HTMLButtonElement)) return;
+      flashPressedEffect(btn);
 
-    const fleetTarget = ((document.querySelector('input[name="saveimg-fleet-target"]:checked') as HTMLInputElement | null)?.value ?? "both") as "both" | "fleet1" | "fleet2" | "fleet3" | "fleet4" | "airbase";
-    const includeAirBaseChecked = (document.getElementById("saveimg-include-airbase") as HTMLInputElement | null)?.checked ?? true;
-    const includeAirBase = fleetTarget === "airbase" ? true : includeAirBaseChecked;
-    const transparentBackground = (document.getElementById("saveimg-transparent-bg") as HTMLInputElement | null)?.checked ?? false;
-    const hideExternalImages = false;
-    const useImageProxy = true;
-    const scaleRaw = parseInt((document.getElementById("saveimg-scale") as HTMLSelectElement | null)?.value ?? "2", 10);
-    const scale = Math.max(1, Math.min(3, Number.isFinite(scaleRaw) ? scaleRaw : 2));
-    const fileBase = sanitizeFileName((document.getElementById("saveimg-filename") as HTMLInputElement | null)?.value ?? "fleet-deck");
+      const fleetTarget = ((
+        document.querySelector(
+          'input[name="saveimg-fleet-target"]:checked',
+        ) as HTMLInputElement | null
+      )?.value ?? "both") as
+        | "both"
+        | "fleet1"
+        | "fleet2"
+        | "fleet3"
+        | "fleet4"
+        | "airbase";
+      const includeAirBaseChecked =
+        (
+          document.getElementById(
+            "saveimg-include-airbase",
+          ) as HTMLInputElement | null
+        )?.checked ?? true;
+      const includeAirBase =
+        fleetTarget === "airbase" ? true : includeAirBaseChecked;
+      const transparentBackground =
+        (
+          document.getElementById(
+            "saveimg-transparent-bg",
+          ) as HTMLInputElement | null
+        )?.checked ?? false;
+      const hideExternalImages = false;
+      const useImageProxy = true;
+      const scaleRaw = parseInt(
+        (document.getElementById("saveimg-scale") as HTMLSelectElement | null)
+          ?.value ?? "2",
+        10,
+      );
+      const scale = Math.max(
+        1,
+        Math.min(3, Number.isFinite(scaleRaw) ? scaleRaw : 2),
+      );
+      const fileBase = sanitizeFileName(
+        (document.getElementById("saveimg-filename") as HTMLInputElement | null)
+          ?.value ?? "fleet-deck",
+      );
 
-    const prevDisabled = btn.disabled;
-    const prevText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = "保存中...";
+      const prevDisabled = btn.disabled;
+      const prevText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "保存中...";
 
-    let host: HTMLElement | null = null;
-    let aggregatedStats = emptyCaptureStats();
-    const startedAt = performance.now();
-    let attempt = 1;
-    let safeModeUsed = false;
-    try {
-      const prepared = await buildCaptureNode({ includeAirBase, fleetTarget, transparentBackground, hideExternalImages, useImageProxy });
-      if (!prepared) throw new Error("capture target missing");
-      host = prepared.host;
-      aggregatedStats = addCaptureStats(aggregatedStats, prepared.stats);
-
-      let blob: Blob | null = null;
-      let primaryError: unknown = null;
-
+      let host: HTMLElement | null = null;
+      let aggregatedStats = emptyCaptureStats();
+      const startedAt = performance.now();
+      let attempt = 1;
+      let safeModeUsed = false;
       try {
-        const renderOpts: Record<string, unknown> = {
-          pixelRatio: scale,
-          cacheBust: false,
-          skipFonts: true,
-          imagePlaceholder: TRANSPARENT_PIXEL,
-        };
-        if (!transparentBackground) renderOpts.backgroundColor = "#eceff3";
-        blob = await toBlobImpl(prepared.node, renderOpts);
-      } catch (e) {
-        primaryError = e;
-      }
+        const prepared = await buildCaptureNode({
+          includeAirBase,
+          fleetTarget,
+          transparentBackground,
+          hideExternalImages,
+          useImageProxy,
+        });
+        if (!prepared) throw new Error("capture target missing");
+        host = prepared.host;
+        aggregatedStats = addCaptureStats(aggregatedStats, prepared.stats);
 
-      if (!blob) {
-        const elapsedMs = Math.round(performance.now() - startedAt);
+        let blob: Blob | null = null;
+        let primaryError: unknown = null;
+
+        try {
+          const renderOpts: Record<string, unknown> = {
+            pixelRatio: scale,
+            cacheBust: false,
+            skipFonts: true,
+            imagePlaceholder: TRANSPARENT_PIXEL,
+          };
+          if (!transparentBackground) renderOpts.backgroundColor = "#eceff3";
+          blob = await toBlobImpl(prepared.node, renderOpts);
+        } catch (e) {
+          primaryError = e;
+        }
+
+        if (!blob) {
+          const elapsedMs = Math.round(performance.now() - startedAt);
+          logSaveImageDiagnostics({
+            ...aggregatedStats,
+            attempt: 1,
+            safeMode: false,
+            usedProxyOption: useImageProxy,
+            hideExternalOption: hideExternalImages,
+            elapsedMs,
+            success: false,
+            note: `1回目失敗のため safe mode 再試行 (target=${fleetTarget})`,
+          });
+          if (host && host.parentElement) host.parentElement.removeChild(host);
+          const retry = await buildCaptureNode({
+            includeAirBase,
+            fleetTarget,
+            transparentBackground,
+            hideExternalImages: true,
+            useImageProxy: true,
+            safeMode: true,
+          });
+          if (!retry) throw primaryError ?? new Error("capture target missing");
+          host = retry.host;
+          aggregatedStats = addCaptureStats(aggregatedStats, retry.stats);
+          attempt = 2;
+          safeModeUsed = true;
+          const retryRenderOpts: Record<string, unknown> = {
+            pixelRatio: Math.min(2, scale),
+            cacheBust: false,
+            skipFonts: true,
+            imagePlaceholder: TRANSPARENT_PIXEL,
+            filter: (n: Node) => !(n instanceof HTMLImageElement),
+          };
+          if (!transparentBackground)
+            retryRenderOpts.backgroundColor = "#eceff3";
+          blob = await toBlobImpl(retry.node, retryRenderOpts);
+        }
+        if (!blob) throw new Error("png conversion failed");
+
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${fileBase}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
         logSaveImageDiagnostics({
           ...aggregatedStats,
-          attempt: 1,
-          safeMode: false,
+          attempt,
+          safeMode: safeModeUsed,
           usedProxyOption: useImageProxy,
           hideExternalOption: hideExternalImages,
-          elapsedMs,
-          success: false,
-          note: `1回目失敗のため safe mode 再試行 (target=${fleetTarget})`,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          success: true,
+          note: `target=${fleetTarget}`,
         });
+        if (modal instanceof HTMLDialogElement) modal.close();
+      } catch (err) {
+        console.error("[save-image] failed", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        logSaveImageDiagnostics({
+          ...aggregatedStats,
+          attempt,
+          safeMode: safeModeUsed,
+          usedProxyOption: useImageProxy,
+          hideExternalOption: hideExternalImages,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          success: false,
+          note: `target=${fleetTarget}; ${msg}`,
+        });
+        alert(
+          `画像保存に失敗しました。\n${msg}\nCORS制限のため外部画像は自動除外で保存されます。`,
+        );
+      } finally {
         if (host && host.parentElement) host.parentElement.removeChild(host);
-        const retry = await buildCaptureNode({ includeAirBase, fleetTarget, transparentBackground, hideExternalImages: true, useImageProxy: true, safeMode: true });
-        if (!retry) throw (primaryError ?? new Error("capture target missing"));
-        host = retry.host;
-        aggregatedStats = addCaptureStats(aggregatedStats, retry.stats);
-        attempt = 2;
-        safeModeUsed = true;
-        const retryRenderOpts: Record<string, unknown> = {
-          pixelRatio: Math.min(2, scale),
-          cacheBust: false,
-          skipFonts: true,
-          imagePlaceholder: TRANSPARENT_PIXEL,
-          filter: (n: Node) => !(n instanceof HTMLImageElement),
-        };
-        if (!transparentBackground) retryRenderOpts.backgroundColor = "#eceff3";
-        blob = await toBlobImpl(retry.node, retryRenderOpts);
+        btn.disabled = prevDisabled;
+        if (prevText != null) btn.textContent = prevText;
       }
-      if (!blob) throw new Error("png conversion failed");
-
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${fileBase}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.png`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      logSaveImageDiagnostics({
-        ...aggregatedStats,
-        attempt,
-        safeMode: safeModeUsed,
-        usedProxyOption: useImageProxy,
-        hideExternalOption: hideExternalImages,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        success: true,
-        note: `target=${fleetTarget}`,
-      });
-      if (modal instanceof HTMLDialogElement) modal.close();
-    } catch (err) {
-      console.error("[save-image] failed", err);
-      const msg = err instanceof Error ? err.message : String(err);
-      logSaveImageDiagnostics({
-        ...aggregatedStats,
-        attempt,
-        safeMode: safeModeUsed,
-        usedProxyOption: useImageProxy,
-        hideExternalOption: hideExternalImages,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        success: false,
-        note: `target=${fleetTarget}; ${msg}`,
-      });
-      alert(`画像保存に失敗しました。\n${msg}\nCORS制限のため外部画像は自動除外で保存されます。`);
-    } finally {
-      if (host && host.parentElement) host.parentElement.removeChild(host);
-      btn.disabled = prevDisabled;
-      if (prevText != null) btn.textContent = prevText;
-    }
-  });
+    });
 }

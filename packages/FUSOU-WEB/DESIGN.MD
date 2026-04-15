@@ -141,6 +141,17 @@ Mobile readability rules:
 - Never call `.focus()` on a modal search field by default unless the task explicitly requires immediate keyboard entry.
 - Avoid opening the on-screen keyboard on coarse pointer devices as a side effect of layout or modal presentation.
 
+## 05a / LINKS AND TEXT INTERACTIONS
+
+- All inline links (both in markdown and HTML) use the DaisyUI color system: `--color-link`, `--color-link-hover`, `--color-link-visited`.
+- Light mode: `#0b63ce` (saturated blue) for clear distinction from body text.
+- Dark mode: `#7db4ff` (bright blue) for sufficient contrast against light text.
+- Hover state: `--color-link-hover` darkens the color to indicate interactivity.
+- Visited state: `--color-link-visited` (purple) indicates previously visited links.
+- No underline decoration by default; use color difference alone to distinguish links from body text.
+- Use `.link` class (with `.link-hover` for hover effects) for standalone link elements in HTML.
+- Use markdown link syntax for links in markdown/documentation content; styling is automatically applied via `.markdown a` rules.
+
 ## 06 / SPACING SYSTEM
 
 Base unit: 8px

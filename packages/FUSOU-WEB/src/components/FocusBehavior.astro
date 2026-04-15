@@ -2,7 +2,9 @@
   (() => {
     const isAutoFocusedField = (element) => {
       if (!(element instanceof HTMLElement)) return false;
-      return element.matches("input, textarea, select, [contenteditable='true']");
+      return element.matches(
+        "input, textarea, select, [contenteditable='true']",
+      );
     };
 
     const blurAutoFocusedField = () => {
@@ -26,7 +28,7 @@
     const patchDialogFocus = () => {
       if (typeof HTMLDialogElement === "undefined") return;
       const proto = HTMLDialogElement.prototype;
-      if ((proto).fusouFocusPatched) return;
+      if (proto.fusouFocusPatched) return;
 
       const originalShowModal = proto.showModal;
       const originalShow = proto.show;

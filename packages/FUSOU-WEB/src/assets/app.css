@@ -158,7 +158,11 @@
 .textarea:focus-within,
 .file-input:focus,
 .file-input:focus-within {
-  border-color: color-mix(in oklch, var(--color-primary) 52%, var(--color-base-content) 24%);
+  border-color: color-mix(
+    in oklch,
+    var(--color-primary) 52%,
+    var(--color-base-content) 24%
+  );
 }
 
 .table th {
@@ -300,9 +304,6 @@
 
 .markdown a {
   color: var(--color-link);
-  text-decoration: underline;
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 0.18em;
 }
 
 .markdown a:hover {
@@ -333,6 +334,19 @@
 .markdown p > code,
 .markdown li > code {
   margin-left: 0 !important;
+}
+
+/* Link styling: use --color-link for better contrast in light mode */
+.link {
+  color: var(--color-link);
+}
+
+.link:hover {
+  color: var(--color-link-hover);
+}
+
+.link:visited {
+  color: var(--color-link-visited);
 }
 
 .markdown .katex {

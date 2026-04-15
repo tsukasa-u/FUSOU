@@ -96,7 +96,9 @@ export function buildEnemyFleetResolver(
 
   const toGroupIds = (deckShipIds: EnemyDeckRecord["ship_ids"]): string[] => {
     if (Array.isArray(deckShipIds)) {
-      return deckShipIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+      return deckShipIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      );
     }
     if (typeof deckShipIds === "string" && deckShipIds.length > 0) {
       return [deckShipIds];
@@ -154,9 +156,14 @@ export function buildEnemyFleetResolver(
       const groupShips = shipsByGroupId.get(shipGroupId) || [];
       for (const shipData of groupShips) {
         const mstId = shipData.mst_ship_id ?? null;
-        const shipName = mstId ? (mstById.get(mstId) ?? `艦ID:${mstId}`) : "敵艦";
-        const slotGroupId = typeof shipData.slot === "string" ? shipData.slot : null;
-        const slotRecords = slotGroupId ? (slotItemsByGroupId.get(slotGroupId) || []) : [];
+        const shipName = mstId
+          ? (mstById.get(mstId) ?? `艦ID:${mstId}`)
+          : "敵艦";
+        const slotGroupId =
+          typeof shipData.slot === "string" ? shipData.slot : null;
+        const slotRecords = slotGroupId
+          ? slotItemsByGroupId.get(slotGroupId) || []
+          : [];
         const equipments = slotRecords
           .filter((slot) => (slot.mst_slotitem_id ?? -1) > 0)
           .map((slot) => {
@@ -165,7 +172,9 @@ export function buildEnemyFleetResolver(
             const typeArray = mstSlotItem?.type;
             const iconType =
               Array.isArray(typeArray) && typeArray.length >= 4
-                ? (typeof typeArray[3] === "number" ? typeArray[3] : null)
+                ? typeof typeArray[3] === "number"
+                  ? typeArray[3]
+                  : null
                 : null;
             return {
               mstSlotitemId: slotItemId,

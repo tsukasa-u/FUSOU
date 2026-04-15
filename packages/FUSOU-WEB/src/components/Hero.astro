@@ -161,29 +161,31 @@ const year = new Date().getFullYear();
 
   <section
     id="project-guide"
-    class="scroll-mt-24 border-t border-zinc-300 bg-white"
+    class="scroll-mt-24 border-t border-base-300 bg-base-100"
   >
     <div class="max-w-4xl mx-auto px-6 py-14">
       <header class="mb-10">
         <h2
-          class="text-2xl md:text-3xl font-bold text-zinc-900 tracking-tight mb-3"
+          class="text-2xl md:text-3xl font-bold text-base-content tracking-tight mb-3"
         >
           FUSOUについて
         </h2>
-        <p class="text-sm text-zinc-800 leading-7">
+        <p class="text-sm text-base-content/90 leading-7">
           FUSOUは、艦これのプレイ記録を収集・可視化し、可視データを利用した継続的な検証とデータの公開を目指すとオープンソースプロジェクトです。ローカルで動作するデータ収集用(データ表示用)アプリ(FUSOU-APP)と、収集されたデータを可視化、利用するWEBアプリ(FUSOU-WEB)、および検証用途でのデータ利用を支援するSDK(fusou-datasets)を提供しています。
         </p>
       </header>
 
-      <div class="space-y-10 text-zinc-800">
-        <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+      <div class="space-y-10 text-base-content">
+        <section class="border-l-2 border-base-300 pl-5">
+          <h3 class="text-xl font-semibold text-base-content mb-3">
             FUSOUでできること
           </h3>
           <p class="text-sm leading-7 mb-4">
             FUSOUでは、専ら艦これのプレイ記録を収集し、その結果を検証に利用することを目的としています。収集されたデータは、戦闘記録やパラメータ推移、クエストツリーなどの形で可視化され、ユーザーに可視、検証結果として提供されます。
           </p>
-          <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
+          <ul
+            class="list-disc pl-5 text-sm leading-7 space-y-1 text-base-content/80"
+          >
             <li>
               FUSOUはプロキシーアプリとして動作し、他の専ブラと併用できます。通信の安全性を確保しつつ、必要なデータを収集します。また、FUSOU-APPは単体でも利用でき、専ブラとしての機能も提供しています。
             </li>
@@ -192,26 +194,22 @@ const year = new Date().getFullYear();
             </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a href="/simulator" class="link link-hover text-blue-700"
-              >シミュレータを見る</a
-            >
-            <a href="/battles" class="link link-hover text-blue-700"
-              >戦闘記録を見る</a
-            >
-            <a href="/quests" class="link link-hover text-blue-700"
-              >クエスト状況を見る</a
-            >
+            <a href="/simulator" class="link link-hover">シミュレータを見る</a>
+            <a href="/battles" class="link link-hover">戦闘記録を見る</a>
+            <a href="/quests" class="link link-hover">クエスト状況を見る</a>
           </div>
         </section>
 
-        <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+        <section class="border-l-2 border-base-300 pl-5">
+          <h3 class="text-xl font-semibold text-base-content mb-3">
             サービスの構成と公開情報
           </h3>
           <p class="text-sm leading-7 mb-4">
             FUSOUはGitHub上で管理されており、コードやドキュメントを公開しています。プロジェクトは、FUSOU-APP、FUSOU-WEB、fusou-datasetsの3つの主要コンポーネントで構成されており、それぞれの役割と機能があります。
           </p>
-          <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
+          <ul
+            class="list-disc pl-5 text-sm leading-7 space-y-1 text-base-content/80"
+          >
             <li>
               FUSOU-APP
               はローカルで動作し、ゲーム通信から必要なデータを収集します。
@@ -230,29 +228,31 @@ const year = new Date().getFullYear();
             </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a
-              href="/docs/start/what_is_fusou"
-              class="link link-hover text-blue-700">プロジェクト概要</a
+            <a href="/docs/start/what_is_fusou" class="link link-hover"
+              >プロジェクト概要</a
             >
-            <a
-              href="/docs/guide/api_overview"
-              class="link link-hover text-blue-700">API概要</a
+            <a href="/docs/guide/api_overview" class="link link-hover"
+              >API概要</a
             >
             <a
               href="https://github.com/tsukasa-u/FUSOU"
               target="_blank"
               rel="noreferrer"
-              class="link link-hover text-blue-700">GitHub</a
+              class="link link-hover">GitHub</a
             >
           </div>
         </section>
 
-        <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">方針と目的</h3>
+        <section class="border-l-2 border-base-300 pl-5">
+          <h3 class="text-xl font-semibold text-base-content mb-3">
+            方針と目的
+          </h3>
           <p class="text-sm leading-7 mb-4">
             FUSOUは、ユーザーがアクセス可能なデータを利用することを重視し、継続的に検証可能な分析および公開基盤を育てることを目的に開発されています。
           </p>
-          <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
+          <ul
+            class="list-disc pl-5 text-sm leading-7 space-y-1 text-base-content/80"
+          >
             <li>
               クリアなデータ提供は、利用者が本来確認可能な情報を中心に扱う方針です。従来の検証で組み込まれていた不可視の情報を排除し、利用者がアクセスできるデータに基づいて分析を行いその限界に挑戦します。
             </li>
@@ -267,32 +267,33 @@ const year = new Date().getFullYear();
             </li>
           </ul>
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
-            <a
-              href="/docs/start/what_is_fusou"
-              class="link link-hover text-blue-700">プロジェクト概要</a
+            <a href="/docs/start/what_is_fusou" class="link link-hover"
+              >プロジェクト概要</a
             >
             <a
               href="/docs/guide/fusou_datasets/getting_started"
-              class="link link-hover text-blue-700">Datasets ガイド</a
+              class="link link-hover">Datasets ガイド</a
             >
             <a
               href="https://github.com/tsukasa-u/FUSOU"
               target="_blank"
               rel="noreferrer"
-              class="link link-hover text-blue-700">GitHub</a
+              class="link link-hover">GitHub</a
             >
           </div>
         </section>
 
-        <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+        <section class="border-l-2 border-base-300 pl-5">
+          <h3 class="text-xl font-semibold text-base-content mb-3">
             公開している方針とポリシー
           </h3>
           <p class="text-sm leading-7 mb-4">
             FUSOUでは、利用条件・個人情報の扱い・通信運用・データ利用条件・著作権と引用に関する文書を公開しています。
             利用者が事前に確認できる状態を維持し、運用方針を変更する場合も追跡可能にしています。
           </p>
-          <ul class="list-disc pl-5 text-sm leading-7 space-y-1 text-zinc-700">
+          <ul
+            class="list-disc pl-5 text-sm leading-7 space-y-1 text-base-content/80"
+          >
             <li>
               通信安全基準では、通信機能の取り扱い範囲と運用原則を公開しています。
             </li>
@@ -309,24 +310,22 @@ const year = new Date().getFullYear();
           <div class="mt-4 flex flex-wrap gap-3 text-sm">
             <a
               href="/docs/policy/communication_integrity_policy"
-              class="link link-hover text-blue-700">通信安全基準</a
+              class="link link-hover">通信安全基準</a
             >
             <a
               href="/docs/policy/fusou_dataset_license_policy"
-              class="link link-hover text-blue-700">データセット利用方針</a
+              class="link link-hover">データセット利用方針</a
             >
             <a
               href="/docs/policy/copyright_quotation_policy"
-              class="link link-hover text-blue-700">著作権・引用ポリシー</a
+              class="link link-hover">著作権・引用ポリシー</a
             >
-            <a href="/contact" class="link link-hover text-blue-700"
-              >問い合わせ</a
-            >
+            <a href="/contact" class="link link-hover">問い合わせ</a>
           </div>
         </section>
 
-        <section class="border-l-2 border-zinc-300 pl-5">
-          <h3 class="text-xl font-semibold text-zinc-900 mb-3">
+        <section class="border-l-2 border-base-300 pl-5">
+          <h3 class="text-xl font-semibold text-base-content mb-3">
             意見・お問い合わせ
           </h3>
           <p class="text-sm leading-7 mb-4">
@@ -338,27 +337,26 @@ const year = new Date().getFullYear();
               href="https://github.com/tsukasa-u/FUSOU/discussions"
               target="_blank"
               rel="noreferrer"
-              class="link link-hover text-blue-700">GitHub Discussions</a
+              class="link link-hover">GitHub Discussions</a
             >
             <a
               href="https://github.com/tsukasa-u/FUSOU/issues/new"
               target="_blank"
               rel="noreferrer"
-              class="link link-hover text-blue-700"
-              >Bug Report / Feature Request</a
+              class="link link-hover">Bug Report / Feature Request</a
             >
             <a
               href="https://wavebox.me/wave/byvjx7nrs7350t54/"
               target="_blank"
               rel="noreferrer"
-              class="link link-hover text-blue-700">Wavebox で問い合わせ</a
+              class="link link-hover">Wavebox で問い合わせ</a
             >
           </div>
         </section>
       </div>
 
       <footer
-        class="pt-9 mt-10 border-t border-zinc-200 text-sm text-zinc-500 flex flex-col sm:flex-row justify-between items-center gap-4"
+        class="pt-9 mt-10 border-t border-base-300 text-sm text-base-content/60 flex flex-col sm:flex-row justify-between items-center gap-4"
       >
         <div>
           &copy; {year} FUSOU Project.
@@ -366,33 +364,34 @@ const year = new Date().getFullYear();
         <div class="flex gap-4">
           <a
             href="/docs/policy/terms"
-            class="hover:text-zinc-900 transition-colors">利用規約</a
+            class="hover:text-base-content transition-colors">利用規約</a
           >
           <a
             href="/docs/policy/privacy"
-            class="hover:text-zinc-900 transition-colors">プライバシー方針</a
+            class="hover:text-base-content transition-colors"
+            >プライバシー方針</a
           >
           <a
             href="/docs/policy/copyright_quotation_policy"
-            class="hover:text-zinc-900 transition-colors">著作権・引用</a
+            class="hover:text-base-content transition-colors">著作権・引用</a
           >
           <a
             href="https://github.com/tsukasa-u/FUSOU/issues"
             target="_blank"
             rel="noreferrer"
-            class="hover:text-zinc-900 transition-colors">Issues</a
+            class="hover:text-base-content transition-colors">Issues</a
           >
           <a
             href="https://github.com/tsukasa-u/FUSOU/pulls"
             target="_blank"
             rel="noreferrer"
-            class="hover:text-zinc-900 transition-colors">Pull Requests</a
+            class="hover:text-base-content transition-colors">Pull Requests</a
           >
           <a
             href="https://github.com/tsukasa-u/FUSOU/blob/main/LICENSE"
             target="_blank"
             rel="noreferrer"
-            class="hover:text-zinc-900 transition-colors">License</a
+            class="hover:text-base-content transition-colors">License</a
           >
         </div>
       </footer>
