@@ -8,7 +8,7 @@ license.workspace = true
 # apache-avro: Use different configurations based on features
 # For native builds (full feature): uses workspace with zstandard
 # For wasm builds: uses minimal config without zstandard
-apache-avro = { version = "0.17", default-features = false, features = ["snappy", "derive"] }
+apache-avro = { version = "0.19", default-features = false, features = ["snappy", "derive"] }
 register_trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
