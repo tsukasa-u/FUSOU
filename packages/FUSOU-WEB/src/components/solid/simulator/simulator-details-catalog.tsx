@@ -6,7 +6,6 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  onMount,
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
@@ -324,10 +323,6 @@ function groupBy<T>(
 
 function WeaponIcon(props: { iconNum: number }): JSX.Element {
   let host!: HTMLSpanElement;
-
-  onMount(() => {
-    host.replaceChildren(createWeaponIconEl(props.iconNum, 18));
-  });
 
   createEffect(() => {
     props.iconNum;

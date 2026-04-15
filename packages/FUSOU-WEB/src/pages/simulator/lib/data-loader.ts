@@ -294,6 +294,9 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   renderAll();
 }
 
+let _weaponIconDataUrl: string | null = null;
+let _shipTypeIconDataUrl: string | null = null;
+
 async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
   try {
     const res = await fetch(url);
@@ -474,53 +477,65 @@ export async function loadMasterData(renderAll: () => void) {
 
     if (iconFrameData) {
     const pngKey = "assets/kcs2/img/common/common_icon_weapon.png";
-    try {
-      const pngRes = await fetch("/api/asset-sync/weapon-icons");
-      if (pngRes.ok) {
-        const pngBlob = await pngRes.blob();
-        setSpriteSheetUrl(await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(pngBlob);
-        }));
-      } else {
+    if (_weaponIconDataUrl) {
+      setSpriteSheetUrl(_weaponIconDataUrl);
+    } else {
+      try {
+        const pngRes = await fetch("/api/asset-sync/weapon-icons");
+        if (pngRes.ok) {
+          const pngBlob = await pngRes.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(pngBlob);
+          });
+          _weaponIconDataUrl = dataUrl;
+          setSpriteSheetUrl(dataUrl);
+        } else {
+          const assetBaseUrl = getAssetBaseUrl();
+          setSpriteSheetUrl(assetBaseUrl
+            ? `${assetBaseUrl}/${pngKey}`
+            : "/api/asset-sync/weapon-icons");
+        }
+      } catch {
         const assetBaseUrl = getAssetBaseUrl();
         setSpriteSheetUrl(assetBaseUrl
           ? `${assetBaseUrl}/${pngKey}`
           : "/api/asset-sync/weapon-icons");
       }
-    } catch {
-      const assetBaseUrl = getAssetBaseUrl();
-      setSpriteSheetUrl(assetBaseUrl
-        ? `${assetBaseUrl}/${pngKey}`
-        : "/api/asset-sync/weapon-icons");
     }
   }
 
     if (shipTypeIconFrameData) {
     const pngKey = "assets/kcs2/img/organize/organize_ship.png";
-    try {
-      const pngRes = await fetch("/api/asset-sync/ship-type-icons");
-      if (pngRes.ok) {
-        const pngBlob = await pngRes.blob();
-        setShipTypeSpriteSheetUrl(await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(pngBlob);
-        }));
-      } else {
+    if (_shipTypeIconDataUrl) {
+      setShipTypeSpriteSheetUrl(_shipTypeIconDataUrl);
+    } else {
+      try {
+        const pngRes = await fetch("/api/asset-sync/ship-type-icons");
+        if (pngRes.ok) {
+          const pngBlob = await pngRes.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(pngBlob);
+          });
+          _shipTypeIconDataUrl = dataUrl;
+          setShipTypeSpriteSheetUrl(dataUrl);
+        } else {
+          const assetBaseUrl = getAssetBaseUrl();
+          setShipTypeSpriteSheetUrl(assetBaseUrl
+            ? `${assetBaseUrl}/${pngKey}`
+            : "/api/asset-sync/ship-type-icons");
+        }
+      } catch {
         const assetBaseUrl = getAssetBaseUrl();
         setShipTypeSpriteSheetUrl(assetBaseUrl
           ? `${assetBaseUrl}/${pngKey}`
           : "/api/asset-sync/ship-type-icons");
       }
-    } catch {
-      const assetBaseUrl = getAssetBaseUrl();
-      setShipTypeSpriteSheetUrl(assetBaseUrl
-        ? `${assetBaseUrl}/${pngKey}`
-        : "/api/asset-sync/ship-type-icons");
     }
   }
 

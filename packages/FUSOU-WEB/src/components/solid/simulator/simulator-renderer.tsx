@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 
-import { Index, Show, createContext, createEffect, createMemo, createSignal, onMount, useContext, type JSX } from "solid-js";
+import { Index, Show, createContext, createEffect, createMemo, createSignal, useContext, type JSX } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useStore } from "@nanostores/solid";
 import { render } from "solid-js/web";
@@ -222,13 +222,11 @@ function ImpBadge(props: { level: number; hovered?: boolean }): JSX.Element {
 function WeaponIcon(props: { iconNum: number }): JSX.Element {
   let host!: HTMLSpanElement;
 
-  onMount(() => {
-    host.replaceChildren(createWeaponIconEl(props.iconNum, 16));
-  });
-
-  createMemo(() => {
-    props.iconNum;
-    if (!host) return;
+  // createEffect is deferred until after the span ref is set, and re-runs
+  // reactively whenever iconNum changes. Replaces the previous onMount +
+  // createMemo anti-pattern (createMemo is for pure computations, not
+  // side-effects; also called createWeaponIconEl twice on mount).
+  createEffect(() => {
     host.replaceChildren(createWeaponIconEl(props.iconNum, 16));
   });
 
@@ -241,6 +239,55 @@ function DeleteIcon(): JSX.Element {
       <path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.95" stroke-linecap="round" />
     </svg>
   );
+}
+
+// ── Slot equality helpers ──
+// Each mutation emits a full deep-clone of all slots (state.ts:snapshotFleetState).
+// Without a custom equality check every ShipCard re-evaluates its viewSlot memo
+// and returns a new object reference, cascading into shipData recompute and a full
+// "Show keyed" re-mount for all 24 slots even when only 1 changed.
+// These helpers let the 23 unaffected slots skip the cascade entirely.
+
+function shallowObjEqual(
+  a: Record<string, number | undefined> | undefined,
+  b: Record<string, number | undefined> | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function fleetSlotEqual(prev: FleetSlot | null, next: FleetSlot | null): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  if (prev.shipId !== next.shipId || prev.shipLevel !== next.shipLevel) return false;
+  if (prev.exSlotId !== next.exSlotId || prev.exSlotImprovement !== next.exSlotImprovement) return false;
+  const len = Math.max(prev.equipIds.length, next.equipIds.length);
+  for (let i = 0; i < len; i++) {
+    if (prev.equipIds[i] !== next.equipIds[i]) return false;
+    if (prev.equipImprovement[i] !== next.equipImprovement[i]) return false;
+    if (prev.equipProficiency[i] !== next.equipProficiency[i]) return false;
+  }
+  if (!shallowObjEqual(prev.statOverrides as Record<string, number | undefined> | undefined, next.statOverrides as Record<string, number | undefined> | undefined)) return false;
+  if (!shallowObjEqual(prev.instanceStats as Record<string, number | undefined> | undefined, next.instanceStats as Record<string, number | undefined> | undefined)) return false;
+  return true;
+}
+
+function airBaseSlotEqual(prev: AirBaseSlot | null, next: AirBaseSlot | null): boolean {
+  if (prev === next) return true;
+  if (!prev || !next) return false;
+  const len = Math.max(prev.equipIds.length, next.equipIds.length);
+  for (let i = 0; i < len; i++) {
+    if (prev.equipIds[i] !== next.equipIds[i]) return false;
+    if (prev.equipImprovement[i] !== next.equipImprovement[i]) return false;
+    if (prev.equipProficiency[i] !== next.equipProficiency[i]) return false;
+  }
+  return true;
 }
 
 type StatDef = [
@@ -455,7 +502,7 @@ function ShipCard(props: {
         ? fleets.fleet3
         : fleets.fleet4;
     return fleet[props.idx] ?? null;
-  });
+  }, undefined, { equals: fleetSlotEqual });
 
   const ship = createMemo(() => {
     const slot = viewSlot();
@@ -625,8 +672,11 @@ function ShipCard(props: {
             const isRangeStat = key === "leng";
             const isLabeledStat = isSpeedStat || isRangeStat;
             const baseRef = st[2] ?? st[5] ?? 0;
-            const minVal = () => getBulkBounds(st).lo;
-            const maxVal = () => getBulkBounds(st).hi;
+            // Single memo so getBulkBounds (which reads overrideEnabled()) is
+            // computed only once per reactive update instead of once per call site.
+            const bounds = createMemo(() => getBulkBounds(st));
+            const minVal = () => bounds().lo;
+            const maxVal = () => bounds().hi;
             const isDisabled = () => isNonEditable && !overrideEnabled();
             const current = () => Number(bulkDraft[key] ?? baseRef);
             const pct = () => {
@@ -1056,9 +1106,8 @@ function ShipCard(props: {
 }
 
 function FleetSlotsView(props: { fleetIndex: 1 | 2 | 3 | 4 }): JSX.Element {
-  const $fleetState = useStore(simulatorFleetState);
-  createMemo(() => $fleetState());
-
+  // Each ShipCard subscribes to simulatorFleetState independently via useStore.
+  // No top-level subscription needed here.
   return (
     <Index each={FLEET_SLOT_INDEXES}>
       {(idx) => (
@@ -1070,9 +1119,11 @@ function FleetSlotsView(props: { fleetIndex: 1 | 2 | 3 | 4 }): JSX.Element {
 
 function AirBaseCard(props: { index: number }): JSX.Element {
   const $airbaseState = useStore(simulatorAirbaseState);
-  const viewBase = createMemo(() => {
-    return $airbaseState()[props.index] ?? null;
-  });
+  const viewBase = createMemo(
+    () => $airbaseState()[props.index] ?? null,
+    undefined,
+    { equals: airBaseSlotEqual },
+  );
   const baseRadiusInfo = createMemo(() => {
     const base = viewBase();
     if (!base) return { baseRadius: 0, bonus: 0, finalRadius: 0 };
@@ -1192,9 +1243,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
 }
 
 function AirBaseView(): JSX.Element {
-  const $airbaseState = useStore(simulatorAirbaseState);
-  createMemo(() => $airbaseState());
-
+  // Each AirBaseCard subscribes to simulatorAirbaseState independently via useStore.
   return (
     <Index each={AIRBASE_INDEXES}>
       {(i) => <AirBaseCard index={i()} />}

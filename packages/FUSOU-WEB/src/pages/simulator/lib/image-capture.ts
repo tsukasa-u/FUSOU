@@ -108,6 +108,7 @@ function logSaveImageDiagnostics(diag: SaveImageDiagnostics) {
 // (Map preserves insertion order, so the first key is the oldest).
 const IMAGE_CACHE_MAX = 100;
 const externalImageDataUrlCache = new Map<string, string>();
+const externalImageInFlight = new Map<string, Promise<string | null>>();
 
 function setImageCache(url: string, dataUrl: string): void {
   if (externalImageDataUrlCache.size >= IMAGE_CACHE_MAX) {
@@ -169,11 +170,21 @@ async function getCachedExternalDataUrl(absUrl: string, stats?: CaptureStats): P
     if (stats) stats.cacheHitImages += 1;
     return cached;
   }
+  const inFlight = externalImageInFlight.get(absUrl);
+  if (inFlight) {
+    if (stats) stats.cacheHitImages += 1;
+    return inFlight;
+  }
   if (stats) {
     stats.cacheMissImages += 1;
     stats.proxyFetchImages += 1;
   }
-  return fetchProxyImageAsDataUrl(absUrl);
+  const request = fetchProxyImageAsDataUrl(absUrl)
+    .finally(() => {
+      externalImageInFlight.delete(absUrl);
+    });
+  externalImageInFlight.set(absUrl, request);
+  return request;
 }
 
 /**
@@ -189,7 +200,7 @@ export function prefetchExternalUrlForExport(absUrl: string): void {
     if (u.origin === window.location.origin) return; // same-origin: no proxy needed
     if (u.protocol !== "https:") return;             // proxy only accepts https
   } catch { return; }
-  fetchProxyImageAsDataUrl(absUrl).catch(() => {});
+  getCachedExternalDataUrl(absUrl).catch(() => {});
 }
 
 export async function prewarmVisibleExternalImageCache(root: Pick<Element, "querySelectorAll">) {
@@ -319,7 +330,8 @@ async function buildCaptureNode(opts: {
     const bgImageUrl = bgImage ? extractCssUrl(bgImage) : null;
     const bgImageIsInlineExternal = !!(bgImageUrl &&
       (bgImageUrl.startsWith("http://") || bgImageUrl.startsWith("https://")));
-    if (bgImageIsInlineExternal) {
+    const skipExternalImageFetch = opts.hideExternalImages || opts.safeMode;
+    if (bgImageIsInlineExternal && !skipExternalImageFetch) {
       const rawUrl = bgImageUrl!;
       tasks.push((async () => {
         try {
@@ -334,6 +346,9 @@ async function buildCaptureNode(opts: {
           }
         } catch { /* leave as-is */ }
       })());
+    } else if (bgImageIsInlineExternal && skipExternalImageFetch) {
+      node.style.backgroundImage = "none";
+      stats.hiddenImages += 1;
     }
 
     if (
@@ -382,7 +397,8 @@ async function buildCaptureNode(opts: {
       }
       if (isExternal) stats.externalImages += 1;
 
-      if (opts.useImageProxy && isExternal && absSrc) {
+      const shouldHideExternal = (opts.hideExternalImages || opts.safeMode) && isExternal;
+      if (opts.useImageProxy && isExternal && absSrc && !shouldHideExternal) {
         tasks.push((async () => {
           const dataUrl = await getCachedExternalDataUrl(absSrc, stats);
           if (dataUrl) {
@@ -396,7 +412,7 @@ async function buildCaptureNode(opts: {
           }
         })());
       }
-      if ((opts.hideExternalImages || opts.safeMode) && isExternal) {
+      if (shouldHideExternal) {
         node.removeAttribute("src");
         node.style.visibility = "hidden";
         stats.hiddenImages += 1;

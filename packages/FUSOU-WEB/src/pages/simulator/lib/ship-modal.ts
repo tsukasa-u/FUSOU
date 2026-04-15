@@ -307,8 +307,6 @@ export function openShipModal(
   requestAnimationFrame(() => {
     if (autoShowShip) {
       scheduleScrollToCurrentShip();
-    } else {
-      search.focus();
     }
   });
 }

@@ -126,11 +126,20 @@ Rules:
 ## 05 / FORM ELEMENTS
 
 - Inputs use dark surfaces with clear border contrast.
-- Focus state must be visible with border/accent shift.
+- Focus state must be visible with a single border/accent shift only.
+- Do not use double focus affordances on text inputs, selects, textareas, or file inputs.
+- Suppress default outline/ring combinations from DaisyUI or the browser when they create a double border effect.
 - Error state must include both color and explanatory text.
 - Labels and helper text should remain readable on dark backgrounds.
 - Selects, tabs, and filters should share consistent control height within the same toolbar.
 - Any async form action must show loading and post-action result feedback.
+
+Mobile readability rules:
+
+- On initial page composition, input-like controls must not receive focus automatically.
+- When a modal opens, focus must stay on the dialog shell or trigger context, not jump into an input automatically.
+- Never call `.focus()` on a modal search field by default unless the task explicitly requires immediate keyboard entry.
+- Avoid opening the on-screen keyboard on coarse pointer devices as a side effect of layout or modal presentation.
 
 ## 06 / SPACING SYSTEM
 
@@ -205,7 +214,14 @@ Use these shared primitives to keep UI changes low-cost and consistent.
 ### Global Baseline
 
 - Buttons, cards, modals, and table headers are normalized in src/assets/app.css.
+- Input, select, textarea, and file-input focus styling is also normalized there to keep focus treatment single-line and mobile-safe.
 - Prefer this baseline over page-local overrides unless behavior requires exceptions.
+
+### Modal Focus Behavior Rules
+
+- Opening a modal must not auto-focus an input field.
+- The dialog container may receive focus for accessibility and keyboard escape handling, but text entry controls should wait for explicit user action.
+- If a modal contains a search field, leave it unfocused on open and let the user tap or click into it.
 
 ### Alert and Status Message Rules
 

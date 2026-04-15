@@ -19,6 +19,7 @@ interface CacheEntry {
 
 const responseCache = new Map<string, CacheEntry>();
 const inflightRequests = new Map<string, Promise<Response>>();
+let _totalCacheBytes = 0;
 
 const DEFAULT_TTL_MS = 600_000; // 10 minutes
 const MAX_CACHE_ENTRIES = 60;
@@ -96,32 +97,32 @@ function estimateSizeBytes(text: string): number {
   return new TextEncoder().encode(text).byteLength;
 }
 
-function totalCacheBytes(): number {
-  let total = 0;
-  for (const entry of responseCache.values()) {
-    total += entry.sizeBytes;
-  }
-  return total;
+function deleteCacheEntry(key: string): boolean {
+  const entry = responseCache.get(key);
+  if (!entry) return false;
+  responseCache.delete(key);
+  _totalCacheBytes -= entry.sizeBytes;
+  return true;
 }
 
 function evictStaleEntries(): void {
   const now = Date.now();
   for (const [key, entry] of responseCache) {
     if (now - entry.storedAt > DEFAULT_TTL_MS) {
-      responseCache.delete(key);
+      deleteCacheEntry(key);
     }
   }
 
   while (
     responseCache.size > MAX_CACHE_ENTRIES ||
-    totalCacheBytes() > MAX_TOTAL_CACHE_BYTES
+    _totalCacheBytes > MAX_TOTAL_CACHE_BYTES
   ) {
     const sorted = [...responseCache.entries()].sort(
       (a, b) => a[1].storedAt - b[1].storedAt,
     );
     const oldest = sorted[0];
     if (!oldest) break;
-    responseCache.delete(oldest[0]);
+    deleteCacheEntry(oldest[0]);
   }
 }
 
@@ -192,6 +193,9 @@ export function cachedFetch(
           response.headers.forEach((value, key) => {
             headerPairs.push([key, value]);
           });
+          // Remove old entry's bytes before overwriting
+          const prev = responseCache.get(cacheKey);
+          if (prev) _totalCacheBytes -= prev.sizeBytes;
           responseCache.set(cacheKey, {
             body: bodyText,
             status: response.status,
@@ -199,6 +203,7 @@ export function cachedFetch(
             storedAt: Date.now(),
             sizeBytes,
           });
+          _totalCacheBytes += sizeBytes;
           evictStaleEntries();
         } catch {
           // If we can't cache, that's fine — just return the original

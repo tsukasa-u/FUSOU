@@ -198,8 +198,6 @@ export function openEquipModal(
   requestAnimationFrame(() => {
     if (autoShowEquip) {
       scheduleScrollToCurrentEquip();
-    } else {
-      search.focus();
     }
   });
 }
