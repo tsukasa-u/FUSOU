@@ -1,6 +1,8 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
+import PageShell from "@/components/ui/PageShell.astro";
+import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
 ---
@@ -43,52 +45,43 @@ export const prerender = false;
   }}
 >
   <Navigation filled={true} />
-  <div class="pt-16 min-h-screen bg-base-200">
-    <div class="max-w-[1440px] mx-auto px-4 py-8">
-      <!-- Header -->
-      <div
-        class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4"
-      >
-        <div>
-          <h1 class="text-3xl font-bold">保存済み艦隊</h1>
-          <p class="text-base-content/60 mt-1">
-            R2に保存された艦隊スナップショットの一覧
-          </p>
-        </div>
-        <a href="/simulator" class="btn btn-primary btn-sm">新規編成</a>
-      </div>
+  <PageShell>
+    <PageHeader
+      title="保存済み艦隊"
+      subtitle="R2に保存された艦隊スナップショットの一覧"
+    >
+      <Fragment slot="actions">
+        <a href="/simulator" class="fusou-btn-primary">新規編成</a>
+      </Fragment>
+    </PageHeader>
 
-      <!-- Fleet List -->
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body p-0">
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th>タグ名</th>
-                  <th>保存日時</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="fleet-list-body">
-                <tr>
-                  <td colspan="3" class="text-center py-12">
-                    <span class="loading loading-spinner loading-md"></span>
-                    <p class="mt-2 text-base-content/40">読込中...</p>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+    <div class="fusou-card">
+      <div class="card-body p-0">
+        <div class="overflow-x-auto">
+          <table class="table table-zebra table-sm">
+            <thead>
+              <tr>
+                <th>タグ名</th>
+                <th>保存日時</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="fleet-list-body">
+              <tr>
+                <td colspan="3" class="text-center py-12">
+                  <span class="loading loading-spinner loading-md"></span>
+                  <p class="mt-2 text-base-content/40">読込中...</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
-  </div>
+  </PageShell>
 
   <!-- Copyright footer -->
-  <footer
-    class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1440px] mx-auto text-center"
-  >
+  <footer class="fusou-footer-note max-w-[1440px] mx-auto">
     <p
       class="text-xs text-base-content/40 leading-relaxed inline-block text-left text-balance max-w-2xl"
     >

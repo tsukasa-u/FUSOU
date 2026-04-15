@@ -2,6 +2,8 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
+import PageShell from "@/components/ui/PageShell.astro";
+import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
 ---
@@ -53,34 +55,24 @@ export const prerender = false;
   }}
 >
   <Navigation filled={true} />
-  <div class="pt-16 min-h-screen bg-base-200">
-    <div class="max-w-[1500px] mx-auto px-4 py-6">
-      <div
-        class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-5"
-      >
-        <div>
-          <h1 class="text-2xl font-bold tracking-tight">艦詳細 / 装備詳細</h1>
-          <p class="text-sm text-base-content/55 mt-0.5">
-            艦隊シミュレータと並列に、艦と装備の詳細を確認
-          </p>
-        </div>
-        <div class="flex gap-2 flex-wrap">
-          <a href="/simulator" class="btn btn-ghost btn-sm"
-            >シミュレータへ戻る</a
-          >
-        </div>
-      </div>
+  <PageShell container="wide" paddingY="6">
+    <PageHeader
+      title="艦詳細 / 装備詳細"
+      subtitle="艦隊シミュレータと並列に、艦と装備の詳細を確認"
+      compact={true}
+    >
+      <Fragment slot="actions">
+        <a href="/simulator" class="fusou-btn-ghost">シミュレータへ戻る</a>
+      </Fragment>
+    </PageHeader>
 
-      <DataStatusAlert mb="mb-4" initialText="マスターデータを読込中..." />
+    <DataStatusAlert mb="mb-4" initialText="マスターデータを読込中..." />
 
-      <div id="simulator-details-root" class="min-h-96"></div>
-    </div>
-  </div>
+    <div id="simulator-details-root" class="min-h-96"></div>
+  </PageShell>
 
   <!-- Copyright footer -->
-  <footer
-    class="border-t border-base-300/60 mt-8 py-4 px-4 max-w-[1500px] mx-auto text-center"
-  >
+  <footer class="fusou-footer-note max-w-[1500px] mx-auto">
     <p
       class="text-xs text-base-content/40 leading-relaxed inline-block text-left text-balance max-w-2xl"
     >

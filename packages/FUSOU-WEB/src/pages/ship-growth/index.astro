@@ -2,6 +2,8 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import ShipGrowthPanel from "@/components/solid/ShipGrowthPanel";
+import PageShell from "@/components/ui/PageShell.astro";
+import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
 ---
@@ -20,16 +22,12 @@ export const prerender = false;
   }}
 >
   <Navigation filled={true} />
-  <div class="pt-16 min-h-screen bg-base-200">
-    <div class="max-w-[1440px] mx-auto px-4 py-8">
-      <div class="mb-6">
-        <h1 class="text-3xl font-bold">パラメータ推移</h1>
-        <p class="text-base-content/60 mt-1">
-          収集された経験値テーブルと naked パラメータ成長の可視化
-        </p>
-      </div>
+  <PageShell>
+    <PageHeader
+      title="パラメータ推移"
+      subtitle="収集された経験値テーブルと naked パラメータ成長の可視化"
+    />
 
-      <ShipGrowthPanel client:only="solid-js" />
-    </div>
-  </div>
+    <ShipGrowthPanel client:only="solid-js" />
+  </PageShell>
 </PageLayout>

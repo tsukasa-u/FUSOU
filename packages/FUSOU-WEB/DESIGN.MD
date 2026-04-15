@@ -20,6 +20,12 @@ Use this DESIGN.md as the default visual specification for UI work in FUSOU-Proj
 - Keep interaction labels explicit and action-oriented.
 - Preserve existing page behavior unless explicitly requested.
 
+Implementation contract for consistency:
+
+- Reuse page primitives before writing page-specific wrappers.
+- Prefer shared classes/components over one-off inline class stacks.
+- When introducing a new UI pattern, define it once as a reusable primitive.
+
 ## 01 / COLOR PALETTE
 
 ### Brand
@@ -162,6 +168,83 @@ Rules:
 
 - Prefer border contrast over shadow stacking.
 - Keep hover elevation subtle; avoid motion-heavy depth illusions.
+
+## 09 / REUSABLE PRIMITIVES
+
+Use these shared primitives to keep UI changes low-cost and consistent.
+
+### Shared Components
+
+- src/components/ui/PageShell.astro
+  - Standard page frame (top offset, background, container width, vertical rhythm)
+- src/components/ui/PageHeader.astro
+  - Standard page title/subtitle/actions layout
+- src/components/AlertBox.astro
+  - Shared alert for Astro pages (info/success/warning/error)
+- src/components/solid/common/AlertMessage.tsx
+  - Shared alert for Solid panels (info/success/warning/error)
+
+### Shared Utility Classes
+
+- Layout
+  - .fusou-page
+  - .fusou-page-container
+  - .fusou-page-header
+  - .fusou-page-title / .fusou-page-title-compact
+  - .fusou-page-subtitle / .fusou-page-subtitle-compact
+  - .fusou-page-actions
+- Surfaces
+  - .fusou-card
+  - .fusou-card-body
+  - .fusou-footer-note
+- Actions
+  - .fusou-btn-primary
+  - .fusou-btn-secondary
+  - .fusou-btn-ghost
+
+### Global Baseline
+
+- Buttons, cards, modals, and table headers are normalized in src/assets/app.css.
+- Prefer this baseline over page-local overrides unless behavior requires exceptions.
+
+### Alert and Status Message Rules
+
+- Never handcraft one-off warning/info/error blocks when reusable alert components are available.
+- Astro pages must use src/components/AlertBox.astro for status callouts.
+- Solid components must use src/components/solid/common/AlertMessage.tsx for status callouts.
+- Alert visual variants are defined centrally by `.alert.alert-info|success|warning|error` in src/assets/app.css.
+- Alert content must include icon + message at minimum, and optional title only when needed.
+
+### Tutorial Control Preview Rules
+
+- In src/components/TutorialModal.astro, control preview chips must reuse real button variants:
+  - `btn-primary` for primary controls
+  - `btn-outline` for outline controls
+  - `btn-ghost` for low-emphasis controls
+- Do not define separate preview-only color palettes for these controls.
+- Each preview row must vertically center-align the button and text (`items-center`).
+- Adjacent description text should use compact line-height suitable for single-line labels.
+
+### Navigation and Header Action Border Rules
+
+- Navigation buttons should not show border lines.
+  - Enforced by `.navbar .btn { border-width: 0; border-color: transparent; }` in src/assets/app.css.
+- Page header action buttons should also stay borderless under `.fusou-page-actions .btn`.
+- If a specific button truly requires a border for semantics, document the exception in the page-level change summary.
+
+### Reproduction Checklist (When Adding New UI)
+
+- Add status messaging through AlertBox (Astro) or AlertMessage (Solid), not inline div stacks.
+- Reuse `.btn` variants directly in tutorial control previews.
+- Keep preview button/text rows vertically centered.
+- Verify navigation/header action button borders remain disabled.
+- Run at least file-level diagnostics on changed files before completion.
+
+### Extension Rules
+
+- New primitives must be added to shared layer first (component or utility class).
+- Do not duplicate equivalent patterns with slightly different spacing/radius.
+- If an exception is needed, document why in page comments or PR summary.
 
 ## Additional Links
 

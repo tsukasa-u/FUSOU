@@ -1,12 +1,7 @@
 /** @jsxImportSource solid-js */
-import {
-  For,
-  Show,
-  createMemo,
-  createSignal,
-  onMount,
-} from "solid-js";
+import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { cachedFetch } from "@/utility/fetchCache";
+import { AlertMessage } from "./common/AlertMessage";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -55,7 +50,8 @@ type RulesData = {
 function parsePrereqSet(json: string): number[] {
   try {
     const parsed = JSON.parse(json);
-    if (Array.isArray(parsed)) return parsed.filter((v) => typeof v === "number");
+    if (Array.isArray(parsed))
+      return parsed.filter((v) => typeof v === "number");
   } catch {}
   return [];
 }
@@ -111,7 +107,7 @@ function computeSimpleLayout(
   while (queue.length > 0) {
     const current = queue.shift()!;
     const d = depth.get(current) ?? 0;
-    for (const next of (outEdges.get(current) ?? [])) {
+    for (const next of outEdges.get(current) ?? []) {
       const nextDepth = Math.max(depth.get(next) ?? 0, d + 1);
       depth.set(next, nextDepth);
       inDegree.set(next, (inDegree.get(next) ?? 1) - 1);
@@ -183,11 +179,13 @@ export default function QuestTreePanel() {
       const url = `/api/quest-tree/graph?period_tag=${encodeURIComponent(periodTag())}&table_version=${encodeURIComponent(tableVersion())}`;
       const res = await cachedFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json() as GraphData;
+      const json = (await res.json()) as GraphData;
       if (!json.ok) throw new Error("Unexpected response");
       setGraphData(json);
     } catch (e) {
-      setError(`グラフデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `グラフデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } finally {
       setLoadingGraph(false);
     }
@@ -206,11 +204,13 @@ export default function QuestTreePanel() {
       const url = `/api/quest-tree/rules?target=${target}&period_tag=${encodeURIComponent(periodTag())}&table_version=${encodeURIComponent(tableVersion())}`;
       const res = await cachedFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json() as RulesData;
+      const json = (await res.json()) as RulesData;
       if (!json.ok) throw new Error("Unexpected response");
       setRulesData(json);
     } catch (e) {
-      setError(`ルールデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `ルールデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } finally {
       setLoadingRules(false);
     }
@@ -242,9 +242,7 @@ export default function QuestTreePanel() {
       </div>
 
       <Show when={error()}>
-        <div class="alert alert-error">
-          <span>{error()}</span>
-        </div>
+        <AlertMessage type="error">{error()}</AlertMessage>
       </Show>
 
       {/* Rules view */}
@@ -290,13 +288,17 @@ export default function QuestTreePanel() {
               <div class="card-body">
                 <h2 class="card-title text-lg">
                   クエスト {data().target} の達成条件
-                  <span class="badge badge-neutral ml-2">{data().rules.length} ルール</span>
+                  <span class="badge badge-neutral ml-2">
+                    {data().rules.length} ルール
+                  </span>
                 </h2>
                 <p class="text-sm text-base-content/60">
                   期間: {data().period_tag} / v{data().table_version}
                 </p>
                 <Show when={data().rules.length === 0}>
-                  <p class="text-base-content/50 mt-4">このクエストのルールが見つかりません。</p>
+                  <p class="text-base-content/50 mt-4">
+                    このクエストのルールが見つかりません。
+                  </p>
                 </Show>
                 <div class="space-y-3 mt-2">
                   <For each={data().rules}>
@@ -306,9 +308,13 @@ export default function QuestTreePanel() {
                         <div class="border border-base-300 rounded-lg p-4">
                           <div class="flex flex-wrap gap-2 items-center mb-2">
                             <Show when={rule.is_primary === 1}>
-                              <span class="badge badge-primary badge-sm">primary</span>
+                              <span class="badge badge-primary badge-sm">
+                                primary
+                              </span>
                             </Show>
-                            <span class={`badge badge-sm ${confidenceColor(rule.confidence)}`}>
+                            <span
+                              class={`badge badge-sm ${confidenceColor(rule.confidence)}`}
+                            >
                               信頼度 {(rule.confidence * 100).toFixed(1)}%
                             </span>
                             <span class="badge badge-outline badge-sm">
@@ -318,7 +324,9 @@ export default function QuestTreePanel() {
                               スコア {rule.score.toFixed(3)}
                             </span>
                             <span class="badge badge-ghost badge-sm">
-                              品質: {QUALITY_LABELS[rule.quality_tier] ?? rule.quality_tier}
+                              品質:{" "}
+                              {QUALITY_LABELS[rule.quality_tier] ??
+                                rule.quality_tier}
                             </span>
                           </div>
                           <div class="flex flex-wrap gap-2 items-center">
@@ -339,7 +347,9 @@ export default function QuestTreePanel() {
                               )}
                             </For>
                             <span class="text-base-content/60 text-sm">→</span>
-                            <span class="badge badge-secondary">#{rule.target_quest_id}</span>
+                            <span class="badge badge-secondary">
+                              #{rule.target_quest_id}
+                            </span>
                           </div>
                         </div>
                       );
@@ -384,7 +394,9 @@ export default function QuestTreePanel() {
                 const g = graphData()!;
                 const limitedNodes = g.nodes.slice(0, 200);
                 const limitedEdges = g.edges.filter(
-                  (e) => limitedNodes.includes(e.from) && limitedNodes.includes(e.to),
+                  (e) =>
+                    limitedNodes.includes(e.from) &&
+                    limitedNodes.includes(e.to),
                 );
                 return (
                   <div class="w-full overflow-x-auto">
@@ -403,7 +415,10 @@ export default function QuestTreePanel() {
                           refY="3"
                           orient="auto"
                         >
-                          <polygon points="0 0, 8 3, 0 6" fill="oklch(var(--bc)/0.5)" />
+                          <polygon
+                            points="0 0, 8 3, 0 6"
+                            fill="oklch(var(--bc)/0.5)"
+                          />
                         </marker>
                       </defs>
                       {/* Edges */}

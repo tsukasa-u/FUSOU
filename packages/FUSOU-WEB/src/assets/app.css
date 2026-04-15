@@ -75,6 +75,84 @@
   --noise: 0;
 }
 
+/* Global baseline normalization for consistent UI across pages */
+.btn {
+  @apply rounded-lg font-medium;
+  letter-spacing: 0.01em;
+}
+
+.btn:not(.btn-link) {
+  border-width: 1px;
+  border-color: color-mix(in oklch, var(--color-base-content) 14%, transparent);
+}
+
+.btn.btn-primary {
+  border-color: color-mix(
+    in oklch,
+    var(--color-primary-content) 45%,
+    transparent
+  );
+}
+
+.btn.btn-outline,
+.btn.btn-ghost {
+  border-color: color-mix(in oklch, var(--color-base-content) 18%, transparent);
+}
+
+.btn.btn-link {
+  border-color: transparent;
+}
+
+.btn.btn-sm {
+  min-height: 2rem;
+}
+
+.btn.btn-ghost {
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 12%, transparent);
+}
+
+.navbar .btn {
+  border-width: 0;
+  border-color: transparent;
+}
+
+.card {
+  @apply rounded-xl shadow-none;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 12%, transparent);
+}
+
+.modal-box {
+  @apply rounded-xl shadow-none;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 14%, transparent);
+}
+
+.table th {
+  @apply font-semibold;
+}
+
+.alert {
+  @apply rounded-xl border text-sm;
+  border-width: 1px;
+}
+
+.alert.alert-info {
+  @apply bg-info/10 border-info text-base-content/85;
+}
+
+.alert.alert-success {
+  @apply bg-success/10 border-success text-base-content/85;
+}
+
+.alert.alert-warning {
+  @apply bg-warning/10 border-warning text-base-content/85;
+}
+
+.alert.alert-error {
+  @apply bg-error/10 border-error text-base-content/85;
+}
 
 .markdown h1 {
   @apply text-3xl font-bold;
@@ -365,6 +443,92 @@
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
   border-bottom: 1px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}
+
+/* FUSOU design primitives */
+.fusou-page {
+  @apply pt-16 min-h-screen bg-base-200;
+}
+
+.fusou-page-container {
+  @apply mx-auto px-4;
+}
+
+.fusou-page-header {
+  @apply flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6;
+}
+
+.fusou-page-title {
+  @apply text-3xl font-bold tracking-tight;
+}
+
+.fusou-page-title-compact {
+  @apply text-2xl font-bold tracking-tight;
+}
+
+.fusou-page-subtitle {
+  @apply text-base text-base-content/60 mt-1;
+}
+
+.fusou-page-subtitle-compact {
+  @apply text-sm text-base-content/55 mt-0.5;
+}
+
+.fusou-page-actions {
+  @apply flex gap-2 flex-wrap;
+}
+
+.fusou-page-actions .btn {
+  border-width: 0;
+  border-color: transparent;
+}
+
+.fusou-card {
+  @apply bg-base-100 rounded-xl border border-base-300/60;
+}
+
+.fusou-card-body {
+  @apply p-6;
+}
+
+.fusou-btn-primary {
+  @apply btn btn-primary btn-sm rounded-lg border border-primary-content/45;
+}
+
+.fusou-btn-secondary {
+  @apply btn btn-outline btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-btn-ghost {
+  @apply btn btn-ghost btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-footer-note {
+  @apply border-t border-base-300/60 mt-8 py-4 px-4 text-center;
+}
+
+.fusou-control-preview {
+  @apply inline-flex items-center gap-1.5 pointer-events-none select-none;
+}
+
+.fusou-control-preview-icon {
+  @apply inline-flex items-center justify-center w-5 h-5 rounded-md border border-base-300/80 text-base-content/55 bg-base-100;
+}
+
+.fusou-control-preview-chip {
+  @apply inline-flex items-center h-7 min-h-7 px-2.5 rounded-md text-[11px] font-semibold pointer-events-none select-none;
+}
+
+.fusou-control-preview-chip-primary {
+  @apply bg-primary/16 text-primary border-primary/45;
+}
+
+.fusou-control-preview-chip-outline {
+  @apply bg-base-100 text-base-content/75 border-base-300/90;
+}
+
+.fusou-control-preview-chip-ghost {
+  @apply bg-base-200 text-base-content/70 border-base-300/70;
 }
 
 .markdown

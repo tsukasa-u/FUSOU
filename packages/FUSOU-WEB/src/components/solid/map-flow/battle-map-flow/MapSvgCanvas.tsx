@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { For, Show } from "solid-js";
+import { For, Show, createEffect, createSignal } from "solid-js";
 import { isSafeImageUrl } from "@/utility/security";
 import type { ResolvedRouteOverlay, SelectedCellFilter } from "./types";
 import {
@@ -24,6 +24,26 @@ export default function MapSvgCanvas(props: Props) {
   const seaFrame = () => o().asset.seaMapFrame;
   const hasOfficialBackgroundImage = () =>
     o().asset.spriteUrl.length > 0 && isSafeImageUrl(o().asset.spriteUrl);
+  const [officialImageLoaded, setOfficialImageLoaded] = createSignal(false);
+  const [officialImageFailed, setOfficialImageFailed] = createSignal(false);
+
+  createEffect(() => {
+    const useOfficialAssets = props.showOfficialMapAssets();
+    const spriteUrl = o().asset.spriteUrl;
+    if (!useOfficialAssets || !spriteUrl || !hasOfficialBackgroundImage()) {
+      setOfficialImageLoaded(false);
+      setOfficialImageFailed(false);
+      return;
+    }
+    setOfficialImageLoaded(false);
+    setOfficialImageFailed(false);
+  });
+
+  const shouldUseOfficialScale = () =>
+    props.showOfficialMapAssets() &&
+    hasOfficialBackgroundImage() &&
+    officialImageLoaded() &&
+    !officialImageFailed();
 
   return (
     <div class="rounded-box overflow-hidden border border-base-300 bg-slate-100 shadow-inner">
@@ -32,10 +52,29 @@ export default function MapSvgCanvas(props: Props) {
         class="w-full h-auto block"
       >
         <defs>
-          <pattern id="map-flow-grid" width="48" height="48" patternUnits="userSpaceOnUse">
-            <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#cbd5e1" stroke-width="1" opacity="0.55" />
+          <pattern
+            id="map-flow-grid"
+            width="48"
+            height="48"
+            patternUnits="userSpaceOnUse"
+          >
+            <path
+              d="M 48 0 L 0 0 0 48"
+              fill="none"
+              stroke="#cbd5e1"
+              stroke-width="1"
+              opacity="0.55"
+            />
           </pattern>
-          <marker id="sortie-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+          <marker
+            id="sortie-arrow"
+            markerWidth="10"
+            markerHeight="10"
+            refX="8"
+            refY="5"
+            orient="auto"
+            markerUnits="userSpaceOnUse"
+          >
             <path d="M 0 0 L 10 5 L 0 10 z" fill="#f43f5e" />
           </marker>
           <clipPath id="map-sea-clip">
@@ -47,19 +86,27 @@ export default function MapSvgCanvas(props: Props) {
             />
           </clipPath>
         </defs>
-        <rect x="0" y="0" width={o().asset.routeLayoutFrame.width} height={o().asset.routeLayoutFrame.height} fill="#f8fafc" />
+        <rect
+          x="0"
+          y="0"
+          width={o().asset.routeLayoutFrame.width}
+          height={o().asset.routeLayoutFrame.height}
+          fill="#f8fafc"
+        />
         <rect
           x="0"
           y="0"
           width={o().asset.routeLayoutFrame.width}
           height={o().asset.routeLayoutFrame.height}
           fill="url(#map-flow-grid)"
-          opacity={props.showOfficialMapAssets() && hasOfficialBackgroundImage() ? "0.22" : "0.7"}
+          opacity={shouldUseOfficialScale() ? "0.22" : "0.7"}
         />
         <g
-          transform={`translate(${o().asset.routeLayoutFrame.width / 2} ${o().asset.routeLayoutFrame.height / 2}) scale(${props.showOfficialMapAssets() && hasOfficialBackgroundImage() ? DEFAULT_OFFICIAL_MAP_SCALE_PERCENT / 100 : 1}) translate(${-o().asset.routeLayoutFrame.width / 2} ${-o().asset.routeLayoutFrame.height / 2})`}
+          transform={`translate(${o().asset.routeLayoutFrame.width / 2} ${o().asset.routeLayoutFrame.height / 2}) scale(${shouldUseOfficialScale() ? DEFAULT_OFFICIAL_MAP_SCALE_PERCENT / 100 : 1}) translate(${-o().asset.routeLayoutFrame.width / 2} ${-o().asset.routeLayoutFrame.height / 2})`}
         >
-          <Show when={props.showOfficialMapAssets() && hasOfficialBackgroundImage()}>
+          <Show
+            when={props.showOfficialMapAssets() && hasOfficialBackgroundImage()}
+          >
             <g clip-path="url(#map-sea-clip)">
               <image
                 href={o().asset.spriteUrl}
@@ -68,11 +115,47 @@ export default function MapSvgCanvas(props: Props) {
                 width={o().asset.spriteSheetSize.width}
                 height={o().asset.spriteSheetSize.height}
                 preserveAspectRatio="none"
-                style={{ filter: "brightness(1.04) saturate(0.98) contrast(1.01)", opacity: "0", transition: "opacity 0.3s ease-in" }}
+                style={{
+                  filter: "brightness(1.04) saturate(0.98) contrast(1.01)",
+                  opacity: "0",
+                  transition: "opacity 0.3s ease-in",
+                }}
                 onLoad={(e) => {
+                  setOfficialImageLoaded(true);
+                  setOfficialImageFailed(false);
                   (e.currentTarget as SVGImageElement).style.opacity = "0.96";
                 }}
+                onError={() => {
+                  setOfficialImageLoaded(false);
+                  setOfficialImageFailed(true);
+                }}
               />
+            </g>
+          </Show>
+
+          <Show when={officialImageFailed()}>
+            <g>
+              <rect
+                x="20"
+                y="68"
+                width="348"
+                height="30"
+                rx="8"
+                fill="#eff6ff"
+                opacity="0.95"
+                stroke="#93c5fd"
+                stroke-width="1.5"
+              />
+              <text
+                x="32"
+                y="83"
+                fill="#1d4ed8"
+                font-size="12"
+                font-weight="700"
+                dominant-baseline="middle"
+              >
+                海域画像の読込に失敗しました。ルート情報のみ表示しています。
+              </text>
             </g>
           </Show>
 
@@ -81,8 +164,10 @@ export default function MapSvgCanvas(props: Props) {
             {(route) => (
               <g>
                 <line
-                  x1={route.renderFromX} y1={route.renderFromY}
-                  x2={route.renderToX} y2={route.renderToY}
+                  x1={route.renderFromX}
+                  y1={route.renderFromY}
+                  x2={route.renderToX}
+                  y2={route.renderToY}
                   stroke="#052e2b"
                   stroke-width={route.observedCount > 0 ? "6" : "5"}
                   stroke-dasharray={route.observedCount > 0 ? "10 7" : "6 8"}
@@ -90,8 +175,10 @@ export default function MapSvgCanvas(props: Props) {
                   opacity={route.observedCount > 0 ? "0.5" : "0.34"}
                 />
                 <line
-                  x1={route.renderFromX} y1={route.renderFromY}
-                  x2={route.renderToX} y2={route.renderToY}
+                  x1={route.renderFromX}
+                  y1={route.renderFromY}
+                  x2={route.renderToX}
+                  y2={route.renderToY}
                   stroke={route.observedCount > 0 ? "#10b981" : "#34d399"}
                   stroke-width={route.observedCount > 0 ? "3.5" : "3"}
                   stroke-dasharray={route.observedCount > 0 ? "10 7" : "6 8"}
@@ -106,11 +193,35 @@ export default function MapSvgCanvas(props: Props) {
           <Show when={props.selectedCellFilter()}>
             {(selected) => (
               <g>
-                <rect x="20" y="20" width="220" height="40" rx="12" fill="#fff7ed" opacity="0.96" stroke="#ea580c" stroke-width="2" />
-                <text x="36" y="40" fill="#9a3412" font-size="13" font-weight="700" dominant-baseline="middle">
+                <rect
+                  x="20"
+                  y="20"
+                  width="220"
+                  height="40"
+                  rx="12"
+                  fill="#fff7ed"
+                  opacity="0.96"
+                  stroke="#ea580c"
+                  stroke-width="2"
+                />
+                <text
+                  x="36"
+                  y="40"
+                  fill="#9a3412"
+                  font-size="13"
+                  font-weight="700"
+                  dominant-baseline="middle"
+                >
                   選択中セル
                 </text>
-                <text x="118" y="40" fill="#7c2d12" font-size="18" font-weight="800" dominant-baseline="middle">
+                <text
+                  x="118"
+                  y="40"
+                  fill="#7c2d12"
+                  font-size="18"
+                  font-weight="800"
+                  dominant-baseline="middle"
+                >
                   {selected().label}
                 </text>
               </g>
@@ -121,8 +232,10 @@ export default function MapSvgCanvas(props: Props) {
           <For each={o().transitions}>
             {(transition) => (
               <line
-                x1={transition.fromX} y1={transition.fromY}
-                x2={transition.toX} y2={transition.toY}
+                x1={transition.fromX}
+                y1={transition.fromY}
+                x2={transition.toX}
+                y2={transition.toY}
                 stroke="#1e293b"
                 stroke-width="2.5"
                 stroke-linecap="round"
@@ -138,8 +251,10 @@ export default function MapSvgCanvas(props: Props) {
               if (!next) return null;
               return (
                 <line
-                  x1={marker.x} y1={marker.y}
-                  x2={next.x} y2={next.y}
+                  x1={marker.x}
+                  y1={marker.y}
+                  x2={next.x}
+                  y2={next.y}
                   stroke="#f43f5e"
                   stroke-width="4"
                   stroke-linecap="round"
@@ -154,8 +269,10 @@ export default function MapSvgCanvas(props: Props) {
           {/* Cell circles */}
           <For each={o().visibleLabelSpots}>
             {(spot) => {
-              const isHarborCell = spot.label === "港" || spot.cellIds.includes(0);
-              const isSelected = () => props.selectedCellFilter()?.key === spot.key;
+              const isHarborCell =
+                spot.label === "港" || spot.cellIds.includes(0);
+              const isSelected = () =>
+                props.selectedCellFilter()?.key === spot.key;
               const fill = () => {
                 if (isHarborCell) return "#e3c765";
                 if (spot.currentRouteVisited) {
@@ -184,7 +301,11 @@ export default function MapSvgCanvas(props: Props) {
                     opacity="1"
                     stroke={isSelected() ? "#0b1220" : "#0f172a"}
                     stroke-width={isSelected() ? "4.5" : "3"}
-                    filter={isSelected() ? "drop-shadow(0 0 1.2px rgba(248,250,252,0.95)) drop-shadow(0 0 2.2px rgba(15,23,42,0.7))" : undefined}
+                    filter={
+                      isSelected()
+                        ? "drop-shadow(0 0 1.2px rgba(248,250,252,0.95)) drop-shadow(0 0 2.2px rgba(15,23,42,0.7))"
+                        : undefined
+                    }
                   />
                 </g>
               );
@@ -195,8 +316,11 @@ export default function MapSvgCanvas(props: Props) {
           <For each={o().markers}>
             {(marker) => {
               const spotKey = o().cellKeyByCellId.get(marker.cellId);
-              const target = o().visibleLabelSpots.find((spot) => spot.key === spotKey);
-              const isSelected = () => !!target && props.selectedCellFilter()?.key === target.key;
+              const target = o().visibleLabelSpots.find(
+                (spot) => spot.key === spotKey,
+              );
+              const isSelected = () =>
+                !!target && props.selectedCellFilter()?.key === target.key;
               return (
                 <g
                   class={target ? "cursor-pointer" : undefined}
@@ -210,7 +334,12 @@ export default function MapSvgCanvas(props: Props) {
                     });
                   }}
                 >
-                  <circle cx={marker.x} cy={marker.y} r="18" fill="transparent" />
+                  <circle
+                    cx={marker.x}
+                    cy={marker.y}
+                    r="18"
+                    fill="transparent"
+                  />
                   <rect
                     x={marker.badgeX + 10}
                     y={marker.badgeY - STEP_BADGE_HEIGHT / 2}
@@ -241,8 +370,10 @@ export default function MapSvgCanvas(props: Props) {
             {(transition) => (
               <g>
                 <line
-                  x1={transition.badgeX - 10} y1={transition.badgeY}
-                  x2={transition.badgeX + 10} y2={transition.badgeY}
+                  x1={transition.badgeX - 10}
+                  y1={transition.badgeY}
+                  x2={transition.badgeX + 10}
+                  y2={transition.badgeY}
                   stroke="#fffef8"
                   stroke-width="12"
                   stroke-linecap="round"
@@ -293,7 +424,8 @@ export default function MapSvgCanvas(props: Props) {
                   }
                 >
                   <line
-                    x1={anchor.x} y1={anchor.y}
+                    x1={anchor.x}
+                    y1={anchor.y}
                     x2={labelLayout.textX}
                     y2={labelLayout.rectY + labelLayout.height / 2}
                     stroke={isSelected ? "#ea580c" : "#94a3b8"}

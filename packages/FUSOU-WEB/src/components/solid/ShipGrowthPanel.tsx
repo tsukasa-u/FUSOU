@@ -12,6 +12,7 @@ import { Chart, registerables } from "chart.js";
 import { cachedFetch } from "@/utility/fetchCache";
 import { STYPE_NAMES } from "../../pages/simulator/lib/constants";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
+import { AlertMessage } from "./common/AlertMessage";
 
 Chart.register(...registerables);
 
@@ -132,17 +133,24 @@ export default function ShipGrowthPanel() {
   const [shipMasterRows, setShipMasterRows] = createSignal<ShipMasterRow[]>([]);
   const [shipSearchKeyword, setShipSearchKeyword] = createSignal("");
   const [selectedShipCategory, setSelectedShipCategory] = createSignal("all");
-  const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(null);
+  const [selectedMasterId, setSelectedMasterId] = createSignal<number | null>(
+    null,
+  );
   const [expRows, setExpRows] = createSignal<ExpRow[]>([]);
   const [boundRows, setBoundRows] = createSignal<BoundRow[]>([]);
   const [loadingPeriods, setLoadingPeriods] = createSignal(true);
   const [loadingShips, setLoadingShips] = createSignal(true);
   const [loadingData, setLoadingData] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [expCanvas, setExpCanvas] = createSignal<HTMLCanvasElement | null>(null);
-  const [boundsCanvas, setBoundsCanvas] = createSignal<HTMLCanvasElement | null>(null);
+  const [expCanvas, setExpCanvas] = createSignal<HTMLCanvasElement | null>(
+    null,
+  );
+  const [boundsCanvas, setBoundsCanvas] =
+    createSignal<HTMLCanvasElement | null>(null);
 
-  const selectedPeriod = createMemo(() => periods()[selectedPeriodIdx()] ?? null);
+  const selectedPeriod = createMemo(
+    () => periods()[selectedPeriodIdx()] ?? null,
+  );
 
   const selectedShip = createMemo(() => {
     const id = selectedMasterId();
@@ -153,7 +161,11 @@ export default function ShipGrowthPanel() {
   const shipCategories = createMemo(() => {
     const categories = new Set<string>();
     for (const ship of shipMasterRows()) {
-      categories.add(ship.stype != null ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`) : "その他");
+      categories.add(
+        ship.stype != null
+          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
+          : "その他",
+      );
     }
     return Array.from(categories).sort((a, b) => a.localeCompare(b, "ja"));
   });
@@ -163,17 +175,27 @@ export default function ShipGrowthPanel() {
     const selectedCategory = selectedShipCategory();
 
     return shipMasterRows().filter((ship) => {
-      const category = ship.stype != null ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`) : "その他";
-      if (selectedCategory !== "all" && category !== selectedCategory) return false;
+      const category =
+        ship.stype != null
+          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
+          : "その他";
+      if (selectedCategory !== "all" && category !== selectedCategory)
+        return false;
       if (!keyword) return true;
-      return ship.name.toLowerCase().includes(keyword) || `${ship.id}`.includes(keyword);
+      return (
+        ship.name.toLowerCase().includes(keyword) ||
+        `${ship.id}`.includes(keyword)
+      );
     });
   });
 
   const groupedShips = createMemo(() => {
     const map = new Map<string, ShipListItem[]>();
     for (const ship of filteredShips()) {
-      const key = ship.stype != null ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`) : "その他";
+      const key =
+        ship.stype != null
+          ? (STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`)
+          : "その他";
       const rows = map.get(key);
       if (rows) rows.push(ship);
       else map.set(key, [ship]);
@@ -189,11 +211,17 @@ export default function ShipGrowthPanel() {
     try {
       const res = await cachedFetch("/api/ship-growth/summary");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json() as { ok: boolean; periods: PeriodSummary[] };
-      if (!json.ok || !Array.isArray(json.periods)) throw new Error("Unexpected response");
+      const json = (await res.json()) as {
+        ok: boolean;
+        periods: PeriodSummary[];
+      };
+      if (!json.ok || !Array.isArray(json.periods))
+        throw new Error("Unexpected response");
       setPeriods(json.periods);
     } catch (e) {
-      setError(`期間データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `期間データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } finally {
       setLoadingPeriods(false);
     }
@@ -203,11 +231,19 @@ export default function ShipGrowthPanel() {
     setLoadingShips(true);
     setError(null);
     try {
-      const res = await cachedFetch("/api/master-data/json?table_name=mst_ship");
+      const res = await cachedFetch(
+        "/api/master-data/json?table_name=mst_ship",
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as { records?: Array<{ id?: number; name?: string; stype?: number }> };
+      const json = (await res.json()) as {
+        records?: Array<{ id?: number; name?: string; stype?: number }>;
+      };
       const rows = (json.records ?? [])
-        .map((r) => ({ id: Number(r.id), name: String(r.name ?? "").trim(), stype: Number.isFinite(Number(r.stype)) ? Number(r.stype) : null }))
+        .map((r) => ({
+          id: Number(r.id),
+          name: String(r.name ?? "").trim(),
+          stype: Number.isFinite(Number(r.stype)) ? Number(r.stype) : null,
+        }))
         .filter((r) => Number.isFinite(r.id) && r.id > 0 && r.name.length > 0)
         .sort((a, b) => a.id - b.id);
 
@@ -217,7 +253,9 @@ export default function ShipGrowthPanel() {
         setSelectedMasterId(rows[0].id);
       }
     } catch (e) {
-      setError(`艦マスタの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `艦マスタの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } finally {
       setLoadingShips(false);
     }
@@ -239,14 +277,14 @@ export default function ShipGrowthPanel() {
       const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
       const expRes = await cachedFetch(expUrl);
       if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
-      const expJson = await expRes.json() as { ok: boolean; exp: ExpRow[] };
+      const expJson = (await expRes.json()) as { ok: boolean; exp: ExpRow[] };
       setExpRows(expJson.exp ?? []);
 
       if (masterId != null) {
         const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}&master_id=${masterId}`;
         const boundsRes = await cachedFetch(boundsUrl);
         if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
-        const boundsJson = await boundsRes.json() as {
+        const boundsJson = (await boundsRes.json()) as {
           ok: boolean;
           bounds: BoundRow[];
         };
@@ -255,7 +293,9 @@ export default function ShipGrowthPanel() {
         setBoundRows([]);
       }
     } catch (e) {
-      setError(`成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      setError(
+        `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+      );
     } finally {
       setLoadingData(false);
     }
@@ -344,7 +384,9 @@ export default function ShipGrowthPanel() {
                 <select
                   class="select select-bordered select-sm"
                   value={selectedPeriodIdx()}
-                  onChange={(e) => setSelectedPeriodIdx(parseInt(e.currentTarget.value, 10))}
+                  onChange={(e) =>
+                    setSelectedPeriodIdx(parseInt(e.currentTarget.value, 10))
+                  }
                 >
                   <For each={periods()}>
                     {(p, i) => (
@@ -359,7 +401,13 @@ export default function ShipGrowthPanel() {
 
             <button
               class="btn btn-primary btn-sm"
-              disabled={loadingData() || loadingPeriods() || loadingShips() || periods().length === 0 || selectedMasterId() == null}
+              disabled={
+                loadingData() ||
+                loadingPeriods() ||
+                loadingShips() ||
+                periods().length === 0 ||
+                selectedMasterId() == null
+              }
               onClick={() => fetchGrowthData(selectedMasterId())}
             >
               <Show when={loadingData()}>
@@ -370,9 +418,9 @@ export default function ShipGrowthPanel() {
           </div>
 
           <Show when={error()}>
-            <div class="alert alert-error mt-2">
-              <span>{error()}</span>
-            </div>
+            <AlertMessage type="error" class="mt-2">
+              {error()}
+            </AlertMessage>
           </Show>
         </div>
       </div>
@@ -384,7 +432,9 @@ export default function ShipGrowthPanel() {
             <select
               class="select select-bordered select-sm w-full"
               value={selectedShipCategory()}
-              onChange={(event) => setSelectedShipCategory(event.currentTarget.value)}
+              onChange={(event) =>
+                setSelectedShipCategory(event.currentTarget.value)
+              }
             >
               <option value="all">すべての艦種</option>
               <For each={shipCategories()}>
@@ -395,13 +445,17 @@ export default function ShipGrowthPanel() {
               class="input input-bordered input-sm w-full"
               placeholder="艦名 / ID で検索"
               value={shipSearchKeyword()}
-              onInput={(event) => setShipSearchKeyword(event.currentTarget.value)}
+              onInput={(event) =>
+                setShipSearchKeyword(event.currentTarget.value)
+              }
             />
           </div>
           <div class="card-body p-2">
             <div class="flex items-center justify-between px-2 pb-2">
               <h3 class="text-sm font-semibold">艦一覧</h3>
-              <span class="text-xs text-base-content/50">{filteredShips().length} 件</span>
+              <span class="text-xs text-base-content/50">
+                {filteredShips().length} 件
+              </span>
             </div>
             <Show when={loadingShips()}>
               <div class="py-8 text-center text-base-content/60">
@@ -442,8 +496,9 @@ export default function ShipGrowthPanel() {
               <div class="card-body">
                 <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
                 <p class="text-sm text-base-content/60">
-                  期間: {selectedPeriod()?.period_tag} / v{selectedPeriod()?.table_version} /
-                  Lv {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} ({expRows().length} 行)
+                  期間: {selectedPeriod()?.period_tag} / v
+                  {selectedPeriod()?.table_version} / Lv {expRows()[0]?.lv}〜
+                  {expRows()[expRows().length - 1]?.lv} ({expRows().length} 行)
                 </p>
                 <div class="w-full overflow-x-auto">
                   <div style="min-width: 400px; min-height: 320px;">
@@ -458,12 +513,12 @@ export default function ShipGrowthPanel() {
           <Show when={boundRows().length > 0}>
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body">
-                <h2 class="card-title text-lg">
-                  レベル別パラメータ推移
-                </h2>
+                <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
                 <p class="text-sm text-base-content/60">
-                  艦: {selectedShip()?.name ?? "-"} (ID: {boundRows()[0]?.master_id}) /
-                  Lv {boundRows()[0]?.lv}〜{boundRows()[boundRows().length - 1]?.lv} ({boundRows().length} 行)
+                  艦: {selectedShip()?.name ?? "-"} (ID:{" "}
+                  {boundRows()[0]?.master_id}) / Lv {boundRows()[0]?.lv}〜
+                  {boundRows()[boundRows().length - 1]?.lv} (
+                  {boundRows().length} 行)
                 </p>
                 <div class="w-full overflow-x-auto">
                   <div style="min-width: 400px; min-height: 320px;">
@@ -475,10 +530,14 @@ export default function ShipGrowthPanel() {
           </Show>
 
           {/* Empty state */}
-          <Show when={expRows().length === 0 && !loadingData() && !loadingPeriods()}>
+          <Show
+            when={expRows().length === 0 && !loadingData() && !loadingPeriods()}
+          >
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body items-center text-center py-16">
-                <p class="text-base-content/50">期間と艦を選択するとグラフを表示します。</p>
+                <p class="text-base-content/50">
+                  期間と艦を選択するとグラフを表示します。
+                </p>
                 <p class="text-base-content/40 text-sm mt-1">
                   経験値はmaster_idに依存せず、レベル別パラメータは選択中の艦で表示します。
                 </p>
