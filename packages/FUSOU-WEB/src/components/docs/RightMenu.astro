@@ -12,12 +12,12 @@ const { headings } = Astro.props;
 
 <div class="sticky top-20">
   <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
-    <h2 class="text-lg font-bold mb-2">On this page</h2>
+    <h2 class="text-lg font-bold mb-2 text-base-content">On this page</h2>
     <nav>
-      <ul class="space-y-1 text-sm text-gray-500 font-semibold">
+      <ul class="space-y-1 text-sm text-gray-500 dark:text-gray-400 font-semibold">
         {
           headings.map((heading) => (
-            <li class={`heading-level-${heading.depth} hover:text-gray-900`}>
+            <li class={`heading-level-${heading.depth} hover:text-gray-900 dark:hover:text-gray-100`}>
               <a href={`#${heading.slug}`}>{heading.text}</a>
             </li>
           ))
