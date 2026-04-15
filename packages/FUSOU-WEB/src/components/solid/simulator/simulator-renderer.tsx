@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 
 import { Index, Show, createContext, createEffect, createMemo, createSignal, onMount, useContext, type JSX } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import { useStore } from "@nanostores/solid";
 import { render } from "solid-js/web";
 import type { AirBaseSlot, FleetSlot, StatOverrides } from "../../../pages/simulator/lib/types";
@@ -542,10 +543,12 @@ function ShipCard(props: {
           const [cardImageUnavailable, setCardImageUnavailable] = createSignal(!imageUrl);
           const [exRowHovered, setExRowHovered] = createSignal(false);
           const [bulkEditOpen, setBulkEditOpen] = createSignal(false);
-          const [bulkDraft, setBulkDraft] = createSignal<Record<string, number>>({});
+          const [bulkDraft, setBulkDraft] = createStore<Record<string, number>>({});
           const [overrideEnabled, setOverrideEnabled] = createSignal(false);
 
           const NON_EDITABLE_KEYS = new Set(["maxeq", "soku", "leng"]);
+          const ZERO_FLOOR_STAT_KEYS = new Set(["tais", "kaih", "saku"]);
+          const isEnemyShip = (d.slot.shipId ?? 0) >= 1500;
 
           const editableStats = createMemo(() => {
             return [...d.leftStats, ...d.rightStats].filter((st) => st[4] && !NON_EDITABLE_KEYS.has(st[1]));
@@ -561,22 +564,22 @@ function ShipCard(props: {
               const baseRef = st[2] ?? st[5] ?? 0;
               next[key] = Number(overrides[key] ?? baseRef);
             }
-            setBulkDraft(next);
+            setBulkDraft(reconcile(next));
             setOverrideEnabled(false);
             setBulkEditOpen(true);
           };
 
           const setBulkValue = (key: string, value: number) => {
-            setBulkDraft((prev) => ({ ...prev, [key]: value }));
+            setBulkDraft({ [key]: value });
           };
 
           const getBulkBounds = (st: StatDef): { lo: number; hi: number } => {
             const key = st[1];
             const baseRef = st[2] ?? st[5] ?? 0;
-            const lo = baseRef;
+            const lo = (ZERO_FLOOR_STAT_KEYS.has(key) || isEnemyShip) ? 0 : baseRef;
             if (overrideEnabled()) return { lo, hi: Infinity };
             const normalHi = st[3] ?? st[5] ?? baseRef;
-            const hi = key === "tais" ? Math.max(normalHi, lo + 9) : normalHi;
+            const hi = key === "tais" ? Math.max(normalHi, baseRef + 9) : normalHi;
             return { lo, hi };
           };
 
@@ -587,7 +590,7 @@ function ShipCard(props: {
             const { lo, hi } = getBulkBounds(st);
             const step = st[1] === "soku" ? 5 : 1;
             const baseRef = st[2] ?? st[5] ?? 0;
-            const cur = Number(bulkDraft()[key] ?? baseRef);
+            const cur = Number(bulkDraft[key] ?? baseRef);
             const next = hi === Infinity ? cur + step * sign : Math.max(lo, Math.min(hi, cur + step * sign));
             setBulkValue(key, next);
           };
@@ -601,13 +604,156 @@ function ShipCard(props: {
               if (isNonEditable && !overrideEnabled()) continue;
               const baseRef = st[2] ?? st[5] ?? 0;
               const { lo, hi } = getBulkBounds(st);
-              const raw = Number(bulkDraft()[key] ?? baseRef);
+              const raw = Number(bulkDraft[key] ?? baseRef);
               const next = hi === Infinity ? raw : Math.max(lo, Math.min(hi, Number.isFinite(raw) ? raw : baseRef));
               if (next === baseRef) delete overrides[key];
               else overrides[key] = next;
             }
             setBulkEditOpen(false);
             markSimulatorStateDirty("fleet");
+          };
+
+          // Fine-grained reactive component for each stat control.
+          // Using a proper component (not a plain function) gives each control its own
+          // reactive scope, so only the specific DOM attributes for the changed stat key
+          // update on slider input — not the entire list.
+          const BulkStatControl = (controlProps: { st: StatDef }) => {
+            const st = controlProps.st;
+            const key = st[1];
+            const isNonEditable = NON_EDITABLE_KEYS.has(key);
+            const isSpeedStat = key === "soku";
+            const isRangeStat = key === "leng";
+            const isLabeledStat = isSpeedStat || isRangeStat;
+            const baseRef = st[2] ?? st[5] ?? 0;
+            const minVal = () => getBulkBounds(st).lo;
+            const maxVal = () => getBulkBounds(st).hi;
+            const isDisabled = () => isNonEditable && !overrideEnabled();
+            const current = () => Number(bulkDraft[key] ?? baseRef);
+            const pct = () => {
+              const hi = maxVal();
+              const lo = minVal();
+              const cur = current();
+              return hi <= lo || hi === Infinity ? 0 : Math.max(0, Math.min(100, ((cur - lo) / (hi - lo)) * 100));
+            };
+            const labelMap = isSpeedStat ? SPEED_NAMES : RANGE_NAMES;
+            const selectOptions = Object.entries(labelMap)
+              .map(([value, label]) => [Number(value), label] as const)
+              .sort((a, b) => a[0] - b[0]);
+
+            return (
+              <div class={`rounded-md border px-2 py-1.5 text-xs ${isDisabled() ? 'border-base-200/30 bg-base-200/20 opacity-60' : 'border-base-200/70 bg-base-100'}`}>
+                {isLabeledStat ? (
+                  <>
+                    <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
+                      <span class="font-medium text-base-content/70">{st[0]}</span>
+                      <div class="justify-self-end flex items-center justify-end leading-6">
+                        <div class="w-30 flex items-center justify-end">
+                          <select
+                            class="select select-xs select-bordered h-6 py-0 px-2 w-24 text-xs"
+                            value={String(current())}
+                            disabled={isDisabled()}
+                            onInput={(e) => {
+                              if (isDisabled()) return;
+                              const next = Number((e.currentTarget as HTMLSelectElement).value);
+                              if (!Number.isFinite(next)) return;
+                              setBulkValue(key, next);
+                            }}
+                          >
+                            {selectOptions.map(([value, label]) => (
+                              <option value={String(value)}>{label}</option>
+                            ))}
+                            {!selectOptions.some(([value]) => value === current()) && (
+                              <option value={String(current())}>{labelMap[current()] ?? "不明"}</option>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                    {isDisabled() && (
+                      <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
+                    )}
+                  </>
+                ) : (
+                  <div>
+                    <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
+                      <span class="font-medium text-base-content/70">{st[0]}</span>
+                      <div class="justify-self-end flex items-center justify-end gap-1">
+                        <div class="w-30 flex items-center justify-end gap-1">
+                          <button
+                            class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
+                            onClick={() => bumpBulkValue(st, -1)}
+                            disabled={isDisabled()}
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={String(minVal())}
+                            value={String(current())}
+                            class="input input-xs input-bordered w-14 text-center font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            disabled={isDisabled()}
+                            onInput={(e) => {
+                              if (isDisabled()) return;
+                              const next = Number((e.currentTarget as HTMLInputElement).value);
+                              if (!Number.isFinite(next)) return;
+                              if (overrideEnabled()) {
+                                setBulkValue(key, next);
+                              } else {
+                                setBulkValue(key, Math.max(minVal(), Math.min(maxVal(), next)));
+                              }
+                            }}
+                          />
+                          <button
+                            class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
+                            onClick={() => bumpBulkValue(st, 1)}
+                            disabled={isDisabled()}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {isDisabled() && (
+                      <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
+                    )}
+                  </div>
+                )}
+                {!isLabeledStat && (
+                  <div class="mt-1">
+                    {!isDisabled() ? (
+                      <>
+                        <input
+                          type="range"
+                          min={String(minVal())}
+                          max={String(maxVal() === Infinity ? minVal() + 1000 : maxVal())}
+                          value={String(Math.min(current(), maxVal() === Infinity ? minVal() + 1000 : maxVal()))}
+                          class="w-full h-1 align-middle cursor-pointer appearance-none rounded-none bg-base-300 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-0 [&::-webkit-slider-thumb]:h-0 [&::-moz-range-thumb]:w-0 [&::-moz-range-thumb]:h-0 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-transparent"
+                          style={{
+                            background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct()}%, var(--color-base-300) ${pct()}%, var(--color-base-300) 100%)`
+                          } as any}
+                          onInput={(e) => {
+                            const next = Number((e.currentTarget as HTMLInputElement).value);
+                            setBulkValue(key, next);
+                          }}
+                        />
+                        <div class="mt-0.5 flex items-center justify-between text-[9px] text-base-content/40 font-mono">
+                          <span>min {minVal()}</span>
+                          <span>
+                            {maxVal() === Infinity
+                              ? "max 制限外"
+                              : key === "tais"
+                              ? `max ${maxVal()}(+9)`
+                              : `max ${maxVal()}`}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div class="text-[9px] text-base-content/40 font-mono">編集不可</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
           };
 
           createEffect(() => {
@@ -884,142 +1030,11 @@ function ShipCard(props: {
                       return Array.from({ length: rowCount }).map((_, idx) => {
                         const ls = d.leftStats[idx] ?? null;
                         const rs = d.rightStats[idx] ?? null;
-                      const renderControl = (st: StatDef) => {
-                        const key = st[1];
-                        const isNonEditable = NON_EDITABLE_KEYS.has(key);
-                        const isSpeedStat = key === "soku";
-                        const isRangeStat = key === "leng";
-                        const isLabeledStat = isSpeedStat || isRangeStat;
-                        const baseRef = st[2] ?? st[5] ?? 0;
-                        const { lo: minVal, hi: maxVal } = getBulkBounds(st);
-                        const current = Number(bulkDraft()[key] ?? baseRef);
-                        const pct = maxVal <= minVal || maxVal === Infinity ? 0 : Math.max(0, Math.min(100, ((current - minVal) / (maxVal - minVal)) * 100));
-                        const isDisabled = isNonEditable && !overrideEnabled();
-                        const labelMap = isSpeedStat ? SPEED_NAMES : RANGE_NAMES;
-                        const selectOptions = Object.entries(labelMap)
-                          .map(([value, label]) => [Number(value), label] as const)
-                          .sort((a, b) => a[0] - b[0]);
-                        const hasCurrentOption = selectOptions.some(([value]) => value === current);
-                        const currentLabel = labelMap[current] ?? "不明";
-                        
-                        return (
-                          <div class={`rounded-md border px-2 py-1.5 text-xs ${isDisabled ? 'border-base-200/30 bg-base-200/20 opacity-60' : 'border-base-200/70 bg-base-100'}`}>
-                            {isLabeledStat ? (
-                              <>
-                                <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
-                                  <span class="font-medium text-base-content/70">{st[0]}</span>
-                                  <div class="justify-self-end flex items-center justify-end leading-6">
-                                    <div class="w-[7.5rem] flex items-center justify-end">
-                                      <select
-                                        class="select select-xs select-bordered h-6 py-0 px-2 w-24 text-xs"
-                                        value={String(current)}
-                                        disabled={isDisabled}
-                                        onInput={(e) => {
-                                          if (isDisabled) return;
-                                          const next = Number((e.currentTarget as HTMLSelectElement).value);
-                                          if (!Number.isFinite(next)) return;
-                                          setBulkValue(key, next);
-                                        }}
-                                      >
-                                        {selectOptions.map(([value, label]) => (
-                                          <option value={String(value)}>{label}</option>
-                                        ))}
-                                        {!hasCurrentOption && <option value={String(current)}>{currentLabel}</option>}
-                                      </select>
-                                    </div>
-                                  </div>
-                                </div>
-                                {isDisabled && (
-                                  <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
-                                )}
-                              </>
-                            ) : (
-                              <div>
-                                <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
-                                  <span class="font-medium text-base-content/70">{st[0]}</span>
-                                  <div class="justify-self-end flex items-center justify-end gap-1">
-                                    <div class="w-[7.5rem] flex items-center justify-end gap-1">
-                                      <button
-                                        class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
-                                        onClick={() => bumpBulkValue(st, -1)}
-                                        disabled={isDisabled}
-                                      >
-                                        -
-                                      </button>
-                                      <input
-                                        type="number"
-                                        min={String(minVal)}
-                                        value={String(current)}
-                                        class="input input-xs input-bordered w-14 text-center font-mono text-xs [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                        disabled={isDisabled}
-                                        onInput={(e) => {
-                                          if (isDisabled) return;
-                                          const next = Number((e.currentTarget as HTMLInputElement).value);
-                                          if (!Number.isFinite(next)) return;
-                                          if (overrideEnabled()) {
-                                            setBulkValue(key, next);
-                                          } else {
-                                            setBulkValue(key, Math.max(minVal, Math.min(maxVal, next)));
-                                          }
-                                        }}
-                                      />
-                                      <button
-                                        class="btn btn-ghost btn-xs h-5 min-h-0 px-1"
-                                        onClick={() => bumpBulkValue(st, 1)}
-                                        disabled={isDisabled}
-                                      >
-                                        +
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                                {isDisabled && (
-                                  <div class="mt-0.5 text-right text-[9px] text-base-content/40">編集不可</div>
-                                )}
-                              </div>
-                            )}
-                            {!isLabeledStat && (
-                              <div class="mt-1">
-                                {!isDisabled ? (
-                                  <>
-                                    <input
-                                      type="range"
-                                      min={String(minVal)}
-                                      max={String(maxVal === Infinity ? minVal + 1000 : maxVal)}
-                                      value={String(Math.min(current, maxVal === Infinity ? minVal + 1000 : maxVal))}
-                                      class="w-full h-1 align-middle cursor-pointer appearance-none rounded-none bg-base-300 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-0 [&::-webkit-slider-thumb]:h-0 [&::-moz-range-thumb]:w-0 [&::-moz-range-thumb]:h-0 [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-transparent"
-                                      style={{
-                                        background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct}%, var(--color-base-300) ${pct}%, var(--color-base-300) 100%)`
-                                      } as any}
-                                      onInput={(e) => {
-                                        const next = Number((e.currentTarget as HTMLInputElement).value);
-                                        setBulkValue(key, next);
-                                      }}
-                                    />
-                                    <div class="mt-0.5 flex items-center justify-between text-[9px] text-base-content/40 font-mono">
-                                      <span>min {minVal}</span>
-                                      <span>
-                                        {maxVal === Infinity
-                                          ? "max 制限外"
-                                          : key === "tais"
-                                          ? `max ${maxVal}(+9)`
-                                          : `max ${maxVal}`}
-                                      </span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <div class="text-[9px] text-base-content/40 font-mono">編集不可</div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      };
 
                       return (
                         <div class="grid grid-cols-2 gap-1.5">
-                          {ls ? renderControl(ls) : <div />}
-                          {rs ? renderControl(rs) : <div />}
+                          {ls ? <BulkStatControl st={ls} /> : <div />}
+                          {rs ? <BulkStatControl st={rs} /> : <div />}
                         </div>
                       );
                       });
