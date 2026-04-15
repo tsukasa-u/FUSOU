@@ -427,7 +427,7 @@ export default function ShipGrowthPanel() {
 
       {/* Ship list + charts */}
       <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-        <aside class="rounded-2xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+        <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
           <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
             <select
               class="select select-bordered select-sm w-full"

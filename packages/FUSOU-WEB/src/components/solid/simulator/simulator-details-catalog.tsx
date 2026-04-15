@@ -579,14 +579,14 @@ function ShipDetailPanel(props: {
   ]);
 
   return (
-    <article class="rounded-2xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
       <div class="px-4 py-3 border-b border-base-200 bg-linear-to-r from-primary/10 to-transparent">
         <h2 class="font-semibold">艦詳細</h2>
       </div>
 
       <div class="p-4 space-y-4">
         <div class="grid grid-cols-1 xl:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] gap-4 items-stretch">
-          <div class="rounded-2xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-80 h-full flex flex-col items-center justify-center overflow-hidden xl:max-w-sm">
+          <div class="rounded-xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-80 h-full flex flex-col items-center justify-center overflow-hidden xl:max-w-sm">
             <ImageFallbackBox
               src={cardUrl(props.ship.id)}
               alt={props.ship.name}
@@ -811,14 +811,14 @@ function EquipDetailPanel(props: {
   });
 
   return (
-    <article class="rounded-2xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
       <div class="px-4 py-3 border-b border-base-200 bg-linear-to-r from-accent/10 to-transparent">
         <h2 class="font-semibold">装備詳細</h2>
       </div>
 
       <div class="p-4 space-y-4">
         <div class="grid grid-cols-1 xl:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] gap-4 items-stretch">
-          <div class="relative rounded-2xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-64 h-full xl:max-w-sm flex items-end justify-center overflow-hidden">
+          <div class="relative rounded-xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-64 h-full xl:max-w-sm flex items-end justify-center overflow-hidden">
             <ImageFallbackBox
               src={equipImageUrl(props.equip.id)}
               alt={props.equip.name}
@@ -1405,7 +1405,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "ship"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="rounded-2xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+          <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"
@@ -1448,7 +1448,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show when={selectedShip()} fallback={<div class="rounded-2xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">艦を選択してください。</div>}>
+          <Show when={selectedShip()} fallback={<div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">艦を選択してください。</div>}>
             {(ship) => (
               <ShipDetailPanel
                 ship={ship()}
@@ -1468,7 +1468,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="rounded-2xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+          <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"
@@ -1511,7 +1511,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show when={selectedEquip()} fallback={<div class="rounded-2xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">装備を選択してください。</div>}>
+          <Show when={selectedEquip()} fallback={<div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">装備を選択してください。</div>}>
             {(equip) => (
               <EquipDetailPanel
                 equip={equip()}
