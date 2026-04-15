@@ -89,7 +89,7 @@ export default defineConfig({
   }),
   vite: {
     optimizeDeps: {
-      exclude: ["solid-chartjs"]
+      exclude: ["solid-chartjs"],
     },
     ssr: {
       external: ["node:fs/promises", "node:path", "node:url", "node:crypto"],

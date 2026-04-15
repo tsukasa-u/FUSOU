@@ -30,6 +30,9 @@
   --color-warning-content: oklch(98% 0.016 73.684);
   --color-error: oklch(63% 0.237 25.331);
   --color-error-content: oklch(97% 0.013 17.38);
+  --color-link: #0b63ce;
+  --color-link-hover: #084ea8;
+  --color-link-visited: #6a4bc3;
   --radius-selector: 0.5rem;
   --radius-field: 0.5rem;
   --radius-box: 0.75rem;
@@ -65,6 +68,9 @@
   --color-warning-content: oklch(98% 0.016 73.684);
   --color-error: oklch(63% 0.237 25.331);
   --color-error-content: oklch(97% 0.013 17.38);
+  --color-link: #7db4ff;
+  --color-link-hover: #a7cbff;
+  --color-link-visited: #c3a6ff;
   --radius-selector: 0.5rem;
   --radius-field: 0.5rem;
   --radius-box: 0.75rem;
@@ -154,28 +160,45 @@
   @apply bg-error/10 border-error text-base-content/85;
 }
 
+.markdown {
+  @apply text-[15px] leading-7 text-base-content/90;
+}
+
 .markdown h1 {
   @apply text-3xl font-bold;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
 .markdown h2 {
   @apply text-xl font-bold;
-  padding-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  padding-top: 1rem;
+  margin-bottom: 0.75rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
 .markdown h3 {
   @apply text-lg font-bold;
-  padding-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  padding-top: 0.75rem;
+  margin-bottom: 0.625rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
+.markdown hr {
+  border: 0;
+  border-top: 1px solid
+    color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  margin: 1.25rem 0;
+}
+
 .markdown table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   margin-bottom: 1rem;
   cursor: default;
@@ -190,6 +213,7 @@
 }
 
 .markdown th {
+  @apply bg-base-200/65;
   border-bottom: 2px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
   font-weight: bold;
@@ -226,6 +250,7 @@
 }
 
 .markdown pre {
+  @apply bg-base-200/55;
   padding: 1rem 1rem;
   overflow-x: auto;
   margin-bottom: 1rem;
@@ -234,7 +259,7 @@
 }
 
 .markdown p {
-  margin-bottom: 1rem;
+  margin-bottom: 1.1rem;
   cursor: default;
 }
 
@@ -248,7 +273,25 @@
 }
 
 .markdown a {
-  @apply text-blue-600 hover:underline;
+  color: var(--color-link);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 0.18em;
+}
+
+.markdown a:hover {
+  color: var(--color-link-hover);
+  text-decoration-thickness: 2px;
+}
+
+.markdown a:visited {
+  color: var(--color-link-visited);
+}
+
+.markdown a:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--color-link) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
 }
 
 .markdown code {
@@ -264,6 +307,28 @@
 .markdown p > code,
 .markdown li > code {
   margin-left: 0 !important;
+}
+
+.markdown .katex {
+  font-size: 1.02em;
+}
+
+.markdown .katex-display {
+  @apply rounded-lg border border-base-300/70 bg-base-200/45;
+  margin: 1rem 0 1.1rem;
+  padding: 0.7rem 0.8rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown .katex-display > .katex {
+  min-width: max-content;
+  font-size: 1.08em;
+}
+
+.markdown .katex-error {
+  @apply text-error;
+  font-weight: 600;
 }
 
 .markdown [data-callout] {
