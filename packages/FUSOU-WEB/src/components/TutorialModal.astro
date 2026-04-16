@@ -5,9 +5,12 @@ type TutorialGuide = {
   summary: string;
   steps: string[];
   controls?: Array<{
-    label: string;
+    label?: string;
     description: string;
     tone?: "primary" | "outline" | "ghost";
+    sourceSelector?: string;
+    previewClass?: string;
+    previewIconHtml?: string;
   }>;
   buttonLabel?: string;
 };
@@ -27,7 +30,7 @@ const storageKey = `fusou:tutorial:seen:${guide.id}`;
 </button>
 
 <dialog id="tutorial-modal" class="modal z-1300">
-  <div class="modal-box max-w-2xl rounded-xl">
+  <div class="modal-box max-w-2xl rounded-xl max-h-11/12">
     <h3 class="font-bold text-lg">{guide.title}</h3>
     <p class="text-sm text-base-content/70 mt-1">{guide.summary}</p>
 
@@ -39,19 +42,35 @@ const storageKey = `fusou:tutorial:seen:${guide.id}`;
           </p>
           <div class="space-y-2 p-2 rounded-lg border border-base-300/70 bg-base-200/45">
             {guide.controls.map((c) => (
-              <div class="flex items-center gap-2">
+              <div
+                class="flex items-center gap-2"
+                data-tutorial-control-row="true"
+              >
                 <span
                   class:list={[
-                    "btn btn-sm fusou-control-preview-chip",
-                    c.tone === "primary"
-                      ? "btn-primary"
-                      : c.tone === "ghost"
-                        ? "btn-ghost"
-                        : "btn-outline",
+                    c.previewClass ?? "btn btn-sm fusou-control-preview-chip",
+                    !c.previewClass &&
+                      (c.tone === "primary"
+                        ? "btn-primary"
+                        : c.tone === "ghost"
+                          ? "btn-ghost"
+                          : "btn-outline"),
                   ]}
+                  data-tutorial-preview-chip="true"
+                  data-tutorial-source-selector={c.sourceSelector ?? ""}
+                  data-tutorial-fallback-label={c.label ?? ""}
+                  data-tutorial-has-static-icon={
+                    c.previewIconHtml ? "true" : "false"
+                  }
                   aria-hidden="true"
                 >
-                  {c.label}
+                  <span
+                    class="inline-flex h-4 w-4 shrink-0 items-center justify-center"
+                    data-tutorial-preview-icon="true"
+                    style={c.previewIconHtml ? undefined : "display:none"}
+                    set:html={c.previewIconHtml ?? ""}
+                  />
+                  <span data-tutorial-label="true">{c.label ?? ""}</span>
                 </span>
                 <span class="text-xs text-base-content/70 leading-none">
                   {c.description}
@@ -86,12 +105,151 @@ const storageKey = `fusou:tutorial:seen:${guide.id}`;
     if (!(openBtn instanceof HTMLButtonElement)) return;
     if (!(closeBtn instanceof HTMLButtonElement)) return;
 
+    let syncRafId = 0;
+    let domObserver = null;
+
+    const normalizePreviewLabel = (value) => {
+      return value
+        .replace(/\s+/g, " ")
+        .replace(/^[\u2190-\u2193\u27A1\u279C]+\s*/, "")
+        .trim();
+    };
+
+    const extractLabelFromSource = (sourceEl) => {
+      const sourceClone = sourceEl.cloneNode(true);
+      if (sourceClone instanceof HTMLElement) {
+        sourceClone
+          .querySelectorAll("svg, img, .sr-only")
+          .forEach((node) => node.remove());
+
+        const visibleText = normalizePreviewLabel(
+          sourceClone.textContent ?? "",
+        );
+        if (visibleText.length > 0) {
+          return visibleText;
+        }
+      }
+
+      const ariaLabel = sourceEl.getAttribute("aria-label");
+      if (ariaLabel && ariaLabel.trim().length > 0) {
+        return normalizePreviewLabel(ariaLabel);
+      }
+
+      return "";
+    };
+
+    const syncControlPreviews = () => {
+      const previewChips = document.querySelectorAll(
+        "[data-tutorial-preview-chip='true']",
+      );
+
+      previewChips.forEach((chip) => {
+        if (!(chip instanceof HTMLElement)) return;
+
+        const selector = chip.dataset.tutorialSourceSelector?.trim();
+        const hasStaticIcon = chip.dataset.tutorialHasStaticIcon === "true";
+        const fallbackLabel = chip.dataset.tutorialFallbackLabel ?? "";
+        const iconEl = chip.querySelector(
+          "[data-tutorial-preview-icon='true']",
+        );
+        const labelEl = chip.querySelector("[data-tutorial-label='true']");
+        const rowEl = chip.closest("[data-tutorial-control-row='true']");
+
+        if (!selector) {
+          if (rowEl instanceof HTMLElement) {
+            rowEl.style.display = "flex";
+          }
+          if (!hasStaticIcon && iconEl instanceof HTMLElement) {
+            iconEl.innerHTML = "";
+            iconEl.style.display = "none";
+          }
+          return;
+        }
+
+        const sourceEl = document.querySelector(selector);
+        if (!(sourceEl instanceof HTMLElement)) {
+          if (rowEl instanceof HTMLElement) {
+            rowEl.style.display = "none";
+          }
+          if (labelEl instanceof HTMLElement && fallbackLabel.length > 0) {
+            labelEl.textContent = fallbackLabel;
+          }
+          if (!hasStaticIcon && iconEl instanceof HTMLElement) {
+            iconEl.innerHTML = "";
+            iconEl.style.display = "none";
+          }
+          return;
+        }
+
+        if (rowEl instanceof HTMLElement) {
+          rowEl.style.display = "flex";
+        }
+        if (labelEl instanceof HTMLElement) {
+          const sourceLabel = extractLabelFromSource(sourceEl);
+          if (sourceLabel.length > 0) {
+            labelEl.textContent = sourceLabel;
+          }
+        }
+
+        if (hasStaticIcon) return;
+
+        const sourceIconEl = sourceEl.querySelector("svg, img");
+        if (!(iconEl instanceof HTMLElement)) return;
+
+        if (!sourceIconEl) {
+          iconEl.innerHTML = "";
+          iconEl.style.display = "none";
+          return;
+        }
+
+        iconEl.innerHTML = sourceIconEl.outerHTML;
+        iconEl.style.display = "inline-flex";
+      });
+    };
+
+    const scheduleSync = () => {
+      if (syncRafId !== 0) return;
+      syncRafId = window.requestAnimationFrame(() => {
+        syncRafId = 0;
+        syncControlPreviews();
+      });
+    };
+
+    const startModalObservers = () => {
+      if (domObserver) return;
+      domObserver = new MutationObserver(() => {
+        scheduleSync();
+      });
+      domObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+      });
+    };
+
+    const stopModalObservers = () => {
+      if (!domObserver) return;
+      domObserver.disconnect();
+      domObserver = null;
+    };
+
     const openModal = () => {
-      if (!modal.open) modal.showModal();
+      scheduleSync();
+      if (!modal.open) {
+        modal.showModal();
+      }
+      startModalObservers();
     };
 
     openBtn.addEventListener("click", openModal);
     closeBtn.addEventListener("click", () => modal.close());
+    modal.addEventListener("close", stopModalObservers);
+    modal.addEventListener("cancel", stopModalObservers);
+
+    scheduleSync();
+    window.requestAnimationFrame(scheduleSync);
+    window.setTimeout(scheduleSync, 300);
 
     if (!window.localStorage.getItem(storageKey)) {
       window.localStorage.setItem(storageKey, "1");

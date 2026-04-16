@@ -625,19 +625,24 @@ export default function SchemaGraph({
   return (
     <div className="w-full h-[calc(100vh-12rem)] flex flex-col gap-2">
       {/* Top controls */}
-      <div className="flex flex-wrap items-center gap-3 px-1">
+      <div className="flex flex-wrap items-center gap-4 px-1">
         {/* Mode tabs */}
-        <div role="tablist" className="tabs tabs-box tabs-sm">
+        <div
+          role="tablist"
+          className="flex items-center gap-2 rounded-lg border border-base-300 bg-base-200/60 p-1"
+        >
           <button
+            id="schema-mode-database"
             role="tab"
-            className={`tab ${mode === "database" ? "tab-active" : ""}`}
+            className={`btn btn-sm ${mode === "database" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => setMode("database")}
           >
             Database Tables
           </button>
           <button
+            id="schema-mode-endpoints"
             role="tab"
-            className={`tab ${mode === "endpoints" ? "tab-active" : ""}`}
+            className={`btn btn-sm ${mode === "endpoints" ? "btn-primary" : "btn-ghost"}`}
             onClick={() => setMode("endpoints")}
           >
             API Endpoints
@@ -692,22 +697,24 @@ export default function SchemaGraph({
       </div>
 
       {/* Layout controls bar */}
-      <div className="flex flex-wrap items-center gap-4 px-1">
+      <div className="flex flex-wrap items-center gap-5 px-1">
         {/* Direction */}
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-base-content/50 font-medium">
             Direction
           </span>
-          <div className="join">
+          <div className="flex items-center gap-1">
             <button
-              className={`join-item btn btn-xs ${layoutDir === "LR" ? "btn-neutral" : "btn-ghost"}`}
+              id="schema-dir-lr"
+              className={`btn btn-xs ${layoutDir === "LR" ? "btn-neutral" : "btn-ghost"}`}
               onClick={() => setLayoutDir("LR")}
               title="Left to Right"
             >
               LR →
             </button>
             <button
-              className={`join-item btn btn-xs ${layoutDir === "TB" ? "btn-neutral" : "btn-ghost"}`}
+              id="schema-dir-tb"
+              className={`btn btn-xs ${layoutDir === "TB" ? "btn-neutral" : "btn-ghost"}`}
               onClick={() => setLayoutDir("TB")}
               title="Top to Bottom"
             >
@@ -721,11 +728,12 @@ export default function SchemaGraph({
           <span className="text-[10px] text-base-content/50 font-medium">
             Spacing
           </span>
-          <div className="join">
+          <div className="flex items-center gap-1">
             {(["compact", "normal", "spacious"] as LayoutSpacing[]).map((s) => (
               <button
                 key={s}
-                className={`join-item btn btn-xs ${layoutSpacing === s ? "btn-neutral" : "btn-ghost"}`}
+                id={`schema-spacing-${s}`}
+                className={`btn btn-xs ${layoutSpacing === s ? "btn-neutral" : "btn-ghost"}`}
                 onClick={() => setLayoutSpacing(s)}
               >
                 {s === "compact"
@@ -743,11 +751,12 @@ export default function SchemaGraph({
           <span className="text-[10px] text-base-content/50 font-medium">
             Edge
           </span>
-          <div className="join">
+          <div className="flex items-center gap-1">
             {(["bezier", "smoothstep", "straight"] as EdgeStyle[]).map((es) => (
               <button
                 key={es}
-                className={`join-item btn btn-xs ${edgeStyle === es ? "btn-neutral" : "btn-ghost"}`}
+                id={`schema-edge-${es}`}
+                className={`btn btn-xs ${edgeStyle === es ? "btn-neutral" : "btn-ghost"}`}
                 onClick={() => setEdgeStyle(es)}
               >
                 {es === "bezier"
@@ -765,23 +774,26 @@ export default function SchemaGraph({
           <span className="text-[10px] text-base-content/50 font-medium">
             Algorithm
           </span>
-          <div className="join">
+          <div className="flex items-center gap-1">
             <button
-              className={`join-item btn btn-xs ${layoutAlgo === "dagre" ? "btn-neutral" : "btn-ghost"}`}
+              id="schema-algo-dagre"
+              className={`btn btn-xs ${layoutAlgo === "dagre" ? "btn-neutral" : "btn-ghost"}`}
               onClick={() => setLayoutAlgo("dagre")}
               title="Dagre: 高速・軽量"
             >
               Dagre
             </button>
             <button
-              className={`join-item btn btn-xs ${layoutAlgo === "elk-layered" ? "btn-neutral" : "btn-ghost"}`}
+              id="schema-algo-elk"
+              className={`btn btn-xs ${layoutAlgo === "elk-layered" ? "btn-neutral" : "btn-ghost"}`}
               onClick={() => setLayoutAlgo("elk-layered")}
               title="ELK Layered: 交差最小化に優秀"
             >
               ELK
             </button>
             <button
-              className={`join-item btn btn-xs ${layoutAlgo === "elk-mrtree" ? "btn-neutral" : "btn-ghost"}`}
+              id="schema-algo-tree"
+              className={`btn btn-xs ${layoutAlgo === "elk-mrtree" ? "btn-neutral" : "btn-ghost"}`}
               onClick={() => setLayoutAlgo("elk-mrtree")}
               title="ELK MrTree: ツリー構造向け"
             >

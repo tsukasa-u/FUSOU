@@ -23,17 +23,16 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
     summary: "連携するプロバイダを選んでログインします。",
     controls: [
       {
-        label: "Sign in with Google",
+        sourceSelector: "#signin-google-btn",
         description: "Googleアカウントで認証します。",
-        tone: "primary",
       },
       {
-        label: "Local storage",
+        sourceSelector: "#signin-local-btn",
         description: "ローカル連携フローの準備ボタンです。",
         tone: "ghost",
       },
       {
-        label: "操作説明",
+        sourceSelector: "#tutorial-open-btn",
         description: "この説明モーダルを再表示します。",
         tone: "primary",
       },
@@ -61,6 +60,7 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
           <ul class="mt-8 flex flex-col gap-3 text-sm">
             <li>
               <button
+                id="signin-google-btn"
                 class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
                 value="google"
                 name="provider"
@@ -130,8 +130,8 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
             <div class="divider">OR</div>
             <li class="opacity-50">
               <button
+                id="signin-local-btn"
                 class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
-                id="login_button"
               >
                 <div class="text-center">Local storage</div>
               </button>

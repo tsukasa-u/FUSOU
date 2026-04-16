@@ -18,26 +18,30 @@ export const prerender = false;
     controls: [
       {
         label: "シミュレータへ戻る",
+        sourceSelector: "#sim-back-link",
         description: "編成編集画面へ戻り、確認した内容をすぐ反映できます。",
         tone: "outline",
       },
       {
-        label: "艦タブ",
+        label: "艦詳細",
+        sourceSelector: "#sim-details-tab-ship",
         description: "艦娘の能力・搭載・速力・射程・成長関連情報を確認します。",
         tone: "ghost",
       },
       {
-        label: "装備タブ",
+        label: "装備詳細",
+        sourceSelector: "#sim-details-tab-equip",
         description: "装備の種別・性能・装備可能艦・シナジーを確認します。",
         tone: "ghost",
       },
       {
-        label: "検索・フィルタ",
+        label: "検索",
+        sourceSelector: "#sim-details-search-input",
         description: "名称や艦種/装備種別で対象を絞り込みます。",
         tone: "outline",
       },
       {
-        label: "操作説明",
+        sourceSelector: "#tutorial-open-btn",
         description: "この説明モーダルを再表示します。",
         tone: "primary",
       },
@@ -62,7 +66,9 @@ export const prerender = false;
       compact={true}
     >
       <Fragment slot="actions">
-        <a href="/simulator" class="fusou-btn-ghost">シミュレータへ戻る</a>
+        <a id="sim-back-link" href="/simulator" class="fusou-btn-ghost"
+          >シミュレータへ戻る</a
+        >
       </Fragment>
     </PageHeader>
 

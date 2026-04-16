@@ -203,17 +203,17 @@ cookies.delete("sb-local-expires-at", { path: "/" });
     summary: "認証結果を確認し、アプリまたはダッシュボードへ戻れます。",
     controls: [
       {
-        label: "Continue to Dashboard",
+        sourceSelector: "#dashboard-btn",
         description: "Web側ダッシュボードへ進みます。",
         tone: "primary",
       },
       {
-        label: "Return to App",
+        sourceSelector: "#app-return-link",
         description: "デスクトップアプリへ戻ります。",
         tone: "outline",
       },
       {
-        label: "Continue as Guest",
+        sourceSelector: "#continue-guest-btn",
         description: "連携なしでゲストとして続行します。",
         tone: "ghost",
       },
@@ -414,6 +414,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               ← Retry Sign-in
             </a>
             <button
+              id="continue-guest-btn"
               onclick="window.location.href = '/'"
               class="btn btn-ghost w-full border border-base-300"
             >

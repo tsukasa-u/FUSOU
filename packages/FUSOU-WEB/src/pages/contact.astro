@@ -5,19 +5,7 @@ import PageShell from "@/components/ui/PageShell.astro";
 import PageHeader from "@/components/ui/PageHeader.astro";
 ---
 
-<PageLayout
-  title="FUSOU - お問い合わせ・削除申請"
-  tutorial={{
-    id: "contact",
-    title: "お問い合わせページの使い方",
-    summary: "用途別に適切な連絡手段からお問い合わせできます。",
-    steps: [
-      "著作権・削除申請は専用リンクから必要情報を添えて連絡します。",
-      "一般的な質問や要望は Discussions / Issues を使い分けます。",
-      "緊急性がある場合は連絡先を明記して状況を具体的に記載します。",
-    ],
-  }}
->
+<PageLayout title="FUSOU - お問い合わせ・削除申請">
   <Navigation filled={true} />
   <PageShell container="narrow" paddingY="12">
     <PageHeader

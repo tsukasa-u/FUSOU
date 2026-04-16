@@ -17,16 +17,18 @@ const { id } = Astro.params;
     controls: [
       {
         label: "フェーズ",
+        sourceSelector: "#battle-view-mode-phase",
         description: "攻撃艦→対象艦の詳細を段階ごとに表示します。",
         tone: "outline",
       },
       {
         label: "タイムライン",
+        sourceSelector: "#battle-view-mode-timeline",
         description: "時系列で戦闘イベントを追跡表示します。",
         tone: "outline",
       },
       {
-        label: "操作説明",
+        sourceSelector: "#tutorial-open-btn",
         description: "この説明モーダルを再表示します。",
         tone: "primary",
       },

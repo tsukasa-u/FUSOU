@@ -16,17 +16,17 @@ export const prerender = false;
     summary: "条件で絞り込みながら対象戦闘を探せます。",
     controls: [
       {
-        label: "マップ進行",
+        sourceSelector: "#battles-map-flow-link",
         description: "進軍ルート表示ページへ移動します。",
         tone: "outline",
       },
       {
-        label: "統計",
+        sourceSelector: "#battles-stats-link",
         description: "統計ダッシュボードへ移動します。",
         tone: "outline",
       },
       {
-        label: "操作説明",
+        sourceSelector: "#tutorial-open-btn",
         description: "この説明モーダルを再表示します。",
         tone: "primary",
       },
@@ -45,8 +45,16 @@ export const prerender = false;
       subtitle="R2に保存された戦闘履歴を閲覧・分析"
     >
       <Fragment slot="actions">
-        <a href="/battles/map-flow" class="fusou-btn-secondary">マップ進行</a>
-        <a href="/battles/stats" class="fusou-btn-secondary">統計</a>
+        <a
+          id="battles-map-flow-link"
+          href="/battles/map-flow"
+          class="fusou-btn-secondary">マップ進行</a
+        >
+        <a
+          id="battles-stats-link"
+          href="/battles/stats"
+          class="fusou-btn-secondary">統計</a
+        >
       </Fragment>
     </PageHeader>
 

@@ -16,21 +16,24 @@ export const prerender = false;
     controls: [
       {
         label: "新規編成",
+        sourceSelector: "#fleets-new-link",
         description: "シミュレータを空編成で開いて新規作成します。",
         tone: "primary",
       },
       {
         label: "シミュレータで開く",
+        sourceSelector: ".btn-open-fleet",
         description: "選択した保存編成を即座にシミュレータへ復元します。",
         tone: "outline",
       },
       {
         label: "削除",
+        sourceSelector: ".btn-delete",
         description: "不要な保存編成を一覧から削除します。",
         tone: "ghost",
       },
       {
-        label: "操作説明",
+        sourceSelector: "#tutorial-open-btn",
         description: "この説明モーダルを再表示します。",
         tone: "primary",
       },
@@ -51,7 +54,9 @@ export const prerender = false;
       subtitle="R2に保存された艦隊スナップショットの一覧"
     >
       <Fragment slot="actions">
-        <a href="/simulator" class="fusou-btn-primary">新規編成</a>
+        <a id="fleets-new-link" href="/simulator" class="fusou-btn-primary"
+          >新規編成</a
+        >
       </Fragment>
     </PageHeader>
 
@@ -126,7 +131,7 @@ export const prerender = false;
 
     const openLink = document.createElement("a");
     openLink.href = `/simulator?fleet=${encodeURIComponent(tag)}`;
-    openLink.className = "btn btn-primary btn-xs";
+    openLink.className = "btn btn-primary btn-xs btn-open-fleet";
     openLink.textContent = "シミュレータで開く";
 
     const deleteButton = document.createElement("button");

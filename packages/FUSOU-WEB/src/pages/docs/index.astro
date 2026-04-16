@@ -149,30 +149,7 @@ const renderMenuHtml = (
 const menuHtml = renderMenuHtml(menuTree, 2, 4);
 ---
 
-<Layout
-  tutorial={{
-    id: "docs-index",
-    title: "ドキュメント一覧ページの使い方",
-    summary: "カテゴリごとにドキュメントを探せる索引ページです。",
-    controls: [
-      {
-        label: "API Schema Explorer",
-        description: "スキーマ可視化ページへ移動します。",
-        tone: "outline",
-      },
-      {
-        label: "操作説明",
-        description: "この説明モーダルを再表示します。",
-        tone: "primary",
-      },
-    ],
-    steps: [
-      "左メニューまたは中央リストから目的のドキュメントを選択します。",
-      "API構造を確認したい場合は API Schema Explorer を開きます。",
-      "階層ごとに整理されているため、上位カテゴリから辿ると見つけやすいです。",
-    ],
-  }}
->
+<Layout>
   <div class="h-16"></div>
   <div class="flex">
     <div class="flex-1 min-w-0"></div>
@@ -197,6 +174,7 @@ const menuHtml = renderMenuHtml(menuTree, 2, 4);
         </p>
         <div class="mt-6 mb-4 p-4 bg-base-200 rounded-xl">
           <a
+            id="docs-api-schema-link"
             href="/docs/api-schema"
             class="text-lg font-semibold text-sky-600 hover:underline"
           >

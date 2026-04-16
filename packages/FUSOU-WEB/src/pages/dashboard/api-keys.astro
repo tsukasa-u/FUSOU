@@ -77,17 +77,18 @@ if (!user) {
     summary: "APIキーの発行・確認・削除とデバイス確認を行います。",
     controls: [
       {
-        label: "Create New Key",
+        sourceSelector: "#create-key-btn",
         description: "新しいAPIキーを発行します。",
         tone: "primary",
       },
       {
+        sourceSelector: "#copy-key-btn",
         label: "Copy",
         description: "発行直後のキー文字列をコピーします。",
         tone: "outline",
       },
       {
-        label: "Back to Dashboard",
+        sourceSelector: "#back-to-dashboard-btn",
         description: "ダッシュボードへ戻ります。",
         tone: "outline",
       },
@@ -342,7 +343,11 @@ if (!user) {
 
         <!-- Back to Dashboard -->
         <div class="text-center">
-          <a href="/dashboard" class="btn btn-ghost border border-base-300">
+          <a
+            id="back-to-dashboard-btn"
+            href="/dashboard"
+            class="btn btn-ghost border border-base-300"
+          >
             ← Back to Dashboard
           </a>
         </div>

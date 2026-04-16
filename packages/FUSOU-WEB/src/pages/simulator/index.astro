@@ -43,42 +43,42 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       "艦隊・装備・基地航空隊を編集し、保存・共有・比較まで一通り行えます。",
     controls: [
       {
-        label: "艦/装備詳細",
+        sourceSelector: "#sim-details-link",
         description: "艦娘・装備の詳細カタログを別ページで確認します。",
         tone: "outline",
       },
       {
-        label: "表示設定",
+        sourceSelector: "#btn-display-settings",
         description: "表示項目や編成表示の詳細設定を開きます。",
         tone: "outline",
       },
       {
-        label: "R2読込",
+        sourceSelector: "#btn-load-fleet",
         description: "保存済み編成をR2から読み込みます。",
         tone: "outline",
       },
       {
-        label: "APIレスポンス貼り付け",
+        sourceSelector: "#btn-import",
         description: "API JSONを貼り付けて編成へ反映します。",
         tone: "outline",
       },
       {
-        label: "画像保存",
+        sourceSelector: "#btn-save-image",
         description: "現在の編成表示を画像として保存します。",
         tone: "outline",
       },
       {
-        label: "共有",
+        sourceSelector: "#btn-share",
         description: "共有URLを発行して他ユーザーと同じ編成を再現できます。",
         tone: "primary",
       },
       {
-        label: "編成追加",
+        sourceSelector: "#btn-workspace-add-current",
         description: "現在のPlayground編成をワークスペースに登録します。",
         tone: "ghost",
       },
       {
-        label: "URL追加",
+        sourceSelector: "#btn-workspace-add",
         description: "共有URLをワークスペース一覧へ追加します。",
         tone: "ghost",
       },
@@ -104,7 +104,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       compact={true}
     >
       <Fragment slot="actions">
-        <a href="/simulator/details" class="fusou-btn-secondary gap-1.5">
+        <a
+          id="sim-details-link"
+          href="/simulator/details"
+          class="fusou-btn-secondary gap-1.5"
+        >
           艦/装備詳細
         </a>
         <button id="btn-display-settings" class="fusou-btn-secondary gap-1.5">

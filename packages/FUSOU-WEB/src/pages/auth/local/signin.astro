@@ -24,17 +24,17 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
     summary: "ゲームアカウント同期とSNS連携を段階的に進めます。",
     controls: [
       {
-        label: "Sync with Game App",
+        sourceSelector: "#sync_member_id_button",
         description: "FUSOUアプリと連携してゲームアカウントを取得します。",
         tone: "primary",
       },
       {
-        label: "Sign in with Google",
+        sourceSelector: "#local-signin-google-btn",
         description: "SNSアカウント連携を実行します。",
         tone: "outline",
       },
       {
-        label: "Skip This Step",
+        sourceSelector: "#skip_step_1",
         description: "現在のステップをスキップして進みます。",
         tone: "ghost",
       },
@@ -317,6 +317,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               value={Astro.url.searchParams.get("member_id_hash") ?? ""}
             />
             <button
+              id="local-signin-google-btn"
               type="submit"
               name="provider"
               value="google"

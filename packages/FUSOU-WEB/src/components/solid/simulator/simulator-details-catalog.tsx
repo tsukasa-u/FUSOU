@@ -1510,12 +1510,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
           艦隊シミュレータ
         </a>
         <button
+          id="sim-details-tab-ship"
           class={`btn btn-sm ${tab() === "ship" ? "btn-primary" : "btn-ghost"}`}
           onClick={() => setTab("ship")}
         >
           艦詳細
         </button>
         <button
+          id="sim-details-tab-equip"
           class={`btn btn-sm ${tab() === "equip" ? "btn-primary" : "btn-ghost"}`}
           onClick={() => setTab("equip")}
         >
@@ -2003,6 +2005,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 </For>
               </select>
               <input
+                id="sim-details-search-input"
                 class="input input-bordered input-sm w-full"
                 placeholder="艦名 / ID で検索"
                 value={shipQuery()}

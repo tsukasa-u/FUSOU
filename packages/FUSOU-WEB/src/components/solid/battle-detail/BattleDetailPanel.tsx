@@ -463,12 +463,14 @@ export default function BattleDetailPanel(props: {
                   <h3 class="card-title text-lg">戦闘フェーズ</h3>
                   <div class="join">
                     <button
+                      id="battle-view-mode-phase"
                       class={`join-item btn btn-sm ${viewMode() === "phase" ? "btn-active" : ""}`}
                       onClick={() => setViewMode("phase")}
                     >
                       フェーズ
                     </button>
                     <button
+                      id="battle-view-mode-timeline"
                       class={`join-item btn btn-sm ${viewMode() === "timeline" ? "btn-active" : ""}`}
                       onClick={() => setViewMode("timeline")}
                     >

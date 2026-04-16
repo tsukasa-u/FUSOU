@@ -12,10 +12,31 @@ import Hero from "@/components/Hero.astro";
     id: "home",
     title: "トップページの使い方",
     summary: "FUSOU の主要機能へここから移動できます。",
+    controls: [
+      {
+        label: "データ",
+        description:
+          "戦闘データや艦娘パラメータ推移など収集データの閲覧ページ一覧を開きます。",
+        tone: "ghost",
+      },
+      {
+        label: "Simulator",
+        description:
+          "艦隊編成シミュレータを開きます。編成・装備・基地航空隊を編集できます。",
+        tone: "ghost",
+      },
+      {
+        sourceSelector: "#tutorial-open-btn",
+        description:
+          "この説明モーダルを再表示します。操作方法を確認したいときに利用してください。",
+        tone: "primary",
+      },
+    ],
     steps: [
-      "上部ナビゲーションの「データ」「Simulator」「Docs」から目的の機能へ進みます。",
-      "戦闘分析を行う場合は Battles、編成検討は Simulator を使います。",
-      "初めて使う機能はこの操作説明ボタンから再確認できます。",
+      "初回利用の場合は『サインイン』ボタンから Google アカウント連携を行ってください。",
+      "上部ナビゲーションの『戦闘データ』から武器分析・統計番食表を開けます。",
+      "『Simulator』から編成検討・共有・インポートを行います。",
+      "不明な点は各ページ左下の『操作説明』ボタンでいつでも再確認できます。",
     ],
   }}
 >

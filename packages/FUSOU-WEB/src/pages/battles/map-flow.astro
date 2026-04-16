@@ -14,10 +14,25 @@ export const prerender = false;
     id: "battles-map-flow",
     title: "マップ進行ページの使い方",
     summary: "進軍ルートと交戦内容を同時に追跡できます。",
+    controls: [
+      {
+        sourceSelector: "#map-flow-back-link",
+        description:
+          "戦闘一覧ページに戻ります。別の海域や条件を再設定する場合に使います。",
+        tone: "ghost",
+      },
+      {
+        sourceSelector: "#tutorial-open-btn",
+        description:
+          "この説明モーダルを再表示します。操作方法を確認したいときに利用してください。",
+        tone: "primary",
+      },
+    ],
     steps: [
-      "ルート上のセルを選択して交戦した戦闘を確認します。",
-      "表示設定で注目したい情報（敵編成や分岐）を切り替えます。",
-      "詳細分析が必要な戦闘は戦闘詳細ページへ移動します。",
+      "マップ上のルートノード(セル)を選択すると、そのコマで交戦した戦闘の一覧が行に表示されます。",
+      "各セルの色やラベルは分岐・戦闘・資源回収などセルタイプを示しています。",
+      "表示設定を切り替えて敵編成・分岐条件など注目したい情報を絞り込みます。",
+      "詳細分析が必要な戦闘は行をクリックすると戦闘詳細ページへ遷移します。",
     ],
   }}
 >
@@ -25,7 +40,9 @@ export const prerender = false;
   <PageShell>
     <PageHeader title="マップ進行" subtitle="進軍順路と交戦した敵を同時に確認">
       <Fragment slot="actions">
-        <a href="/battles" class="fusou-btn-ghost">← 戦闘一覧</a>
+        <a id="map-flow-back-link" href="/battles" class="fusou-btn-ghost"
+          >← 戦闘一覧</a
+        >
       </Fragment>
     </PageHeader>
 

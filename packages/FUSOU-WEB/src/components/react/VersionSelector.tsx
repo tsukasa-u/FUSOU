@@ -38,11 +38,11 @@ export default function VersionSelector({
 
       {/* Major version selector (only when multiple major versions exist) */}
       {hasMajorSelector && (
-        <div className="join mr-1">
+        <div className="flex items-center gap-1 mr-1">
           {majorVersions.map((m) => (
             <button
               key={m}
-              className={`join-item btn btn-xs border border-base-content/5 ${selectedMajor === m ? "btn-secondary" : "btn-ghost"}`}
+              className={`btn btn-xs border border-base-content/5 ${selectedMajor === m ? "btn-secondary" : "btn-ghost"}`}
               onClick={() => onMajorChange!(m)}
             >
               {m}
@@ -52,11 +52,11 @@ export default function VersionSelector({
       )}
 
       {/* Minor version selector */}
-      <div className="join">
+      <div className="flex items-center gap-1">
         {versions.map((v) => (
           <button
             key={v}
-            className={`join-item btn btn-xs border border-base-content/5 ${selected === v ? "btn-primary" : "btn-ghost"}`}
+            className={`btn btn-xs border border-base-content/5 ${selected === v ? "btn-primary" : "btn-ghost"}`}
             onClick={() => onChange(v)}
           >
             {labels?.[v] ?? versionKeyToLabel(v)}

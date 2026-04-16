@@ -37,38 +37,9 @@ if (!memberIdHash) {
 }
 ---
 
-<Layout
-  title="Account Conflict - FUSOU"
-  tutorial={{
-    id: "account-conflict",
-    title: "アカウント競合ページの使い方",
-    summary: "ゲームアカウントの紐付け競合を解決するための画面です。",
-    controls: [
-      {
-        label: "Switch Account",
-        description: "元の所有アカウントで再サインインします。",
-        tone: "primary",
-      },
-      {
-        label: "Learn More About Transfer",
-        description: "移管手順の案内を表示します。",
-        tone: "outline",
-      },
-      {
-        label: "Contact Support",
-        description: "サポート窓口へ移動します。",
-        tone: "outline",
-      },
-    ],
-    steps: [
-      "Existing Account の情報を確認し、正しい所有者かを判断します。",
-      "元のアカウントで入る場合は Switch Account を使います。",
-      "対応が難しい場合は Contact Support から問い合わせます。",
-    ],
-  }}
->
+<Layout title="Account Conflict - FUSOU">
   <Navigation />
-  <div class="h-16"></div>
+  <!-- <div class="h-16"></div> -->
   <div class="min-h-screen flex items-center justify-center px-4 py-8">
     <div class="w-full max-w-2xl">
       <div class="bg-base-100 rounded-md p-6">
@@ -208,6 +179,7 @@ if (!memberIdHash) {
                         </p>
                         <div class="card-actions justify-end mt-3">
                           <a
+                            id="switch-account-btn"
                             href="/auth/local/signin"
                             class="btn btn-primary btn-wide btn-sm"
                           >
@@ -250,6 +222,7 @@ if (!memberIdHash) {
                         </div>
                         <div class="card-actions justify-end">
                           <button
+                            id="learn-transfer-btn"
                             class="btn btn-outline btn-wide btn-sm"
                             onclick="alert('Transfer feature coming soon. Please contact support for assistance.')"
                           >
@@ -266,6 +239,7 @@ if (!memberIdHash) {
                       </p>
                       <div class="card-actions justify-end mt-3">
                         <a
+                          id="contact-support-link"
                           href="https://github.com/tsukasa-u/FUSOU/issues"
                           target="_blank"
                           rel="noopener noreferrer"
