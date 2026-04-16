@@ -15,7 +15,10 @@ type BattleRecord = {
   mapinfo_no?: number | null;
   cell_id: number;
   f_formation?: number | null;
-  battle_result?: { win_rank: WinRank; drop_ship_id: number | null } | string | null;
+  battle_result?:
+    | { win_rank: WinRank; drop_ship_id: number | null }
+    | string
+    | null;
   opening_air_attack: Array<{ air_superiority: number | null } | null> | null;
   e_deck_id?: string | null;
 };
@@ -92,7 +95,10 @@ function normalizeEpochMs(value: number | null | undefined): number | null {
 
 function resolveBattleResult(
   raw: BattleRecord["battle_result"],
-  battleResultByUuid: Map<string, { win_rank: WinRank; drop_ship_id: number | null }>,
+  battleResultByUuid: Map<
+    string,
+    { win_rank: WinRank; drop_ship_id: number | null }
+  >,
 ): { win_rank: WinRank; drop_ship_id: number | null } | null {
   if (!raw) return null;
   if (typeof raw === "string") {
@@ -104,7 +110,9 @@ function resolveBattleResult(
   return null;
 }
 
-function battleResultOf(b: BattleRecord): { win_rank: WinRank; drop_ship_id: number | null } | null {
+function battleResultOf(
+  b: BattleRecord,
+): { win_rank: WinRank; drop_ship_id: number | null } | null {
   if (!b.battle_result || typeof b.battle_result !== "object") return null;
   return b.battle_result;
 }
@@ -121,8 +129,12 @@ export default function BattlesListPanel() {
   const [resultFilter, setResultFilter] = createSignal("");
   const [currentPage, setCurrentPage] = createSignal(0);
   const [allBattles, setAllBattles] = createSignal<BattleRecord[]>([]);
-  const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<Map<string, string>>(new Map());
-  const [cellLabelsByMapKey, setCellLabelsByMapKey] = createSignal<Record<string, Record<number, string>>>({});
+  const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<
+    Map<string, string>
+  >(new Map());
+  const [cellLabelsByMapKey, setCellLabelsByMapKey] = createSignal<
+    Record<string, Record<number, string>>
+  >({});
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -165,7 +177,9 @@ export default function BattlesListPanel() {
     return list;
   });
 
-  const totalPages = createMemo(() => Math.ceil(filteredBattles().length / PAGE_SIZE));
+  const totalPages = createMemo(() =>
+    Math.ceil(filteredBattles().length / PAGE_SIZE),
+  );
 
   const pagedBattles = createMemo(() => {
     const start = currentPage() * PAGE_SIZE;
@@ -183,7 +197,14 @@ export default function BattlesListPanel() {
     setLoading(true);
     setError(null);
     try {
-      const [response, cellsResponse, battleResultResponse, enemyDeckResponse, enemyShipResponse, mstShipResponse] = await Promise.all([
+      const [
+        response,
+        cellsResponse,
+        battleResultResponse,
+        enemyDeckResponse,
+        enemyShipResponse,
+        mstShipResponse,
+      ] = await Promise.all([
         cachedFetch(
           `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
         ),
@@ -202,7 +223,9 @@ export default function BattlesListPanel() {
         cachedFetch(`/api/master-data/json?table_name=mst_ship`),
       ]);
       if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as { message?: string };
+        const payload = (await response.json().catch(() => ({}))) as {
+          message?: string;
+        };
         setError(payload.message || "戦闘データの取得に失敗しました。");
         setAllBattles([]);
         return;
@@ -213,7 +236,9 @@ export default function BattlesListPanel() {
         ? ((await cellsResponse.json()) as { records?: CellRecord[] })
         : { records: [] };
       const battleResultPayload = battleResultResponse.ok
-        ? ((await battleResultResponse.json()) as { records?: BattleResultRecord[] })
+        ? ((await battleResultResponse.json()) as {
+            records?: BattleResultRecord[];
+          })
         : { records: [] };
       const enemyDeckPayload = enemyDeckResponse.ok
         ? ((await enemyDeckResponse.json()) as { records?: EnemyDeckRecord[] })
@@ -224,7 +249,10 @@ export default function BattlesListPanel() {
       const mstShipPayload = mstShipResponse.ok
         ? ((await mstShipResponse.json()) as { records?: MstShipRecord[] })
         : { records: [] };
-      const battleResultByUuid = new Map<string, { win_rank: WinRank; drop_ship_id: number | null }>();
+      const battleResultByUuid = new Map<
+        string,
+        { win_rank: WinRank; drop_ship_id: number | null }
+      >();
       for (const rec of battleResultPayload.records || []) {
         if (!rec?.uuid || !rec.win_rank) continue;
         battleResultByUuid.set(rec.uuid, {
@@ -235,21 +263,32 @@ export default function BattlesListPanel() {
 
       const unresolvedResultUuids = new Set<string>();
       for (const rec of payload.records || []) {
-        if (typeof rec?.battle_result === "string" && !battleResultByUuid.has(rec.battle_result)) {
+        if (
+          typeof rec?.battle_result === "string" &&
+          !battleResultByUuid.has(rec.battle_result)
+        ) {
           unresolvedResultUuids.add(rec.battle_result);
         }
       }
 
       if (unresolvedResultUuids.size > 0) {
         const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchFilterJson = encodeURIComponent(
+          JSON.stringify({ uuid: fillTargets }),
+        );
         const batchRes = await cachedFetch(
           `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
         if (batchRes.ok) {
-          const body = (await batchRes.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
+          const body = (await batchRes.json().catch(() => ({}))) as {
+            records?: BattleResultRecord[];
+          };
           for (const found of body.records || []) {
-            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
+            if (
+              found?.uuid &&
+              found.win_rank &&
+              !battleResultByUuid.has(found.uuid)
+            ) {
               battleResultByUuid.set(found.uuid, {
                 win_rank: found.win_rank,
                 drop_ship_id: found.drop_ship_id ?? null,
@@ -259,14 +298,20 @@ export default function BattlesListPanel() {
         }
       }
 
-      const mapByBattleUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
+      const mapByBattleUuid = new Map<
+        string,
+        { maparea_id: number; mapinfo_no: number }
+      >();
       for (const cell of cellsPayload.records || []) {
         const battleUuid = cell.battles;
         if (!battleUuid) continue;
         const maparea = Number(cell.maparea_id ?? 0);
         const mapinfo = Number(cell.mapinfo_no ?? 0);
         if (maparea > 0 && mapinfo > 0) {
-          mapByBattleUuid.set(battleUuid, { maparea_id: maparea, mapinfo_no: mapinfo });
+          mapByBattleUuid.set(battleUuid, {
+            maparea_id: maparea,
+            mapinfo_no: mapinfo,
+          });
         }
       }
 
@@ -274,7 +319,9 @@ export default function BattlesListPanel() {
         .filter((b) => typeof b.cell_id === "number")
         .map((b) => {
           const normalizedTimestamp =
-            normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp) ?? null;
+            normalizeEpochMs(b.timestamp) ??
+            normalizeEpochMs(b.midnight_timestamp) ??
+            null;
           const normalizedBattleResult = resolveBattleResult(
             b.battle_result,
             battleResultByUuid,
@@ -297,7 +344,9 @@ export default function BattlesListPanel() {
         })
         .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
-      const deckById = new Map((enemyDeckPayload.records || []).map((d) => [d.uuid, d]));
+      const deckById = new Map(
+        (enemyDeckPayload.records || []).map((d) => [d.uuid, d]),
+      );
       const shipsByGroupId = new Map<string, EnemyShipRecord[]>();
       for (const ship of enemyShipPayload.records || []) {
         const group = shipsByGroupId.get(ship.uuid);
@@ -310,11 +359,15 @@ export default function BattlesListPanel() {
       for (const group of shipsByGroupId.values()) {
         group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
       }
-      const mstShipNameById = new Map((mstShipPayload.records || []).map((s) => [s.id, s.name]));
+      const mstShipNameById = new Map(
+        (mstShipPayload.records || []).map((s) => [s.id, s.name]),
+      );
 
       const toGroupIds = (shipIds: EnemyDeckRecord["ship_ids"]): string[] => {
         if (Array.isArray(shipIds)) {
-          return shipIds.filter((id): id is string => typeof id === "string" && id.length > 0);
+          return shipIds.filter(
+            (id): id is string => typeof id === "string" && id.length > 0,
+          );
         }
         if (typeof shipIds === "string" && shipIds.length > 0) {
           return [shipIds];
@@ -347,19 +400,28 @@ export default function BattlesListPanel() {
         enemyNames.set(battle.e_deck_id, describeEnemy(battle.e_deck_id));
       }
 
-      const mapKeys = [...new Set(sorted.map((b) => mapLabelOf(b)).filter((key) => key !== "-"))];
+      const mapKeys = [
+        ...new Set(
+          sorted.map((b) => mapLabelOf(b)).filter((key) => key !== "-"),
+        ),
+      ];
       const labelEntries = await Promise.all(
         mapKeys.map(async (mapKey) => {
           const asset = getBattleMapAsset(mapKey);
-          if (!asset?.labelsUrl) return [mapKey, {} as Record<number, string>] as const;
+          if (!asset?.labelsUrl)
+            return [mapKey, {} as Record<number, string>] as const;
           try {
-            const response = await fetch(asset.labelsUrl, { headers: { "Content-Type": "application/json" } });
-            if (!response.ok) return [mapKey, {} as Record<number, string>] as const;
+            const response = await fetch(asset.labelsUrl, {
+              headers: { "Content-Type": "application/json" },
+            });
+            if (!response.ok)
+              return [mapKey, {} as Record<number, string>] as const;
             const payload = (await response.json()) as Record<string, string>;
             const labels: Record<number, string> = {};
             for (const [rawId, label] of Object.entries(payload || {})) {
               const id = Number(rawId);
-              if (!Number.isFinite(id) || typeof label !== "string" || !label) continue;
+              if (!Number.isFinite(id) || typeof label !== "string" || !label)
+                continue;
               labels[id] = label;
             }
             return [mapKey, labels] as const;
@@ -409,8 +471,11 @@ export default function BattlesListPanel() {
         <div class="card-body p-4">
           <div class="flex flex-wrap gap-4 items-end">
             <div class="form-control">
-              <label class="label"><span class="label-text">期間</span></label>
+              <label class="label">
+                <span class="label-text">期間</span>
+              </label>
               <select
+                id="battles-filter-period"
                 class="select select-bordered select-sm"
                 value={periodTag()}
                 onInput={(e) => setPeriodTag(e.currentTarget.value)}
@@ -420,8 +485,11 @@ export default function BattlesListPanel() {
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text">マップ</span></label>
+              <label class="label">
+                <span class="label-text">マップ</span>
+              </label>
               <select
+                id="battles-filter-map"
                 class="select select-bordered select-sm"
                 value={mapFilter()}
                 onInput={(e) => {
@@ -430,12 +498,17 @@ export default function BattlesListPanel() {
                 }}
               >
                 <option value="">全て</option>
-                <For each={mapOptions()}>{(map) => <option value={map}>{map}</option>}</For>
+                <For each={mapOptions()}>
+                  {(map) => <option value={map}>{map}</option>}
+                </For>
               </select>
             </div>
             <div class="form-control">
-              <label class="label"><span class="label-text">結果</span></label>
+              <label class="label">
+                <span class="label-text">結果</span>
+              </label>
               <select
+                id="battles-filter-result"
                 class="select select-bordered select-sm"
                 value={resultFilter()}
                 onInput={(e) => {
@@ -451,7 +524,12 @@ export default function BattlesListPanel() {
                 <option value="D">D敗北</option>
               </select>
             </div>
-            <button class="btn btn-primary btn-sm" onClick={() => void loadBattles()} disabled={loading()}>
+            <button
+              id="battles-load-btn"
+              class="btn btn-primary btn-sm"
+              onClick={() => void loadBattles()}
+              disabled={loading()}
+            >
               {loading() ? "読込中..." : "読込"}
             </button>
           </div>
@@ -467,22 +545,33 @@ export default function BattlesListPanel() {
           <div class="text-sm text-base-content/70">
             <Show
               when={recentSummary().length > 0}
-              fallback={<span>読込後に最新の進軍順路と交戦結果を表示します。</span>}
+              fallback={
+                <span>読込後に最新の進軍順路と交戦結果を表示します。</span>
+              }
             >
               <For each={recentSummary()}>
                 {(b) => {
                   const rank = battleResultOf(b)?.win_rank ?? "-";
                   return (
                     <div class="py-1 border-b border-base-200">
-                      <span class="font-mono text-xs mr-2">{formatTimestamp(b.timestamp)}</span>
-                      <span class="badge badge-ghost badge-sm mr-2">{mapLabelOf(b)}</span>
+                      <span class="font-mono text-xs mr-2">
+                        {formatTimestamp(b.timestamp)}
+                      </span>
+                      <span class="badge badge-ghost badge-sm mr-2">
+                        {mapLabelOf(b)}
+                      </span>
                       <span class="mr-2">{cellDisplayLabelOf(b)}</span>
                       <span class="mr-2">
                         {b.e_deck_id
-                          ? (enemyDeckNameById().get(b.e_deck_id) ?? `敵艦隊 ${b.e_deck_id.slice(0, 8)}`)
+                          ? (enemyDeckNameById().get(b.e_deck_id) ??
+                            `敵艦隊 ${b.e_deck_id.slice(0, 8)}`)
                           : "-"}
                       </span>
-                      <span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span>
+                      <span
+                        class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}
+                      >
+                        {rank}
+                      </span>
                     </div>
                   );
                 }}
@@ -509,37 +598,80 @@ export default function BattlesListPanel() {
                 </tr>
               </thead>
               <tbody>
-                <Show when={!loading()} fallback={<tr><td colspan={8} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}>
+                <Show
+                  when={!loading()}
+                  fallback={
+                    <tr>
+                      <td colspan={8} class="text-center py-12">
+                        <span class="loading loading-spinner loading-md"></span>
+                      </td>
+                    </tr>
+                  }
+                >
                   <Show
                     when={pagedBattles().length > 0}
-                    fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
+                    fallback={
+                      <tr>
+                        <td
+                          colspan={8}
+                          class="text-center py-12 text-base-content/40"
+                        >
+                          データがありません
+                        </td>
+                      </tr>
+                    }
                   >
                     <For each={pagedBattles()}>
                       {(b, i) => {
                         const result = battleResultOf(b);
                         const rank = result?.win_rank ?? "-";
                         const formation = b.f_formation ?? 0;
-                        const airSup = b.opening_air_attack?.[0]?.air_superiority;
+                        const airSup =
+                          b.opening_air_attack?.[0]?.air_superiority;
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
                         const detailId = b.uuid || String(fallbackIdx);
                         const detailHref = `/battles/${encodeURIComponent(detailId)}`;
                         return (
-                          <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
-                            <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
+                          <tr
+                            class="hover cursor-pointer"
+                            onClick={() => moveToDetail(b, fallbackIdx)}
+                          >
+                            <td class="whitespace-nowrap">
+                              {formatTimestamp(b.timestamp)}
+                            </td>
                             <td>{mapLabelOf(b)}</td>
                             <td>{cellDisplayLabelOf(b)}</td>
                             <td>{FORMATION_NAMES[formation] ?? "-"}</td>
-                            <td>{airSup != null ? AIR_SUPERIORITY_NAMES[airSup] ?? String(airSup) : "-"}</td>
-                            <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>
-                            <td>{result?.drop_ship_id ? `#${result.drop_ship_id}` : "-"}</td>
+                            <td>
+                              {airSup != null
+                                ? (AIR_SUPERIORITY_NAMES[airSup] ??
+                                  String(airSup))
+                                : "-"}
+                            </td>
+                            <td>
+                              <span
+                                class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}
+                              >
+                                {rank}
+                              </span>
+                            </td>
+                            <td>
+                              {result?.drop_ship_id
+                                ? `#${result.drop_ship_id}`
+                                : "-"}
+                            </td>
                             <td>
                               <a
+                                id="battles-detail-link"
                                 href={detailHref}
                                 class="btn btn-ghost btn-xs"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   try {
-                                    sessionStorage.setItem("battleDetail", JSON.stringify(b));
+                                    sessionStorage.setItem(
+                                      "battleDetail",
+                                      JSON.stringify(b),
+                                    );
                                   } catch {
                                     // Ignore storage errors.
                                   }
@@ -559,7 +691,12 @@ export default function BattlesListPanel() {
           </div>
           <Show when={totalPages() > 1}>
             <div class="flex justify-center py-4 gap-2">
-              <For each={Array.from({ length: Math.min(totalPages(), 10) }, (_, i) => i)}>
+              <For
+                each={Array.from(
+                  { length: Math.min(totalPages(), 10) },
+                  (_, i) => i,
+                )}
+              >
                 {(page) => (
                   <button
                     class={`btn btn-sm ${page === currentPage() ? "btn-active" : ""}`}

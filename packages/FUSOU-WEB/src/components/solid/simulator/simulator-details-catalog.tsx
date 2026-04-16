@@ -1524,6 +1524,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
           装備詳細
         </button>
         <button
+          id="sim-details-share-btn"
           class="btn btn-sm btn-ghost gap-1.5 ml-auto"
           onClick={() => {
             void issueShareUrl();
@@ -1546,6 +1547,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
           共有URL
         </button>
         <button
+          id="sim-details-settings-btn"
           class="btn btn-sm btn-ghost gap-1.5"
           onClick={() => setSettingsOpen(true)}
         >
@@ -1572,6 +1574,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
           表示設定
         </button>
         <button
+          id="sim-details-help-btn"
           class="btn btn-sm btn-ghost gap-1.5"
           onClick={() => setHelpOpen(true)}
         >

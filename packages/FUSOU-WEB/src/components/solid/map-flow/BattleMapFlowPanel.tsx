@@ -1282,6 +1282,7 @@ export default function BattleMapFlowPanel() {
                 <span class="label-text">マップ</span>
               </label>
               <select
+                id="map-flow-filter-map"
                 class="select select-bordered select-sm"
                 value={mapFilter()}
                 onInput={(e) => setMapFilter(e.currentTarget.value)}
@@ -1297,6 +1298,7 @@ export default function BattleMapFlowPanel() {
                 <span class="label-text">期間</span>
               </label>
               <select
+                id="map-flow-filter-period"
                 class="select select-bordered select-sm"
                 value={periodTag()}
                 onInput={(e) => setPeriodTag(e.currentTarget.value)}
@@ -1306,6 +1308,7 @@ export default function BattleMapFlowPanel() {
               </select>
             </div>
             <button
+              id="map-flow-load-btn"
               class="btn btn-primary btn-sm"
               onClick={() => void loadData()}
               disabled={loading()}
@@ -1313,6 +1316,7 @@ export default function BattleMapFlowPanel() {
               {loading() ? "読込中..." : "読込"}
             </button>
             <button
+              id="map-flow-display-settings-btn"
               class="btn btn-ghost btn-sm gap-1.5"
               type="button"
               onClick={() => displaySettingsModalRef.showModal()}
@@ -1402,6 +1406,7 @@ export default function BattleMapFlowPanel() {
                     <Show when={selectedCellFilter()}>
                       {(selected) => (
                         <button
+                          id="map-flow-clear-filter-btn"
                           class="btn btn-secondary btn-xs"
                           onClick={() => setSelectedCellFilter(null)}
                         >
