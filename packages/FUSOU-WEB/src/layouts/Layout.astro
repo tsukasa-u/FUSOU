@@ -10,11 +10,15 @@ type TutorialGuide = {
   summary: string;
   steps: string[];
   controls?: Array<{
-    label: string;
+    label?: string;
     description: string;
     tone?: "primary" | "outline" | "ghost";
+    sourceSelector?: string;
+    previewClass?: string;
+    previewIconHtml?: string;
   }>;
   buttonLabel?: string;
+  openOnFirstVisit?: boolean;
 };
 
 const { title = "FUSOU", tutorial = null } = Astro.props as {

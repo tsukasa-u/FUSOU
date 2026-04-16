@@ -17,27 +17,36 @@ export const prerender = false;
       "艦娘・装備の詳細値、装備可能条件、シナジー効果まで横断的に確認できます。",
     controls: [
       {
-        label: "シミュレータへ戻る",
         sourceSelector: "#sim-back-link",
         description: "編成編集画面へ戻り、確認した内容をすぐ反映できます。",
         tone: "outline",
       },
       {
-        label: "艦詳細",
+        sourceSelector: "#sim-details-settings-btn",
+        description:
+          "表示設定で詳細ページとシミュレータ本体の表示密度を調整できます。情報量が多い場合はここで見やすく切り替えます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#sim-details-share-btn",
+        description:
+          "編成画面の共有URLを使うと、詳細ページで確認した条件をそのまま他ユーザーへ共有・再現できます。",
+        tone: "primary",
+      },
+      {
         sourceSelector: "#sim-details-tab-ship",
         description: "艦娘の能力・搭載・速力・射程・成長関連情報を確認します。",
         tone: "ghost",
       },
       {
-        label: "装備詳細",
         sourceSelector: "#sim-details-tab-equip",
         description: "装備の種別・性能・装備可能艦・シナジーを確認します。",
         tone: "ghost",
       },
       {
-        label: "検索",
-        sourceSelector: "#sim-details-search-input",
-        description: "名称や艦種/装備種別で対象を絞り込みます。",
+        sourceSelector: "#sim-details-help-btn",
+        description:
+          "使い方モーダルを開きます。共有URL発行や表示設定の意味、検索の流れをページ内で確認できます。",
         tone: "outline",
       },
       {
@@ -48,13 +57,12 @@ export const prerender = false;
     ],
     steps: [
       "ページ表示後、マスターデータ読込が完了してから検索・比較を開始してください。",
+      "編成の共有や再現が必要な場合は、シミュレータ本体へ戻って共有URLを発行し、この詳細ページと併用して比較内容を伝達してください。",
+      "表示設定はシミュレータ本体で変更できます。文字サイズや表示項目を調整してから詳細ページへ戻ると、確認作業が効率化できます。",
       "艦タブでは基本値/最大値、搭載数、速力、射程、艦種など編成判断に必要な情報を確認します。",
       "装備タブでは火力・雷装・対空・命中などの性能値と装備種別を確認できます。",
       "装備詳細のシナジー表示で、単体ボーナス・複数積み効果・艦別適用条件を確認します。",
-      "装備可能艦や補強増設条件は一覧を展開して、実運用で積める組み合わせを先に確認します。",
-      "検索とカテゴリ絞り込みを併用して、候補装備や艦を短時間で比較できます。",
-      "候補が固まったらシミュレータへ戻るボタンで編成画面へ戻り、実際のスロットに反映します。",
-      "必要に応じて本ページとシミュレータを往復し、理論値確認と実編成調整を繰り返してください。",
+      "装備可能艦や補強増設条件は一覧を展開して、実運用で積める組み合わせを確認します。",
     ],
   }}
 >

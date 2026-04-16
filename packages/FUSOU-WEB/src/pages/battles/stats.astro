@@ -16,6 +16,16 @@ export const prerender = false;
     summary: "戦闘データを集計して傾向を把握できます。",
     controls: [
       {
+        sourceSelector: "#battle-stats-filter-period",
+        description: "集計期間（最新 / 全期間）を切り替えます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battle-stats-aggregate-btn",
+        description: "現在条件で統計を再計算し、グラフと分布を更新します。",
+        tone: "primary",
+      },
+      {
         sourceSelector: "#stats-back-link",
         description:
           "戦闘一覧ページに戻ります。個別戦闘の詳細を確認したい場合に使います。",

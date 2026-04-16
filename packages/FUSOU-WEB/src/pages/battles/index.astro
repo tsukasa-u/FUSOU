@@ -16,6 +16,26 @@ export const prerender = false;
     summary: "条件で絞り込みながら対象戦闘を探せます。",
     controls: [
       {
+        sourceSelector: "#battles-filter-period",
+        description: "集計対象期間（最新 / 全期間）を切り替えます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-filter-map",
+        description: "海域で絞り込み、対象マップの戦闘だけを表示します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-filter-result",
+        description: "勝敗ランクで絞り込み、S勝利や敗北戦闘を比較できます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-load-btn",
+        description: "最新の条件で戦闘一覧を再取得します。",
+        tone: "primary",
+      },
+      {
         sourceSelector: "#battles-map-flow-link",
         description: "進軍ルート表示ページへ移動します。",
         tone: "outline",
@@ -24,6 +44,11 @@ export const prerender = false;
         sourceSelector: "#battles-stats-link",
         description: "統計ダッシュボードへ移動します。",
         tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-detail-link",
+        description: "選択した行の戦闘詳細ページへ移動します。",
+        tone: "ghost",
       },
       {
         sourceSelector: "#tutorial-open-btn",

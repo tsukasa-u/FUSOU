@@ -13,11 +13,13 @@ type TutorialGuide = {
     previewIconHtml?: string;
   }>;
   buttonLabel?: string;
+  openOnFirstVisit?: boolean;
 };
 
 const { guide } = Astro.props as { guide: TutorialGuide };
 const buttonLabel = guide.buttonLabel ?? "操作説明";
 const storageKey = `fusou:tutorial:seen:${guide.id}`;
+const shouldAutoOpen = guide.openOnFirstVisit !== false;
 ---
 
 <button
@@ -96,7 +98,7 @@ const storageKey = `fusou:tutorial:seen:${guide.id}`;
   <form method="dialog" class="modal-backdrop"><button>close</button></form>
 </dialog>
 
-<script is:inline define:vars={{ guide, storageKey }}>
+<script is:inline define:vars={{ guide, storageKey, shouldAutoOpen }}>
   (() => {
     const modal = document.getElementById("tutorial-modal");
     const openBtn = document.getElementById("tutorial-open-btn");
@@ -251,7 +253,7 @@ const storageKey = `fusou:tutorial:seen:${guide.id}`;
     window.requestAnimationFrame(scheduleSync);
     window.setTimeout(scheduleSync, 300);
 
-    if (!window.localStorage.getItem(storageKey)) {
+    if (shouldAutoOpen && !window.localStorage.getItem(storageKey)) {
       window.localStorage.setItem(storageKey, "1");
       window.setTimeout(openModal, 120);
     }

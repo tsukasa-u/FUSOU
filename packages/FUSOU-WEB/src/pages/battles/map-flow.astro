@@ -16,6 +16,31 @@ export const prerender = false;
     summary: "進軍ルートと交戦内容を同時に追跡できます。",
     controls: [
       {
+        sourceSelector: "#map-flow-filter-map",
+        description: "海域を選択して、対象マップの進軍ルートだけを表示します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#map-flow-filter-period",
+        description: "期間（最新 / 全期間）を切り替えて出撃履歴の傾向を比較します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#map-flow-load-btn",
+        description: "現在の条件で進軍データを再読込します。",
+        tone: "primary",
+      },
+      {
+        sourceSelector: "#map-flow-display-settings-btn",
+        description: "背景表示や見え方を調整する表示設定モーダルを開きます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#map-flow-clear-filter-btn",
+        description: "セル選択による絞り込みを解除して全ルート表示へ戻します。",
+        tone: "ghost",
+      },
+      {
         sourceSelector: "#map-flow-back-link",
         description:
           "戦闘一覧ページに戻ります。別の海域や条件を再設定する場合に使います。",
