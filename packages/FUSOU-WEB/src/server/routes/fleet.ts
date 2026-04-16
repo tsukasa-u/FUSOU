@@ -235,13 +235,12 @@ app.post("/snapshot", async (c) => {
         fields: { tag, dataset_id: datasetId },
       };
     },
-    executionProcessor: async (tokenPayload, data, user) => {
+    executionProcessor: async (tokenPayload, data, _user) => {
       const tag = tokenPayload.tag;
       const datasetId =
         typeof tokenPayload?.dataset_id === "string"
           ? tokenPayload.dataset_id.trim()
           : "";
-      const ownerId = user?.id;
 
       if (!tag) {
         return c.json({ error: "Invalid token payload" }, 400);
@@ -254,18 +253,22 @@ app.post("/snapshot", async (c) => {
         );
       }
 
-      if (!ownerId) {
-        return c.json({ error: "User authentication required" }, 401);
-      }
-
       // Verify content_hash of the uploaded data against the hash committed in Stage 1.
       // This ensures data integrity across the two-stage upload and matches the pattern
       // used by remodel_data.ts, ship_growth.ts and master_data.ts.
-      const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+      const expectedHash = String(
+        tokenPayload.content_hash ?? "",
+      ).toLowerCase();
       if (!expectedHash) {
-        return c.json({ error: "Invalid token payload (missing content_hash)" }, 400);
+        return c.json(
+          { error: "Invalid token payload (missing content_hash)" },
+          400,
+        );
       }
-      const actualHashBuf = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+      const actualHashBuf = await crypto.subtle.digest(
+        "SHA-256",
+        data as unknown as BufferSource,
+      );
       const actualHash = Array.from(new Uint8Array(actualHashBuf))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
@@ -374,7 +377,9 @@ app.post("/snapshot", async (c) => {
           .filter((key: string) => !toKeep.has(key));
 
         if (typeof bucket.delete !== "function") {
-          console.warn("[fleet] bucket.delete unavailable — skipping old snapshot cleanup");
+          console.warn(
+            "[fleet] bucket.delete unavailable — skipping old snapshot cleanup",
+          );
         } else {
           for (const key of keysToDelete) {
             await bucket.delete(key);
