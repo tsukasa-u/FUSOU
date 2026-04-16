@@ -18,12 +18,16 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
   const appOriginParam = url.searchParams.get("app_origin");
-  const rawMemberIdHash = url.searchParams.get("member_id_hash");
+  // Read member_id_hash from the HttpOnly cookie set by signin.ts.
+  // It must NOT come from the URL to avoid exposure in Google logs / browser history.
+  const rawMemberIdHashCookie = cookies.get("mih-hint")?.value;
   // Sanitize: member_id_hash must be a hex string (SHA-256 = 64 chars)
   const memberIdHashParam =
-    rawMemberIdHash && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHash)
-      ? rawMemberIdHash
+    rawMemberIdHashCookie && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHashCookie)
+      ? rawMemberIdHashCookie
       : null;
+  // Consume the cookie immediately so it cannot be replayed.
+  cookies.delete("mih-hint", { path: "/" });
   const provider = cookies.get("sb-local-provider")?.value;
 
   if (!authCode) {
@@ -94,26 +98,32 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     console.log("✓ Set sb-local-provider:", provider);
   }
 
-  // Store tokens in database (server-side, atomic operation)
-  const dbInsertResult = await supabase
-    .from("provider_tokens")
-    .upsert([
-      {
-        user_id: userId,
-        provider_name: providerValue,
-        access_token: provider_token,
-        refresh_token: provider_refresh_token,
-        expires_at: null,
-      },
-    ])
-    .select();
+  // Store tokens in database only when provider tokens are present.
+  // provider_token / provider_refresh_token may be absent (e.g. when Google
+  // Drive scope is not granted), so guard before upsert to avoid writing nulls.
+  if (provider_token && provider_refresh_token) {
+    const dbInsertResult = await supabase
+      .from("provider_tokens")
+      .upsert([
+        {
+          user_id: userId,
+          provider_name: providerValue,
+          access_token: provider_token,
+          refresh_token: provider_refresh_token,
+          expires_at: null,
+        },
+      ])
+      .select();
 
-  if (dbInsertResult.error) {
-    console.error("Failed to store provider tokens:", dbInsertResult.error);
-    // Don't block redirect on DB error - tokens are still in cookies
-    console.warn("Proceeding with redirect despite DB error");
+    if (dbInsertResult.error) {
+      console.error("Failed to store provider tokens:", dbInsertResult.error);
+      // Don't block redirect on DB error - tokens are still in cookies
+      console.warn("Proceeding with redirect despite DB error");
+    } else {
+      console.log("✓ Provider tokens stored in database");
+    }
   } else {
-    console.log("✓ Provider tokens stored in database");
+    console.warn("Provider tokens absent; skipping database upsert");
   }
 
   console.log("Redirecting to /auth/local/callback");
@@ -121,8 +131,17 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   if (appOriginParam) {
     target.searchParams.set("app_origin", appOriginParam);
   }
+  // Pass member_id_hash via a short-lived HttpOnly cookie to /auth/local/callback.
+  // We intentionally do NOT add it to the redirect URL to prevent exposure in
+  // browser history and Cloudflare access logs.
   if (memberIdHashParam) {
-    target.searchParams.set("member_id_hash", memberIdHashParam);
+    cookies.set("mih-hint", memberIdHashParam, {
+      path: "/auth/local/callback",
+      httpOnly: true,
+      secure: import.meta.env.PROD,
+      sameSite: "strict",
+      maxAge: 60 * 5, // 5 minutes — enough for the page load
+    });
   }
   return redirect(target.toString());
 };

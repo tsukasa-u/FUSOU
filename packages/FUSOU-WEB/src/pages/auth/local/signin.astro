@@ -20,6 +20,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
   title="Account Setup - Link Game to Social Account"
   tutorial={{
     id: "auth-local-signin",
+    openOnFirstVisit: false,
     title: "ローカル連携セットアップの使い方",
     summary: "ゲームアカウント同期とSNS連携を段階的に進めます。",
     controls: [
@@ -38,10 +39,20 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
         description: "現在のステップをスキップして進みます。",
         tone: "ghost",
       },
+      {
+        sourceSelector: "#back_to_step_1",
+        description: "前のステップに戻ります。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#skip_all",
+        description: "全ステップをスキップします。",
+        tone: "ghost",
+      },
     ],
     steps: [
-      "Step 1 でゲームアカウントを同期します。",
-      "Step 2 で Google 認証を行いアカウントを紐付けます。",
+      "Step 1 でゲームアカウントを同期します。FUSOUアプリを起動して、ゲームアカウントの識別子をこのウェブアカウントに紐付けます。FUSOUアプリのシステムトレイアイコンからも同期操作が可能です。",
+      "Step 2 で Google 認証などの SNS 認証を行いアカウントを紐付けます。",
       "完了後に Step 3 で成功状態を確認してください。",
     ],
   }}
@@ -314,7 +325,9 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
             <input
               type="hidden"
               name="member_id_hash"
-              value={Astro.url.searchParams.get("member_id_hash") ?? ""}
+              value={import.meta.env.DEV
+                ? (Astro.url.searchParams.get("member_id_hash") ?? "")
+                : ""}
             />
             <button
               id="local-signin-google-btn"
@@ -441,13 +454,28 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
     // Check URL query for member_id_hash
     function checkUrlForMemberIdHash() {
+      if (!import.meta.env.DEV) {
+        return false;
+      }
+
       const urlParams = new URLSearchParams(window.location.search);
       const memberIdHash = urlParams.get("member_id_hash");
 
       if (memberIdHash) {
-        console.log("[signin] Found member_id_hash in URL:", memberIdHash);
+        console.log("[signin] Found member_id_hash in URL");
         memberIdHashSynced = true;
         sessionStorage.setItem("memberIdHash", memberIdHash);
+
+        // Remove member_id_hash from the URL immediately to prevent it from
+        // appearing in browser history or being logged by analytics/proxies.
+        const cleanParams = new URLSearchParams(window.location.search);
+        cleanParams.delete("member_id_hash");
+        const cleanSearch = cleanParams.toString();
+        const cleanUrl =
+          window.location.pathname +
+          (cleanSearch ? "?" + cleanSearch : "") +
+          window.location.hash;
+        window.history.replaceState(null, "", cleanUrl);
 
         // Update UI
         const syncButton = document.getElementById("sync_member_id_button");
@@ -797,6 +825,27 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
       if (!hasUrlMemberIdHash) {
         window.showStep("1");
+      }
+
+      // Populate the hidden form input from sessionStorage just before OAuth submit.
+      // This ensures the member_id_hash obtained via Realtime sync (or URL in dev mode)
+      // is passed to signin.ts even though the server-rendered hidden input starts empty.
+      const googleSigninForm = document
+        .getElementById("local-signin-google-btn")
+        ?.closest("form");
+      if (googleSigninForm) {
+        googleSigninForm.addEventListener("submit", () => {
+          const stored = sessionStorage.getItem("memberIdHash");
+          if (stored) {
+            const hiddenInput =
+              googleSigninForm.querySelector<HTMLInputElement>(
+                'input[name="member_id_hash"]',
+              );
+            if (hiddenInput) {
+              hiddenInput.value = stored;
+            }
+          }
+        });
       }
     });
   </script>

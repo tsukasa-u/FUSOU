@@ -9,8 +9,17 @@ const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
-// Get member_id_hash from query params
-const memberIdHash = Astro.url.searchParams.get("hash");
+// Read member_id_hash from a short-lived cookie set by local callback.
+const memberIdHashFromCookie = cookies.get("mih-conflict-hash")?.value ?? null;
+if (memberIdHashFromCookie) {
+  cookies.delete("mih-conflict-hash", { path: "/account/conflict" });
+}
+
+// DEV-only fallback for manual testing with legacy URL format.
+const memberIdHashFromQuery = import.meta.env.DEV
+  ? Astro.url.searchParams.get("hash")
+  : null;
+const memberIdHash = memberIdHashFromCookie ?? memberIdHashFromQuery;
 
 let hints: any = null;
 let error: string | null = null;

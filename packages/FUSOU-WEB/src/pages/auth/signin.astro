@@ -19,6 +19,7 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
   title="Sign in"
   tutorial={{
     id: "auth-signin",
+    openOnFirstVisit: false,
     title: "サインインページの使い方",
     summary: "連携するプロバイダを選んでログインします。",
     controls: [
@@ -28,7 +29,7 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
       },
       {
         sourceSelector: "#signin-local-btn",
-        description: "ローカル連携フローの準備ボタンです。",
+        description: "只今準備中です。操作できません。",
         tone: "ghost",
       },
       {
@@ -41,6 +42,7 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
       "利用するログイン方法を選択します。",
       "通常は Sign in with Google から認証を進めます。",
       "認証後はダッシュボードへ遷移して状態を確認できます。",
+      "他ログイン方法の要望についてはお問い合わせフォームからご連絡ください。",
     ],
   }}
 >

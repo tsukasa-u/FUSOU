@@ -23,8 +23,11 @@ const expiresAtCookie = cookies.get("sb-local-expires-at");
 const envCtx = createEnvContext({ env: runtimeEnv });
 const allowedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim()!;
 
-// Get member_id_hash from query params (passed by desktop app during auth)
-const memberIdHash = Astro.url.searchParams.get("member_id_hash");
+// Get member_id_hash from the short-lived HttpOnly cookie set by /api/local_auth/callback.
+// It must NOT be read from URL query params to avoid exposure in logs / history.
+const memberIdHash = cookies.get("mih-hint")?.value ?? null;
+// Consume it immediately.
+cookies.delete("mih-hint", { path: "/auth/local/callback" });
 
 // Detect if request originated from Tauri app
 // Check for: app origin parameter, fusou:// referer, or fusou:// deep link indicator
@@ -85,10 +88,16 @@ if (refreshToken?.value && accessToken?.value) {
             !conflictCheckResponse.ok &&
             conflictCheckResponse.status === 409
           ) {
-            // Redirect to conflict resolution page with member_id_hash
-            return Astro.redirect(
-              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
-            );
+            // Pass member_id_hash via short-lived HttpOnly cookie to avoid
+            // exposing it in URL/query logs.
+            cookies.set("mih-conflict-hash", memberIdHash, {
+              path: "/account/conflict",
+              httpOnly: true,
+              secure: import.meta.env.PROD,
+              sameSite: "strict",
+              maxAge: 60 * 5,
+            });
+            return Astro.redirect("/account/conflict");
           }
 
           if (!conflictCheckResponse.ok) {
@@ -199,6 +208,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
   title="Account Setup - Link Game to Social Account"
   tutorial={{
     id: "auth-local-callback",
+    openOnFirstVisit: false,
     title: "連携完了ページの使い方",
     summary: "認証結果を確認し、アプリまたはダッシュボードへ戻れます。",
     controls: [
@@ -213,15 +223,20 @@ cookies.delete("sb-local-expires-at", { path: "/" });
         tone: "outline",
       },
       {
+        sourceSelector: "#retry-link",
+        description:
+          "認証に失敗した場合、サインインページへ戻ってやり直します。",
+        tone: "primary",
+      },
+      {
         sourceSelector: "#continue-guest-btn",
         description: "連携なしでゲストとして続行します。",
         tone: "ghost",
       },
     ],
     steps: [
-      "表示された成功またはエラー内容を確認します。",
       "Web継続時は Continue to Dashboard、アプリ復帰は Return to App を使います。",
-      "必要に応じて Continue as Guest で一時的に進められます。",
+      "失敗時はRetry Sign-in で認証をやり直すか、または Continue as Guest で一時的にローカル連携をスキップできます。",
     ],
   }}
 >
@@ -408,6 +423,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
 
           <div class="flex flex-col gap-3">
             <a
+              id="retry-link"
               href={`/auth/local/signin${appOriginParam ? `?app_origin=${encodeURIComponent(appOriginParam)}` : ""}`}
               class="btn btn-primary w-full border border-primary-content"
             >
