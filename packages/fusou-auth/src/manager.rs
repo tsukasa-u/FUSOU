@@ -346,7 +346,7 @@ impl<S: Storage> AuthManager<S> {
     pub async fn get_or_refresh_anonymous_session(
         &self,
         member_id_hash: &str,
-    ) -> Result<(Session, String), AuthError> {
+    ) -> Result<(Option<Session>, String), AuthError> {
         // configs.toml から anonymous_sync_endpoint を取得
         let url = configs::get_user_configs_for_app()
             .auth
@@ -386,7 +386,6 @@ impl<S: Storage> AuthManager<S> {
             access_token: Option<String>,
             refresh_token: Option<String>,
             dataset_token: String,
-            dataset_token_expires_at: i64,
         }
 
         let response_data: AnonymousSyncResponse = resp.json().await?;
@@ -395,18 +394,24 @@ impl<S: Storage> AuthManager<S> {
         let session = if let (Some(at), Some(rt)) = (response_data.access_token.clone(), response_data.refresh_token.clone()) {
             // 新しい匿名セッションが取得できた場合
             let expires_at = Utc::now() + Duration::seconds(DEFAULT_ACCESS_TOKEN_TTL_SECS);
-            Session {
+            Some(Session {
                 access_token: at,
                 refresh_token: rt,
                 expires_at: Some(expires_at),
                 token_type: Some("bearer".to_string()),
-            }
+            })
         } else {
             // Fallback: 既存セッションを再利用（匿名サインイン失敗時など）
+            // 複数端末運用では「サーバー側に既存マッピングあり + この端末は初回」で
+            // token 未返却になることがあるため、ローカルセッションが無い場合も
+            // dataset_token 取得成功として継続する。
             match self.storage.load_session().await? {
-                Some(current) => current,
+                Some(current) => Some(current),
                 None => {
-                    return Err(AuthError::RefreshFailed("anonymous-sync did not return tokens and no existing session is available".to_string()));
+                    tracing::info!(
+                        "anonymous-sync returned dataset_token without session tokens and no local session exists; proceeding with dataset_token-only mode"
+                    );
+                    None
                 }
             }
         };

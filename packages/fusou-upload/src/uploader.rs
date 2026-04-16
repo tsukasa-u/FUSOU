@@ -231,17 +231,32 @@ impl Uploader {
         }
 
         // Add X-Dataset-Token header if available
-        if let Ok(Some(dataset_token)) = auth_manager.load_dataset_token().await {
+        let dataset_token_opt = auth_manager
+            .load_dataset_token()
+            .await
+            .ok()
+            .flatten();
+        if let Some(dataset_token) = &dataset_token_opt {
             handshake_req = handshake_req.header("X-Dataset-Token", &dataset_token.token);
         }
 
-        if let Ok(token) = auth_manager.get_access_token().await {
-            handshake_req = handshake_req.bearer_auth(token);
-        } else {
-            return Err(UploadError::AuthenticationError {
-                status_code: 401,
-                message: "Failed to obtain access token".to_string(),
-            });
+        match auth_manager.get_access_token().await {
+            Ok(token) => {
+                handshake_req = handshake_req.bearer_auth(token);
+            }
+            Err(e) => {
+                if dataset_token_opt.is_some() {
+                    tracing::info!(
+                        "Proceeding without bearer token and relying on dataset_token only: {}",
+                        e
+                    );
+                } else {
+                    return Err(UploadError::AuthenticationError {
+                        status_code: 401,
+                        message: "Failed to obtain access token and dataset_token is unavailable".to_string(),
+                    });
+                }
+            }
         }
 
         let resp = handshake_req
