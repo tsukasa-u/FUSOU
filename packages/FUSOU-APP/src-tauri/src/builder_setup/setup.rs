@@ -184,6 +184,7 @@ fn setup_tray(
         MenuItemBuilder::with_id("force-local-sign-out".to_string(), "Force Local Sign Out")
             .build(app)?;
 
+    #[cfg(dev)]
     let open_auth_page_menu =
         MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page")
             .build(app)?;
@@ -218,8 +219,12 @@ fn setup_tray(
         .item(&intergrate_file)
         .item(&check_update)
         .item(&check_session_health)
-        .item(&force_local_sign_out)
-        .item(&open_auth_page_menu)
+        .item(&force_local_sign_out);
+
+    #[cfg(dev)]
+    let advanced_sub_menu = advanced_sub_menu.item(&open_auth_page_menu);
+
+    let advanced_sub_menu = advanced_sub_menu
         .separator()
         .item(&danger_ope_sub_menu)
         .build()?;
@@ -570,6 +575,7 @@ fn setup_tray(
                             }
                         });
                     }
+                    #[cfg(dev)]
                     "open-auth-page" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();

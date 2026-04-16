@@ -285,7 +285,7 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     // 匿名認証を実行してセッションとdataset_tokenを取得
     match auth_manager_clone.get_or_refresh_anonymous_session(&member_id_hash).await {
-        Ok((anon_session, dataset_token_str)) => {
+        Ok((anon_session_opt, dataset_token_str)) => {
             tracing::info!("Anonymous authentication successful");
             
             // Check if we already have a social session (set by OAuth callback)
@@ -297,21 +297,27 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
             
             // Only save anonymous session if no existing social auth session
             if !has_existing_social {
-                // セッションを保存
-                if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
-                    tracing::error!("Failed to save anonymous session: {}", e);
-                    // Mark as not attempted for retry on failure
-                    ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-                    return;
-                } else {
-                    // Success: record member_id and mark as attempted
-                    {
-                        let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-                        *guard = Some(member_id_hash.clone());
+                if let Some(anon_session) = anon_session_opt {
+                    // セッションを保存
+                    if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
+                        tracing::error!("Failed to save anonymous session: {}", e);
+                        // Mark as not attempted for retry on failure
+                        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                        return;
                     }
-                    // Note: No need to emit tokens to frontend
-                    // Session saved to FileStorage and managed by AuthManager
+                } else {
+                    tracing::info!(
+                        "Anonymous auth completed without session tokens (likely existing mapping on another device); dataset_token-only mode"
+                    );
                 }
+
+                // Success: record member_id and mark as attempted
+                {
+                    let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+                    *guard = Some(member_id_hash.clone());
+                }
+                // Note: No need to emit tokens to frontend
+                // Session saved to FileStorage and managed by AuthManager when available
             } else {
                 tracing::info!("Skipping anonymous session save to preserve social auth session");
                 // Still record member_id for this attempt
@@ -343,7 +349,7 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
             crate::notify::show(
                 app,
                 "Background Authentication Failed",
-                "Some features may be limited. Use 'Open Auth Page' from system tray to link a social account."
+                "Some features may be limited. Open the account linking page from the app to link a social account."
             );
         }
     }
