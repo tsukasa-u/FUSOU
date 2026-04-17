@@ -941,6 +941,15 @@ app.post("/ingest", async (c) => {
     );
 
     const uploadUrl = new URL(c.req.url);
+    // stripApiPrefix() in [...route].ts removes /api/ before Hono sees the URL;
+    // restore it so Stage-2 clients post to the API endpoint.
+    if (!uploadUrl.pathname.startsWith("/api/")) {
+      uploadUrl.pathname =
+        "/api" +
+        (uploadUrl.pathname.startsWith("/")
+          ? uploadUrl.pathname
+          : `/${uploadUrl.pathname}`);
+    }
     return c.json({
       uploadUrl: uploadUrl.toString(),
       token,

@@ -32,8 +32,8 @@ use fusou_upload::{
 use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
-// Phase 2: Changed from UnboundedSender to bounded mpsc::Sender with capacity 100
-static ASSET_SYNC_QUEUE: OnceLock<mpsc::Sender<PathBuf>> = OnceLock::new();
+// Keep asset notifications non-blocking and non-lossy.
+static ASSET_SYNC_QUEUE: OnceLock<mpsc::UnboundedSender<PathBuf>> = OnceLock::new();
 static ASSET_REQUEST_CACHE: Lazy<LocalRequestSuppressionCache> =
     Lazy::new(|| LocalRequestSuppressionCache::new(Duration::from_secs(24 * 60 * 60)));
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
@@ -45,10 +45,8 @@ static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::ne
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
-// Counter for monitoring dropped assets due to queue backpressure
+// Counter for monitoring dropped notifications when queue is closed.
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
-// Counter for monitoring notifications that were deferred because queue was full
-static DEFERRED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
 static BLOCKED_EXTENSIONS: OnceLock<Vec<String>> = OnceLock::new();
 const ASSET_REQUEST_CACHE_FILE: &str = "asset_request_suppression_cache.json";
 
@@ -56,8 +54,6 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
-// Phase 2: Queue capacity limit for backpressure handling
-const ASSET_SYNC_QUEUE_CAPACITY: usize = 100;
 
 #[derive(Debug, Clone)]
 struct ExistingKeysError {
@@ -250,8 +246,8 @@ pub fn start(
 
     let _ = BLOCKED_EXTENSIONS.set(init.blocked_extensions.clone());
 
-    // Phase 2: Use bounded channel instead of unbounded for backpressure handling
-    let (tx, rx) = mpsc::channel(ASSET_SYNC_QUEUE_CAPACITY);
+    // Use unbounded channel: keep notify path lightweight and avoid queue-full drops.
+    let (tx, rx) = mpsc::unbounded_channel();
     let _ = ASSET_SYNC_QUEUE.set(tx);
 
     let settings = Arc::new(init);
@@ -296,8 +292,6 @@ pub fn start(
     Ok(())
 }
 
-// Phase 2: Implement backpressure handling with try_send.
-// If queue is full, defer enqueue asynchronously instead of dropping notifications.
 pub fn notify_new_asset(path: PathBuf) {
     // Pre-filter blocked extensions before enqueuing to avoid filling the queue
     // with files that would be discarded anyway in process_path
@@ -309,51 +303,24 @@ pub fn notify_new_asset(path: PathBuf) {
     }
 
     if let Some(queue) = ASSET_SYNC_QUEUE.get() {
-        match queue.try_send(path.clone()) {
+        match queue.send(path.clone()) {
             Ok(()) => {
                 tracing::debug!(path = ?path, "Asset queued for sync");
             }
-            Err(mpsc::error::TrySendError::Full(path_to_retry)) => {
-                // Queue is full - defer enqueue without blocking current request path.
-                let deferred_count = DEFERRED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                tracing::warn!(
-                    path = ?path_to_retry,
-                    deferred_count = deferred_count,
-                    capacity = ASSET_SYNC_QUEUE_CAPACITY,
-                    "asset sync queue full, deferring asset enqueue: backpressure activated"
-                );
-
-                let tx = queue.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = tx.send(path_to_retry.clone()).await {
-                        let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                        tracing::warn!(
-                            path = ?path_to_retry,
-                            dropped_count = dropped_count,
-                            error = ?e,
-                            "deferred asset enqueue failed; notification dropped"
-                        );
-                    }
-                });
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                // Worker is not running - skip silently
+            Err(e) => {
                 let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 tracing::warn!(
                     path = ?path,
                     dropped_count = dropped_count,
-                    "asset sync worker not running; notification dropped"
+                    error = ?e,
+                    "asset sync queue closed; notification dropped"
                 );
             }
         }
     }
 }
 
-/// Returns the total count of assets dropped due to queue backpressure
-///
-/// This counter can be monitored to determine if ASSET_SYNC_QUEUE_CAPACITY
-/// needs to be adjusted. A high count indicates the sync worker is falling
-/// behind and the queue capacity should be increased.
+/// Returns the total count of asset notifications dropped because queue was closed.
 pub fn get_dropped_asset_count() -> u64 {
     DROPPED_ASSET_COUNT.load(Ordering::Relaxed)
 }
@@ -361,12 +328,46 @@ pub fn get_dropped_asset_count() -> u64 {
 async fn run_worker(
     settings: Arc<AssetSyncInit>,
     auth_manager: Arc<AuthManager<FileStorage>>,
-    mut rx: mpsc::Receiver<PathBuf>,
+    mut rx: mpsc::UnboundedReceiver<PathBuf>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
 ) -> Result<(), String> {
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
+
+    // Root-cause fix: when worker starts before gameplay events (Set::Basic),
+    // auth/session may still be absent. If dataset_id is already known from
+    // launch context, proactively establish anonymous session + dataset_token.
+    if let Some(dataset_id) = settings
+        .dataset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
+            Ok(token) => {
+                if let Err(e) = auth_manager.save_dataset_token(&token).await {
+                    tracing::warn!(
+                        dataset_id,
+                        error = %e,
+                        "asset sync startup auth bootstrap: token acquired but persistence failed"
+                    );
+                } else {
+                    tracing::info!(
+                        dataset_id,
+                        "asset sync startup auth bootstrap completed"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    dataset_id,
+                    error = %e,
+                    "asset sync startup auth bootstrap failed"
+                );
+            }
+        }
+    }
 
     if let Err(err) = maybe_refresh_period(&client, &settings).await {
         tracing::warn!(error = %err, "failed to refresh asset sync period");
@@ -389,51 +390,35 @@ async fn run_worker(
         retry_service.trigger_retry().await;
     }
 
+    let mut dataset_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+        || settings
+            .dataset_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .is_some();
+
     while let Some(path) = rx.recv().await {
-        if check_auth_ready(&settings, &auth_manager).await {
-            tracing::info!(file = %path.display(), "received new asset notification, processing...");
-            if let Err(err) =
-                process_path(&client, &settings, &path, &auth_manager, &pending_store).await
-            {
-                tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
-            }
-        } else {
-            // Auth not ready: re-enqueue so the path is not silently dropped.
-            // If queue is full, defer send asynchronously instead of dropping.
-            if let Some(tx) = ASSET_SYNC_QUEUE.get() {
-                match tx.try_send(path.clone()) {
-                    Ok(()) => {}
-                    Err(mpsc::error::TrySendError::Full(path_to_retry)) => {
-                        let deferred_count = DEFERRED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                        tracing::warn!(
-                            path = ?path_to_retry,
-                            deferred_count = deferred_count,
-                            "auth not ready and queue full; deferring re-enqueue"
-                        );
-                        let tx_clone = tx.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = tx_clone.send(path_to_retry.clone()).await {
-                                let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                                tracing::warn!(
-                                    path = ?path_to_retry,
-                                    dropped_count = dropped_count,
-                                    error = ?e,
-                                    "auth-not-ready deferred re-enqueue failed; notification dropped"
-                                );
-                            }
-                        });
-                    }
-                    Err(mpsc::error::TrySendError::Closed(path_to_retry)) => {
-                        let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                        tracing::warn!(
-                            path = ?path_to_retry,
-                            dropped_count = dropped_count,
-                            "auth not ready and queue closed; notification dropped"
-                        );
-                    }
-                }
-            }
-            tokio::time::sleep(Duration::from_secs(5)).await;
+        let now_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+            || settings
+                .dataset_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .is_some();
+        if now_ready && !dataset_ready {
+            tracing::info!(
+                "dataset_id became available; triggering immediate pending upload retry"
+            );
+            retry_service.trigger_retry().await;
+        }
+        dataset_ready = now_ready;
+
+        tracing::info!(file = %path.display(), "received new asset notification, processing...");
+        if let Err(err) =
+            process_path(&client, &settings, &path, &auth_manager, &pending_store).await
+        {
+            tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
         }
     }
 
@@ -554,9 +539,17 @@ async fn process_path(
 
     if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
         if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
-            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
+            tracing::warn!(
+                key,
+                "Authentication failed while checking existing keys; proceeding without remote key cache"
+            );
+        } else {
+            tracing::warn!(
+                key,
+                error = %err,
+                "Failed to refresh existing keys cache; proceeding with upload path"
+            );
         }
-        return Err(err.to_string());
     }
 
     // Check if remote has this key with a hash
@@ -743,6 +736,48 @@ pub async fn upload_via_api(
             resolved = ?resolved_dataset_id,
             "asset sync resolved updated dataset_id from auth state"
         );
+    }
+
+    // If dataset_id is not available yet, defer as pending instead of classifying as upload failure.
+    if resolved_dataset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .is_none()
+    {
+        let content_type = detect_mime_type(path);
+        let mut pending_headers = std::collections::HashMap::new();
+        pending_headers.insert("Origin".to_string(), settings.api_origin.clone());
+        pending_headers.insert("content-hash".to_string(), file_hash.to_string());
+
+        let context = UploadContext::Asset {
+            relative_path: relative.to_string_lossy().to_string(),
+            key: key.to_string(),
+            file_size,
+            dataset_id: None,
+            content_type: Some(content_type),
+        };
+
+        if let Some(store) = pending_store {
+            let context_json = serde_json::to_string(&context)
+                .map_err(|e| format!("failed to serialize pending context: {e}"))?;
+            store
+                .save_pending(
+                    &settings.api_endpoint,
+                    &pending_headers,
+                    &file_bytes,
+                    Some(context_json),
+                )
+                .map_err(|e| format!("failed to save pending upload: {e}"))?;
+
+            tracing::warn!(
+                key,
+                "member_id_hash (dataset_id) not ready; queued asset upload as pending"
+            );
+            return Ok(());
+        }
+
+        return Err("dataset_id is not ready and pending store is unavailable".to_string());
     }
 
     let filename = relative
