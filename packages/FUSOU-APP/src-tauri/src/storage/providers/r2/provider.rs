@@ -7,6 +7,7 @@ use crate::storage::common::get_all_port_tables;
 
 use fusou_upload::{PendingStore, UploadRetryService, Uploader, UploadRequest, UploadResult, UploadContext};
 use fusou_auth::{AuthManager, FileStorage};
+use sha2::{Digest, Sha256};
 // use std::path::PathBuf;
 
 const R2_STORAGE_PROVIDER_NAME: &str = "r2";
@@ -129,6 +130,91 @@ impl R2StorageProvider {
         }
     }
 
+    fn compute_content_hash(data: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        hex::encode(hasher.finalize())
+    }
+
+    async fn resolve_dataset_id_for_cloud_upload(&self) -> Option<String> {
+        let member_id_hash = crate::util::get_user_member_id().await;
+        let trimmed = member_id_hash.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+
+        self.auth_manager.resolve_dataset_id_for_upload(None).await
+    }
+
+    fn save_master_data_pending(
+        &self,
+        period_tag: &str,
+        endpoint: &str,
+        data: &[u8],
+        table_offsets_json: &str,
+    ) -> Result<(), StorageError> {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert(
+            "content-hash".to_string(),
+            Self::compute_content_hash(data),
+        );
+
+        let context = serde_json::json!({
+            "provider": "r2",
+            "operation": "master_data_bulk",
+            "endpoint": endpoint,
+            "period_tag": period_tag,
+            "table_offsets": table_offsets_json,
+            "table_version": DATABASE_TABLE_VERSION,
+        });
+
+        self.pending_store
+            .save_pending(endpoint, &headers, data, Some(context.to_string()))
+            .map(|meta| {
+                tracing::warn!(
+                    pending_id = %meta.id,
+                    "Master data dataset_id not ready; saved upload to pending store"
+                );
+            })
+            .map_err(|e| StorageError::Operation(format!("Failed to save pending master data upload: {}", e)))
+    }
+
+    fn save_r2_pending(
+        &self,
+        endpoint: &str,
+        period_tag: &str,
+        path_tag: &str,
+        table_name: &str,
+        data: &[u8],
+        table_offsets: &str,
+    ) -> Result<(), StorageError> {
+        let mut headers = std::collections::HashMap::new();
+        headers.insert(
+            "content-hash".to_string(),
+            Self::compute_content_hash(data),
+        );
+
+        let context = serde_json::json!({
+            "provider": "r2",
+            "tag": path_tag,
+            "period_tag": period_tag,
+            "table": table_name,
+            "table_offsets": table_offsets,
+            "table_version": DATABASE_TABLE_VERSION,
+        });
+
+        self.pending_store
+            .save_pending(endpoint, &headers, data, Some(context.to_string()))
+            .map(|meta| {
+                tracing::warn!(
+                    pending_id = %meta.id,
+                    table = table_name,
+                    "R2 dataset_id not ready; saved upload to pending store"
+                );
+            })
+            .map_err(|e| StorageError::Operation(format!("Failed to save pending R2 upload: {}", e)))
+    }
+
 }
 
 impl StorageProvider for R2StorageProvider {
@@ -153,7 +239,7 @@ impl StorageProvider for R2StorageProvider {
             // Try to get dataset_id (member_id_hash). If unavailable, we still proceed via
             // pending-store path so upload can be retried automatically once session/game state
             // becomes ready.
-            let dataset_id = crate::util::get_user_member_id().await;
+            let dataset_id = self.resolve_dataset_id_for_cloud_upload().await;
 
             // Check if master data upload is enabled
             let configs = configs::get_user_configs_for_app();
@@ -253,6 +339,16 @@ impl StorageProvider for R2StorageProvider {
 
             // Upload all master data in one request
             // Note: Even with 13 tables, concatenated may be small if most tables are empty
+            let Some(dataset_id) = dataset_id else {
+                self.save_master_data_pending(
+                    period_tag,
+                    &master_endpoint,
+                    &concatenated,
+                    &table_offsets_json,
+                )?;
+                return Ok(());
+            };
+
             match self
                 .upload_master_data_bulk(period_tag, concatenated, table_offsets_json, &dataset_id, &master_endpoint)
                 .await
@@ -280,7 +376,6 @@ impl StorageProvider for R2StorageProvider {
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
                // Get user_member_id (user-specific hashed ID for cross-device data integration)
-               let user_env_id = crate::util::get_user_member_id().await;
             tracing::info!(
                 "R2StorageProvider::write_port_table CALLED: period={}, map={}-{}",
                 period_tag, maparea_id, mapinfo_no
@@ -392,7 +487,31 @@ impl StorageProvider for R2StorageProvider {
             // Upload concatenated Avro data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
             let size = concatenated.len();
-            self.upload_to_r2(period_tag, &tag, &user_env_id, "port_table", concatenated, table_offsets).await?;
+            let endpoint = configs::get_user_configs_for_app()
+                .database
+                .r2
+                .get_upload_endpoint()
+                .unwrap_or_default();
+            if endpoint.is_empty() {
+                return Err(StorageError::Operation(
+                    "r2 upload endpoint not configured".into(),
+                ));
+            }
+
+            let dataset_id = self.resolve_dataset_id_for_cloud_upload().await;
+            let Some(dataset_id) = dataset_id else {
+                self.save_r2_pending(
+                    &endpoint,
+                    period_tag,
+                    &tag,
+                    "port_table",
+                    &concatenated,
+                    &table_offsets,
+                )?;
+                return Ok(());
+            };
+
+            self.upload_to_r2(period_tag, &tag, &dataset_id, "port_table", concatenated, table_offsets).await?;
 
             tracing::info!(
                 "Uploaded Avro batch to R2: period={}, map={}-{}, size={}",

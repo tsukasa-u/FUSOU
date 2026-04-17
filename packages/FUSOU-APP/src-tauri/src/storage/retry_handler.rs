@@ -101,10 +101,19 @@ impl AppUploadRetryHandler {
     async fn handle_r2_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
         let path_tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
         let period_tag = context.get("period_tag").and_then(|v| v.as_str()).unwrap_or("0");
-        let dataset_id = context
+        let dataset_id = match context
             .get("dataset_id")
             .and_then(|v| v.as_str())
-            .ok_or("missing dataset_id")?;
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            Some(dataset_id) => dataset_id.to_string(),
+            None => self
+                .auth_manager
+                .resolve_dataset_id_for_upload(None)
+                .await
+                .ok_or("dataset_id not ready for r2 retry")?,
+        };
         let table = context.get("table").and_then(|v| v.as_str()).unwrap_or("port_table");
         let table_offsets = context
             .get("table_offsets")
@@ -125,7 +134,7 @@ impl AppUploadRetryHandler {
         let handshake_body = Uploader::build_battle_data_handshake(
             period_tag,
             path_tag,
-            dataset_id,
+            &dataset_id,
             table,
             data.len() as u64,
             table_offsets,

@@ -110,6 +110,8 @@ impl Uploader {
             .as_object()
             .and_then(|obj| obj.get("dataset_id"))
             .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
     }
 
     /// Helper: build handshake body for battle-data upload

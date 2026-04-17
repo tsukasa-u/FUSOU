@@ -440,6 +440,13 @@ impl<S: Storage> AuthManager<S> {
         &self,
         member_id_hash: &str,
     ) -> Result<(Option<Session>, String), AuthError> {
+        let member_id_hash = member_id_hash.trim();
+        if member_id_hash.is_empty() {
+            return Err(AuthError::Other(
+                "member_id_hash is not ready for anonymous-sync".to_string(),
+            ));
+        }
+
         // Load existing dataset_token if available (multi-device consistency check)
         let existing_store = self.read_dataset_token_store_from_disk().await.ok();
         let has_existing_mapping = existing_store
@@ -543,6 +550,13 @@ impl<S: Storage> AuthManager<S> {
         member_id_hash: &str,
         current_token: Option<&crate::types::DatasetToken>,
     ) -> Result<crate::types::DatasetToken, AuthError> {
+        let member_id_hash = member_id_hash.trim();
+        if member_id_hash.is_empty() {
+            return Err(AuthError::Other(
+                "dataset_id is not ready for dataset_token refresh".to_string(),
+            ));
+        }
+
         // 現在のトークンが有効かチェック（期限1日前を基準）
         let needs_refresh = if let Some(token) = current_token {
             let one_day = Duration::days(1);
