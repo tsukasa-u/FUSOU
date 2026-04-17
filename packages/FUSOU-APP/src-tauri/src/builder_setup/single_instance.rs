@@ -1,7 +1,7 @@
 #[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
 use tauri::{Manager, Url};
-use fusou_auth::{AuthManager, FileStorage, Session};
+use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
 use kc_api::interface::deck_port::Basic;
 use serde_json::json;
@@ -33,73 +33,8 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             return;
         }
 
-        // Parse tokens from URL query parameters
-        // These are sent from FUSOU-WEB after OAuth authentication
-        let mut providrer_refresh_token = String::new();
-        let mut supabase_refresh_token = String::new();
-        let mut supabase_access_token = String::new();
-        let mut expires_at_str = String::new();
-
-        url.query_pairs().for_each(|(key, value)| {
-            // println!("key: {}, value: {}", key, value);
-            if key.eq("provider_refresh_token") {
-                providrer_refresh_token = value.to_string();
-            } else if key.eq("supabase_refresh_token") {
-                supabase_refresh_token = value.to_string();
-            } else if key.eq("supabase_access_token") {
-                supabase_access_token = value.to_string();
-            } else if key.eq("expires_at") {
-                expires_at_str = value.to_string();
-            }
-        });
-        
-        // Provider refresh token (e.g., Google Drive)
-        // Kept for future cloud provider features (currently deprecated)
-        #[cfg(feature = "gdrive")]
-        if !providrer_refresh_token.is_empty() {
-            let token_type = "Bearer";
-            let _ = gdrive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
-        }
-        
-        // Supabase session tokens (for social auth like Google OAuth)
-        // Required: Enables cross-device account persistence
-        // Different from anonymous auth which is local-only
-        if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
-            let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-            let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
-            
-            let expires_at = expires_at_str
-                .parse::<i64>()
-                .ok()
-                .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
-
-            let session = Session {
-                access_token: supabase_access_token.clone(),
-                refresh_token: supabase_refresh_token.clone(),
-                expires_at,
-                token_type: Some("bearer".to_string()),
-            };
-            
-            let handle_clone = app.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = manager.save_session(&session).await {
-                    tracing::error!("Failed to save session in single instance: {}", e);
-                } else {
-                    tracing::info!("Social auth session saved successfully via OAuth callback");
-                    // Mark that a social session is now active so that
-                    // try_anonymous_auth does not overwrite it.
-                    crate::util::set_social_session_active();
-                    // Reset the upsert flag so the mapping is re-evaluated with
-                    // the new social session (even if a previous upsert already succeeded).
-                    crate::util::reset_member_id_upsert_flag();
-                    // Immediately upsert member_id mapping so user_member_map
-                    // reflects the social user_id instead of the anonymous one.
-                    crate::util::try_upsert_member_id(&handle_clone).await;
-                }
-            });
-            // Note: No need to emit tokens to frontend
-            // Session saved to FileStorage and managed by AuthManager
-        }
+        // Anonymous-only mode: ignore OAuth callback tokens from FUSOU-WEB.
+        // Deep-link parsing is maintained for compatibility with existing flows.
     }
 
     goto_restore_window(app, &argv);

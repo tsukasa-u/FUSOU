@@ -188,9 +188,15 @@ pub async fn run() {
 
             // Initialize AuthManager
             let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
+            let dataset_token_path = util::get_ROAMING_DIR().join("fusou-auth-dataset-token.json");
             let storage = Arc::new(FileStorage::new(session_path.clone()));
-            let auth_manager = AuthManager::from_env(storage.clone())
+            
+            let mut auth_manager = AuthManager::from_env(storage.clone())
                 .expect("failed to create auth manager");
+            
+            // Set dataset_token persistent storage path
+            auth_manager.set_dataset_token_path(Some(dataset_token_path));
+            
             let auth_manager_for_retry = Arc::new(auth_manager.clone());
             let auth_manager_state = Arc::new(Mutex::new(auth_manager.clone()));
             app.manage(auth_manager_state.clone());

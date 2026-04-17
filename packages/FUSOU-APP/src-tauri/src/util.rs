@@ -10,45 +10,55 @@ use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
 use kc_api::interface::deck_port::Basic;
 use tauri::Manager;
-use tauri::Emitter;
 use fusou_auth::types;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
-use crate::notify;
 
-/// Flag indicating that a social auth session has been saved.
-/// Set by the OAuth callback handler; checked by `try_anonymous_auth` to
-/// avoid overwriting a social session with an anonymous one.
-static SOCIAL_SESSION_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// Mark that a social auth session is now active.
-pub fn set_social_session_active() {
-    SOCIAL_SESSION_ACTIVE.store(true, Ordering::SeqCst);
-}
-
+/// Anonymous-only mode: social session state is permanently disabled.
 /// Deprecated: Environment-scoped ID cache (ENV_UNIQ_ID). Do not use for user identification.
 ///
 /// Use [`get_user_member_id()`] instead for a user-scoped, salted SHA-256 identifier
 /// that enables secure cross-device data consolidation.
+#[allow(deprecated)]
 #[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
-/// Flag to ensure member_id upsert is called only once per unique member_id_hash
-static MEMBER_ID_UPSERTED: AtomicBool = AtomicBool::new(false);
-static LAST_UPSERTED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
-    LazyLock::new(Mutex::default);
-
 /// Flag to track if anonymous auth has been attempted (to avoid redundant attempts)
+/// NOTE: This is stored in memory AND persisted to disk for multi-device consistency.
+/// See: load_auth_attempt_flag(), save_auth_attempt_flag()
 static ANONYMOUS_AUTH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(Mutex::default);
 
-/// Reset the member_id upsert flag so that the next call to `try_upsert_member_id`
-/// will proceed even if a previous upsert already succeeded for the same hash.
-/// Called after a new social auth session is saved to ensure the mapping is updated.
-pub fn reset_member_id_upsert_flag() {
-    MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+/// Load the auth attempt flag from disk if available (multi-device consistency).
+/// Returns (attempted_before, last_member_id)
+fn load_auth_attempt_flag() -> (bool, Option<String>) {
+    let flag_path = get_ROAMING_DIR().join("fusou-auth-attempt.json");
+    if let Ok(content) = std::fs::read_to_string(&flag_path) {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+            let attempted = data.get("attempted").and_then(|v| v.as_bool()).unwrap_or(false);
+            let member_id = data.get("last_member_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+            return (attempted, member_id);
+        }
+    }
+    (false, None)
+}
+
+/// Persist the auth attempt flag to disk for multi-device consistency.
+fn save_auth_attempt_flag(attempted: bool, member_id: &Option<String>) {
+    let flag_path = get_ROAMING_DIR().join("fusou-auth-attempt.json");
+    let data = serde_json::json!({
+        "attempted": attempted,
+        "last_member_id": member_id,
+        "timestamp": chrono::Utc::now().to_rfc3339()
+    });
+    let _ = if let Some(parent) = flag_path.parent() {
+        std::fs::create_dir_all(parent)
+    } else {
+        Ok(())
+    };
+    let _ = std::fs::write(&flag_path, serde_json::to_string(&data).unwrap_or_default());
 }
 
 #[allow(non_snake_case)]
@@ -78,6 +88,8 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
 /// and meeting security requirements.
 ///
 /// Tracking issue: <https://github.com/tsukasa-u/FUSOU/issues/TBD>
+#[allow(dead_code)]
+#[allow(deprecated)]
 #[deprecated(since = "0.4.0", note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead. See tracking issue: https://github.com/tsukasa-u/FUSOU/issues/TBD")]
 pub async fn get_user_env_id() -> String {
     KC_USER_ENV_UNIQUE_ID
@@ -116,121 +128,39 @@ pub async fn get_user_member_id() -> String {
     basic.member_id
 }
 
-/// Upsert member_id_hash to Supabase user mapping.
-/// Called when a social auth session is established (OAuth callback path).
-pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
-    let member_id_hash = get_user_member_id().await;
-    if member_id_hash.is_empty() {
-        tracing::warn!("member_id is empty, skipping upsert");
-        return;
-    }
-
-    // Check if we already attempted upsert for THIS member_id_hash
-    // If member_id changed (game switch), reset flag and allow retry
-    let last_member_id = {
-        let guard = LAST_UPSERTED_MEMBER_ID.lock().unwrap();
-        guard.clone()
-    };
-    if MEMBER_ID_UPSERTED.load(Ordering::SeqCst) {
-        if let Some(last_id) = last_member_id {
-            if last_id == member_id_hash {
-                tracing::debug!("member_id upsert already completed for this member_id_hash, skipping");
-                return;
-            } else {
-                tracing::info!("member_id changed, resetting upsert flag for new game");
-                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
-            }
-        } else {
-            // Flag is true but last_member_id not set, shouldn't happen but be safe
-            return;
-        }
-    }
-
-    // Get auth manager from app state
+/// Check if the local session and dataset_token are still usable.
+/// Returns false if session is missing/expired or dataset_token is missing/expired.
+async fn check_session_usable(app: &tauri::AppHandle, member_id_hash: &str) -> bool {
     let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
-    if auth_manager_state.is_none() {
-        tracing::warn!("AuthManager not available, skipping member_id upsert");
-        MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
-        return;
+    let Some(auth_manager_state) = auth_manager_state else {
+        return false;
+    };
+    let auth_manager = {
+        auth_manager_state.lock().unwrap().clone()
+    };
+
+    // Check session: try to get access token (refreshes if needed)
+    let session_ok = auth_manager.get_access_token().await.is_ok();
+    if !session_ok {
+        return false;
     }
 
-    let auth_manager = auth_manager_state.unwrap();
-    
-    // Clone the auth manager to avoid holding lock across await
-    let auth_manager_clone = {
-        let manager = auth_manager.lock().unwrap();
-        manager.clone()
-    };
-    
-    let access_token = auth_manager_clone.get_access_token().await;
-
-    let token = match access_token {
-        Ok(t) => t,
-        Err(e) => {
-            // Session is invalid - try background anonymous auth instead of opening browser
-            tracing::warn!("Failed to get access token for member_id upsert (session likely expired): {} - will retry after anonymous auth", e);
-            
-            // Background anonymous auth will be attempted by try_anonymous_auth (spawned from Set::Basic)
-            // Do not open browser to avoid interrupting user
-            
-            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
-            return;
+    // Check dataset_token: must exist and not be expired (within 1 day margin)
+    match auth_manager.load_dataset_token_for_dataset(member_id_hash).await {
+        Ok(Some(token)) => {
+            let one_day = chrono::Duration::days(1);
+            token.expires_at > chrono::Utc::now() + one_day
         }
-    };
-
-    // Get endpoint from configs (use explicit member_map_endpoint only)
-    let app_configs = configs::get_user_configs_for_app();
-    let upsert_url = match app_configs.auth.get_member_map_endpoint() {
-        Some(explicit) => explicit.trim_end_matches('/').to_string(),
-        None => {
-            tracing::warn!("member_map_endpoint not configured, cannot upsert member_id");
-            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
-            return;
-        }
-    };
-
-    // Send POST request
-    let client = reqwest::Client::new();
-    let client_version = env!("CARGO_PKG_VERSION");
-    let body = serde_json::json!({
-        "member_id_hash": member_id_hash,
-        "client_version": client_version
-    });
-
-    match client
-        .post(&upsert_url)
-        .bearer_auth(token)
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            let status = resp.status();
-            if status.is_success() {
-                tracing::info!("member_id upsert successful (may be existing or new mapping)");
-                // Server returns 200 OK for both new upserts and already-existing mappings
-                // This is idempotent by design
-                // Mark as completed for this member_id
-                {
-                    let mut guard = LAST_UPSERTED_MEMBER_ID.lock().unwrap();
-                    *guard = Some(member_id_hash.clone());
-                }
-                MEMBER_ID_UPSERTED.store(true, Ordering::SeqCst);
-            } else {
-                let body_text = resp.text().await.unwrap_or_default();
-                tracing::error!("member_id upsert failed: status={}, body={}", status, body_text);
-                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
-            }
-        }
-        Err(e) => {
-            tracing::error!("member_id upsert network error: {}", e);
-            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
-        }
+        _ => false,
     }
 }
 
 /// Execute anonymous authentication in background and save session and dataset_token
 /// Called multiple times after Set::Basic, but only executes on first call
+///
+/// Multi-device: Auth attempt flag is persisted to disk to prevent redundant attempts
+/// across multiple device launches of the same app instance.
+/// If the existing session is expired or missing, the flag is ignored and re-auth is allowed.
 pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     // member_id_hashを取得
     let member_id_hash = get_user_member_id().await;
@@ -239,24 +169,40 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         return;
     }
 
+    // Load persisted flag from disk (multi-device consistency)
+    let (disk_attempted, disk_last_member_id) = load_auth_attempt_flag();
+
     // Check if already attempted for THIS member_id_hash
     // If member_id changed (game switch), reset flag and allow retry
     let last_member_id = {
         let guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-        guard.clone()
+        guard.clone().or(disk_last_member_id)
     };
-    if ANONYMOUS_AUTH_ATTEMPTED.load(Ordering::SeqCst) {
-        if let Some(last_id) = last_member_id {
+
+    // Use disk state for first check (multi-device consistency)
+    if disk_attempted {
+        if let Some(last_id) = last_member_id.clone() {
             if last_id == member_id_hash {
-                tracing::debug!("anonymous auth already attempted for this member_id_hash, skipping");
-                return;
+                // Flag says already attempted for this member_id, but verify the session is
+                // actually usable. If the session is expired or missing, allow re-auth.
+                let session_still_valid = check_session_usable(app, &member_id_hash).await;
+                if session_still_valid {
+                    tracing::debug!("anonymous auth already attempted for this member_id_hash (from disk) and session is valid, skipping");
+                    return;
+                }
+                tracing::info!("session expired or missing despite auth flag; allowing re-auth");
+                ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                save_auth_attempt_flag(false, &Some(member_id_hash.clone()));
             } else {
                 tracing::info!("member_id changed, resetting anonymous auth flag for new game");
                 ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                save_auth_attempt_flag(false, &None);
             }
         } else {
-            // Flag is true but last_member_id not set, shouldn't happen but be safe
-            return;
+            // Disk flag is true but last_member_id not set, reset and allow re-auth
+            tracing::info!("auth flag set but last_member_id missing; resetting flag");
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
         }
     }
 
@@ -272,6 +218,8 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
     if auth_manager_state.is_none() {
         tracing::warn!("AuthManager not available, skipping anonymous auth");
+        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+        save_auth_attempt_flag(false, &None);
         return;
     }
 
@@ -288,49 +236,33 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         Ok((anon_session_opt, dataset_token_str)) => {
             tracing::info!("Anonymous authentication successful");
             
-            // Check if we already have a social session (set by OAuth callback)
-            // Only save anonymous session if there's no existing social session
-            let has_existing_social = SOCIAL_SESSION_ACTIVE.load(Ordering::SeqCst);
-            if has_existing_social {
-                tracing::info!("Keeping existing social auth session, not overwriting with anonymous session");
+            // Anonymous-only mode: always persist anonymous session if returned.
+            if let Some(anon_session) = anon_session_opt {
+                if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
+                    tracing::error!("Failed to save anonymous session: {}", e);
+                    ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                    save_auth_attempt_flag(false, &None);
+                    return;
+                }
+            } else {
+                tracing::info!(
+                    "Anonymous auth completed without session tokens (likely existing mapping on another device); dataset_token-only mode"
+                );
+            }
+
+            {
+                let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+                *guard = Some(member_id_hash.clone());
             }
             
-            // Only save anonymous session if no existing social auth session
-            if !has_existing_social {
-                if let Some(anon_session) = anon_session_opt {
-                    // セッションを保存
-                    if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
-                        tracing::error!("Failed to save anonymous session: {}", e);
-                        // Mark as not attempted for retry on failure
-                        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-                        return;
-                    }
-                } else {
-                    tracing::info!(
-                        "Anonymous auth completed without session tokens (likely existing mapping on another device); dataset_token-only mode"
-                    );
-                }
-
-                // Success: record member_id and mark as attempted
-                {
-                    let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-                    *guard = Some(member_id_hash.clone());
-                }
-                // Note: No need to emit tokens to frontend
-                // Session saved to FileStorage and managed by AuthManager when available
-            } else {
-                tracing::info!("Skipping anonymous session save to preserve social auth session");
-                // Still record member_id for this attempt
-                {
-                    let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-                    *guard = Some(member_id_hash.clone());
-                }
-            }
+            // Persist flag to disk for multi-device consistency
+            save_auth_attempt_flag(true, &Some(member_id_hash.clone()));
             
             // dataset_tokenを保存（7日間有効期限）
             let dataset_token = types::DatasetToken {
                 token: dataset_token_str,
                 expires_at: chrono::Utc::now() + chrono::Duration::days(7),
+                dataset_id: Some(member_id_hash.clone()),
             };
             
             if let Err(e) = auth_manager_clone.save_dataset_token(&dataset_token).await {
@@ -344,12 +276,13 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
             
             // Reset flag on failure to allow future attempts (e.g., when network becomes available)
             ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
             
             // Notify user that they can manually trigger social auth
             crate::notify::show(
                 app,
                 "Background Authentication Failed",
-                "Some features may be limited. Open the account linking page from the app to link a social account."
+                "Some features may be limited. Background anonymous sign-in failed."
             );
         }
     }

@@ -97,6 +97,13 @@ pub enum UploadResult {
 pub struct Uploader;
 
 impl Uploader {
+    fn extract_dataset_id(handshake_body: &serde_json::Value) -> Option<&str> {
+        handshake_body
+            .as_object()
+            .and_then(|obj| obj.get("dataset_id"))
+            .and_then(|value| value.as_str())
+    }
+
     /// Helper: build handshake body for battle-data upload
     ///
     /// # Arguments
@@ -230,33 +237,67 @@ impl Uploader {
             }
         }
 
-        // Add X-Dataset-Token header if available
-        let dataset_token_opt = auth_manager
-            .load_dataset_token()
-            .await
-            .ok()
-            .flatten();
+        // Add X-Dataset-Token header if available.
+        // If no local token exists, attempt on-demand refresh via ensure_dataset_token_valid
+        // so that a freshly-started device can upload without waiting for background auth.
+        let dataset_token_opt = if let Some(dataset_id) = Self::extract_dataset_id(&handshake_body)
+        {
+            let loaded = auth_manager
+                .load_dataset_token_for_dataset(dataset_id)
+                .await
+                .ok()
+                .flatten();
+
+            match loaded {
+                Some(token) => {
+                    // Check expiry (1-day margin) and refresh if needed
+                    let one_day = chrono::Duration::days(1);
+                    if token.expires_at <= chrono::Utc::now() + one_day {
+                        tracing::info!("dataset_token expiring soon, refreshing before upload");
+                        match auth_manager.ensure_dataset_token_valid(dataset_id, Some(&token)).await {
+                            Ok(refreshed) => {
+                                let _ = auth_manager.save_dataset_token(&refreshed).await;
+                                Some(refreshed)
+                            }
+                            Err(e) => {
+                                tracing::warn!("failed to refresh dataset_token, using existing: {}", e);
+                                Some(token)
+                            }
+                        }
+                    } else {
+                        Some(token)
+                    }
+                }
+                None => {
+                    // No token on disk/cache — try to obtain one on-demand
+                    tracing::info!("no dataset_token found for {}, attempting on-demand fetch", dataset_id);
+                    match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
+                        Ok(fresh) => {
+                            let _ = auth_manager.save_dataset_token(&fresh).await;
+                            Some(fresh)
+                        }
+                        Err(e) => {
+                            tracing::warn!("on-demand dataset_token fetch failed: {}", e);
+                            None
+                        }
+                    }
+                }
+            }
+        } else {
+            None
+        };
         if let Some(dataset_token) = &dataset_token_opt {
             handshake_req = handshake_req.header("X-Dataset-Token", &dataset_token.token);
         }
 
-        match auth_manager.get_access_token().await {
-            Ok(token) => {
-                handshake_req = handshake_req.bearer_auth(token);
-            }
-            Err(e) => {
-                if dataset_token_opt.is_some() {
-                    tracing::info!(
-                        "Proceeding without bearer token and relying on dataset_token only: {}",
-                        e
-                    );
-                } else {
-                    return Err(UploadError::AuthenticationError {
-                        status_code: 401,
-                        message: "Failed to obtain access token and dataset_token is unavailable".to_string(),
-                    });
-                }
-            }
+        let access_token = auth_manager.get_access_token().await.ok();
+        if let Some(access_token) = access_token.as_ref() {
+            handshake_req = handshake_req.bearer_auth(access_token.clone());
+        } else if dataset_token_opt.is_none() {
+            return Err(UploadError::AuthenticationError {
+                status_code: 401,
+                message: "No access token or dataset token available for handshake".to_string(),
+            });
         }
 
         let resp = handshake_req
@@ -315,8 +356,8 @@ impl Uploader {
         };
         upload_req = upload_req.header("Content-Type", &content_type);
 
-        if let Ok(token) = auth_manager.get_access_token().await {
-            upload_req = upload_req.bearer_auth(token);
+        if let Some(access_token) = access_token {
+            upload_req = upload_req.bearer_auth(access_token);
         }
 
         let upload_resp = upload_req

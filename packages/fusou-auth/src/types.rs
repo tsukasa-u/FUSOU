@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -37,6 +38,17 @@ pub struct DatasetToken {
     pub token: String,
     /// トークンの有効期限
     pub expires_at: DateTime<Utc>,
+    /// このトークンが紐づく dataset_id (member_id_hash)
+    #[serde(default)]
+    pub dataset_id: Option<String>,
+}
+
+/// 端末ローカルに保持する dataset_token 群。
+/// セッション自体は端末ごとに分離し、dataset_id ごとに token を保持する。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DatasetTokenStore {
+    #[serde(default)]
+    pub tokens: HashMap<String, DatasetToken>,
 }
 
 impl MultiSession {

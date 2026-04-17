@@ -12,7 +12,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    auth::auth_server, builder_setup::{
+    builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
@@ -533,7 +533,7 @@ fn setup_tray(
                                         notify::show(
                                             &app_handle,
                                             "Session Unavailable",
-                                            "Background sign-in failed. Use 'Open Auth Page' when you want to link a social account."
+                                            "Background sign-in failed. Check network and try again."
                                         );
                                     }
                                 }
@@ -558,7 +558,7 @@ fn setup_tray(
                                     notify::show(
                                         &app_handle,
                                         "Local Sign Out",
-                                        "Local tokens cleared (cloud session not revoked). Re-auth when needed from 'Open Auth Page'."
+                                        "Local tokens cleared. Anonymous session will be recreated automatically when needed."
                                     );
                                     let main_window = app_handle.get_webview_window("main");
                                     if let Some(window) = main_window {
@@ -578,29 +578,12 @@ fn setup_tray(
                     #[cfg(dev)]
                     "open-auth-page" => {
                         let app_handle = tray.app_handle().clone();
-                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
-
                         tauri::async_runtime::spawn(async move {
-                            // Use as an explicit trigger to switch anonymous → social login
-                            let _already_has_session = manager.is_authenticated().await;
-
-                            match auth_server::open_auth_page_with_current_member_id() {
-                                Ok(_) => {
-                                    notify::show(
-                                        &app_handle,
-                                        "Auth Page",
-                                        "Opening auth page to link your account (switch from anonymous to social)."
-                                    );
-                                }
-                                Err(e) => {
-                                    notify::show(
-                                        &app_handle,
-                                        "Auth Page Error",
-                                        &format!("Failed to open auth page: {}", e)
-                                    );
-                                }
-                            }
+                            notify::show(
+                                &app_handle,
+                                "Anonymous-Only Mode",
+                                "Social auth is disabled. This app uses anonymous session only.",
+                            );
                         });
                     }
                     "main-open/close" => {
