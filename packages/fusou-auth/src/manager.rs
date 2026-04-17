@@ -13,6 +13,17 @@ const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABAS
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 
+fn masked_error_payload(input: &str) -> String {
+    if cfg!(debug_assertions) {
+        return input.to_string();
+    }
+    if input.trim().is_empty() {
+        "".to_string()
+    } else {
+        "********".to_string()
+    }
+}
+
 #[derive(Clone)]
 pub struct AuthConfig {
     pub supabase_url: String,
@@ -189,16 +200,16 @@ impl<S: Storage> AuthManager<S> {
         if let Some(exp) = session.expires_at {
             let now = Utc::now();
             let seconds_until_expiry = (exp - now).num_seconds();
-            tracing::info!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
+            tracing::debug!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
                 exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::info!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
+                tracing::debug!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
                 return Ok(session.access_token);
             } else {
-                tracing::info!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
+                tracing::debug!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
             }
         } else {
-            tracing::warn!("get_access_token: no expires_at in session, will refresh");
+            tracing::debug!("get_access_token: no expires_at in session, will refresh");
         }
 
         // otherwise refresh
@@ -215,19 +226,14 @@ impl<S: Storage> AuthManager<S> {
             let now = Utc::now();
             let seconds_until_expiry = (exp - now).num_seconds();
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::info!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
+                tracing::debug!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
                 return Ok(session2.access_token);
             }
         }
 
-        tracing::info!("get_access_token: calling force_refresh");
+        tracing::debug!("get_access_token: calling force_refresh");
         let refreshed = self.force_refresh(&session2).await?;
-        let token_preview = if refreshed.access_token.len() > 20 {
-            format!("{}...{}", &refreshed.access_token[..10], &refreshed.access_token[refreshed.access_token.len()-10..])
-        } else {
-            "<short-token>".to_string()
-        };
-        tracing::info!("get_access_token: refresh completed, new token preview: {}", token_preview);
+        tracing::info!("get_access_token: refresh completed");
         Ok(refreshed.access_token)
     }
 
@@ -250,6 +256,7 @@ impl<S: Storage> AuthManager<S> {
 
     /// Force refresh using the stored refresh_token. Returns saved session on success.
     pub async fn force_refresh(&self, current: &Session) -> Result<Session, AuthError> {
+        tracing::info!("supabase refresh started");
         if current.refresh_token.trim().is_empty() {
             return Err(AuthError::RefreshFailed("empty refresh token".to_string()));
         }
@@ -278,8 +285,8 @@ impl<S: Storage> AuthManager<S> {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            let text_preview = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
-            tracing::warn!(status = %status, url = %url, body = %text_preview, "supabase refresh request failed");
+            let masked_body = masked_error_payload(&text);
+            tracing::warn!(status = %status, body = %masked_body, "supabase refresh request failed");
 
             // If the refresh token is invalid/expired/already used, clear and signal re-auth.
             if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
@@ -288,7 +295,7 @@ impl<S: Storage> AuthManager<S> {
                 return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
             }
 
-            return Err(AuthError::RefreshFailed(format!("status {}: {}", status, text_preview)));
+            return Err(AuthError::RefreshFailed(format!("status {}", status)));
         }
 
         let body: serde_json::Value = resp.json().await?;
@@ -441,6 +448,7 @@ impl<S: Storage> AuthManager<S> {
         member_id_hash: &str,
     ) -> Result<(Option<Session>, String), AuthError> {
         let member_id_hash = member_id_hash.trim();
+        tracing::info!("anonymous-sync started");
         if member_id_hash.is_empty() {
             return Err(AuthError::Other(
                 "member_id_hash is not ready for anonymous-sync".to_string(),
@@ -493,16 +501,15 @@ impl<S: Storage> AuthManager<S> {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            let text_preview = if text.len() > 200 { format!("{}...", &text[..200]) } else { text.clone() };
+            let masked_body = masked_error_payload(&text);
             tracing::warn!(
                 status = %status,
-                url = %url,
-                body = %text_preview,
+                body = %masked_body,
                 "anonymous-sync request failed"
             );
             return Err(AuthError::RefreshFailed(format!(
-                "anonymous-sync failed: status {}: {}",
-                status, text_preview
+                "anonymous-sync failed: status {}",
+                status
             )));
         }
 
@@ -538,6 +545,11 @@ impl<S: Storage> AuthManager<S> {
             }
         };
 
+        tracing::info!(
+            session_tokens = if session.is_some() { "present" } else { "absent" },
+            "anonymous-sync completed"
+        );
+
         Ok((session, response_data.dataset_token))
     }
 
@@ -566,6 +578,7 @@ impl<S: Storage> AuthManager<S> {
         };
 
         if needs_refresh {
+            tracing::info!("dataset_token refresh started");
             let (session_opt, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
 
             // 新しいセッションが返された場合はストレージに保存（マルチデバイスで
@@ -578,6 +591,8 @@ impl<S: Storage> AuthManager<S> {
             
             // 7日後に有効期限切れ
             let expires_at = Utc::now() + Duration::days(7);
+
+            tracing::info!("dataset_token refresh completed");
             
             Ok(crate::types::DatasetToken {
                 token: dataset_token_str,
@@ -585,6 +600,7 @@ impl<S: Storage> AuthManager<S> {
                 dataset_id: Some(member_id_hash.to_string()),
             })
         } else {
+            tracing::info!("dataset_token still valid; refresh skipped");
             // 既存のトークンを返す
             Ok(current_token.unwrap().clone())
         }

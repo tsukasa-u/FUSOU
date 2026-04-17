@@ -55,6 +55,30 @@ const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
 
+fn mask_sensitive(value: &str) -> String {
+    if cfg!(debug_assertions) {
+        return value.to_string();
+    }
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "********".to_string();
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= 8 {
+        return "********".to_string();
+    }
+    let head: String = chars.iter().take(4).collect();
+    let tail: String = chars
+        .iter()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}****{}", head, tail)
+}
+
 #[derive(Debug, Clone)]
 struct ExistingKeysError {
     status: Option<StatusCode>,
@@ -487,7 +511,7 @@ async fn process_path(
     auth_manager: &AuthManager<FileStorage>,
     pending_store: &PendingStore,
 ) -> Result<(), String> {
-    tracing::info!(file = %path.display(), "processing path");
+    tracing::info!(file = %path.display(), "processing path started");
     let relative = match path.strip_prefix(&settings.save_root) {
         Ok(rel) => rel,
         Err(_) => return Err("file is outside of configured save root".into()),
@@ -495,6 +519,7 @@ async fn process_path(
 
     if is_kcsapi(relative) {
         tracing::info!(file = %relative.display(), "skipping kcsapi file");
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
         return Ok(());
     }
 
@@ -503,6 +528,7 @@ async fn process_path(
             file = %relative.display(),
             "skipping because of blocked extension"
         );
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
         return Ok(());
     }
 
@@ -531,11 +557,16 @@ async fn process_path(
     .map_err(|e| format!("spawn_blocking hash computation failed: {}", e))?;
 
     if ASSET_REQUEST_CACHE.should_skip(&key, &local_hash) {
-        tracing::info!(key, local_hash, "skipping because same content hash is cached locally");
+        tracing::info!(
+            key = %mask_sensitive(&key),
+            local_hash = %mask_sensitive(&local_hash),
+            "skipping because same content hash is cached locally"
+        );
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
         return Ok(());
     }
 
-    tracing::info!(check_key = key, "checking if remote key exists");
+    tracing::info!(check_key = %mask_sensitive(&key), "checking if remote key exists");
 
     if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
         if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
@@ -559,31 +590,35 @@ async fn process_path(
             if remote_hash == local_hash {
                 ASSET_REQUEST_CACHE.mark_processed(key.clone(), local_hash.clone());
                 tracing::info!(
-                    key,
-                    local_hash,
+                    key = %mask_sensitive(&key),
+                    local_hash = %mask_sensitive(&local_hash),
                     "skipping upload; remote content hash matches local"
                 );
                 return Ok(());
             } else {
                 // Hash differs - need to upload updated version
                 tracing::info!(
-                    key,
-                    local_hash,
-                    remote_hash,
+                    key = %mask_sensitive(&key),
+                    local_hash = %mask_sensitive(&local_hash),
+                    remote_hash = %mask_sensitive(&remote_hash),
                     "content changed, uploading updated version"
                 );
             }
         } else {
             // Remote key exists but no hash - upload to populate hash
             tracing::info!(
-                key,
-                local_hash,
+                key = %mask_sensitive(&key),
+                local_hash = %mask_sensitive(&local_hash),
                 "remote exists but hash unknown, uploading to update"
             );
         }
     } else {
         // Key doesn't exist remotely - upload
-        tracing::info!(key, local_hash, "new file, uploading");
+        tracing::info!(
+            key = %mask_sensitive(&key),
+            local_hash = %mask_sensitive(&local_hash),
+            "new file, uploading"
+        );
     }
 
     upload_via_api(
@@ -600,6 +635,7 @@ async fn process_path(
     )
     .await?;
     ASSET_REQUEST_CACHE.mark_processed(key, local_hash);
+    tracing::info!(file = %path.display(), "processing path completed");
     Ok(())
 }
 
@@ -723,7 +759,12 @@ pub async fn upload_via_api(
     auth_manager: &AuthManager<FileStorage>,
     pending_store: Option<&PendingStore>,
 ) -> Result<(), String> {
-    tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
+    tracing::info!(
+        key = %mask_sensitive(key),
+        file = %path.display(),
+        size = file_size,
+        "asset upload event started"
+    );
 
     let resolved_dataset_id = auth_manager
         .resolve_dataset_id_for_upload(None)
@@ -771,9 +812,10 @@ pub async fn upload_via_api(
                 .map_err(|e| format!("failed to save pending upload: {e}"))?;
 
             tracing::warn!(
-                key,
+                key = %mask_sensitive(key),
                 "member_id_hash (dataset_id) not ready; queued asset upload as pending"
             );
+            tracing::info!(key = %mask_sensitive(key), "asset upload event completed (queued pending)");
             return Ok(());
         }
 
@@ -817,14 +859,21 @@ pub async fn upload_via_api(
 
     match Uploader::upload(client, auth_manager, request, pending_store).await {
         Ok(UploadResult::Success) => {
-            tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
+            tracing::info!(
+                key = %mask_sensitive(key),
+                endpoint = %settings.api_endpoint,
+                "asset upload event completed (success)"
+            );
             register_remote_key(key, Some(file_hash));
             // Reset auth failure flag on successful upload
             SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
             Ok(())
         }
         Ok(UploadResult::Skipped) => {
-            tracing::info!(key, "asset already existed upstream (409)");
+            tracing::info!(
+                key = %mask_sensitive(key),
+                "asset upload event completed (already exists upstream)"
+            );
             register_remote_key(key, Some(file_hash));
             Ok(())
         }
@@ -833,13 +882,18 @@ pub async fn upload_via_api(
             // This is safer than pattern matching against fixed strings like "401" or "RequireReauth"
             // because it's explicitly set by UploadError::AuthenticationError variant
             if e.contains("Authentication error") {
-                tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
+                tracing::warn!(
+                    key = %mask_sensitive(key),
+                    error = %mask_sensitive(&e),
+                    "authentication failure detected; resetting auth cache"
+                );
                 SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
                 SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
                 LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
                 SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
                 SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
             }
+            tracing::info!(key = %mask_sensitive(key), "asset upload event completed (failed)");
             Err(e)
         }
     }

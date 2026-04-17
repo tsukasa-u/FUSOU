@@ -24,6 +24,23 @@ pub struct R2StorageProvider {
 }
 
 impl R2StorageProvider {
+    fn mask_identifier(input: &str) -> String {
+        if cfg!(debug_assertions) {
+            return input.to_string();
+        }
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return "********".to_string();
+        }
+        let chars: Vec<char> = trimmed.chars().collect();
+        if chars.len() <= 6 {
+            return "********".to_string();
+        }
+        let head: String = chars.iter().take(3).collect();
+        let tail: String = chars.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
+        format!("{}****{}", head, tail)
+    }
+
     pub fn new(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
         tracing::debug!("R2StorageProvider::new() called");
         
@@ -55,7 +72,14 @@ impl R2StorageProvider {
         table_offsets: String,
     ) -> Result<(), StorageError> {
         let file_size = data.len();
-        tracing::debug!("Uploading to R2: period={}, path_tag={}, dataset={}, table={}, size={}", period_tag, path_tag, dataset_id, table_name, file_size);
+        tracing::debug!(
+            "Uploading to R2: period={}, path_tag={}, dataset={}, table={}, size={}",
+            period_tag,
+            path_tag,
+            Self::mask_identifier(dataset_id),
+            table_name,
+            file_size
+        );
 
         let configs = configs::get_user_configs_for_app();
         let db_config = configs.database;
@@ -119,7 +143,7 @@ impl R2StorageProvider {
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("R2 upload failed: tag={}, error={}", path_tag, e);
+                tracing::debug!("R2 upload failed: tag={}", path_tag);
                 // Trigger retry processing for pending items saved by Uploader
                 let retry = self._retry_service.clone();
                 tokio::spawn(async move {
@@ -234,7 +258,7 @@ impl StorageProvider for R2StorageProvider {
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             // Master data (get_data_table) upload to master_data endpoint
-            tracing::info!("R2StorageProvider::write_get_data_table CALLED for period={}", period_tag);
+            tracing::info!(period = period_tag, "master data upload event started");
 
             // Try to get dataset_id (member_id_hash). If unavailable, we still proceed via
             // pending-store path so upload can be retried automatically once session/game state
@@ -247,6 +271,7 @@ impl StorageProvider for R2StorageProvider {
             
             if !db_config.get_allow_data_to_shared_cloud() {
                 tracing::debug!("Master data upload disabled in config");
+                tracing::info!(period = period_tag, "master data upload event completed (disabled)");
                 return Ok(());
             }
 
@@ -257,6 +282,7 @@ impl StorageProvider for R2StorageProvider {
 
             if master_endpoint.is_empty() {
                 tracing::warn!("Master data upload endpoint not configured");
+                tracing::info!(period = period_tag, "master data upload event completed (no endpoint)");
                 return Ok(());
             }
 
@@ -302,7 +328,7 @@ impl StorageProvider for R2StorageProvider {
             );
 
             // All 13 tables are always present (even if empty), so never skip
-            tracing::info!("Uploading {} master data tables for period={}", master_tables.len(), period_tag);
+            tracing::debug!("Uploading {} master data tables for period={}", master_tables.len(), period_tag);
 
             // Concatenate all tables (including empty ones) and build table_offsets
             // [CRITICAL] Empty tables create zero-length slices (start == end)
@@ -334,7 +360,7 @@ impl StorageProvider for R2StorageProvider {
             let table_offsets_json = serde_json::to_string(&table_offsets)
                 .map_err(|e| StorageError::Operation(format!("Failed to serialize table_offsets: {}", e)))?;
 
-            tracing::info!("Prepared {} tables, total size: {} bytes (may include empty tables)", master_tables.len(), concatenated.len());
+            tracing::debug!("Prepared {} tables, total size: {} bytes (may include empty tables)", master_tables.len(), concatenated.len());
             tracing::debug!("Table offsets: {}", table_offsets_json);
 
             // Upload all master data in one request
@@ -346,6 +372,7 @@ impl StorageProvider for R2StorageProvider {
                     &concatenated,
                     &table_offsets_json,
                 )?;
+                tracing::info!(period = period_tag, "master data upload event completed (queued pending)");
                 return Ok(());
             };
 
@@ -359,9 +386,11 @@ impl StorageProvider for R2StorageProvider {
                 Err(e) => {
                     // Don't fail entire sync if master data upload fails
                     // Master data is shared, so if another user already uploaded it, that's fine
-                    tracing::warn!("Master data upload failed: {}", e);
+                    tracing::debug!("Master data upload deferred/failed: {}", e);
                 }
             }
+
+            tracing::info!(period = period_tag, "master data upload event completed");
 
             Ok(())
         })
@@ -375,10 +404,10 @@ impl StorageProvider for R2StorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-               // Get user_member_id (user-specific hashed ID for cross-device data integration)
             tracing::info!(
-                "R2StorageProvider::write_port_table CALLED: period={}, map={}-{}",
-                period_tag, maparea_id, mapinfo_no
+                period = period_tag,
+                map = format!("{}-{}", maparea_id, mapinfo_no),
+                "port table upload event started"
             );
             
             // Collect all non-empty Avro tables into HashMap
@@ -426,13 +455,15 @@ impl StorageProvider for R2StorageProvider {
                     maparea_id,
                     mapinfo_no
                 );
+                tracing::info!(
+                    period = period_tag,
+                    map = format!("{}-{}", maparea_id, mapinfo_no),
+                    "port table upload event completed (empty payload)"
+                );
                 return Ok(());
             }
 
-            tracing::info!("Building Avro batch upload for {} tables (with data)", tables.len());
-            for (name, data) in &tables {
-                tracing::info!("  - {}: {} bytes", name, data.len());
-            }
+            tracing::debug!("Building Avro batch upload for {} tables (with data)", tables.len());
 
             // NEW: Concatenate Avro files directly without Parquet conversion
             let mut concatenated = Vec::new();
@@ -465,14 +496,14 @@ impl StorageProvider for R2StorageProvider {
                     format: "avro".to_string(),
                 });
 
-                tracing::info!(
+                tracing::debug!(
                     "Added '{}' to batch: offset={}, length={}",
                     table_name, start_byte, byte_length
                 );
             }
 
             let total_bytes = concatenated.len();
-            tracing::info!(
+            tracing::debug!(
                 "Avro batch built: {} bytes total, {} tables",
                 total_bytes,
                 metadata.len()
@@ -481,8 +512,8 @@ impl StorageProvider for R2StorageProvider {
             // Serialize table offset metadata to JSON
             let table_offsets = serde_json::to_string(&metadata)
                 .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
-            tracing::info!("table_offsets JSON: {}", table_offsets);
-            tracing::info!("Total metadata entries: {}", metadata.len());
+            tracing::debug!("table_offsets JSON: {}", table_offsets);
+            tracing::debug!("Total metadata entries: {}", metadata.len());
 
             // Upload concatenated Avro data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
@@ -508,14 +539,34 @@ impl StorageProvider for R2StorageProvider {
                     &concatenated,
                     &table_offsets,
                 )?;
+                tracing::info!(
+                    period = period_tag,
+                    map = format!("{}-{}", maparea_id, mapinfo_no),
+                    "port table upload event completed (queued pending)"
+                );
                 return Ok(());
             };
 
-            self.upload_to_r2(period_tag, &tag, &dataset_id, "port_table", concatenated, table_offsets).await?;
+            if let Err(err) = self
+                .upload_to_r2(period_tag, &tag, &dataset_id, "port_table", concatenated, table_offsets)
+                .await
+            {
+                tracing::info!(
+                    period = period_tag,
+                    map = format!("{}-{}", maparea_id, mapinfo_no),
+                    "port table upload event completed (failed)"
+                );
+                return Err(err);
+            }
 
             tracing::info!(
                 "Uploaded Avro batch to R2: period={}, map={}-{}, size={}",
                 period_tag, maparea_id, mapinfo_no, size
+            );
+            tracing::info!(
+                period = period_tag,
+                map = format!("{}-{}", maparea_id, mapinfo_no),
+                "port table upload event completed"
             );
             Ok(())
         })
@@ -589,7 +640,6 @@ impl R2StorageProvider {
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("Master data upload failed: {}", e);
                 Err(StorageError::Operation(format!("Master data upload failed: {}", e)))
             }
         }

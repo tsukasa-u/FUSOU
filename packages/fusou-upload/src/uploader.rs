@@ -98,6 +98,23 @@ pub enum UploadResult {
 pub struct Uploader;
 
 impl Uploader {
+    fn mask_identifier(input: &str) -> String {
+        if cfg!(debug_assertions) {
+            return input.to_string();
+        }
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return "********".to_string();
+        }
+        let chars: Vec<char> = trimmed.chars().collect();
+        if chars.len() <= 6 {
+            return "********".to_string();
+        }
+        let head: String = chars.iter().take(3).collect();
+        let tail: String = chars.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
+        format!("{}****{}", head, tail)
+    }
+
     fn compute_content_hash(data: &[u8]) -> String {
         let mut hasher = Sha256::new();
         hasher.update(data);
@@ -192,13 +209,12 @@ impl Uploader {
         request: UploadRequest<'_>,
         pending_store: Option<&PendingStore>,
     ) -> Result<UploadResult, String> {
+        tracing::info!(endpoint = request.endpoint, "upload event started");
         let content_hash = Self::compute_content_hash(&request.data);
         let result = Self::perform_upload(client, auth_manager, &request).await;
 
-        if let Err(err) = &result {
-            // Convert to string for compatibility with existing code
-            let err_str = String::from(err.clone());
-
+        if result.is_err() {
+            let mut queued_pending = false;
             if let Some(store) = pending_store {
                 let context_json = serde_json::to_string(&request.context).unwrap_or_default();
                 let mut pending_headers = request.headers.clone();
@@ -213,10 +229,26 @@ impl Uploader {
                 ) {
                     tracing::error!("Failed to save pending upload: {}", e);
                 } else {
-                    tracing::warn!(error = %err_str, "Upload failed, saved to pending store");
+                    tracing::warn!("Upload failed, saved to pending store");
+                    queued_pending = true;
                 }
             } else {
-                tracing::warn!(error = %err_str, "Upload failed (no pending store configured)");
+                tracing::warn!("Upload failed (no pending store configured)");
+            }
+
+            if queued_pending {
+                tracing::info!(endpoint = request.endpoint, "upload event completed (queued pending)");
+            } else {
+                tracing::info!(endpoint = request.endpoint, "upload event completed (failed)");
+            }
+        } else if let Ok(outcome) = &result {
+            match outcome {
+                UploadResult::Success => {
+                    tracing::info!(endpoint = request.endpoint, "upload event completed successfully");
+                }
+                UploadResult::Skipped => {
+                    tracing::info!(endpoint = request.endpoint, "upload event completed (already exists upstream)");
+                }
             }
         }
 
@@ -290,7 +322,10 @@ impl Uploader {
                 }
                 None => {
                     // No token on disk/cache — try to obtain one on-demand
-                    tracing::info!("no dataset_token found for {}, attempting on-demand fetch", dataset_id);
+                    tracing::info!(
+                        "no dataset_token found for {}, attempting on-demand fetch",
+                        Self::mask_identifier(dataset_id)
+                    );
                     match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
                         Ok(fresh) => {
                             let _ = auth_manager.save_dataset_token(&fresh).await;
