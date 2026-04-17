@@ -209,7 +209,7 @@ impl Uploader {
         request: UploadRequest<'_>,
         pending_store: Option<&PendingStore>,
     ) -> Result<UploadResult, String> {
-        tracing::info!(endpoint = request.endpoint, "upload event started");
+        tracing::info!("upload event started");
         let content_hash = Self::compute_content_hash(&request.data);
         let result = Self::perform_upload(client, auth_manager, &request).await;
 
@@ -237,17 +237,17 @@ impl Uploader {
             }
 
             if queued_pending {
-                tracing::info!(endpoint = request.endpoint, "upload event completed (queued pending)");
+                tracing::info!("upload event completed (queued pending)");
             } else {
-                tracing::info!(endpoint = request.endpoint, "upload event completed (failed)");
+                tracing::info!("upload event completed (failed)");
             }
         } else if let Ok(outcome) = &result {
             match outcome {
                 UploadResult::Success => {
-                    tracing::info!(endpoint = request.endpoint, "upload event completed successfully");
+                    tracing::info!("upload event completed successfully");
                 }
                 UploadResult::Skipped => {
-                    tracing::info!(endpoint = request.endpoint, "upload event completed (already exists upstream)");
+                    tracing::info!("upload event completed (already exists upstream)");
                 }
             }
         }

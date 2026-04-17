@@ -17,6 +17,11 @@ use uuid::Uuid;
 
 static SHIP_GROWTH_SENDER: OnceCell<Arc<ShipGrowthSender>> = OnceCell::new();
 
+enum ShipGrowthSendOutcome {
+    Sent,
+    Suppressed,
+}
+
 pub struct ShipGrowthSender {
     ingest_endpoint: String,
     auth_manager: Arc<AuthManager<FileStorage>>,
@@ -254,7 +259,7 @@ impl ShipGrowthSender {
         let mut attempts = 0;
         while attempts < 15 {
             let dataset_id = crate::util::get_user_member_id().await;
-            tracing::info!(attempts, empty = dataset_id.trim().is_empty(), "ship_growth_sender: resolve_dataset_id poll");
+            tracing::debug!(attempts, empty = dataset_id.trim().is_empty(), "ship_growth_sender: resolve_dataset_id poll");
             if !dataset_id.trim().is_empty() {
                 return Some(dataset_id);
             }
@@ -268,19 +273,19 @@ impl ShipGrowthSender {
     async fn send_if_new(
         &self,
         snapshot: &ShipGrowthSnapshot,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        tracing::info!(entries = snapshot.entries.len(), "ship_growth_sender: [1] validating exp entries");
+    ) -> Result<ShipGrowthSendOutcome, Box<dyn std::error::Error>> {
+        tracing::debug!(entries = snapshot.entries.len(), "ship_growth_sender: validating exp entries");
         Self::validate_exp_entries(snapshot)?;
 
-        tracing::info!("ship_growth_sender: [2] computing hashes");
+        tracing::debug!("ship_growth_sender: computing hashes");
         let payload_hash = Self::payload_hash(snapshot);
         let exp_hash = Self::exp_suppression_hash(snapshot);
         let bounds_hash = Self::bounds_suppression_hash(snapshot);
         let caps_hash = Self::caps_suppression_hash(snapshot);
 
-        tracing::info!("ship_growth_sender: [3] fetching period tag");
+        tracing::debug!("ship_growth_sender: fetching period tag");
         let period_tag = crate::auth::supabase::get_period_tag().await;
-        tracing::info!(period_tag = %period_tag, "ship_growth_sender: [4] period tag resolved");
+        tracing::debug!(period_tag = %period_tag, "ship_growth_sender: period tag resolved");
         // bounds are period-scoped: clear on period_tag OR table version change
         self.bounds_cache.rotate_scope(Some(&format!(
             "{}:{}",
@@ -301,16 +306,16 @@ impl ShipGrowthSender {
             .should_skip(Self::caps_payload_key(), &caps_hash);
 
         if skip_exp && skip_bounds && skip_caps {
-            tracing::info!(
+            tracing::debug!(
                 skip_exp,
                 skip_bounds,
                 skip_caps,
                 scope = %format!("{}:{}", period_tag, kc_api::database::DATABASE_TABLE_VERSION),
                 "ship_growth_sender: suppression cache hit, skipping upload"
             );
-            return Ok(());
+            return Ok(ShipGrowthSendOutcome::Suppressed);
         }
-        tracing::info!(
+        tracing::debug!(
             skip_exp,
             skip_bounds,
             skip_caps,
@@ -318,12 +323,12 @@ impl ShipGrowthSender {
             "ship_growth_sender: suppression cache miss, proceeding with upload"
         );
 
-        tracing::info!("ship_growth_sender: [5] resolving dataset_id");
+        tracing::debug!("ship_growth_sender: resolving dataset_id");
         let Some(dataset_id) = self.resolve_dataset_id().await else {
-            tracing::warn!("ship_growth_sender: [5] dataset_id empty after retries");
+            tracing::warn!("ship_growth_sender: dataset_id empty after retries");
             return Err("dataset_id is empty".into());
         };
-        tracing::info!(dataset_id = %dataset_id, "ship_growth_sender: [6] dataset_id resolved, building upload request");
+        tracing::debug!("ship_growth_sender: dataset_id resolved, building upload request");
 
         let request_id = format!("ship-growth:{}:{}", dataset_id, Uuid::new_v4());
         let timestamp_ms = SystemTime::now()
@@ -390,14 +395,14 @@ impl ShipGrowthSender {
         .await
         {
             Ok(_) => {
-                tracing::info!(dataset_id = %dataset_id, "ship_growth_sender: upload succeeded, marking cache");
+                tracing::debug!("ship_growth_sender: upload succeeded, marking cache");
                 self.version_cache
                     .mark_processed(Self::exp_payload_key(), exp_hash);
                 self.bounds_cache
                     .mark_processed(Self::bounds_payload_key(), bounds_hash);
                 self.version_cache
                     .mark_processed(Self::caps_payload_key(), caps_hash);
-                Ok(())
+                Ok(ShipGrowthSendOutcome::Sent)
             }
             Err(e) => {
                 self.retry_service.trigger_retry().await;
@@ -421,10 +426,18 @@ impl ShipGrowthSender {
             notified.await;
         }
 
-        tracing::info!(seq, entries = snapshot.entries.len(), "ship_growth_sender: submit running");
+        tracing::info!(seq, entries = snapshot.entries.len(), "ship_growth_sender event started");
         match self.send_if_new(&snapshot).await {
-            Ok(()) => tracing::info!(seq, "ship_growth_sender: send_if_new completed (sent or suppressed)"),
-            Err(e) => tracing::warn!(error = %e, seq, "failed to send ship growth snapshot"),
+            Ok(ShipGrowthSendOutcome::Sent) => {
+                tracing::info!(seq, "ship_growth_sender event completed (sent)");
+            }
+            Ok(ShipGrowthSendOutcome::Suppressed) => {
+                tracing::info!(seq, "ship_growth_sender event completed (suppressed)");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, seq, "failed to send ship growth snapshot");
+                tracing::info!(seq, "ship_growth_sender event completed (failed)");
+            }
         }
 
         self.next_to_send.fetch_add(1, Ordering::Release);
@@ -466,7 +479,7 @@ pub fn start(
 
 pub fn enqueue_snapshot(snapshot: ShipGrowthSnapshot) {
     if let Some(sender) = SHIP_GROWTH_SENDER.get() {
-        tracing::info!(entries = snapshot.entries.len(), "ship_growth_sender: enqueue_snapshot called");
+        tracing::debug!(entries = snapshot.entries.len(), "ship_growth_sender: enqueue_snapshot called");
         let sender = sender.clone();
         let seq = sender.allocate_seq();
         tokio::spawn(async move {

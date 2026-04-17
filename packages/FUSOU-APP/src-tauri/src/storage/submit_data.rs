@@ -123,6 +123,7 @@ pub fn submit_port_table() {
                             "support_airattack" => encode.support_airattack = bytes,
                             "support_hourai" => encode.support_hourai = bytes,
                             "battle" => encode.battle = bytes,
+                            "battle_result" => encode.battle_result = bytes,
                             _ => tracing::debug!("submit_port_table: unknown table name {}", name),
                         }
                     }
