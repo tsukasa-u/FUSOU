@@ -36,29 +36,42 @@ try {
   return Astro.redirect("/auth/signin");
 }
 
-let memberMap = null;
+let memberMap: {
+  member_id_hash?: string;
+  user_id?: string;
+  source?: string;
+} | null = null;
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
 
 try {
-  const { data, error } = await supabase.rpc(
-    "rpc_get_current_user_member_map",
-    {},
+  const memberMapResponse = await fetch(
+    new URL("/api/user/member-map", Astro.url.origin),
+    {
+      headers: {
+        Authorization: `Bearer ${safeAccessToken}`,
+      },
+    },
   );
 
-  console.log(`[MemberCheck] User: ${user?.id} (${user?.email})`);
-  console.log(`[MemberCheck] RPC Result:`, { data, error });
-
-  if (error) {
-    console.error(
-      "Member ID Check Failed (RPC Error):",
-      JSON.stringify(error, null, 2),
-    );
-    console.error("User ID:", user?.id);
-  }
-  if (!error && data && data.member_id_hash) {
-    memberMap = data;
+  const memberMapData = (await memberMapResponse.json()) as {
+    ok?: boolean;
+    map?: {
+      member_id_hash?: string;
+      user_id?: string;
+      source?: string;
+    } | null;
+    error?: string;
+  };
+  if (
+    memberMapResponse.ok &&
+    memberMapData?.ok &&
+    memberMapData?.map?.member_id_hash
+  ) {
+    memberMap = memberMapData.map;
+  } else if (!memberMapResponse.ok) {
+    console.error("Member ID Check Failed:", memberMapData);
   }
 } catch (e) {
   console.error("Member ID Check Failed (Exception):", e);

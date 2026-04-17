@@ -806,6 +806,35 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
     }
   }
 
+  const fleetTag = params.get("fleet")?.trim();
+  if (fleetTag) {
+    if (!_accessToken) {
+      console.warn("fleet param was provided but access token is unavailable");
+      return null;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
+        { headers: authHeaders() },
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          ok?: boolean;
+          snapshot?: Record<string, unknown>;
+        };
+        if (payload.snapshot) {
+          applyFleetSnapshot(payload.snapshot);
+          _playgroundDraft = buildCurrentPlaygroundPayload();
+          setSnapshotPlaygroundMode(true);
+          clearActive();
+        }
+      }
+    } catch {
+      // Ignore invalid or unavailable fleet snapshot links.
+    }
+  }
+
   return null;
 }
 

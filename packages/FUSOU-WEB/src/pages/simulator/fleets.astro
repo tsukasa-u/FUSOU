@@ -3,8 +3,33 @@ import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import PageShell from "@/components/ui/PageShell.astro";
 import PageHeader from "@/components/ui/PageHeader.astro";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
+
+const cookies = Astro.cookies;
+const runtimeEnv = cfEnv as Record<string, any>;
+
+let safeAccessToken: string | null = null;
+
+const accessTokenCookie = cookies.get("sb-access-token");
+const refreshTokenCookie = cookies.get("sb-refresh-token");
+
+if (accessTokenCookie?.value && refreshTokenCookie?.value) {
+  try {
+    const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshTokenCookie.value,
+      access_token: accessTokenCookie.value,
+    });
+    if (session.data.session?.access_token) {
+      safeAccessToken = session.data.session.access_token;
+    }
+  } catch {
+    // Session invalid — user is not logged in
+  }
+}
 ---
 
 <PageLayout
@@ -100,7 +125,18 @@ export const prerender = false;
   </footer>
 </PageLayout>
 
+<script is:inline define:vars={{ accessToken: safeAccessToken }}>
+  window.__fusouAccessToken = accessToken;
+</script>
+
 <script>
+  const accessToken = (window as any).__fusouAccessToken ?? null;
+
+  function authHeaders(): HeadersInit {
+    if (!accessToken) return {};
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+
   function renderMessageRow(
     message: string,
     className = "text-base-content/40",
@@ -114,7 +150,14 @@ export const prerender = false;
     return tr;
   }
 
-  function renderFleetRow(tag: string) {
+  function formatUploadedAt(input: string | Date | undefined): string {
+    if (!input) return "-";
+    const date = new Date(input);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString();
+  }
+
+  function renderFleetRow(tag: string, uploadedAt: string) {
     const tr = document.createElement("tr");
     tr.className = "hover";
 
@@ -124,7 +167,7 @@ export const prerender = false;
 
     const savedAtTd = document.createElement("td");
     savedAtTd.className = "text-base-content/40";
-    savedAtTd.textContent = "-";
+    savedAtTd.textContent = uploadedAt;
 
     const actionsTd = document.createElement("td");
     actionsTd.className = "flex gap-1";
@@ -139,6 +182,25 @@ export const prerender = false;
     deleteButton.className = "btn btn-ghost btn-xs btn-delete";
     deleteButton.dataset.tag = tag;
     deleteButton.textContent = "削除";
+    deleteButton.addEventListener("click", async () => {
+      if (!confirm(`「${tag}」を削除しますか？`)) return;
+      try {
+        const res = await fetch(
+          `/api/fleet/snapshot/${encodeURIComponent(tag)}`,
+          {
+            method: "DELETE",
+            headers: authHeaders(),
+          },
+        );
+        if (!res.ok) {
+          alert("削除に失敗しました");
+          return;
+        }
+        tr.remove();
+      } catch {
+        alert("削除エラー");
+      }
+    });
 
     actionsTd.appendChild(openLink);
     actionsTd.appendChild(deleteButton);
@@ -151,8 +213,20 @@ export const prerender = false;
   async function loadFleets() {
     const tbody = document.getElementById("fleet-list-body")!;
 
+    if (!accessToken) {
+      tbody.replaceChildren(
+        renderMessageRow(
+          "一覧表示には Webサービス連携が必要です",
+          "text-warning",
+        ),
+      );
+      return;
+    }
+
     try {
-      const res = await fetch("/api/fleet/snapshots/list");
+      const res = await fetch("/api/fleet/snapshots/list", {
+        headers: authHeaders(),
+      });
       if (!res.ok) {
         tbody.replaceChildren(
           renderMessageRow("読込に失敗しました", "text-error"),
@@ -160,7 +234,10 @@ export const prerender = false;
         return;
       }
 
-      const data = (await res.json()) as { tags: string[] };
+      const data = (await res.json()) as {
+        ok: boolean;
+        tags: { tag: string; uploaded?: string; size?: number }[];
+      };
       if (!data.tags || data.tags.length === 0) {
         tbody.replaceChildren(
           renderMessageRow("保存された艦隊データがありません"),
@@ -168,7 +245,11 @@ export const prerender = false;
         return;
       }
 
-      tbody.replaceChildren(...data.tags.map((tag) => renderFleetRow(tag)));
+      tbody.replaceChildren(
+        ...data.tags.map((entry) =>
+          renderFleetRow(entry.tag, formatUploadedAt(entry.uploaded)),
+        ),
+      );
     } catch (err) {
       console.error("Failed to load fleet list:", err);
       tbody.replaceChildren(renderMessageRow("読込エラー", "text-error"));
