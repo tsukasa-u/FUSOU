@@ -106,6 +106,26 @@ export async function verifySignedToken(
   }
 }
 
+/** Dataset Token Secret の有効性をチェック */
+export function validateDatasetTokenSecret(secret: string | undefined): {
+  ok: boolean;
+  error?: string;
+} {
+  if (!secret) {
+    return { ok: false, error: "DATASET_TOKEN_SECRET not configured" };
+  }
+
+  if (secret.length < 32) {
+    return {
+      ok: false,
+      error:
+        "DATASET_TOKEN_SECRET too short (minimum 32 characters recommended)",
+    };
+  }
+
+  return { ok: true };
+}
+
 /**
  * 環境変数を取得（暗号化対応）
  * @deprecated Use createEnvContext() + getEnv() instead
@@ -373,6 +393,7 @@ export async function validateJWT(token: string): Promise<{
     const { payload } = await jwtVerify(token, jwks, {
       issuer: `${SUPABASE_URL}/auth/v1`,
       audience: "authenticated",
+      clockTolerance: 30, // Allow 30 seconds of clock skew
     });
 
     return {
@@ -384,6 +405,69 @@ export async function validateJWT(token: string): Promise<{
     console.error("validateJWT: JWT verification failed:", error);
     return null;
   }
+}
+
+function isValidMemberIdHash(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
+export function extractMemberIdHashFromJwtPayload(
+  payload?: Record<string, any>,
+): string | null {
+  const candidates = [
+    payload?.member_id_hash,
+    payload?.user_metadata?.member_id_hash,
+    payload?.app_metadata?.member_id_hash,
+  ];
+
+  for (const candidate of candidates) {
+    if (isValidMemberIdHash(candidate)) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+export async function resolveLinkedMemberIdHashForUser(options: {
+  supabaseAdmin: any;
+  userId?: string;
+  jwtPayload?: Record<string, any>;
+}): Promise<{
+  memberIdHash: string | null;
+  source: "jwt_metadata" | "canonical_owner" | null;
+}> {
+  const { supabaseAdmin, userId, jwtPayload } = options;
+
+  const fromJwtMetadata = extractMemberIdHashFromJwtPayload(jwtPayload);
+  if (fromJwtMetadata) {
+    return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
+  }
+
+  if (!userId) {
+    return { memberIdHash: null, source: null };
+  }
+
+  // Anonymous-only mode: lookup member ID in canonical owner mapping only
+  const { data: canonicalMapping, error: canonicalMappingError } =
+    await supabaseAdmin
+      .from("user_member_map")
+      .select("member_id_hash")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+  if (canonicalMappingError) {
+    throw canonicalMappingError;
+  }
+
+  if (isValidMemberIdHash(canonicalMapping?.member_id_hash)) {
+    return {
+      memberIdHash: canonicalMapping.member_id_hash.trim(),
+      source: "canonical_owner",
+    };
+  }
+
+  return { memberIdHash: null, source: null };
 }
 
 /**
@@ -398,6 +482,7 @@ export async function validateDatasetToken(
   secret: string,
 ): Promise<{
   dataset_id: string;
+  user_id: string;
 } | null> {
   try {
     if (!secret) {
@@ -419,11 +504,82 @@ export async function validateDatasetToken(
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
       dataset_id: payload.dataset_id,
+      user_id: payload.sub,
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
     return null;
   }
+}
+
+export interface DatasetTokenValidationOptions {
+  token: string | null | undefined;
+  secret: string | undefined;
+  expectedDatasetId?: string;
+  expectedUserId?: string;
+}
+
+export interface DatasetTokenValidationResult {
+  ok: boolean;
+  status?: 400 | 401 | 403 | 500;
+  error?: string;
+  token?: {
+    dataset_id: string;
+    user_id: string;
+  };
+}
+
+export function resolveDatasetToken(
+  headerToken: string | null | undefined,
+  bodyToken: unknown,
+): string {
+  const header = typeof headerToken === "string" ? headerToken.trim() : "";
+  if (header) return header;
+  return typeof bodyToken === "string" ? bodyToken.trim() : "";
+}
+
+export async function validateDatasetTokenWithConstraints(
+  options: DatasetTokenValidationOptions,
+): Promise<DatasetTokenValidationResult> {
+  const { token, secret, expectedDatasetId, expectedUserId } = options;
+
+  if (!token) {
+    return { ok: false, status: 401, error: "dataset_token is required" };
+  }
+  if (!secret) {
+    return { ok: false, status: 500, error: "Server configuration error" };
+  }
+
+  const validated = await validateDatasetToken(token, secret);
+  if (!validated) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Invalid or expired dataset_token",
+    };
+  }
+
+  if (
+    typeof expectedDatasetId === "string" &&
+    expectedDatasetId.trim() &&
+    validated.dataset_id !== expectedDatasetId.trim()
+  ) {
+    return { ok: false, status: 403, error: "dataset_id does not match token" };
+  }
+
+  if (
+    typeof expectedUserId === "string" &&
+    expectedUserId.trim() &&
+    validated.user_id !== expectedUserId.trim()
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "dataset_token user does not match JWT user",
+    };
+  }
+
+  return { ok: true, token: validated };
 }
 
 /** 許可リストに違反するかチェック */

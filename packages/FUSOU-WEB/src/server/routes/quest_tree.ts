@@ -5,8 +5,9 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  resolveDatasetToken,
   timingSafeEqual,
-  validateDatasetToken,
+  validateDatasetTokenWithConstraints,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
@@ -23,9 +24,13 @@ const MIN_OBS_PAIR = 6;
 const MIN_CONF_SINGLE = 0.55;
 const MIN_CONF_PAIR = 0.65;
 
-const QUEST_TREE_COLLECTION_SWITCH_ENV = "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED";
+const QUEST_TREE_COLLECTION_SWITCH_ENV =
+  "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED";
 
-app.options("*", (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
+app.options(
+  "*",
+  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
+);
 
 type QuestListEntry = {
   quest_id: number;
@@ -68,7 +73,10 @@ async function putQuestTreeCache(
     }
   } catch (err) {
     if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[quest-tree] ExecutionContext unavailable for cache put", err);
+      console.warn(
+        "[quest-tree] ExecutionContext unavailable for cache put",
+        err,
+      );
     }
   }
   await putPromise;
@@ -92,16 +100,21 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${random}`;
 }
 
-function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
+function parseStrictBoolean(
+  value: string | undefined,
+  envKey: string,
+): boolean {
   const normalized = (value ?? "").trim().toLowerCase();
   if (normalized === "true" || normalized === "1") return true;
   if (normalized === "false" || normalized === "0") return false;
   throw new Error(
-    `${envKey} must be explicitly set to one of: true, false, 1, 0`
+    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
   );
 }
 
-function isQuestTreeCollectionEnabled(env: ReturnType<typeof createEnvContext>): boolean {
+function isQuestTreeCollectionEnabled(
+  env: ReturnType<typeof createEnvContext>,
+): boolean {
   const raw = getEnv(env, QUEST_TREE_COLLECTION_SWITCH_ENV);
   return parseStrictBoolean(raw, QUEST_TREE_COLLECTION_SWITCH_ENV);
 }
@@ -117,7 +130,10 @@ function parseJsonArray<T>(raw: unknown): T[] {
 }
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    data as unknown as BufferSource,
+  );
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -149,7 +165,10 @@ function validateIngestBody(body: IngestBody | null):
   if (!requestId) return { ok: false, error: "request_id is required" };
   if (!payloadHash) return { ok: false, error: "payload_hash is required" };
   if (!ALLOWED_EVENT_TYPES.has(eventType)) {
-    return { ok: false, error: "event_type must be one of: snapshot, start, stop, complete" };
+    return {
+      ok: false,
+      error: "event_type must be one of: snapshot, start, stop, complete",
+    };
   }
   if (!periodTag) return { ok: false, error: "period_tag is required" };
   if (!tableVersion) return { ok: false, error: "table_version is required" };
@@ -184,13 +203,16 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
 
   const existing = (await db
     .prepare(
-      `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`
+      `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`,
     )
     .bind(requestId, payloadHash)
     .first<D1Result>()) as { id?: number } | null;
 
   if (existing?.id) {
-    return { status: 200, body: { ok: true, idempotent: true, message: "already ingested" } };
+    return {
+      status: 200,
+      body: { ok: true, idempotent: true, message: "already ingested" },
+    };
   }
 
   const sameRequestDifferentPayload = (await db
@@ -198,7 +220,7 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
       `SELECT id, payload_hash
        FROM quest_ingest_events
        WHERE request_id = ?
-       LIMIT 1`
+       LIMIT 1`,
     )
     .bind(requestId)
     .first<D1Result>()) as { id?: number; payload_hash?: string } | null;
@@ -239,7 +261,8 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
       quests: (body.quests as QuestListEntry[] | undefined) ?? [],
     });
 
-    const shouldEnqueueTask = session.bootstrapCompleted || bootstrapNowCompleted;
+    const shouldEnqueueTask =
+      session.bootstrapCompleted || bootstrapNowCompleted;
     const taskId = shouldEnqueueTask
       ? await enqueueTask(db, datasetId, session.sessionId, atMs)
       : null;
@@ -297,11 +320,26 @@ async function upsertQuestMasterEntries(
 
       const masterHash = await sha256Hex(
         new TextEncoder().encode(
-          JSON.stringify({ questId, title, detail, questType, category, labelType }),
+          JSON.stringify({
+            questId,
+            title,
+            detail,
+            questType,
+            category,
+            labelType,
+          }),
         ),
       );
 
-      return { questId, title, detail, questType, category, labelType, masterHash };
+      return {
+        questId,
+        title,
+        detail,
+        questType,
+        category,
+        labelType,
+        masterHash,
+      };
     }),
   );
 
@@ -365,27 +403,29 @@ async function getOrCreateSession(
        FROM quest_collection_sessions
        WHERE dataset_id = ?
        ORDER BY started_at_ms DESC
-       LIMIT 1`
+       LIMIT 1`,
     )
     .bind(datasetId)
-    .first<D1Result>()) as
-    | {
-        collection_session_id?: string;
-        ended_at_ms?: number | null;
-        bootstrap_completed_at_ms?: number | null;
-      }
-    | null;
+    .first<D1Result>()) as {
+    collection_session_id?: string;
+    ended_at_ms?: number | null;
+    bootstrap_completed_at_ms?: number | null;
+  } | null;
 
   const latestSessionId = latest?.collection_session_id ?? null;
   const latestEndedAt = toInt(latest?.ended_at_ms) ?? null;
   const latestBootstrap = toInt(latest?.bootstrap_completed_at_ms) ?? null;
 
-  if (latestSessionId && latestEndedAt != null && atMs - latestEndedAt <= GAP_THRESHOLD_MS) {
+  if (
+    latestSessionId &&
+    latestEndedAt != null &&
+    atMs - latestEndedAt <= GAP_THRESHOLD_MS
+  ) {
     await db
       .prepare(
         `UPDATE quest_collection_sessions
          SET ended_at_ms = ?
-         WHERE collection_session_id = ?`
+         WHERE collection_session_id = ?`,
       )
       .bind(atMs, latestSessionId)
       .run();
@@ -408,9 +448,17 @@ async function getOrCreateSession(
          start_reason,
          has_data_gap,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .bind(sessionId, datasetId, atMs, atMs, latestSessionId ? "resume" : "bootstrap", latestSessionId ? 1 : 0, atMs)
+    .bind(
+      sessionId,
+      datasetId,
+      atMs,
+      atMs,
+      latestSessionId ? "resume" : "bootstrap",
+      latestSessionId ? 1 : 0,
+      atMs,
+    )
     .run();
 
   // INSERT OR IGNORE returns rows_written = 0 when UNIQUE(dataset_id, started_at_ms) fires,
@@ -418,28 +466,36 @@ async function getOrCreateSession(
   // Re-query to get the canonical (winning) session so both requests converge on the same row.
   const effectiveSessionId =
     (insertResult.meta?.rows_written ?? 1) === 0
-      ? (
+      ? ((
           (await db
             .prepare(
               `SELECT collection_session_id FROM quest_collection_sessions
-               WHERE dataset_id = ? AND started_at_ms = ?`
+               WHERE dataset_id = ? AND started_at_ms = ?`,
             )
             .bind(datasetId, atMs)
             .first<{ collection_session_id: string }>()) as {
             collection_session_id?: string;
           } | null
-        )?.collection_session_id ?? sessionId
+        )?.collection_session_id ?? sessionId)
       : sessionId;
 
-  return { sessionId: effectiveSessionId, isNew: true, bootstrapCompleted: false };
+  return {
+    sessionId: effectiveSessionId,
+    isNew: true,
+    bootstrapCompleted: false,
+  };
 }
 
-async function markBootstrapCompleted(db: D1Database, sessionId: string, atMs: number): Promise<void> {
+async function markBootstrapCompleted(
+  db: D1Database,
+  sessionId: string,
+  atMs: number,
+): Promise<void> {
   await db
     .prepare(
       `UPDATE quest_collection_sessions
        SET bootstrap_completed_at_ms = ?, ended_at_ms = ?
-       WHERE collection_session_id = ?`
+       WHERE collection_session_id = ?`,
     )
     .bind(atMs, atMs, sessionId)
     .run();
@@ -476,7 +532,7 @@ async function upsertQuestStateLatest(
     periodTag: string;
     tableVersion: string;
     isClaimed: number;
-  }
+  },
 ): Promise<void> {
   await db
     .prepare(
@@ -498,7 +554,7 @@ async function upsertQuestStateLatest(
          last_event_type = excluded.last_event_type,
          period_tag = excluded.period_tag,
          table_version = excluded.table_version,
-         is_claimed = excluded.is_claimed`
+         is_claimed = excluded.is_claimed`,
     )
     .bind(
       params.datasetId,
@@ -533,9 +589,17 @@ async function enqueueTask(
          retry_count,
          created_at,
          updated_at
-       ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
     )
-    .bind(taskId, datasetId, sessionId, Math.max(0, atMs - RECENT_WINDOW_MS), atMs + 1, atMs, atMs)
+    .bind(
+      taskId,
+      datasetId,
+      sessionId,
+      Math.max(0, atMs - RECENT_WINDOW_MS),
+      atMs + 1,
+      atMs,
+      atMs,
+    )
     .run();
   return taskId;
 }
@@ -574,7 +638,7 @@ async function processIngestEvents(
          table_version,
          status,
          created_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ingested', ?)`,
     )
     .bind(
       params.requestId,
@@ -593,26 +657,38 @@ async function processIngestEvents(
 
   if (params.eventType === "snapshot") {
     const quests = Array.isArray(params.quests) ? params.quests : [];
-    await upsertQuestMasterEntries(db, params.periodTag, params.tableVersion, quests);
+    await upsertQuestMasterEntries(
+      db,
+      params.periodTag,
+      params.tableVersion,
+      quests,
+    );
     const visibleQuestIds = toVisibleQuestIds(quests);
 
-    const previousSnapshots = ((await db
-      .prepare(
-        `SELECT page_no, visible_quest_ids_json
+    const previousSnapshots = ((
+      await db
+        .prepare(
+          `SELECT page_no, visible_quest_ids_json
          FROM questlist_snapshots
          WHERE dataset_id = ?
            AND collection_session_id = ?
-         ORDER BY captured_at_ms DESC`
-      )
-      .bind(params.datasetId, params.sessionId)
-      .all<{ page_no: number; visible_quest_ids_json?: string }>())
-      .results ?? []) as Array<{ page_no: number; visible_quest_ids_json?: string }>;
+         ORDER BY captured_at_ms DESC`,
+        )
+        .bind(params.datasetId, params.sessionId)
+        .all<{ page_no: number; visible_quest_ids_json?: string }>()
+    ).results ?? []) as Array<{
+      page_no: number;
+      visible_quest_ids_json?: string;
+    }>;
 
     const latestByPage = new Map<number, number[]>();
     for (const snap of previousSnapshots) {
       const page = toInt(snap.page_no);
       if (page == null || latestByPage.has(page)) continue;
-      latestByPage.set(page, parseJsonArray<number>(snap.visible_quest_ids_json));
+      latestByPage.set(
+        page,
+        parseJsonArray<number>(snap.visible_quest_ids_json),
+      );
     }
 
     const previousGlobalVisible = new Set<number>();
@@ -635,7 +711,7 @@ async function processIngestEvents(
            period_tag,
            table_version,
            created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         params.datasetId,
@@ -672,7 +748,7 @@ async function processIngestEvents(
                  table_version,
                  is_bootstrap_unknown,
                  created_at
-               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`
+               ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 0, ?)`,
             )
             .bind(
               params.datasetId,
@@ -683,7 +759,7 @@ async function processIngestEvents(
               params.periodTag,
               params.tableVersion,
               appearanceMs,
-            )
+            ),
         );
         // D1 batch limit: 100 statements per call
         for (let i = 0; i < appearStmts.length; i += 100) {
@@ -716,7 +792,7 @@ async function processIngestEvents(
              table_version,
              payload_hash,
              created_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           params.datasetId,
@@ -750,7 +826,7 @@ async function processIngestEvents(
              last_event_type = excluded.last_event_type,
              period_tag = excluded.period_tag,
              table_version = excluded.table_version,
-             is_claimed = excluded.is_claimed`
+             is_claimed = excluded.is_claimed`,
         )
         .bind(
           params.datasetId,
@@ -805,39 +881,41 @@ app.post("/ingest", async (c) => {
       ? authHeader.slice(7).trim()
       : null;
     if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-
     const user = await validateJWT(bearer);
-    if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
+    if (!user?.id)
+      return c.json({ error: "Invalid or expired JWT token" }, 401);
 
-    const handshakeBody = (await c.req.json().catch(() => null)) as (IngestBody & {
-      content_hash?: string;
-      file_size?: number | string;
-    }) | null;
+    const handshakeBody = (await c.req.json().catch(() => null)) as
+      | (IngestBody & {
+          content_hash?: string;
+          file_size?: number | string;
+        })
+      | null;
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
 
     // Require dataset_token to prove ownership of dataset_id
-    const datasetTokenHeader = c.req.header("X-Dataset-Token");
-    const datasetTokenBody =
-      typeof (handshakeBody as Record<string, unknown>)?.dataset_token === "string"
-        ? ((handshakeBody as Record<string, unknown>).dataset_token as string).trim()
-        : "";
-    const datasetToken = datasetTokenHeader || datasetTokenBody;
-    if (!datasetToken) {
-      console.warn("[quest-tree] Upload rejected: dataset_token is required");
-      return c.json({ error: "dataset_token is required" }, 401);
-    }
+    const datasetToken = resolveDatasetToken(
+      c.req.header("X-Dataset-Token"),
+      (handshakeBody as Record<string, unknown>)?.dataset_token,
+    );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-    if (!datasetTokenSecret) {
-      console.error("[quest-tree] DATASET_TOKEN_SECRET not configured");
-      return c.json({ error: "Server configuration error" }, 500);
+    const tokenValidation = await validateDatasetTokenWithConstraints({
+      token: datasetToken,
+      secret: datasetTokenSecret,
+      expectedDatasetId: validated.datasetId,
+      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
+      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+    });
+    if (!tokenValidation.ok) {
+      return c.json(
+        { error: tokenValidation.error },
+        tokenValidation.status ?? 401,
+      );
     }
-    const validatedDatasetToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
-    if (!validatedDatasetToken || validatedDatasetToken.dataset_id !== validated.datasetId) {
-      console.warn("[quest-tree] Invalid or expired dataset_token");
-      return c.json({ error: "Invalid or expired dataset_token" }, 401);
-    }
+    // dataset_token.sub を actingUserId として使う（全端末で一貫した帰属者）
+    const actingUserId = tokenValidation.token!.user_id;
 
     const contentHash = (handshakeBody?.content_hash ?? "").toString().trim();
     if (!contentHash) {
@@ -851,7 +929,7 @@ app.post("/ingest", async (c) => {
 
     const token = await generateSignedToken(
       {
-        user_id: user.id,
+        user_id: actingUserId,
         content_hash: contentHash,
         declared_size: declaredSize,
         dataset_id: validated.datasetId,
@@ -875,12 +953,12 @@ app.post("/ingest", async (c) => {
     ? authHeader.slice(7).trim()
     : null;
   if (!bearer) return c.json({ error: "Unauthorized" }, 401);
-
   const user = await validateJWT(bearer);
   if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
 
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload) return c.json({ error: "Invalid or expired upload token" }, 401);
+  if (!tokenPayload)
+    return c.json({ error: "Invalid or expired upload token" }, 401);
 
   const payloadValidation = validateTokenPayload(tokenPayload, [
     "content_hash",
@@ -890,11 +968,13 @@ app.post("/ingest", async (c) => {
     "event_type",
   ]);
   if (!payloadValidation.valid) {
-    return c.json({ error: payloadValidation.error ?? "Invalid upload token payload" }, 400);
+    return c.json(
+      { error: payloadValidation.error ?? "Invalid upload token payload" },
+      400,
+    );
   }
-  if (tokenPayload.user_id !== user.id) {
-    return c.json({ error: "User mismatch - token generated for different user" }, 403);
-  }
+  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
+  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
   const bodyStream = c.req.raw.body;
   if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
@@ -941,7 +1021,10 @@ app.post("/ingest", async (c) => {
     verified.requestId !== String(tokenPayload.request_id) ||
     verified.eventType !== String(tokenPayload.event_type)
   ) {
-    return c.json({ error: "Upload payload does not match upload token claims" }, 400);
+    return c.json(
+      { error: "Upload payload does not match upload token claims" },
+      400,
+    );
   }
 
   const result = await ingestQuestBody(db, body);
@@ -963,7 +1046,8 @@ app.get("/rules", async (c) => {
     return c.json({ error: "target query is required" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -974,22 +1058,33 @@ app.get("/rules", async (c) => {
     }
   }
 
-  const rules = ((await db
-    .prepare(
-      `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+  const rules =
+    (
+      await db
+        .prepare(
+          `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
        FROM quest_rule_edges
        WHERE target_quest_id = ?
          AND period_tag = ?
          AND table_version = ?
          AND (? = 1 OR quality_tier != 'low')
-       ORDER BY is_primary DESC, score DESC`
-    )
-    .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-    .all())
-    .results ?? []);
+       ORDER BY is_primary DESC, score DESC`,
+        )
+        .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+        .all()
+    ).results ?? [];
 
-  const response = c.json({ ok: true, target, period_tag: periodTag, table_version: tableVersion, rules });
-  response.headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  const response = c.json({
+    ok: true,
+    target,
+    period_tag: periodTag,
+    table_version: tableVersion,
+    rules,
+  });
+  response.headers.set(
+    "Cache-Control",
+    "public, max-age=3600, stale-while-revalidate=86400",
+  );
   response.headers.set("X-FUSOU-Cache", "MISS");
   if (cache) {
     await putQuestTreeCache(c, cache, cacheKey, response);
@@ -1004,7 +1099,8 @@ app.get("/graph", async (c) => {
   const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
   const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -1015,27 +1111,33 @@ app.get("/graph", async (c) => {
     }
   }
 
-  const edges = ((await db
-    .prepare(
-      `SELECT target_quest_id, prereq_set_json, score, is_primary, class
+  const edges = ((
+    await db
+      .prepare(
+        `SELECT target_quest_id, prereq_set_json, score, is_primary, class
        FROM quest_rule_edges
        WHERE period_tag = ?
          AND table_version = ?
          AND is_primary = 1
-       ORDER BY score DESC`
-    )
-    .bind(periodTag, tableVersion)
-    .all())
-    .results ?? []) as Array<{
-      target_quest_id: number;
-      prereq_set_json: string;
-      score: number;
-      is_primary: number;
-      class: string;
-    }>;
+       ORDER BY score DESC`,
+      )
+      .bind(periodTag, tableVersion)
+      .all()
+  ).results ?? []) as Array<{
+    target_quest_id: number;
+    prereq_set_json: string;
+    score: number;
+    is_primary: number;
+    class: string;
+  }>;
 
   const nodes = new Set<number>();
-  const graphEdges: Array<{ from: number; to: number; score: number; class: string }> = [];
+  const graphEdges: Array<{
+    from: number;
+    to: number;
+    score: number;
+    class: string;
+  }> = [];
 
   for (const row of edges) {
     const target = toInt(row.target_quest_id);
@@ -1047,7 +1149,12 @@ app.get("/graph", async (c) => {
     nodes.add(target);
     for (const from of prereqs) {
       nodes.add(from);
-      graphEdges.push({ from, to: target, score: Number(row.score ?? 0), class: row.class });
+      graphEdges.push({
+        from,
+        to: target,
+        score: Number(row.score ?? 0),
+        class: row.class,
+      });
     }
   }
 
@@ -1058,7 +1165,10 @@ app.get("/graph", async (c) => {
     nodes: [...nodes].sort((a, b) => a - b),
     edges: graphEdges,
   });
-  response.headers.set("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400");
+  response.headers.set(
+    "Cache-Control",
+    "public, max-age=3600, stale-while-revalidate=86400",
+  );
   response.headers.set("X-FUSOU-Cache", "MISS");
   if (cache) {
     await putQuestTreeCache(c, cache, cacheKey, response);
@@ -1079,52 +1189,62 @@ app.get("/changes", async (c) => {
 
   // Require dataset_token to prove ownership of dataset_id
   const env = createEnvContext(c);
-  const datasetTokenHeader = c.req.header("X-Dataset-Token");
-  const datasetTokenQuery = (c.req.query("dataset_token") ?? "").trim();
-  const datasetToken = datasetTokenHeader || datasetTokenQuery;
-  if (!datasetToken) {
-    return c.json({ error: "dataset_token is required" }, 401);
-  }
+  const datasetToken = resolveDatasetToken(
+    c.req.header("X-Dataset-Token"),
+    c.req.query("dataset_token"),
+  );
   const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-  if (!datasetTokenSecret) {
-    console.error("[quest-tree] DATASET_TOKEN_SECRET not configured");
-    return c.json({ error: "Server configuration error" }, 500);
-  }
-  const validatedDatasetToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
-  if (!validatedDatasetToken || validatedDatasetToken.dataset_id !== datasetId) {
-    return c.json({ error: "Invalid or expired dataset_token" }, 401);
+  const tokenValidation = await validateDatasetTokenWithConstraints({
+    token: datasetToken,
+    secret: datasetTokenSecret,
+    expectedDatasetId: datasetId,
+  });
+  if (!tokenValidation.ok) {
+    return c.json(
+      { error: tokenValidation.error },
+      tokenValidation.status ?? 401,
+    );
   }
 
-  const appearances = ((await db
-    .prepare(
-      `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
+  const appearances = ((
+    await db
+      .prepare(
+        `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
        FROM quest_appearance_events
        WHERE dataset_id = ? AND appeared_at_ms >= ?
        ORDER BY appeared_at_ms ASC
-       LIMIT 500`
-    )
-    .bind(datasetId, since)
-    .all())
-    .results ?? []) as Array<{
-      target_quest_id: number;
-      appeared_at_ms: number;
-      collection_session_id: string;
-      is_bootstrap_unknown: number;
-    }>;
+       LIMIT 500`,
+      )
+      .bind(datasetId, since)
+      .all()
+  ).results ?? []) as Array<{
+    target_quest_id: number;
+    appeared_at_ms: number;
+    collection_session_id: string;
+    is_bootstrap_unknown: number;
+  }>;
 
-  const states = ((await db
-    .prepare(
-      `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
+  const states =
+    (
+      await db
+        .prepare(
+          `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
        FROM quest_state_events
        WHERE dataset_id = ? AND timestamp_ms >= ?
        ORDER BY timestamp_ms ASC
-       LIMIT 500`
-    )
-    .bind(datasetId, since)
-    .all())
-    .results ?? []);
+       LIMIT 500`,
+        )
+        .bind(datasetId, since)
+        .all()
+    ).results ?? [];
 
-  return c.json({ ok: true, dataset_id: datasetId, since, appearances, states });
+  return c.json({
+    ok: true,
+    dataset_id: datasetId,
+    since,
+    appearances,
+    states,
+  });
 });
 
 export default app;

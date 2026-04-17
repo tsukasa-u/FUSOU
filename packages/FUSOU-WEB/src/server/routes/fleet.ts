@@ -6,9 +6,10 @@ import {
   createEnvContext,
   getEnv,
   extractBearer,
+  resolveLinkedMemberIdHashForUser,
   validateJWT,
   resolveSupabaseConfig,
-  validateDatasetToken,
+  validateDatasetTokenWithConstraints,
   timingSafeEqual,
 } from "../utils";
 import {
@@ -22,7 +23,7 @@ import { handleTwoStageUpload } from "../utils/upload";
 /**
  * 認証情報から dataset_id (member_id_hash) を解決する。
  * 優先順位:
- *   1. Authorization: Bearer <supabase_jwt> → user_member_map 参照
+ *   1. Authorization: Bearer <supabase_jwt> → JWT metadata / legacy canonical user_member_map
  *   2. X-Dataset-Token → JWT ペイロードの dataset_id
  *
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
@@ -35,7 +36,7 @@ async function resolveDatasetId(
 > {
   const env = createEnvContext(c);
 
-  // 1. Bearer JWT → user_member_map
+  // 1. Bearer JWT → JWT metadata / legacy canonical owner map (anonymous-only mode)
   const authHeader = c.req.header("Authorization");
   const accessToken = extractBearer(authHeader);
   if (accessToken) {
@@ -49,10 +50,6 @@ async function resolveDatasetId(
       };
     }
 
-    console.log(
-      `[fleet] Resolving dataset_id for user: id=${user.id}, email=${user.email ?? "n/a"}`,
-    );
-
     const envCtx = createEnvContext(c);
     const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
     if (!url || !serviceRoleKey) {
@@ -62,35 +59,24 @@ async function resolveDatasetId(
       return { ok: false, error: "Server misconfiguration", status: 500 };
     }
 
-    // Match the exact createClient pattern used by user.ts (no extra auth options)
     const supabaseAdmin = createClient(url, serviceRoleKey);
 
     try {
-      const { data: mapping, error } = await supabaseAdmin
-        .from("user_member_map")
-        .select("member_id_hash, user_id, created_at")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const resolvedMember = await resolveLinkedMemberIdHashForUser({
+        supabaseAdmin,
+        userId: user.id,
+        jwtPayload: user.payload,
+      });
 
-      if (error) {
-        console.error("[fleet] user_member_map lookup error:", {
-          user_id: user.id,
-          error: error.message,
-          code: error.code,
-          details: error.details,
-        });
-        return { ok: false, error: "Failed to resolve dataset", status: 500 };
-      }
-
-      console.log("[fleet] user_member_map lookup result:", {
+      console.log("[fleet] dataset resolution result:", {
         user_id: user.id,
-        found: !!mapping,
-        member_id_hash: mapping?.member_id_hash
-          ? `${mapping.member_id_hash.slice(0, 8)}...`
+        source: resolvedMember.source,
+        member_id_hash: resolvedMember.memberIdHash
+          ? `${resolvedMember.memberIdHash.slice(0, 8)}...`
           : null,
       });
 
-      if (!mapping?.member_id_hash) {
+      if (!resolvedMember.memberIdHash) {
         return {
           ok: false,
           error:
@@ -99,9 +85,9 @@ async function resolveDatasetId(
         };
       }
 
-      return { ok: true, datasetId: mapping.member_id_hash };
+      return { ok: true, datasetId: resolvedMember.memberIdHash };
     } catch (err) {
-      console.error("[fleet] Unexpected error in user_member_map query:", err);
+      console.error("[fleet] Unexpected error while resolving dataset:", err);
       return { ok: false, error: "Failed to resolve dataset", status: 500 };
     }
   }
@@ -109,23 +95,21 @@ async function resolveDatasetId(
   // 2. X-Dataset-Token → dataset_id from JWT payload
   const datasetTokenHeader = c.req.header("X-Dataset-Token");
   if (datasetTokenHeader) {
-    const secret = getEnv(env, "DATASET_TOKEN_SECRET");
-    if (!secret) {
-      console.error("[fleet] DATASET_TOKEN_SECRET not configured");
-      return { ok: false, error: "Server misconfiguration", status: 500 };
-    }
-    const validated = await validateDatasetToken(datasetTokenHeader, secret);
-    if (!validated) {
+    const tokenValidation = await validateDatasetTokenWithConstraints({
+      token: datasetTokenHeader,
+      secret: getEnv(env, "DATASET_TOKEN_SECRET"),
+    });
+    if (!tokenValidation.ok || !tokenValidation.token) {
       return {
         ok: false,
-        error: "Invalid or expired dataset_token",
-        status: 401,
+        error: tokenValidation.error ?? "Invalid or expired dataset_token",
+        status: tokenValidation.status ?? 401,
       };
     }
     console.log(
-      `[fleet] dataset_id resolved from X-Dataset-Token: ${validated.dataset_id.slice(0, 8)}...`,
+      `[fleet] dataset_id resolved from X-Dataset-Token: ${tokenValidation.token.dataset_id.slice(0, 8)}...`,
     );
-    return { ok: true, datasetId: validated.dataset_id };
+    return { ok: true, datasetId: tokenValidation.token.dataset_id };
   }
 
   return {
@@ -156,49 +140,20 @@ app.post("/snapshot", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
-    preparationValidator: async (body, _userId) => {
-      // dataset_token is required to bind the upload to a specific dataset_id.
-      // Without it any authenticated user could write snapshots under arbitrary dataset_ids.
-      const datasetTokenHeader = c.req.header("X-Dataset-Token");
-      const datasetTokenBody =
-        typeof body?.dataset_token === "string"
-          ? body.dataset_token.trim()
-          : "";
-      const datasetToken = datasetTokenHeader || datasetTokenBody;
-
-      if (!datasetToken) {
-        return c.json({ error: "dataset_token is required" }, 401);
-      }
-
-      const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-      if (!datasetTokenSecret) {
-        console.error("[fleet-snapshot] DATASET_TOKEN_SECRET not configured");
-        return c.json({ error: "Server configuration error" }, 500);
-      }
-
-      const validatedToken = await validateDatasetToken(
-        datasetToken,
-        datasetTokenSecret,
-      );
-      if (!validatedToken) {
-        console.warn("[fleet-snapshot] Invalid or expired dataset_token");
-        return c.json({ error: "Invalid or expired dataset_token" }, 401);
-      }
-
-      // Verify dataset_id matches token
+    preparationValidator: async (body, _user, authContext) => {
+      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const datasetIdFromToken =
+        authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
         typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-      if (requestedDatasetId !== validatedToken.dataset_id) {
+      if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
       }
 
-      console.log(`[fleet-snapshot] dataset_token validated successfully`);
-
-      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
-      const datasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      const datasetId = datasetIdFromToken || requestedDatasetId;
       const contentHash =
         typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
 
@@ -207,7 +162,7 @@ app.post("/snapshot", async (c) => {
       }
 
       if (!datasetId) {
-        return c.json({ error: "dataset_id is required" }, 400);
+        return c.json({ error: "dataset_id could not be resolved" }, 401);
       }
 
       // Sanitize tag to a URL-safe slug (lowercase, hyphens)

@@ -1,10 +1,13 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
+import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import {
-  CORS_HEADERS,
-  MAX_UPLOAD_BYTES,
-} from "../constants";
-import { createEnvContext, getEnv, validateJWT, extractBearer, timingSafeEqual } from "../utils";
+  createEnvContext,
+  getEnv,
+  validateJWT,
+  extractBearer,
+  timingSafeEqual,
+} from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -108,6 +111,7 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    requireDatasetToken: true,
     tokenTTL: 300, // 5 minutes is enough for ~240kB (no dynamic TTL needed)
     maxBodySize: MAX_UPLOAD_BYTES,
 
@@ -166,7 +170,10 @@ app.post("/upload", async (c) => {
       if (!tableVersion) {
         return c.json({ error: "table_version is required" }, 400);
       }
-      if (tableVersion.length > 32 || !isValidMasterTableVersion(tableVersion)) {
+      if (
+        tableVersion.length > 32 ||
+        !isValidMasterTableVersion(tableVersion)
+      ) {
         return c.json(
           {
             error:
@@ -182,8 +189,7 @@ app.post("/upload", async (c) => {
       ) {
         return c.json(
           {
-            error:
-              "table_version cannot start with . or / or contain ..",
+            error: "table_version cannot start with . or / or contain ..",
           },
           400,
         );
@@ -380,7 +386,8 @@ app.post("/upload", async (c) => {
           );
           return c.json(
             {
-              error: "Master data with the same content has already been uploaded",
+              error:
+                "Master data with the same content has already been uploaded",
               period_tag: periodTag,
               table_version: tableVersion,
               period_revision: sameHashRecord.period_revision ?? null,
@@ -414,7 +421,14 @@ app.post("/upload", async (c) => {
 
           const now = Date.now();
           const inserted = (await insertStmt
-            .bind(periodTag, tableVersion, nextRevision, contentHash, user.id, now)
+            .bind(
+              periodTag,
+              tableVersion,
+              nextRevision,
+              contentHash,
+              user.id,
+              now,
+            )
             .first()) as { id?: number; period_revision?: number } | null;
 
           if (inserted?.id) {
@@ -432,10 +446,14 @@ app.post("/upload", async (c) => {
             period_revision?: number;
             upload_status?: string;
           } | null;
-          if (conflictSameHash && conflictSameHash.upload_status === "completed") {
+          if (
+            conflictSameHash &&
+            conflictSameHash.upload_status === "completed"
+          ) {
             return c.json(
               {
-                error: "Master data with the same content has already been uploaded",
+                error:
+                  "Master data with the same content has already been uploaded",
                 period_tag: periodTag,
                 table_version: tableVersion,
                 period_revision: conflictSameHash.period_revision ?? null,
@@ -568,7 +586,10 @@ app.post("/upload", async (c) => {
 
         // [Bug Fix #15] Hash comparison must be case-insensitive
         if (
-          !timingSafeEqual(actualContentHash.toLowerCase(), expectedContentHash.toLowerCase())
+          !timingSafeEqual(
+            actualContentHash.toLowerCase(),
+            expectedContentHash.toLowerCase(),
+          )
         ) {
           console.warn(
             `[master-data] Content hash mismatch for id=${recordId}: expected ${expectedContentHash}, got ${actualContentHash}`,
@@ -785,7 +806,13 @@ app.post("/upload", async (c) => {
                     completed_at = ?
                 WHERE id = ?`,
               )
-              .bind(JSON.stringify(r2Keys), tableOffsetsStr, tableOffsets.length, now, recordId),
+              .bind(
+                JSON.stringify(r2Keys),
+                tableOffsetsStr,
+                tableOffsets.length,
+                now,
+                recordId,
+              ),
           );
 
           await db.batch(batchStmts);
@@ -974,7 +1001,12 @@ app.get("/json", async (c) => {
       );
     }
 
-    const { period_tag, table_version, period_revision, r2_key: r2Key } = record;
+    const {
+      period_tag,
+      table_version,
+      period_revision,
+      r2_key: r2Key,
+    } = record;
 
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);
@@ -996,24 +1028,33 @@ app.get("/json", async (c) => {
     // Guard against excessively large objects before pulling into memory
     const MAX_AVRO_BYTES = 50 * 1024 * 1024; // 50 MB
     if (r2Object.size > MAX_AVRO_BYTES) {
-      console.error(`[master-data] ${tableName} object too large: ${r2Object.size} bytes`);
-      return c.json({ error: "Master data object exceeds maximum size limit" }, 503);
+      console.error(
+        `[master-data] ${tableName} object too large: ${r2Object.size} bytes`,
+      );
+      return c.json(
+        { error: "Master data object exceeds maximum size limit" },
+        503,
+      );
     }
 
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
-    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
-    const records = requestedRecordId == null
-      ? decodedRecords
-      : decodedRecords.filter((row) => {
-        const rowId = typeof row.id === "number"
-          ? row.id
-          : typeof row.api_id === "number"
-            ? row.api_id
-            : null;
-        return rowId === requestedRecordId;
-      });
+    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
+      Record<string, unknown>
+    >;
+    const records =
+      requestedRecordId == null
+        ? decodedRecords
+        : decodedRecords.filter((row) => {
+            const rowId =
+              typeof row.id === "number"
+                ? row.id
+                : typeof row.api_id === "number"
+                  ? row.api_id
+                  : null;
+            return rowId === requestedRecordId;
+          });
 
     // When an explicit version is requested the data is immutable — cache aggressively.
     // When serving the latest version the key changes after each upload, so use a short
@@ -1288,7 +1329,10 @@ app.get("/download", async (c) => {
     if (periodRevisionParam) {
       const parsedRevision = Number(periodRevisionParam);
       if (!Number.isInteger(parsedRevision) || parsedRevision < 1) {
-        return c.json({ error: "period_revision must be a positive integer" }, 400);
+        return c.json(
+          { error: "period_revision must be a positive integer" },
+          400,
+        );
       }
       sql += " AND i.period_revision = ?";
       params.push(parsedRevision);

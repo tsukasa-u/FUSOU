@@ -14,7 +14,6 @@ import {
 import {
   extractBearer,
   validateJWT,
-  validateDatasetToken,
   resolveAllowedExtensions,
   sanitizeKey,
   sanitizeFileName,
@@ -59,32 +58,12 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    requireDatasetToken: true,
     tokenTTL: SIGNED_URL_TTL_SECONDS,
     maxBodySize: MAX_UPLOAD_BYTES,
 
     // Preparation validation - check extension, size, hash, uniqueness
     preparationValidator: async (body, _user) => {
-      // Validate dataset_token if provided
-      const datasetTokenHeader = c.req.header('X-Dataset-Token');
-      const datasetTokenBody = typeof body?.dataset_token === 'string' ? body.dataset_token.trim() : '';
-      const datasetToken = datasetTokenHeader || datasetTokenBody;
-
-      if (datasetToken) {
-        const datasetTokenSecret = getEnv(envCtx, 'DATASET_TOKEN_SECRET');
-        if (!datasetTokenSecret) {
-          console.error('[asset-sync] DATASET_TOKEN_SECRET not configured');
-          return c.json({ error: 'Server configuration error' }, 500);
-        }
-
-        const validatedToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
-        if (!validatedToken) {
-          console.warn('[asset-sync] Invalid or expired dataset_token');
-          return c.json({ error: 'Invalid or expired dataset_token' }, 401);
-        }
-
-        console.log(`[asset-sync] dataset_token validated successfully`);
-      }
-
       const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
       if (!key) {
         return c.json({ error: "Invalid or empty key" }, 400);
@@ -100,11 +79,16 @@ app.post("/upload", async (c) => {
       const declaredSize = parseSize(
         typeof body.file_size === "string" ? body.file_size : undefined,
       );
-      if (!declaredSize || declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
+      if (
+        !declaredSize ||
+        declaredSize <= 0 ||
+        declaredSize > MAX_UPLOAD_BYTES
+      ) {
         return c.json({ error: "Invalid file size" }, 400);
       }
 
-      const contentHash = typeof body.content_hash === "string" ? body.content_hash.trim() : "";
+      const contentHash =
+        typeof body.content_hash === "string" ? body.content_hash.trim() : "";
       if (!contentHash) {
         return c.json({ error: "content_hash (SHA-256) is required" }, 400);
       }
@@ -115,28 +99,39 @@ app.post("/upload", async (c) => {
       const candidateNames = [fileName, key, relativePath];
 
       if (violatesAllowList(candidateNames, allowedExtensions)) {
-        return c.json({ error: "This file type is not allowed for upload" }, 415);
+        return c.json(
+          { error: "This file type is not allowed for upload" },
+          415,
+        );
       }
 
       // Check if file exists and compare content_hash for updates
       try {
         const existingStmt = db.prepare(
-          "SELECT content_hash FROM files WHERE key = ? LIMIT 1"
+          "SELECT content_hash FROM files WHERE key = ? LIMIT 1",
         );
         const existingRes = await existingStmt.bind(key).first();
-        
+
         if (existingRes) {
           const existingHash = existingRes.content_hash as string | null;
           if (existingHash === contentHash) {
             // Content unchanged - return 409 Conflict
-            return c.json({ error: "Asset already exists and content has not changed" }, 409);
+            return c.json(
+              { error: "Asset already exists and content has not changed" },
+              409,
+            );
           }
           // Content updated - allow re-upload
-          console.info(`Asset ${key} content updated, proceeding with re-upload`);
+          console.info(
+            `Asset ${key} content updated, proceeding with re-upload`,
+          );
         }
       } catch (err) {
         // If query fails, continue with upload (table may not have content_hash column yet)
-        console.warn("[asset-sync] Could not check existing content_hash:", String(err));
+        console.warn(
+          "[asset-sync] Could not check existing content_hash:",
+          String(err),
+        );
       }
 
       return {
@@ -166,18 +161,33 @@ app.post("/upload", async (c) => {
       }
 
       // Verify content_hash of uploaded data against the hash committed in Stage 1.
-      const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+      const expectedHash = String(
+        tokenPayload.content_hash ?? "",
+      ).toLowerCase();
       if (!expectedHash) {
-        return c.json({ error: "Invalid token payload (missing content_hash)" }, 400);
+        return c.json(
+          { error: "Invalid token payload (missing content_hash)" },
+          400,
+        );
       }
-      const actualHashBuf = await crypto.subtle.digest("SHA-256", data as unknown as BufferSource);
+      const actualHashBuf = await crypto.subtle.digest(
+        "SHA-256",
+        data as unknown as BufferSource,
+      );
       const actualHash = Array.from(new Uint8Array(actualHashBuf))
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("")
         .toLowerCase();
       if (!timingSafeEqual(actualHash, expectedHash)) {
-        console.warn("[asset-sync] Content hash mismatch", { key, expected: expectedHash, actual: actualHash });
-        return c.json({ error: "Content hash mismatch - data may be corrupted" }, 400);
+        console.warn("[asset-sync] Content hash mismatch", {
+          key,
+          expected: expectedHash,
+          actual: actualHash,
+        });
+        return c.json(
+          { error: "Content hash mismatch - data may be corrupted" },
+          400,
+        );
       }
 
       const result = await bucket.put(key, data, {
@@ -298,8 +308,7 @@ app.get("/keys", async (c) => {
           contentHash:
             typeof r.content_hash === "string" ? r.content_hash : null,
           size: typeof r.size === "number" ? r.size : 0,
-          uploadedAt:
-            typeof r.uploaded_at === "number" ? r.uploaded_at : null,
+          uploadedAt: typeof r.uploaded_at === "number" ? r.uploaded_at : null,
         });
       }
 
@@ -311,7 +320,9 @@ app.get("/keys", async (c) => {
     const refreshedAt = Date.now();
     const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
 
-    console.log(`GET /keys: returning ${items.length} items (incremental=${!!sinceMs})`);
+    console.log(
+      `GET /keys: returning ${items.length} items (incremental=${!!sinceMs})`,
+    );
 
     return c.json({
       keys,
@@ -320,7 +331,7 @@ app.get("/keys", async (c) => {
       refreshedAt: new Date(refreshedAt).toISOString(),
       cacheExpiresAt: new Date(expiresAt).toISOString(),
       cached: false,
-      incremental: !!sinceMs,  // Indicates whether this is a partial or full sync
+      incremental: !!sinceMs, // Indicates whether this is a partial or full sync
     });
   } catch (e) {
     console.error("GET /keys: error", e);
@@ -355,7 +366,7 @@ app.get("/check-hash", async (c) => {
 
   try {
     const stmt = db.prepare(
-      "SELECT key, size, uploaded_at FROM files WHERE content_hash = ? LIMIT 1"
+      "SELECT key, size, uploaded_at FROM files WHERE content_hash = ? LIMIT 1",
     );
     const result = await stmt.bind(contentHash).first();
 
@@ -407,7 +418,9 @@ app.get("/ship-banner-map", async (c) => {
     if (db) {
       try {
         const rows = await db
-          .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/banner/%'")
+          .prepare(
+            "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/banner/%'",
+          )
           .all();
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
@@ -419,7 +432,10 @@ app.get("/ship-banner-map", async (c) => {
           }
         }
       } catch (d1Err) {
-        console.warn("[ship-banner-map] D1 query failed, using R2 fallback:", d1Err);
+        console.warn(
+          "[ship-banner-map] D1 query failed, using R2 fallback:",
+          d1Err,
+        );
       }
     }
 
@@ -442,14 +458,10 @@ app.get("/ship-banner-map", async (c) => {
       ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
-    return c.json(
-      { base_url: assetBaseUrl, banners },
-      200,
-      {
-        "Cache-Control": cacheControl,
-        ...CORS_HEADERS,
-      },
-    );
+    return c.json({ base_url: assetBaseUrl, banners }, 200, {
+      "Cache-Control": cacheControl,
+      ...CORS_HEADERS,
+    });
   } catch (err) {
     console.error("[asset-sync] ship-banner-map error:", err);
     return c.json({ error: "Failed to build banner map" }, 500);
@@ -478,7 +490,9 @@ app.get("/ship-card-map", async (c) => {
     if (db) {
       try {
         const rows = await db
-          .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/card/%'")
+          .prepare(
+            "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/card/%'",
+          )
           .all();
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
@@ -513,11 +527,10 @@ app.get("/ship-card-map", async (c) => {
       ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
-    return c.json(
-      { base_url: assetBaseUrl, cards },
-      200,
-      { "Cache-Control": cacheControl, ...CORS_HEADERS },
-    );
+    return c.json({ base_url: assetBaseUrl, cards }, 200, {
+      "Cache-Control": cacheControl,
+      ...CORS_HEADERS,
+    });
   } catch (err) {
     console.error("[asset-sync] ship-card-map error:", err);
     return c.json({ error: "Failed to build card map" }, 500);
@@ -546,7 +559,9 @@ app.get("/ship-icon-map", async (c) => {
     if (db) {
       try {
         const rows = await db
-          .prepare("SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/reward_icon/%'")
+          .prepare(
+            "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/ship/reward_icon/%'",
+          )
           .all();
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
@@ -580,11 +595,10 @@ app.get("/ship-icon-map", async (c) => {
       ? "public, max-age=600, stale-while-revalidate=3600"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
-    return c.json(
-      { base_url: assetBaseUrl, icons },
-      200,
-      { "Cache-Control": cacheControl, ...CORS_HEADERS },
-    );
+    return c.json({ base_url: assetBaseUrl, icons }, 200, {
+      "Cache-Control": cacheControl,
+      ...CORS_HEADERS,
+    });
   } catch (err) {
     console.error("[asset-sync] ship-icon-map error:", err);
     return c.json({ error: "Failed to build icon map" }, 500);
@@ -631,11 +645,10 @@ app.get("/equip-image-map", async (c) => {
       ? "no-store"
       : "public, max-age=86400, stale-while-revalidate=604800";
 
-    return c.json(
-      { base_url: assetBaseUrl, card, item_up: itemUp },
-      200,
-      { "Cache-Control": cacheControl, ...CORS_HEADERS },
-    );
+    return c.json({ base_url: assetBaseUrl, card, item_up: itemUp }, 200, {
+      "Cache-Control": cacheControl,
+      ...CORS_HEADERS,
+    });
   } catch (err) {
     console.error("[asset-sync] equip-image-map error:", err);
     return c.json({ error: "Failed to build equip image map" }, 500);
@@ -675,10 +688,10 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     if (db) {
       try {
-        const result = await db
+        const result = (await db
           .prepare("SELECT key FROM files WHERE key LIKE ? LIMIT 1")
           .bind(`${prefix}%`)
-          .first() as { key: string } | null;
+          .first()) as { key: string } | null;
         if (result) r2Key = result.key;
       } catch {
         // D1 not available
@@ -709,7 +722,7 @@ app.get("/ship-banner/:shipId", async (c) => {
     if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
       return new Response(null, {
         status: 304,
-        headers: { "ETag": etag, ...CORS_HEADERS },
+        headers: { ETag: etag, ...CORS_HEADERS },
       });
     }
 
@@ -720,7 +733,7 @@ app.get("/ship-banner/:shipId", async (c) => {
         "Content-Type": "image/png",
         "Content-Length": String(body.byteLength),
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
-        "ETag": etag,
+        ETag: etag,
         ...CORS_HEADERS,
       },
     });
@@ -757,7 +770,7 @@ app.get("/weapon-icons", async (c) => {
     if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
       return new Response(null, {
         status: 304,
-        headers: { "ETag": etag, ...CORS_HEADERS },
+        headers: { ETag: etag, ...CORS_HEADERS },
       });
     }
 
@@ -767,8 +780,9 @@ app.get("/weapon-icons", async (c) => {
       headers: {
         "Content-Type": "image/png",
         "Content-Length": String(body.byteLength),
-        "Cache-Control": "public, max-age=604800, stale-while-revalidate=604800",
-        "ETag": etag,
+        "Cache-Control":
+          "public, max-age=604800, stale-while-revalidate=604800",
+        ETag: etag,
         ...CORS_HEADERS,
       },
     });
@@ -805,7 +819,7 @@ app.get("/ship-type-icons", async (c) => {
     if (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) {
       return new Response(null, {
         status: 304,
-        headers: { "ETag": etag, ...CORS_HEADERS },
+        headers: { ETag: etag, ...CORS_HEADERS },
       });
     }
 
@@ -815,8 +829,9 @@ app.get("/ship-type-icons", async (c) => {
       headers: {
         "Content-Type": "image/png",
         "Content-Length": String(body.byteLength),
-        "Cache-Control": "public, max-age=604800, stale-while-revalidate=604800",
-        "ETag": etag,
+        "Cache-Control":
+          "public, max-age=604800, stale-while-revalidate=604800",
+        ETag: etag,
         ...CORS_HEADERS,
       },
     });
@@ -874,7 +889,11 @@ app.get("/weapon-icon-frames", async (c) => {
       },
     });
   } catch (err) {
-    console.error("[asset-sync] weapon-icon-frames error:", String(err), err instanceof Error ? err.stack : "");
+    console.error(
+      "[asset-sync] weapon-icon-frames error:",
+      String(err),
+      err instanceof Error ? err.stack : "",
+    );
     const payload = envCtx.isDev
       ? { error: "Failed to parse sprite atlas", detail: String(err) }
       : { error: "Failed to parse sprite atlas" };
@@ -902,7 +921,8 @@ app.get("/ship-type-icon-frames", async (c) => {
 
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
     let decodedJson: string;
-    const isBrotli = atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
+    const isBrotli =
+      atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
     if (isBrotli) {
       const ds = new DecompressionStream(BROTLI_DECOMPRESSION_FORMAT);
       const decompressed = new Response(
@@ -917,7 +937,8 @@ app.get("/ship-type-icon-frames", async (c) => {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "public, max-age=604800, stale-while-revalidate=604800",
+        "Cache-Control":
+          "public, max-age=604800, stale-while-revalidate=604800",
         ...CORS_HEADERS,
       },
     });
@@ -1015,14 +1036,15 @@ app.get("/image-proxy", async (c) => {
   try {
     const upstream = await fetch(target.toString(), {
       signal: AbortSignal.timeout(10000),
-      headers: { "Accept": "image/*,*/*;q=0.8" },
+      headers: { Accept: "image/*,*/*;q=0.8" },
     });
 
     if (!upstream.ok) {
       return c.json({ error: `Upstream error: ${upstream.status}` }, 502);
     }
 
-    const contentType = upstream.headers.get("content-type") || "application/octet-stream";
+    const contentType =
+      upstream.headers.get("content-type") || "application/octet-stream";
     if (!contentType.startsWith("image/")) {
       return c.json({ error: "Upstream resource is not an image" }, 415);
     }

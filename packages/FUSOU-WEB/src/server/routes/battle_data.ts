@@ -1,12 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import {
-  createEnvContext,
-  getEnv,
-  timingSafeEqual,
-  validateDatasetToken,
-} from "../utils";
+import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -287,51 +282,18 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
-    preparationValidator: async (body, _user) => {
-      // dataset_token is REQUIRED to prove ownership of dataset_id.
-      // Without it, any authenticated Supabase user could submit data under an arbitrary
-      // dataset_id (another user's member_id_hash), polluting the public dataset.
-      const datasetTokenHeader = c.req.header("X-Dataset-Token");
-      const datasetTokenBody =
-        typeof body?.dataset_token === "string"
-          ? body.dataset_token.trim()
-          : "";
-      const datasetToken = datasetTokenHeader || datasetTokenBody;
-
-      if (!datasetToken) {
-        console.warn(
-          "[battle-data] Upload rejected: dataset_token is required",
-        );
-        return c.json({ error: "dataset_token is required" }, 401);
-      }
-
-      const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-      if (!datasetTokenSecret) {
-        console.error("[battle-data] DATASET_TOKEN_SECRET not configured");
-        return c.json({ error: "Server configuration error" }, 500);
-      }
-
-      const validatedToken = await validateDatasetToken(
-        datasetToken,
-        datasetTokenSecret,
-      );
-      if (!validatedToken) {
-        console.warn("[battle-data] Invalid or expired dataset_token");
-        return c.json({ error: "Invalid or expired dataset_token" }, 401);
-      }
-
-      // Verify dataset_id matches token
+    requireDatasetToken: true,
+    preparationValidator: async (body, _user, authContext) => {
+      const datasetIdFromToken =
+        authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
         typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-      if (requestedDatasetId !== validatedToken.dataset_id) {
+      if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[battle-data] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
       }
 
-      console.log(`[battle-data] dataset_token validated successfully`);
-
-      const datasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      const datasetId = datasetIdFromToken || requestedDatasetId;
       const table = typeof body?.table === "string" ? body.table.trim() : "";
       const periodTag =
         typeof body?.kc_period_tag === "string"
@@ -369,7 +331,7 @@ app.post("/upload", async (c) => {
       }
 
       if (!datasetId) {
-        return c.json({ error: "dataset_id is required" }, 400);
+        return c.json({ error: "dataset_id could not be resolved" }, 401);
       }
       if (!table) {
         return c.json({ error: "table is required" }, 400);

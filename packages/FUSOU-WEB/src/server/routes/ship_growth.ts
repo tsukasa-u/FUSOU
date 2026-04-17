@@ -1,16 +1,18 @@
-import { Hono } from 'hono';
-import type { Bindings, D1Database } from '../types';
-import { decodeAvroOcfToJson } from '../utils/avro-decoder';
-import { getSynergyManifestR2Keys } from '../types/synergy';
+import { Hono } from "hono";
+import type { Bindings, D1Database } from "../types";
+import { decodeAvroOcfToJson } from "../utils/avro-decoder";
+import { getSynergyManifestR2Keys } from "../types/synergy";
 import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  resolveDatasetToken,
   timingSafeEqual,
+  validateDatasetTokenWithConstraints,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
-} from '../utils';
+} from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -33,11 +35,17 @@ interface ShipEntry {
   taisen_max: number;
   sakuteki_max: number;
   slots: { slotitem_id: number; locked: boolean; level: number; alv: number }[];
-  exslot?: { slotitem_id: number; locked: boolean; level: number; alv: number } | null;
+  exslot?: {
+    slotitem_id: number;
+    locked: boolean;
+    level: number;
+    alv: number;
+  } | null;
 }
 
 interface IngestBody {
   dataset_id: string;
+  dataset_token?: string;
   request_id: string;
   payload_hash: string;
   event_type: string;
@@ -181,30 +189,51 @@ const synergyDataCache = new Map<
 // ── Helpers ────────────────────────────────────────────────────────
 
 async function sha256Hex(data: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', data as unknown as BufferSource);
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    data as unknown as BufferSource,
+  );
   return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function isValidInt(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    Number.isInteger(value)
+  );
 }
 
-function parseMasterSlotStatsMap(records: Array<Record<string, unknown>>): Map<number, MasterSlotStats> {
+function parseMasterSlotStatsMap(
+  records: Array<Record<string, unknown>>,
+): Map<number, MasterSlotStats> {
   const statsMap = new Map<number, MasterSlotStats>();
   for (const row of records) {
     const rawId = row.id;
-    const id = typeof rawId === 'number' && Number.isFinite(rawId) ? Math.trunc(rawId) : null;
+    const id =
+      typeof rawId === "number" && Number.isFinite(rawId)
+        ? Math.trunc(rawId)
+        : null;
     if (id == null || id <= 0) continue;
 
     const houkRaw = row.houk;
     const taisRaw = row.tais;
     const sakuRaw = row.saku;
 
-    const houk = typeof houkRaw === 'number' && Number.isFinite(houkRaw) ? Math.trunc(houkRaw) : 0;
-    const tais = typeof taisRaw === 'number' && Number.isFinite(taisRaw) ? Math.trunc(taisRaw) : 0;
-    const saku = typeof sakuRaw === 'number' && Number.isFinite(sakuRaw) ? Math.trunc(sakuRaw) : 0;
+    const houk =
+      typeof houkRaw === "number" && Number.isFinite(houkRaw)
+        ? Math.trunc(houkRaw)
+        : 0;
+    const tais =
+      typeof taisRaw === "number" && Number.isFinite(taisRaw)
+        ? Math.trunc(taisRaw)
+        : 0;
+    const saku =
+      typeof sakuRaw === "number" && Number.isFinite(sakuRaw)
+        ? Math.trunc(sakuRaw)
+        : 0;
 
     statsMap.set(id, { houk, tais, saku });
   }
@@ -222,9 +251,8 @@ async function loadMasterSlotStatsMap(
     return cached.statsMap;
   }
 
-  const record = (await env.MASTER_DATA_INDEX_DB
-    .prepare(
-      `SELECT t.r2_key
+  const record = (await env.MASTER_DATA_INDEX_DB.prepare(
+    `SELECT t.r2_key
        FROM master_data_tables t
        JOIN master_data_index i ON i.id = t.master_data_id
        WHERE i.upload_status = 'completed'
@@ -233,7 +261,7 @@ async function loadMasterSlotStatsMap(
          AND t.table_name = 'mst_slotitem'
        ORDER BY i.period_revision DESC
        LIMIT 1`,
-    )
+  )
     .bind(periodTag, tableVersion)
     .first()) as { r2_key?: string } | null;
 
@@ -250,7 +278,9 @@ async function loadMasterSlotStatsMap(
 
   const arrayBuffer = await r2Object.arrayBuffer();
   const avroBytes = new Uint8Array(arrayBuffer);
-  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
+  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
+    Record<string, unknown>
+  >;
   const statsMap = parseMasterSlotStatsMap(decodedRecords);
 
   masterSlotItemCache.set(cacheKey, {
@@ -266,21 +296,28 @@ function parseSpEffectItems(json: string | null | undefined): SpEffectItem[] {
   try {
     const parsed = JSON.parse(json) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is SpEffectItem => typeof item === 'object' && item != null);
+    return parsed.filter(
+      (item): item is SpEffectItem => typeof item === "object" && item != null,
+    );
   } catch {
     return [];
   }
 }
 
 function toInt(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : 0;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.trunc(value)
+    : 0;
 }
 
 function emptyTotals(): SynergyStatTotals {
   return { kaihi: 0, taisen: 0, sakuteki: 0 };
 }
 
-function addTotals(a: SynergyStatTotals, b: SynergyStatTotals): SynergyStatTotals {
+function addTotals(
+  a: SynergyStatTotals,
+  b: SynergyStatTotals,
+): SynergyStatTotals {
   return {
     kaihi: a.kaihi + b.kaihi,
     taisen: a.taisen + b.taisen,
@@ -296,7 +333,9 @@ function scaleTotals(value: SynergyStatTotals, n: number): SynergyStatTotals {
   };
 }
 
-function toShipTotals(raw: Record<string, unknown> | undefined): SynergyStatTotals {
+function toShipTotals(
+  raw: Record<string, unknown> | undefined,
+): SynergyStatTotals {
   if (!raw) return emptyTotals();
   const kaihi = toInt(raw.kaih) + toInt(raw.houk) + toInt(raw.kaihi);
   const taisen = toInt(raw.tais) + toInt(raw.taisen);
@@ -304,8 +343,13 @@ function toShipTotals(raw: Record<string, unknown> | undefined): SynergyStatTota
   return { kaihi, taisen, sakuteki };
 }
 
-function hasShipRule(rule: SynergySingleRule | SynergyCrossRule, masterId: number): boolean {
-  return Array.isArray(rule.ships) && rule.ships.some((id) => toInt(id) === masterId);
+function hasShipRule(
+  rule: SynergySingleRule | SynergyCrossRule,
+  masterId: number,
+): boolean {
+  return (
+    Array.isArray(rule.ships) && rule.ships.some((id) => toInt(id) === masterId)
+  );
 }
 
 function pickSingleSynergyTotals(
@@ -318,14 +362,21 @@ function pickSingleSynergyTotals(
 
   if (count === 2) {
     const c2 = toShipTotals(rule.c2);
-    return c2.kaihi !== 0 || c2.taisen !== 0 || c2.sakuteki !== 0 ? c2 : scaleTotals(base, 2);
+    return c2.kaihi !== 0 || c2.taisen !== 0 || c2.sakuteki !== 0
+      ? c2
+      : scaleTotals(base, 2);
   }
 
   const c3 = toShipTotals(rule.c3);
-  return c3.kaihi !== 0 || c3.taisen !== 0 || c3.sakuteki !== 0 ? c3 : scaleTotals(base, count);
+  return c3.kaihi !== 0 || c3.taisen !== 0 || c3.sakuteki !== 0
+    ? c3
+    : scaleTotals(base, count);
 }
 
-async function loadSynergyDataSet(env: Bindings, periodTag: string): Promise<SynergyDataSet> {
+async function loadSynergyDataSet(
+  env: Bindings,
+  periodTag: string,
+): Promise<SynergyDataSet> {
   const manifest = (await env.MASTER_DATA_INDEX_DB.prepare(
     `SELECT period_tag, period_revision, content_hash
      FROM synergy_manifest
@@ -335,10 +386,19 @@ async function loadSynergyDataSet(env: Bindings, periodTag: string): Promise<Syn
      LIMIT 1`,
   )
     .bind(periodTag)
-    .first()) as { period_tag?: string; period_revision?: number; content_hash?: string } | null;
+    .first()) as {
+    period_tag?: string;
+    period_revision?: number;
+    content_hash?: string;
+  } | null;
 
   const periodRevision = manifest?.period_revision;
-  if (!manifest?.period_tag || typeof periodRevision !== 'number' || !Number.isInteger(periodRevision) || !manifest.content_hash) {
+  if (
+    !manifest?.period_tag ||
+    typeof periodRevision !== "number" ||
+    !Number.isInteger(periodRevision) ||
+    !manifest.content_hash
+  ) {
     throw new Error(`synergy manifest not found for period_tag=${periodTag}`);
   }
 
@@ -358,7 +418,9 @@ async function loadSynergyDataSet(env: Bindings, periodTag: string): Promise<Syn
     throw new Error(`synergy data missing in R2: ${r2Keys.sp_effect_json}`);
   }
 
-  const parsed = JSON.parse(new TextDecoder().decode(await object.arrayBuffer())) as {
+  const parsed = JSON.parse(
+    new TextDecoder().decode(await object.arrayBuffer()),
+  ) as {
     effects?: Record<string, unknown>;
     cross_effects?: Record<string, unknown>;
   };
@@ -366,19 +428,26 @@ async function loadSynergyDataSet(env: Bindings, periodTag: string): Promise<Syn
   const singleByItem = new Map<number, SynergySingleRule[]>();
   for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
     const itemId = Number(itemKey);
-    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) continue;
+    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules))
+      continue;
     singleByItem.set(
       itemId,
-      rawRules.filter((rule) => typeof rule === 'object' && rule != null) as SynergySingleRule[],
+      rawRules.filter(
+        (rule) => typeof rule === "object" && rule != null,
+      ) as SynergySingleRule[],
     );
   }
 
   const crossByPair = new Map<string, SynergyCrossRule[]>();
-  for (const [pairKey, rawRules] of Object.entries(parsed.cross_effects ?? {})) {
+  for (const [pairKey, rawRules] of Object.entries(
+    parsed.cross_effects ?? {},
+  )) {
     if (!Array.isArray(rawRules)) continue;
     crossByPair.set(
       pairKey,
-      rawRules.filter((rule) => typeof rule === 'object' && rule != null) as SynergyCrossRule[],
+      rawRules.filter(
+        (rule) => typeof rule === "object" && rule != null,
+      ) as SynergyCrossRule[],
     );
   }
 
@@ -416,19 +485,24 @@ function deriveServerNakedStats(
     slotSakuteki += stats.saku;
   }
 
-  const spEffectItems = parseSpEffectItems(ship.sp_effect_items_json).map((item) => ({
-    kind: toInt(item.api_kind),
-    houg: toInt(item.api_houg),
-    kaih: toInt(item.api_kaih),
-    raig: toInt(item.api_raig),
-    souk: toInt(item.api_souk),
-  }));
+  const spEffectItems = parseSpEffectItems(ship.sp_effect_items_json).map(
+    (item) => ({
+      kind: toInt(item.api_kind),
+      houg: toInt(item.api_houg),
+      kaih: toInt(item.api_kaih),
+      raig: toInt(item.api_raig),
+      souk: toInt(item.api_souk),
+    }),
+  );
   const spEffectKaihi = spEffectItems.reduce((acc, item) => acc + item.kaih, 0);
 
   const itemCountMap = new Map<number, { count: number; hasStar10: boolean }>();
   for (const slot of allSlots) {
     if (!Number.isInteger(slot.slotitem_id) || slot.slotitem_id <= 0) continue;
-    const current = itemCountMap.get(slot.slotitem_id) ?? { count: 0, hasStar10: false };
+    const current = itemCountMap.get(slot.slotitem_id) ?? {
+      count: 0,
+      hasStar10: false,
+    };
     current.count += 1;
     current.hasStar10 = current.hasStar10 || slot.level >= 10;
     itemCountMap.set(slot.slotitem_id, current);
@@ -455,7 +529,10 @@ function deriveServerNakedStats(
       if (!rules || rules.length === 0) continue;
       const matched = rules.find((rule) => hasShipRule(rule, ship.master_id));
       if (!matched) continue;
-      crossSynergyTotals = addTotals(crossSynergyTotals, toShipTotals(matched.synergy));
+      crossSynergyTotals = addTotals(
+        crossSynergyTotals,
+        toShipTotals(matched.synergy),
+      );
     }
   }
 
@@ -463,9 +540,18 @@ function deriveServerNakedStats(
 
   // Server-side normalization: strip known additive contributions from observed stats.
   // Remaining unknown contributions (if any) are intentionally not guessed.
-  const kaihi = Math.max(0, ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi);
-  const taisen = Math.max(0, ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen);
-  const sakuteki = Math.max(0, ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki);
+  const kaihi = Math.max(
+    0,
+    ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi,
+  );
+  const taisen = Math.max(
+    0,
+    ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen,
+  );
+  const sakuteki = Math.max(
+    0,
+    ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki,
+  );
 
   const breakdown: ServerDerivationBreakdown = {
     removed: {
@@ -497,36 +583,48 @@ function deriveServerNakedStats(
 
 function validateIngestBody(
   body: IngestBody | null,
-): { ok: true; datasetId: string; requestId: string; eventType: string } | { ok: false; error: string } {
-  if (!body) return { ok: false, error: 'Missing body' };
+):
+  | { ok: true; datasetId: string; requestId: string; eventType: string }
+  | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "Missing body" };
 
-  const datasetId = String(body.dataset_id ?? '').trim();
-  if (!datasetId) return { ok: false, error: 'dataset_id is required' };
+  const datasetId = String(body.dataset_id ?? "").trim();
+  if (!datasetId) return { ok: false, error: "dataset_id is required" };
   if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
-    return { ok: false, error: 'dataset_id must be a 64-character SHA-256 hex string' };
+    return {
+      ok: false,
+      error: "dataset_id must be a 64-character SHA-256 hex string",
+    };
   }
 
-  const requestId = String(body.request_id ?? '').trim();
-  if (!requestId) return { ok: false, error: 'request_id is required' };
+  const requestId = String(body.request_id ?? "").trim();
+  if (!requestId) return { ok: false, error: "request_id is required" };
 
-  const payloadHash = String(body.payload_hash ?? '').trim();
+  const payloadHash = String(body.payload_hash ?? "").trim();
   if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
-    return { ok: false, error: 'payload_hash must be a valid 64-char SHA-256 hex string' };
+    return {
+      ok: false,
+      error: "payload_hash must be a valid 64-char SHA-256 hex string",
+    };
   }
 
-  const eventType = String(body.event_type ?? '').trim();
-  if (eventType !== 'snapshot') return { ok: false, error: 'event_type must be "snapshot"' };
+  const eventType = String(body.event_type ?? "").trim();
+  if (eventType !== "snapshot")
+    return { ok: false, error: 'event_type must be "snapshot"' };
 
   if (!body.period_tag || !/^\d{4}-\d{2}-\d{2}$/.test(body.period_tag)) {
-    return { ok: false, error: 'Invalid period_tag (expected YYYY-MM-DD)' };
+    return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
   }
 
   if (!body.table_version) {
-    return { ok: false, error: 'table_version is required' };
+    return { ok: false, error: "table_version is required" };
   }
 
   if (!Array.isArray(body.ships) || body.ships.length === 0) {
-    return { ok: false, error: 'ships array is required and must not be empty' };
+    return {
+      ok: false,
+      error: "ships array is required and must not be empty",
+    };
   }
 
   for (const [index, ship] of body.ships.entries()) {
@@ -557,7 +655,7 @@ function validateIngestBody(
       ship.slots.some(
         (slot) =>
           !isValidInt(slot.slotitem_id) ||
-          typeof slot.locked !== 'boolean' ||
+          typeof slot.locked !== "boolean" ||
           !isValidInt(slot.level) ||
           !isValidInt(slot.alv),
       )
@@ -570,12 +668,10 @@ function validateIngestBody(
 
     if (
       ship.exslot != null &&
-      (
-        !isValidInt(ship.exslot.slotitem_id) ||
-        typeof ship.exslot.locked !== 'boolean' ||
+      (!isValidInt(ship.exslot.slotitem_id) ||
+        typeof ship.exslot.locked !== "boolean" ||
         !isValidInt(ship.exslot.level) ||
-        !isValidInt(ship.exslot.alv)
-      )
+        !isValidInt(ship.exslot.alv))
     ) {
       return {
         ok: false,
@@ -594,10 +690,20 @@ function buildAggregatedShipGrowthRows(
   expRows: AggregatedExpRow[];
   boundRows: AggregatedBoundRow[];
   capRows: AggregatedCapRow[];
-  expInconsistencies: Array<{ lv: number; expected: number; actual: number; shipIndex: number }>;
+  expInconsistencies: Array<{
+    lv: number;
+    expected: number;
+    actual: number;
+    shipIndex: number;
+  }>;
 } {
   const expByLv = new Map<number, number>();
-  const expInconsistencies: Array<{ lv: number; expected: number; actual: number; shipIndex: number }> = [];
+  const expInconsistencies: Array<{
+    lv: number;
+    expected: number;
+    actual: number;
+    shipIndex: number;
+  }> = [];
   const boundsByKey = new Map<string, AggregatedBoundRow>();
   const capsByMaster = new Map<number, AggregatedCapRow>();
 
@@ -637,9 +743,18 @@ function buildAggregatedShipGrowthRows(
           sakuteki_naked: derived.stats.sakuteki,
         });
       } else {
-        existingBound.kaihi_naked = Math.min(existingBound.kaihi_naked, derived.stats.kaihi);
-        existingBound.taisen_naked = Math.min(existingBound.taisen_naked, derived.stats.taisen);
-        existingBound.sakuteki_naked = Math.min(existingBound.sakuteki_naked, derived.stats.sakuteki);
+        existingBound.kaihi_naked = Math.min(
+          existingBound.kaihi_naked,
+          derived.stats.kaihi,
+        );
+        existingBound.taisen_naked = Math.min(
+          existingBound.taisen_naked,
+          derived.stats.taisen,
+        );
+        existingBound.sakuteki_naked = Math.min(
+          existingBound.sakuteki_naked,
+          derived.stats.sakuteki,
+        );
       }
     }
 
@@ -654,8 +769,14 @@ function buildAggregatedShipGrowthRows(
         });
       } else {
         existingCap.kaihi_max = Math.max(existingCap.kaihi_max, ship.kaihi_max);
-        existingCap.taisen_max = Math.max(existingCap.taisen_max, ship.taisen_max);
-        existingCap.sakuteki_max = Math.max(existingCap.sakuteki_max, ship.sakuteki_max);
+        existingCap.taisen_max = Math.max(
+          existingCap.taisen_max,
+          ship.taisen_max,
+        );
+        existingCap.sakuteki_max = Math.max(
+          existingCap.sakuteki_max,
+          ship.sakuteki_max,
+        );
       }
     }
   }
@@ -666,7 +787,9 @@ function buildAggregatedShipGrowthRows(
   const boundRows = Array.from(boundsByKey.values()).sort(
     (a, b) => a.master_id - b.master_id || a.lv - b.lv,
   );
-  const capRows = Array.from(capsByMaster.values()).sort((a, b) => a.master_id - b.master_id);
+  const capRows = Array.from(capsByMaster.values()).sort(
+    (a, b) => a.master_id - b.master_id,
+  );
 
   return { expRows, boundRows, capRows, expInconsistencies };
 }
@@ -675,15 +798,19 @@ function buildArchivePruneStatements(
   db: D1Database,
   oldBounds: ShipGrowthArchiveBoundRow[],
   oldCaps: ShipGrowthArchiveCapRow[],
-): ReturnType<D1Database['prepare']>[] {
-  const stmts: ReturnType<D1Database['prepare']>[] = [];
+): ReturnType<D1Database["prepare"]>[] {
+  const stmts: ReturnType<D1Database["prepare"]>[] = [];
   const boundRowIds = Array.from(new Set(oldBounds.map((row) => row.row_id)));
   for (const rowId of boundRowIds) {
-    stmts.push(db.prepare(`DELETE FROM ship_growth_bounds WHERE rowid = ?`).bind(rowId));
+    stmts.push(
+      db.prepare(`DELETE FROM ship_growth_bounds WHERE rowid = ?`).bind(rowId),
+    );
   }
   const capRowIds = Array.from(new Set(oldCaps.map((row) => row.row_id)));
   for (const rowId of capRowIds) {
-    stmts.push(db.prepare(`DELETE FROM ship_growth_caps WHERE rowid = ?`).bind(rowId));
+    stmts.push(
+      db.prepare(`DELETE FROM ship_growth_caps WHERE rowid = ?`).bind(rowId),
+    );
   }
   return stmts;
 }
@@ -692,7 +819,10 @@ async function collectShipGrowthHistoryForArchive(
   db: D1Database,
   periodTag: string,
   tableVersion: string,
-): Promise<{ oldBounds: ShipGrowthArchiveBoundRow[]; oldCaps: ShipGrowthArchiveCapRow[] }> {
+): Promise<{
+  oldBounds: ShipGrowthArchiveBoundRow[];
+  oldCaps: ShipGrowthArchiveCapRow[];
+}> {
   const oldBoundsResult = await db
     .prepare(
       `SELECT rowid AS row_id, period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
@@ -726,7 +856,7 @@ async function uploadShipGrowthArchiveIfNeeded(
   oldCaps: ShipGrowthArchiveCapRow[],
 ): Promise<void> {
   if (!env.SHIP_GROWTH_ARCHIVE_BUCKET) {
-    throw new Error('SHIP_GROWTH_ARCHIVE_BUCKET is not configured');
+    throw new Error("SHIP_GROWTH_ARCHIVE_BUCKET is not configured");
   }
 
   // Write old period/version rows to R2 first; prune only after successful archive upload.
@@ -739,7 +869,7 @@ async function uploadShipGrowthArchiveIfNeeded(
         ship_levels: Array.from(
           new Set(oldBounds.map((row) => `${row.master_id}:${row.lv}`)),
         ).map((key) => {
-          const [masterId, lv] = key.split(':').map((v) => Number(v));
+          const [masterId, lv] = key.split(":").map((v) => Number(v));
           return { master_id: masterId, lv };
         }),
         master_ids: Array.from(new Set(oldCaps.map((row) => row.master_id))),
@@ -756,7 +886,7 @@ async function uploadShipGrowthArchiveIfNeeded(
       `${archiveHash.slice(0, 16)}-${crypto.randomUUID()}.json`;
 
     await env.SHIP_GROWTH_ARCHIVE_BUCKET.put(archiveKey, archiveText, {
-      httpMetadata: { contentType: 'application/json; charset=utf-8' },
+      httpMetadata: { contentType: "application/json; charset=utf-8" },
       customMetadata: {
         period_tag: periodTag,
         table_version: tableVersion,
@@ -765,7 +895,6 @@ async function uploadShipGrowthArchiveIfNeeded(
       },
     });
   }
-
 }
 
 // ── Ingest processing ──────────────────────────────────────────────
@@ -786,9 +915,10 @@ async function processShipGrowthIngest(
     return {
       status: 503,
       body: {
-        error: 'Server-side normalization prerequisite missing',
+        error: "Server-side normalization prerequisite missing",
         detail: String(error),
-        action: 'Upload/complete master-data mst_slotitem for the same period_tag and table_version',
+        action:
+          "Upload/complete master-data mst_slotitem for the same period_tag and table_version",
       },
     };
   }
@@ -800,21 +930,24 @@ async function processShipGrowthIngest(
     return {
       status: 503,
       body: {
-        error: 'Synergy data prerequisite missing',
+        error: "Synergy data prerequisite missing",
         detail: String(error),
-        action: 'Upload/complete synergy manifest and sp_effect_item.json for the same period_tag',
+        action:
+          "Upload/complete synergy manifest and sp_effect_item.json for the same period_tag",
       },
     };
   }
 
-  const derivedByIndex = ships.map((ship) => deriveServerNakedStats(ship, slotStatsMap, synergyDataSet));
+  const derivedByIndex = ships.map((ship) =>
+    deriveServerNakedStats(ship, slotStatsMap, synergyDataSet),
+  );
   for (const derived of derivedByIndex) {
     if (derived.missingSlotItemIds.length > 0) {
       return {
         status: 500,
         body: {
-          error: 'Failed to derive naked stats',
-          detail: `missing mst_slotitem entries for slotitem_id(s): ${Array.from(new Set(derived.missingSlotItemIds)).join(', ')}`,
+          error: "Failed to derive naked stats",
+          detail: `missing mst_slotitem entries for slotitem_id(s): ${Array.from(new Set(derived.missingSlotItemIds)).join(", ")}`,
         },
       };
     }
@@ -824,13 +957,14 @@ async function processShipGrowthIngest(
   // - bounds: master_id + lv
   // - caps: master_id
   // - exp: boundary-lv (= current lv + 1) using exp_current + exp_to_next
-  const { expRows, boundRows, capRows, expInconsistencies } = buildAggregatedShipGrowthRows(ships, derivedByIndex);
+  const { expRows, boundRows, capRows, expInconsistencies } =
+    buildAggregatedShipGrowthRows(ships, derivedByIndex);
 
   if (expInconsistencies.length > 0) {
     return {
       status: 400,
       body: {
-        error: 'Inconsistent EXP boundary candidates for same boundary level',
+        error: "Inconsistent EXP boundary candidates for same boundary level",
         detail: expInconsistencies.slice(0, 5),
       },
     };
@@ -854,12 +988,12 @@ async function processShipGrowthIngest(
     );
   } catch (error) {
     const detail = String(error);
-    if (detail.includes('SHIP_GROWTH_ARCHIVE_BUCKET is not configured')) {
+    if (detail.includes("SHIP_GROWTH_ARCHIVE_BUCKET is not configured")) {
       return {
         status: 503,
         body: {
-          error: 'Ship growth archive bucket is not configured',
-          action: 'Configure SHIP_GROWTH_ARCHIVE_BUCKET in worker bindings',
+          error: "Ship growth archive bucket is not configured",
+          action: "Configure SHIP_GROWTH_ARCHIVE_BUCKET in worker bindings",
         },
       };
     }
@@ -867,7 +1001,7 @@ async function processShipGrowthIngest(
     return {
       status: 500,
       body: {
-        error: 'Failed to archive ship growth history to R2',
+        error: "Failed to archive ship growth history to R2",
         detail,
       },
     };
@@ -876,7 +1010,7 @@ async function processShipGrowthIngest(
   // Pre-check EXP boundary conflicts against existing DB rows before writing.
   // Batch all LV lookups into a single IN-clause query instead of N sequential queries.
   if (expRows.length > 0) {
-    const placeholders = expRows.map(() => '?').join(', ');
+    const placeholders = expRows.map(() => "?").join(", ");
     const existingExpRows = (
       await db
         .prepare(
@@ -888,14 +1022,16 @@ async function processShipGrowthIngest(
         .all()
     ).results as { lv: number; exp_current: number }[];
 
-    const existingExpMap = new Map(existingExpRows.map((r) => [r.lv, r.exp_current]));
+    const existingExpMap = new Map(
+      existingExpRows.map((r) => [r.lv, r.exp_current]),
+    );
     for (const expRow of expRows) {
       const existingValue = existingExpMap.get(expRow.lv);
       if (existingValue !== undefined && existingValue !== expRow.exp_current) {
         return {
           status: 409,
           body: {
-            error: 'EXP boundary conflicts with existing DB rows',
+            error: "EXP boundary conflicts with existing DB rows",
             detail: `exp boundary conflict for lv=${expRow.lv}: existing=${existingValue}, incoming=${expRow.exp_current}`,
           },
         };
@@ -905,7 +1041,7 @@ async function processShipGrowthIngest(
 
   // Build all write statements: archive prune + exp inserts + bounds upserts + caps upserts.
   // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity (100-stmt chunks).
-  const stmts: ReturnType<D1Database['prepare']>[] = [];
+  const stmts: ReturnType<D1Database["prepare"]>[] = [];
 
   stmts.push(...buildArchivePruneStatements(db, oldBounds, oldCaps));
 
@@ -975,7 +1111,7 @@ async function processShipGrowthIngest(
     return {
       status: 500,
       body: {
-        error: 'Failed to persist ship growth ingest atomically',
+        error: "Failed to persist ship growth ingest atomically",
         detail: String(error),
       },
     };
@@ -1003,13 +1139,16 @@ async function putShipGrowthCache(
   const putPromise = cache.put(cacheKey, response.clone());
   try {
     const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === 'function') {
+    if (typeof waitUntil === "function") {
       waitUntil(putPromise);
       return;
     }
   } catch (err) {
     if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn('[ship-growth] ExecutionContext unavailable for cache put', err);
+      console.warn(
+        "[ship-growth] ExecutionContext unavailable for cache put",
+        err,
+      );
     }
   }
   await putPromise;
@@ -1021,41 +1160,47 @@ async function putShipGrowthCache(
  * GET /summary — Available period_tag/table_version combinations.
  * Cache: 1 h CF Cache, 1 h max-age, 24 h stale-while-revalidate.
  */
-app.get('/summary', async (c) => {
+app.get("/summary", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
-  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
       const hit = new Response(cached.body, cached);
-      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
     }
   }
 
   try {
-    const periods = ((await db
-      .prepare(
-        `SELECT DISTINCT period_tag, table_version
+    const periods = ((
+      await db
+        .prepare(
+          `SELECT DISTINCT period_tag, table_version
          FROM ship_growth_bounds
          ORDER BY period_tag DESC, table_version DESC
          LIMIT 20`,
-      )
-      .all()).results ?? []) as Array<{ period_tag: string; table_version: string }>;
+        )
+        .all()
+    ).results ?? []) as Array<{ period_tag: string; table_version: string }>;
 
     const response = c.json({ ok: true, periods });
-    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
-    response.headers.set('X-FUSOU-Cache', 'MISS');
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    response.headers.set("X-FUSOU-Cache", "MISS");
     if (cache) {
       await putShipGrowthCache(c, cache, cacheKey, response);
     }
     return response;
   } catch (err) {
-    console.error('[ship-growth] Failed to query summary:', err);
-    return c.json({ error: 'Failed to retrieve summary' }, 500);
+    console.error("[ship-growth] Failed to query summary:", err);
+    return c.json({ error: "Failed to retrieve summary" }, 500);
   }
 });
 
@@ -1064,52 +1209,63 @@ app.get('/summary', async (c) => {
  * Query params: period_tag, table_version (both required).
  * Cache: 1 h CF Cache.
  */
-app.get('/exp', async (c) => {
+app.get("/exp", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
-  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
-  const periodTag = (c.req.query('period_tag') ?? '').trim();
-  const tableVersion = (c.req.query('table_version') ?? '').trim();
+  const periodTag = (c.req.query("period_tag") ?? "").trim();
+  const tableVersion = (c.req.query("table_version") ?? "").trim();
 
   if (!periodTag || !tableVersion) {
-    return c.json({ error: 'period_tag and table_version are required' }, 400);
+    return c.json({ error: "period_tag and table_version are required" }, 400);
   }
   if (!/^[\w\-]+$/.test(periodTag)) {
-    return c.json({ error: 'period_tag contains invalid characters' }, 400);
+    return c.json({ error: "period_tag contains invalid characters" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
       const hit = new Response(cached.body, cached);
-      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
     }
   }
 
   try {
-    const rows = ((await db
-      .prepare(
-        `SELECT lv, exp_current
+    const rows = ((
+      await db
+        .prepare(
+          `SELECT lv, exp_current
          FROM ship_level_exp_pairs
          WHERE period_tag = ? AND table_version = ?
          ORDER BY lv ASC`,
-      )
-      .bind(periodTag, tableVersion)
-      .all()).results ?? []) as Array<{ lv: number; exp_current: number }>;
+        )
+        .bind(periodTag, tableVersion)
+        .all()
+    ).results ?? []) as Array<{ lv: number; exp_current: number }>;
 
-    const response = c.json({ ok: true, period_tag: periodTag, table_version: tableVersion, exp: rows });
-    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
-    response.headers.set('X-FUSOU-Cache', 'MISS');
+    const response = c.json({
+      ok: true,
+      period_tag: periodTag,
+      table_version: tableVersion,
+      exp: rows,
+    });
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    response.headers.set("X-FUSOU-Cache", "MISS");
     if (cache) {
       await putShipGrowthCache(c, cache, cacheKey, response);
     }
     return response;
   } catch (err) {
-    console.error('[ship-growth] Failed to query exp:', err);
-    return c.json({ error: 'Failed to retrieve exp data' }, 500);
+    console.error("[ship-growth] Failed to query exp:", err);
+    return c.json({ error: "Failed to retrieve exp data" }, 500);
   }
 });
 
@@ -1119,32 +1275,33 @@ app.get('/exp', async (c) => {
  * Without master_id: returns all ships' bounds (may be large, 1 h cache).
  * Cache: 1 h CF Cache.
  */
-app.get('/bounds', async (c) => {
+app.get("/bounds", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
-  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
-  const periodTag = (c.req.query('period_tag') ?? '').trim();
-  const tableVersion = (c.req.query('table_version') ?? '').trim();
-  const masterIdRaw = c.req.query('master_id');
+  const periodTag = (c.req.query("period_tag") ?? "").trim();
+  const tableVersion = (c.req.query("table_version") ?? "").trim();
+  const masterIdRaw = c.req.query("master_id");
   const masterId = masterIdRaw != null ? parseInt(masterIdRaw, 10) : null;
 
   if (!periodTag || !tableVersion) {
-    return c.json({ error: 'period_tag and table_version are required' }, 400);
+    return c.json({ error: "period_tag and table_version are required" }, 400);
   }
   if (!/^[\w\-]+$/.test(periodTag)) {
-    return c.json({ error: 'period_tag contains invalid characters' }, 400);
+    return c.json({ error: "period_tag contains invalid characters" }, 400);
   }
   if (masterId !== null && (!Number.isFinite(masterId) || masterId <= 0)) {
-    return c.json({ error: 'master_id must be a positive integer' }, 400);
+    return c.json({ error: "master_id must be a positive integer" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: 'GET' });
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
       const hit = new Response(cached.body, cached);
-      hit.headers.set('X-FUSOU-Cache', 'HIT');
+      hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
     }
   }
@@ -1160,7 +1317,12 @@ app.get('/bounds', async (c) => {
     }
     boundsSql += ` ORDER BY master_id ASC, lv ASC LIMIT 10000`;
 
-    const bounds = ((await db.prepare(boundsSql).bind(...boundsParams).all()).results ?? []) as Array<{
+    const bounds = ((
+      await db
+        .prepare(boundsSql)
+        .bind(...boundsParams)
+        .all()
+    ).results ?? []) as Array<{
       master_id: number;
       lv: number;
       kaihi_naked: number;
@@ -1168,70 +1330,111 @@ app.get('/bounds', async (c) => {
       sakuteki_naked: number;
     }>;
 
-    let caps: Array<{ master_id: number; kaihi_max: number; taisen_max: number; sakuteki_max: number }> = [];
+    let caps: Array<{
+      master_id: number;
+      kaihi_max: number;
+      taisen_max: number;
+      sakuteki_max: number;
+    }> = [];
     if (masterId !== null) {
-      caps = ((await db
-        .prepare(
-          `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
+      caps = ((
+        await db
+          .prepare(
+            `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
            FROM ship_growth_caps
            WHERE period_tag = ? AND table_version = ? AND master_id = ?`,
-        )
-        .bind(periodTag, tableVersion, masterId)
-        .all()).results ?? []) as typeof caps;
+          )
+          .bind(periodTag, tableVersion, masterId)
+          .all()
+      ).results ?? []) as typeof caps;
     }
 
-    const response = c.json({ ok: true, period_tag: periodTag, table_version: tableVersion, bounds, caps });
-    response.headers.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
-    response.headers.set('X-FUSOU-Cache', 'MISS');
+    const response = c.json({
+      ok: true,
+      period_tag: periodTag,
+      table_version: tableVersion,
+      bounds,
+      caps,
+    });
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    response.headers.set("X-FUSOU-Cache", "MISS");
     if (cache) {
       await putShipGrowthCache(c, cache, cacheKey, response);
     }
     return response;
   } catch (err) {
-    console.error('[ship-growth] Failed to query bounds:', err);
-    return c.json({ error: 'Failed to retrieve bounds data' }, 500);
+    console.error("[ship-growth] Failed to query bounds:", err);
+    return c.json({ error: "Failed to retrieve bounds data" }, 500);
   }
 });
 
 // ── Two-stage ingest endpoint ──────────────────────────────────────
 
-app.post('/ingest', async (c) => {
+app.post("/ingest", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
-  if (!db) return c.json({ error: 'SHIP_GROWTH_DB not configured' }, 503);
+  if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
   const env = createEnvContext(c);
-  const signingSecret = getEnv(env, 'SHIP_GROWTH_SIGNING_SECRET');
+  const signingSecret = getEnv(env, "SHIP_GROWTH_SIGNING_SECRET");
   if (!signingSecret) {
-    return c.json({ error: 'SHIP_GROWTH_SIGNING_SECRET is required' }, 500);
+    return c.json({ error: "SHIP_GROWTH_SIGNING_SECRET is required" }, 500);
   }
 
-  const uploadToken = c.req.header('X-Upload-Token');
+  const uploadToken = c.req.header("X-Upload-Token");
 
   // ── Stage 1: Handshake ───────────────────────────────────────────
   if (!uploadToken) {
-    const authHeader = c.req.header('Authorization');
-    const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-    if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
-
+    const authHeader = c.req.header("Authorization");
+    const bearer = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice(7).trim()
+      : null;
+    if (!bearer) return c.json({ error: "Unauthorized" }, 401);
     const user = await validateJWT(bearer);
-    if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+    if (!user?.id)
+      return c.json({ error: "Invalid or expired JWT token" }, 401);
 
-    const handshakeBody = (await c.req.json().catch(() => null)) as IngestBody | null;
+    const handshakeBody = (await c.req
+      .json()
+      .catch(() => null)) as IngestBody | null;
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
 
-    const contentHash = String(handshakeBody?.content_hash ?? '').trim();
-    if (!contentHash) return c.json({ error: 'content_hash is required' }, 400);
+    // Require dataset_token to prove ownership of dataset_id.
+    const datasetToken = resolveDatasetToken(
+      c.req.header("X-Dataset-Token"),
+      handshakeBody?.dataset_token,
+    );
+    const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    const tokenValidation = await validateDatasetTokenWithConstraints({
+      token: datasetToken,
+      secret: datasetTokenSecret,
+      expectedDatasetId: validated.datasetId,
+      // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
+      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+    });
+    if (!tokenValidation.ok) {
+      return c.json(
+        { error: tokenValidation.error },
+        tokenValidation.status ?? 401,
+      );
+    }
+    const actingUserId = tokenValidation.token!.user_id;
+
+    const contentHash = String(handshakeBody?.content_hash ?? "").trim();
+    if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
-      return c.json({ error: 'file_size must be > 0' }, 400);
+      return c.json({ error: "file_size must be > 0" }, 400);
     }
 
     const token = await generateSignedToken(
       {
-        user_id: user.id,
+        user_id: actingUserId,
         content_hash: contentHash,
         declared_size: declaredSize,
         dataset_id: validated.datasetId,
@@ -1245,7 +1448,11 @@ app.post('/ingest', async (c) => {
     const uploadUrl = new URL(c.req.url);
     // stripApiPrefix() removes /api/ before Hono sees the URL; restore it for Stage-2 clients.
     if (!uploadUrl.pathname.startsWith("/api/")) {
-      uploadUrl.pathname = "/api" + (uploadUrl.pathname.startsWith("/") ? uploadUrl.pathname : "/" + uploadUrl.pathname);
+      uploadUrl.pathname =
+        "/api" +
+        (uploadUrl.pathname.startsWith("/")
+          ? uploadUrl.pathname
+          : "/" + uploadUrl.pathname);
     }
     return c.json({
       uploadUrl: uploadUrl.toString(),
@@ -1255,50 +1462,58 @@ app.post('/ingest', async (c) => {
   }
 
   // ── Stage 2: Execution ───────────────────────────────────────────
-  const authHeader = c.req.header('Authorization');
-  const bearer = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-  if (!bearer) return c.json({ error: 'Unauthorized' }, 401);
-
+  const authHeader = c.req.header("Authorization");
+  const bearer = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+  if (!bearer) return c.json({ error: "Unauthorized" }, 401);
   const user = await validateJWT(bearer);
-  if (!user?.id) return c.json({ error: 'Invalid or expired JWT token' }, 401);
+  if (!user?.id) return c.json({ error: "Invalid or expired JWT token" }, 401);
 
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload) return c.json({ error: 'Invalid or expired upload token' }, 401);
+  if (!tokenPayload)
+    return c.json({ error: "Invalid or expired upload token" }, 401);
 
   const payloadValidation = validateTokenPayload(tokenPayload, [
-    'content_hash',
-    'declared_size',
-    'dataset_id',
-    'request_id',
-    'event_type',
+    "content_hash",
+    "declared_size",
+    "dataset_id",
+    "request_id",
+    "event_type",
   ]);
   if (!payloadValidation.valid) {
-    return c.json({ error: payloadValidation.error ?? 'Invalid upload token payload' }, 400);
+    return c.json(
+      { error: payloadValidation.error ?? "Invalid upload token payload" },
+      400,
+    );
   }
-  if (tokenPayload.user_id !== user.id) {
-    return c.json({ error: 'User mismatch - token generated for different user' }, 403);
-  }
+  // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
+  // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
   // Read binary body
   const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: 'Upload payload is missing' }, 400);
+  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
   const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
 
   // Size check
   const declaredSize = Number(tokenPayload.declared_size);
   if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
     return c.json(
-      { error: 'Data size mismatch', expected: declaredSize, actual: uploaded.byteLength },
+      {
+        error: "Data size mismatch",
+        expected: declaredSize,
+        actual: uploaded.byteLength,
+      },
       400,
     );
   }
 
   // Hash check
   const actualHash = await sha256Hex(uploaded);
-  const expectedHash = String(tokenPayload.content_hash ?? '').toLowerCase();
+  const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
   if (!timingSafeEqual(actualHash.toLowerCase(), expectedHash)) {
     return c.json(
-      { error: 'Content hash mismatch - data may be corrupted' },
+      { error: "Content hash mismatch - data may be corrupted" },
       400,
     );
   }
@@ -1308,7 +1523,7 @@ app.post('/ingest', async (c) => {
   try {
     body = JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
   } catch {
-    return c.json({ error: 'Invalid JSON upload payload' }, 400);
+    return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
 
   const verified = validateIngestBody(body);
@@ -1320,7 +1535,10 @@ app.post('/ingest', async (c) => {
     verified.requestId !== String(tokenPayload.request_id) ||
     verified.eventType !== String(tokenPayload.event_type)
   ) {
-    return c.json({ error: 'Upload payload does not match upload token claims' }, 400);
+    return c.json(
+      { error: "Upload payload does not match upload token claims" },
+      400,
+    );
   }
 
   const result = await processShipGrowthIngest(c.env, db, body);

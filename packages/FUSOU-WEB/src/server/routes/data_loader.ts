@@ -15,12 +15,13 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
 
+import { createEnvContext, getEnv, type EnvContext } from "../utils";
 import {
-  createEnvContext,
-  resolveSupabaseConfig,
-  getEnv,
-  type EnvContext,
-} from "../utils";
+  type SupabaseRestConfig,
+  getSupabaseRestConfig,
+  supabaseRestRequest,
+  resolveMemberIdHashForUser,
+} from "../utils/supabase-rest";
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -82,7 +83,7 @@ app.get("/tables", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid API key" },
@@ -96,7 +97,8 @@ app.get("/tables", async (c) => {
       return jsonResponse(
         {
           error: "SERVICE_UNAVAILABLE",
-          message: "Rate limiting system is unavailable. Please try again later.",
+          message:
+            "Rate limiting system is unavailable. Please try again later.",
         },
         503,
       );
@@ -111,18 +113,18 @@ app.get("/tables", async (c) => {
       | undefined;
     ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
     if (!ruStatus.allowed) {
-        return jsonResponse(
-          {
-            error: "RATE_LIMITED",
-            message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now()) / 1000)}s`,
-          },
-          429,
-          ruStatus,
-        );
+      return jsonResponse(
+        {
+          error: "RATE_LIMITED",
+          message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now()) / 1000)}s`,
+        },
+        429,
+        ruStatus,
+      );
     }
 
     const trusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       env.runtime.DATA_LOADER_CACHE_KV,
@@ -130,7 +132,7 @@ app.get("/tables", async (c) => {
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(
-        getSupabaseConfig(c),
+        getSupabaseRestConfig(c),
         apiKeyData.user_id,
         clientId,
         code,
@@ -211,7 +213,7 @@ app.get("/period-tags", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid API key" },
@@ -248,7 +250,7 @@ app.get("/period-tags", async (c) => {
     }
 
     const trusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       kv,
@@ -256,7 +258,7 @@ app.get("/period-tags", async (c) => {
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(
-        getSupabaseConfig(c),
+        getSupabaseRestConfig(c),
         apiKeyData.user_id,
         clientId,
         code,
@@ -273,7 +275,7 @@ app.get("/period-tags", async (c) => {
     }
 
     // Get period tags from Supabase
-    const { url, key } = getSupabaseConfig(c);
+    const { url, key } = getSupabaseRestConfig(c);
 
     if (!url || !key) {
       return jsonResponse({ error: "Supabase configuration missing" }, 500);
@@ -374,7 +376,7 @@ app.get("/data/:table", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
@@ -417,7 +419,7 @@ app.get("/data/:table", async (c) => {
     }
 
     const trusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       env.runtime.DATA_LOADER_CACHE_KV,
@@ -425,7 +427,7 @@ app.get("/data/:table", async (c) => {
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(
-        getSupabaseConfig(c),
+        getSupabaseRestConfig(c),
         apiKeyData.user_id,
         clientId,
         code,
@@ -570,30 +572,22 @@ app.get("/data/:table", async (c) => {
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
       periodTag = await getLatestPeriodTag(
-        getSupabaseConfig(c),
+        getSupabaseRestConfig(c),
         env.runtime.DATA_LOADER_CACHE_KV,
       );
     } else if (periodTagParam !== "all") {
       periodTag = periodTagParam;
     }
 
-    // For scope=own, get user's dataset_id (member_id_hash) from Supabase
+    // For scope=own, resolve user's dataset_id (member_id_hash)
+    // via social link first, then canonical owner fallback.
     let userDatasetId: string | null = null;
     if (scopeParam === "own") {
-      const memberResult = await supabaseRequest<{ member_id_hash: string }[]>(
-        getSupabaseConfig(c),
-        "app_user_members",
-        {
-          query: `?select=member_id_hash&user_id=eq.${apiKeyData.user_id}&limit=1`,
-        },
+      userDatasetId = await resolveMemberIdHashForUser(
+        getSupabaseRestConfig(c),
+        apiKeyData.user_id,
       );
-      if (
-        memberResult &&
-        memberResult.length > 0 &&
-        memberResult[0].member_id_hash
-      ) {
-        userDatasetId = memberResult[0].member_id_hash;
-      } else {
+      if (!userDatasetId) {
         return jsonResponse(
           {
             error: "NO_LINKED_MEMBER",
@@ -731,7 +725,7 @@ app.get("/usage", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
@@ -803,7 +797,7 @@ app.get("/download", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
@@ -813,7 +807,7 @@ app.get("/download", async (c) => {
 
     // Device trust check
     const trusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       env.runtime.DATA_LOADER_CACHE_KV,
@@ -1023,75 +1017,15 @@ async function checkRateLimit(
 
 // =============================================================================
 // Supabase Client Functions
-/**
- * Supabase configuration type
- */
-type SupabaseConfig = {
-  url: string;
-  key: string;
-};
-
-/**
- * Get Supabase config from Hono context using project conventions
- */
-function getSupabaseConfig(c: { env: Bindings }): SupabaseConfig {
-  const envCtx = createEnvContext(c);
-  const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
-  return { url: url || "", key: serviceRoleKey || "" };
-}
-
-/**
- * Make a request to Supabase REST API
- */
-async function supabaseRequest<T = unknown[]>(
-  config: SupabaseConfig,
-  table: string,
-  options: {
-    method?: string;
-    query?: string;
-    body?: object | null;
-    headers?: Record<string, string>;
-  } = {},
-): Promise<T | null> {
-  const { method = "GET", query = "", body = null, headers = {} } = options;
-  const { url, key } = config;
-
-  if (!url || !key) {
-    throw new Error("Supabase configuration missing");
-  }
-
-  const response = await fetch(`${url}/rest/v1/${table}${query}`, {
-    method,
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-      Prefer: method === "POST" ? "return=representation" : "return=minimal",
-      ...headers,
-    },
-    body: body ? JSON.stringify(body) : null,
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Supabase error: ${response.status} - ${error}`);
-  }
-
-  if (method === "GET" || headers.Prefer?.includes("return=representation")) {
-    return response.json() as Promise<T>;
-  }
-
-  return null;
-}
 
 /**
  * Validate API key and return user info
  */
 async function validateApiKey(
-  config: SupabaseConfig,
+  config: SupabaseRestConfig,
   apiKey: string,
 ): Promise<{ id: string; user_id: string; email: string } | null> {
-  const results = await supabaseRequest<
+  const results = await supabaseRestRequest<
     { id: string; user_id: string; email: string }[]
   >(config, "api_keys", {
     query: `?key=eq.${encodeURIComponent(apiKey)}&is_active=eq.true&select=id,user_id,email`,
@@ -1105,18 +1039,16 @@ async function validateApiKey(
  * Updates last_used_at with batching (only if older than 1 hour)
  */
 async function isDeviceTrusted(
-  config: SupabaseConfig,
+  config: SupabaseRestConfig,
   userId: string,
   clientId: string,
   kv?: KVNamespace,
 ): Promise<boolean> {
-  const results = await supabaseRequest<{ id: string; last_used_at: string }[]>(
-    config,
-    "trusted_devices",
-    {
-      query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
-    },
-  );
+  const results = await supabaseRestRequest<
+    { id: string; last_used_at: string }[]
+  >(config, "trusted_devices", {
+    query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
+  });
 
   if (results && results.length > 0) {
     const device = results[0];
@@ -1143,7 +1075,7 @@ async function isDeviceTrusted(
       }
 
       if (shouldUpdate) {
-        await supabaseRequest(config, "trusted_devices", {
+        await supabaseRestRequest(config, "trusted_devices", {
           method: "PATCH",
           query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
           body: { last_used_at: now.toISOString() },
@@ -1160,7 +1092,7 @@ async function isDeviceTrusted(
  * Save verification code to database
  */
 async function saveVerificationCode(
-  config: SupabaseConfig,
+  config: SupabaseRestConfig,
   userId: string,
   clientId: string,
   code: string,
@@ -1169,12 +1101,12 @@ async function saveVerificationCode(
     Date.now() + VERIFICATION_CODE_EXPIRY_MINUTES * 60 * 1000,
   );
 
-  await supabaseRequest(config, "verification_codes", {
+  await supabaseRestRequest(config, "verification_codes", {
     method: "DELETE",
     query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
   });
 
-  await supabaseRequest(config, "verification_codes", {
+  await supabaseRestRequest(config, "verification_codes", {
     method: "POST",
     body: {
       user_id: userId,
@@ -1190,13 +1122,13 @@ async function saveVerificationCode(
  * Verify code and register device
  */
 async function verifyCodeAndRegisterDevice(
-  config: SupabaseConfig,
+  config: SupabaseRestConfig,
   userId: string,
   clientId: string,
   code: string,
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const results = await supabaseRequest<{ id: string }[]>(
+  const results = await supabaseRestRequest<{ id: string }[]>(
     config,
     "verification_codes",
     {
@@ -1208,13 +1140,13 @@ async function verifyCodeAndRegisterDevice(
     return false;
   }
 
-  await supabaseRequest(config, "verification_codes", {
+  await supabaseRestRequest(config, "verification_codes", {
     method: "PATCH",
     query: `?id=eq.${results[0].id}`,
     body: { is_used: true },
   });
 
-  await supabaseRequest(config, "trusted_devices", {
+  await supabaseRestRequest(config, "trusted_devices", {
     method: "POST",
     body: {
       user_id: userId,
@@ -1283,7 +1215,7 @@ const PERIOD_TAG_CACHE_KEY = "data_loader:latest_period_tag";
 const PERIOD_TAG_CACHE_TTL = 300; // 5 minutes
 
 async function getLatestPeriodTag(
-  config: SupabaseConfig,
+  config: SupabaseRestConfig,
   cacheKV?: KVNamespace,
 ): Promise<string | null> {
   // Try cache first (cache stores already-converted YYYY-MM-DD format)
@@ -1380,10 +1312,19 @@ app.get("/download-master", async (c) => {
   }
 
   const VALID_MASTER_TABLE_NAMES = new Set([
-    "mst_ship", "mst_shipgraph", "mst_slotitem", "mst_slotitem_equiptype",
-    "mst_payitem", "mst_equip_exslot", "mst_equip_exslot_ship",
-    "mst_equip_limit_exslot", "mst_equip_ship", "mst_stype",
-    "mst_map_area", "mst_map_info", "mst_ship_upgrade",
+    "mst_ship",
+    "mst_shipgraph",
+    "mst_slotitem",
+    "mst_slotitem_equiptype",
+    "mst_payitem",
+    "mst_equip_exslot",
+    "mst_equip_exslot_ship",
+    "mst_equip_limit_exslot",
+    "mst_equip_ship",
+    "mst_stype",
+    "mst_map_area",
+    "mst_map_info",
+    "mst_ship_upgrade",
   ]);
   if (!VALID_MASTER_TABLE_NAMES.has(tableName)) {
     return new Response("Invalid table_name", { status: 400 });
@@ -1391,7 +1332,7 @@ app.get("/download-master", async (c) => {
 
   try {
     const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return new Response("Invalid API key", { status: 403 });
     }
@@ -1411,7 +1352,7 @@ app.get("/download-master", async (c) => {
     }
 
     const trusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       kv,
@@ -1419,7 +1360,7 @@ app.get("/download-master", async (c) => {
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(
-        getSupabaseConfig(c),
+        getSupabaseRestConfig(c),
         apiKeyData.user_id,
         clientId,
         code,
@@ -1539,7 +1480,7 @@ app.post("/verify", async (c) => {
   }
 
   try {
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
@@ -1548,7 +1489,7 @@ app.post("/verify", async (c) => {
     }
 
     const success = await verifyCodeAndRegisterDevice(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       code,
@@ -1638,14 +1579,15 @@ app.post("/verify-google", async (c) => {
     return jsonResponse(
       {
         error: "MISSING_TOKEN",
-        message: "google_token is required for Google-based device verification",
+        message:
+          "google_token is required for Google-based device verification",
       },
       400,
     );
   }
 
   try {
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    const apiKeyData = await validateApiKey(getSupabaseRestConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse(
         { error: "INVALID_API_KEY", message: "Invalid or inactive API key" },
@@ -1708,13 +1650,13 @@ app.post("/verify-google", async (c) => {
 
     // Email matches - register device as trusted
     const alreadyTrusted = await isDeviceTrusted(
-      getSupabaseConfig(c),
+      getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
       env.runtime.DATA_LOADER_CACHE_KV,
     );
     if (!alreadyTrusted) {
-      await supabaseRequest(getSupabaseConfig(c), "trusted_devices", {
+      await supabaseRestRequest(getSupabaseRestConfig(c), "trusted_devices", {
         method: "POST",
         body: {
           user_id: apiKeyData.user_id,

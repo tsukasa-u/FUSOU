@@ -5,6 +5,7 @@ import {
   createEnvContext,
   getEnv,
   resolveSupabaseConfig,
+  validateJWT,
   verifyAdminToken,
 } from "../utils";
 import type { Bindings } from "../types";
@@ -90,9 +91,9 @@ app.get("/anonymous-sync/diagnostics", async (c) => {
  * POST /anonymous-sync
  *
  * Anonymous authentication endpoint for background session acquisition.
- * - Creates or restores anonymous Supabase session based on member_id_hash
+ * - Creates or restores per-device anonymous Supabase sessions based on member_id_hash
  * - Issues dataset_token (7-day TTL) for upload authorization
- * - Maintains 1:1 mapping between member_id_hash and anonymous user
+ * - Maintains a canonical dataset owner in user_member_map while allowing per-device sessions
  */
 app.post("/anonymous-sync", async (c) => {
   try {
@@ -185,6 +186,13 @@ app.post("/anonymous-sync", async (c) => {
 
     const anonClient = createClient(supabaseConfig.url, anonKey);
 
+    const currentBearer = c.req.header("Authorization")?.startsWith("Bearer ")
+      ? c.req.header("Authorization")!.slice(7).trim()
+      : null;
+    const currentSessionUser = currentBearer
+      ? await validateJWT(currentBearer)
+      : null;
+
     if (existing) {
       // Existing mapping found - validate user still exists
       userId = existing.user_id;
@@ -255,12 +263,8 @@ app.post("/anonymous-sync", async (c) => {
         accessToken = sessionData.session.access_token;
         refreshToken = sessionData.session.refresh_token;
         status = "recreated";
-      } else {
-        // User exists — issue dataset_token only. Do NOT call signInAnonymously:
-        // each call creates a new orphan Supabase anonymous user (different user_id
-        // than the existing mapping) and its access_token is inconsistent with
-        // dataset_token.sub. The client handles absent access_token by reusing its
-        // stored session (see fusou-auth/src/manager.rs get_or_refresh_anonymous_session).
+      } else if (currentSessionUser?.id) {
+        // Caller already has a valid per-device session; keep using it and only refresh dataset_token.
         const now = Math.floor(Date.now() / 1000);
         const secretKey = new TextEncoder().encode(datasetTokenSecret);
         const datasetToken = await new SignJWT({
@@ -279,6 +283,31 @@ app.post("/anonymous-sync", async (c) => {
           dataset_token: datasetToken,
           dataset_token_expires_at: now + 7 * 24 * 60 * 60,
         });
+      } else {
+        // Existing mapping found, but this device has no valid local session.
+        // Create a fresh anonymous session for this device while keeping dataset ownership
+        // bound to the canonical user_id already recorded in user_member_map.
+        const { data: sessionData, error: sessionError } =
+          await anonClient.auth.signInAnonymously({
+            options: {
+              data: { member_id_hash },
+            },
+          });
+
+        if (sessionError || !sessionData.session) {
+          console.error(
+            "[anonymous-sync] Failed to create per-device anonymous session for restored mapping:",
+            {
+              message: (sessionError as any)?.message,
+              status: (sessionError as any)?.status,
+              code: (sessionError as any)?.code,
+            },
+          );
+          return c.json({ error: "Failed to create session" }, 500);
+        }
+
+        accessToken = sessionData.session.access_token;
+        refreshToken = sessionData.session.refresh_token;
       }
     } else {
       // New user - create anonymous session and mapping
@@ -339,8 +368,8 @@ app.post("/anonymous-sync", async (c) => {
             { member_id_hash: member_id_hash.substring(0, 8) },
           );
 
-          // Return early with only dataset_token — the loser's Supabase session tokens
-          // belong to a different user and must not be sent to the client.
+          // Keep the winner's user_id as canonical dataset owner, but preserve the loser's
+          // fresh per-device session tokens so the current device can upload immediately.
           const raceNow = Math.floor(Date.now() / 1000);
           const raceSecretKey = new TextEncoder().encode(datasetTokenSecret);
           const raceDatasetToken = await new SignJWT({
@@ -356,6 +385,8 @@ app.post("/anonymous-sync", async (c) => {
 
           return c.json({
             status: "restored" as const,
+            access_token: sessionData.session.access_token,
+            refresh_token: sessionData.session.refresh_token,
             dataset_token: raceDatasetToken,
             dataset_token_expires_at: raceNow + 7 * 24 * 60 * 60,
           });
