@@ -150,6 +150,11 @@ impl StorageProvider for R2StorageProvider {
             // Master data (get_data_table) upload to master_data endpoint
             tracing::info!("R2StorageProvider::write_get_data_table CALLED for period={}", period_tag);
 
+            // Try to get dataset_id (member_id_hash). If unavailable, we still proceed via
+            // pending-store path so upload can be retried automatically once session/game state
+            // becomes ready.
+            let dataset_id = crate::util::get_user_member_id().await;
+
             // Check if master data upload is enabled
             let configs = configs::get_user_configs_for_app();
             let db_config = configs.database;
@@ -248,7 +253,10 @@ impl StorageProvider for R2StorageProvider {
 
             // Upload all master data in one request
             // Note: Even with 13 tables, concatenated may be small if most tables are empty
-            match self.upload_master_data_bulk(period_tag, concatenated, table_offsets_json, &master_endpoint).await {
+            match self
+                .upload_master_data_bulk(period_tag, concatenated, table_offsets_json, &dataset_id, &master_endpoint)
+                .await
+            {
                 Ok(_) => {
                     tracing::info!("Master data uploaded successfully for period={}", period_tag);
                 }
@@ -419,104 +427,51 @@ impl R2StorageProvider {
         period_tag: &str,
         concatenated_data: Vec<u8>,
         table_offsets_json: String,
+        dataset_id: &str,
         endpoint: &str,
     ) -> Result<(), StorageError> {
-        use sha2::{Sha256, Digest};
-
         tracing::debug!("Uploading master data (bulk): period={}, size={} bytes", period_tag, concatenated_data.len());
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
 
-        // Compute content hash
-        let mut hasher = Sha256::new();
-        hasher.update(&concatenated_data);
-        let hash = hasher.finalize();
-        let content_hash = format!("{:x}", hash);
-
-        // Get auth token from auth manager
-        let access_token = self.auth_manager.get_access_token().await
-            .map_err(|e| StorageError::Operation(format!("Failed to get access token: {}", e)))?;
-
-        let client = reqwest::Client::new();
-
-        // Stage 1: Preparation (claim ownership via D1 UNIQUE constraint)
-        // CRITICAL: table_offsets MUST be a JSON string in the body
-        // Server expects: body.table_offsets === "string" && JSON.parse(body.table_offsets) = array
-        // So we send: { "kc_period_tag": "...", "table_offsets": "[{...}]", ... }
-        let prep_body = serde_json::json!({
+        // Keep dataset_id in payload so Uploader can auto-resolve/refresh dataset_token.
+        let handshake_body = serde_json::json!({
             "kc_period_tag": period_tag,
-            "content_hash": content_hash,
-            "file_size": concatenated_data.len(),
-            "table_offsets": table_offsets_json,  // JSON string (not parsed)
+            "dataset_id": dataset_id,
+            "file_size": concatenated_data.len().to_string(),
+            "table_offsets": table_offsets_json,
             "table_version": DATABASE_TABLE_VERSION,
         });
 
-        tracing::debug!("Preparation body: {}", prep_body);
+        let request = UploadRequest {
+            endpoint,
+            handshake_body,
+            data: concatenated_data,
+            headers,
+            context: UploadContext::Custom(serde_json::json!({
+                "provider": "r2",
+                "operation": "master_data_bulk",
+                "endpoint": endpoint,
+                "period_tag": period_tag,
+                "dataset_id": dataset_id,
+                "table_offsets": table_offsets_json,
+                "table_version": DATABASE_TABLE_VERSION,
+            })),
+        };
 
-        let prep_response = client
-            .post(endpoint)
-            .header("Authorization", format!("Bearer {}", access_token))
-            .json(&prep_body)
-            .send()
-            .await
-            .map_err(|e| StorageError::Operation(format!("Preparation request failed: {}", e)))?;
-
-        match prep_response.status().as_u16() {
-            200 => {
-                // We successfully claimed ownership, proceed with upload
-                let prep_data: serde_json::Value = prep_response
-                    .json()
-                    .await
-                    .map_err(|e| StorageError::Operation(format!("Failed to parse prep response: {}", e)))?;
-
-                tracing::info!("Master data prep response: {}", prep_data);
-
-                let upload_url = prep_data
-                    .get("uploadUrl")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| StorageError::Operation("No uploadUrl in prep response".to_string()))?;
-
-                let token = prep_data
-                    .get("token")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| StorageError::Operation("No token in prep response".to_string()))?;
-
-                tracing::info!("Master data prep successful for period={}", period_tag);
-
-                // Stage 2: Upload binary data to the pre-signed URL
-                let upload_response = client
-                    .post(upload_url)
-                    .header("Content-Type", "application/octet-stream")
-                    // Use Authorization for user JWT and X-Upload-Token for upload token (raw token)
-                    .header("Authorization", format!("Bearer {}", access_token))
-                    .header("X-Upload-Token", token)
-                    .body(concatenated_data.clone())
-                    .send()
-                    .await
-                    .map_err(|e| StorageError::Operation(format!("Data upload failed: {}", e)))?;
-
-                let upload_status = upload_response.status();
-                if !upload_status.is_success() {
-                    let error_body = upload_response.text().await.unwrap_or_default();
-                    tracing::error!("Master data upload failed: status={}", upload_status);
-                    tracing::error!("Response body: {}", error_body);
-                    return Err(StorageError::Operation(format!("Upload failed with status {}: {}", upload_status, error_body)));
-                }
-
+        let client = reqwest::Client::new();
+        match Uploader::upload(&client, &self.auth_manager, request, Some(&self.pending_store)).await {
+            Ok(UploadResult::Success) => {
                 tracing::info!("Master data upload+finalize completed for period={}", period_tag);
-
-                // No additional stage needed: handleTwoStageUpload execution step already performs
-                // hash verification, R2 upload, and D1 finalization in a single call.
                 Ok(())
             }
-            409 => {
-                // Another user already uploaded this master data - that's fine
+            Ok(UploadResult::Skipped) => {
                 tracing::info!("Master data already uploaded by another user for period={}", period_tag);
                 Ok(())
             }
-            status => {
-                tracing::error!("Master data preparation failed: status={}", status);
-                let error_body = prep_response.text().await.unwrap_or_default();
-                tracing::error!("Response body: {}", error_body);
-                Err(StorageError::Operation(format!("Preparation failed with status {}: {}", status, error_body)))
+            Err(e) => {
+                tracing::error!("Master data upload failed: {}", e);
+                Err(StorageError::Operation(format!("Master data upload failed: {}", e)))
             }
         }
     }

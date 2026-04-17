@@ -27,7 +27,7 @@ use configs::ConfigsAppAssetSync;
 
 use fusou_upload::{
     LocalRequestSuppressionCache, PendingStore, UploadContext, UploadRequest, UploadResult,
-    Uploader,
+    UploadRetryService, Uploader,
 };
 use reqwest::StatusCode;
 
@@ -47,6 +47,8 @@ static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| 
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
 // Counter for monitoring dropped assets due to queue backpressure
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
+// Counter for monitoring notifications that were deferred because queue was full
+static DEFERRED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
 static BLOCKED_EXTENSIONS: OnceLock<Vec<String>> = OnceLock::new();
 const ASSET_REQUEST_CACHE_FILE: &str = "asset_request_suppression_cache.json";
 
@@ -149,10 +151,12 @@ pub struct AssetSyncInit {
     pub scan_interval: Duration,
     pub require_supabase_auth: bool,
     pub finder_tag: Option<String>,
+    pub dataset_id: Option<String>,
     pub period_endpoint: Option<String>,
     pub blocked_extensions: Vec<String>,
     pub existing_keys_endpoint: Option<String>,
     pub auth_backoff_secs: u64,
+    pub retry_interval_secs: u64,
 }
 
 impl AssetSyncInit {
@@ -172,6 +176,7 @@ impl AssetSyncInit {
         let blocked_extensions = config.get_skip_extensions();
         let existing_keys_endpoint = config.get_existing_keys_endpoint();
         let auth_backoff_secs = config.retry.get_auth_backoff_seconds();
+        let retry_interval_secs = config.retry.get_interval_seconds().max(1);
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -185,11 +190,13 @@ impl AssetSyncInit {
             key_prefix,
             scan_interval,
             require_supabase_auth: true,
+            dataset_id: finder_tag.clone(),
             finder_tag,
             period_endpoint,
             blocked_extensions,
             existing_keys_endpoint,
             auth_backoff_secs,
+            retry_interval_secs,
         })
     }
 }
@@ -235,6 +242,11 @@ pub fn start(
     let pending_dir = init.save_root.join("pending");
     let pending_store = Arc::new(PendingStore::new(pending_dir));
     let _ = PENDING_STORE.set(pending_store.clone());
+    let retry_service = Arc::new(UploadRetryService::new(
+        pending_store.clone(),
+        auth_manager.clone(),
+        None,
+    ));
 
     let _ = BLOCKED_EXTENSIONS.set(init.blocked_extensions.clone());
 
@@ -244,9 +256,29 @@ pub fn start(
 
     let settings = Arc::new(init);
     let worker_settings = settings.clone();
+    let retry_service_for_worker = retry_service.clone();
     let handle = tokio::spawn(async move {
-        if let Err(err) = run_worker(worker_settings, auth_manager, rx, pending_store).await {
+        if let Err(err) = run_worker(
+            worker_settings,
+            auth_manager,
+            rx,
+            pending_store,
+            retry_service_for_worker,
+        )
+        .await
+        {
             tracing::error!(error = %err, "asset sync worker stopped");
+        }
+    });
+
+    let retry_service_for_background = retry_service.clone();
+    let retry_interval_secs = settings.retry_interval_secs;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(retry_interval_secs));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            retry_service_for_background.trigger_retry().await;
         }
     });
 
@@ -264,7 +296,8 @@ pub fn start(
     Ok(())
 }
 
-// Phase 2: Implement backpressure handling with try_send
+// Phase 2: Implement backpressure handling with try_send.
+// If queue is full, defer enqueue asynchronously instead of dropping notifications.
 pub fn notify_new_asset(path: PathBuf) {
     // Pre-filter blocked extensions before enqueuing to avoid filling the queue
     // with files that would be discarded anyway in process_path
@@ -280,20 +313,37 @@ pub fn notify_new_asset(path: PathBuf) {
             Ok(()) => {
                 tracing::debug!(path = ?path, "Asset queued for sync");
             }
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                // Queue is full - backpressure activated
-                // Asset is dropped, HTTP handler continues without blocking
+            Err(mpsc::error::TrySendError::Full(path_to_retry)) => {
+                // Queue is full - defer enqueue without blocking current request path.
+                let deferred_count = DEFERRED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::warn!(
+                    path = ?path_to_retry,
+                    deferred_count = deferred_count,
+                    capacity = ASSET_SYNC_QUEUE_CAPACITY,
+                    "asset sync queue full, deferring asset enqueue: backpressure activated"
+                );
+
+                let tx = queue.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = tx.send(path_to_retry.clone()).await {
+                        let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                        tracing::warn!(
+                            path = ?path_to_retry,
+                            dropped_count = dropped_count,
+                            error = ?e,
+                            "deferred asset enqueue failed; notification dropped"
+                        );
+                    }
+                });
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Worker is not running - skip silently
                 let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 tracing::warn!(
                     path = ?path,
                     dropped_count = dropped_count,
-                    capacity = ASSET_SYNC_QUEUE_CAPACITY,
-                    "asset sync queue full, dropping asset: backpressure activated"
+                    "asset sync worker not running; notification dropped"
                 );
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                // Worker is not running - skip silently
-                tracing::debug!(path = ?path, "asset sync worker not running, skipping notify");
             }
         }
     }
@@ -313,6 +363,7 @@ async fn run_worker(
     auth_manager: Arc<AuthManager<FileStorage>>,
     mut rx: mpsc::Receiver<PathBuf>,
     pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
 ) -> Result<(), String> {
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
@@ -335,6 +386,7 @@ async fn run_worker(
         if let Err(err) = maybe_refresh_existing_keys(&client, &settings, &auth_manager).await {
             tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
         }
+        retry_service.trigger_retry().await;
     }
 
     while let Some(path) = rx.recv().await {
@@ -347,13 +399,37 @@ async fn run_worker(
             }
         } else {
             // Auth not ready: re-enqueue so the path is not silently dropped.
-            // If the queue is full we warn and drop; brief sleep avoids a tight loop
-            // during extended auth-unavailability windows.
+            // If queue is full, defer send asynchronously instead of dropping.
             if let Some(tx) = ASSET_SYNC_QUEUE.get() {
                 match tx.try_send(path.clone()) {
                     Ok(()) => {}
-                    Err(_) => {
-                        tracing::warn!(path = ?path, "auth not ready and queue full; dropping asset path");
+                    Err(mpsc::error::TrySendError::Full(path_to_retry)) => {
+                        let deferred_count = DEFERRED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                        tracing::warn!(
+                            path = ?path_to_retry,
+                            deferred_count = deferred_count,
+                            "auth not ready and queue full; deferring re-enqueue"
+                        );
+                        let tx_clone = tx.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = tx_clone.send(path_to_retry.clone()).await {
+                                let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                                tracing::warn!(
+                                    path = ?path_to_retry,
+                                    dropped_count = dropped_count,
+                                    error = ?e,
+                                    "auth-not-ready deferred re-enqueue failed; notification dropped"
+                                );
+                            }
+                        });
+                    }
+                    Err(mpsc::error::TrySendError::Closed(path_to_retry)) => {
+                        let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                        tracing::warn!(
+                            path = ?path_to_retry,
+                            dropped_count = dropped_count,
+                            "auth not ready and queue closed; notification dropped"
+                        );
                     }
                 }
             }
@@ -656,6 +732,19 @@ pub async fn upload_via_api(
 ) -> Result<(), String> {
     tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
 
+    let resolved_dataset_id = auth_manager
+        .resolve_dataset_id_for_upload(None)
+        .await
+        .or_else(|| settings.dataset_id.clone());
+
+    if resolved_dataset_id.as_deref() != settings.dataset_id.as_deref() {
+        tracing::info!(
+            configured = ?settings.dataset_id,
+            resolved = ?resolved_dataset_id,
+            "asset sync resolved updated dataset_id from auth state"
+        );
+    }
+
     let filename = relative
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -668,6 +757,7 @@ pub async fn upload_via_api(
         &relative.to_string_lossy(),
         file_size,
         Some(&filename),
+        resolved_dataset_id.as_deref(),
     );
 
     let mut headers = std::collections::HashMap::new();
@@ -685,6 +775,7 @@ pub async fn upload_via_api(
             relative_path: relative.to_string_lossy().to_string(),
             key: key.to_string(),
             file_size,
+            dataset_id: resolved_dataset_id,
             content_type: Some(content_type),
         },
     };

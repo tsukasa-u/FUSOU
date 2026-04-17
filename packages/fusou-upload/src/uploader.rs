@@ -73,6 +73,7 @@ pub enum UploadContext {
         relative_path: String,
         key: String,
         file_size: u64,
+        dataset_id: Option<String>,
         content_type: Option<String>,
     },
     Snapshot {
@@ -97,6 +98,13 @@ pub enum UploadResult {
 pub struct Uploader;
 
 impl Uploader {
+    fn compute_content_hash(data: &[u8]) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let digest = hasher.finalize();
+        hex::encode(digest)
+    }
+
     fn extract_dataset_id(handshake_body: &serde_json::Value) -> Option<&str> {
         handshake_body
             .as_object()
@@ -151,6 +159,7 @@ impl Uploader {
         relative_path: &str,
         declared_size: u64,
         file_name: Option<&str>,
+        dataset_id: Option<&str>,
     ) -> serde_json::Value {
         let mut obj = serde_json::json!({
             "key": key,
@@ -165,6 +174,14 @@ impl Uploader {
                 );
             }
         }
+        if let Some(dataset_id) = dataset_id {
+            if let Some(map) = obj.as_object_mut() {
+                map.insert(
+                    "dataset_id".to_string(),
+                    serde_json::Value::String(dataset_id.to_string()),
+                );
+            }
+        }
         obj
     }
     pub async fn upload(
@@ -173,6 +190,7 @@ impl Uploader {
         request: UploadRequest<'_>,
         pending_store: Option<&PendingStore>,
     ) -> Result<UploadResult, String> {
+        let content_hash = Self::compute_content_hash(&request.data);
         let result = Self::perform_upload(client, auth_manager, &request).await;
 
         if let Err(err) = &result {
@@ -181,9 +199,13 @@ impl Uploader {
 
             if let Some(store) = pending_store {
                 let context_json = serde_json::to_string(&request.context).unwrap_or_default();
+                let mut pending_headers = request.headers.clone();
+                pending_headers
+                    .entry("content-hash".to_string())
+                    .or_insert(content_hash);
                 if let Err(e) = store.save_pending(
                     request.endpoint,
-                    &request.headers,
+                    &pending_headers,
                     &request.data,
                     Some(context_json),
                 ) {
@@ -204,11 +226,7 @@ impl Uploader {
         auth_manager: &AuthManager<FileStorage>,
         request: &UploadRequest<'_>,
     ) -> Result<UploadResult, UploadError> {
-        // Compute SHA-256 hash of the upload data
-        let mut hasher = Sha256::new();
-        hasher.update(&request.data);
-        let digest = hasher.finalize();
-        let content_hash = hex::encode(digest);
+        let content_hash = Self::compute_content_hash(&request.data);
 
         // Merge content_hash into handshake_body
         let mut handshake_body = request.handshake_body.clone();

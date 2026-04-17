@@ -232,10 +232,7 @@ impl<S: Storage> AuthManager<S> {
     }
 
     pub async fn is_authenticated(&self) -> bool {
-        match self.storage.load_session().await {
-            Ok(Some(session)) => !session.refresh_token.is_empty(),
-            _ => false,
-        }
+        self.get_access_token().await.is_ok()
     }
 
     pub async fn save_session(&self, session: &Session) -> Result<(), AuthError> {
@@ -618,5 +615,68 @@ impl<S: Storage> AuthManager<S> {
         let mut cache = self.dataset_token_cache.lock().await;
         *cache = store;
         Ok(None)
+    }
+
+    /// Resolve the dataset_id to use for uploads.
+    ///
+    /// Priority:
+    /// 1. `preferred_dataset_id` when explicitly provided (used by retry paths to keep original ownership).
+    /// 2. The non-expired dataset_id with the latest expiry in cache/disk store.
+    pub async fn resolve_dataset_id_for_upload(
+        &self,
+        preferred_dataset_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(preferred) = preferred_dataset_id
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            return Some(preferred.to_string());
+        }
+
+        let now = Utc::now();
+
+        {
+            let cache = self.dataset_token_cache.lock().await;
+            let mut best: Option<(String, DateTime<Utc>)> = None;
+            for (dataset_id, token) in cache.tokens.iter() {
+                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                    continue;
+                }
+                let replace = match &best {
+                    Some((_, exp)) => token.expires_at > *exp,
+                    None => true,
+                };
+                if replace {
+                    best = Some((dataset_id.clone(), token.expires_at));
+                }
+            }
+            if let Some((dataset_id, _)) = best {
+                return Some(dataset_id);
+            }
+        }
+
+        if let Ok(store) = self.read_dataset_token_store_from_disk().await {
+            let mut best: Option<(String, DateTime<Utc>)> = None;
+            for (dataset_id, token) in store.tokens.iter() {
+                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                    continue;
+                }
+                let replace = match &best {
+                    Some((_, exp)) => token.expires_at > *exp,
+                    None => true,
+                };
+                if replace {
+                    best = Some((dataset_id.clone(), token.expires_at));
+                }
+            }
+
+            if let Some((dataset_id, _)) = best {
+                let mut cache = self.dataset_token_cache.lock().await;
+                *cache = store;
+                return Some(dataset_id);
+            }
+        }
+
+        None
     }
 }

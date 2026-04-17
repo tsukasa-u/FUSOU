@@ -1,252 +1,349 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use fusou_auth::{AuthManager, FileStorage};
-use fusou_upload::{Uploader, UploadRequest, UploadContext};
 use fusou_upload::retry_service::RetryHandler;
+use fusou_upload::{UploadContext, UploadRequest, Uploader};
 use kc_api::database::DATABASE_TABLE_VERSION;
 
+#[cfg(feature = "gdrive")]
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
+
+type RetryResult = Result<(), Box<dyn std::error::Error>>;
 
 pub struct AppUploadRetryHandler {
     auth_manager: Arc<AuthManager<FileStorage>>,
+}
+
+#[derive(Clone, Copy)]
+enum PayloadHashMode {
+    ContextPayloadHash,
+    ComputedContentHash,
 }
 
 impl AppUploadRetryHandler {
     pub fn new(auth_manager: Arc<AuthManager<FileStorage>>) -> Self {
         Self { auth_manager }
     }
+
+    fn build_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .unwrap_or_default()
+    }
+
+    async fn upload_request(&self, request: UploadRequest<'_>) -> RetryResult {
+        let client = Self::build_client();
+        Uploader::upload(&client, &self.auth_manager, request, None)
+            .await
+            .map(|_| ())
+            .map_err(|e| e.into())
+    }
+
+    fn endpoint_from_context<'a>(
+        &self,
+        context: &'a serde_json::Value,
+    ) -> Result<&'a str, Box<dyn std::error::Error>> {
+        context
+            .get("endpoint")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "missing endpoint".into())
+    }
+
+    fn upload_request_with_custom_context<'a>(
+        &self,
+        endpoint: &'a str,
+        handshake_body: serde_json::Value,
+        data: &'a [u8],
+        headers: HashMap<String, String>,
+        context: &'a serde_json::Value,
+    ) -> UploadRequest<'a> {
+        UploadRequest {
+            endpoint,
+            handshake_body,
+            data: data.to_vec(),
+            headers,
+            context: UploadContext::Custom(context.clone()),
+        }
+    }
+
+    async fn handle_context(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
+        if let Some(provider) = context.get("provider").and_then(|v| v.as_str()) {
+            return self.handle_provider_retry(provider, context, data).await;
+        }
+
+        if let Some(operation) = context.get("operation").and_then(|v| v.as_str()) {
+            return self.handle_operation_retry(operation, context, data).await;
+        }
+
+        Err("unknown retry context".into())
+    }
+
+    async fn handle_provider_retry(
+        &self,
+        provider: &str,
+        context: &serde_json::Value,
+        data: &[u8],
+    ) -> RetryResult {
+        match provider {
+            "r2" => {
+                if context.get("operation").and_then(|v| v.as_str()) == Some("master_data_bulk") {
+                    return self.handle_master_data_bulk_retry(context, data).await;
+                }
+                self.handle_r2_retry(context, data).await
+            }
+            _ => Err("unsupported provider".into()),
+        }
+    }
+
+    async fn handle_r2_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
+        let path_tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
+        let period_tag = context.get("period_tag").and_then(|v| v.as_str()).unwrap_or("0");
+        let dataset_id = context
+            .get("dataset_id")
+            .and_then(|v| v.as_str())
+            .ok_or("missing dataset_id")?;
+        let table = context.get("table").and_then(|v| v.as_str()).unwrap_or("port_table");
+        let table_offsets = context
+            .get("table_offsets")
+            .and_then(|v| v.as_str())
+            .ok_or("missing table_offsets")?;
+
+        let endpoint = configs::get_user_configs_for_app()
+            .database
+            .r2
+            .get_upload_endpoint()
+            .ok_or("r2 upload endpoint not configured")?;
+
+        let table_version = context
+            .get("table_version")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DATABASE_TABLE_VERSION);
+
+        let handshake_body = Uploader::build_battle_data_handshake(
+            period_tag,
+            path_tag,
+            dataset_id,
+            table,
+            data.len() as u64,
+            table_offsets,
+            table_version,
+        );
+
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+
+        let request = self.upload_request_with_custom_context(
+            &endpoint,
+            handshake_body,
+            data,
+            headers,
+            context,
+        );
+        self.upload_request(request).await
+    }
+
+    async fn handle_master_data_bulk_retry(
+        &self,
+        context: &serde_json::Value,
+        data: &[u8],
+    ) -> RetryResult {
+        let endpoint = self.endpoint_from_context(context)?;
+        let period_tag = context
+            .get("period_tag")
+            .and_then(|v| v.as_str())
+            .ok_or("missing period_tag")?;
+        let table_offsets = context
+            .get("table_offsets")
+            .and_then(|v| v.as_str())
+            .ok_or("missing table_offsets")?;
+        let table_version = context
+            .get("table_version")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DATABASE_TABLE_VERSION);
+        let dataset_id = self.resolve_dataset_id_for_master_data(context).await?;
+
+        let handshake_body = serde_json::json!({
+            "kc_period_tag": period_tag,
+            "dataset_id": dataset_id,
+            "file_size": data.len().to_string(),
+            "table_offsets": table_offsets,
+            "table_version": table_version,
+        });
+
+        let mut headers = HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+
+        let request = self.upload_request_with_custom_context(
+            endpoint,
+            handshake_body,
+            data,
+            headers,
+            context,
+        );
+        self.upload_request(request).await
+    }
+
+    async fn resolve_dataset_id_for_master_data(
+        &self,
+        context: &serde_json::Value,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let from_context = context
+            .get("dataset_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        let dataset_id = if !from_context.is_empty() {
+            from_context
+        } else {
+            crate::util::get_user_member_id().await
+        };
+
+        if dataset_id.trim().is_empty() {
+            Err("dataset_id not ready for master_data_bulk retry".into())
+        } else {
+            Ok(dataset_id)
+        }
+    }
+
+    async fn handle_operation_retry(
+        &self,
+        operation: &str,
+        context: &serde_json::Value,
+        data: &[u8],
+    ) -> RetryResult {
+        match operation {
+            "quest_ingest" => {
+                self.handle_payload_retry(context, data, PayloadHashMode::ContextPayloadHash)
+                    .await
+            }
+            "ship_growth_ingest" | "remodel_data_ingest" => {
+                self.handle_payload_retry(context, data, PayloadHashMode::ComputedContentHash)
+                    .await
+            }
+            #[cfg(feature = "gdrive")]
+            "upload" => self.handle_gdrive_retry(context, data).await,
+            _ => Err("unsupported operation".into()),
+        }
+    }
+
+    async fn handle_payload_retry(
+        &self,
+        context: &serde_json::Value,
+        data: &[u8],
+        hash_mode: PayloadHashMode,
+    ) -> RetryResult {
+        let endpoint = self.endpoint_from_context(context)?;
+        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
+
+        if let Some(obj) = handshake_body.as_object_mut() {
+            obj.insert(
+                "file_size".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
+            );
+        }
+
+        let headers = self.headers_for_payload_retry(context, data, hash_mode);
+        let request = self.upload_request_with_custom_context(
+            endpoint,
+            handshake_body,
+            data,
+            headers,
+            context,
+        );
+        self.upload_request(request).await
+    }
+
+    fn headers_for_payload_retry(
+        &self,
+        context: &serde_json::Value,
+        data: &[u8],
+        hash_mode: PayloadHashMode,
+    ) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+
+        match hash_mode {
+            PayloadHashMode::ContextPayloadHash => {
+                if let Some(hash) = context.get("payload_hash").and_then(|v| v.as_str()) {
+                    headers.insert("content-hash".to_string(), hash.to_string());
+                }
+            }
+            PayloadHashMode::ComputedContentHash => {
+                headers.insert("content-hash".to_string(), self.compute_content_hash(data));
+            }
+        }
+
+        headers
+    }
+
+    fn compute_content_hash(&self, data: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        format!("{:x}", hasher.finalize())
+    }
+
+    #[cfg(feature = "gdrive")]
+    async fn handle_gdrive_retry(
+        &self,
+        context: &serde_json::Value,
+        data: &[u8],
+    ) -> RetryResult {
+        let remote_path = context
+            .get("remote_path")
+            .and_then(|v| v.as_str())
+            .ok_or("missing remote_path")?;
+
+        let cloud = CloudProviderFactory::create("google")
+            .map_err(|e| format!("cloud provider init failed: {}", e))?;
+
+        let mut temp_path = std::env::temp_dir();
+        temp_path.push(format!("fusou-retry-{}", uuid::Uuid::new_v4()));
+        {
+            use tokio::io::AsyncWriteExt;
+
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
+                .await?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+
+                tokio::fs::set_permissions(
+                    &temp_path,
+                    std::fs::Permissions::from_mode(0o600),
+                )
+                .await?;
+            }
+            file.write_all(data).await?;
+        }
+
+        let upload_result = cloud
+            .upload_file(temp_path.as_path(), remote_path)
+            .await
+            .map_err(|e| format!("cloud upload failed: {}", e));
+
+        let _ = tokio::fs::remove_file(&temp_path).await;
+        upload_result?;
+        Ok(())
+    }
 }
 
 impl RetryHandler for AppUploadRetryHandler {
-    fn handle<'a>(&'a self, context: &'a serde_json::Value, data: &'a [u8]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>> {
-        Box::pin(async move {
-            // Route by provider/operation in context
-            if let Some(provider) = context.get("provider").and_then(|v| v.as_str()) {
-                match provider {
-                    "r2" => {
-                        // Expect fields: tag (path_tag), period_tag, dataset_id, table, table_offsets
-                        let path_tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
-                        let period_tag = context.get("period_tag").and_then(|v| v.as_str()).unwrap_or("0");
-                        let dataset_id = context.get("dataset_id").and_then(|v| v.as_str()).ok_or("missing dataset_id")?;
-                        let table = context.get("table").and_then(|v| v.as_str()).unwrap_or("port_table");
-                        let table_offsets = context.get("table_offsets").and_then(|v| v.as_str()).ok_or("missing table_offsets")?;
-
-                        let endpoint = configs::get_user_configs_for_app()
-                            .database
-                            .r2
-                            .get_upload_endpoint()
-                            .ok_or("r2 upload endpoint not configured")?;
-
-                        let file_size = data.len() as u64;
-                        // Use saved table_version from context to avoid version mismatch after app upgrade
-                        let table_version = context.get("table_version")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or(DATABASE_TABLE_VERSION);
-                        let handshake_body = Uploader::build_battle_data_handshake(
-                            period_tag,
-                            path_tag,
-                            dataset_id,
-                            table,
-                            file_size,
-                            table_offsets,
-                            table_version,
-                        );
-
-                        let mut headers = std::collections::HashMap::new();
-                        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
-
-                        let request = UploadRequest {
-                            endpoint: &endpoint,
-                            handshake_body,
-                            data: data.to_vec(),
-                            headers,
-                            context: UploadContext::Custom(context.clone()),
-                        };
-
-                        let client = reqwest::Client::builder()
-                            .connect_timeout(std::time::Duration::from_secs(10))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .build()
-                            .unwrap_or_default();
-                        // Use the same auth manager to obtain token inside Uploader
-                        Uploader::upload(&client, &self.auth_manager, request, None)
-                            .await
-                            .map(|_| ())
-                            .map_err(|e| e.into())
-                    }
-                    _ => Err("unsupported provider".into()),
-                }
-            } else if let Some(op) = context.get("operation").and_then(|v| v.as_str()) {
-                match op {
-                    "quest_ingest" => {
-                        let endpoint = context
-                            .get("endpoint")
-                            .and_then(|v| v.as_str())
-                            .ok_or("missing endpoint")?;
-                        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
-                        if let Some(obj) = handshake_body.as_object_mut() {
-                            obj.insert(
-                                "file_size".to_string(),
-                                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
-                            );
-                        }
-
-                        let request = UploadRequest {
-                            endpoint,
-                            handshake_body,
-                            data: data.to_vec(),
-                            headers: {
-                                let mut h = std::collections::HashMap::new();
-                                // payload_hash is used as the content-hash header for quest retries
-                                // (consistent with the original send path which also uses payload_hash)
-                                if let Some(hash) = context.get("payload_hash").and_then(|v| v.as_str()) {
-                                    h.insert("content-hash".to_string(), hash.to_string());
-                                }
-                                h
-                            },
-                            context: UploadContext::Custom(context.clone()),
-                        };
-
-                        let client = reqwest::Client::builder()
-                            .connect_timeout(std::time::Duration::from_secs(10))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .build()
-                            .unwrap_or_default();
-                        Uploader::upload(&client, &self.auth_manager, request, None)
-                            .await
-                            .map(|_| ())
-                            .map_err(|e| e.into())
-                    }
-                    "ship_growth_ingest" => {
-                        let endpoint = context
-                            .get("endpoint")
-                            .and_then(|v| v.as_str())
-                            .ok_or("missing endpoint")?;
-                        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
-                        // The persisted data is the raw upload payload (no file_size or
-                        // content_hash). Add file_size here; content_hash is injected by the
-                        // uploader (sha256 of request.data).
-                        if let Some(obj) = handshake_body.as_object_mut() {
-                            obj.insert(
-                                "file_size".to_string(),
-                                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
-                            );
-                        }
-
-                        // content-hash header must match actual upload content, not payload_hash.
-                        let content_hash = {
-                            use sha2::{Digest, Sha256};
-                            let mut h = Sha256::new();
-                            h.update(data);
-                            format!("{:x}", h.finalize())
-                        };
-
-                        let request = UploadRequest {
-                            endpoint,
-                            handshake_body,
-                            data: data.to_vec(),
-                            headers: {
-                                let mut h = std::collections::HashMap::new();
-                                h.insert("content-hash".to_string(), content_hash);
-                                h
-                            },
-                            context: UploadContext::Custom(context.clone()),
-                        };
-
-                        let client = reqwest::Client::builder()
-                            .connect_timeout(std::time::Duration::from_secs(10))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .build()
-                            .unwrap_or_default();
-                        Uploader::upload(&client, &self.auth_manager, request, None)
-                            .await
-                            .map(|_| ())
-                            .map_err(|e| e.into())
-                    }
-                    // Google Drive re-upload (only available with gdrive feature)
-                    #[cfg(feature = "gdrive")]
-                    "upload" => {
-                        let remote_path = context.get("remote_path").and_then(|v| v.as_str()).ok_or("missing remote_path")?;
-
-                        let cloud = CloudProviderFactory::create("google")
-                            .map_err(|e| format!("cloud provider init failed: {}", e))?;
-
-                        // Write data to a temporary file then upload
-                        let mut temp_path = std::env::temp_dir();
-                        temp_path.push(format!("fusou-retry-{}", uuid::Uuid::new_v4()));
-                        {
-                            use tokio::io::AsyncWriteExt;
-                            let mut file = tokio::fs::OpenOptions::new()
-                                .write(true)
-                                .create_new(true)
-                                .open(&temp_path)
-                                .await?;
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                tokio::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600)).await?;
-                            }
-                            file.write_all(data).await?;
-                        }
-
-                        let upload_result = cloud
-                            .upload_file(temp_path.as_path(), remote_path)
-                            .await
-                            .map_err(|e| format!("cloud upload failed: {}", e));
-
-                        let _ = tokio::fs::remove_file(&temp_path).await;
-                        upload_result?;
-                        Ok(())
-                    }
-                    "remodel_data_ingest" => {
-                        let endpoint = context
-                            .get("endpoint")
-                            .and_then(|v| v.as_str())
-                            .ok_or("missing endpoint")?;
-                        let mut handshake_body: serde_json::Value = serde_json::from_slice(data)?;
-                        if let Some(obj) = handshake_body.as_object_mut() {
-                            obj.insert(
-                                "file_size".to_string(),
-                                serde_json::Value::Number(serde_json::Number::from(data.len() as u64)),
-                            );
-                        }
-
-                        // content-hash header must match actual upload content, not payload_hash
-                        // (payload_hash is sha256 of the inner struct, not the full envelope bytes)
-                        let content_hash = {
-                            use sha2::{Digest, Sha256};
-                            let mut h = Sha256::new();
-                            h.update(data);
-                            format!("{:x}", h.finalize())
-                        };
-
-                        let request = UploadRequest {
-                            endpoint,
-                            handshake_body,
-                            data: data.to_vec(),
-                            headers: {
-                                let mut h = std::collections::HashMap::new();
-                                h.insert("content-hash".to_string(), content_hash);
-                                h
-                            },
-                            context: UploadContext::Custom(context.clone()),
-                        };
-
-                        let client = reqwest::Client::builder()
-                            .connect_timeout(std::time::Duration::from_secs(10))
-                            .timeout(std::time::Duration::from_secs(60))
-                            .build()
-                            .unwrap_or_default();
-                        Uploader::upload(&client, &self.auth_manager, request, None)
-                            .await
-                            .map(|_| ())
-                            .map_err(|e| e.into())
-                    }
-                    _ => Err("unsupported operation".into()),
-                }
-            } else {
-                Err("unknown retry context".into())
-            }
-        })
+    fn handle<'a>(
+        &'a self,
+        context: &'a serde_json::Value,
+        data: &'a [u8],
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + 'a>,
+    > {
+        Box::pin(async move { self.handle_context(context, data).await })
     }
 }

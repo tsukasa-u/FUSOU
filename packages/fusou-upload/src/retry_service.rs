@@ -7,9 +7,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
+use configs::get_user_configs;
 use crate::pending_store::{PendingMeta, PendingStore};
 use crate::uploader::{UploadContext, UploadRequest, Uploader};
-use configs::get_user_configs;
 use fusou_auth::{AuthManager, FileStorage};
 
 pub trait RetryHandler: Send + Sync {
@@ -251,26 +251,40 @@ impl UploadRetryService {
                 relative_path,
                 key,
                 file_size,
+                dataset_id,
                 content_type,
             } => {
-                // Reconstruct Asset Handshake
-                let configs = get_user_configs();
-                let app_configs = configs.app;
-                let finder_tag = app_configs.asset_sync.get_finder_tag();
+                let resolved_dataset_id = if dataset_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .is_some()
+                {
+                    dataset_id.clone()
+                } else {
+                    auth_manager.resolve_dataset_id_for_upload(None).await
+                };
+
+                if dataset_id.is_none() && resolved_dataset_id.is_some() {
+                    tracing::info!(
+                        original = ?dataset_id,
+                        resolved = ?resolved_dataset_id,
+                        "retry service filled missing asset dataset_id from latest auth-linked value"
+                    );
+                }
 
                 let filename = Path::new(&relative_path)
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "asset.bin".to_string());
 
-                let handshake_body = serde_json::json!({
-                    "key": key,
-                    "relative_path": relative_path,
-                    "file_size": file_size.to_string(),
-                    "finder_tag": finder_tag,
-                    "file_name": filename,
-                    "content_type": "application/octet-stream"
-                });
+                let handshake_body = Uploader::build_asset_sync_handshake(
+                    &key,
+                    &relative_path,
+                    file_size,
+                    Some(&filename),
+                    resolved_dataset_id.as_deref(),
+                );
 
                 let request = UploadRequest {
                     endpoint: &meta.target_url,
@@ -281,6 +295,7 @@ impl UploadRetryService {
                         relative_path,
                         key,
                         file_size,
+                        dataset_id: resolved_dataset_id,
                         content_type,
                     },
                 };
