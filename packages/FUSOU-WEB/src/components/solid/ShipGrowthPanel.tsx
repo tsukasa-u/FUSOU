@@ -119,6 +119,25 @@ function normalizeCapRows(rows: unknown): CapRow[] {
     .filter((row) => Number.isFinite(row.master_id) && row.master_id > 0);
 }
 
+function parsePositiveInt(raw: string | null): number | null {
+  if (!raw) return null;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) return null;
+  return value;
+}
+
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
 function buildBoundsChartData(
   boundRows: BoundRow[],
   cap: CapRow | null,
@@ -259,6 +278,15 @@ export default function ShipGrowthPanel() {
   );
   const [boundsCanvas, setBoundsCanvas] =
     createSignal<HTMLCanvasElement | null>(null);
+  const [initialPeriodTag, setInitialPeriodTag] = createSignal<string | null>(
+    null,
+  );
+  const [initialTableVersion, setInitialTableVersion] = createSignal<
+    string | null
+  >(null);
+  const [initialMasterId, setInitialMasterId] = createSignal<number | null>(
+    null,
+  );
 
   const selectedPeriod = createMemo(
     () => periods()[selectedPeriodIdx()] ?? null,
@@ -432,8 +460,45 @@ export default function ShipGrowthPanel() {
   }
 
   onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    setInitialPeriodTag(params.get("period_tag"));
+    setInitialTableVersion(params.get("table_version"));
+    setInitialMasterId(parsePositiveInt(params.get("master_id")));
+
     fetchSummary();
     fetchShipMasters();
+  });
+
+  createEffect(() => {
+    const rows = periods();
+    if (rows.length === 0) return;
+
+    const periodTag = initialPeriodTag();
+    const tableVersion = initialTableVersion();
+    if (!periodTag) return;
+
+    const exact = rows.findIndex(
+      (p) =>
+        p.period_tag === periodTag &&
+        (!tableVersion || p.table_version === tableVersion),
+    );
+    if (exact >= 0) {
+      setSelectedPeriodIdx(exact);
+    }
+
+    setInitialPeriodTag(null);
+    setInitialTableVersion(null);
+  });
+
+  createEffect(() => {
+    const rows = shipMasterRows();
+    if (rows.length === 0) return;
+    const initialId = initialMasterId();
+    if (initialId == null) return;
+    if (rows.some((ship) => ship.id === initialId)) {
+      setSelectedMasterId(initialId);
+    }
+    setInitialMasterId(null);
   });
 
   createEffect(() => {
@@ -446,6 +511,55 @@ export default function ShipGrowthPanel() {
   createEffect(() => {
     applySelectedShipBounds(selectedMasterId());
   });
+
+  createEffect(() => {
+    const period = selectedPeriod();
+    if (!period) return;
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("period_tag", period.period_tag);
+    url.searchParams.set("table_version", period.table_version);
+
+    const masterId = selectedMasterId();
+    if (masterId != null) {
+      url.searchParams.set("master_id", String(masterId));
+    } else {
+      url.searchParams.delete("master_id");
+    }
+
+    window.history.replaceState({}, "", url.toString());
+  });
+
+  function buildCurrentShareUrl(): string | null {
+    const period = selectedPeriod();
+    const masterId = selectedMasterId();
+    if (!period || masterId == null) return null;
+
+    const shareUrl = new URL("/ship-growth", window.location.origin);
+    shareUrl.searchParams.set("period_tag", period.period_tag);
+    shareUrl.searchParams.set("table_version", period.table_version);
+    shareUrl.searchParams.set("master_id", String(masterId));
+    return shareUrl.toString();
+  }
+
+  async function issueShareUrl(): Promise<void> {
+    const shareUrl = buildCurrentShareUrl();
+    if (!shareUrl) {
+      alert("共有URLを生成できませんでした。期間と艦を選択してください。");
+      return;
+    }
+
+    const copied = await copyTextWithFallback(shareUrl);
+    if (copied) {
+      alert("共有URLをクリップボードにコピーしました");
+      return;
+    }
+
+    window.prompt(
+      "自動コピーに失敗しました。以下を手動でコピーしてください:",
+      shareUrl,
+    );
+  }
 
   const expChartData = createMemo(() => buildExpChartData(expRows()));
   const boundsChartData = createMemo(() =>
@@ -550,6 +664,16 @@ export default function ShipGrowthPanel() {
                 <span class="loading loading-spinner loading-xs" />
               </Show>
               再読み込み
+            </button>
+
+            <button
+              class="btn btn-outline btn-sm"
+              disabled={loadingPeriods() || loadingShips() || !selectedPeriod()}
+              onClick={() => {
+                void issueShareUrl();
+              }}
+            >
+              共有URLを発行
             </button>
           </div>
 
