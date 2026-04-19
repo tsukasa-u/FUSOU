@@ -8,11 +8,16 @@ import {
   getEnv,
   resolveDatasetToken,
   timingSafeEqual,
+  validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
 } from "../utils";
+import {
+  invalidateCanonicalSnapshots,
+  loadOrRefreshCanonicalSnapshot,
+} from "../utils/snapshot-cache";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -426,10 +431,13 @@ async function loadSynergyDataSet(
   };
 
   const singleByItem = new Map<number, SynergySingleRule[]>();
+  let droppedSingleCount = 0;
   for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
     const itemId = Number(itemKey);
-    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules))
+    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) {
+      droppedSingleCount += 1;
       continue;
+    }
     singleByItem.set(
       itemId,
       rawRules.filter(
@@ -437,17 +445,31 @@ async function loadSynergyDataSet(
       ) as SynergySingleRule[],
     );
   }
+  if (droppedSingleCount > 0) {
+    console.warn(
+      `[ship-growth] Dropped ${droppedSingleCount} invalid synergy single entries (period=${periodTag})`,
+    );
+  }
 
   const crossByPair = new Map<string, SynergyCrossRule[]>();
+  let droppedCrossCount = 0;
   for (const [pairKey, rawRules] of Object.entries(
     parsed.cross_effects ?? {},
   )) {
-    if (!Array.isArray(rawRules)) continue;
+    if (!Array.isArray(rawRules)) {
+      droppedCrossCount += 1;
+      continue;
+    }
     crossByPair.set(
       pairKey,
       rawRules.filter(
         (rule) => typeof rule === "object" && rule != null,
       ) as SynergyCrossRule[],
+    );
+  }
+  if (droppedCrossCount > 0) {
+    console.warn(
+      `[ship-growth] Dropped ${droppedCrossCount} invalid synergy cross entries (period=${periodTag})`,
     );
   }
 
@@ -540,18 +562,21 @@ function deriveServerNakedStats(
 
   // Server-side normalization: strip known additive contributions from observed stats.
   // Remaining unknown contributions (if any) are intentionally not guessed.
-  const kaihi = Math.max(
-    0,
-    ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi,
-  );
-  const taisen = Math.max(
-    0,
-    ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen,
-  );
-  const sakuteki = Math.max(
-    0,
-    ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki,
-  );
+  const kaihiRaw = ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi;
+  const taisenRaw = ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen;
+  const sakutekiRaw = ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki;
+
+  const kaihi = Math.max(0, kaihiRaw);
+  const taisen = Math.max(0, taisenRaw);
+  const sakuteki = Math.max(0, sakutekiRaw);
+
+  // Log if negative result is clamped to zero—indicates possible data quality issue upstream.
+  if (kaihiRaw < 0 || taisenRaw < 0 || sakutekiRaw < 0) {
+    console.warn(
+      `[ship-growth] Derived stat clamped to zero for ship ${ship.master_id} lv${ship.lv}: ` +
+        `kaihi=${kaihiRaw} taisen=${taisenRaw} sakuteki=${sakutekiRaw}`,
+    );
+  }
 
   const breakdown: ServerDerivationBreakdown = {
     removed: {
@@ -628,13 +653,16 @@ function validateIngestBody(
   }
 
   for (const [index, ship] of body.ships.entries()) {
+    // exp_to_next is optional (null for max-level ships) but if present must be valid.
+    const hasValidExpToNext =
+      ship.exp_to_next == null || (isValidInt(ship.exp_to_next) && ship.exp_to_next >= 0);
+
     if (
       !isValidInt(ship.master_id) ||
       !isValidInt(ship.lv) ||
       !isValidInt(ship.exp_current) ||
-      !isValidInt(ship.exp_to_next) ||
+      !hasValidExpToNext ||
       ship.exp_current < 0 ||
-      ship.exp_to_next < 0 ||
       !Array.isArray(ship.kyouka) ||
       ship.kyouka.some((value) => !isValidInt(value)) ||
       !isValidInt(ship.kaihi_observed) ||
@@ -978,14 +1006,7 @@ async function processShipGrowthIngest(
       period_tag,
       table_version,
     ));
-    await uploadShipGrowthArchiveIfNeeded(
-      env,
-      period_tag,
-      table_version,
-      nowSec,
-      oldBounds,
-      oldCaps,
-    );
+    // DO NOT upload archive yet—wait until after DB batch succeeds to avoid orphaned R2 objects.
   } catch (error) {
     const detail = String(error);
     if (detail.includes("SHIP_GROWTH_ARCHIVE_BUCKET is not configured")) {
@@ -1001,7 +1022,7 @@ async function processShipGrowthIngest(
     return {
       status: 500,
       body: {
-        error: "Failed to archive ship growth history to R2",
+        error: "Failed to collect ship growth history for archiving",
         detail,
       },
     };
@@ -1049,11 +1070,13 @@ async function processShipGrowthIngest(
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ship_level_exp_pairs (period_tag, table_version, lv, exp_current)
-           VALUES (?, ?, ?, ?)
-           ON CONFLICT(period_tag, table_version, lv) DO NOTHING`,
+          `INSERT INTO ship_level_exp_pairs (period_tag, table_version, lv, exp_current, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(period_tag, table_version, lv) DO UPDATE SET
+             exp_current = excluded.exp_current,
+             updated_at = excluded.updated_at`,
         )
-        .bind(period_tag, table_version, expRow.lv, expRow.exp_current),
+        .bind(period_tag, table_version, expRow.lv, expRow.exp_current, nowSec),
     );
   }
 
@@ -1061,12 +1084,13 @@ async function processShipGrowthIngest(
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(period_tag, table_version, master_id, lv) DO UPDATE SET
              kaihi_naked = CASE WHEN excluded.kaihi_naked < kaihi_naked THEN excluded.kaihi_naked ELSE kaihi_naked END,
              taisen_naked = CASE WHEN excluded.taisen_naked < taisen_naked THEN excluded.taisen_naked ELSE taisen_naked END,
-             sakuteki_naked = CASE WHEN excluded.sakuteki_naked < sakuteki_naked THEN excluded.sakuteki_naked ELSE sakuteki_naked END`,
+             sakuteki_naked = CASE WHEN excluded.sakuteki_naked < sakuteki_naked THEN excluded.sakuteki_naked ELSE sakuteki_naked END,
+             updated_at = CASE WHEN excluded.kaihi_naked < kaihi_naked OR excluded.taisen_naked < taisen_naked OR excluded.sakuteki_naked < sakuteki_naked THEN excluded.updated_at ELSE updated_at END`,
         )
         .bind(
           period_tag,
@@ -1076,6 +1100,7 @@ async function processShipGrowthIngest(
           row.kaihi_naked,
           row.taisen_naked,
           row.sakuteki_naked,
+          nowSec,
         ),
     );
   }
@@ -1084,12 +1109,13 @@ async function processShipGrowthIngest(
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ship_growth_caps (period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max)
-           VALUES (?, ?, ?, ?, ?, ?)
+          `INSERT INTO ship_growth_caps (period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(period_tag, table_version, master_id) DO UPDATE SET
              kaihi_max = CASE WHEN excluded.kaihi_max > kaihi_max THEN excluded.kaihi_max ELSE kaihi_max END,
              taisen_max = CASE WHEN excluded.taisen_max > taisen_max THEN excluded.taisen_max ELSE taisen_max END,
-             sakuteki_max = CASE WHEN excluded.sakuteki_max > sakuteki_max THEN excluded.sakuteki_max ELSE sakuteki_max END`,
+             sakuteki_max = CASE WHEN excluded.sakuteki_max > sakuteki_max THEN excluded.sakuteki_max ELSE sakuteki_max END,
+             updated_at = CASE WHEN excluded.kaihi_max > kaihi_max OR excluded.taisen_max > taisen_max OR excluded.sakuteki_max > sakuteki_max THEN excluded.updated_at ELSE updated_at END`,
         )
         .bind(
           period_tag,
@@ -1098,14 +1124,25 @@ async function processShipGrowthIngest(
           row.kaihi_max,
           row.taisen_max,
           row.sakuteki_max,
+          nowSec,
         ),
     );
   }
 
   const BATCH_SIZE = 100;
   try {
+    // Execute batches, tracking failure points for debugging orphaned data.
     for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
-      await db.batch(stmts.slice(i, i + BATCH_SIZE));
+      const batchIndex = i / BATCH_SIZE;
+      try {
+        await db.batch(stmts.slice(i, i + BATCH_SIZE));
+      } catch (batchError) {
+        console.error(
+          `[ship-growth] Batch ${batchIndex} failed (offset ${i}/${stmts.length}):`,
+          batchError,
+        );
+        throw batchError;
+      }
     }
   } catch (error) {
     return {
@@ -1117,6 +1154,23 @@ async function processShipGrowthIngest(
     };
   }
 
+  // DB batch succeeded; now archive old rows to R2 (after DB write, not before).
+  // This prevents orphaned archives if DB batch had failed.
+  try {
+    await uploadShipGrowthArchiveIfNeeded(
+      env,
+      period_tag,
+      table_version,
+      nowSec,
+      oldBounds,
+      oldCaps,
+    );
+  } catch (archiveError) {
+    // Archive failed but DB succeeded—continue
+    console.error("[ship-growth] Failed to archive old rows to R2:", archiveError);
+    // Continue: do not fail the ingest response.
+  }
+
   return {
     status: 200,
     body: {
@@ -1126,6 +1180,109 @@ async function processShipGrowthIngest(
       message: `Ingested ${ships.length} ship growth entries`,
     },
   };
+}
+
+// ── Cache invalidation ─────────────────────────────────────────────
+
+async function invalidateShipGrowthCaches(
+  cache: Cache,
+  requestUrl: string,
+): Promise<void> {
+  // Invalidate /summary, /exp, /bounds endpoints since data changed.
+  const origin = new URL(requestUrl).origin;
+  const targets = [
+    new URL("/ship-growth/summary", origin).toString(),
+    new URL("/ship-growth/exp", origin).toString(),
+    new URL("/ship-growth/bounds", origin).toString(),
+    new URL("/api/ship-growth/summary", origin).toString(),
+    new URL("/api/ship-growth/exp", origin).toString(),
+    new URL("/api/ship-growth/bounds", origin).toString(),
+  ];
+
+  for (const target of targets) {
+    try {
+      await cache.delete(new Request(target, { method: "GET" }), {
+        ignoreSearch: true,
+      });
+    } catch (err) {
+      console.warn(
+        `[ship-growth] Failed to invalidate cache for ${target}:`,
+        err,
+      );
+      // Continue; Cache API delete might not work in all contexts.
+    }
+  }
+}
+
+// ── KV-delta snapshot cache ────────────────────────────────────────
+
+const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000; // 1 hour in-memory freshness
+const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60; // 7-day KV key TTL
+
+// Exp snapshot stored in KV (DATA_LOADER_CACHE_KV)
+interface ExpKvSnapshot {
+  period_tag: string;
+  table_version: string;
+  rows: Array<{ lv: number; exp_current: number }>;
+  refreshed_at: number; // epoch ms — when KV was last written
+  db_synced_at: number; // epoch s — max updated_at seen from DB
+}
+
+// Full-bounds snapshot stored in KV (no master_id filter = whole dataset)
+interface BoundsKvSnapshot {
+  period_tag: string;
+  table_version: string;
+  bounds: Array<{
+    master_id: number;
+    lv: number;
+    kaihi_naked: number;
+    taisen_naked: number;
+    sakuteki_naked: number;
+  }>;
+  caps: Array<{
+    master_id: number;
+    kaihi_max: number;
+    taisen_max: number;
+    sakuteki_max: number;
+  }>;
+  refreshed_at: number;
+  db_synced_at: number;
+}
+
+function isExpKvSnapshot(v: unknown): v is ExpKvSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.period_tag === "string" &&
+    typeof s.table_version === "string" &&
+    Array.isArray(s.rows) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
+function isBoundsKvSnapshot(v: unknown): v is BoundsKvSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.period_tag === "string" &&
+    typeof s.table_version === "string" &&
+    Array.isArray(s.bounds) &&
+    Array.isArray(s.caps) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
+async function invalidateShipGrowthKvSnapshots(
+  kv: KVNamespace | undefined,
+  period_tag: string,
+  table_version: string,
+): Promise<void> {
+  await invalidateCanonicalSnapshots(kv, [
+    `sg:exp:${period_tag}:${table_version}`,
+    `sg:bounds:${period_tag}:${table_version}`,
+  ]);
 }
 
 // ── Cache helper ───────────────────────────────────────────────────
@@ -1140,7 +1297,7 @@ async function putShipGrowthCache(
   try {
     const waitUntil = c.executionCtx?.waitUntil;
     if (typeof waitUntil === "function") {
-      waitUntil(putPromise);
+      waitUntil.call(c.executionCtx, putPromise);
       return;
     }
   } catch (err) {
@@ -1207,7 +1364,8 @@ app.get("/summary", async (c) => {
 /**
  * GET /exp — Exp-per-level table for a period (ship_level_exp_pairs).
  * Query params: period_tag, table_version (both required).
- * Cache: 1 h CF Cache.
+ * Cache strategy: KV snapshot refreshed at most once per hour via delta query
+ * (WHERE updated_at > db_synced_at). DB access only on cache miss or stale.
  */
 app.get("/exp", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
@@ -1219,61 +1377,112 @@ app.get("/exp", async (c) => {
   if (!periodTag || !tableVersion) {
     return c.json({ error: "period_tag and table_version are required" }, 400);
   }
-  if (!/^[\w\-]+$/.test(periodTag)) {
-    return c.json({ error: "period_tag contains invalid characters" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodTag)) {
+    return c.json({ error: "Invalid period_tag (expected YYYY-MM-DD)" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
+  const kv = c.env.DATA_LOADER_CACHE_KV;
+  const kvKey = `sg:exp:${periodTag}:${tableVersion}`;
 
   try {
-    const rows = ((
-      await db
-        .prepare(
-          `SELECT lv, exp_current
-         FROM ship_level_exp_pairs
-         WHERE period_tag = ? AND table_version = ?
-         ORDER BY lv ASC`,
-        )
-        .bind(periodTag, tableVersion)
-        .all()
-    ).results ?? []) as Array<{ lv: number; exp_current: number }>;
+    const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
+      kv,
+      cacheKey: kvKey,
+      ttlMs: KV_SNAPSHOT_TTL_MS,
+      expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+      isValidSnapshot: isExpKvSnapshot,
+      refreshFromDelta: async (cached) => {
+        const deltaRows = ((
+          await db
+            .prepare(
+              `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
+               WHERE period_tag = ? AND table_version = ? AND updated_at > ?
+               ORDER BY lv ASC`,
+            )
+            .bind(periodTag, tableVersion, cached.db_synced_at)
+            .all()
+        ).results ?? []) as Array<{
+          lv: number;
+          exp_current: number;
+          updated_at: number;
+        }>;
+
+        const byLv = new Map(cached.rows.map((r) => [r.lv, r]));
+        for (const r of deltaRows) {
+          byLv.set(r.lv, { lv: r.lv, exp_current: r.exp_current });
+        }
+
+        const maxUpdatedAt = deltaRows.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+
+        return {
+          changed: deltaRows.length > 0,
+          snapshot: {
+            period_tag: periodTag,
+            table_version: tableVersion,
+            rows: Array.from(byLv.values()).sort((a, b) => a.lv - b.lv),
+            refreshed_at: Date.now(),
+            db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
+          },
+        };
+      },
+      loadFull: async () => {
+        const fullRows = ((
+          await db
+            .prepare(
+              `SELECT lv, exp_current, updated_at FROM ship_level_exp_pairs
+               WHERE period_tag = ? AND table_version = ?
+               ORDER BY lv ASC`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? []) as Array<{
+          lv: number;
+          exp_current: number;
+          updated_at: number;
+        }>;
+
+        const maxUpdatedAt = fullRows.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+
+        return {
+          period_tag: periodTag,
+          table_version: tableVersion,
+          rows: fullRows.map((r) => ({ lv: r.lv, exp_current: r.exp_current })),
+          refreshed_at: Date.now(),
+          db_synced_at: maxUpdatedAt,
+        };
+      },
+    });
 
     const response = c.json({
       ok: true,
       period_tag: periodTag,
       table_version: tableVersion,
-      exp: rows,
+      exp: snapshot.rows,
     });
     response.headers.set(
       "Cache-Control",
       "public, max-age=3600, stale-while-revalidate=86400",
     );
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putShipGrowthCache(c, cache, cacheKey, response);
-    }
+    response.headers.set("X-FUSOU-Cache", cacheStatus);
     return response;
   } catch (err) {
     console.error("[ship-growth] Failed to query exp:", err);
     return c.json({ error: "Failed to retrieve exp data" }, 500);
   }
 });
-
 /**
  * GET /bounds — Naked parameter growth by level (ship_growth_bounds + ship_growth_caps).
  * Query params: period_tag, table_version (required), master_id (optional — filters to one ship).
- * Without master_id: returns all ships' bounds (may be large, 1 h cache).
- * Cache: 1 h CF Cache.
+ * Cache strategy:
+ *   - Always load full snapshot via KV+delta.
+ *   - If master_id is provided, filter in-memory from the full snapshot.
+ * This avoids per-ship DB round-trips and encourages client-side reuse.
  */
 app.get("/bounds", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
@@ -1287,90 +1496,195 @@ app.get("/bounds", async (c) => {
   if (!periodTag || !tableVersion) {
     return c.json({ error: "period_tag and table_version are required" }, 400);
   }
-  if (!/^[\w\-]+$/.test(periodTag)) {
-    return c.json({ error: "period_tag contains invalid characters" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodTag)) {
+    return c.json({ error: "Invalid period_tag (expected YYYY-MM-DD)" }, 400);
   }
   if (masterId !== null && (!Number.isFinite(masterId) || masterId <= 0)) {
     return c.json({ error: "master_id must be a positive integer" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
+  type BoundsRow = {
+    master_id: number;
+    lv: number;
+    kaihi_naked: number;
+    taisen_naked: number;
+    sakuteki_naked: number;
+  };
+  type CapsRow = {
+    master_id: number;
+    kaihi_max: number;
+    taisen_max: number;
+    sakuteki_max: number;
+  };
 
   try {
-    let boundsSql = `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
-                     FROM ship_growth_bounds
-                     WHERE period_tag = ? AND table_version = ?`;
-    const boundsParams: unknown[] = [periodTag, tableVersion];
-    if (masterId !== null) {
-      boundsSql += ` AND master_id = ?`;
-      boundsParams.push(masterId);
-    }
-    boundsSql += ` ORDER BY master_id ASC, lv ASC LIMIT 10000`;
+    const kv = c.env.DATA_LOADER_CACHE_KV;
+    const kvKey = `sg:bounds:${periodTag}:${tableVersion}`;
 
-    const bounds = ((
-      await db
-        .prepare(boundsSql)
-        .bind(...boundsParams)
-        .all()
-    ).results ?? []) as Array<{
-      master_id: number;
-      lv: number;
-      kaihi_naked: number;
-      taisen_naked: number;
-      sakuteki_naked: number;
-    }>;
+    const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
+      kv,
+      cacheKey: kvKey,
+      ttlMs: KV_SNAPSHOT_TTL_MS,
+      expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+      isValidSnapshot: isBoundsKvSnapshot,
+      refreshFromDelta: async (cached) => {
+        const deltaBounds = ((
+          await db
+            .prepare(
+              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
+               FROM ship_growth_bounds
+               WHERE period_tag = ? AND table_version = ? AND updated_at > ?
+               ORDER BY master_id ASC, lv ASC`,
+            )
+            .bind(periodTag, tableVersion, cached.db_synced_at)
+            .all()
+        ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
 
-    let caps: Array<{
-      master_id: number;
-      kaihi_max: number;
-      taisen_max: number;
-      sakuteki_max: number;
-    }> = [];
-    if (masterId !== null) {
-      caps = ((
-        await db
-          .prepare(
-            `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
-           FROM ship_growth_caps
-           WHERE period_tag = ? AND table_version = ? AND master_id = ?`,
-          )
-          .bind(periodTag, tableVersion, masterId)
-          .all()
-      ).results ?? []) as typeof caps;
-    }
+        const deltaCaps = ((
+          await db
+            .prepare(
+              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
+               FROM ship_growth_caps
+               WHERE period_tag = ? AND table_version = ? AND updated_at > ?`,
+            )
+            .bind(periodTag, tableVersion, cached.db_synced_at)
+            .all()
+        ).results ?? []) as Array<CapsRow & { updated_at: number }>;
+
+        const boundsMap = new Map(
+          cached.bounds.map((r) => [`${r.master_id}:${r.lv}`, r]),
+        );
+        for (const r of deltaBounds) {
+          boundsMap.set(`${r.master_id}:${r.lv}`, {
+            master_id: r.master_id,
+            lv: r.lv,
+            kaihi_naked: r.kaihi_naked,
+            taisen_naked: r.taisen_naked,
+            sakuteki_naked: r.sakuteki_naked,
+          });
+        }
+
+        const capsMap = new Map(cached.caps.map((r) => [r.master_id, r]));
+        for (const r of deltaCaps) {
+          capsMap.set(r.master_id, {
+            master_id: r.master_id,
+            kaihi_max: r.kaihi_max,
+            taisen_max: r.taisen_max,
+            sakuteki_max: r.sakuteki_max,
+          });
+        }
+
+        const maxBoundUpdatedAt = deltaBounds.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+        const maxCapUpdatedAt = deltaCaps.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+
+        return {
+          changed: deltaBounds.length > 0 || deltaCaps.length > 0,
+          snapshot: {
+            period_tag: periodTag,
+            table_version: tableVersion,
+            bounds: Array.from(boundsMap.values()).sort(
+              (a, b) => a.master_id - b.master_id || a.lv - b.lv,
+            ),
+            caps: Array.from(capsMap.values()).sort(
+              (a, b) => a.master_id - b.master_id,
+            ),
+            refreshed_at: Date.now(),
+            db_synced_at: Math.max(
+              cached.db_synced_at,
+              maxBoundUpdatedAt,
+              maxCapUpdatedAt,
+            ),
+          },
+        };
+      },
+      loadFull: async () => {
+        const boundsRows = ((
+          await db
+            .prepare(
+              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
+               FROM ship_growth_bounds
+               WHERE period_tag = ? AND table_version = ?
+               ORDER BY master_id ASC, lv ASC LIMIT 10000`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
+
+        const capsRows = ((
+          await db
+            .prepare(
+              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max, updated_at
+               FROM ship_growth_caps
+               WHERE period_tag = ? AND table_version = ?`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? []) as Array<CapsRow & { updated_at: number }>;
+
+        const maxBoundUpdatedAt = boundsRows.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+        const maxCapUpdatedAt = capsRows.reduce(
+          (max, row) => Math.max(max, Number(row.updated_at) || 0),
+          0,
+        );
+
+        return {
+          period_tag: periodTag,
+          table_version: tableVersion,
+          bounds: boundsRows.map((r) => ({
+            master_id: r.master_id,
+            lv: r.lv,
+            kaihi_naked: r.kaihi_naked,
+            taisen_naked: r.taisen_naked,
+            sakuteki_naked: r.sakuteki_naked,
+          })),
+          caps: capsRows.map((r) => ({
+            master_id: r.master_id,
+            kaihi_max: r.kaihi_max,
+            taisen_max: r.taisen_max,
+            sakuteki_max: r.sakuteki_max,
+          })),
+          refreshed_at: Date.now(),
+          db_synced_at: Math.max(maxBoundUpdatedAt, maxCapUpdatedAt),
+        };
+      },
+    });
+
+    const responseBounds =
+      masterId === null
+        ? snapshot.bounds
+        : snapshot.bounds.filter((row) => row.master_id === masterId);
+    const responseCaps =
+      masterId === null
+        ? snapshot.caps
+        : snapshot.caps.filter((row) => row.master_id === masterId);
 
     const response = c.json({
       ok: true,
       period_tag: periodTag,
       table_version: tableVersion,
-      bounds,
-      caps,
+      bounds: responseBounds,
+      caps: responseCaps,
     });
     response.headers.set(
       "Cache-Control",
       "public, max-age=3600, stale-while-revalidate=86400",
     );
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putShipGrowthCache(c, cache, cacheKey, response);
-    }
+    response.headers.set("X-FUSOU-Cache", cacheStatus);
     return response;
   } catch (err) {
     console.error("[ship-growth] Failed to query bounds:", err);
     return c.json({ error: "Failed to retrieve bounds data" }, 500);
   }
 });
-
 // ── Two-stage ingest endpoint ──────────────────────────────────────
 
 app.post("/ingest", async (c) => {
@@ -1409,6 +1723,11 @@ app.post("/ingest", async (c) => {
       handshakeBody?.dataset_token,
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    // Validate secret length upfront
+    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
+    if (!secretValidation.ok) {
+      return c.json({ error: secretValidation.error }, 500);
+    }
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
       secret: datasetTokenSecret,
@@ -1432,6 +1751,13 @@ app.post("/ingest", async (c) => {
       return c.json({ error: "file_size must be > 0" }, 400);
     }
 
+    // Calculate token expiry based on file size to accommodate slow/large uploads.
+    // Base 30s + 10s per 10MB, clamped to [300, 3600] seconds.
+    const tokenTtl = Math.max(
+      300,
+      Math.min(3600, 30 + Math.ceil(declaredSize / (10 * 1024 * 1024)) * 10),
+    );
+
     const token = await generateSignedToken(
       {
         user_id: actingUserId,
@@ -1442,7 +1768,7 @@ app.post("/ingest", async (c) => {
         event_type: validated.eventType,
       },
       signingSecret,
-      300,
+      tokenTtl,
     );
 
     const uploadUrl = new URL(c.req.url);
@@ -1542,6 +1868,30 @@ app.post("/ingest", async (c) => {
   }
 
   const result = await processShipGrowthIngest(c.env, db, body);
+
+  // On successful ingest, invalidate KV snapshots and CF Cache entries.
+  if (result.status === 200) {
+    const period_tag = body.period_tag;
+    const table_version = body.table_version;
+
+    // KV invalidation (primary cache layer)
+    if (period_tag && table_version) {
+      c.executionCtx?.waitUntil(
+        invalidateShipGrowthKvSnapshots(c.env.DATA_LOADER_CACHE_KV, period_tag, table_version),
+      );
+    }
+
+    // CF Cache invalidation (best-effort, non-critical)
+    const cfCache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+    if (cfCache) {
+      c.executionCtx?.waitUntil(
+        invalidateShipGrowthCaches(cfCache, c.req.url).catch((err) => {
+          console.warn("[ship-growth] Failed to invalidate CF caches after ingest:", err);
+        }),
+      );
+    }
+  }
+
   return c.json(result.body, result.status as 200 | 400 | 409 | 500 | 503);
 });
 

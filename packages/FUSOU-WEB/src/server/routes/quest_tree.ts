@@ -7,11 +7,16 @@ import {
   getEnv,
   resolveDatasetToken,
   timingSafeEqual,
+  validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
 } from "../utils";
+import {
+  invalidateCanonicalSnapshots,
+  loadOrRefreshCanonicalSnapshot,
+} from "../utils/snapshot-cache";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -23,6 +28,8 @@ const MIN_OBS_SINGLE = 8;
 const MIN_OBS_PAIR = 6;
 const MIN_CONF_SINGLE = 0.55;
 const MIN_CONF_PAIR = 0.65;
+const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
+const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const QUEST_TREE_COLLECTION_SWITCH_ENV =
   "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED";
@@ -54,32 +61,92 @@ type IngestBody = {
   quests?: QuestListEntry[];
 };
 
+type QuestRuleRow = {
+  rule_id: string;
+  target_quest_id: number;
+  prereq_set_json: string;
+  set_size: number;
+  class: string;
+  support: number;
+  confidence: number;
+  lift: number;
+  score: number;
+  period_tag: string;
+  table_version: string;
+  is_primary: number;
+  quality_tier: string;
+  updated_at_ms: number;
+};
+
+type RulesSnapshot = {
+  period_tag: string;
+  table_version: string;
+  target_quest_id: number;
+  include_low: boolean;
+  rows: QuestRuleRow[];
+  refreshed_at: number;
+  db_synced_at: number;
+};
+
+type GraphSnapshot = {
+  period_tag: string;
+  table_version: string;
+  rows: QuestRuleRow[];
+  refreshed_at: number;
+  db_synced_at: number;
+};
+
+function isRulesSnapshot(v: unknown): v is RulesSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.period_tag === "string" &&
+    typeof s.table_version === "string" &&
+    typeof s.target_quest_id === "number" &&
+    typeof s.include_low === "boolean" &&
+    Array.isArray(s.rows) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
+function isGraphSnapshot(v: unknown): v is GraphSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    typeof s.period_tag === "string" &&
+    typeof s.table_version === "string" &&
+    Array.isArray(s.rows) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
 function nowMs(): number {
   return Date.now();
 }
 
-async function putQuestTreeCache(
-  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+async function invalidateQuestTreeCaches(
   cache: Cache,
-  cacheKey: Request,
-  response: Response,
+  requestUrl: string,
 ): Promise<void> {
-  const putPromise = cache.put(cacheKey, response.clone());
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil(putPromise);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn(
-        "[quest-tree] ExecutionContext unavailable for cache put",
-        err,
-      );
+  const url = new URL(requestUrl);
+  const targets = [
+    new URL("/quest-tree/rules", url.origin).toString(),
+    new URL("/quest-tree/graph", url.origin).toString(),
+    new URL("/api/quest-tree/rules", url.origin).toString(),
+    new URL("/api/quest-tree/graph", url.origin).toString(),
+  ];
+
+  for (const target of targets) {
+    try {
+      await cache.delete(new Request(target, { method: "GET" }), {
+        ignoreSearch: true,
+      });
+    } catch (err) {
+      console.warn("[quest-tree] Failed to invalidate cache:", target, err);
     }
   }
-  await putPromise;
 }
 
 function toInt(value: unknown): number | null {
@@ -901,6 +968,11 @@ app.post("/ingest", async (c) => {
       (handshakeBody as Record<string, unknown>)?.dataset_token,
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    // Validate secret length upfront
+    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
+    if (!secretValidation.ok) {
+      return c.json({ error: secretValidation.error }, 500);
+    }
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
       secret: datasetTokenSecret,
@@ -1038,6 +1110,27 @@ app.post("/ingest", async (c) => {
 
   const result = await ingestQuestBody(db, body);
 
+  // Best-effort cache invalidation after successful ingest
+  if (result.status === 200) {
+    const periodTag = (body.period_tag ?? "").trim();
+    const tableVersion = (body.table_version ?? "").trim();
+    if (periodTag && tableVersion) {
+      c.executionCtx?.waitUntil(
+        invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+          `qtree:graph:${periodTag}:${tableVersion}`,
+        ]),
+      );
+    }
+
+    const cache = (globalThis as { caches?: { default?: Cache } }).caches
+      ?.default;
+    if (cache) {
+      c.executionCtx?.waitUntil(
+        invalidateQuestTreeCaches(cache, c.req.url),
+      );
+    }
+  }
+
   return c.json(result.body, result.status as 200 | 400 | 409 | 500);
 });
 
@@ -1055,49 +1148,119 @@ app.get("/rules", async (c) => {
     return c.json({ error: "target query is required" }, 400);
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
+  const kv = c.env.DATA_LOADER_CACHE_KV;
+  const cacheKey = `qtree:rules:${periodTag}:${tableVersion}:${target}:${includeLow ? 1 : 0}`;
 
-  const rules =
-    (
-      await db
-        .prepare(
-          `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-       FROM quest_rule_edges
-       WHERE target_quest_id = ?
-         AND period_tag = ?
-         AND table_version = ?
-         AND (? = 1 OR quality_tier != 'low')
-       ORDER BY is_primary DESC, score DESC`,
-        )
-        .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-        .all()
-    ).results ?? [];
+  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
+    kv,
+    cacheKey,
+    ttlMs: KV_SNAPSHOT_TTL_MS,
+    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+    probeWhenFresh: true,
+    isValidSnapshot: isRulesSnapshot,
+    refreshFromDelta: async (cached) => {
+      const changedRows = ((
+        await db
+          .prepare(
+            `SELECT updated_at_ms
+             FROM quest_rule_edges
+             WHERE target_quest_id = ?
+               AND period_tag = ?
+               AND table_version = ?
+               AND updated_at_ms > ?
+             ORDER BY updated_at_ms DESC`,
+          )
+          .bind(target, periodTag, tableVersion, cached.db_synced_at)
+          .all()
+      ).results ?? []) as Array<{ updated_at_ms: number }>;
+
+      if (changedRows.length === 0) {
+        return {
+          changed: false,
+          snapshot: {
+            ...cached,
+            refreshed_at: Date.now(),
+          },
+        };
+      }
+
+      // Re-load the full current view for this target when anything changed.
+      // This avoids stale rows when a rule's quality_tier transitions to/from low.
+      const rows = ((
+        await db
+          .prepare(
+            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+             FROM quest_rule_edges
+             WHERE target_quest_id = ?
+               AND period_tag = ?
+               AND table_version = ?
+               AND (? = 1 OR quality_tier != 'low')
+             ORDER BY is_primary DESC, score DESC`,
+          )
+          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+          .all()
+      ).results ?? []) as QuestRuleRow[];
+
+      const maxUpdatedAt = changedRows.reduce(
+        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
+        0,
+      );
+
+      return {
+        changed: true,
+        snapshot: {
+          ...cached,
+          rows,
+          refreshed_at: Date.now(),
+          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
+        },
+      };
+    },
+    loadFull: async () => {
+      const rows = ((
+        await db
+          .prepare(
+            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+             FROM quest_rule_edges
+             WHERE target_quest_id = ?
+               AND period_tag = ?
+               AND table_version = ?
+               AND (? = 1 OR quality_tier != 'low')
+             ORDER BY is_primary DESC, score DESC`,
+          )
+          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+          .all()
+      ).results ?? []) as QuestRuleRow[];
+
+      const maxUpdatedAt = rows.reduce(
+        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
+        0,
+      );
+
+      return {
+        period_tag: periodTag,
+        table_version: tableVersion,
+        target_quest_id: target,
+        include_low: includeLow,
+        rows,
+        refreshed_at: Date.now(),
+        db_synced_at: maxUpdatedAt,
+      };
+    },
+  });
 
   const response = c.json({
     ok: true,
     target,
     period_tag: periodTag,
     table_version: tableVersion,
-    rules,
+    rules: snapshot.rows,
   });
   response.headers.set(
     "Cache-Control",
     "public, max-age=3600, stale-while-revalidate=86400",
   );
-  response.headers.set("X-FUSOU-Cache", "MISS");
-  if (cache) {
-    await putQuestTreeCache(c, cache, cacheKey, response);
-  }
+  response.headers.set("X-FUSOU-Cache", cacheStatus);
   return response;
 });
 
@@ -1108,37 +1271,116 @@ app.get("/graph", async (c) => {
   const periodTag = (c.req.query("period_tag") ?? "latest").trim() || "latest";
   const tableVersion = (c.req.query("table_version") ?? "0.5").trim() || "0.5";
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
+  const kv = c.env.DATA_LOADER_CACHE_KV;
+  const cacheKey = `qtree:graph:${periodTag}:${tableVersion}`;
 
-  const edges = ((
-    await db
-      .prepare(
-        `SELECT target_quest_id, prereq_set_json, score, is_primary, class
-       FROM quest_rule_edges
-       WHERE period_tag = ?
-         AND table_version = ?
-         AND is_primary = 1
-       ORDER BY score DESC`,
-      )
-      .bind(periodTag, tableVersion)
-      .all()
-  ).results ?? []) as Array<{
-    target_quest_id: number;
-    prereq_set_json: string;
-    score: number;
-    is_primary: number;
-    class: string;
-  }>;
+  const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
+    kv,
+    cacheKey,
+    ttlMs: KV_SNAPSHOT_TTL_MS,
+    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+    probeWhenFresh: true,
+    isValidSnapshot: isGraphSnapshot,
+    refreshFromDelta: async (cached) => {
+      const changedTargets = ((
+        await db
+          .prepare(
+            `SELECT DISTINCT target_quest_id, updated_at_ms
+             FROM quest_rule_edges
+             WHERE period_tag = ?
+               AND table_version = ?
+               AND updated_at_ms > ?`,
+          )
+          .bind(periodTag, tableVersion, cached.db_synced_at)
+          .all()
+      ).results ?? []) as Array<{ target_quest_id: number; updated_at_ms: number }>;
+
+      if (changedTargets.length === 0) {
+        return {
+          changed: false,
+          snapshot: {
+            ...cached,
+            refreshed_at: Date.now(),
+          },
+        };
+      }
+
+      const rowsByRuleId = new Map(cached.rows.map((row) => [row.rule_id, row]));
+      const targetSet = new Set<number>();
+      for (const row of changedTargets) {
+        const target = toInt(row.target_quest_id);
+        if (target != null) targetSet.add(target);
+      }
+
+      for (const target of targetSet) {
+        for (const [ruleId, row] of rowsByRuleId.entries()) {
+          if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
+        }
+
+        const currentPrimaryRows = ((
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE period_tag = ?
+                 AND table_version = ?
+                 AND target_quest_id = ?
+                 AND is_primary = 1
+               ORDER BY score DESC`,
+            )
+            .bind(periodTag, tableVersion, target)
+            .all()
+        ).results ?? []) as QuestRuleRow[];
+
+        for (const row of currentPrimaryRows) {
+          rowsByRuleId.set(row.rule_id, row);
+        }
+      }
+
+      const maxUpdatedAt = changedTargets.reduce(
+        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
+        0,
+      );
+
+      return {
+        changed: true,
+        snapshot: {
+          ...cached,
+          rows: Array.from(rowsByRuleId.values()).sort((a, b) => b.score - a.score),
+          refreshed_at: Date.now(),
+          db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
+        },
+      };
+    },
+    loadFull: async () => {
+      const rows = ((
+        await db
+          .prepare(
+            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+             FROM quest_rule_edges
+             WHERE period_tag = ?
+               AND table_version = ?
+               AND is_primary = 1
+             ORDER BY score DESC`,
+          )
+          .bind(periodTag, tableVersion)
+          .all()
+      ).results ?? []) as QuestRuleRow[];
+
+      const maxUpdatedAt = rows.reduce(
+        (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
+        0,
+      );
+
+      return {
+        period_tag: periodTag,
+        table_version: tableVersion,
+        rows,
+        refreshed_at: Date.now(),
+        db_synced_at: maxUpdatedAt,
+      };
+    },
+  });
 
   const nodes = new Set<number>();
   const graphEdges: Array<{
@@ -1148,7 +1390,7 @@ app.get("/graph", async (c) => {
     class: string;
   }> = [];
 
-  for (const row of edges) {
+  for (const row of snapshot.rows) {
     const target = toInt(row.target_quest_id);
     if (target == null) continue;
     const prereqs = parseJsonArray<number>(row.prereq_set_json)
@@ -1178,10 +1420,7 @@ app.get("/graph", async (c) => {
     "Cache-Control",
     "public, max-age=3600, stale-while-revalidate=86400",
   );
-  response.headers.set("X-FUSOU-Cache", "MISS");
-  if (cache) {
-    await putQuestTreeCache(c, cache, cacheKey, response);
-  }
+  response.headers.set("X-FUSOU-Cache", cacheStatus);
   return response;
 });
 
@@ -1203,6 +1442,11 @@ app.get("/changes", async (c) => {
     c.req.query("dataset_token"),
   );
   const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+  // Validate secret length upfront
+  const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
+  if (!secretValidation.ok) {
+    return c.json({ error: secretValidation.error }, 500);
+  }
   const tokenValidation = await validateDatasetTokenWithConstraints({
     token: datasetToken,
     secret: datasetTokenSecret,

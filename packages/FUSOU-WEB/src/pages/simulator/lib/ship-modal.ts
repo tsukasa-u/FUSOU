@@ -198,7 +198,7 @@ async function getShipGrowthCaps(
     }
 
     const boundsRes = await cachedFetch(
-      `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}&master_id=${masterId}`,
+      `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}`,
     );
     if (!boundsRes.ok) {
       _shipGrowthCapsCache.set(masterId, null);

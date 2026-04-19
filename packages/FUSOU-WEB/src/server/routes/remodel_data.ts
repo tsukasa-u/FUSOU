@@ -6,16 +6,46 @@ import {
   getEnv,
   resolveDatasetToken,
   timingSafeEqual,
+  validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
 } from "../utils";
+import {
+  invalidateCanonicalSnapshots,
+  loadOrRefreshCanonicalSnapshot,
+} from "../utils/snapshot-cache";
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
+const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
+const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+type RemodelPeriodSummaryRow = {
+  period_tag: string;
+  table_version: string;
+  dataset_count: number;
+  slotitem_count: number;
+};
+
+type RemodelSummarySnapshot = {
+  periods: RemodelPeriodSummaryRow[];
+  refreshed_at: number;
+  db_synced_at: number;
+};
+
+function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    Array.isArray(s.periods) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -206,28 +236,25 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
 
 // ── Cache helper ───────────────────────────────────────────────────
 
-async function putRemodelCache(
-  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+async function invalidateRemodelCaches(
   cache: Cache,
-  cacheKey: Request,
-  response: Response,
+  requestUrl: string,
 ): Promise<void> {
-  const putPromise = cache.put(cacheKey, response.clone());
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil(putPromise);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn(
-        "[remodel-data] ExecutionContext unavailable for cache put",
-        err,
-      );
+  const url = new URL(requestUrl);
+  const targets = [
+    new URL("/remodel-data/summary", url.origin).toString(),
+    new URL("/api/remodel-data/summary", url.origin).toString(),
+  ];
+
+  for (const target of targets) {
+    try {
+      await cache.delete(new Request(target, { method: "GET" }), {
+        ignoreSearch: true,
+      });
+    } catch (err) {
+      console.warn("[remodel-data] Failed to invalidate cache:", target, err);
     }
   }
-  await putPromise;
 }
 
 // ── Public READ endpoint ───────────────────────────────────────────
@@ -241,47 +268,129 @@ app.get("/summary", async (c) => {
   const db = c.env.REMODEL_INDEX_DB;
   if (!db) return c.json({ error: "REMODEL_INDEX_DB not configured" }, 503);
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches
-    ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
-
   try {
-    const periodRows = ((
-      await db
-        .prepare(
-          `SELECT period_tag, table_version,
-                COUNT(DISTINCT dataset_id)         AS dataset_count,
-                COUNT(DISTINCT slotitem_master_id) AS slotitem_count
-         FROM remodel_slotlist_entries
-         GROUP BY period_tag, table_version
-         ORDER BY period_tag DESC, table_version DESC
-         LIMIT 20`,
-        )
-        .all()
-    ).results ?? []) as Array<{
-      period_tag: string;
-      table_version: string;
-      dataset_count: number;
-      slotitem_count: number;
-    }>;
+    const kv = c.env.DATA_LOADER_CACHE_KV;
+    const cacheKey = "remodel:summary";
 
-    const response = c.json({ ok: true, periods: periodRows });
+    const { snapshot, cacheStatus } = await loadOrRefreshCanonicalSnapshot({
+      kv,
+      cacheKey,
+      ttlMs: KV_SNAPSHOT_TTL_MS,
+      expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+      probeWhenFresh: true,
+      isValidSnapshot: isRemodelSummarySnapshot,
+      refreshFromDelta: async (cached) => {
+        const changedPeriods = ((
+          await db
+            .prepare(
+              `SELECT period_tag, table_version, MAX(updated_at_ms) AS max_updated_at_ms
+               FROM remodel_slotlist_entries
+               WHERE updated_at_ms > ?
+               GROUP BY period_tag, table_version`,
+            )
+            .bind(cached.db_synced_at)
+            .all()
+        ).results ?? []) as Array<{
+          period_tag: string;
+          table_version: string;
+          max_updated_at_ms: number;
+        }>;
+
+        if (changedPeriods.length === 0) {
+          return {
+            changed: false,
+            snapshot: {
+              ...cached,
+              refreshed_at: Date.now(),
+            },
+          };
+        }
+
+        const byPeriod = new Map(
+          cached.periods.map((row) => [`${row.period_tag}:${row.table_version}`, row]),
+        );
+
+        for (const changed of changedPeriods) {
+          const current = ((
+            await db
+              .prepare(
+                `SELECT period_tag, table_version,
+                      COUNT(DISTINCT dataset_id)         AS dataset_count,
+                      COUNT(DISTINCT slotitem_master_id) AS slotitem_count
+                 FROM remodel_slotlist_entries
+                 WHERE period_tag = ? AND table_version = ?
+                 GROUP BY period_tag, table_version`,
+              )
+              .bind(changed.period_tag, changed.table_version)
+              .all()
+          ).results ?? []) as RemodelPeriodSummaryRow[];
+
+          const key = `${changed.period_tag}:${changed.table_version}`;
+          if (current.length > 0) {
+            byPeriod.set(key, current[0]);
+          } else {
+            byPeriod.delete(key);
+          }
+        }
+
+        const maxUpdatedAt = changedPeriods.reduce(
+          (max, row) => Math.max(max, Number(row.max_updated_at_ms) || 0),
+          0,
+        );
+
+        const nextPeriods = Array.from(byPeriod.values())
+          .sort((a, b) => {
+            if (a.period_tag === b.period_tag) {
+              return b.table_version.localeCompare(a.table_version, "en");
+            }
+            return b.period_tag.localeCompare(a.period_tag, "en");
+          })
+          .slice(0, 20);
+
+        return {
+          changed: true,
+          snapshot: {
+            periods: nextPeriods,
+            refreshed_at: Date.now(),
+            db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
+          },
+        };
+      },
+      loadFull: async () => {
+        const periodRows = ((
+          await db
+            .prepare(
+              `SELECT period_tag, table_version,
+                    COUNT(DISTINCT dataset_id)         AS dataset_count,
+                    COUNT(DISTINCT slotitem_master_id) AS slotitem_count
+               FROM remodel_slotlist_entries
+               GROUP BY period_tag, table_version
+               ORDER BY period_tag DESC, table_version DESC
+               LIMIT 20`,
+            )
+            .all()
+        ).results ?? []) as RemodelPeriodSummaryRow[];
+
+        const maxUpdatedAtRow = (await db
+          .prepare(
+            `SELECT MAX(updated_at_ms) AS max_updated_at_ms FROM remodel_slotlist_entries`,
+          )
+          .first()) as { max_updated_at_ms?: number } | null;
+
+        return {
+          periods: periodRows,
+          refreshed_at: Date.now(),
+          db_synced_at: Math.max(0, Number(maxUpdatedAtRow?.max_updated_at_ms) || 0),
+        };
+      },
+    });
+
+    const response = c.json({ ok: true, periods: snapshot.periods });
     response.headers.set(
       "Cache-Control",
       "public, max-age=3600, stale-while-revalidate=86400",
     );
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putRemodelCache(c, cache, cacheKey, response);
-    }
+    response.headers.set("X-FUSOU-Cache", cacheStatus);
     return response;
   } catch (err) {
     console.error("[remodel-data] Failed to query summary:", err);
@@ -352,6 +461,11 @@ app.post("/ingest", async (c) => {
       (handshakeBody as Record<string, unknown>)?.dataset_token,
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
+    // Validate secret length upfront
+    const secretValidation = validateDatasetTokenSecret(datasetTokenSecret);
+    if (!secretValidation.ok) {
+      return c.json({ error: secretValidation.error }, 500);
+    }
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
       secret: datasetTokenSecret,
@@ -510,8 +624,9 @@ app.post("/ingest", async (c) => {
               remodel_id, slotitem_master_id, sp_type,
               req_fuel, req_bull, req_steel, req_bauxite,
               req_buildkit, req_remodelkit,
-              req_slot_id, req_slot_num
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              req_slot_id, req_slot_num,
+              updated_at_ms
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               verified.datasetId,
@@ -530,6 +645,7 @@ app.post("/ingest", async (c) => {
               entry.req_remodelkit,
               entry.req_slot_id,
               entry.req_slot_num,
+              verified.timestampMs,
             ),
       );
       const BATCH_SIZE = 100;
@@ -544,8 +660,9 @@ app.post("/ingest", async (c) => {
             slotitem_master_id, remodel_id,
             certain_buildkit, certain_remodelkit,
             change_flag,
-            req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
+            updated_at_ms
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
         )
         .bind(
           verified.datasetId,
@@ -560,6 +677,7 @@ app.post("/ingest", async (c) => {
           body.req_useitem_id2 ?? null,
           body.req_useitem_num ?? null,
           body.req_useitem_num2 ?? null,
+          verified.timestampMs,
         )
         .run();
     }
@@ -568,12 +686,25 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "Database write failed" }, 500);
   }
 
-  return c.json({
+  const responseBody = {
     ok: true,
     event_type: verified.eventType,
     dataset_id: verified.datasetId,
     request_id: verified.requestId,
-  });
+  };
+
+  c.executionCtx?.waitUntil(
+    invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, ["remodel:summary"]),
+  );
+
+  // Best-effort cache invalidation after successful ingest
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
+  if (cache) {
+    c.executionCtx?.waitUntil(invalidateRemodelCaches(cache, c.req.url));
+  }
+
+  return c.json(responseBody);
 });
 
 export default app;

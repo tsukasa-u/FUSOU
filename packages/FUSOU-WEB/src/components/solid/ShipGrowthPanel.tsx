@@ -8,9 +8,12 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { Chart, registerables } from "chart.js";
+import { Chart, registerables, type ChartData, type ChartDataset } from "chart.js";
 import { cachedFetch } from "@/utility/fetchCache";
-import { STYPE_NAMES } from "../../pages/simulator/lib/constants";
+import {
+  ENEMY_ID_THRESHOLD,
+  STYPE_NAMES,
+} from "../../pages/simulator/lib/constants";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
 import { AlertMessage } from "./common/AlertMessage";
 
@@ -36,6 +39,13 @@ type BoundRow = {
   sakuteki_naked: number;
 };
 
+type CapRow = {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+};
+
 type ShipMasterRow = {
   id: number;
   name: string;
@@ -53,41 +63,91 @@ function buildExpChartData(expRows: ExpRow[]) {
         borderColor: "rgb(99, 102, 241)",
         backgroundColor: "rgba(99, 102, 241, 0.1)",
         fill: true,
-        tension: 0.3,
+          tension: 0,
         pointRadius: 2,
       },
     ],
   };
 }
 
-function buildBoundsChartData(boundRows: BoundRow[]) {
+function buildBoundsChartData(
+  boundRows: BoundRow[],
+  cap: CapRow | null,
+): ChartData<"line", { x: number; y: number }[]> {
+  const minLv = boundRows[0]?.lv ?? 1;
+  const maxLv = boundRows[boundRows.length - 1]?.lv ?? 180;
+
+  const datasets: ChartDataset<"line", { x: number; y: number }[]>[] = [
+    {
+      label: "回避(naked)",
+      data: boundRows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
+      borderColor: "rgb(34, 197, 94)",
+      backgroundColor: "transparent",
+        tension: 0,
+      pointRadius: 2,
+    },
+    {
+      label: "対潜(naked)",
+      data: boundRows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
+      borderColor: "rgb(249, 115, 22)",
+      backgroundColor: "transparent",
+        tension: 0,
+      pointRadius: 2,
+    },
+    {
+      label: "索敵(naked)",
+      data: boundRows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
+      borderColor: "rgb(168, 85, 247)",
+      backgroundColor: "transparent",
+        tension: 0,
+      pointRadius: 2,
+    },
+  ];
+
+  if (cap) {
+    if (Number.isFinite(cap.kaihi_max) && cap.kaihi_max > 0) {
+      datasets.push({
+        label: "回避(cap)",
+        data: [
+          { x: minLv, y: cap.kaihi_max },
+          { x: maxLv, y: cap.kaihi_max },
+        ],
+        borderColor: "rgba(34, 197, 94, 0.6)",
+        borderDash: [8, 6],
+        pointRadius: 0,
+        tension: 0,
+      });
+    }
+    if (Number.isFinite(cap.taisen_max) && cap.taisen_max > 0) {
+      datasets.push({
+        label: "対潜(cap)",
+        data: [
+          { x: minLv, y: cap.taisen_max },
+          { x: maxLv, y: cap.taisen_max },
+        ],
+        borderColor: "rgba(249, 115, 22, 0.6)",
+        borderDash: [8, 6],
+        pointRadius: 0,
+        tension: 0,
+      });
+    }
+    if (Number.isFinite(cap.sakuteki_max) && cap.sakuteki_max > 0) {
+      datasets.push({
+        label: "索敵(cap)",
+        data: [
+          { x: minLv, y: cap.sakuteki_max },
+          { x: maxLv, y: cap.sakuteki_max },
+        ],
+        borderColor: "rgba(168, 85, 247, 0.6)",
+        borderDash: [8, 6],
+        pointRadius: 0,
+        tension: 0,
+      });
+    }
+  }
+
   return {
-    datasets: [
-      {
-        label: "回避(naked)",
-        data: boundRows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
-        borderColor: "rgb(34, 197, 94)",
-        backgroundColor: "transparent",
-        tension: 0.2,
-        pointRadius: 2,
-      },
-      {
-        label: "対潜(naked)",
-        data: boundRows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
-        borderColor: "rgb(249, 115, 22)",
-        backgroundColor: "transparent",
-        tension: 0.2,
-        pointRadius: 2,
-      },
-      {
-        label: "索敵(naked)",
-        data: boundRows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
-        borderColor: "rgb(168, 85, 247)",
-        backgroundColor: "transparent",
-        tension: 0.2,
-        pointRadius: 2,
-      },
-    ],
+    datasets,
   };
 }
 
@@ -137,7 +197,10 @@ export default function ShipGrowthPanel() {
     null,
   );
   const [expRows, setExpRows] = createSignal<ExpRow[]>([]);
+  const [allBoundRows, setAllBoundRows] = createSignal<BoundRow[]>([]);
+  const [allCapRows, setAllCapRows] = createSignal<CapRow[]>([]);
   const [boundRows, setBoundRows] = createSignal<BoundRow[]>([]);
+  const [selectedCap, setSelectedCap] = createSignal<CapRow | null>(null);
   const [loadingPeriods, setLoadingPeriods] = createSignal(true);
   const [loadingShips, setLoadingShips] = createSignal(true);
   const [loadingData, setLoadingData] = createSignal(false);
@@ -244,7 +307,13 @@ export default function ShipGrowthPanel() {
           name: String(r.name ?? "").trim(),
           stype: Number.isFinite(Number(r.stype)) ? Number(r.stype) : null,
         }))
-        .filter((r) => Number.isFinite(r.id) && r.id > 0 && r.name.length > 0)
+        .filter(
+          (r) =>
+            Number.isFinite(r.id) &&
+            r.id > 0 &&
+            r.id < ENEMY_ID_THRESHOLD &&
+            r.name.length > 0,
+        )
         .sort((a, b) => a.id - b.id);
 
       setShipMasterRows(rows);
@@ -266,7 +335,19 @@ export default function ShipGrowthPanel() {
     setSelectedMasterId(masterId);
   }
 
-  async function fetchGrowthData(masterId: number | null) {
+  function applySelectedShipBounds(masterId: number | null) {
+    if (masterId == null) {
+      setBoundRows([]);
+      setSelectedCap(null);
+      return;
+    }
+    setBoundRows(allBoundRows().filter((row) => row.master_id === masterId));
+    setSelectedCap(
+      allCapRows().find((row) => row.master_id === masterId) ?? null,
+    );
+  }
+
+  async function fetchGrowthData() {
     const period = selectedPeriod();
     if (!period) return;
 
@@ -280,18 +361,18 @@ export default function ShipGrowthPanel() {
       const expJson = (await expRes.json()) as { ok: boolean; exp: ExpRow[] };
       setExpRows(expJson.exp ?? []);
 
-      if (masterId != null) {
-        const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}&master_id=${masterId}`;
-        const boundsRes = await cachedFetch(boundsUrl);
-        if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
-        const boundsJson = (await boundsRes.json()) as {
-          ok: boolean;
-          bounds: BoundRow[];
-        };
-        setBoundRows(boundsJson.bounds ?? []);
-      } else {
-        setBoundRows([]);
-      }
+      // Always fetch full bounds once per period and reuse locally for ship switches.
+      const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
+      const boundsRes = await cachedFetch(boundsUrl);
+      if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
+      const boundsJson = (await boundsRes.json()) as {
+        ok: boolean;
+        bounds: BoundRow[];
+        caps?: CapRow[];
+      };
+      setAllBoundRows(boundsJson.bounds ?? []);
+      setAllCapRows(boundsJson.caps ?? []);
+      applySelectedShipBounds(selectedMasterId());
     } catch (e) {
       setError(
         `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
@@ -308,14 +389,19 @@ export default function ShipGrowthPanel() {
 
   createEffect(() => {
     const period = selectedPeriod();
-    const masterId = selectedMasterId();
-    if (!period || masterId == null) return;
+    if (!period) return;
     if (loadingPeriods() || loadingShips()) return;
-    fetchGrowthData(masterId);
+    fetchGrowthData();
+  });
+
+  createEffect(() => {
+    applySelectedShipBounds(selectedMasterId());
   });
 
   const expChartData = createMemo(() => buildExpChartData(expRows()));
-  const boundsChartData = createMemo(() => buildBoundsChartData(boundRows()));
+  const boundsChartData = createMemo(() =>
+    buildBoundsChartData(boundRows(), selectedCap()),
+  );
 
   let expChart: Chart<"line"> | null = null;
   let boundsChart: Chart<"line"> | null = null;
@@ -353,9 +439,10 @@ export default function ShipGrowthPanel() {
     if (!ctx) return;
 
     boundsChart?.destroy();
-    boundsChart = new Chart(ctx, {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    boundsChart = new Chart<"line">(ctx, {
       type: "line",
-      data: boundsChartData(),
+      data: boundsChartData() as any,
       options: CHART_OPTIONS_BOUNDS,
     });
   });
@@ -408,7 +495,7 @@ export default function ShipGrowthPanel() {
                 periods().length === 0 ||
                 selectedMasterId() == null
               }
-              onClick={() => fetchGrowthData(selectedMasterId())}
+              onClick={() => fetchGrowthData()}
             >
               <Show when={loadingData()}>
                 <span class="loading loading-spinner loading-xs" />

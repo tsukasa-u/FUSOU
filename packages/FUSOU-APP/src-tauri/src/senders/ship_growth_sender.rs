@@ -8,10 +8,10 @@ use kc_api::interface::ship_growth::ShipGrowthSnapshot;
 use once_cell::sync::OnceCell;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -57,7 +57,9 @@ impl ShipGrowthSender {
                 // bounds data (lv-by-lv ASW/evasion/LoS per ship) is game-static within a period.
                 // Use a long TTL and rely entirely on rotate_scope(period_tag:version) for cross-period
                 // invalidation rather than expiring mid-session.
-                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(7 * 24 * 60 * 60)));
+                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(
+                    7 * 24 * 60 * 60,
+                )));
                 if let Err(e) = cache.enable_persistence(bounds_cache_file) {
                     tracing::warn!(error = %e, "failed to enable persistent ship growth bounds suppression cache");
                 }
@@ -66,7 +68,9 @@ impl ShipGrowthSender {
             version_cache: {
                 // exp (level↔exp table) and caps (per-ship max params) are stable across periods;
                 // only invalidate when table version changes.
-                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(7 * 24 * 60 * 60)));
+                let cache = Arc::new(LocalRequestSuppressionCache::new(Duration::from_secs(
+                    7 * 24 * 60 * 60,
+                )));
                 if let Err(e) = cache.enable_persistence(version_cache_file) {
                     tracing::warn!(error = %e, "failed to enable persistent ship growth version suppression cache");
                 }
@@ -97,6 +101,10 @@ impl ShipGrowthSender {
 
     fn caps_payload_key() -> &'static str {
         "snapshot:caps"
+    }
+
+    fn snapshot_payload_key() -> &'static str {
+        "snapshot:payload"
     }
 
     fn bounds_suppression_hash(snapshot: &ShipGrowthSnapshot) -> String {
@@ -161,26 +169,17 @@ impl ShipGrowthSender {
     }
 
     fn payload_hash(snapshot: &ShipGrowthSnapshot) -> String {
-        // Upload the database-model snapshot so Cloudflare can reconstruct observed values,
-        // kyouka, and slot improvement data even when normalization rules evolve later.
+        // Suppression is based on master_id + level only.
+        // Keep multiplicity (do not dedup) so level-up of one ship is observable
+        // even when another ship already has the same target level.
+        // Period is handled by cache scope rotation (period_tag:table_version).
         let upload_snapshot = UploadShipGrowthSnapshot::from(snapshot.clone());
-        let mut normalized = upload_snapshot.entries;
-        normalized.sort_by(|a, b| {
-            a.master_id
-                .cmp(&b.master_id)
-                .then(a.lv.cmp(&b.lv))
-                .then(a.exp_current.cmp(&b.exp_current))
-                .then(a.exp_to_next.cmp(&b.exp_to_next))
-                .then(a.kaihi_observed.cmp(&b.kaihi_observed))
-                .then(a.taisen_observed.cmp(&b.taisen_observed))
-                .then(a.sakuteki_observed.cmp(&b.sakuteki_observed))
-                .then(a.kaihi_naked.cmp(&b.kaihi_naked))
-                .then(a.taisen_naked.cmp(&b.taisen_naked))
-                .then(a.sakuteki_naked.cmp(&b.sakuteki_naked))
-                .then(a.kaihi_max.cmp(&b.kaihi_max))
-                .then(a.taisen_max.cmp(&b.taisen_max))
-                .then(a.sakuteki_max.cmp(&b.sakuteki_max))
-        });
+        let mut normalized: Vec<(i64, i64)> = upload_snapshot
+            .entries
+            .into_iter()
+            .map(|entry| (entry.master_id, entry.lv))
+            .collect();
+        normalized.sort_unstable();
         let payload = serde_json::to_vec(&normalized).unwrap_or_default();
         let mut hasher = Sha256::new();
         hasher.update(payload);
@@ -193,7 +192,9 @@ impl ShipGrowthSender {
         format!("{:x}", hasher.finalize())
     }
 
-    fn validate_exp_entries(snapshot: &ShipGrowthSnapshot) -> Result<(), Box<dyn std::error::Error>> {
+    fn validate_exp_entries(
+        snapshot: &ShipGrowthSnapshot,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut boundary_by_lv = std::collections::BTreeMap::<i64, i64>::new();
         for (index, entry) in snapshot.entries.iter().enumerate() {
             if entry.lv <= 0 {
@@ -217,14 +218,19 @@ impl ShipGrowthSender {
                 Some(v) if v >= 0 => v,
                 Some(v) => {
                     tracing::debug!(
-                        index, master_id = entry.master_id, lv = entry.lv, exp_to_next = v,
+                        index,
+                        master_id = entry.master_id,
+                        lv = entry.lv,
+                        exp_to_next = v,
                         "skipping exp boundary check: negative exp_to_next"
                     );
                     continue;
                 }
                 None => {
                     tracing::debug!(
-                        index, master_id = entry.master_id, lv = entry.lv,
+                        index,
+                        master_id = entry.master_id,
+                        lv = entry.lv,
                         "skipping exp boundary check: exp_to_next missing"
                     );
                     continue;
@@ -259,7 +265,11 @@ impl ShipGrowthSender {
         let mut attempts = 0;
         while attempts < 15 {
             let dataset_id = crate::util::get_user_member_id().await;
-            tracing::debug!(attempts, empty = dataset_id.trim().is_empty(), "ship_growth_sender: resolve_dataset_id poll");
+            tracing::debug!(
+                attempts,
+                empty = dataset_id.trim().is_empty(),
+                "ship_growth_sender: resolve_dataset_id poll"
+            );
             if !dataset_id.trim().is_empty() {
                 return Some(dataset_id);
             }
@@ -274,7 +284,10 @@ impl ShipGrowthSender {
         &self,
         snapshot: &ShipGrowthSnapshot,
     ) -> Result<ShipGrowthSendOutcome, Box<dyn std::error::Error>> {
-        tracing::debug!(entries = snapshot.entries.len(), "ship_growth_sender: validating exp entries");
+        tracing::debug!(
+            entries = snapshot.entries.len(),
+            "ship_growth_sender: validating exp entries"
+        );
         Self::validate_exp_entries(snapshot)?;
 
         tracing::debug!("ship_growth_sender: computing hashes");
@@ -293,7 +306,8 @@ impl ShipGrowthSender {
             kc_api::database::DATABASE_TABLE_VERSION
         )));
         // exp and caps are version-scoped: clear only on table version change
-        self.version_cache.rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
+        self.version_cache
+            .rotate_scope(Some(kc_api::database::DATABASE_TABLE_VERSION));
 
         let skip_exp = self
             .version_cache
@@ -304,12 +318,16 @@ impl ShipGrowthSender {
         let skip_caps = self
             .version_cache
             .should_skip(Self::caps_payload_key(), &caps_hash);
+        let skip_payload = self
+            .bounds_cache
+            .should_skip(Self::snapshot_payload_key(), &payload_hash);
 
-        if skip_exp && skip_bounds && skip_caps {
+        if skip_exp && skip_bounds && skip_caps && skip_payload {
             tracing::debug!(
                 skip_exp,
                 skip_bounds,
                 skip_caps,
+                skip_payload,
                 scope = %format!("{}:{}", period_tag, kc_api::database::DATABASE_TABLE_VERSION),
                 "ship_growth_sender: suppression cache hit, skipping upload"
             );
@@ -319,6 +337,7 @@ impl ShipGrowthSender {
             skip_exp,
             skip_bounds,
             skip_caps,
+            skip_payload,
             scope = %format!("{}:{}", period_tag, kc_api::database::DATABASE_TABLE_VERSION),
             "ship_growth_sender: suppression cache miss, proceeding with upload"
         );
@@ -402,6 +421,8 @@ impl ShipGrowthSender {
                     .mark_processed(Self::bounds_payload_key(), bounds_hash);
                 self.version_cache
                     .mark_processed(Self::caps_payload_key(), caps_hash);
+                self.bounds_cache
+                    .mark_processed(Self::snapshot_payload_key(), payload_hash);
                 Ok(ShipGrowthSendOutcome::Sent)
             }
             Err(e) => {
@@ -426,7 +447,11 @@ impl ShipGrowthSender {
             notified.await;
         }
 
-        tracing::info!(seq, entries = snapshot.entries.len(), "ship_growth_sender event started");
+        tracing::info!(
+            seq,
+            entries = snapshot.entries.len(),
+            "ship_growth_sender event started"
+        );
         match self.send_if_new(&snapshot).await {
             Ok(ShipGrowthSendOutcome::Sent) => {
                 tracing::info!(seq, "ship_growth_sender event completed (sent)");
@@ -479,7 +504,10 @@ pub fn start(
 
 pub fn enqueue_snapshot(snapshot: ShipGrowthSnapshot) {
     if let Some(sender) = SHIP_GROWTH_SENDER.get() {
-        tracing::debug!(entries = snapshot.entries.len(), "ship_growth_sender: enqueue_snapshot called");
+        tracing::debug!(
+            entries = snapshot.entries.len(),
+            "ship_growth_sender: enqueue_snapshot called"
+        );
         let sender = sender.clone();
         let seq = sender.allocate_seq();
         tokio::spawn(async move {
@@ -499,7 +527,10 @@ pub struct ShipGrowthSuppressionStatus {
 pub fn get_suppression_status() -> Option<ShipGrowthSuppressionStatus> {
     SHIP_GROWTH_SENDER.get().map(|sender| {
         let SuppressionCacheStatus { scope, mut entries } = sender.bounds_cache.snapshot_status();
-        let SuppressionCacheStatus { entries: version_entries, .. } = sender.version_cache.snapshot_status();
+        let SuppressionCacheStatus {
+            entries: version_entries,
+            ..
+        } = sender.version_cache.snapshot_status();
         entries.extend(version_entries);
         ShipGrowthSuppressionStatus { scope, entries }
     })

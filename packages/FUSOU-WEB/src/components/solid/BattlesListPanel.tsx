@@ -135,6 +135,9 @@ export default function BattlesListPanel() {
   const [cellLabelsByMapKey, setCellLabelsByMapKey] = createSignal<
     Record<string, Record<number, string>>
   >({});
+    const [masterShipNameById, setMasterShipNameById] = createSignal<
+      Map<number, string>
+    >(new Map());
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -362,6 +365,7 @@ export default function BattlesListPanel() {
       const mstShipNameById = new Map(
         (mstShipPayload.records || []).map((s) => [s.id, s.name]),
       );
+        setMasterShipNameById(mstShipNameById);
 
       const toGroupIds = (shipIds: EnemyDeckRecord["ship_ids"]): string[] => {
         if (Array.isArray(shipIds)) {
@@ -656,9 +660,22 @@ export default function BattlesListPanel() {
                               </span>
                             </td>
                             <td>
-                              {result?.drop_ship_id
-                                ? `#${result.drop_ship_id}`
-                                : "-"}
+                              {result?.drop_ship_id ? (
+                                <div class="flex items-center gap-1 min-w-[100px]">
+                                  <img
+                                    src={`/api/asset-sync/ship-banner/${result.drop_ship_id}`}
+                                    alt={masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
+                                    class="h-5 w-20 object-cover rounded-sm"
+                                    loading="lazy"
+                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                                  />
+                                  <span class="text-xs truncate max-w-24">
+                                    {masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
+                                  </span>
+                                </div>
+                              ) : (
+                                "-"
+                              )}
                             </td>
                             <td>
                               <a

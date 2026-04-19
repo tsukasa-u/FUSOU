@@ -190,7 +190,7 @@ async function putCacheSafely(
   try {
     const waitUntil = c.executionCtx?.waitUntil;
     if (typeof waitUntil === "function") {
-      waitUntil(putPromise);
+      waitUntil.call(c.executionCtx, putPromise);
       return;
     }
   } catch (err) {
