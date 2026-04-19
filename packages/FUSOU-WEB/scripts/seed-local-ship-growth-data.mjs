@@ -11,7 +11,7 @@
  */
 
 import { execSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 function parseArgs(argv) {
@@ -27,11 +27,22 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log("Usage: node scripts/seed-local-ship-growth-data.mjs --db <database_name> [--period latest|YYYY-MM-DD] [--table-version <version>]");
+  console.log(
+    "Usage: node scripts/seed-local-ship-growth-data.mjs --db <database_name> [--period latest|YYYY-MM-DD] [--table-version <version>]",
+  );
 }
 
 function runWrangler(dbName, mode, commandOrFile) {
-  const base = ["npx", "wrangler", "d1", "execute", dbName, mode, "--json"];
+  const localWranglerCmd = join(
+    process.cwd(),
+    "node_modules",
+    ".bin",
+    "wrangler.cmd",
+  );
+  const wranglerBin = existsSync(localWranglerCmd)
+    ? localWranglerCmd
+    : "wrangler";
+  const base = [wranglerBin, "d1", "execute", dbName, mode, "--json"];
   if (commandOrFile.command) {
     base.push("--command", commandOrFile.command);
   } else if (commandOrFile.file) {
@@ -76,9 +87,14 @@ function main() {
     return;
   }
 
-  const dbName = args.db || process.env.SEED_SHIP_GROWTH_DB || process.env.SHIP_GROWTH_DB_NAME;
+  const dbName =
+    args.db ||
+    process.env.SEED_SHIP_GROWTH_DB ||
+    process.env.SHIP_GROWTH_DB_NAME;
   if (!dbName) {
-    throw new Error("Missing DB name. Pass --db or set SEED_SHIP_GROWTH_DB / SHIP_GROWTH_DB_NAME.");
+    throw new Error(
+      "Missing DB name. Pass --db or set SEED_SHIP_GROWTH_DB / SHIP_GROWTH_DB_NAME.",
+    );
   }
 
   console.log("=== Local Ship Growth Seeder ===");
@@ -102,7 +118,9 @@ function main() {
   }
 
   if (!tableVersion) {
-    throw new Error("Missing table version. Pass --table-version when --period is not latest.");
+    throw new Error(
+      "Missing table version. Pass --table-version when --period is not latest.",
+    );
   }
 
   console.log(`Period: ${periodTag}`);
@@ -117,18 +135,18 @@ function main() {
   );
   const boundRows = getResults(
     runWrangler(dbName, "--remote", {
-      command:
-        `SELECT period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked FROM ship_growth_bounds WHERE ${whereClause} ORDER BY master_id, lv`,
+      command: `SELECT period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked FROM ship_growth_bounds WHERE ${whereClause} ORDER BY master_id, lv`,
     }),
   );
   const capRows = getResults(
     runWrangler(dbName, "--remote", {
-      command:
-        `SELECT period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max FROM ship_growth_caps WHERE ${whereClause} ORDER BY master_id`,
+      command: `SELECT period_tag, table_version, master_id, kaihi_max, taisen_max, sakuteki_max FROM ship_growth_caps WHERE ${whereClause} ORDER BY master_id`,
     }),
   );
 
-  console.log(`Remote rows: exp=${expRows.length}, bounds=${boundRows.length}, caps=${capRows.length}`);
+  console.log(
+    `Remote rows: exp=${expRows.length}, bounds=${boundRows.length}, caps=${capRows.length}`,
+  );
   if (!expRows.length && !boundRows.length && !capRows.length) {
     throw new Error("No remote rows found for the target period/version.");
   }
@@ -138,15 +156,34 @@ function main() {
     `DELETE FROM ship_level_exp_pairs WHERE ${whereClause};`,
     `DELETE FROM ship_growth_bounds WHERE ${whereClause};`,
     `DELETE FROM ship_growth_caps WHERE ${whereClause};`,
-    ...buildInsertSql("ship_level_exp_pairs", ["period_tag", "table_version", "lv", "exp_current"], expRows),
+    ...buildInsertSql(
+      "ship_level_exp_pairs",
+      ["period_tag", "table_version", "lv", "exp_current"],
+      expRows,
+    ),
     ...buildInsertSql(
       "ship_growth_bounds",
-      ["period_tag", "table_version", "master_id", "lv", "kaihi_naked", "taisen_naked", "sakuteki_naked"],
+      [
+        "period_tag",
+        "table_version",
+        "master_id",
+        "lv",
+        "kaihi_naked",
+        "taisen_naked",
+        "sakuteki_naked",
+      ],
       boundRows,
     ),
     ...buildInsertSql(
       "ship_growth_caps",
-      ["period_tag", "table_version", "master_id", "kaihi_max", "taisen_max", "sakuteki_max"],
+      [
+        "period_tag",
+        "table_version",
+        "master_id",
+        "kaihi_max",
+        "taisen_max",
+        "sakuteki_max",
+      ],
       capRows,
     ),
     "COMMIT;",
@@ -175,7 +212,9 @@ function main() {
     }),
   )[0]?.c;
 
-  console.log(`Local rows: exp=${localExpCount}, bounds=${localBoundCount}, caps=${localCapCount}`);
+  console.log(
+    `Local rows: exp=${localExpCount}, bounds=${localBoundCount}, caps=${localCapCount}`,
+  );
   console.log("Done: local ship-growth data seeded.");
 }
 

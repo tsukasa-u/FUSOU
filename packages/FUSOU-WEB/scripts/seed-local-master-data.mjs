@@ -120,7 +120,7 @@ async function main() {
   let remoteTableRows = [];
   try {
     const output = d1ExecuteSql(
-      "SELECT id, period_tag, table_version, period_revision, content_hash FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1;",
+      "SELECT id, period_tag, table_version, content_hash FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC LIMIT 1;",
       { remote: true, json: true },
     );
     const parsed = JSON.parse(output);
@@ -131,7 +131,7 @@ async function main() {
     }
     remoteRecord = results[0];
     console.log(
-      `  Found: period=${remoteRecord.period_tag}, version=${remoteRecord.table_version}, revision=${remoteRecord.period_revision}`,
+      `  Found: period=${remoteRecord.period_tag}, version=${remoteRecord.table_version}`,
     );
 
     const remoteMasterId = toSafeInt(remoteRecord.id, -1);
