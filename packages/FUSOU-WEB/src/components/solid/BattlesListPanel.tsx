@@ -461,7 +461,7 @@ export default function BattlesListPanel() {
     } catch {
       // Ignore storage errors and keep navigation.
     }
-    const detailId = battle.uuid || String(fallbackIndex);
+    const detailId = battle.uuid || battle.env_uuid || String(fallbackIndex);
     window.location.href = `/battles/${encodeURIComponent(detailId)}`;
   }
 
@@ -633,7 +633,8 @@ export default function BattlesListPanel() {
                         const airSup =
                           b.opening_air_attack?.[0]?.air_superiority;
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
-                        const detailId = b.uuid || String(fallbackIdx);
+                        const detailId =
+                          b.uuid || b.env_uuid || String(fallbackIdx);
                         const detailHref = `/battles/${encodeURIComponent(detailId)}`;
                         return (
                           <tr

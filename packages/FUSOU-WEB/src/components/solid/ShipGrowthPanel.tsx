@@ -57,6 +57,8 @@ type ShipMasterRow = {
   stype: number | null;
 };
 
+type AnyRecord = Record<string, unknown>;
+
 // ── Helpers ────────────────────────────────────────────────────────
 
 function buildExpChartData(expRows: ExpRow[]) {
@@ -73,6 +75,48 @@ function buildExpChartData(expRows: ExpRow[]) {
       },
     ],
   };
+}
+
+function toFiniteNumber(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeBoundRows(rows: unknown): BoundRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const r = row as AnyRecord;
+      return {
+        master_id: toFiniteNumber(r.master_id),
+        lv: toFiniteNumber(r.lv),
+        kaihi_naked: toFiniteNumber(r.kaihi_naked),
+        taisen_naked: toFiniteNumber(r.taisen_naked),
+        sakuteki_naked: toFiniteNumber(r.sakuteki_naked),
+      };
+    })
+    .filter(
+      (row) =>
+        Number.isFinite(row.master_id) &&
+        row.master_id > 0 &&
+        Number.isFinite(row.lv) &&
+        row.lv > 0,
+    );
+}
+
+function normalizeCapRows(rows: unknown): CapRow[] {
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((row) => {
+      const r = row as AnyRecord;
+      return {
+        master_id: toFiniteNumber(r.master_id),
+        kaihi_max: toFiniteNumber(r.kaihi_max ?? r.kaihi_cap),
+        taisen_max: toFiniteNumber(r.taisen_max ?? r.taisen_cap),
+        sakuteki_max: toFiniteNumber(r.sakuteki_max ?? r.sakuteki_cap),
+      };
+    })
+    .filter((row) => Number.isFinite(row.master_id) && row.master_id > 0);
 }
 
 function buildBoundsChartData(
@@ -375,8 +419,8 @@ export default function ShipGrowthPanel() {
         bounds: BoundRow[];
         caps?: CapRow[];
       };
-      setAllBoundRows(boundsJson.bounds ?? []);
-      setAllCapRows(boundsJson.caps ?? []);
+      setAllBoundRows(normalizeBoundRows(boundsJson.bounds));
+      setAllCapRows(normalizeCapRows(boundsJson.caps));
       applySelectedShipBounds(selectedMasterId());
     } catch (e) {
       setError(

@@ -13,6 +13,23 @@ async function fetchJson(url: string): Promise<unknown> {
   return response.json();
 }
 
+async function fetchDevLocalRecords(
+  table: string,
+  value: string,
+  field?: string,
+): Promise<Array<Record<string, unknown>>> {
+  const params = new URLSearchParams({
+    uuid: value,
+    table,
+    value,
+  });
+  if (field) params.set("field", field);
+  const payload = (await fetchJson(
+    `/api/battle-data/dev/local-records?${params.toString()}`,
+  )) as { records?: Array<Record<string, unknown>> } | null;
+  return payload?.records || [];
+}
+
 export async function fetchBattleResultByUuid(
   uuid: string,
 ): Promise<{ win_rank: string; drop_ship_id: unknown } | null> {
@@ -40,15 +57,35 @@ export async function fetchRecordsByUuid(
   uuid: string,
 ): Promise<Array<Record<string, unknown>>> {
   if (!table || !uuid) return [];
-  try {
-    const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
-    const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=200&filter_json=${filterJson}`,
-    )) as { records?: Array<Record<string, unknown>> } | null;
-    return payload?.records || [];
-  } catch {
-    return [];
+  const candidateFields = ["uuid", "battle_id", "id"];
+
+  for (const field of candidateFields) {
+    try {
+      const filterJson = encodeURIComponent(JSON.stringify({ [field]: uuid }));
+      const payload = (await fetchJson(
+        `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=200&filter_json=${filterJson}`,
+      )) as { records?: Array<Record<string, unknown>> } | null;
+      const records = payload?.records || [];
+      if (records.length > 0) {
+        return records;
+      }
+    } catch {
+      // Fall through to the next candidate field.
+    }
   }
+
+  for (const field of candidateFields) {
+    try {
+      const records = await fetchDevLocalRecords(table, uuid, field);
+      if (records.length > 0) {
+        return records;
+      }
+    } catch {
+      // Continue trying other key fields.
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -76,9 +113,29 @@ export async function fetchRecordsByUuids(
       const id = String(row?.uuid ?? "");
       if (result.has(id)) result.get(id)!.push(row);
     }
+
+    // Local/dev fallback for IDs that were not resolved by global query.
+    for (const id of unique) {
+      if ((result.get(id)?.length || 0) > 0) continue;
+      try {
+        const rows = await fetchRecordsByUuid(table, id);
+        if (rows.length > 0) result.set(id, rows);
+      } catch {
+        // Keep empty for unresolved id.
+      }
+    }
+
     return result;
   } catch {
-    return new Map();
+    const fallback = new Map<string, Array<Record<string, unknown>>>();
+    for (const id of unique) {
+      try {
+        fallback.set(id, await fetchRecordsByUuid(table, id));
+      } catch {
+        fallback.set(id, []);
+      }
+    }
+    return fallback;
   }
 }
 
@@ -94,7 +151,23 @@ export async function fetchRecordsByField(
     const payload = (await fetchJson(
       `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=${limitRecords}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
-    return payload?.records || [];
+    let records = payload?.records || [];
+    const localFallbackFields = new Set([
+      "uuid",
+      "battle_id",
+      "id",
+      "api_id",
+      "env_uuid",
+      "index",
+    ]);
+    if (records.length === 0 && localFallbackFields.has(field)) {
+      try {
+        records = await fetchDevLocalRecords(table, String(value), field);
+      } catch {
+        // Keep empty when fallback fails.
+      }
+    }
+    return records;
   } catch {
     return [];
   }
@@ -192,7 +265,21 @@ export async function fetchBattleRecordsByUuid(
     `/api/battle-data/global/records?table=battle&period_tag=${periodTag}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
   )) as { records?: Array<Record<string, unknown>> } | null;
   const records = payload?.records || [];
-  return records.filter((r) => String(r?.uuid || "") === uuid);
+  let filtered = records.filter((r) => String(r?.uuid || "") === uuid);
+
+  // Fallback: try dev local endpoint for testing/development data
+  if (filtered.length === 0) {
+    try {
+      const devPayload = (await fetchJson(
+        `/api/battle-data/dev/local-records?uuid=${encodeURIComponent(uuid)}&table=battle`,
+      )) as { records?: Array<Record<string, unknown>> } | null;
+      filtered = devPayload?.records || [];
+    } catch {
+      // Silently fail fallback - main endpoint is the source of truth
+    }
+  }
+
+  return filtered;
 }
 
 export async function resolveMidnightHougeki(raw: unknown): Promise<unknown> {
@@ -290,10 +377,61 @@ export async function resolveFriendlyFleet(
     }
   }
 
-  const selectedShips = bestGroupId
-    ? ownShipsByGroup.get(bestGroupId) || []
-    : [];
-  if (!selectedShips.length) return [];
+  let selectedShips = bestGroupId ? ownShipsByGroup.get(bestGroupId) || [] : [];
+
+  // Fallback: when own_deck linkage is unavailable, infer the best own_ship group by env_uuid + HP snapshot.
+  if (!selectedShips.length) {
+    const ownShipRows = await fetchRecordsByField(
+      "own_ship",
+      "env_uuid",
+      envUuid,
+      2000,
+    );
+    const byGroup = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of ownShipRows) {
+      const groupId = String(row.uuid ?? "");
+      if (!groupId) continue;
+      if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+      byGroup.get(groupId)!.push(row);
+    }
+
+    let inferredBest: Array<Record<string, unknown>> = [];
+    let inferredBestScore = Number.MAX_SAFE_INTEGER;
+    for (const rows of byGroup.values()) {
+      const score = hpScoreForDeck(
+        rows as Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
+        hpSnapshot,
+      );
+      if (score < inferredBestScore) {
+        inferredBestScore = score;
+        inferredBest = rows;
+      }
+    }
+    if (inferredBest.length > 0) {
+      selectedShips = inferredBest;
+    }
+  }
+
+  if (!selectedShips.length) {
+    const fallbackHps = Array.isArray(hpSnapshot)
+      ? hpSnapshot.map((v) => Number(v ?? 0) || 0)
+      : [];
+    return fallbackHps
+      .filter((hp) => hp > 0)
+      .map((hp, idx) => ({
+        name: `味方${idx + 1}番艦`,
+        shipId: null,
+        level: null,
+        nowhp: hp,
+        maxhp: hp,
+        karyoku: null,
+        raisou: null,
+        taiku: null,
+        soukou: null,
+        bannerUrl: "",
+        equipments: [],
+      }));
+  }
 
   const mstShipById = await getMstShipById();
   const mstSlotItemById = await getMstSlotItemById();
@@ -360,12 +498,108 @@ export async function resolveFriendlyFleet(
 export async function resolveEnemyFleet(
   battle: Record<string, unknown>,
 ): Promise<ShipInfo[]> {
+  const fallbackEnemyByHp = (): ShipInfo[] => {
+    const hps = Array.isArray(battle?.e_nowhps)
+      ? (battle.e_nowhps as unknown[]).map((v) => Number(v ?? 0) || 0)
+      : [];
+    return hps
+      .filter((hp) => hp > 0)
+      .map((hp, idx) => ({
+        name: `敵${idx + 1}番艦`,
+        shipId: null,
+        level: null,
+        nowhp: hp,
+        maxhp: hp,
+        karyoku: null,
+        raisou: null,
+        taiku: null,
+        soukou: null,
+        bannerUrl: "",
+        equipments: [],
+      }));
+  };
+
+  const inferEnemyByEnv = async (): Promise<ShipInfo[]> => {
+    const envUuid = String(battle?.env_uuid ?? "");
+    if (!envUuid) return [];
+
+    const hpSnapshot = Array.isArray(battle?.e_nowhps)
+      ? (battle.e_nowhps as unknown[])
+      : [];
+    const rows = await fetchRecordsByField(
+      "enemy_ship",
+      "env_uuid",
+      envUuid,
+      2000,
+    );
+    if (rows.length === 0) return [];
+
+    const byGroup = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of rows) {
+      const groupId = String(row.uuid ?? "");
+      if (!groupId) continue;
+      if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+      byGroup.get(groupId)!.push(row);
+    }
+    if (byGroup.size === 0) return [];
+
+    let bestRows: Array<Record<string, unknown>> = [];
+    let bestScore = Number.MAX_SAFE_INTEGER;
+    for (const groupRows of byGroup.values()) {
+      const score = hpScoreForDeck(
+        groupRows as Array<{
+          index?: unknown;
+          nowhp?: unknown;
+          maxhp?: unknown;
+        }>,
+        hpSnapshot,
+      );
+      if (score < bestScore) {
+        bestScore = score;
+        bestRows = groupRows;
+      }
+    }
+    if (bestRows.length === 0) return [];
+
+    const mstShipById = await getMstShipById();
+    return [...bestRows]
+      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .map((ship) => {
+        const mstId = Number(ship.mst_ship_id ?? 0) || null;
+        const mstShip = mstId ? mstShipById.get(mstId) : null;
+        return {
+          name: mstShip
+            ? String(
+                (mstShip as Record<string, unknown>).name ??
+                  `敵艦ID:${mstId ?? "-"}`,
+              )
+            : `敵艦ID:${mstId ?? "-"}`,
+          shipId: mstId,
+          level: Number(ship.lv ?? 0) || null,
+          nowhp: Number(ship.nowhp ?? 0) || 0,
+          maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
+          karyoku: ship.karyoku ?? null,
+          raisou: ship.raisou ?? null,
+          taiku: ship.taiku ?? null,
+          soukou: ship.soukou ?? null,
+          bannerUrl: mstId ? `/api/asset-sync/ship-banner/${mstId}` : "",
+          equipments: [],
+        } satisfies ShipInfo;
+      });
+  };
+
   const deckId = battle?.e_deck_id;
-  if (!deckId) return [];
+  if (!deckId) {
+    const inferred = await inferEnemyByEnv();
+    return inferred.length > 0 ? inferred : fallbackEnemyByHp();
+  }
 
   const deckRows = await fetchRecordsByUuid("enemy_deck", String(deckId));
   const deck = deckRows[0] || null;
-  if (!deck) return [];
+  if (!deck) {
+    const inferred = await inferEnemyByEnv();
+    return inferred.length > 0 ? inferred : fallbackEnemyByHp();
+  }
 
   const mstShipById = await getMstShipById();
   const mstSlotItemById = await getMstSlotItemById();
@@ -439,5 +673,31 @@ export async function resolveEnemyFleet(
     });
   }
 
-  return ships;
+  if (ships.length > 0) {
+    return ships;
+  }
+
+  const inferred = await inferEnemyByEnv();
+  if (inferred.length > 0) {
+    return inferred;
+  }
+
+  return Array.isArray(battle?.e_nowhps)
+    ? (battle.e_nowhps as unknown[])
+        .map((v) => Number(v ?? 0) || 0)
+        .filter((hp) => hp > 0)
+        .map((hp, idx) => ({
+          name: `敵${idx + 1}番艦`,
+          shipId: null,
+          level: null,
+          nowhp: hp,
+          maxhp: hp,
+          karyoku: null,
+          raisou: null,
+          taiku: null,
+          soukou: null,
+          bannerUrl: "",
+          equipments: [],
+        }))
+    : [];
 }

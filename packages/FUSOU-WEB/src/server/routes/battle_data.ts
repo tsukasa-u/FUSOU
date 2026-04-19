@@ -13,6 +13,54 @@ import {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+function transformOpeningRaigekiData(raw: any): any {
+  if (!raw) return raw;
+  const result: any = {};
+
+  // Transform field names from test schema to expected schema
+  if (raw.frai_list_items) {
+    result.f_rai =
+      typeof raw.frai_list_items === "string"
+        ? JSON.parse(raw.frai_list_items)
+        : raw.frai_list_items;
+  }
+  if (raw.erai_list_items) {
+    result.e_rai =
+      typeof raw.erai_list_items === "string"
+        ? JSON.parse(raw.erai_list_items)
+        : raw.erai_list_items;
+  }
+  if (raw.friend_damage) {
+    result.f_dam =
+      typeof raw.friend_damage === "string"
+        ? JSON.parse(raw.friend_damage)
+        : raw.friend_damage;
+  }
+  if (raw.enemy_damage) {
+    result.e_dam =
+      typeof raw.enemy_damage === "string"
+        ? JSON.parse(raw.enemy_damage)
+        : raw.enemy_damage;
+  }
+
+  // Build HP arrays based on damage array length (critical for timeline to know fleet size)
+  const fDam = result.f_dam || [];
+  const eDam = result.e_dam || [];
+
+  // Create HP arrays with proper length
+  result.f_now_hps = Array(fDam.length)
+    .fill(null)
+    .map((_, i) => 100 + i * 20);
+  result.e_now_hps = Array(eDam.length)
+    .fill(null)
+    .map((_, i) => 100 + i * 20);
+
+  // Add ship class/type values
+  result.f_cl = Array(result.f_now_hps.length).fill(2);
+  result.e_cl = Array(result.e_now_hps.length).fill(2);
+
+  return result;
+}
 /**
  * Convert Uint8Array to base64 string (Cloudflare Workers compatible)
  * Uses chunks to avoid O(n²) string concatenation
@@ -1288,6 +1336,161 @@ app.get("/global/latest", async (c) => {
   } catch (err) {
     console.error("[battle_data] Failed to query global latest:", err);
     return c.json({ error: "Failed to retrieve global latest fragment" }, 500);
+  }
+});
+
+/**
+ * DEV ONLY: GET /dev/local-records - Query local D1 tables directly
+ * Bypasses R2/block_indexes for testing with synthetic data
+ */
+app.get("/dev/local-records", async (c) => {
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
+
+  if (!indexDb) {
+    return c.json({ error: "D1 database not configured" }, 500);
+  }
+
+  const battleId = c.req.query("uuid");
+  const rawField = (c.req.query("field") || "").trim();
+  const rawValue = (c.req.query("value") || battleId || "").trim();
+
+  const table = (c.req.query("table") || "battle").trim();
+
+  if (!battleId) {
+    return c.json({ error: "uuid is required" }, 400);
+  }
+
+  try {
+    const safeField = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawField) ? rawField : "";
+    const safeValue = rawValue || battleId;
+    const tableAllowlist = new Set([
+      "battle",
+      "battle_result",
+      "cells",
+      "env_info",
+      "enemy_deck",
+      "enemy_ship",
+      "enemy_slotitem",
+      "own_deck",
+      "own_ship",
+      "own_slotitem",
+      "carrierbase_assault",
+      "closing_raigeki",
+      "hougeki",
+      "hougeki_list",
+      "midnight_hougeki",
+      "midnight_hougeki_list",
+      "opening_airattack",
+      "opening_airattack_list",
+      "opening_raigeki",
+      "opening_taisen",
+      "opening_taisen_list",
+    ]);
+
+    if (!tableAllowlist.has(table)) {
+      return c.json({ error: `unsupported table: ${table}` }, 400);
+    }
+
+    let records: any[] = [];
+
+    if (table === "battle") {
+      const battleResult = (await indexDb
+        .prepare(`SELECT * FROM battle WHERE uuid = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const openingRaigekiResult = (await indexDb
+        .prepare(`SELECT * FROM opening_raigeki WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const ownShipResult = (await indexDb
+        .prepare(`SELECT * FROM own_ship WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const enemyShipResult = (await indexDb
+        .prepare(`SELECT * FROM enemy_ship WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      records = battleResult.results || [];
+      if (records.length > 0 && openingRaigekiResult.results?.length) {
+        records[0].opening_raigeki = transformOpeningRaigekiData(
+          openingRaigekiResult.results[0],
+        );
+      }
+      if (records.length > 0 && ownShipResult.results?.length) {
+        records[0].own_ship = ownShipResult.results;
+      }
+      if (records.length > 0 && enemyShipResult.results?.length) {
+        records[0].enemy_ship = enemyShipResult.results;
+      }
+      // DEV: Inject synthetic hougeki (shelling) data for test UUID
+      if (records.length > 0 && battleId === "test-multi-attacker-001") {
+        // 1番艦(idx0)→敵6番(idx5)単発、2番艦(idx1)と3番艦(idx2)→同じ敵5番(idx4)連撃
+        // 友軍HP: 全ターン変化なし(被弾なし)
+        const fH = [100, 120, 110, 90, 80, 70];
+        // 敵HP: ターンごとに減少
+        const eH0 = [100, 120, 110, 90, 200, 130]; // 開始前
+        const eH1 = [100, 120, 110, 90, 200, 102]; // 1番艦→敵6番 (-28後)
+        const eH2 = [100, 120, 110, 90, 165, 102]; // 2番艦→敵5番1/2 (-35後)
+        const eH3 = [100, 120, 110, 90, 143, 102]; // 2番艦→敵5番2/2 (-22後)
+        const eH4 = [100, 120, 110, 90, 125, 102]; // 3番艦→敵5番1/2 (-18後)
+        records[0].hougeki = {
+          at_list: [0, 1, 1, 2, 2],
+          df_list: [[5], [4], [4], [4], [4]],
+          damage: [[28], [35], [22], [18], [31]],
+          cl_list: [[1], [2], [1], [1], [2]],
+          at_eflag: [0, 0, 0, 0, 0],
+          si_list: [[-1], [-1], [-1], [-1], [-1]],
+          protect_flag: [[0], [0], [0], [0], [0]],
+          f_now_hps: [fH, fH, fH, fH, fH],
+          e_now_hps: [eH0, eH1, eH2, eH3, eH4],
+        };
+      }
+    } else if (safeField && safeValue) {
+      const result = (await indexDb
+        .prepare(`SELECT * FROM ${table} WHERE ${safeField} = ?`)
+        .bind(safeValue)
+        .all?.()) as { results: any[] };
+      records = result.results || [];
+    } else {
+      const result = (await indexDb
+        .prepare(
+          `SELECT * FROM ${table} WHERE uuid = ? OR battle_id = ? OR id = ?`,
+        )
+        .bind(safeValue, safeValue, safeValue)
+        .all?.()) as { results: any[] };
+      records = result.results || [];
+    }
+
+    if (table === "opening_raigeki") {
+      records = (records || []).map((r) => transformOpeningRaigekiData(r));
+    }
+
+    const payload = {
+      success: true,
+      table,
+      count: records.length,
+      records: records,
+      source: "dev-local-d1",
+    };
+
+    return c.json(payload);
+  } catch (err) {
+    const msg = String((err as any)?.message || err || "");
+    if (msg.includes("no such table") || msg.includes("no such column")) {
+      // During partial/local seeding, some optional tables may be absent.
+      // Some tables also do not have every fallback key column (uuid/battle_id/id).
+      return c.json(
+        { success: true, table, count: 0, records: [], source: "dev-local-d1" },
+        200,
+      );
+    }
+    console.error("[battle-data] DEV: Failed to query local records:", err);
+    return c.json({ error: "Failed to query local records" }, 500);
   }
 });
 
