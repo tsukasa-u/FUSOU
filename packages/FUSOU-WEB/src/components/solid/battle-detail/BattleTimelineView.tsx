@@ -7,7 +7,6 @@ import type {
   TimelineStep,
 } from "@/pages/battles/lib/types";
 import {
-  PHASE_NAMES,
   FRIEND_COLORS,
   ENEMY_COLORS,
   DAMAGE_ZONES,
@@ -328,10 +327,18 @@ export default function BattleTimelineView(props: {
   battle: Record<string, unknown>;
   fleets: BattleFleets | null;
   mstSlotItemById: Map<number, Record<string, unknown>> | null;
+  mstShipById?: Map<number, Record<string, unknown>> | null;
+  showPhaseSeparators?: boolean;
 }): JSX.Element {
   const [hoveredStep, setHoveredStep] = createSignal<number | null>(null);
 
-  const events = createMemo(() => buildTimelineEvents(props.battle));
+  const rawEvents = createMemo(() => buildTimelineEvents(props.battle));
+  // Filter out separator (blank) rows when the user has disabled phase separators.
+  const events = createMemo(() =>
+    props.showPhaseSeparators !== false
+      ? rawEvents()
+      : rawEvents().filter((ev) => !ev.separator),
+  );
   const initHps = createMemo(() => buildInitialHps(props.battle));
   const steps = createMemo(() =>
     buildSteps(events(), initHps().fInit, initHps().eInit),
@@ -385,6 +392,9 @@ export default function BattleTimelineView(props: {
       props.fleets,
     ),
   );
+  const eventIndices = createMemo(() =>
+    Array.from({ length: events().length }, (_, i) => i),
+  );
 
   const bridgeW = 34;
 
@@ -397,7 +407,7 @@ export default function BattleTimelineView(props: {
         </div>
       }
     >
-      <div class="overflow-hidden">
+      <div class="overflow-x-auto">
         {/* Legend */}
         <div class="space-y-1 mb-2 select-none">
           <LegendRow
@@ -416,7 +426,7 @@ export default function BattleTimelineView(props: {
           />
         </div>
 
-        <div class="flex gap-0">
+        <div class="flex gap-0 min-w-[720px]">
           {/* Left panel: SVG chart */}
           <div class="shrink-0 select-none" style={{ width: `${CHART_W}px` }}>
             <svg
@@ -500,17 +510,19 @@ export default function BattleTimelineView(props: {
               </For>
 
               {/* Horizontal step guides */}
-              <For each={Array.from({ length: steps().length }, (_, i) => i)}>
+              <For each={eventIndices()}>
                 {(s) => (
-                  <line
-                    x1={PAD_L}
-                    y1={yStep(s).toFixed(1)}
-                    x2={(CHART_W - PAD_R).toFixed(1)}
-                    y2={yStep(s).toFixed(1)}
-                    stroke="currentColor"
-                    stroke-width="0.3"
-                    opacity="0.07"
-                  />
+                  <Show when={!events()[s]?.separator}>
+                    <line
+                      x1={PAD_L}
+                      y1={yStep(s).toFixed(1)}
+                      x2={(CHART_W - PAD_R).toFixed(1)}
+                      y2={yStep(s).toFixed(1)}
+                      stroke="currentColor"
+                      stroke-width="0.3"
+                      opacity="0.07"
+                    />
+                  </Show>
                 )}
               </For>
 
@@ -571,15 +583,17 @@ export default function BattleTimelineView(props: {
               </For>
 
               {/* Anchor dots at right edge */}
-              <For each={Array.from({ length: events().length }, (_, i) => i)}>
+              <For each={eventIndices()}>
                 {(i) => (
-                  <circle
-                    cx={(CHART_W - PAD_R).toFixed(1)}
-                    cy={yStep(i).toFixed(1)}
-                    r={hoveredStep() === i ? 3.2 : 1.8}
-                    fill="#64748b"
-                    opacity={hoveredStep() === i ? 1 : 0.35}
-                  />
+                  <Show when={!events()[i]?.separator}>
+                    <circle
+                      cx={(CHART_W - PAD_R).toFixed(1)}
+                      cy={yStep(i).toFixed(1)}
+                      r={hoveredStep() === i ? 3.2 : 1.8}
+                      fill="#64748b"
+                      opacity={hoveredStep() === i ? 1 : 0.35}
+                    />
+                  </Show>
                 )}
               </For>
             </svg>
@@ -592,17 +606,19 @@ export default function BattleTimelineView(props: {
               height={chartH()}
               style="display:block;overflow:visible;"
             >
-              <For each={Array.from({ length: events().length }, (_, i) => i)}>
+              <For each={eventIndices()}>
                 {(i) => (
-                  <line
-                    x1="2"
-                    y1={yStep(i).toFixed(1)}
-                    x2={bridgeW - 2}
-                    y2={yStep(i).toFixed(1)}
-                    stroke="#94a3b8"
-                    stroke-width={hoveredStep() === i ? 2.2 : 1}
-                    opacity={hoveredStep() === i ? 0.9 : 0.22}
-                  />
+                  <Show when={!events()[i]?.separator}>
+                    <line
+                      x1="2"
+                      y1={yStep(i).toFixed(1)}
+                      x2={bridgeW - 2}
+                      y2={yStep(i).toFixed(1)}
+                      stroke="#94a3b8"
+                      stroke-width={hoveredStep() === i ? 2.2 : 1}
+                      opacity={hoveredStep() === i ? 0.9 : 0.22}
+                    />
+                  </Show>
                 )}
               </For>
             </svg>
@@ -612,7 +628,7 @@ export default function BattleTimelineView(props: {
           <div class="min-w-0 flex-1 border-l border-base-300/60 pl-3 overflow-hidden">
             <div style={{ height: `${PAD_TOP}px` }} class="flex items-end pb-1">
               <span class="text-[9px] text-base-content/35 uppercase tracking-wide">
-                攻撃者
+                攻撃艦
               </span>
               <span class="ml-auto text-[9px] text-base-content/35 uppercase tracking-wide pr-1">
                 対象 / 結果
@@ -621,12 +637,14 @@ export default function BattleTimelineView(props: {
 
             <For each={events()}>
               {(ev, i) => {
+                const isSep = ev.separator === true;
+                // createMemo calls must be at top level of each For item scope.
                 const phaseChanged = () => {
                   const idx = i();
                   return idx === 0 || events()[idx - 1]?.phase !== ev.phase;
                 };
-                const atkIdx = ev.attackerIdx;
-                const defIdx = ev.defenderIdx;
+                const atkIdx = isSep ? null : ev.attackerIdx;
+                const defIdx = isSep ? 0 : (ev.defenderIdx as number);
                 const atkGroup = Array.isArray(ev.attackerGroup)
                   ? ev.attackerGroup.filter(
                       (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
@@ -635,37 +653,49 @@ export default function BattleTimelineView(props: {
                 const atkLabel =
                   atkIdx !== null
                     ? `${atkIdx + 1}番`
-                    : ev.type === "air"
+                    : ev.type === "air" || ev.type === "raigeki"
                       ? atkGroup.length > 0
                         ? `${atkGroup.map((v) => Number(v) + 1).join("+")}番`
-                        : "航空"
+                        : ev.type === "air"
+                          ? "航空"
+                          : "雷撃"
                       : "?";
                 const defLabel = `${defIdx + 1}番`;
                 const atkShort = createMemo(() => {
-                  const n =
-                    atkIdx !== null
-                      ? shipNameFromIndex(ev.attackerSide, atkIdx, props.fleets)
-                      : ev.type === "air" && atkGroup.length > 0
-                        ? atkGroup
-                            .map((v) =>
-                              shipNameFromIndex(
-                                ev.attackerSide,
-                                Number(v),
-                                props.fleets,
-                              ),
-                            )
-                            .join("+")
-                        : "-";
-                  return n.length > 6 ? n.slice(0, 5) + "…" : n;
+                  if (atkIdx !== null) {
+                    return shipNameFromIndex(
+                      ev.attackerSide,
+                      atkIdx,
+                      props.fleets,
+                    );
+                  }
+                  // Friendly force / support ships: resolve from mst_ship master data.
+                  if (ev.attackerMstShipId) {
+                    const mstShip = props.mstShipById?.get(
+                      ev.attackerMstShipId,
+                    );
+                    if (mstShip)
+                      return String(mstShip.name ?? ev.attackerMstShipId);
+                  }
+                  if (
+                    (ev.type === "air" || ev.type === "raigeki") &&
+                    atkGroup.length > 0
+                  ) {
+                    return atkGroup
+                      .map((v) =>
+                        shipNameFromIndex(
+                          ev.attackerSide,
+                          Number(v),
+                          props.fleets,
+                        ),
+                      )
+                      .join(" / ");
+                  }
+                  return "-";
                 });
-                const defShort = createMemo(() => {
-                  const n = shipNameFromIndex(
-                    ev.defenderSide,
-                    defIdx,
-                    props.fleets,
-                  );
-                  return n.length > 6 ? n.slice(0, 5) + "…" : n;
-                });
+                const defShort = createMemo(() =>
+                  shipNameFromIndex(ev.defenderSide, defIdx, props.fleets),
+                );
                 const atkColor =
                   ev.attackerSide === "friend" ? "#3b82f6" : "#ef4444";
                 const defColor =
@@ -681,82 +711,93 @@ export default function BattleTimelineView(props: {
                   : [];
 
                 return (
-                  <div
-                    class={`flex items-center gap-1.5 ${topBorder()} transition-all duration-100 min-w-0`}
-                    style={{
-                      height: `${ROW_H}px`,
-                      overflow: "hidden",
-                      "background-color":
-                        hoveredStep() === i()
-                          ? "rgba(59, 130, 246, 0.08)"
-                          : undefined,
-                      transform:
-                        hoveredStep() === i() ? "translateX(2px)" : undefined,
-                    }}
-                    onMouseEnter={() => setHoveredStep(i())}
-                    onMouseLeave={() => setHoveredStep(null)}
+                  <Show
+                    when={!isSep}
+                    fallback={<div style={{ height: `${ROW_H}px` }} />}
                   >
-                    <span
-                      class="shrink-0 font-bold text-[10px] tabular-nums"
-                      style={{ color: atkColor }}
+                    <div
+                      class={`flex items-center gap-1.5 ${topBorder()} transition-all duration-100 min-w-0`}
+                      style={{
+                        height: `${ROW_H}px`,
+                        overflow: "hidden",
+                        "background-color":
+                          hoveredStep() === i()
+                            ? "rgba(59, 130, 246, 0.08)"
+                            : undefined,
+                        transform:
+                          hoveredStep() === i() ? "translateX(2px)" : undefined,
+                      }}
+                      onMouseEnter={() => setHoveredStep(i())}
+                      onMouseLeave={() => setHoveredStep(null)}
                     >
-                      {atkLabel}
-                    </span>
-                    <span class="shrink-0 text-[9px] opacity-55 w-11 truncate">
-                      {atkShort()}
-                    </span>
-                    <span class="text-[9px] text-base-content/30 shrink-0">
-                      →
-                    </span>
-                    <span
-                      class="shrink-0 font-bold text-[10px] tabular-nums"
-                      style={{ color: defColor }}
-                    >
-                      {defLabel}
-                    </span>
-                    <span class="shrink-0 text-[9px] opacity-55 w-11 truncate">
-                      {defShort()}
-                    </span>
-                    <Show
-                      when={ev.damage > 0}
-                      fallback={
+                      <span
+                        class="shrink-0 font-bold text-[10px] tabular-nums"
+                        style={{ color: atkColor }}
+                      >
+                        {atkLabel}
+                      </span>
+                      <span
+                        class="min-w-0 max-w-28 shrink text-[9px] opacity-55 truncate whitespace-nowrap"
+                        title={atkShort()}
+                      >
+                        {atkShort()}
+                      </span>
+                      <span class="text-[9px] text-base-content/30 shrink-0">
+                        →
+                      </span>
+                      <span
+                        class="shrink-0 font-bold text-[10px] tabular-nums"
+                        style={{ color: defColor }}
+                      >
+                        {defLabel}
+                      </span>
+                      <span
+                        class="min-w-0 max-w-28 shrink text-[9px] opacity-55 truncate whitespace-nowrap"
+                        title={defShort()}
+                      >
+                        {defShort()}
+                      </span>
+                      <Show
+                        when={ev.damage > 0}
+                        fallback={
+                          <span
+                            class="font-mono text-[9px] text-base-content/30"
+                            style={{
+                              "min-width": "52px",
+                              display: "inline-block",
+                              "text-align": "right",
+                            }}
+                          >
+                            MISS
+                          </span>
+                        }
+                      >
                         <span
-                          class="font-mono text-[9px] text-base-content/30"
+                          class={`font-mono tabular-nums ${
+                            ev.crit
+                              ? "font-bold text-[12px]"
+                              : "font-semibold text-[11px]"
+                          }`}
                           style={{
+                            color: ev.crit ? "#f97316" : defColor,
                             "min-width": "52px",
                             display: "inline-block",
                             "text-align": "right",
                           }}
                         >
-                          MISS
+                          -{ev.damage}
                         </span>
-                      }
-                    >
-                      <span
-                        class={`font-mono tabular-nums ${
-                          ev.crit
-                            ? "font-bold text-[12px]"
-                            : "font-semibold text-[11px]"
-                        }`}
-                        style={{
-                          color: ev.crit ? "#f97316" : defColor,
-                          "min-width": "52px",
-                          display: "inline-block",
-                          "text-align": "right",
-                        }}
-                      >
-                        -{ev.damage}
-                      </span>
-                    </Show>
-                    <Show when={ciItems.length > 0}>
-                      <span class="inline-flex shrink-0 items-center gap-0.5 text-[9px]">
-                        <EquipmentBadgesFromSlotIds
-                          slotIds={ciItems}
-                          mstSlotItemById={props.mstSlotItemById}
-                        />
-                      </span>
-                    </Show>
-                  </div>
+                      </Show>
+                      <Show when={ciItems.length > 0}>
+                        <span class="inline-flex shrink-0 items-center gap-0.5 text-[9px]">
+                          <EquipmentBadgesFromSlotIds
+                            slotIds={ciItems}
+                            mstSlotItemById={props.mstSlotItemById}
+                          />
+                        </span>
+                      </Show>
+                    </div>
+                  </Show>
                 );
               }}
             </For>

@@ -12,14 +12,16 @@ import { isSafeImageUrl } from "@/utility/security";
  * - The image starts invisible and fades in on load.
  * - On error the `<img>` is hidden so no broken-icon flickers.
  */
-function ShipBanner(props: {
+export function ShipBanner(props: {
   src: string | undefined;
   alt: string;
   class?: string;
 }): JSX.Element {
   const outerClass = props.class ?? "h-6 w-24";
   return (
-    <span class={`${outerClass} inline-block flex-none rounded overflow-hidden`}>
+    <span
+      class={`${outerClass} inline-block flex-none rounded overflow-hidden`}
+    >
       <Show when={props.src && isSafeImageUrl(props.src)}>
         <img
           src={props.src}
@@ -27,7 +29,10 @@ function ShipBanner(props: {
           class="h-full w-full rounded object-cover opacity-0 transition-opacity duration-200"
           loading="lazy"
           onLoad={(e) => {
-            (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+            (e.currentTarget as HTMLImageElement).classList.replace(
+              "opacity-0",
+              "opacity-100",
+            );
           }}
           onError={(e) => {
             (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -61,9 +66,8 @@ export function maxHpForShip(
   fleets: BattleFleets | null,
 ): number {
   const ship =
-    (side === "friend"
-      ? fleets?.friendlyShips
-      : fleets?.enemyShips)?.[idx] ?? null;
+    (side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips)?.[idx] ??
+    null;
   return Number(ship?.maxhp ?? fallbackHp ?? 0) || 0;
 }
 
@@ -100,7 +104,9 @@ export function slotItemMeta(
 
 // ── JSX components ────────────────────────────────────────────────────────
 
-export function WeaponIcon(props: { iconType: number | null | undefined }): JSX.Element {
+export function WeaponIcon(props: {
+  iconType: number | null | undefined;
+}): JSX.Element {
   const fallback = (
     <span class="inline-flex h-3.5 w-3.5 items-center justify-center rounded bg-base-300 text-[9px] text-base-content/50">
       ?
@@ -113,7 +119,13 @@ export function WeaponIcon(props: { iconType: number | null | undefined }): JSX.
       {(() => {
         const { frames, meta } = getWeaponIconCaches();
         const frame = frames?.[iconId()];
-        if (!frame || frame.w <= 0 || frame.h <= 0 || meta.width <= 0 || meta.height <= 0) {
+        if (
+          !frame ||
+          frame.w <= 0 ||
+          frame.h <= 0 ||
+          meta.width <= 0 ||
+          meta.height <= 0
+        ) {
           return fallback;
         }
         const size = 14;
@@ -137,7 +149,10 @@ export function WeaponIcon(props: { iconType: number | null | undefined }): JSX.
                 "margin-top": `-${frame.y * ratioY}px`,
               }}
               onLoad={(e) => {
-                (e.currentTarget as HTMLImageElement).classList.replace("opacity-0", "opacity-100");
+                (e.currentTarget as HTMLImageElement).classList.replace(
+                  "opacity-0",
+                  "opacity-100",
+                );
               }}
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -209,7 +224,10 @@ export function InlineHpMeter(props: {
   );
 }
 
-export function CompactHpBadge(props: { current: number; max: number }): JSX.Element {
+export function CompactHpBadge(props: {
+  current: number;
+  max: number;
+}): JSX.Element {
   const safeCurrent = () => Number(props.current ?? 0) || 0;
   const safeMax = () => Number(props.max ?? props.current ?? 0) || 0;
   const pct = () =>
@@ -235,8 +253,13 @@ export function CompactHpBadge(props: { current: number; max: number }): JSX.Ele
   );
 }
 
-export function HPBar(props: { current: number; max: number; label?: string }): JSX.Element {
-  const pct = () => (props.max > 0 ? Math.max(0, (props.current / props.max) * 100) : 0);
+export function HPBar(props: {
+  current: number;
+  max: number;
+  label?: string;
+}): JSX.Element {
+  const pct = () =>
+    props.max > 0 ? Math.max(0, (props.current / props.max) * 100) : 0;
   const color = () => {
     const p = pct();
     if (p <= 25) return "bg-error";
@@ -246,7 +269,9 @@ export function HPBar(props: { current: number; max: number; label?: string }): 
   };
   return (
     <div class="flex items-center gap-2">
-      <span class="text-[11px] w-12 text-base-content/60 truncate">{props.label ?? ""}</span>
+      <span class="text-[11px] w-12 text-base-content/60 truncate">
+        {props.label ?? ""}
+      </span>
       <div class="flex-1 h-2.5 bg-base-300 rounded-full overflow-hidden">
         <div
           class={`h-full ${color()} rounded-full transition-all`}
@@ -261,7 +286,9 @@ export function HPBar(props: { current: number; max: number; label?: string }): 
 }
 
 export function ShipIndexBadge(props: { idx: number }): JSX.Element {
-  return <span class="badge badge-ghost badge-sm">{shipSlotLabel(props.idx)}</span>;
+  return (
+    <span class="badge badge-ghost badge-sm">{shipSlotLabel(props.idx)}</span>
+  );
 }
 
 export function OutcomeBadges(props: {
@@ -277,7 +304,9 @@ export function OutcomeBadges(props: {
         when={props.damage > 0}
         fallback={<span class="badge badge-neutral badge-sm">MISS</span>}
       >
-        <span class="badge badge-outline badge-sm font-mono">-{props.damage}</span>
+        <span class="badge badge-outline badge-sm font-mono">
+          -{props.damage}
+        </span>
       </Show>
       <Show when={props.crit}>
         <span class="badge badge-error badge-sm">Critical</span>
@@ -313,7 +342,9 @@ export function PhaseParticipant(props: {
     <div class="min-w-0 rounded bg-base-100 px-2 py-1 border border-base-300">
       <div class="mb-1 flex items-center gap-1.5">
         <ShipIndexBadge idx={props.idx} />
-        <div class={`truncate text-xs font-semibold ${tone()}`}>{props.name}</div>
+        <div class={`truncate text-xs font-semibold ${tone()}`}>
+          {props.name}
+        </div>
       </div>
       <div class="text-[10px] text-base-content/65">
         <InlineHpMeter current={props.hpCurrent} max={props.hpMax} />
@@ -322,7 +353,9 @@ export function PhaseParticipant(props: {
   );
 }
 
-export function PhaseSummaryBadges(props: { items: (string | null)[] }): JSX.Element {
+export function PhaseSummaryBadges(props: {
+  items: (string | null)[];
+}): JSX.Element {
   const filtered = () => (props.items ?? []).filter(Boolean) as string[];
   return (
     <Show
@@ -336,17 +369,30 @@ export function PhaseSummaryBadges(props: { items: (string | null)[] }): JSX.Ele
   );
 }
 
-export function FleetSummary(props: { ships: ShipInfo[]; sideLabel: string }): JSX.Element {
+export function FleetSummary(props: {
+  ships: ShipInfo[];
+  sideLabel: string;
+}): JSX.Element {
   const totalNow = () =>
     props.ships.reduce((s, ship) => s + (Number(ship.nowhp ?? 0) || 0), 0);
   const totalMax = () =>
-    props.ships.reduce((s, ship) => s + (Number(ship.maxhp ?? ship.nowhp ?? 0) || 0), 0);
+    props.ships.reduce(
+      (s, ship) => s + (Number(ship.maxhp ?? ship.nowhp ?? 0) || 0),
+      0,
+    );
   const taiha = () =>
-    props.ships.filter((ship) => getDamageState(ship.nowhp, ship.maxhp).label === "大破").length;
+    props.ships.filter(
+      (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "大破",
+    ).length;
   const chuuha = () =>
-    props.ships.filter((ship) => getDamageState(ship.nowhp, ship.maxhp).label === "中破").length;
+    props.ships.filter(
+      (ship) => getDamageState(ship.nowhp, ship.maxhp).label === "中破",
+    ).length;
   const avgLevel = () => {
-    const total = props.ships.reduce((s, ship) => s + (Number(ship.level ?? 0) || 0), 0);
+    const total = props.ships.reduce(
+      (s, ship) => s + (Number(ship.level ?? 0) || 0),
+      0,
+    );
     return Math.round(total / props.ships.length);
   };
   return (
@@ -370,7 +416,10 @@ export function FleetSummary(props: { ships: ShipInfo[]; sideLabel: string }): J
   );
 }
 
-export function ShipRows(props: { ships: ShipInfo[]; sideLabel: string }): JSX.Element {
+export function ShipRows(props: {
+  ships: ShipInfo[];
+  sideLabel: string;
+}): JSX.Element {
   return (
     <Show
       when={props.ships.length > 0}
@@ -383,7 +432,11 @@ export function ShipRows(props: { ships: ShipInfo[]; sideLabel: string }): JSX.E
           return (
             <div class="rounded-box bg-base-200 p-2">
               <div class="flex items-center gap-2 mb-1">
-                <ShipBanner src={ship.bannerUrl} alt={ship.name} class="h-6 w-24" />
+                <ShipBanner
+                  src={ship.bannerUrl}
+                  alt={ship.name}
+                  class="h-6 w-24"
+                />
                 <div class="min-w-0">
                   <div class="text-sm font-semibold truncate">{ship.name}</div>
                   <div class="text-[11px] text-base-content/60">
@@ -392,16 +445,27 @@ export function ShipRows(props: { ships: ShipInfo[]; sideLabel: string }): JSX.E
                   </div>
                 </div>
                 <div class="shrink-0">
-                  <CompactHpBadge current={ship.nowhp} max={ship.maxhp ?? ship.nowhp} />
+                  <CompactHpBadge
+                    current={ship.nowhp}
+                    max={ship.maxhp ?? ship.nowhp}
+                  />
                 </div>
               </div>
               <div class="mt-1 flex flex-wrap gap-1 text-[11px] text-base-content/75">
                 <Show
-                  when={Array.isArray(ship.equipments) && ship.equipments.length > 0}
+                  when={
+                    Array.isArray(ship.equipments) && ship.equipments.length > 0
+                  }
                   fallback={<span>装備なし</span>}
                 >
                   <For each={ship.equipments}>
-                    {(eq) => <EquipmentBadge name={eq.name} iconType={eq.iconType} level={eq.level} />}
+                    {(eq) => (
+                      <EquipmentBadge
+                        name={eq.name}
+                        iconType={eq.iconType}
+                        level={eq.level}
+                      />
+                    )}
                   </For>
                 </Show>
               </div>

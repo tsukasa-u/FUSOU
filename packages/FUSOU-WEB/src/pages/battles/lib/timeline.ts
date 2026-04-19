@@ -76,12 +76,19 @@ export function buildTimelineEvents(
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
+  function toValidIndex(value: unknown, limit: number): number | null {
+    const idx = Number(value);
+    if (!Number.isFinite(idx)) return null;
+    const normalized = Math.trunc(idx);
+    if (normalized < 0 || normalized >= limit) return null;
+    return normalized;
+  }
+
   function extractShellingEvents(rows: unknown, phaseLabel: string): void {
     if (!Array.isArray(rows)) return;
     for (const row of rows) {
       const r = row as Record<string, unknown>;
       const atkEnemy = Number(r.at_eflag ?? 0) !== 0;
-      const attackerIdx = Number(r.at ?? 0) || 0;
       const attackerSide: "friend" | "enemy" = atkEnemy ? "enemy" : "friend";
       const defenderSide: "friend" | "enemy" = atkEnemy ? "friend" : "enemy";
       const defs = Array.isArray(r.df) ? (r.df as unknown[]) : [];
@@ -103,8 +110,15 @@ export function buildTimelineEvents(
             : []
       ) as number[];
 
+      const attackerLimit =
+        attackerSide === "friend" ? fHps.length : eHps.length;
+      const defenderLimit =
+        defenderSide === "friend" ? fHps.length : eHps.length;
+      const attackerIdx = toValidIndex(r.at, attackerLimit);
+
       for (let i = 0; i < defs.length; i++) {
-        const defenderIdx = Number(defs[i] ?? 0) || 0;
+        const defenderIdx = toValidIndex(defs[i], defenderLimit);
+        if (defenderIdx === null) continue;
         const dmg = Number(dmgs[i] ?? 0) || 0;
         const crit = Number(clsMask[i] ?? 0) >= 2;
         const beforeHp =
@@ -130,7 +144,11 @@ export function buildTimelineEvents(
     }
   }
 
-  function extractAirAttackEvents(data: unknown, phaseLabel: string): void {
+  function extractAirAttackEvents(
+    data: unknown,
+    phaseLabel: string,
+    slotItemOverride?: number[],
+  ): void {
     if (!data || typeof data === "string") return;
     const d = data as Record<string, unknown>;
     const fDam = Array.isArray(d.f_damages) ? (d.f_damages as unknown[]) : [];
@@ -159,6 +177,7 @@ export function buildTimelineEvents(
           ? d.e_nowhps
           : []
     ) as number[];
+    const effectiveSlotItems = slotItemOverride ?? [];
 
     for (let i = 0; i < fDam.length; i++) {
       const dmg = Number(fDam[i] ?? 0) || 0;
@@ -176,7 +195,7 @@ export function buildTimelineEvents(
         damage: dmg,
         crit: false,
         sunk: afterHp <= 0 && beforeHp > 0,
-        slotItems: [],
+        slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
       });
@@ -197,7 +216,7 @@ export function buildTimelineEvents(
         damage: dmg,
         crit: false,
         sunk: afterHp <= 0 && beforeHp > 0,
-        slotItems: [],
+        slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
       });
@@ -207,12 +226,38 @@ export function buildTimelineEvents(
   function extractRaigekiEvents(data: unknown, phaseLabel: string): void {
     if (!data) return;
     const d = data as Record<string, unknown>;
-    const fDam = Array.isArray(d.f_dam) ? (d.f_dam as unknown[]) : [];
-    const eDam = Array.isArray(d.e_dam) ? (d.e_dam as unknown[]) : [];
-    const fCl = Array.isArray(d.f_cl) ? (d.f_cl as unknown[]) : [];
-    const eCl = Array.isArray(d.e_cl) ? (d.e_cl as unknown[]) : [];
-    const fRai = Array.isArray(d.f_rai) ? (d.f_rai as unknown[]) : [];
-    const eRai = Array.isArray(d.e_rai) ? (d.e_rai as unknown[]) : [];
+    const fDam = Array.isArray(d.fdam)
+      ? (d.fdam as unknown[])
+      : Array.isArray(d.f_dam)
+        ? (d.f_dam as unknown[])
+        : [];
+    const eDam = Array.isArray(d.edam)
+      ? (d.edam as unknown[])
+      : Array.isArray(d.e_dam)
+        ? (d.e_dam as unknown[])
+        : [];
+    const fCl = Array.isArray(d.fcl_list)
+      ? (d.fcl_list as unknown[])
+      : Array.isArray(d.fcl)
+        ? (d.fcl as unknown[])
+        : [];
+    const eCl = Array.isArray(d.ecl_list)
+      ? (d.ecl_list as unknown[])
+      : Array.isArray(d.ecl)
+        ? (d.ecl as unknown[])
+        : [];
+
+    // Support both flat array format (ClosingRaigeki: f_rai/e_rai) and nested format (OpeningRaigeki: frai_list_items/erai_list_items).
+    // Opening uses per-attacker slots (Array<Array<number>|null>), so preserve slot index instead of flattening.
+    let fRai = Array.isArray(d.frai) ? (d.frai as unknown[]) : [];
+    if (fRai.length === 0 && Array.isArray(d.frai_list_items)) {
+      fRai = d.frai_list_items as unknown[];
+    }
+    let eRai = Array.isArray(d.erai) ? (d.erai as unknown[]) : [];
+    if (eRai.length === 0 && Array.isArray(d.erai_list_items)) {
+      eRai = d.erai_list_items as unknown[];
+    }
+
     const fNow = (
       Array.isArray(d.f_now_hps)
         ? d.f_now_hps
@@ -228,107 +273,120 @@ export function buildTimelineEvents(
           : []
     ) as number[];
 
-    function pushHit(
-      atkSide: "friend" | "enemy",
-      atkIdx: number | null,
-      defSide: "friend" | "enemy",
-      defIdx: number,
-      dmg: number,
-      crit: boolean,
-    ): void {
-      if (dmg <= 0) return;
-      const hpArr = defSide === "friend" ? fNow : eNow;
-      const beforeHp = Number(hpArr[defIdx] ?? 0) || 0;
-      const afterHp = Math.max(0, beforeHp - dmg);
-      events.push({
-        phase: phaseLabel,
-        type: "raigeki",
-        attackerSide: atkSide,
-        attackerIdx: atkIdx,
-        defenderSide: defSide,
-        defenderIdx: defIdx,
-        damage: dmg,
-        crit,
-        sunk: afterHp <= 0 && beforeHp > 0,
-        slotItems: [],
-        fHps: fNow,
-        eHps: eNow,
-      });
+    // Build per-defender attacker map from rai array (1-based targets → 0-based).
+    // Returns Map<defIdx, atkIdx[]> — only attackers that target that specific defender.
+    function parseRaiTargets(
+      raiRows: unknown[],
+      defenderLimit: number,
+    ): Map<number, number[]> {
+      const defToAtk = new Map<number, number[]>();
+      const addTarget = (atkIdx: number, rawTarget: unknown): void => {
+        const target = Number(rawTarget);
+        if (!Number.isFinite(target) || target <= 0) return;
+        const defIdx = Math.trunc(target) - 1;
+        if (defIdx < 0 || defIdx >= defenderLimit) return;
+        if (!defToAtk.has(defIdx)) defToAtk.set(defIdx, []);
+        defToAtk.get(defIdx)!.push(atkIdx);
+      };
+
+      for (let atkIdx = 0; atkIdx < raiRows.length; atkIdx++) {
+        const row = raiRows[atkIdx];
+        if (Array.isArray(row)) {
+          for (const target of row as unknown[]) addTarget(atkIdx, target);
+          continue;
+        }
+        addTarget(atkIdx, row);
+      }
+      return defToAtk;
     }
 
     if (fRai.length > 0 || eRai.length > 0) {
-      fRai.forEach((targets, atkIdx) => {
-        if (Array.isArray(targets)) {
-          for (const t of targets) {
-            const defIdx = Number(t);
-            if (!Number.isFinite(defIdx) || defIdx < 0) continue;
-            pushHit(
-              "friend",
-              atkIdx,
-              "enemy",
-              defIdx,
-              Number(eDam[defIdx] ?? 0) || 0,
-              Number(eCl[defIdx] ?? 0) >= 2,
-            );
-          }
-        } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
-          const defIdx = Number(targets);
-          pushHit(
-            "friend",
-            atkIdx,
-            "enemy",
-            defIdx,
-            Number(eDam[defIdx] ?? 0) || 0,
-            Number(eCl[defIdx] ?? 0) >= 2,
-          );
-        }
-      });
-      eRai.forEach((targets, atkIdx) => {
-        if (Array.isArray(targets)) {
-          for (const t of targets) {
-            const defIdx = Number(t);
-            if (!Number.isFinite(defIdx) || defIdx < 0) continue;
-            pushHit(
-              "enemy",
-              atkIdx,
-              "friend",
-              defIdx,
-              Number(fDam[defIdx] ?? 0) || 0,
-              Number(fCl[defIdx] ?? 0) >= 2,
-            );
-          }
-        } else if (Number.isFinite(Number(targets)) && Number(targets) >= 0) {
-          const defIdx = Number(targets);
-          pushHit(
-            "enemy",
-            atkIdx,
-            "friend",
-            defIdx,
-            Number(fDam[defIdx] ?? 0) || 0,
-            Number(fCl[defIdx] ?? 0) >= 2,
-          );
-        }
-      });
-    } else {
-      for (let i = 0; i < fDam.length; i++) {
-        pushHit(
-          "enemy",
-          null,
-          "friend",
-          i,
-          Number(fDam[i] ?? 0) || 0,
-          Number(fCl[i] ?? 0) >= 2,
-        );
+      // Friend fleet → enemy: one event per targeted enemy slot
+      const fDefToAtk = parseRaiTargets(fRai, eNow.length);
+      for (const [defIdx, atkList] of fDefToAtk) {
+        const dmg = Number(eDam[defIdx] ?? 0) || 0;
+        const beforeHp = Number(eNow[defIdx] ?? 0) || 0;
+        const afterHp = Math.max(0, beforeHp - dmg);
+        events.push({
+          phase: phaseLabel,
+          type: "raigeki",
+          attackerSide: "friend",
+          attackerIdx: atkList.length === 1 ? atkList[0] : null,
+          attackerGroup: atkList.length > 1 ? atkList : [],
+          defenderSide: "enemy",
+          defenderIdx: defIdx,
+          damage: dmg,
+          crit: dmg > 0 && Number(eCl[defIdx] ?? 0) >= 2,
+          sunk: afterHp <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: fNow,
+          eHps: eNow,
+        });
       }
+
+      // Enemy fleet → friend: one event per targeted friend slot
+      const eDefToAtk = parseRaiTargets(eRai, fNow.length);
+      for (const [defIdx, atkList] of eDefToAtk) {
+        const dmg = Number(fDam[defIdx] ?? 0) || 0;
+        const beforeHp = Number(fNow[defIdx] ?? 0) || 0;
+        const afterHp = Math.max(0, beforeHp - dmg);
+        events.push({
+          phase: phaseLabel,
+          type: "raigeki",
+          attackerSide: "enemy",
+          attackerIdx: atkList.length === 1 ? atkList[0] : null,
+          attackerGroup: atkList.length > 1 ? atkList : [],
+          defenderSide: "friend",
+          defenderIdx: defIdx,
+          damage: dmg,
+          crit: dmg > 0 && Number(fCl[defIdx] ?? 0) >= 2,
+          sunk: afterHp <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: fNow,
+          eHps: eNow,
+        });
+      }
+    } else {
+      // Fallback: no rai data, emit damage-only events (no MISS)
       for (let i = 0; i < eDam.length; i++) {
-        pushHit(
-          "friend",
-          null,
-          "enemy",
-          i,
-          Number(eDam[i] ?? 0) || 0,
-          Number(eCl[i] ?? 0) >= 2,
-        );
+        const dmg = Number(eDam[i] ?? 0) || 0;
+        if (dmg <= 0) continue;
+        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        events.push({
+          phase: phaseLabel,
+          type: "raigeki",
+          attackerSide: "friend",
+          attackerIdx: null,
+          attackerGroup: [],
+          defenderSide: "enemy",
+          defenderIdx: i,
+          damage: dmg,
+          crit: Number(eCl[i] ?? 0) >= 2,
+          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: fNow,
+          eHps: eNow,
+        });
+      }
+      for (let i = 0; i < fDam.length; i++) {
+        const dmg = Number(fDam[i] ?? 0) || 0;
+        if (dmg <= 0) continue;
+        const beforeHp = Number(fNow[i] ?? 0) || 0;
+        events.push({
+          phase: phaseLabel,
+          type: "raigeki",
+          attackerSide: "enemy",
+          attackerIdx: null,
+          attackerGroup: [],
+          defenderSide: "friend",
+          defenderIdx: i,
+          damage: dmg,
+          crit: Number(fCl[i] ?? 0) >= 2,
+          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: fNow,
+          eHps: eNow,
+        });
       }
     }
   }
@@ -337,14 +395,23 @@ export function buildTimelineEvents(
   const hasObjectOrder =
     Array.isArray(rawOrder) &&
     rawOrder.length > 0 &&
+    rawOrder[0] !== null &&
     typeof rawOrder[0] === "object";
 
   if (hasObjectOrder) {
     for (const phaseType of rawOrder!) {
-      const key = Object.keys(phaseType as Record<string, unknown>)[0];
-      const idx = (phaseType as Record<string, unknown>)[key] as number | null;
-      const subLabel = idx !== null && idx !== undefined ? ` (${idx + 1})` : "";
-      const phaseLabel = (PHASE_NAMES[key] ?? key) + subLabel;
+      if (
+        !phaseType ||
+        typeof phaseType !== "object" ||
+        Array.isArray(phaseType)
+      ) {
+        continue;
+      }
+      const phaseObj = phaseType as Record<string, unknown>;
+      const key = Object.keys(phaseObj)[0];
+      if (!key) continue;
+      const idx = phaseObj[key] as number | null;
+      const phaseLabel = PHASE_NAMES[key] ?? key;
 
       if (
         key === "Hougeki" ||
@@ -371,9 +438,239 @@ export function buildTimelineEvents(
         extractRaigekiEvents(battle.opening_raigeki, phaseLabel);
       } else if (key === "ClosingRaigeki") {
         extractRaigekiEvents(battle.closing_raigeki, phaseLabel);
+      } else if (
+        key === "AirBaseAirAttack" ||
+        key === "AirBaseAssult" ||
+        key === "CarrierBaseAssault"
+      ) {
+        let rawAirBase: unknown;
+        if (key === "AirBaseAirAttack") {
+          rawAirBase = Array.isArray(battle.air_base_air_attacks)
+            ? (battle.air_base_air_attacks as unknown[])[idx ?? 0]
+            : (battle.air_base_air_attacks as any)?.attacks?.[idx ?? 0];
+        } else if (key === "AirBaseAssult") {
+          rawAirBase = battle.air_base_assault;
+        } else {
+          rawAirBase = battle.carrier_base_assault;
+        }
+        if (rawAirBase) {
+          const squads = (() => {
+            const raw = rawAirBase as Record<string, unknown>;
+            const sp = raw.squadron_plane;
+            return Array.isArray(sp)
+              ? (sp as unknown[])
+                  .map(Number)
+                  .filter((n) => Number.isFinite(n) && n > 0)
+              : [];
+          })();
+          extractAirAttackEvents(
+            rawAirBase,
+            phaseLabel,
+            squads.length > 0 ? squads : undefined,
+          );
+        }
+      } else if (key === "SupportAttack") {
+        // support_attack may be nested or top-level depending on data layout
+        const sa = (battle.support_attack as any) ?? battle;
+        const hourai = sa.support_hourai as
+          | Record<string, unknown>
+          | null
+          | undefined;
+        const airatack =
+          (sa.support_airatack as Record<string, unknown> | null | undefined) ??
+          (sa.support_airattack as Record<string, unknown> | null | undefined);
+        if (hourai?.damage) {
+          const dmgs = Array.isArray(hourai.damage)
+            ? (hourai.damage as unknown[])
+            : [];
+          const eNow = Array.isArray(hourai.now_hps)
+            ? (hourai.now_hps as number[])
+            : [];
+          const shipIds = Array.isArray(hourai.ship_id)
+            ? (hourai.ship_id as unknown[])
+            : [];
+          for (let i = 0; i < dmgs.length; i++) {
+            const dmg = Number(dmgs[i] ?? 0) || 0;
+            if (dmg <= 0) continue;
+            const beforeHp = Number(eNow[i] ?? 0) || 0;
+            events.push({
+              phase: phaseLabel,
+              type: "shelling",
+              attackerSide: "friend",
+              attackerIdx: null,
+              attackerGroup: [],
+              defenderSide: "enemy",
+              defenderIdx: i,
+              damage: dmg,
+              crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+              sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+              slotItems: [],
+              fHps: [],
+              eHps: eNow,
+              attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+            });
+          }
+        }
+        if (airatack?.e_damage) {
+          const ed = airatack.e_damage as Record<string, unknown>;
+          const fd = airatack.f_damage as Record<string, unknown> | undefined;
+          extractAirAttackEvents(
+            {
+              e_damages: ed.damages,
+              f_damages: fd?.damages,
+              e_now_hps: ed.now_hps,
+              f_now_hps: fd?.now_hps,
+              e_plane_from: [],
+              f_plane_from: [],
+            },
+            phaseLabel,
+          );
+        }
+      } else if (key === "FriendlyForceAttack") {
+        const ffa = battle.friendly_force_attack as any;
+        const ffShipIds: number[] = Array.isArray(ffa?.fleet_info?.ship_id)
+          ? (ffa.fleet_info.ship_id as unknown[]).map(Number)
+          : [];
+        if (ffa?.support_hourai?.hougeki) {
+          const beforeCount = events.length;
+          const hougeki = ffa.support_hourai.hougeki as Record<string, unknown>;
+          const atList = Array.isArray(hougeki.at_list)
+            ? (hougeki.at_list as unknown[])
+            : [];
+          const rows = normalizeShellingRows(ffa.support_hourai.hougeki);
+
+          extractShellingEvents(rows, phaseLabel);
+
+          // Annotate newly added events with the MST ship ID of the attacker.
+          // Reconstruct the exact sequence of (row, validDefender) pairs to match
+          // the events built in extractShellingEvents.
+          if (ffShipIds.length > 0) {
+            let rowEventIdx = beforeCount;
+            for (let ri = 0; ri < rows.length; ri++) {
+              const row = rows[ri] as Record<string, unknown>;
+              const at0 = Number(row.at ?? atList[ri] ?? -1);
+              const mstId =
+                at0 >= 0 && at0 < ffShipIds.length
+                  ? (ffShipIds[at0] ?? undefined)
+                  : undefined;
+              const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
+              // Use the same HP array length that extractShellingEvents does (e_now_hps or e_nowhps)
+              const eHpsList = Array.isArray(row.e_now_hps)
+                ? (row.e_now_hps as unknown[])
+                : Array.isArray(row.e_nowhps)
+                  ? (row.e_nowhps as unknown[])
+                  : [];
+              const defenderLimit = eHpsList.length;
+
+              // Iterate through defenders in same order as extractShellingEvents.
+              for (let di = 0; di < defs.length; di++) {
+                const defenderIdx = toValidIndex(defs[di], defenderLimit);
+                // Only annotate events for valid defenders (matching extractShellingEvents skip pattern).
+                if (defenderIdx !== null && rowEventIdx < events.length) {
+                  if (mstId && Number.isFinite(mstId) && mstId > 0) {
+                    events[rowEventIdx].attackerMstShipId = mstId;
+                  }
+                  rowEventIdx++;
+                }
+              }
+            }
+          }
+        }
       }
     }
   } else {
+    // Air base / carrier base assaults (processed first in battle flow)
+    if (battle.air_base_assault) {
+      const squads =
+        (
+          (battle.air_base_assault as any)?.squadron_plane as
+            | unknown[]
+            | undefined
+        )
+          ?.map(Number)
+          .filter((n) => n > 0) ?? [];
+      extractAirAttackEvents(
+        battle.air_base_assault,
+        PHASE_NAMES.AirBaseAssult,
+        squads.length > 0 ? squads : undefined,
+      );
+    }
+    if (battle.carrier_base_assault) {
+      extractAirAttackEvents(
+        battle.carrier_base_assault,
+        PHASE_NAMES.CarrierBaseAssault,
+      );
+    }
+    if (battle.air_base_air_attacks) {
+      const attacks = Array.isArray(battle.air_base_air_attacks)
+        ? (battle.air_base_air_attacks as unknown[])
+        : (((battle.air_base_air_attacks as any)?.attacks as unknown[]) ?? []);
+      attacks.forEach((a) => {
+        const squads =
+          ((a as any)?.squadron_plane as unknown[] | undefined)
+            ?.map(Number)
+            .filter((n) => n > 0) ?? [];
+        extractAirAttackEvents(
+          a,
+          PHASE_NAMES.AirBaseAirAttack,
+          squads.length > 0 ? squads : undefined,
+        );
+      });
+    }
+    // Support attack
+    const sa = (battle.support_attack as any) ?? battle;
+    if (sa?.support_hourai?.damage) {
+      const hourai = sa.support_hourai as Record<string, unknown>;
+      const dmgs = Array.isArray(hourai.damage)
+        ? (hourai.damage as unknown[])
+        : [];
+      const eNow = Array.isArray(hourai.now_hps)
+        ? (hourai.now_hps as number[])
+        : [];
+      const shipIds = Array.isArray(hourai.ship_id)
+        ? (hourai.ship_id as unknown[])
+        : [];
+      for (let i = 0; i < dmgs.length; i++) {
+        const dmg = Number(dmgs[i] ?? 0) || 0;
+        if (dmg <= 0) continue;
+        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        events.push({
+          phase: PHASE_NAMES.SupportAttack,
+          type: "shelling",
+          attackerSide: "friend",
+          attackerIdx: null,
+          attackerGroup: [],
+          defenderSide: "enemy",
+          defenderIdx: i,
+          damage: dmg,
+          crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: [],
+          eHps: eNow,
+          attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+        });
+      }
+    }
+    const supportAir = (sa?.support_airatack ?? sa?.support_airattack) as
+      | Record<string, unknown>
+      | undefined;
+    if (supportAir?.e_damage) {
+      const ed = supportAir.e_damage as Record<string, unknown>;
+      const fd = supportAir.f_damage as Record<string, unknown> | undefined;
+      extractAirAttackEvents(
+        {
+          e_damages: ed.damages,
+          f_damages: fd?.damages,
+          e_now_hps: ed.now_hps,
+          f_now_hps: fd?.now_hps,
+          e_plane_from: [],
+          f_plane_from: [],
+        },
+        PHASE_NAMES.SupportAttack,
+      );
+    }
+    // Main battle phases
     if (battle.opening_taisen) {
       extractShellingEvents(
         normalizeShellingRows(battle.opening_taisen),
@@ -394,16 +691,63 @@ export function buildTimelineEvents(
       const rows = Array.isArray(battle.hougeki)
         ? (battle.hougeki as unknown[])
         : [battle.hougeki];
-      rows.forEach((h, i) => {
-        extractShellingEvents(
-          normalizeShellingRows(h),
-          `${PHASE_NAMES.Hougeki} (${i + 1})`,
-        );
+      rows.forEach((h) => {
+        extractShellingEvents(normalizeShellingRows(h), PHASE_NAMES.Hougeki);
       });
     }
     if (battle.closing_raigeki) {
       extractRaigekiEvents(battle.closing_raigeki, PHASE_NAMES.ClosingRaigeki);
     }
+    // Friendly force attack (after day battle, before midnight)
+    const ffaFallback = battle.friendly_force_attack as any;
+    if (ffaFallback?.support_hourai?.hougeki) {
+      const ffShipIds: number[] = Array.isArray(
+        ffaFallback?.fleet_info?.ship_id,
+      )
+        ? (ffaFallback.fleet_info.ship_id as unknown[]).map(Number)
+        : [];
+      const beforeCount = events.length;
+      const hougeki = ffaFallback.support_hourai.hougeki as Record<
+        string,
+        unknown
+      >;
+      const atList = Array.isArray(hougeki.at_list)
+        ? (hougeki.at_list as unknown[])
+        : [];
+      const rows = normalizeShellingRows(ffaFallback.support_hourai.hougeki);
+
+      extractShellingEvents(rows, PHASE_NAMES.FriendlyForceAttack);
+
+      if (ffShipIds.length > 0) {
+        let rowEventIdx = beforeCount;
+        for (let ri = 0; ri < rows.length; ri++) {
+          const row = rows[ri] as Record<string, unknown>;
+          const at0 = Number(row.at ?? atList[ri] ?? -1);
+          const mstId =
+            at0 >= 0 && at0 < ffShipIds.length
+              ? (ffShipIds[at0] ?? undefined)
+              : undefined;
+          const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
+          const eHpsList = Array.isArray(row.e_now_hps)
+            ? (row.e_now_hps as unknown[])
+            : Array.isArray(row.e_nowhps)
+              ? (row.e_nowhps as unknown[])
+              : [];
+          const defenderLimit = eHpsList.length;
+
+          for (let di = 0; di < defs.length; di++) {
+            const defenderIdx = toValidIndex(defs[di], defenderLimit);
+            if (defenderIdx !== null && rowEventIdx < events.length) {
+              if (mstId && Number.isFinite(mstId) && mstId > 0) {
+                events[rowEventIdx].attackerMstShipId = mstId;
+              }
+              rowEventIdx++;
+            }
+          }
+        }
+      }
+    }
+    // Midnight phase (last)
     if (battle.midnight_hougeki) {
       extractShellingEvents(
         normalizeShellingRows(battle.midnight_hougeki),
@@ -412,15 +756,39 @@ export function buildTimelineEvents(
     }
   }
 
-  return events;
+  // Insert separator events between phase transitions so the right panel and SVG chart align.
+  const withSeps: TimelineEvent[] = [];
+  for (let i = 0; i < events.length; i++) {
+    const ev = events[i];
+    if (i > 0 && events[i - 1].phase !== ev.phase) {
+      withSeps.push({
+        phase: events[i - 1].phase,
+        type: "separator",
+        attackerSide: "friend",
+        attackerIdx: null,
+        attackerGroup: [],
+        defenderSide: "enemy",
+        defenderIdx: null,
+        damage: 0,
+        crit: false,
+        sunk: false,
+        slotItems: [],
+        fHps: ev.fHps,
+        eHps: ev.eHps,
+        separator: true,
+      });
+    }
+    withSeps.push(ev);
+  }
+  return withSeps;
 }
 
 export function buildInitialHps(battle: Record<string, unknown>): {
   fInit: number[];
   eInit: number[];
 } {
-  const fInit = (battle.midnight_f_nowhps ?? battle.f_nowhps ?? []) as number[];
-  const eInit = (battle.midnight_e_nowhps ?? battle.e_nowhps ?? []) as number[];
+  const fInit = (battle.f_nowhps ?? battle.midnight_f_nowhps ?? []) as number[];
+  const eInit = (battle.e_nowhps ?? battle.midnight_e_nowhps ?? []) as number[];
   return { fInit, eInit };
 }
 
@@ -757,8 +1125,14 @@ export function renderTimelineView(
     const phaseChanged = ev.phase !== lastPhaseEv;
     if (phaseChanged) lastPhaseEv = ev.phase;
 
+    if (ev.separator) {
+      rightPanel += `<div style="height:${ROW_H}px"></div>`;
+      continue;
+    }
+
     const atkIdx = ev.attackerIdx;
     const defIdx = ev.defenderIdx;
+    if (defIdx === null) continue;
     const atkGroup = Array.isArray(ev.attackerGroup) ? ev.attackerGroup : [];
     const atkGroupLabel =
       atkGroup.length > 0
@@ -767,7 +1141,7 @@ export function renderTimelineView(
     const atkName =
       atkIdx !== null
         ? shipNameFromIndex(ev.attackerSide, atkIdx, fleets)
-        : ev.type === "air" && atkGroup.length > 0
+        : (ev.type === "air" || ev.type === "raigeki") && atkGroup.length > 0
           ? atkGroup
               .map((v) => shipNameFromIndex(ev.attackerSide, v, fleets))
               .join("+")
@@ -776,7 +1150,7 @@ export function renderTimelineView(
     const atkLabel =
       atkIdx !== null
         ? `${atkIdx + 1}番`
-        : ev.type === "air"
+        : (ev.type === "air" || ev.type === "raigeki") && atkGroup.length > 0
           ? atkGroupLabel
           : "?";
     const defLabel = `${defIdx + 1}番`;

@@ -135,7 +135,7 @@ function ShellingRows(props: {
                       </div>
                     </Show>
                   </div>
-                  <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+                  <div class="flex items-center justify-center text-base-content/40">
                     →
                   </div>
                   <div class="space-y-1">
@@ -395,7 +395,7 @@ function RaigekiRows(props: {
                       props.fleets,
                     )}
                   />
-                  <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+                  <div class="flex items-center justify-center text-base-content/40">
                     →
                   </div>
                   <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
@@ -593,7 +593,7 @@ function AirAttackRows(props: {
                 }}
               </For>
             </div>
-            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+            <div class="flex items-center justify-center text-base-content/40">
               →
             </div>
             {renderDefenders(eDefs(), "enemy", eNow)}
@@ -623,7 +623,7 @@ function AirAttackRows(props: {
                 }}
               </For>
             </div>
-            <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">
+            <div class="flex items-center justify-center text-base-content/40">
               →
             </div>
             {renderDefenders(fDefs(), "friend", fNow)}
@@ -643,9 +643,7 @@ function PhaseCard(props: {
 }): JSX.Element {
   const phaseKey = () => Object.keys(props.phaseType)[0] ?? "";
   const phaseName = () => {
-    const name = PHASE_NAMES[phaseKey()] ?? phaseKey();
-    const subIdx = props.phaseType[phaseKey()] as number | null;
-    return subIdx != null ? `${name} (${subIdx + 1})` : name;
+    return PHASE_NAMES[phaseKey()] ?? phaseKey();
   };
 
   const summaryBadges = (): (string | null)[] => {
@@ -898,9 +896,9 @@ function extractPhaseEntries(
         type: { OpeningRaigeki: 0 },
         data: battle.opening_raigeki,
       });
-    if ((battle.hougeki as any)?.length || Array.isArray(battle.hougeki))
+    if (battle.hougeki)
       entries.push({
-        type: { Hougeki: 0 },
+        type: { Hougeki: null },
         data: phaseDataForKey(battle, "Hougeki", null),
       });
     if (battle.closing_raigeki)

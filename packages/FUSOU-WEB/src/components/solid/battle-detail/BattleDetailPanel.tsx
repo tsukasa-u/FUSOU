@@ -17,6 +17,7 @@ import {
   fetchBattleResultByUuid,
   fetchBattleRecordsByUuid,
   fetchRecordsByField,
+  getMstShipById,
   getWeaponIconFrames,
   getMstSlotItemById,
   resolveMidnightHougeki,
@@ -28,9 +29,16 @@ import {
   resolveFriendlyFleet,
   resolveEnemyFleet,
 } from "@/pages/battles/lib/data-service";
-import { ShipRows } from "./ui";
+import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
+import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
+
+type DropShipInfo = {
+  shipId: number;
+  name: string;
+  bannerUrl: string;
+};
 
 // ── Main orchestrator component ───────────────────────────────────────────
 
@@ -45,11 +53,20 @@ export default function BattleDetailPanel(props: {
     number,
     Record<string, unknown>
   > | null>(null);
+  const [mstShipById, setMstShipById] = createSignal<Map<
+    number,
+    Record<string, unknown>
+  > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
   const [cellLabel, setCellLabel] = createSignal<string>("-");
+  const [dropShipInfo, setDropShipInfo] = createSignal<DropShipInfo | null>(
+    null,
+  );
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
+  const [showPhaseSeparators, setShowPhaseSeparators] = createSignal(false);
+  let displaySettingsModalRef!: HTMLDialogElement;
 
   // Derived values
   const ts = createMemo(() => {
@@ -149,16 +166,22 @@ export default function BattleDetailPanel(props: {
   const rankCls = createMemo(() => RANK_COLORS[rank()] ?? "");
 
   const dropInfo = createMemo(() => {
-    const b = battle();
-    if (!b) return null;
-    const dropId = (b.battle_result as any)?.drop_ship_id;
-    return dropId ? `ドロップ: 艦#${dropId}` : null;
+    const drop = dropShipInfo();
+    if (!drop) return null;
+    return drop;
   });
 
-  const FleetLoadingFallback = () => (
+  const FleetFallback = (props: { emptyLabel: string }) => (
     <div class="flex items-center justify-center py-6 text-base-content/40">
-      <span class="loading loading-spinner loading-sm mr-2" />
-      <span class="text-sm">艦隊データ読込中…</span>
+      <Show
+        when={loading()}
+        fallback={<span class="text-sm">{props.emptyLabel}</span>}
+      >
+        <>
+          <span class="loading loading-spinner loading-sm mr-2" />
+          <span class="text-sm">艦隊データ読込中…</span>
+        </>
+      </Show>
     </div>
   );
 
@@ -251,7 +274,22 @@ export default function BattleDetailPanel(props: {
           };
           const records = payload.records ?? [];
           matched = records[fallbackIdx] ?? null;
+        } else {
+          // Local dev fallback for numeric detail IDs.
+          const localByIndex = await fetchRecordsByField(
+            "battle",
+            "index",
+            fallbackIdx,
+            1,
+          );
+          if (localByIndex.length > 0) {
+            matched = localByIndex[0];
+          }
         }
+      }
+
+      if (!matched && preloadedBattle) {
+        matched = preloadedBattle;
       }
 
       if (matched) {
@@ -306,13 +344,28 @@ export default function BattleDetailPanel(props: {
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
+        const resolvedMstShip = await getMstShipById();
         const resolvedCellLabel = await resolveBattleCellLabel(merged);
+
+        const dropShipId = Number(resolvedBattleResult?.drop_ship_id ?? 0) || 0;
+        const dropShip =
+          dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
 
         setBattle(merged);
         setFleets(resolvedFleets);
         setMstSlotItemById(resolvedMst);
+        setMstShipById(resolvedMstShip);
         setMapLabel(label);
         setCellLabel(resolvedCellLabel);
+        setDropShipInfo(
+          dropShipId > 0
+            ? {
+                shipId: dropShipId,
+                name: String(dropShip?.name ?? `艦#${dropShipId}`),
+                bannerUrl: `/api/asset-sync/ship-banner/${dropShipId}`,
+              }
+            : null,
+        );
       } else if (!preloadedBattle) {
         setError("指定された戦闘データが見つかりませんでした");
       }
@@ -413,7 +466,23 @@ export default function BattleDetailPanel(props: {
                   </h3>
                   <p class={`text-2xl font-bold ${rankCls()}`}>{rank()}</p>
                   <Show when={dropInfo()}>
-                    <p class="text-sm">{dropInfo()}</p>
+                    {(drop) => (
+                      <div class="mt-2 flex items-center gap-2">
+                        <ShipBanner
+                          src={drop().bannerUrl}
+                          alt={drop().name}
+                          class="h-8 w-28"
+                        />
+                        <div class="min-w-0">
+                          <p class="text-[10px] text-base-content/55">
+                            ドロップ艦
+                          </p>
+                          <p class="truncate text-sm font-medium">
+                            {drop().name}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </Show>
                 </div>
               </div>
@@ -429,7 +498,9 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.friendlyShips?.length}
-                      fallback={<FleetLoadingFallback />}
+                      fallback={
+                        <FleetFallback emptyLabel="味方艦隊データなし" />
+                      }
                     >
                       <ShipRows
                         ships={fleets()!.friendlyShips}
@@ -447,7 +518,7 @@ export default function BattleDetailPanel(props: {
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}
-                      fallback={<FleetLoadingFallback />}
+                      fallback={<FleetFallback emptyLabel="敵艦隊データなし" />}
                     >
                       <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
                     </Show>
@@ -459,22 +530,52 @@ export default function BattleDetailPanel(props: {
             {/* Battle Phases / Timeline */}
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body">
-                <div class="flex items-center justify-between gap-4 mb-4">
+                <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
                   <h3 class="card-title text-lg">戦闘フェーズ</h3>
-                  <div class="join">
+                  <div class="flex items-center gap-2">
+                    <div class="join">
+                      <button
+                        id="battle-view-mode-phase"
+                        class={`join-item btn btn-sm ${viewMode() === "phase" ? "btn-active" : ""}`}
+                        onClick={() => setViewMode("phase")}
+                      >
+                        フェーズ
+                      </button>
+                      <button
+                        id="battle-view-mode-timeline"
+                        class={`join-item btn btn-sm ${viewMode() === "timeline" ? "btn-active" : ""}`}
+                        onClick={() => setViewMode("timeline")}
+                      >
+                        タイムライン
+                      </button>
+                    </div>
                     <button
-                      id="battle-view-mode-phase"
-                      class={`join-item btn btn-sm ${viewMode() === "phase" ? "btn-active" : ""}`}
-                      onClick={() => setViewMode("phase")}
+                      id="battle-detail-display-settings-btn"
+                      class="btn btn-sm btn-ghost gap-1.5"
+                      type="button"
+                      onClick={() => displaySettingsModalRef.showModal()}
                     >
-                      フェーズ
-                    </button>
-                    <button
-                      id="battle-view-mode-timeline"
-                      class={`join-item btn btn-sm ${viewMode() === "timeline" ? "btn-active" : ""}`}
-                      onClick={() => setViewMode("timeline")}
-                    >
-                      タイムライン
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 9a3 3 0 100 6 3 3 0 000-6z"
+                        />
+                      </svg>
+                      表示設定
                     </button>
                   </div>
                 </div>
@@ -494,6 +595,8 @@ export default function BattleDetailPanel(props: {
                     battle={b()}
                     fleets={fleets()}
                     mstSlotItemById={mstSlotItemById()}
+                    mstShipById={mstShipById()}
+                    showPhaseSeparators={showPhaseSeparators()}
                   />
                 </div>
               </div>
@@ -501,6 +604,15 @@ export default function BattleDetailPanel(props: {
           </>
         )}
       </Show>
+
+      {/* Display settings modal */}
+      <BattleDisplaySettingsModal
+        ref={(el) => {
+          displaySettingsModalRef = el;
+        }}
+        showPhaseSeparators={showPhaseSeparators}
+        setShowPhaseSeparators={setShowPhaseSeparators}
+      />
 
       {/* Loading state (only when no preloaded data yet) */}
       <Show when={loading() && !battle()}>
