@@ -8,7 +8,12 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { Chart, registerables, type ChartData, type ChartDataset } from "chart.js";
+import {
+  Chart,
+  registerables,
+  type ChartData,
+  type ChartDataset,
+} from "chart.js";
 import { cachedFetch } from "@/utility/fetchCache";
 import {
   ENEMY_ID_THRESHOLD,
@@ -63,7 +68,7 @@ function buildExpChartData(expRows: ExpRow[]) {
         borderColor: "rgb(99, 102, 241)",
         backgroundColor: "rgba(99, 102, 241, 0.1)",
         fill: true,
-          tension: 0,
+        tension: 0,
         pointRadius: 2,
       },
     ],
@@ -83,7 +88,7 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
       borderColor: "rgb(34, 197, 94)",
       backgroundColor: "transparent",
-        tension: 0,
+      tension: 0,
       pointRadius: 2,
     },
     {
@@ -91,7 +96,7 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
       borderColor: "rgb(249, 115, 22)",
       backgroundColor: "transparent",
-        tension: 0,
+      tension: 0,
       pointRadius: 2,
     },
     {
@@ -99,7 +104,7 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
       borderColor: "rgb(168, 85, 247)",
       backgroundColor: "transparent",
-        tension: 0,
+      tension: 0,
       pointRadius: 2,
     },
   ];

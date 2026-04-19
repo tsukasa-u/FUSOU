@@ -307,7 +307,10 @@ app.get("/summary", async (c) => {
         }
 
         const byPeriod = new Map(
-          cached.periods.map((row) => [`${row.period_tag}:${row.table_version}`, row]),
+          cached.periods.map((row) => [
+            `${row.period_tag}:${row.table_version}`,
+            row,
+          ]),
         );
 
         for (const changed of changedPeriods) {
@@ -380,7 +383,10 @@ app.get("/summary", async (c) => {
         return {
           periods: periodRows,
           refreshed_at: Date.now(),
-          db_synced_at: Math.max(0, Number(maxUpdatedAtRow?.max_updated_at_ms) || 0),
+          db_synced_at: Math.max(
+            0,
+            Number(maxUpdatedAtRow?.max_updated_at_ms) || 0,
+          ),
         };
       },
     });
@@ -662,7 +668,7 @@ app.post("/ingest", async (c) => {
             change_flag,
             req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
             updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           verified.datasetId,
@@ -694,7 +700,9 @@ app.post("/ingest", async (c) => {
   };
 
   c.executionCtx?.waitUntil(
-    invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, ["remodel:summary"]),
+    invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+      "remodel:summary",
+    ]),
   );
 
   // Best-effort cache invalidation after successful ingest

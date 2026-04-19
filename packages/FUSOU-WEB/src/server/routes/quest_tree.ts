@@ -1125,9 +1125,7 @@ app.post("/ingest", async (c) => {
     const cache = (globalThis as { caches?: { default?: Cache } }).caches
       ?.default;
     if (cache) {
-      c.executionCtx?.waitUntil(
-        invalidateQuestTreeCaches(cache, c.req.url),
-      );
+      c.executionCtx?.waitUntil(invalidateQuestTreeCaches(cache, c.req.url));
     }
   }
 
@@ -1293,7 +1291,10 @@ app.get("/graph", async (c) => {
           )
           .bind(periodTag, tableVersion, cached.db_synced_at)
           .all()
-      ).results ?? []) as Array<{ target_quest_id: number; updated_at_ms: number }>;
+      ).results ?? []) as Array<{
+        target_quest_id: number;
+        updated_at_ms: number;
+      }>;
 
       if (changedTargets.length === 0) {
         return {
@@ -1305,7 +1306,9 @@ app.get("/graph", async (c) => {
         };
       }
 
-      const rowsByRuleId = new Map(cached.rows.map((row) => [row.rule_id, row]));
+      const rowsByRuleId = new Map(
+        cached.rows.map((row) => [row.rule_id, row]),
+      );
       const targetSet = new Set<number>();
       for (const row of changedTargets) {
         const target = toInt(row.target_quest_id);
@@ -1346,7 +1349,9 @@ app.get("/graph", async (c) => {
         changed: true,
         snapshot: {
           ...cached,
-          rows: Array.from(rowsByRuleId.values()).sort((a, b) => b.score - a.score),
+          rows: Array.from(rowsByRuleId.values()).sort(
+            (a, b) => b.score - a.score,
+          ),
           refreshed_at: Date.now(),
           db_synced_at: Math.max(cached.db_synced_at, maxUpdatedAt),
         },

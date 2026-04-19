@@ -29,7 +29,9 @@ export function isFreshSnapshot(refreshedAt: number, ttlMs: number): boolean {
   return Date.now() - refreshedAt < ttlMs;
 }
 
-export async function saveCanonicalSnapshotToKv<T extends CanonicalSnapshotBase>(
+export async function saveCanonicalSnapshotToKv<
+  T extends CanonicalSnapshotBase,
+>(
   kv: KVNamespace | undefined,
   key: string,
   value: T,
@@ -95,7 +97,11 @@ export async function loadOrRefreshCanonicalSnapshot<
   const cachedRaw = kv ? await kv.get(cacheKey, "json") : null;
   const cached = isValidSnapshot(cachedRaw) ? cachedRaw : null;
 
-  if (cached && isFreshSnapshot(cached.refreshed_at, ttlMs) && !probeWhenFresh) {
+  if (
+    cached &&
+    isFreshSnapshot(cached.refreshed_at, ttlMs) &&
+    !probeWhenFresh
+  ) {
     return { snapshot: cached, cacheStatus: "HIT" };
   }
 

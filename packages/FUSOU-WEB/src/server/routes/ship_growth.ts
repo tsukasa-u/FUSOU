@@ -562,9 +562,12 @@ function deriveServerNakedStats(
 
   // Server-side normalization: strip known additive contributions from observed stats.
   // Remaining unknown contributions (if any) are intentionally not guessed.
-  const kaihiRaw = ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi;
-  const taisenRaw = ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen;
-  const sakutekiRaw = ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki;
+  const kaihiRaw =
+    ship.kaihi_observed - slotKaihi - spEffectKaihi - totalSynergyTotals.kaihi;
+  const taisenRaw =
+    ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen;
+  const sakutekiRaw =
+    ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki;
 
   const kaihi = Math.max(0, kaihiRaw);
   const taisen = Math.max(0, taisenRaw);
@@ -655,7 +658,8 @@ function validateIngestBody(
   for (const [index, ship] of body.ships.entries()) {
     // exp_to_next is optional (null for max-level ships) but if present must be valid.
     const hasValidExpToNext =
-      ship.exp_to_next == null || (isValidInt(ship.exp_to_next) && ship.exp_to_next >= 0);
+      ship.exp_to_next == null ||
+      (isValidInt(ship.exp_to_next) && ship.exp_to_next >= 0);
 
     if (
       !isValidInt(ship.master_id) ||
@@ -1167,7 +1171,10 @@ async function processShipGrowthIngest(
     );
   } catch (archiveError) {
     // Archive failed but DB succeeded—continue
-    console.error("[ship-growth] Failed to archive old rows to R2:", archiveError);
+    console.error(
+      "[ship-growth] Failed to archive old rows to R2:",
+      archiveError,
+    );
     // Continue: do not fail the ingest response.
   }
 
@@ -1877,16 +1884,24 @@ app.post("/ingest", async (c) => {
     // KV invalidation (primary cache layer)
     if (period_tag && table_version) {
       c.executionCtx?.waitUntil(
-        invalidateShipGrowthKvSnapshots(c.env.DATA_LOADER_CACHE_KV, period_tag, table_version),
+        invalidateShipGrowthKvSnapshots(
+          c.env.DATA_LOADER_CACHE_KV,
+          period_tag,
+          table_version,
+        ),
       );
     }
 
     // CF Cache invalidation (best-effort, non-critical)
-    const cfCache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+    const cfCache = (globalThis as { caches?: { default?: Cache } }).caches
+      ?.default;
     if (cfCache) {
       c.executionCtx?.waitUntil(
         invalidateShipGrowthCaches(cfCache, c.req.url).catch((err) => {
-          console.warn("[ship-growth] Failed to invalidate CF caches after ingest:", err);
+          console.warn(
+            "[ship-growth] Failed to invalidate CF caches after ingest:",
+            err,
+          );
         }),
       );
     }
