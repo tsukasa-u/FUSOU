@@ -7,9 +7,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
-use configs::get_user_configs;
 use crate::pending_store::{PendingMeta, PendingStore};
 use crate::uploader::{UploadContext, UploadRequest, Uploader};
+use configs::get_user_configs;
 use fusou_auth::{AuthManager, FileStorage};
 
 pub trait RetryHandler: Send + Sync {
@@ -101,7 +101,9 @@ impl UploadRetryService {
                     // Skip if we already retried this content hash in this batch
                     if let Some(hash) = meta.headers.get("content-hash") {
                         if processed_hashes.contains(hash) {
-                            tracing::info!("Skipping duplicate retry for content-hash {}, already processed in this batch", hash);
+                            tracing::info!("Removing redundant duplicate for content-hash {}, already processed in this batch", hash);
+                            // Delete from store so it does not reappear in every future cycle
+                            let _ = store.delete_pending(&meta.id);
                             continue;
                         }
                         processed_hashes.insert(hash.clone());
@@ -117,7 +119,8 @@ impl UploadRetryService {
                         continue;
                     }
 
-                    if !force && !Self::is_due_for_retry(&meta, retry_config.get_interval_seconds()) {
+                    if !force && !Self::is_due_for_retry(&meta, retry_config.get_interval_seconds())
+                    {
                         continue;
                     }
 
@@ -155,7 +158,8 @@ impl UploadRetryService {
                         }
 
                         if is_auth_error {
-                            sleep(Duration::from_secs(retry_config.get_auth_backoff_seconds())).await;
+                            sleep(Duration::from_secs(retry_config.get_auth_backoff_seconds()))
+                                .await;
                             break;
                         }
                     } else {
@@ -163,7 +167,10 @@ impl UploadRetryService {
                         let _ = store.delete_pending(&meta.id);
                     }
 
-                    sleep(Duration::from_secs(1)).await;
+                    let item_interval = retry_config.get_item_interval_seconds();
+                    if item_interval > 0 {
+                        sleep(Duration::from_secs(item_interval)).await;
+                    }
                 }
 
                 let mut running = is_running.lock().await;

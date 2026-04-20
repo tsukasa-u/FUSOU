@@ -262,6 +262,10 @@ save_file_location = ""
     # Cooldown (in seconds) after an authentication failure before retrying
     auth_backoff_seconds = 600
 
+    # Minimum wait time (in seconds) between individual items within a single retry batch run.
+    # Set to 0 to disable the wait. Increase to reduce CPU/network load during large retry batches.
+    item_interval_seconds = 5
+
 
     [app.auth]
     # Whether to deny user authentication
