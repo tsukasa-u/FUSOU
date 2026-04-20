@@ -1,4 +1,5 @@
-const SOCIAL_PREVIEW_BOT_UA = /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
+const SOCIAL_PREVIEW_BOT_UA =
+  /discordbot|twitterbot|slackbot-linkexpanding|facebookexternalhit|linkedinbot|whatsapp|telegrambot|line\//i;
 
 type SocialPreviewHtmlOptions = {
   title: string;
@@ -23,7 +24,9 @@ export function isSocialPreviewBot(userAgent: string): boolean {
   return SOCIAL_PREVIEW_BOT_UA.test(userAgent);
 }
 
-export function buildSocialPreviewHtml(options: SocialPreviewHtmlOptions): string {
+export function buildSocialPreviewHtml(
+  options: SocialPreviewHtmlOptions,
+): string {
   const safeTitle = escHtml(options.title);
   const safeDescription = escHtml(options.description);
   const safeRequestUrl = escHtml(options.requestUrl);
@@ -31,7 +34,9 @@ export function buildSocialPreviewHtml(options: SocialPreviewHtmlOptions): strin
   const safeSiteName = escHtml(options.siteName ?? "FUSOU");
   const safeLang = escHtml(options.lang ?? "ja");
   const safeImageUrl = options.imageUrl ? escHtml(options.imageUrl) : null;
-  const safeRedirectUrl = options.redirectUrl ? escHtml(options.redirectUrl) : null;
+  const safeRedirectUrl = options.redirectUrl
+    ? escHtml(options.redirectUrl)
+    : null;
 
   return `<!DOCTYPE html>
 <html lang="${safeLang}">

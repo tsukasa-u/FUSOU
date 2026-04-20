@@ -31,7 +31,9 @@ function extractShortKey(input: string): string | null {
   if (/^[0-9a-f]{16}$/.test(trimmed)) return trimmed;
   try {
     const parsed = new URL(trimmed);
-    const match = parsed.pathname.match(/^\/(?:s|share\/short)\/([0-9a-f]{16})$/);
+    const match = parsed.pathname.match(
+      /^\/(?:s|share\/short)\/([0-9a-f]{16})$/,
+    );
     if (match) return match[1];
   } catch {
     /* not a URL */
@@ -54,7 +56,10 @@ function resolveSimulatorUrlDirectly(input: string): ResolvedShare | null {
     if (!dataParam) return null;
     const decoded = decodePayloadBase64Safe(dataParam);
     if (!decoded.ok) {
-      return { ok: false, error: `データの復元に失敗しました: ${decoded.error}` };
+      return {
+        ok: false,
+        error: `データの復元に失敗しました: ${decoded.error}`,
+      };
     }
     const payload = decoded.payload;
     if (!isLikelySimulatorPayload(payload)) {
@@ -82,7 +87,8 @@ async function resolveViaApi(key: string): Promise<ResolvedShare> {
   }
 
   if (!res.ok) {
-    if (res.status === 404) return { ok: false, error: "このキーは見つかりません" };
+    if (res.status === 404)
+      return { ok: false, error: "このキーは見つかりません" };
     return { ok: false, error: `APIエラー (${res.status})` };
   }
 

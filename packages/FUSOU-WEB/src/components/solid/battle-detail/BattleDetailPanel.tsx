@@ -1,5 +1,12 @@
 /** @jsxImportSource solid-js */
-import { createSignal, createMemo, onMount, onCleanup, Show, createEffect } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  onMount,
+  onCleanup,
+  Show,
+  createEffect,
+} from "solid-js";
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
@@ -279,11 +286,12 @@ export default function BattleDetailPanel(props: {
     if (battleData) {
       try {
         const parsed = JSON.parse(battleData);
-         // Only use the cached data if it matches the current battleId to avoid
-         // showing a stale preview from a previously visited battle.
-         const cachedUuid = typeof parsed?.uuid === "string" ? parsed.uuid : null;
-         const cachedMatchesCurrent = cachedUuid === props.battleId;
-         if (parsed && cachedMatchesCurrent) {
+        // Only use the cached data if it matches the current battleId to avoid
+        // showing a stale preview from a previously visited battle.
+        const cachedUuid =
+          typeof parsed?.uuid === "string" ? parsed.uuid : null;
+        const cachedMatchesCurrent = cachedUuid === props.battleId;
+        if (parsed && cachedMatchesCurrent) {
           preloadedBattle = parsed;
           const preloaded = {
             ...parsed,
@@ -292,7 +300,7 @@ export default function BattleDetailPanel(props: {
               normalizeEpochMs(parsed.midnight_timestamp) ??
               null,
           };
-            if (disposed) return;
+          if (disposed) return;
           setBattle(preloaded);
         }
       } catch (e) {

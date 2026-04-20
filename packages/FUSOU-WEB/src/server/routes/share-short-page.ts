@@ -105,11 +105,13 @@ function normalizeShareUrl(
 ): string | null {
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== "https:" && parsed.protocol !== requestProtocol) return null;
+    if (parsed.protocol !== "https:" && parsed.protocol !== requestProtocol)
+      return null;
     if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
 
     const path = parsed.pathname;
-    const isSimulatorPath = path === "/simulator" || path.startsWith("/simulator/");
+    const isSimulatorPath =
+      path === "/simulator" || path.startsWith("/simulator/");
     const isSharePath = path === "/share/data";
     if (!isSimulatorPath && !isSharePath) {
       return null;
@@ -125,7 +127,10 @@ function buildBootstrapHtml(
   snapshotPayload: Record<string, unknown>,
 ): string {
   const targetLiteral = JSON.stringify(originalUrl).replace(/</g, "\\u003c");
-  const snapshotLiteral = JSON.stringify(snapshotPayload).replace(/</g, "\\u003c");
+  const snapshotLiteral = JSON.stringify(snapshotPayload).replace(
+    /</g,
+    "\\u003c",
+  );
   const safeOriginalUrl = escHtml(originalUrl);
   const keyConst = JSON.stringify(SHARED_SNAPSHOT_SESSION_KEY);
 
@@ -176,22 +181,22 @@ function buildNotFoundHtml(siteOrigin: string): string {
 
 export function buildDescription(dataParam: string): string {
   try {
-     // UTF-8-safe decode (same pattern as payload-codec decodePayloadBase64)
-     let fleet: {
-       fleet1?: Array<{ shipId: number | null }>;
-       fleet2?: Array<{ shipId: number | null }>;
-       fleet3?: Array<{ shipId: number | null }>;
-       fleet4?: Array<{ shipId: number | null }>;
-       airBases?: Array<{ equipIds: (number | null)[] }>;
-     };
-     try {
-       const binary = atob(dataParam);
-       const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
-       const json = new TextDecoder().decode(bytes);
-       fleet = JSON.parse(json);
-     } catch {
-       fleet = JSON.parse(atob(dataParam));
-     }
+    // UTF-8-safe decode (same pattern as payload-codec decodePayloadBase64)
+    let fleet: {
+      fleet1?: Array<{ shipId: number | null }>;
+      fleet2?: Array<{ shipId: number | null }>;
+      fleet3?: Array<{ shipId: number | null }>;
+      fleet4?: Array<{ shipId: number | null }>;
+      airBases?: Array<{ equipIds: (number | null)[] }>;
+    };
+    try {
+      const binary = atob(dataParam);
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+      const json = new TextDecoder().decode(bytes);
+      fleet = JSON.parse(json);
+    } catch {
+      fleet = JSON.parse(atob(dataParam));
+    }
     const fleetCounts = [
       fleet.fleet1?.filter((ship) => ship.shipId !== null).length ?? 0,
       fleet.fleet2?.filter((ship) => ship.shipId !== null).length ?? 0,
@@ -209,7 +214,9 @@ export function buildDescription(dataParam: string): string {
 
     const airBaseParts: string[] = [];
     (fleet.airBases ?? []).forEach((base, idx) => {
-      const equipCount = (base.equipIds ?? []).filter((id) => id !== null).length;
+      const equipCount = (base.equipIds ?? []).filter(
+        (id) => id !== null,
+      ).length;
       if (equipCount > 0) {
         airBaseParts.push(`${idx + 1}基地:${equipCount}/4`);
       }
@@ -249,7 +256,9 @@ async function fetchShareRecord(
 
   let upstream: Response;
   try {
-    upstream = await shortenerService.fetch(`https://shortener.internal/internal/snapshot/${key}`);
+    upstream = await shortenerService.fetch(
+      `https://shortener.internal/internal/snapshot/${key}`,
+    );
   } catch (error) {
     console.error("[same-origin-share] shortener fetch failed:", error);
     return {
@@ -269,15 +278,23 @@ async function fetchShareRecord(
   if (!upstream.ok) {
     return {
       ok: false,
-      response: new Response(upstream.status === 404 ? buildNotFoundHtml(siteOrigin) : "Service unavailable", {
-        status: upstream.status === 404 ? 404 : 502,
-        headers: {
-          "Content-Type": upstream.status === 404 ? "text/html; charset=utf-8" : "text/plain; charset=utf-8",
-          "cache-control": "no-store",
-          "x-content-type-options": "nosniff",
-          "referrer-policy": "strict-origin-when-cross-origin",
+      response: new Response(
+        upstream.status === 404
+          ? buildNotFoundHtml(siteOrigin)
+          : "Service unavailable",
+        {
+          status: upstream.status === 404 ? 404 : 502,
+          headers: {
+            "Content-Type":
+              upstream.status === 404
+                ? "text/html; charset=utf-8"
+                : "text/plain; charset=utf-8",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "strict-origin-when-cross-origin",
+          },
         },
-      }),
+      ),
     };
   }
 
@@ -299,7 +316,8 @@ async function fetchShareRecord(
     };
   }
 
-  const originalUrl = typeof data.originalUrl === "string" ? data.originalUrl : "";
+  const originalUrl =
+    typeof data.originalUrl === "string" ? data.originalUrl : "";
   const safeOriginalUrl = originalUrl
     ? normalizeShareUrl(originalUrl, allowedHosts, requestProtocol)
     : null;
@@ -325,7 +343,10 @@ async function fetchShareRecord(
   };
 }
 
-export async function handleShareShortRequest(request: Request, key: string | undefined): Promise<Response> {
+export async function handleShareShortRequest(
+  request: Request,
+  key: string | undefined,
+): Promise<Response> {
   const siteOrigin = resolveSiteOrigin(request.url);
   const allowedHosts = resolveAllowedHosts(request.url);
   const requestProtocol = new URL(request.url).protocol;
@@ -347,9 +368,10 @@ export async function handleShareShortRequest(request: Request, key: string | un
           "Content-Type": "text/html; charset=utf-8",
           Vary: "User-Agent",
           "cache-control": "no-store",
-           "x-content-type-options": "nosniff",
-           "referrer-policy": "strict-origin-when-cross-origin",
-           "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "content-security-policy":
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
         },
       },
     );
@@ -370,7 +392,12 @@ export async function handleShareShortRequest(request: Request, key: string | un
     });
   }
 
-  const recordResult = await fetchShareRecord(key, allowedHosts, siteOrigin, requestProtocol);
+  const recordResult = await fetchShareRecord(
+    key,
+    allowedHosts,
+    siteOrigin,
+    requestProtocol,
+  );
   if (!recordResult.ok) {
     if (isBotRequest) {
       return buildBotErrorPreview(
@@ -395,24 +422,28 @@ export async function handleShareShortRequest(request: Request, key: string | un
       // Fall back to the default description.
     }
 
-    return new Response(buildSocialPreviewHtml({
-      title: "FUSOU 編成シミュレータ - 共有編成",
-      description,
-      requestUrl: request.url,
-      targetUrl: originalUrl,
-      imageUrl: `${siteOrigin}/favicon.svg`,
-      redirectUrl: originalUrl,
-    }), {
-      status: 200,
-      headers: {
-        "content-type": "text/html; charset=utf-8",
-        "cache-control": "no-store",
-        Vary: "User-Agent",
-        "x-content-type-options": "nosniff",
-        "referrer-policy": "strict-origin-when-cross-origin",
-        "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    return new Response(
+      buildSocialPreviewHtml({
+        title: "FUSOU 編成シミュレータ - 共有編成",
+        description,
+        requestUrl: request.url,
+        targetUrl: originalUrl,
+        imageUrl: `${siteOrigin}/favicon.svg`,
+        redirectUrl: originalUrl,
+      }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "no-store",
+          Vary: "User-Agent",
+          "x-content-type-options": "nosniff",
+          "referrer-policy": "strict-origin-when-cross-origin",
+          "content-security-policy":
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+        },
       },
-    });
+    );
   }
 
   if (!snapshotPayload) {

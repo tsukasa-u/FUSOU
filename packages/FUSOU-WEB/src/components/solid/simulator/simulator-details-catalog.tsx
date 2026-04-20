@@ -1302,8 +1302,12 @@ function SimulatorDetailsCatalog(): JSX.Element {
   const [selectedEquipId, setSelectedEquipId] = createSignal<number | null>(
     null,
   );
-  const [initialShipIdFromUrl, setInitialShipIdFromUrl] = createSignal<number | null>(null);
-  const [initialEquipIdFromUrl, setInitialEquipIdFromUrl] = createSignal<number | null>(null);
+  const [initialShipIdFromUrl, setInitialShipIdFromUrl] = createSignal<
+    number | null
+  >(null);
+  const [initialEquipIdFromUrl, setInitialEquipIdFromUrl] = createSignal<
+    number | null
+  >(null);
   const [urlStateReady, setUrlStateReady] = createSignal(false);
   const [expandSettings, setExpandSettings] = createSignal<ListExpandSettings>(
     DEFAULT_EXPAND_SETTINGS,

@@ -25,7 +25,10 @@ type PreviewManifestCacheEntry = {
 };
 
 const previewNameCacheByKey = new Map<string, PreviewNameCacheEntry>();
-const previewManifestCacheByOrigin = new Map<string, PreviewManifestCacheEntry>();
+const previewManifestCacheByOrigin = new Map<
+  string,
+  PreviewManifestCacheEntry
+>();
 
 function setPreviewNameCache(cacheKey: string, name: string | null): void {
   previewNameCacheByKey.set(cacheKey, {
@@ -40,7 +43,10 @@ function setPreviewNameCache(cacheKey: string, name: string | null): void {
   }
 }
 
-function setPreviewManifestCache(origin: string, data: PreviewNameManifest): void {
+function setPreviewManifestCache(
+  origin: string,
+  data: PreviewNameManifest,
+): void {
   previewManifestCacheByOrigin.set(origin, {
     data,
     expiresAt: Date.now() + LOOKUP_CACHE_TTL_MS,
@@ -117,15 +123,21 @@ async function getMasterNames(
     if (!res.ok) return null;
 
     const json = (await res.json()) as {
-      records?: Array<{ id?: number; api_id?: number; name?: string; api_name?: string }>;
+      records?: Array<{
+        id?: number;
+        api_id?: number;
+        name?: string;
+        api_name?: string;
+      }>;
     };
 
     const row = json.records?.[0];
-    const name = typeof row?.name === "string"
-      ? row.name
-      : typeof row?.api_name === "string"
-        ? row.api_name
-        : null;
+    const name =
+      typeof row?.name === "string"
+        ? row.name
+        : typeof row?.api_name === "string"
+          ? row.api_name
+          : null;
 
     setPreviewNameCache(cacheKey, name);
     return name;
@@ -134,7 +146,9 @@ async function getMasterNames(
   }
 }
 
-async function getPreviewNameManifest(requestUrl: URL): Promise<PreviewNameManifest> {
+async function getPreviewNameManifest(
+  requestUrl: URL,
+): Promise<PreviewNameManifest> {
   const origin = requestUrl.origin;
   const cached = previewManifestCacheByOrigin.get(origin);
   if (cached) {
@@ -159,7 +173,10 @@ async function getPreviewNameManifest(requestUrl: URL): Promise<PreviewNameManif
       ships: json.ships ?? {},
       items: json.items ?? {},
     };
-    if (Object.keys(manifest.ships).length > 0 || Object.keys(manifest.items).length > 0) {
+    if (
+      Object.keys(manifest.ships).length > 0 ||
+      Object.keys(manifest.items).length > 0
+    ) {
       setPreviewManifestCache(origin, manifest);
     }
     return manifest;
@@ -173,9 +190,10 @@ async function resolvePreviewName(
   selection: Selection,
 ): Promise<string | null> {
   const manifest = await getPreviewNameManifest(requestUrl);
-  const manifestName = selection.kind === "ship"
-    ? manifest.ships[String(selection.id)] ?? null
-    : manifest.items[String(selection.id)] ?? null;
+  const manifestName =
+    selection.kind === "ship"
+      ? (manifest.ships[String(selection.id)] ?? null)
+      : (manifest.items[String(selection.id)] ?? null);
   if (manifestName) {
     return manifestName;
   }
@@ -212,7 +230,9 @@ function buildPreviewMeta(
   };
 }
 
-export async function handleShareDetailRequest(request: Request): Promise<Response> {
+export async function handleShareDetailRequest(
+  request: Request,
+): Promise<Response> {
   const requestUrl = new URL(request.url);
   const selection = resolveSelectionFromQuery(requestUrl);
   if (!selection) {
@@ -261,7 +281,8 @@ export async function handleShareDetailRequest(request: Request): Promise<Respon
       Vary: "User-Agent",
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
-      "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+      "content-security-policy":
+        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     },
   });
 }

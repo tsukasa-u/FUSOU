@@ -13,7 +13,9 @@ export const GET: APIRoute = async ({ request }) => {
 
   if (isSocialPreviewBot(ua)) {
     const dataParam = current.searchParams.get("data");
-    const description = dataParam ? buildDescription(dataParam) : "艦隊編成を確認する";
+    const description = dataParam
+      ? buildDescription(dataParam)
+      : "艦隊編成を確認する";
     const targetUrl = new URL("/simulator", current.origin);
     targetUrl.search = current.search;
     return new Response(
@@ -33,7 +35,8 @@ export const GET: APIRoute = async ({ request }) => {
           Vary: "User-Agent",
           "x-content-type-options": "nosniff",
           "referrer-policy": "strict-origin-when-cross-origin",
-          "content-security-policy": "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+          "content-security-policy":
+            "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
         },
       },
     );
