@@ -21,6 +21,7 @@ import {
 } from "../../pages/simulator/lib/constants";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
 import { AlertMessage } from "./common/AlertMessage";
+import { ShareUrlButton } from "./common/ShareUrlButton";
 
 Chart.register(...registerables);
 
@@ -394,10 +395,6 @@ export default function ShipGrowthPanel() {
         .sort((a, b) => a.id - b.id);
 
       setShipMasterRows(rows);
-
-      if (rows.length > 0) {
-        setSelectedMasterId(rows[0].id);
-      }
     } catch (e) {
       setError(
         `艦マスタの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
@@ -494,11 +491,19 @@ export default function ShipGrowthPanel() {
     const rows = shipMasterRows();
     if (rows.length === 0) return;
     const initialId = initialMasterId();
-    if (initialId == null) return;
-    if (rows.some((ship) => ship.id === initialId)) {
-      setSelectedMasterId(initialId);
+    if (initialId != null) {
+      if (rows.some((ship) => ship.id === initialId)) {
+        setSelectedMasterId(initialId);
+      } else if (selectedMasterId() == null) {
+        setSelectedMasterId(rows[0].id);
+      }
+      setInitialMasterId(null);
+      return;
     }
-    setInitialMasterId(null);
+
+    if (selectedMasterId() == null) {
+      setSelectedMasterId(rows[0].id);
+    }
   });
 
   createEffect(() => {
@@ -666,15 +671,13 @@ export default function ShipGrowthPanel() {
               再読み込み
             </button>
 
-            <button
-              class="btn btn-outline btn-sm"
+            <ShareUrlButton
+              id="ship-growth-share-btn"
               disabled={loadingPeriods() || loadingShips() || !selectedPeriod()}
               onClick={() => {
                 void issueShareUrl();
               }}
-            >
-              共有URLを発行
-            </button>
+            />
           </div>
 
           <Show when={error()}>

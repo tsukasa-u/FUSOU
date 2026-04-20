@@ -6,6 +6,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  onMount,
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
@@ -17,6 +18,7 @@ import {
 } from "../../../pages/simulator/lib/equip-calc";
 import { cachedFetch } from "@/utility/fetchCache";
 import { ShipListRow } from "../common/ship-list-row";
+import { ShareUrlButton } from "../common/ShareUrlButton";
 import {
   filterForExslot,
   getExslotSelectionRequirement,
@@ -1300,6 +1302,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
   const [selectedEquipId, setSelectedEquipId] = createSignal<number | null>(
     null,
   );
+  const [initialShipIdFromUrl, setInitialShipIdFromUrl] = createSignal<number | null>(null);
+  const [initialEquipIdFromUrl, setInitialEquipIdFromUrl] = createSignal<number | null>(null);
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
   const [expandSettings, setExpandSettings] = createSignal<ListExpandSettings>(
     DEFAULT_EXPAND_SETTINGS,
   );
@@ -1320,6 +1325,17 @@ function SimulatorDetailsCatalog(): JSX.Element {
   createEffect(() => {
     if (helpOpen()) helpDialogRef.showModal();
     else helpDialogRef.close();
+  });
+
+  onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialTab = params.get("tab");
+    if (initialTab === "ship" || initialTab === "equip") {
+      setTab(initialTab);
+    }
+    setInitialShipIdFromUrl(parsePositiveInt(params.get("ship")));
+    setInitialEquipIdFromUrl(parsePositiveInt(params.get("equip")));
+    setUrlStateReady(true);
   });
 
   const allShips = createMemo(() =>
@@ -1430,7 +1446,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
           : null;
     if (!key) return null;
 
-    const shareUrl = new URL("/simulator/d", window.location.origin);
+    const shareUrl = new URL("/share/detail", window.location.origin);
     shareUrl.searchParams.set("key", key);
     return shareUrl.toString();
   }
@@ -1463,25 +1479,22 @@ function SimulatorDetailsCatalog(): JSX.Element {
     }
   });
 
+  // Apply URL-specified ship/equip IDs once master data loads.
   createEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const initialTab = params.get("tab");
-    if (initialTab === "ship" || initialTab === "equip") {
-      setTab(initialTab);
-    }
-
-    const shipFromQuery = parsePositiveInt(params.get("ship"));
+    if (!urlStateReady()) return;
+    const shipFromQuery = initialShipIdFromUrl();
     if (shipFromQuery != null && getMasterShip(shipFromQuery)) {
       setSelectedShipId(shipFromQuery);
     }
 
-    const equipFromQuery = parsePositiveInt(params.get("equip"));
+    const equipFromQuery = initialEquipIdFromUrl();
     if (equipFromQuery != null && getMasterSlotItem(equipFromQuery)) {
       setSelectedEquipId(equipFromQuery);
     }
   });
 
   createEffect(() => {
+    if (!urlStateReady()) return;
     const currentTab = tab();
     const currentShipId = selectedShipId();
     const currentEquipId = selectedEquipId();
@@ -1523,29 +1536,13 @@ function SimulatorDetailsCatalog(): JSX.Element {
         >
           装備詳細
         </button>
-        <button
+        <ShareUrlButton
           id="sim-details-share-btn"
-          class="btn btn-sm btn-ghost gap-1.5 ml-auto"
+          class="ml-auto"
           onClick={() => {
             void issueShareUrl();
           }}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-            />
-          </svg>
-          共有URL
-        </button>
+        />
         <button
           id="sim-details-settings-btn"
           class="btn btn-sm btn-ghost gap-1.5"

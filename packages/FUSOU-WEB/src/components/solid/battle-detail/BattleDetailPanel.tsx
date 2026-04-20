@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { createSignal, createMemo, onMount, Show } from "solid-js";
+import { createSignal, createMemo, onMount, onCleanup, Show, createEffect } from "solid-js";
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
@@ -33,6 +33,7 @@ import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
+import { ShareUrlButton } from "../common/ShareUrlButton";
 
 type DropShipInfo = {
   shipId: number;
@@ -45,6 +46,11 @@ type DropShipInfo = {
 export default function BattleDetailPanel(props: {
   battleId: string;
 }): JSX.Element {
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
+
   const [battle, setBattle] = createSignal<Record<string, unknown> | null>(
     null,
   );
@@ -62,11 +68,55 @@ export default function BattleDetailPanel(props: {
   const [dropShipInfo, setDropShipInfo] = createSignal<DropShipInfo | null>(
     null,
   );
+  function parseViewMode(raw: string | null): "phase" | "timeline" | null {
+    if (raw === "phase" || raw === "timeline") return raw;
+    return null;
+  }
+
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
   const [showPhaseSeparators, setShowPhaseSeparators] = createSignal(false);
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
   let displaySettingsModalRef!: HTMLDialogElement;
+
+  async function copyTextWithFallback(text: string): Promise<boolean> {
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+
+  function buildCurrentShareUrl(): string {
+    const shareUrl = new URL(
+      `/battles/${encodeURIComponent(props.battleId)}`,
+      window.location.origin,
+    );
+    shareUrl.searchParams.set("view", viewMode());
+    if (viewMode() === "timeline" && showPhaseSeparators()) {
+      shareUrl.searchParams.set("separators", "1");
+    }
+    return shareUrl.toString();
+  }
+
+  async function issueShareUrl(): Promise<void> {
+    const shareUrl = buildCurrentShareUrl();
+    const copied = await copyTextWithFallback(shareUrl);
+    if (copied) {
+      alert("共有URLをクリップボードにコピーしました");
+      return;
+    }
+
+    window.prompt(
+      "自動コピーに失敗しました。以下を手動でコピーしてください:",
+      shareUrl,
+    );
+  }
 
   // Derived values
   const ts = createMemo(() => {
@@ -229,7 +279,11 @@ export default function BattleDetailPanel(props: {
     if (battleData) {
       try {
         const parsed = JSON.parse(battleData);
-        if (parsed) {
+         // Only use the cached data if it matches the current battleId to avoid
+         // showing a stale preview from a previously visited battle.
+         const cachedUuid = typeof parsed?.uuid === "string" ? parsed.uuid : null;
+         const cachedMatchesCurrent = cachedUuid === props.battleId;
+         if (parsed && cachedMatchesCurrent) {
           preloadedBattle = parsed;
           const preloaded = {
             ...parsed,
@@ -238,6 +292,7 @@ export default function BattleDetailPanel(props: {
               normalizeEpochMs(parsed.midnight_timestamp) ??
               null,
           };
+            if (disposed) return;
           setBattle(preloaded);
         }
       } catch (e) {
@@ -351,6 +406,7 @@ export default function BattleDetailPanel(props: {
         const dropShip =
           dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
 
+        if (disposed) return;
         setBattle(merged);
         setFleets(resolvedFleets);
         setMstSlotItemById(resolvedMst);
@@ -367,18 +423,40 @@ export default function BattleDetailPanel(props: {
             : null,
         );
       } else if (!preloadedBattle) {
+        if (disposed) return;
         setError("指定された戦闘データが見つかりませんでした");
       }
     } catch (e) {
       console.error("Failed to load battle detail:", e);
+      if (disposed) return;
       setError("戦闘データ読込中にエラーが発生しました");
     } finally {
+      if (disposed) return;
       setLoading(false);
     }
   }
 
   onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialView = parseViewMode(params.get("view"));
+    if (initialView) {
+      setViewMode(initialView);
+    }
+    setShowPhaseSeparators(params.get("separators") === "1");
+    setUrlStateReady(true);
     void loadBattle();
+  });
+
+  createEffect(() => {
+    if (!urlStateReady()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", viewMode());
+    if (viewMode() === "timeline" && showPhaseSeparators()) {
+      url.searchParams.set("separators", "1");
+    } else {
+      url.searchParams.delete("separators");
+    }
+    window.history.replaceState({}, "", url.toString());
   });
 
   // ── Render ────────────────────────────────────────────────────────
@@ -549,6 +627,12 @@ export default function BattleDetailPanel(props: {
                         タイムライン
                       </button>
                     </div>
+                    <ShareUrlButton
+                      id="battle-detail-share-url-btn"
+                      onClick={() => {
+                        void issueShareUrl();
+                      }}
+                    />
                     <button
                       id="battle-detail-display-settings-btn"
                       class="btn btn-sm btn-ghost gap-1.5"

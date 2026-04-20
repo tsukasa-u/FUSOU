@@ -490,7 +490,7 @@ function resetWorkspaceModal(): void {
   if (title) title.textContent = "ワークスペースにURLを追加";
   if (description) {
     description.textContent =
-      "共有URL（/s/xxxx or /simulator?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
+      "共有URL（/share/short/xxxx or /share/data?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
   }
   if (labelInput) labelInput.value = "";
   if (memoInput) memoInput.value = "";
@@ -1300,7 +1300,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       ? buildSnapshotPayloadForShare()
       : undefined;
     const encoded = encodePayloadBase64(payload);
-    const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
+    const longUrl = `${window.location.origin}/share/data?data=${encodeURIComponent(encoded)}`;
 
     let shortUrl = "";
     try {

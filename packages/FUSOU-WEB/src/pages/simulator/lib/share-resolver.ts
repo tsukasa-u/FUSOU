@@ -31,7 +31,7 @@ function extractShortKey(input: string): string | null {
   if (/^[0-9a-f]{16}$/.test(trimmed)) return trimmed;
   try {
     const parsed = new URL(trimmed);
-    const match = parsed.pathname.match(/^\/s\/([0-9a-f]{16})$/);
+    const match = parsed.pathname.match(/^\/(?:s|share\/short)\/([0-9a-f]{16})$/);
     if (match) return match[1];
   } catch {
     /* not a URL */
@@ -39,16 +39,15 @@ function extractShortKey(input: string): string | null {
   return null;
 }
 
-/** Resolve a simulator URL with a `data=` param directly — no network needed. */
+/** Resolve a simulator/share URL with a `data=` param directly — no network needed. */
 function resolveSimulatorUrlDirectly(input: string): ResolvedShare | null {
   try {
     const parsed = new URL(input.trim());
-    if (
-      !(
-        parsed.pathname === "/simulator" ||
-        parsed.pathname.startsWith("/simulator/")
-      )
-    ) {
+    const isSimulatorPath =
+      parsed.pathname === "/simulator" ||
+      parsed.pathname.startsWith("/simulator/");
+    const isShareDataPath = parsed.pathname === "/share/data";
+    if (!(isSimulatorPath || isShareDataPath)) {
       return null;
     }
     const dataParam = parsed.searchParams.get("data");
@@ -130,7 +129,7 @@ export async function resolveShareInput(input: string): Promise<ResolvedShare> {
   const trimmed = input.trim();
   if (!trimmed) return { ok: false, error: "入力が空です" };
 
-  // 1. Short key or short URL (e.g. https://fusou.dev/s/<key>)
+  // 1. Short key or short URL (e.g. https://fusou.dev/share/short/<key>)
   const shortKey = extractShortKey(trimmed);
   if (shortKey) return resolveViaApi(shortKey);
 

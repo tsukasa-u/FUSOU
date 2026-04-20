@@ -10,11 +10,18 @@ export const prerender = false;
 
 <PageLayout
   title="FUSOU - パラメータ推移"
+  description="艦娘ごとの成長推移を確認し、選択中の期間と艦の状態を共有できます。"
   tutorial={{
     id: "ship-growth",
     title: "パラメータ推移ページの使い方",
     summary: "艦娘ごとの成長推移を時系列で確認できます。",
     controls: [
+      {
+        sourceSelector: "#ship-growth-share-btn",
+        description:
+          "現在選択している期間と艦の状態で共有URLを発行します。同じ条件を他ユーザーへそのまま渡したいときに使います。",
+        tone: "primary",
+      },
       {
         sourceSelector: "#tutorial-open-btn",
         description:
@@ -25,6 +32,7 @@ export const prerender = false;
     steps: [
       "レベル帯ごとの naked パラメータ（素ステータス）をグラフで追い、成長率や上限値を読み取ります。",
       "期間や表示範囲を調整して複数艦娘の成長傾向を比較します。",
+      "共有URLを使うと、選択中の期間・艦を含めた状態をそのまま他ユーザーへ共有できます。",
     ],
   }}
 >
