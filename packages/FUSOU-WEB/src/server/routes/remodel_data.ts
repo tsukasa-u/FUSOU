@@ -257,6 +257,27 @@ async function invalidateRemodelCaches(
   }
 }
 
+function scheduleRemodelTask(
+  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  task: Promise<unknown>,
+): void {
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil.call(c.executionCtx, task);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn("[remodel] ExecutionContext unavailable", err);
+    }
+  }
+
+  void task.catch((err) => {
+    console.warn("[remodel] async task failed", err);
+  });
+}
+
 // ── Public READ endpoint ───────────────────────────────────────────
 
 /**
@@ -699,7 +720,8 @@ app.post("/ingest", async (c) => {
     request_id: verified.requestId,
   };
 
-  c.executionCtx?.waitUntil(
+  scheduleRemodelTask(
+    c,
     invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
       "remodel:summary",
     ]),
@@ -709,7 +731,7 @@ app.post("/ingest", async (c) => {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches
     ?.default;
   if (cache) {
-    c.executionCtx?.waitUntil(invalidateRemodelCaches(cache, c.req.url));
+    scheduleRemodelTask(c, invalidateRemodelCaches(cache, c.req.url));
   }
 
   return c.json(responseBody);

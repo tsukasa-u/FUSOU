@@ -149,6 +149,27 @@ async function invalidateQuestTreeCaches(
   }
 }
 
+function scheduleQuestTreeTask(
+  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  task: Promise<unknown>,
+): void {
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil.call(c.executionCtx, task);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn("[quest-tree] ExecutionContext unavailable", err);
+    }
+  }
+
+  void task.catch((err) => {
+    console.warn("[quest-tree] async task failed", err);
+  });
+}
+
 function toInt(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -1115,7 +1136,8 @@ app.post("/ingest", async (c) => {
     const periodTag = (body.period_tag ?? "").trim();
     const tableVersion = (body.table_version ?? "").trim();
     if (periodTag && tableVersion) {
-      c.executionCtx?.waitUntil(
+      scheduleQuestTreeTask(
+        c,
         invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
           `qtree:graph:${periodTag}:${tableVersion}`,
         ]),
@@ -1125,7 +1147,7 @@ app.post("/ingest", async (c) => {
     const cache = (globalThis as { caches?: { default?: Cache } }).caches
       ?.default;
     if (cache) {
-      c.executionCtx?.waitUntil(invalidateQuestTreeCaches(cache, c.req.url));
+      scheduleQuestTreeTask(c, invalidateQuestTreeCaches(cache, c.req.url));
     }
   }
 

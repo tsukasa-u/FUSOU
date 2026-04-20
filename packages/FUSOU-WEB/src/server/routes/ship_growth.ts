@@ -1318,6 +1318,27 @@ async function putShipGrowthCache(
   await putPromise;
 }
 
+function scheduleShipGrowthTask(
+  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  task: Promise<unknown>,
+): void {
+  try {
+    const waitUntil = c.executionCtx?.waitUntil;
+    if (typeof waitUntil === "function") {
+      waitUntil.call(c.executionCtx, task);
+      return;
+    }
+  } catch (err) {
+    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
+      console.warn("[ship-growth] ExecutionContext unavailable", err);
+    }
+  }
+
+  void task.catch((err) => {
+    console.warn("[ship-growth] async task failed", err);
+  });
+}
+
 // ── Public READ endpoints ──────────────────────────────────────────
 
 /**
@@ -1883,7 +1904,8 @@ app.post("/ingest", async (c) => {
 
     // KV invalidation (primary cache layer)
     if (period_tag && table_version) {
-      c.executionCtx?.waitUntil(
+      scheduleShipGrowthTask(
+        c,
         invalidateShipGrowthKvSnapshots(
           c.env.DATA_LOADER_CACHE_KV,
           period_tag,
@@ -1896,7 +1918,8 @@ app.post("/ingest", async (c) => {
     const cfCache = (globalThis as { caches?: { default?: Cache } }).caches
       ?.default;
     if (cfCache) {
-      c.executionCtx?.waitUntil(
+      scheduleShipGrowthTask(
+        c,
         invalidateShipGrowthCaches(cfCache, c.req.url).catch((err) => {
           console.warn(
             "[ship-growth] Failed to invalidate CF caches after ingest:",
