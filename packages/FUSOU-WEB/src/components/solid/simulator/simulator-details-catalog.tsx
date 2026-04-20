@@ -17,6 +17,7 @@ import {
   equipImageUrl,
 } from "../../../pages/simulator/lib/equip-calc";
 import { cachedFetch } from "@/utility/fetchCache";
+import { buildShareDetailUrl, copyTextWithFallback } from "@/utility/share-url";
 import { ShipListRow } from "../common/ship-list-row";
 import { ShareUrlButton } from "../common/ShareUrlButton";
 import {
@@ -1424,18 +1425,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
     return value;
   }
 
-  async function copyTextWithFallback(text: string): Promise<boolean> {
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
-
   function buildCurrentShareUrl(): string | null {
     const currentTab = tab();
     const currentShipId = selectedShipId();
@@ -1450,9 +1439,10 @@ function SimulatorDetailsCatalog(): JSX.Element {
           : null;
     if (!key) return null;
 
-    const shareUrl = new URL("/share/detail", window.location.origin);
-    shareUrl.searchParams.set("key", key);
-    return shareUrl.toString();
+    return buildShareDetailUrl(window.location.origin, {
+      kind: currentTab,
+      id: currentTab === "ship" ? currentShipId! : currentEquipId!,
+    });
   }
 
   async function issueShareUrl(): Promise<void> {

@@ -19,6 +19,7 @@ import {
   ENEMY_ID_THRESHOLD,
   STYPE_NAMES,
 } from "../../pages/simulator/lib/constants";
+import { buildShareGrowthUrl, copyTextWithFallback } from "@/utility/share-url";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
 import { AlertMessage } from "./common/AlertMessage";
 import { ShareUrlButton } from "./common/ShareUrlButton";
@@ -125,18 +126,6 @@ function parsePositiveInt(raw: string | null): number | null {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) return null;
   return value;
-}
-
-async function copyTextWithFallback(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
 }
 
 function buildBoundsChartData(
@@ -540,11 +529,11 @@ export default function ShipGrowthPanel() {
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
 
-    const shareUrl = new URL("/ship-growth", window.location.origin);
-    shareUrl.searchParams.set("period_tag", period.period_tag);
-    shareUrl.searchParams.set("table_version", period.table_version);
-    shareUrl.searchParams.set("master_id", String(masterId));
-    return shareUrl.toString();
+    return buildShareGrowthUrl(window.location.origin, {
+      periodTag: period.period_tag,
+      tableVersion: period.table_version,
+      masterId,
+    });
   }
 
   async function issueShareUrl(): Promise<void> {

@@ -11,6 +11,7 @@ import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utility/fetchCache";
+import { buildShareBattleUrl, copyTextWithFallback } from "@/utility/share-url";
 import {
   FORMATION_NAMES,
   AIR_STATE,
@@ -87,28 +88,12 @@ export default function BattleDetailPanel(props: {
   const [urlStateReady, setUrlStateReady] = createSignal(false);
   let displaySettingsModalRef!: HTMLDialogElement;
 
-  async function copyTextWithFallback(text: string): Promise<boolean> {
-    if (navigator.clipboard?.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return true;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
-
   function buildCurrentShareUrl(): string {
-    const shareUrl = new URL(
-      `/battles/${encodeURIComponent(props.battleId)}`,
-      window.location.origin,
-    );
-    shareUrl.searchParams.set("view", viewMode());
-    if (viewMode() === "timeline" && showPhaseSeparators()) {
-      shareUrl.searchParams.set("separators", "1");
-    }
-    return shareUrl.toString();
+    return buildShareBattleUrl(window.location.origin, {
+      battleId: props.battleId,
+      view: viewMode(),
+      separators: viewMode() === "timeline" && showPhaseSeparators(),
+    });
   }
 
   async function issueShareUrl(): Promise<void> {

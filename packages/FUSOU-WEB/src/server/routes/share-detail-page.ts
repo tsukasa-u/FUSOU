@@ -1,7 +1,7 @@
 import {
-  buildSocialPreviewHtml,
-  isSocialPreviewBot,
-} from "@/server/utils/share-preview";
+  buildShareBadRequestResponse,
+  buildSharePageResponse,
+} from "@/server/routes/share-page-common";
 
 const KEY_RE = /^(ship|equip):(\d{1,7})$/;
 const LOOKUP_CACHE_MAX_ENTRIES = 8;
@@ -236,53 +236,15 @@ export async function handleShareDetailRequest(
   const requestUrl = new URL(request.url);
   const selection = resolveSelectionFromQuery(requestUrl);
   if (!selection) {
-    return new Response("invalid key", {
-      status: 400,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff",
-        "referrer-policy": "strict-origin-when-cross-origin",
-      },
-    });
+    return buildShareBadRequestResponse("invalid key");
   }
 
   const targetUrl = buildTargetUrl(requestUrl, selection);
-  const ua = request.headers.get("user-agent") ?? "";
-
-  if (!isSocialPreviewBot(ua)) {
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: targetUrl,
-        "cache-control": "no-store",
-        Vary: "User-Agent",
-        "x-content-type-options": "nosniff",
-        "referrer-policy": "strict-origin-when-cross-origin",
-      },
-    });
-  }
-
   const name = await resolvePreviewName(requestUrl, selection);
   const meta = buildPreviewMeta(selection, name);
-  const html = buildSocialPreviewHtml({
+  return buildSharePageResponse(request, targetUrl, {
     title: meta.title,
     description: meta.description,
-    requestUrl: requestUrl.toString(),
-    targetUrl,
-    imageUrl: new URL("/favicon.svg", requestUrl.origin).toString(),
-  });
-
-  return new Response(html, {
-    status: 200,
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "cache-control": "public, max-age=60, s-maxage=300",
-      Vary: "User-Agent",
-      "x-content-type-options": "nosniff",
-      "referrer-policy": "strict-origin-when-cross-origin",
-      "content-security-policy":
-        "default-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
-    },
+    cacheControl: "public, max-age=60, s-maxage=300",
   });
 }
