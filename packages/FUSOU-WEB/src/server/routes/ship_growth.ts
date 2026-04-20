@@ -1208,9 +1208,7 @@ async function invalidateShipGrowthCaches(
 
   for (const target of targets) {
     try {
-      await cache.delete(new Request(target, { method: "GET" }), {
-        ignoreSearch: true,
-      });
+      await cache.delete(new Request(target, { method: "GET" }));
     } catch (err) {
       console.warn(
         `[ship-growth] Failed to invalidate cache for ${target}:`,

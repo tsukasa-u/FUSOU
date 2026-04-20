@@ -140,9 +140,7 @@ async function invalidateQuestTreeCaches(
 
   for (const target of targets) {
     try {
-      await cache.delete(new Request(target, { method: "GET" }), {
-        ignoreSearch: true,
-      });
+      await cache.delete(new Request(target, { method: "GET" }));
     } catch (err) {
       console.warn("[quest-tree] Failed to invalidate cache:", target, err);
     }

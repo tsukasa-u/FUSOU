@@ -248,9 +248,7 @@ async function invalidateRemodelCaches(
 
   for (const target of targets) {
     try {
-      await cache.delete(new Request(target, { method: "GET" }), {
-        ignoreSearch: true,
-      });
+      await cache.delete(new Request(target, { method: "GET" }));
     } catch (err) {
       console.warn("[remodel-data] Failed to invalidate cache:", target, err);
     }

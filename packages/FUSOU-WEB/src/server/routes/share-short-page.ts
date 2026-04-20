@@ -467,6 +467,8 @@ export async function handleShareShortRequest(
       Vary: "User-Agent",
       "x-content-type-options": "nosniff",
       "referrer-policy": "strict-origin-when-cross-origin",
+      "content-security-policy":
+        "script-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     },
   });
 }
