@@ -16,7 +16,7 @@ use crate::storage::common::{
 #[cfg(feature = "gdrive")]
 use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
-use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
+use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryService};
 
 /// StorageProvider implementation backed by a CloudStorageProvider.
 /// Maintains existing folder/file layout so current consumers remain compatible.
@@ -115,21 +115,17 @@ impl CloudTableStorageProvider {
                         }));
                         let context_str = serde_json::to_string(&context).unwrap_or_default();
                         
-                        // Check if this exact file already has pending items
-                        let pending_items = pending_save.list_pending();
-                        let already_pending = pending_items.iter().any(|item| {
-                            item.headers.get("content-hash").map(|h| h == &hash).unwrap_or(false)
-                        });
-                        
-                        if already_pending {
-                            tracing::info!("upload already pending for file (hash={}), skipping duplicate entry", hash);
-                        } else {
-                            if let Err(e) = pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
-                                tracing::warn!(error = %e, "failed to save pending upload");
-                            } else {
+                        match pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
+                            Ok(PendingSaveOutcome::Created(_)) => {
                                 tracing::info!("saved pending upload for retry (hash={})", hash);
                                 // Only trigger retry after FIRST save, not on every error
                                 retry.trigger_retry().await;
+                            }
+                            Ok(PendingSaveOutcome::Existing(meta)) => {
+                                tracing::info!(pending_id = %meta.id, "matching pending upload already exists for file (hash={})", hash);
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "failed to save pending upload");
                             }
                         }
                     });

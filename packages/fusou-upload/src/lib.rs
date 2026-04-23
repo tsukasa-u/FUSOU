@@ -4,7 +4,7 @@ pub mod uploader;
 pub mod dataset_processor;
 pub mod request_suppression_cache;
 
-pub use pending_store::PendingStore;
+pub use pending_store::{PendingSaveOutcome, PendingStore};
 pub use retry_service::UploadRetryService;
 pub use uploader::{Uploader, UploadRequest, UploadContext, UploadResult, UploadError};
 pub use request_suppression_cache::{

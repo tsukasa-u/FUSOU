@@ -228,10 +228,14 @@ pub async fn run() {
                     retry_interval_seconds,
                     "starting background pending upload retry loop"
                 );
+                tracing::info!("running one-time forced pending upload retry on startup");
+                retry_service_for_background.trigger_retry_force().await;
+
                 let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
                     retry_interval_seconds,
                 ));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                ticker.tick().await;
                 loop {
                     ticker.tick().await;
                     retry_service_for_background.trigger_retry().await;

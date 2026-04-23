@@ -3,8 +3,8 @@ use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 use crate::pending_store::{PendingMeta, PendingStore};
@@ -22,9 +22,43 @@ pub trait RetryHandler: Send + Sync {
 
 pub struct UploadRetryService {
     store: Arc<PendingStore>,
-    is_running: Arc<Mutex<bool>>,
+    is_running: Arc<AtomicBool>,
     auth_manager: Arc<AuthManager<FileStorage>>,
     custom_handler: Option<Arc<dyn RetryHandler>>,
+}
+
+struct RunningFlagGuard {
+    is_running: Arc<AtomicBool>,
+}
+
+impl Drop for RunningFlagGuard {
+    fn drop(&mut self) {
+        self.is_running.store(false, Ordering::Release);
+    }
+}
+
+#[derive(Default)]
+struct RetryBatchStats {
+    total_pending: usize,
+    due_now: usize,
+    deferred: usize,
+    attempted: usize,
+    succeeded: usize,
+    failed: usize,
+    duplicate_removed: usize,
+    exhausted_removed: usize,
+    auth_blocked: bool,
+    next_due_at: Option<u64>,
+}
+
+impl RetryBatchStats {
+    fn note_deferred(&mut self, next_due_at: u64) {
+        self.deferred += 1;
+        self.next_due_at = Some(match self.next_due_at {
+            Some(existing) => existing.min(next_due_at),
+            None => next_due_at,
+        });
+    }
 }
 
 impl UploadRetryService {
@@ -35,7 +69,7 @@ impl UploadRetryService {
     ) -> Self {
         Self {
             store,
-            is_running: Arc::new(Mutex::new(false)),
+            is_running: Arc::new(AtomicBool::new(false)),
             auth_manager,
             custom_handler,
         }
@@ -55,13 +89,14 @@ impl UploadRetryService {
     }
 
     async fn trigger_retry_internal(&self, force: bool) {
-        let mut running = self.is_running.lock().await;
-        if *running {
+        if self
+            .is_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
             tracing::debug!("Retry process already running, skipping duplicate trigger");
             return;
         }
-        *running = true;
-        drop(running);
 
         let store = self.store.clone();
         let is_running = self.is_running.clone();
@@ -69,6 +104,7 @@ impl UploadRetryService {
         let custom_handler = self.custom_handler.clone();
 
         tokio::spawn(async move {
+            let _running_guard = RunningFlagGuard { is_running };
             tracing::info!(force, "Starting upload retry process");
 
             let configs = get_user_configs();
@@ -81,12 +117,20 @@ impl UploadRetryService {
                 let pending_items = store.list_pending();
                 if pending_items.is_empty() {
                     tracing::info!("No pending uploads to retry");
-                    let mut running = is_running.lock().await;
-                    *running = false;
                     return;
                 }
 
-                tracing::info!("Found {} pending uploads to retry", pending_items.len());
+                let mut stats = RetryBatchStats {
+                    total_pending: pending_items.len(),
+                    ..RetryBatchStats::default()
+                };
+                let batch_started_at = Self::now_epoch_seconds();
+
+                tracing::info!(
+                    total_pending = stats.total_pending,
+                    force,
+                    "Loaded pending upload batch"
+                );
 
                 let client = reqwest::Client::builder()
                     .connect_timeout(std::time::Duration::from_secs(10))
@@ -98,17 +142,6 @@ impl UploadRetryService {
                 let mut processed_hashes = std::collections::HashSet::new();
 
                 for mut meta in pending_items {
-                    // Skip if we already retried this content hash in this batch
-                    if let Some(hash) = meta.headers.get("content-hash") {
-                        if processed_hashes.contains(hash) {
-                            tracing::info!("Removing redundant duplicate for content-hash {}, already processed in this batch", hash);
-                            // Delete from store so it does not reappear in every future cycle
-                            let _ = store.delete_pending(&meta.id);
-                            continue;
-                        }
-                        processed_hashes.insert(hash.clone());
-                    }
-
                     if meta.attempt_count >= retry_config.get_max_attempts() {
                         tracing::warn!(
                             "Max attempts ({}) reached for {}, deleting",
@@ -116,13 +149,38 @@ impl UploadRetryService {
                             meta.id
                         );
                         let _ = store.delete_pending(&meta.id);
+                        stats.exhausted_removed += 1;
                         continue;
                     }
 
-                    if !force && !Self::is_due_for_retry(&meta, retry_config.get_interval_seconds())
-                    {
-                        continue;
+                    if !force {
+                        let current_now = Self::now_epoch_seconds();
+                        let next_due_at = Self::next_due_epoch_seconds(
+                            &meta,
+                            retry_config.get_interval_seconds(),
+                        );
+                        if current_now < next_due_at {
+                            stats.note_deferred(next_due_at);
+                            continue;
+                        }
                     }
+
+                    // Deduplicate only among items we are actually attempting this cycle.
+                    if let Some(duplicate_key) = Self::duplicate_key(&meta) {
+                        if processed_hashes.contains(&duplicate_key) {
+                            tracing::info!(
+                                pending_id = %meta.id,
+                                "Removing redundant pending upload already covered in this batch"
+                            );
+                            let _ = store.delete_pending(&meta.id);
+                            stats.duplicate_removed += 1;
+                            continue;
+                        }
+                        processed_hashes.insert(duplicate_key);
+                    }
+
+                    stats.due_now += 1;
+                    stats.attempted += 1;
 
                     tracing::info!(
                         "Retrying upload {} (attempt {}/{})",
@@ -151,10 +209,12 @@ impl UploadRetryService {
                                 retry_config.get_auth_backoff_seconds(),
                                 error_text
                             );
+                            stats.auth_blocked = true;
                         } else {
                             tracing::error!("Failed to retry upload {}: {}", meta.id, error_text);
                             meta.increment_attempt(Self::now_epoch_seconds());
                             let _ = store.update_meta(&meta);
+                            stats.failed += 1;
                         }
 
                         if is_auth_error {
@@ -165,6 +225,7 @@ impl UploadRetryService {
                     } else {
                         tracing::info!("Successfully retried upload {}", meta.id);
                         let _ = store.delete_pending(&meta.id);
+                        stats.succeeded += 1;
                     }
 
                     let item_interval = retry_config.get_item_interval_seconds();
@@ -173,9 +234,31 @@ impl UploadRetryService {
                     }
                 }
 
-                let mut running = is_running.lock().await;
-                *running = false;
-                tracing::info!("Upload retry process finished");
+                if stats.attempted == 0 && stats.deferred > 0 {
+                    let seconds_until_next_due = stats
+                        .next_due_at
+                        .map(|next_due_at| next_due_at.saturating_sub(batch_started_at))
+                        .unwrap_or_default();
+                    tracing::info!(
+                        total_pending = stats.total_pending,
+                        deferred = stats.deferred,
+                        seconds_until_next_due,
+                        next_due_at = stats.next_due_at,
+                        "Pending uploads exist but none are due yet"
+                    );
+                }
+                tracing::info!(
+                    total_pending = stats.total_pending,
+                    due_now = stats.due_now,
+                    deferred = stats.deferred,
+                    attempted = stats.attempted,
+                    succeeded = stats.succeeded,
+                    failed = stats.failed,
+                    duplicate_removed = stats.duplicate_removed,
+                    exhausted_removed = stats.exhausted_removed,
+                    auth_blocked = stats.auth_blocked,
+                    "Upload retry process finished"
+                );
             }
         });
     }
@@ -219,11 +302,6 @@ impl UploadRetryService {
         reference.saturating_add(jittered_wait)
     }
 
-    fn is_due_for_retry(meta: &PendingMeta, base_interval_seconds: u64) -> bool {
-        let now = Self::now_epoch_seconds();
-        now >= Self::next_due_epoch_seconds(meta, base_interval_seconds)
-    }
-
     fn is_auth_related_error(message: &str) -> bool {
         let normalized = message.to_ascii_lowercase();
         // Use specific prefixes only; substring-matching "401"/"403" risks false-positive
@@ -231,6 +309,20 @@ impl UploadRetryService {
         // All UploadError::AuthenticationError variants already produce "authentication error" prefix.
         normalized.contains("authentication error")
             || normalized.contains("failed to obtain access token")
+    }
+
+    fn duplicate_key(meta: &PendingMeta) -> Option<String> {
+        let content_hash = meta.headers.get("content-hash")?;
+        let remote_path = meta
+            .headers
+            .get("remote-path")
+            .map(String::as_str)
+            .unwrap_or_default();
+        let context = meta.context.as_deref().unwrap_or_default();
+        Some(format!(
+            "{}|{}|{}|{}",
+            meta.target_url, content_hash, remote_path, context
+        ))
     }
 
     async fn retry_one(

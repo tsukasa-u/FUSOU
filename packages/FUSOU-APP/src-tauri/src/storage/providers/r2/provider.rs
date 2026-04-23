@@ -5,7 +5,7 @@ use kc_api::database::DATABASE_TABLE_VERSION;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
 
-use fusou_upload::{PendingStore, UploadRetryService, Uploader, UploadRequest, UploadResult, UploadContext};
+use fusou_upload::{PendingSaveOutcome, PendingStore, UploadRetryService, Uploader, UploadRequest, UploadResult, UploadContext};
 use fusou_auth::{AuthManager, FileStorage};
 use sha2::{Digest, Sha256};
 // use std::path::PathBuf;
@@ -194,11 +194,19 @@ impl R2StorageProvider {
 
         self.pending_store
             .save_pending(endpoint, &headers, data, Some(context.to_string()))
-            .map(|meta| {
-                tracing::warn!(
-                    pending_id = %meta.id,
-                    "Master data dataset_id not ready; saved upload to pending store"
-                );
+            .map(|outcome| match outcome {
+                PendingSaveOutcome::Created(meta) => {
+                    tracing::warn!(
+                        pending_id = %meta.id,
+                        "Master data dataset_id not ready; saved upload to pending store"
+                    );
+                }
+                PendingSaveOutcome::Existing(meta) => {
+                    tracing::info!(
+                        pending_id = %meta.id,
+                        "Master data dataset_id not ready; matching pending upload already exists"
+                    );
+                }
             })
             .map_err(|e| StorageError::Operation(format!("Failed to save pending master data upload: {}", e)))
     }
@@ -229,12 +237,21 @@ impl R2StorageProvider {
 
         self.pending_store
             .save_pending(endpoint, &headers, data, Some(context.to_string()))
-            .map(|meta| {
-                tracing::warn!(
-                    pending_id = %meta.id,
-                    table = table_name,
-                    "R2 dataset_id not ready; saved upload to pending store"
-                );
+            .map(|outcome| match outcome {
+                PendingSaveOutcome::Created(meta) => {
+                    tracing::warn!(
+                        pending_id = %meta.id,
+                        table = table_name,
+                        "R2 dataset_id not ready; saved upload to pending store"
+                    );
+                }
+                PendingSaveOutcome::Existing(meta) => {
+                    tracing::info!(
+                        pending_id = %meta.id,
+                        table = table_name,
+                        "R2 dataset_id not ready; matching pending upload already exists"
+                    );
+                }
             })
             .map_err(|e| StorageError::Operation(format!("Failed to save pending R2 upload: {}", e)))
     }

@@ -1,4 +1,4 @@
-use crate::pending_store::PendingStore;
+use crate::pending_store::{PendingSaveOutcome, PendingStore};
 use fusou_auth::{AuthManager, FileStorage};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -215,29 +215,42 @@ impl Uploader {
 
         if result.is_err() {
             let mut queued_pending = false;
+            let mut pending_already_exists = false;
             if let Some(store) = pending_store {
                 let context_json = serde_json::to_string(&request.context).unwrap_or_default();
                 let mut pending_headers = request.headers.clone();
                 pending_headers
                     .entry("content-hash".to_string())
                     .or_insert(content_hash);
-                if let Err(e) = store.save_pending(
+                match store.save_pending(
                     request.endpoint,
                     &pending_headers,
                     &request.data,
                     Some(context_json),
                 ) {
-                    tracing::error!("Failed to save pending upload: {}", e);
-                } else {
-                    tracing::warn!("Upload failed, saved to pending store");
-                    queued_pending = true;
+                    Ok(PendingSaveOutcome::Created(meta)) => {
+                        tracing::warn!(pending_id = %meta.id, "Upload failed, saved to pending store");
+                        queued_pending = true;
+                    }
+                    Ok(PendingSaveOutcome::Existing(meta)) => {
+                        tracing::info!(pending_id = %meta.id, "Upload failed, matching pending upload already exists");
+                        queued_pending = true;
+                        pending_already_exists = true;
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to save pending upload: {}", e);
+                    }
                 }
             } else {
                 tracing::warn!("Upload failed (no pending store configured)");
             }
 
             if queued_pending {
-                tracing::info!("upload event completed (queued pending)");
+                if pending_already_exists {
+                    tracing::info!("upload event completed (pending already queued)");
+                } else {
+                    tracing::info!("upload event completed (queued pending)");
+                }
             } else {
                 tracing::info!("upload event completed (failed)");
             }
