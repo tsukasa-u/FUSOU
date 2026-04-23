@@ -242,11 +242,73 @@ fn count_friend_sprite_fly_from_optional_airbase_squadrons(
     counts: Option<&Vec<Option<i64>>>,
 ) -> Option<i64> {
     let counts = counts?;
-    let mut resolved = Vec::with_capacity(counts.len());
-    for count in counts {
-        resolved.push(count.as_ref().copied()?);
-    }
+    // API may return null for unused squadrons; treat null as 0 instead of
+    // dropping the entire metric to keep sprite display stable.
+    let resolved = counts
+        .iter()
+        .map(|count| count.unwrap_or(0))
+        .collect::<Vec<_>>();
     Some(count_friend_sprite_fly_from_airbase_squadrons(&resolved))
+}
+
+fn calc_sprite_crash_stage_counts(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    loss_stage2: i64,
+) -> (Option<i64>, Option<i64>) {
+    let fly_count = fly_count.map(|value| value.max(0));
+    let Some(fly_count) = fly_count else {
+        return (None, None);
+    };
+
+    let stage1 = loss_stage1.max(0).min(fly_count);
+    let remaining = fly_count.saturating_sub(stage1);
+    let stage2 = loss_stage2.max(0).min(remaining);
+    (Some(stage1), Some(stage2))
+}
+
+fn calc_sprite_crash_total(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    loss_stage2: i64,
+) -> Option<i64> {
+    fly_count?;
+    let (stage1, stage2) = calc_sprite_crash_stage_counts(fly_count, loss_stage1, loss_stage2);
+    Some(stage1.unwrap_or(0) + stage2.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        calc_sprite_crash_stage_counts, calc_sprite_crash_total,
+        count_friend_sprite_fly_from_optional_airbase_squadrons,
+    };
+
+    #[test]
+    fn optional_airbase_squadrons_none_is_zero() {
+        let counts = vec![Some(18), None, Some(5), Some(0)];
+        // 18 -> 2 sprites, None(0) -> 0, 5 -> 1, 0 -> 0
+        assert_eq!(
+            count_friend_sprite_fly_from_optional_airbase_squadrons(Some(&counts)),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn sprite_crash_counts_are_clamped_by_fly_count() {
+        let (s1, s2) = calc_sprite_crash_stage_counts(Some(3), 10, 10);
+        assert_eq!(s1, Some(3));
+        assert_eq!(s2, Some(0));
+        assert_eq!(calc_sprite_crash_total(Some(3), 10, 10), Some(3));
+    }
+
+    #[test]
+    fn sprite_crash_counts_none_when_fly_unknown() {
+        let (s1, s2) = calc_sprite_crash_stage_counts(None, 1, 1);
+        assert_eq!(s1, None);
+        assert_eq!(s2, None);
+        assert_eq!(calc_sprite_crash_total(None, 1, 1), None);
+    }
 }
 
 pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
@@ -261,10 +323,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         for attack in opening_air_attack.iter_mut().flatten() {
             attack.f_sprite_fly_count = count_sprite_fly_from_plane_from(attack.f_damage.plane_from.as_ref(), f_air_war.as_ref());
             attack.e_sprite_fly_count = count_sprite_fly_from_plane_from(attack.e_damage.plane_from.as_ref(), e_air_war.as_ref());
-            attack.f_sprite_crash_count_stage1 = None;
-            attack.f_sprite_crash_count_stage2 = None;
-            attack.e_sprite_crash_count_stage1 = None;
-            attack.e_sprite_crash_count_stage2 = None;
+            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+                attack.f_sprite_fly_count,
+                attack.f_damage.loss_plane1,
+                attack.f_damage.loss_plane2,
+            );
+            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+                attack.e_sprite_fly_count,
+                attack.e_damage.loss_plane1,
+                attack.e_damage.loss_plane2,
+            );
+            attack.f_sprite_crash_count_stage1 = f_stage1;
+            attack.f_sprite_crash_count_stage2 = f_stage2;
+            attack.e_sprite_crash_count_stage1 = e_stage1;
+            attack.e_sprite_crash_count_stage2 = e_stage2;
         }
     }
 
@@ -277,10 +349,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             carrier_base_assault.e_damage.plane_from.as_ref(),
             e_air_war_jet.as_ref(),
         );
-        carrier_base_assault.f_sprite_crash_stage1_count = None;
-        carrier_base_assault.f_sprite_crash_stage2_count = None;
-        carrier_base_assault.e_sprite_crash_stage1_count = None;
-        carrier_base_assault.e_sprite_crash_stage2_count = None;
+        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            carrier_base_assault.f_sprite_fly_count,
+            carrier_base_assault.f_damage.loss_plane1,
+            carrier_base_assault.f_damage.loss_plane2,
+        );
+        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            carrier_base_assault.e_sprite_fly_count,
+            carrier_base_assault.e_damage.loss_plane1,
+            carrier_base_assault.e_damage.loss_plane2,
+        );
+        carrier_base_assault.f_sprite_crash_stage1_count = f_stage1;
+        carrier_base_assault.f_sprite_crash_stage2_count = f_stage2;
+        carrier_base_assault.e_sprite_crash_stage1_count = e_stage1;
+        carrier_base_assault.e_sprite_crash_stage2_count = e_stage2;
     }
 
     if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
@@ -289,10 +371,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             air_base_assault.e_damage.plane_from.as_ref(),
             e_air_unit_jet.as_ref(),
         );
-        air_base_assault.f_sprite_crash_stage1_count = None;
-        air_base_assault.f_sprite_crash_stage2_count = None;
-        air_base_assault.e_sprite_crash_stage1_count = None;
-        air_base_assault.e_sprite_crash_stage2_count = None;
+        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            air_base_assault.f_sprite_fly_count,
+            air_base_assault.f_damage.loss_plane1,
+            air_base_assault.f_damage.loss_plane2,
+        );
+        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            air_base_assault.e_sprite_fly_count,
+            air_base_assault.e_damage.loss_plane1,
+            air_base_assault.e_damage.loss_plane2,
+        );
+        air_base_assault.f_sprite_crash_stage1_count = f_stage1;
+        air_base_assault.f_sprite_crash_stage2_count = f_stage2;
+        air_base_assault.e_sprite_crash_stage1_count = e_stage1;
+        air_base_assault.e_sprite_crash_stage2_count = e_stage2;
     }
 
     if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
@@ -302,10 +394,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 attack.e_damage.plane_from.as_ref(),
                 e_air_unit.as_ref(),
             );
-            attack.f_sprite_crash_stage1_count = None;
-            attack.f_sprite_crash_stage2_count = None;
-            attack.e_sprite_crash_stage1_count = None;
-            attack.e_sprite_crash_stage2_count = None;
+            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+                attack.f_sprite_fly_count,
+                attack.f_damage.loss_plane1,
+                attack.f_damage.loss_plane2,
+            );
+            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+                attack.e_sprite_fly_count,
+                attack.e_damage.loss_plane1,
+                attack.e_damage.loss_plane2,
+            );
+            attack.f_sprite_crash_stage1_count = f_stage1;
+            attack.f_sprite_crash_stage2_count = f_stage2;
+            attack.e_sprite_crash_stage1_count = e_stage1;
+            attack.e_sprite_crash_stage2_count = e_stage2;
         }
     }
 
@@ -319,8 +421,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             support_airattack.e_damage.plane_from.as_ref(),
             e_air_war.as_ref(),
         );
-        support_airattack.f_sprite_crash_count = None;
-        support_airattack.e_sprite_crash_count = None;
+        support_airattack.f_sprite_crash_count = calc_sprite_crash_total(
+            support_airattack.f_sprite_fly_count,
+            support_airattack.f_damage.loss_plane1,
+            support_airattack.f_damage.loss_plane2,
+        );
+        support_airattack.e_sprite_crash_count = calc_sprite_crash_total(
+            support_airattack.e_sprite_fly_count,
+            support_airattack.e_damage.loss_plane1,
+            support_airattack.e_damage.loss_plane2,
+        );
     }
 }
 
