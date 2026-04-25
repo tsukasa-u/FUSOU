@@ -1,12 +1,15 @@
-use std::sync::Arc;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use kc_api::database::DATABASE_TABLE_VERSION;
+use std::sync::Arc;
 
-use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
+use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 
-use fusou_upload::{PendingSaveOutcome, PendingStore, UploadRetryService, Uploader, UploadRequest, UploadResult, UploadContext};
 use fusou_auth::{AuthManager, FileStorage};
+use fusou_upload::{
+    PendingSaveOutcome, PendingStore, UploadContext, UploadRequest, UploadResult,
+    UploadRetryService, Uploader,
+};
 use sha2::{Digest, Sha256};
 // use std::path::PathBuf;
 
@@ -37,17 +40,24 @@ impl R2StorageProvider {
             return "********".to_string();
         }
         let head: String = chars.iter().take(3).collect();
-        let tail: String = chars.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
+        let tail: String = chars
+            .iter()
+            .rev()
+            .take(2)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         format!("{}****{}", head, tail)
     }
 
     pub fn new(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
         tracing::debug!("R2StorageProvider::new() called");
-        
+
         let auth_manager = retry_service.auth_manager();
 
         tracing::debug!("R2StorageProvider initialized");
-        
+
         Self {
             pending_store,
             _retry_service: retry_service,
@@ -91,9 +101,7 @@ impl R2StorageProvider {
             ));
         }
 
-        let endpoint = r2_config
-            .get_upload_endpoint()
-            .unwrap_or_default();
+        let endpoint = r2_config.get_upload_endpoint().unwrap_or_default();
 
         if endpoint.is_empty() {
             return Err(StorageError::Operation(
@@ -113,7 +121,10 @@ impl R2StorageProvider {
         );
 
         let mut headers = std::collections::HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        );
 
         let request = UploadRequest {
             endpoint: &endpoint,
@@ -132,10 +143,21 @@ impl R2StorageProvider {
         };
 
         let client = reqwest::Client::new();
-        
-        match Uploader::upload(&client, &self.auth_manager, request, Some(&self.pending_store)).await {
+
+        match Uploader::upload(
+            &client,
+            &self.auth_manager,
+            request,
+            Some(&self.pending_store),
+        )
+        .await
+        {
             Ok(UploadResult::Success) => {
-                tracing::info!("Successfully uploaded to R2: tag={}, size={}", path_tag, file_size);
+                tracing::info!(
+                    "Successfully uploaded to R2: tag={}, size={}",
+                    path_tag,
+                    file_size
+                );
                 Ok(())
             }
             Ok(UploadResult::Skipped) => {
@@ -178,10 +200,7 @@ impl R2StorageProvider {
         table_offsets_json: &str,
     ) -> Result<(), StorageError> {
         let mut headers = std::collections::HashMap::new();
-        headers.insert(
-            "content-hash".to_string(),
-            Self::compute_content_hash(data),
-        );
+        headers.insert("content-hash".to_string(), Self::compute_content_hash(data));
 
         let context = serde_json::json!({
             "provider": "r2",
@@ -208,7 +227,9 @@ impl R2StorageProvider {
                     );
                 }
             })
-            .map_err(|e| StorageError::Operation(format!("Failed to save pending master data upload: {}", e)))
+            .map_err(|e| {
+                StorageError::Operation(format!("Failed to save pending master data upload: {}", e))
+            })
     }
 
     fn save_r2_pending(
@@ -221,10 +242,7 @@ impl R2StorageProvider {
         table_offsets: &str,
     ) -> Result<(), StorageError> {
         let mut headers = std::collections::HashMap::new();
-        headers.insert(
-            "content-hash".to_string(),
-            Self::compute_content_hash(data),
-        );
+        headers.insert("content-hash".to_string(), Self::compute_content_hash(data));
 
         let context = serde_json::json!({
             "provider": "r2",
@@ -253,9 +271,10 @@ impl R2StorageProvider {
                     );
                 }
             })
-            .map_err(|e| StorageError::Operation(format!("Failed to save pending R2 upload: {}", e)))
+            .map_err(|e| {
+                StorageError::Operation(format!("Failed to save pending R2 upload: {}", e))
+            })
     }
-
 }
 
 impl StorageProvider for R2StorageProvider {
@@ -285,10 +304,13 @@ impl StorageProvider for R2StorageProvider {
             // Check if master data upload is enabled
             let configs = configs::get_user_configs_for_app();
             let db_config = configs.database;
-            
+
             if !db_config.get_allow_data_to_shared_cloud() {
                 tracing::debug!("Master data upload disabled in config");
-                tracing::info!(period = period_tag, "master data upload event completed (disabled)");
+                tracing::info!(
+                    period = period_tag,
+                    "master data upload event completed (disabled)"
+                );
                 return Ok(());
             }
 
@@ -299,38 +321,52 @@ impl StorageProvider for R2StorageProvider {
 
             if master_endpoint.is_empty() {
                 tracing::warn!("Master data upload endpoint not configured");
-                tracing::info!(period = period_tag, "master data upload event completed (no endpoint)");
+                tracing::info!(
+                    period = period_tag,
+                    "master data upload event completed (no endpoint)"
+                );
                 return Ok(());
             }
 
             // Get all master data tables (MUST match server's ALLOWED_MASTER_TABLES exactly)
-            // Server requires all 13 tables that correspond to GetDataTableEncode fields:
+            // Server requires all tables that correspond to GetDataTableEnum variants:
             // mst_ship, mst_shipgraph, mst_slotitem, mst_slotitem_equiptype, mst_payitem, mst_equip_exslot,
             // mst_equip_exslot_ship, mst_equip_limit_exslot, mst_equip_ship, mst_stype, mst_map_area, mst_map_info, mst_ship_upgrade
             //
-            // [CRITICAL FIX #1] Use Vec instead of HashMap to preserve order
-            // HashMap iteration order is non-deterministic, but server expects deterministic offset calculation
-            //
-            // [CRITICAL FIX #2] Include ALL tables (even empty ones)
-            // Server validation requires all 13 tables to be present in table_offsets
-            // Empty tables (zero-length slices) are still valid offsets with start == end
-            let mut master_tables: Vec<(&str, Vec<u8>)> = Vec::new();
-            
-            // All 13 required tables from GetDataTableEncode (in consistent order)
-            // NOTE: Empty tables MUST be included (as zero-length slices)
-            master_tables.push(("mst_ship", table.mst_ship.clone()));
-            master_tables.push(("mst_shipgraph", table.mst_ship_graph.clone()));
-            master_tables.push(("mst_slotitem", table.mst_slot_item.clone()));
-            master_tables.push(("mst_slotitem_equiptype", table.mst_slot_item_equip_type.clone()));
-            master_tables.push(("mst_payitem", table.mst_use_item.clone()));
-            master_tables.push(("mst_equip_exslot", table.mst_equip_exslot.clone()));
-            master_tables.push(("mst_equip_exslot_ship", table.mst_equip_exslot_ship.clone()));
-            master_tables.push(("mst_equip_limit_exslot", table.mst_equip_limit_exslot.clone()));
-            master_tables.push(("mst_equip_ship", table.mst_equip_ship.clone()));
-            master_tables.push(("mst_stype", table.mst_stype.clone()));
-            master_tables.push(("mst_map_area", table.mst_map_area.clone()));
-            master_tables.push(("mst_map_info", table.mst_map_info.clone()));
-            master_tables.push(("mst_ship_upgrade", table.mst_ship_upgrade.clone()));
+            // The server-side table name is derived via an *exhaustive* match on
+            // `GetDataTableEnum`, so adding/removing/cfg-gating a variant in
+            // `kc_api::database::table` becomes a compile-time error here rather
+            // than a silent count drift. The iteration source is
+            // `GetDataTableEnum::variants()` which automatically reflects
+            // `#[cfg(feature = "...")]` gating.
+            use kc_api::database::table::GetDataTableEnum;
+            fn server_table_name(variant: GetDataTableEnum) -> &'static str {
+                match variant {
+                    GetDataTableEnum::MstShip => "mst_ship",
+                    GetDataTableEnum::MstShipGraph => "mst_shipgraph",
+                    GetDataTableEnum::MstSlotItem => "mst_slotitem",
+                    GetDataTableEnum::MstSlotItemEquipType => "mst_slotitem_equiptype",
+                    GetDataTableEnum::MstUseItem => "mst_payitem",
+                    GetDataTableEnum::MstEquipExslot => "mst_equip_exslot",
+                    GetDataTableEnum::MstEquipExslotShip => "mst_equip_exslot_ship",
+                    GetDataTableEnum::MstEquipLimitExslot => "mst_equip_limit_exslot",
+                    GetDataTableEnum::MstEquipShip => "mst_equip_ship",
+                    GetDataTableEnum::MstStype => "mst_stype",
+                    GetDataTableEnum::MstMapArea => "mst_map_area",
+                    GetDataTableEnum::MstMapInfo => "mst_map_info",
+                    GetDataTableEnum::MstShipUpgrade => "mst_ship_upgrade",
+                }
+            }
+            let master_tables: Vec<(&str, Vec<u8>)> = GetDataTableEnum::variants()
+                .iter()
+                .copied()
+                .map(|variant| {
+                    (
+                        server_table_name(variant),
+                        table.get_or_empty(variant).to_vec(),
+                    )
+                })
+                .collect();
 
             // Compile-time check: Ensure we always have exactly 13 tables
             // This assertion will fail at runtime if the table count is incorrect,
@@ -345,7 +381,11 @@ impl StorageProvider for R2StorageProvider {
             );
 
             // All 13 tables are always present (even if empty), so never skip
-            tracing::debug!("Uploading {} master data tables for period={}", master_tables.len(), period_tag);
+            tracing::debug!(
+                "Uploading {} master data tables for period={}",
+                master_tables.len(),
+                period_tag
+            );
 
             // Concatenate all tables (including empty ones) and build table_offsets
             // [CRITICAL] Empty tables create zero-length slices (start == end)
@@ -374,10 +414,15 @@ impl StorageProvider for R2StorageProvider {
                 tracing::debug!("Added table {}: offset={}-{}", table_name, start, end);
             }
 
-            let table_offsets_json = serde_json::to_string(&table_offsets)
-                .map_err(|e| StorageError::Operation(format!("Failed to serialize table_offsets: {}", e)))?;
+            let table_offsets_json = serde_json::to_string(&table_offsets).map_err(|e| {
+                StorageError::Operation(format!("Failed to serialize table_offsets: {}", e))
+            })?;
 
-            tracing::debug!("Prepared {} tables, total size: {} bytes (may include empty tables)", master_tables.len(), concatenated.len());
+            tracing::debug!(
+                "Prepared {} tables, total size: {} bytes (may include empty tables)",
+                master_tables.len(),
+                concatenated.len()
+            );
             tracing::debug!("Table offsets: {}", table_offsets_json);
 
             // Upload all master data in one request
@@ -389,16 +434,28 @@ impl StorageProvider for R2StorageProvider {
                     &concatenated,
                     &table_offsets_json,
                 )?;
-                tracing::info!(period = period_tag, "master data upload event completed (queued pending)");
+                tracing::info!(
+                    period = period_tag,
+                    "master data upload event completed (queued pending)"
+                );
                 return Ok(());
             };
 
             match self
-                .upload_master_data_bulk(period_tag, concatenated, table_offsets_json, &dataset_id, &master_endpoint)
+                .upload_master_data_bulk(
+                    period_tag,
+                    concatenated,
+                    table_offsets_json,
+                    &dataset_id,
+                    &master_endpoint,
+                )
                 .await
             {
                 Ok(_) => {
-                    tracing::info!("Master data uploaded successfully for period={}", period_tag);
+                    tracing::info!(
+                        "Master data uploaded successfully for period={}",
+                        period_tag
+                    );
                 }
                 Err(e) => {
                     // Don't fail entire sync if master data upload fails
@@ -426,18 +483,14 @@ impl StorageProvider for R2StorageProvider {
                 map = format!("{}-{}", maparea_id, mapinfo_no),
                 "port table upload event started"
             );
-            
+
             // Collect all non-empty Avro tables into HashMap
             let mut tables = std::collections::HashMap::new();
             let mut empty_tables = Vec::new();
             let mut total_avro_bytes = 0;
-            
+
             for (table_name, bytes) in get_all_port_tables(table) {
-                tracing::debug!(
-                    "Processing table {}: {} bytes",
-                    table_name,
-                    bytes.len()
-                );
+                tracing::debug!("Processing table {}: {} bytes", table_name, bytes.len());
                 if bytes.is_empty() {
                     tracing::warn!(
                         "EMPTY TABLE FOUND: {} has 0 bytes for map {}-{}",
@@ -451,12 +504,9 @@ impl StorageProvider for R2StorageProvider {
                 total_avro_bytes += bytes.len();
                 tables.insert(table_name.to_string(), bytes.to_vec());
             }
-            
+
             if !empty_tables.is_empty() {
-                tracing::info!(
-                    "Empty tables: {:?}",
-                    empty_tables
-                );
+                tracing::info!("Empty tables: {:?}", empty_tables);
             }
             tracing::info!(
                 "Collected {} non-empty tables, {} total Avro bytes for map {}-{}",
@@ -480,7 +530,10 @@ impl StorageProvider for R2StorageProvider {
                 return Ok(());
             }
 
-            tracing::debug!("Building Avro batch upload for {} tables (with data)", tables.len());
+            tracing::debug!(
+                "Building Avro batch upload for {} tables (with data)",
+                tables.len()
+            );
 
             // NEW: Concatenate Avro files directly without Parquet conversion
             let mut concatenated = Vec::new();
@@ -515,7 +568,9 @@ impl StorageProvider for R2StorageProvider {
 
                 tracing::debug!(
                     "Added '{}' to batch: offset={}, length={}",
-                    table_name, start_byte, byte_length
+                    table_name,
+                    start_byte,
+                    byte_length
                 );
             }
 
@@ -527,8 +582,9 @@ impl StorageProvider for R2StorageProvider {
             );
 
             // Serialize table offset metadata to JSON
-            let table_offsets = serde_json::to_string(&metadata)
-                .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
+            let table_offsets = serde_json::to_string(&metadata).map_err(|e| {
+                StorageError::Operation(format!("Failed to serialize metadata: {}", e))
+            })?;
             tracing::debug!("table_offsets JSON: {}", table_offsets);
             tracing::debug!("Total metadata entries: {}", metadata.len());
 
@@ -565,7 +621,14 @@ impl StorageProvider for R2StorageProvider {
             };
 
             if let Err(err) = self
-                .upload_to_r2(period_tag, &tag, &dataset_id, "port_table", concatenated, table_offsets)
+                .upload_to_r2(
+                    period_tag,
+                    &tag,
+                    &dataset_id,
+                    "port_table",
+                    concatenated,
+                    table_offsets,
+                )
                 .await
             {
                 tracing::info!(
@@ -578,7 +641,10 @@ impl StorageProvider for R2StorageProvider {
 
             tracing::info!(
                 "Uploaded Avro batch to R2: period={}, map={}-{}, size={}",
-                period_tag, maparea_id, mapinfo_no, size
+                period_tag,
+                maparea_id,
+                mapinfo_no,
+                size
             );
             tracing::info!(
                 period = period_tag,
@@ -617,9 +683,16 @@ impl R2StorageProvider {
         dataset_id: &str,
         endpoint: &str,
     ) -> Result<(), StorageError> {
-        tracing::debug!("Uploading master data (bulk): period={}, size={} bytes", period_tag, concatenated_data.len());
+        tracing::debug!(
+            "Uploading master data (bulk): period={}, size={} bytes",
+            period_tag,
+            concatenated_data.len()
+        );
         let mut headers = std::collections::HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        );
 
         // Keep dataset_id in payload so Uploader can auto-resolve/refresh dataset_token.
         let handshake_body = serde_json::json!({
@@ -647,18 +720,32 @@ impl R2StorageProvider {
         };
 
         let client = reqwest::Client::new();
-        match Uploader::upload(&client, &self.auth_manager, request, Some(&self.pending_store)).await {
+        match Uploader::upload(
+            &client,
+            &self.auth_manager,
+            request,
+            Some(&self.pending_store),
+        )
+        .await
+        {
             Ok(UploadResult::Success) => {
-                tracing::info!("Master data upload+finalize completed for period={}", period_tag);
+                tracing::info!(
+                    "Master data upload+finalize completed for period={}",
+                    period_tag
+                );
                 Ok(())
             }
             Ok(UploadResult::Skipped) => {
-                tracing::info!("Master data already uploaded by another user for period={}", period_tag);
+                tracing::info!(
+                    "Master data already uploaded by another user for period={}",
+                    period_tag
+                );
                 Ok(())
             }
-            Err(e) => {
-                Err(StorageError::Operation(format!("Master data upload failed: {}", e)))
-            }
+            Err(e) => Err(StorageError::Operation(format!(
+                "Master data upload failed: {}",
+                e
+            ))),
         }
     }
 }

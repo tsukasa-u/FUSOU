@@ -23,7 +23,7 @@ use crate::interface::mst_use_item::MstUseItems;
 use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
-use fusou_upload::{PendingStore, UploadRetryService};
+use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
 
 // use tauri_plugin_notification::NotificationExt; // replaced by notify wrapper where needed
 
@@ -372,6 +372,7 @@ pub async fn retry_pending_uploads_now(
 #[derive(Debug, Serialize)]
 pub struct PendingRetryItemStatus {
     pub id: String,
+    pub pending_type: String,
     pub attempt_count: u32,
     pub created_at: u64,
     pub last_attempt_at: Option<u64>,
@@ -428,8 +429,14 @@ pub async fn get_pending_upload_retry_status(
                 due_now_count += 1;
             }
 
+            let pending_type = classify_pending_type(
+                &meta.target_url,
+                meta.context.as_deref(),
+            );
+
             PendingRetryItemStatus {
                 id: meta.id,
+                pending_type,
                 attempt_count: meta.attempt_count,
                 created_at: meta.created_at,
                 last_attempt_at: meta.last_attempt_at,
@@ -453,6 +460,60 @@ pub async fn get_pending_upload_retry_status(
         next_due_at,
         items,
     })
+}
+
+fn classify_pending_type(target_url: &str, context_raw: Option<&str>) -> String {
+    let Some(raw) = context_raw else {
+        return classify_by_target(target_url);
+    };
+
+    let Ok(context) = serde_json::from_str::<UploadContext>(raw) else {
+        return classify_by_target(target_url);
+    };
+
+    match context {
+        UploadContext::Asset { .. } => "asset_upload".to_string(),
+        UploadContext::Snapshot { .. } => "snapshot_upload".to_string(),
+        UploadContext::Custom(value) => {
+            let provider = value
+                .get("provider")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty());
+            let operation = value
+                .get("operation")
+                .and_then(|v| v.as_str())
+                .filter(|v| !v.is_empty());
+
+            match (provider, operation) {
+                (Some(provider), Some(operation)) => format!("{}_{}", provider, operation),
+                (Some(provider), None) => format!("{}_custom", provider),
+                (None, Some(operation)) => {
+                    if operation == "upload" {
+                        let target = target_url.trim();
+                        if !target.is_empty() && target != "localfs" {
+                            return format!("cloud_upload:{}", target);
+                        }
+                    }
+                    operation.to_string()
+                }
+                (None, None) => classify_by_target(target_url),
+            }
+        }
+    }
+}
+
+fn classify_by_target(target_url: &str) -> String {
+    let target = target_url.trim();
+    if target.is_empty() {
+        return "unknown".to_string();
+    }
+    if target == "localfs" {
+        return "localfs_write".to_string();
+    }
+    if target.starts_with("http://") || target.starts_with("https://") {
+        return "http_upload".to_string();
+    }
+    format!("cloud_upload:{}", target)
 }
 
 #[tauri::command(rename_all = "snake_case")]
