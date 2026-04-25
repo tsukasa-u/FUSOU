@@ -5,6 +5,7 @@ pub mod snapshot;
 pub mod common;
 pub mod providers;
 pub mod cloud_provider_trait;
+pub mod root_validator;
 
 pub mod integrate;
 pub mod submit_data;
