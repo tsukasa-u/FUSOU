@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
-use crate::common::common_air::ApiAirBaseAttack;
-use crate::common::common_air::ApiKouku;
+use crate::common::common_air::{ApiAirBaseAttack, ApiAirBaseInjection, ApiKouku};
+use crate::common::common_battle::ApiSupportInfo;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -88,6 +88,21 @@ pub struct ApiData {
     pub api_stage_flag: Vec<i64>,
     #[serde(rename = "api_kouku")]
     pub api_kouku: ApiKouku,
+    /// Day support expedition payload (`ApiSupportInfo`) for this air-battle endpoint.
+    /// Added so support phase data can be decoded when present.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_support_info")]
+    pub api_support_info: Option<ApiSupportInfo>,
+    /// Jet assault payload (`ApiKouku`) that can appear before the main air phase.
+    /// Added to preserve phase ordering information if this endpoint starts emitting it.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
+    /// Land-based jet assault payload (`ApiAirBaseInjection`).
+    /// Added to decode pre-airstrike LBAS jet phase data if provided by the endpoint.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
     #[serde(rename = "api_escape_idx")]
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_air_base_attack")]

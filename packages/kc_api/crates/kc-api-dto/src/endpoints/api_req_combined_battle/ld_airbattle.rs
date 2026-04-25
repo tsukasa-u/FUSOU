@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
-use crate::common::common_air::ApiKouku;
+use crate::common::common_air::{ApiAirBaseAttack, ApiAirBaseInjection, ApiKouku};
+use crate::common::common_battle::ApiSupportInfo;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -67,16 +68,46 @@ pub struct ApiData {
     pub api_f_param_combined: Vec<Vec<i64>>,
     #[serde(rename = "api_ship_ke")]
     pub api_ship_ke: Vec<i64>,
+    /// Enemy escort fleet ship master IDs (`combined` side).
+    /// Added to preserve full enemy combined-fleet composition when this endpoint emits it.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_ship_ke_combined")]
+    pub api_ship_ke_combined: Option<Vec<i64>>,
     #[serde(rename = "api_ship_lv")]
     pub api_ship_lv: Vec<i64>,
+    /// Enemy escort fleet ship levels (`combined` side).
+    /// Added alongside `api_ship_ke_combined` to keep enemy escort metadata complete.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_ship_lv_combined")]
+    pub api_ship_lv_combined: Option<Vec<i64>>,
     #[serde(rename = "api_e_nowhps")]
     pub api_e_nowhps: Vec<i64>,
+    /// Enemy escort fleet current HPs (`combined` side).
+    /// Added for accurate HP timeline reconstruction in combined-fleet battles.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_e_nowhps_combined")]
+    pub api_e_nowhps_combined: Option<Vec<i64>>,
     #[serde(rename = "api_e_maxhps")]
     pub api_e_maxhps: Vec<i64>,
+    /// Enemy escort fleet max HPs (`combined` side).
+    /// Added to pair with `api_e_nowhps_combined` for stable damage/remaining-HP calculations.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_e_maxhps_combined")]
+    pub api_e_maxhps_combined: Option<Vec<i64>>,
     #[serde(rename = "api_eSlot")]
     pub api_e_slot: Vec<Vec<i64>>,
+    /// Enemy escort fleet slot arrays (`combined` side).
+    /// Added so escort-fleet equipment context can be decoded when available.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_eSlot_combined")]
+    pub api_e_slot_combined: Option<Vec<Vec<i64>>>,
     #[serde(rename = "api_eParam")]
     pub api_e_param: Vec<Vec<i64>>,
+    /// Enemy escort fleet stat parameter arrays (`combined` side).
+    /// Added to keep enemy escort combat parameters schema-complete.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_eParam_combined")]
+    pub api_e_param_combined: Option<Vec<Vec<i64>>>,
     #[serde(rename = "api_smoke_type")]
     pub api_smoke_type: i64,
     #[serde(rename = "api_balloon_cell")]
@@ -91,6 +122,26 @@ pub struct ApiData {
     pub api_stage_flag: Vec<i64>,
     #[serde(rename = "api_kouku")]
     pub api_kouku: ApiKouku,
+    /// Day support expedition payload (`ApiSupportInfo`) for this endpoint.
+    /// Added so support phase data can be decoded when present.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_support_info")]
+    pub api_support_info: Option<ApiSupportInfo>,
+    /// Jet assault payload (`ApiKouku`) that can precede the main air phase.
+    /// Added to preserve phase ordering information if emitted by this endpoint.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
+    /// Land-based jet assault payload (`ApiAirBaseInjection`).
+    /// Added to decode pre-airstrike LBAS jet phase data if present.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    /// Land-based air attack waves (`ApiAirBaseAttack`).
+    /// Added to capture explicit LBAS wave payloads when this endpoint includes them.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_air_base_attack")]
+    pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
     #[serde(rename = "api_escape_idx")]
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_escape_idx_combined")]
@@ -153,5 +204,4 @@ mod tests {
             None,
         );
     }
-
 }
