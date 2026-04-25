@@ -2,7 +2,9 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::storage::providers::{CloudTableStorageProvider, LocalFileSystemProvider, R2StorageProvider};
+use crate::storage::providers::{LocalFileSystemProvider, R2StorageProvider};
+#[cfg(feature = "gdrive")]
+use crate::storage::providers::CloudTableStorageProvider;
 use fusou_upload::{PendingStore, UploadRetryService};
 
 // Global singleton for StorageService to avoid repeated initialization
@@ -127,7 +129,11 @@ impl StorageService {
 
         if database_config.get_allow_data_to_local() {
             tracing::debug!("Attempting to initialize local filesystem storage provider");
-            match LocalFileSystemProvider::try_new(database_config.local.get_output_directory()) {
+            match LocalFileSystemProvider::try_new(
+                database_config.local.get_output_directory(),
+                pending_store.clone(),
+                retry_service.clone(),
+            ) {
                 Ok(provider) => {
                     tracing::info!("Local filesystem storage provider initialized");
                     providers.push(Arc::new(provider));
@@ -201,7 +207,7 @@ impl StorageService {
         table: PortTableEncode,
         maparea_id: i64,
         mapinfo_no: i64,
-    ) {
+    ) -> bool {
         tracing::info!(
             "StorageService::write_port_table called: period={}, map={}-{}, provider_count={}",
             period_tag, maparea_id, mapinfo_no, self.providers.len()
@@ -228,18 +234,37 @@ impl StorageService {
                         provider_name,
                         err
                     );
+                    false
                 } else {
                     tracing::info!(
                         "{} storage successfully wrote port_table for map {}-{}",
                         provider_name, maparea_id, mapinfo_no
                     );
+                    true
                 }
             });
             handles.push(handle);
         }
+        let mut any_success = false;
         for handle in handles {
-            let _ = handle.await;
+            match handle.await {
+                Ok(success) => {
+                    any_success |= success;
+                }
+                Err(e) => {
+                    tracing::error!("write_port_table task join error: {}", e);
+                }
+            }
         }
+        if !any_success {
+            tracing::error!(
+                "StorageService::write_port_table failed for all providers: period={}, map={}-{}",
+                period_tag,
+                maparea_id,
+                mapinfo_no
+            );
+        }
+        any_success
     }
 
     pub async fn integrate_port_table(&self, period_tag: &str) {
