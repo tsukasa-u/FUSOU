@@ -7,8 +7,9 @@ use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::battle::{
     AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleType,
     CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,
-    FriendlySupportHourai, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki,
-    OpeningTaisen, SupportAiratack, SupportAttack, SupportHourai, BattleResult,
+    FriendlySupportHourai, Hougeki, MidnightHougeki, NightSupportAttack,
+    OpeningAirAttack, OpeningRaigeki, OpeningTaisen, SupportAiratack,
+    SupportAttack, SupportHourai, BattleResult,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 use kc_api_interface::deck_port::DeckPorts;
@@ -1593,6 +1594,37 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             }
+            BattleType::NightSupportAttack(()) => {
+                if let Some(night_support_attack) = battle.night_support_attack.as_mut() {
+                    midnight_flag = true;
+
+                    if let Some(hourai) = night_support_attack.hourai.as_mut() {
+                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            hourai.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
+                        });
+
+                        hourai
+                            .damage
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, &x)| {
+                                midnight_e_total_damages[idx] += x as i64;
+                            });
+                    }
+
+                    if let Some(airatack) = night_support_attack.airatack.as_mut() {
+                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            airatack.e_damage.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
+                        });
+
+                        if let Some(damages) = &airatack.e_damage.damages {
+                            damages.iter().enumerate().for_each(|(idx, &x)| {
+                                midnight_e_total_damages[idx] += x as i64;
+                            });
+                        }
+                    }
+                }
+            }
             BattleType::MidnightHougeki(()) => {
                 if let Some(midnight_hougeki) = battle.midnight_hougeki.as_mut() {
                     midnight_flag = true;
@@ -1696,6 +1728,7 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1762,7 +1795,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -1806,6 +1839,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -1848,18 +1882,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAssult(()),
-            BattleType::CarrierBaseAssault(()),
-            BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(0),
-            BattleType::OpeningAirAttack(1),
-            BattleType::SupportAttack(()),
-            BattleType::OpeningTaisen(()),
-            BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(0),
-            BattleType::Hougeki(1),
-            BattleType::ClosingRaigeki(()),
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
@@ -1895,6 +1918,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1920,16 +1944,22 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
         let midnight_hougeki: Option<MidnightHougeki> =
             Some(InterfaceWrapper::from(battle.api_hougeki).unwrap());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
+        let has_night_support = battle.api_n_support_flag > 0;
+        let night_support_attack: Option<NightSupportAttack> =
+            battle.api_n_support_info.map(unwrap_into);
 
         let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let mut battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
+        if has_night_support || night_support_attack.is_some() {
+            battle_order.insert(1, BattleType::NightSupportAttack(()));
+        }
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
 
@@ -1962,6 +1992,7 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -2005,7 +2036,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAirAttack(()),
             BattleType::OpeningAirAttack(0),
         ];
@@ -2041,6 +2072,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -2085,7 +2117,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::OpeningAirAttack(0),
             BattleType::OpeningAirAttack(1),
         ];
@@ -2122,6 +2154,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -2239,5 +2272,18 @@ pub fn parse_landing_hp(landing_hp: DuoType<i64, String>) -> Option<i64> {
     match landing_hp {
         DuoType::Type1(num) => Some(num),
         DuoType::Type2(s) => s.trim().parse::<i64>().ok(),
+    }
+}
+
+impl From<kcapi_common::common_battle::ApiSupportInfo> for InterfaceWrapper<NightSupportAttack> {
+    fn from(support_info: kcapi_common::common_battle::ApiSupportInfo) -> Self {
+        let hourai: Option<SupportHourai> = support_info
+            .api_support_hourai
+            .map(|support_hourai| InterfaceWrapper::from(support_hourai).unwrap());
+        let airatack: Option<SupportAiratack> = support_info
+            .api_support_airatack
+            .map(|support_airatack| InterfaceWrapper::from(support_airatack).unwrap());
+
+        Self(NightSupportAttack { hourai, airatack })
     }
 }
