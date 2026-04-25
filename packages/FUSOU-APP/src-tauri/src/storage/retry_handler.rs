@@ -5,6 +5,7 @@ use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::retry_service::RetryHandler;
 use fusou_upload::{UploadContext, UploadRequest, Uploader};
 use kc_api::database::DATABASE_TABLE_VERSION;
+use crate::storage::root_validator;
 
 #[cfg(feature = "gdrive")]
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
@@ -234,10 +235,37 @@ impl AppUploadRetryHandler {
                 self.handle_payload_retry(context, data, PayloadHashMode::ComputedContentHash)
                     .await
             }
+            "localfs_write" => self.handle_localfs_write_retry(context, data).await,
             #[cfg(feature = "gdrive")]
             "upload" => self.handle_gdrive_retry(context, data).await,
             _ => Err("unsupported operation".into()),
         }
+    }
+
+    async fn handle_localfs_write_retry(
+        &self,
+        context: &serde_json::Value,
+        data: &[u8],
+    ) -> RetryResult {
+        let configured_root = root_validator::resolve_root_from_config();
+        let relative_path = context
+            .get("relative_path")
+            .and_then(|v| v.as_str())
+            .ok_or("missing relative_path")?
+            .to_owned();
+
+        // Open the root as a cap-std Dir — this uses openat internally and
+        // enforces containment at the kernel level.  TOCTOU between check and
+        // write is structurally impossible because both operate on the same FD.
+        let root_dir = std::sync::Arc::new(
+            root_validator::open_root_dir(&configured_root)
+                .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?,
+        );
+        let data_vec = data.to_vec();
+        root_validator::write_at_relative_async(root_dir, relative_path, data_vec)
+            .await
+            .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
+        Ok(())
     }
 
     async fn handle_payload_retry(
