@@ -14,6 +14,7 @@ type SessionHealth = {
 
 type PendingRetryItemStatus = {
   id: string;
+  pending_type: string;
   attempt_count: number;
   created_at: number;
   last_attempt_at?: number | null;
@@ -88,7 +89,7 @@ const formatRemainingSeconds = (seconds: number) => {
 
 export function SettingsComponent() {
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
-    null
+    null,
   );
   const [checkingHealth, setCheckingHealth] = createSignal<boolean>(false);
   const [signingOut, setSigningOut] = createSignal<boolean>(false);
@@ -115,7 +116,7 @@ export function SettingsComponent() {
     try {
       setLoadingPendingRetryStatus(true);
       const status = await invoke<PendingRetryStatus>(
-        "get_pending_upload_retry_status"
+        "get_pending_upload_retry_status",
       );
       setPendingRetryStatus(status);
     } catch (e: any) {
@@ -137,14 +138,14 @@ export function SettingsComponent() {
     try {
       setLoadingSuppressionStatus(true);
       const status = await invoke<ShipGrowthSuppressionStatus | null>(
-        "get_ship_growth_suppression_status"
+        "get_ship_growth_suppression_status",
       );
       setSuppressionStatus(status);
     } catch (e: any) {
       console.error("Failed to fetch ship growth suppression status:", e);
       showFadeToast(
         "setting_toast",
-        "Failed to load ship growth suppression status"
+        "Failed to load ship growth suppression status",
       );
     } finally {
       setLoadingSuppressionStatus(false);
@@ -155,14 +156,14 @@ export function SettingsComponent() {
     try {
       setLoadingQuestSuppression(true);
       const status = await invoke<QuestTreeSuppressionStatus | null>(
-        "get_quest_tree_suppression_status"
+        "get_quest_tree_suppression_status",
       );
       setQuestSuppressionStatus(status);
     } catch (e: any) {
       console.error("Failed to fetch quest tree suppression status:", e);
       showFadeToast(
         "setting_toast",
-        "Failed to load quest tree suppression status"
+        "Failed to load quest tree suppression status",
       );
     } finally {
       setLoadingQuestSuppression(false);
@@ -173,14 +174,14 @@ export function SettingsComponent() {
     try {
       setLoadingRemodelSuppression(true);
       const status = await invoke<RemodelSuppressionStatus | null>(
-        "get_remodel_suppression_status"
+        "get_remodel_suppression_status",
       );
       setRemodelSuppressionStatus(status);
     } catch (e: any) {
       console.error("Failed to fetch remodel suppression status:", e);
       showFadeToast(
         "setting_toast",
-        "Failed to load remodel suppression status"
+        "Failed to load remodel suppression status",
       );
     } finally {
       setLoadingRemodelSuppression(false);
@@ -191,7 +192,7 @@ export function SettingsComponent() {
     try {
       setCheckingHealth(true);
       const health = await invoke<SessionHealth>(
-        "check_supabase_session_health"
+        "check_supabase_session_health",
       );
       setSessionHealth(health);
       showFadeToast("setting_toast", "Session health checked");
@@ -210,7 +211,7 @@ export function SettingsComponent() {
       setSessionHealth(null);
       showFadeToast(
         "setting_toast",
-        "Local session cleared. Please sign in again."
+        "Local session cleared. Please sign in again.",
       );
     } catch (e: any) {
       console.error("Failed to force local sign out:", e);
@@ -372,6 +373,7 @@ export function SettingsComponent() {
                     <thead>
                       <tr>
                         <th>ID</th>
+                        <th>Type</th>
                         <th>Attempt</th>
                         <th>Next due</th>
                         <th>Remaining</th>
@@ -383,9 +385,14 @@ export function SettingsComponent() {
                         {(item) => (
                           <tr>
                             <td class="font-mono">{item.id.slice(0, 8)}</td>
+                            <td class="font-mono">{item.pending_type}</td>
                             <td>{item.attempt_count}</td>
                             <td>{formatEpochSeconds(item.next_due_at)}</td>
-                            <td>{formatRemainingSeconds(item.seconds_until_next_due)}</td>
+                            <td>
+                              {formatRemainingSeconds(
+                                item.seconds_until_next_due,
+                              )}
+                            </td>
                             <td>{formatEpochSeconds(item.expires_at)}</td>
                           </tr>
                         )}
@@ -411,7 +418,9 @@ export function SettingsComponent() {
             onClick={refreshSuppressionStatus}
             disabled={loadingSuppressionStatus()}
           >
-            {loadingSuppressionStatus() ? "Refreshing..." : "Refresh suppression"}
+            {loadingSuppressionStatus()
+              ? "Refreshing..."
+              : "Refresh suppression"}
           </button>
         </div>
         <Show when={suppressionStatus()}>
@@ -459,7 +468,9 @@ export function SettingsComponent() {
             onClick={refreshQuestSuppressionStatus}
             disabled={loadingQuestSuppression()}
           >
-            {loadingQuestSuppression() ? "Refreshing..." : "Refresh suppression"}
+            {loadingQuestSuppression()
+              ? "Refreshing..."
+              : "Refresh suppression"}
           </button>
         </div>
         <Show when={questSuppressionStatus()}>
@@ -507,7 +518,9 @@ export function SettingsComponent() {
             onClick={refreshRemodelSuppressionStatus}
             disabled={loadingRemodelSuppression()}
           >
-            {loadingRemodelSuppression() ? "Refreshing..." : "Refresh suppression"}
+            {loadingRemodelSuppression()
+              ? "Refreshing..."
+              : "Refresh suppression"}
           </button>
         </div>
         <Show when={remodelSuppressionStatus()}>
@@ -680,7 +693,7 @@ export function SettingsComponent() {
                   invoke("get_mst_slotitem_equip_types");
                   showFadeToast(
                     "setting_toast",
-                    "load mst_slotitem_equip_types"
+                    "load mst_slotitem_equip_types",
                   );
                 }}
               >
