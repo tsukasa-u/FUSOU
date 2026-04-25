@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::storage::root_validator;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::retry_service::RetryHandler;
 use fusou_upload::{UploadContext, UploadRequest, Uploader};
 use kc_api::database::DATABASE_TABLE_VERSION;
-use crate::storage::root_validator;
 
 #[cfg(feature = "gdrive")]
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
@@ -100,8 +100,14 @@ impl AppUploadRetryHandler {
     }
 
     async fn handle_r2_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
-        let path_tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
-        let period_tag = context.get("period_tag").and_then(|v| v.as_str()).unwrap_or("0");
+        let path_tag = context
+            .get("tag")
+            .and_then(|v| v.as_str())
+            .ok_or("missing tag")?;
+        let period_tag = context
+            .get("period_tag")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0");
         let dataset_id = match context
             .get("dataset_id")
             .and_then(|v| v.as_str())
@@ -115,7 +121,10 @@ impl AppUploadRetryHandler {
                 .await
                 .ok_or("dataset_id not ready for r2 retry")?,
         };
-        let table = context.get("table").and_then(|v| v.as_str()).unwrap_or("port_table");
+        let table = context
+            .get("table")
+            .and_then(|v| v.as_str())
+            .unwrap_or("port_table");
         let table_offsets = context
             .get("table_offsets")
             .and_then(|v| v.as_str())
@@ -143,7 +152,10 @@ impl AppUploadRetryHandler {
         );
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        );
 
         let request = self.upload_request_with_custom_context(
             &endpoint,
@@ -184,7 +196,10 @@ impl AppUploadRetryHandler {
         });
 
         let mut headers = HashMap::new();
-        headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+        headers.insert(
+            "Content-Type".to_string(),
+            "application/octet-stream".to_string(),
+        );
 
         let request = self.upload_request_with_custom_context(
             endpoint,
@@ -210,7 +225,16 @@ impl AppUploadRetryHandler {
         let dataset_id = if !from_context.is_empty() {
             from_context
         } else {
-            crate::util::get_user_member_id().await
+            let from_member_id = crate::util::get_user_member_id().await;
+            let trimmed = from_member_id.trim();
+            if !trimmed.is_empty() {
+                trimmed.to_string()
+            } else {
+                self.auth_manager
+                    .resolve_dataset_id_for_upload(None)
+                    .await
+                    .unwrap_or_default()
+            }
         };
 
         if dataset_id.trim().is_empty() {
@@ -326,11 +350,7 @@ impl AppUploadRetryHandler {
     }
 
     #[cfg(feature = "gdrive")]
-    async fn handle_gdrive_retry(
-        &self,
-        context: &serde_json::Value,
-        data: &[u8],
-    ) -> RetryResult {
+    async fn handle_gdrive_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
         let remote_path = context
             .get("remote_path")
             .and_then(|v| v.as_str())
@@ -353,11 +373,8 @@ impl AppUploadRetryHandler {
             {
                 use std::os::unix::fs::PermissionsExt;
 
-                tokio::fs::set_permissions(
-                    &temp_path,
-                    std::fs::Permissions::from_mode(0o600),
-                )
-                .await?;
+                tokio::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600))
+                    .await?;
             }
             file.write_all(data).await?;
         }

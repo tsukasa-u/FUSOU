@@ -1,31 +1,30 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // Prevents additional console window on Windows in release
-// #![recursion_limit = "256"]
+                                                                   // #![recursion_limit = "256"]
 
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use kc_api::interface;
-use tauri::{Manager, Emitter};
+use tauri::{Emitter, Manager};
 // use crate::notify; // access via module path since we declare below
 mod json_parser;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
 use tauri::AppHandle;
 
-
 mod auth;
 mod builder_setup;
-mod storage;
 mod cmd;
 mod integration;
+mod notify;
 mod scheduler;
+mod senders;
 mod sequence;
+mod storage;
 mod util;
 mod window;
 mod wrap_proxy;
-mod notify;
-mod senders;
 use senders::{quest_tree_sender, remodel_sender, ship_growth_sender};
 
 use fusou_upload::PendingStore;
@@ -51,13 +50,15 @@ async fn bootstrap_tokens_on_startup(
         match auth_manager.get_access_token().await {
             Ok(access_token) => {
                 tracing::info!("startup: found existing session and token is valid (or refreshed), emitting tokens to frontend");
-                
+
                 // Load the potentially refreshed session
-                let updated_session = storage.load_session().await
+                let updated_session = storage
+                    .load_session()
+                    .await
                     .ok()
                     .flatten()
                     .unwrap_or(session);
-                
+
                 // Note: No need to emit tokens to frontend
                 // Frontend doesn't use Supabase tokens directly
                 // All auth operations handled by Rust AuthManager
@@ -65,33 +66,46 @@ async fn bootstrap_tokens_on_startup(
                 // Fetch all cloud provider tokens from Supabase
                 // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
                 let supported_providers = storage::CloudProviderFactory::supported_providers();
-                tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
+                tracing::info!(
+                    ?supported_providers,
+                    "startup: fetching provider refresh tokens"
+                );
 
                 for provider in supported_providers {
                     tracing::info!(provider, "startup: begin fetch provider token");
                     match auth_manager.fetch_provider_token(provider).await {
                         Ok(Some(token)) => {
-                            tracing::info!(provider, "startup: fetched provider token successfully");
+                            tracing::info!(
+                                provider,
+                                "startup: fetched provider token successfully"
+                            );
                             match storage::CloudProviderFactory::create(provider) {
                                 Ok(mut p) => {
                                     tracing::info!(provider, "startup: created provider instance");
                                     if let Err(e) = p.initialize(token.to_string()).await {
                                         tracing::warn!(provider, error = ?e, "startup: provider initialize failed");
                                     } else {
-                                        tracing::info!(provider, "startup: provider initialized successfully");
+                                        tracing::info!(
+                                            provider,
+                                            "startup: provider initialized successfully"
+                                        );
                                     }
                                 }
-                                Err(e) => tracing::warn!(provider, error = %e, "startup: provider factory create failed"),
+                                Err(e) => {
+                                    tracing::warn!(provider, error = %e, "startup: provider factory create failed")
+                                }
                             }
                         }
                         Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
-                        Err(e) => tracing::warn!(provider, error = %e, "startup: failed to fetch provider token"),
+                        Err(e) => {
+                            tracing::warn!(provider, error = %e, "startup: failed to fetch provider token")
+                        }
                     }
                 }
             }
             Err(e) => {
                 tracing::warn!("startup: token validation/refresh failed: {} - will attempt background anonymous auth when game starts", e);
-                
+
                 // Do NOT open auth page here - wait for game to start
                 // Background anonymous auth will be attempted from try_anonymous_auth() after Set::Basic
             }
@@ -123,7 +137,10 @@ pub async fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            None,
+        ))
         .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -190,13 +207,13 @@ pub async fn run() {
             let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
             let dataset_token_path = util::get_ROAMING_DIR().join("fusou-auth-dataset-token.json");
             let storage = Arc::new(FileStorage::new(session_path.clone()));
-            
-            let mut auth_manager = AuthManager::from_env(storage.clone())
-                .expect("failed to create auth manager");
-            
+
+            let mut auth_manager =
+                AuthManager::from_env(storage.clone()).expect("failed to create auth manager");
+
             // Set dataset_token persistent storage path
             auth_manager.set_dataset_token_path(Some(dataset_token_path));
-            
+
             let auth_manager_for_retry = Arc::new(auth_manager.clone());
             let auth_manager_state = Arc::new(Mutex::new(auth_manager.clone()));
             app.manage(auth_manager_state.clone());
@@ -204,17 +221,23 @@ pub async fn run() {
             // Initialize PendingStore and UploadRetryService
             let pending_dir = util::get_ROAMING_DIR().join("pending_uploads");
             let pending_store = Arc::new(PendingStore::new(pending_dir));
-            
+
             // Register app-level custom retry handler so pending items are retried and deleted on success
-            let retry_handler = Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(auth_manager_for_retry.clone()));
+            let retry_handler =
+                Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(
+                    auth_manager_for_retry.clone(),
+                ));
             let retry_service = Arc::new(UploadRetryService::new(
-                pending_store.clone(), 
+                pending_store.clone(),
                 auth_manager_for_retry,
-                Some(retry_handler)
+                Some(retry_handler),
             ));
-            
+
             app.manage(pending_store.clone());
             app.manage(retry_service.clone());
+
+            // Ensure user config file path is initialized before reading retry settings.
+            builder_setup::setup::setup_configs()?;
 
             // Kick retry on startup and keep retrying on configured interval.
             let retry_service_for_background = retry_service.clone();
@@ -231,9 +254,8 @@ pub async fn run() {
                 tracing::info!("running one-time forced pending upload retry on startup");
                 retry_service_for_background.trigger_retry_force().await;
 
-                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
-                    retry_interval_seconds,
-                ));
+                let mut ticker =
+                    tokio::time::interval(std::time::Duration::from_secs(retry_interval_seconds));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 ticker.tick().await;
                 loop {
@@ -246,7 +268,11 @@ pub async fn run() {
             let pending_store_clone = pending_store.clone();
             let retry_service_clone = retry_service.clone();
             tokio::spawn(async move {
-                storage::submit_data::initialize_storage_deps(pending_store_clone, retry_service_clone).await;
+                storage::submit_data::initialize_storage_deps(
+                    pending_store_clone,
+                    retry_service_clone,
+                )
+                .await;
             });
 
             // Run remaining setup (logger, tray, schedulers, etc.) so that logging is available
@@ -265,14 +291,17 @@ pub async fn run() {
                     app_handle_for_notification,
                     storage_for_bootstrap,
                     auth_manager_for_bootstrap,
-                ).await;
+                )
+                .await;
             });
 
             // Initialize quest tree sender if configured
             {
                 let app_configs = configs::get_user_configs_for_app();
                 if app_configs.quest_tree_sender.get_enable() {
-                    if let Some(ingest_endpoint) = app_configs.quest_tree_sender.get_ingest_endpoint() {
+                    if let Some(ingest_endpoint) =
+                        app_configs.quest_tree_sender.get_ingest_endpoint()
+                    {
                         let auth_manager_for_quest = Arc::new(auth_manager.clone());
                         let quest_cache_root = util::get_ROAMING_DIR()
                             .join("cache")
@@ -287,12 +316,16 @@ pub async fn run() {
                             quest_cache_root,
                         );
                     } else {
-                        tracing::warn!("quest_tree_sender enabled but ingest_endpoint not configured");
+                        tracing::warn!(
+                            "quest_tree_sender enabled but ingest_endpoint not configured"
+                        );
                     }
                 }
 
                 if app_configs.ship_growth_sender.get_enable() {
-                    if let Some(ingest_endpoint) = app_configs.ship_growth_sender.get_ingest_endpoint() {
+                    if let Some(ingest_endpoint) =
+                        app_configs.ship_growth_sender.get_ingest_endpoint()
+                    {
                         let auth_manager_for_ship_growth = Arc::new(auth_manager.clone());
                         let ship_growth_cache_root = util::get_ROAMING_DIR()
                             .join("cache")
@@ -307,12 +340,15 @@ pub async fn run() {
                             ship_growth_cache_root,
                         );
                     } else {
-                        tracing::warn!("ship_growth_sender enabled but ingest_endpoint not configured");
+                        tracing::warn!(
+                            "ship_growth_sender enabled but ingest_endpoint not configured"
+                        );
                     }
                 }
 
                 if app_configs.remodel_sender.get_enable() {
-                    if let Some(ingest_endpoint) = app_configs.remodel_sender.get_ingest_endpoint() {
+                    if let Some(ingest_endpoint) = app_configs.remodel_sender.get_ingest_endpoint()
+                    {
                         let auth_manager_for_remodel = Arc::new(auth_manager.clone());
                         let remodel_cache_root = util::get_ROAMING_DIR()
                             .join("cache")

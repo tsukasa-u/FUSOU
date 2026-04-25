@@ -219,6 +219,11 @@ impl R2StorageProvider {
                         pending_id = %meta.id,
                         "Master data dataset_id not ready; saved upload to pending store"
                     );
+                    // Kick retry immediately to avoid waiting for the next periodic tick.
+                    let retry = self._retry_service.clone();
+                    tokio::spawn(async move {
+                        retry.trigger_retry().await;
+                    });
                 }
                 PendingSaveOutcome::Existing(meta) => {
                     tracing::info!(
@@ -742,10 +747,17 @@ impl R2StorageProvider {
                 );
                 Ok(())
             }
-            Err(e) => Err(StorageError::Operation(format!(
-                "Master data upload failed: {}",
-                e
-            ))),
+            Err(e) => {
+                // Trigger retry processing for pending items saved by Uploader.
+                let retry = self._retry_service.clone();
+                tokio::spawn(async move {
+                    retry.trigger_retry().await;
+                });
+                Err(StorageError::Operation(format!(
+                    "Master data upload failed: {}",
+                    e
+                )))
+            }
         }
     }
 }
