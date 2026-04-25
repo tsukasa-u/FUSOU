@@ -18,26 +18,156 @@ pub enum BattleType {
     Hougeki(i64),
     ClosingRaigeki(()),
     FriendlyForceAttack(()),
+    NightSupportAttack(()),
     MidnightHougeki(()),
 }
 
-impl From<BattleType> for i64 {
-    fn from(battle_type: BattleType) -> Self {
-        match battle_type {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BattlePhaseKind {
+    Day,
+    Night,
+}
+
+impl BattleType {
+    pub const fn phase_kind_is_night(&self) -> bool {
+        matches!(
+            self,
+            BattleType::FriendlyForceAttack(())
+                | BattleType::NightSupportAttack(())
+                | BattleType::MidnightHougeki(())
+        )
+    }
+
+    pub fn phase_kind(&self) -> BattlePhaseKind {
+        if self.phase_kind_is_night() {
+            BattlePhaseKind::Night
+        } else {
+            BattlePhaseKind::Day
+        }
+    }
+
+    pub const fn phase_key(&self) -> i64 {
+        match *self {
             BattleType::AirBaseAssult(()) => 1 << 3,
             BattleType::CarrierBaseAssault(()) => 2 << 3,
             BattleType::AirBaseAirAttack(()) => 3 << 3,
-            BattleType::OpeningAirAttack(x) if (0..=7).contains(&x) => (4 << 3) | x,
+            BattleType::OpeningAirAttack(x) if x >= 0 && x <= 7 => (4 << 3) | x,
             BattleType::OpeningAirAttack(_) => (4 << 3) | 0x111,
             BattleType::SupportAttack(()) => 5 << 3,
             BattleType::OpeningTaisen(()) => 6 << 3,
             BattleType::OpeningRaigeki(()) => 7 << 3,
-            BattleType::Hougeki(x) if (0..=7).contains(&x) => (8 << 3) | x,
+            BattleType::Hougeki(x) if x >= 0 && x <= 7 => (8 << 3) | x,
             BattleType::Hougeki(_) => (8 << 3) | 0x111,
             BattleType::ClosingRaigeki(()) => 9 << 3,
             BattleType::FriendlyForceAttack(()) => 10 << 3,
+            BattleType::NightSupportAttack(()) => 12 << 3,
             BattleType::MidnightHougeki(()) => 11 << 3,
         }
+    }
+}
+
+pub const fn battle_order_keys_unique(order: &[BattleType]) -> bool {
+    let mut i = 0;
+    while i < order.len() {
+        let left = order[i].phase_key();
+        let mut j = i + 1;
+        while j < order.len() {
+            if left == order[j].phase_key() {
+                return false;
+            }
+            j += 1;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// 全フェーズが同一の昼夜区分に属するか検査する。
+/// 昼戦フェーズと夜戦フェーズが混在している場合は false を返す。
+pub const fn battle_order_phase_kind_consistent(order: &[BattleType]) -> bool {
+    if order.is_empty() {
+        return true;
+    }
+    let first_is_night = order[0].phase_kind_is_night();
+    let mut i = 1;
+    while i < order.len() {
+        if order[i].phase_kind_is_night() != first_is_night {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+#[macro_export]
+macro_rules! battle_order_checked {
+    ($($phase:expr),+ $(,)?) => {{
+        const ORDER: &[$crate::battle::BattleType] = &[$($phase),+];
+        const _: () = {
+            if !$crate::battle::battle_order_keys_unique(ORDER) {
+                panic!("duplicate battle phase keys in battle_order definition");
+            }
+            if !$crate::battle::battle_order_phase_kind_consistent(ORDER) {
+                panic!("mixed day/night battle phases in battle_order definition");
+            }
+        };
+        vec![$($phase),+]
+    }};
+}
+
+fn has_duplicate_phase_key(order: &[BattleType]) -> bool {
+    for (i, left) in order.iter().enumerate() {
+        let left_key = i64::from(left.clone());
+        if order
+            .iter()
+            .skip(i + 1)
+            .any(|right| i64::from(right.clone()) == left_key)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn merge_battle_order(
+    existing: Option<Vec<BattleType>>,
+    incoming: Option<Vec<BattleType>>,
+) -> Option<Vec<BattleType>> {
+    match (existing, incoming) {
+        (Some(mut merged), Some(incoming)) => {
+            if has_duplicate_phase_key(&merged) {
+                panic!("duplicate phase keys in existing battle_order");
+            }
+            if has_duplicate_phase_key(&incoming) {
+                panic!("duplicate phase keys in incoming battle_order");
+            }
+            for phase in incoming {
+                let key = i64::from(phase.clone());
+                if !merged.iter().any(|current| i64::from(current.clone()) == key) {
+                    merged.push(phase);
+                }
+            }
+            Some(merged)
+        }
+        (Some(existing), None) => {
+            if has_duplicate_phase_key(&existing) {
+                panic!("duplicate phase keys in existing battle_order");
+            }
+            Some(existing)
+        }
+        (None, Some(incoming)) => {
+            if has_duplicate_phase_key(&incoming) {
+                panic!("duplicate phase keys in incoming battle_order");
+            }
+            Some(incoming)
+        }
+        (None, None) => None,
+    }
+}
+
+impl From<BattleType> for i64 {
+    fn from(battle_type: BattleType) -> Self {
+        battle_type.phase_key()
     }
 }
 
@@ -80,6 +210,7 @@ pub struct Battle {
     // pub friendly_task_force_attack: Option<FriendlyTaskForceAttack>,
     pub opening_air_attack: Option<Vec<Option<OpeningAirAttack>>>,
     pub support_attack: Option<SupportAttack>,
+    pub night_support_attack: Option<NightSupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
     pub hougeki: Option<Vec<Option<Hougeki>>>,
@@ -101,7 +232,10 @@ impl Battle {
         match battles.battles.get(&self.cell_id) {
             Some(battle) => {
                 let battle_or = Battle {
-                    battle_order: battle.battle_order.clone().or(self.battle_order.clone()),
+                    battle_order: merge_battle_order(
+                        battle.battle_order.clone(),
+                        self.battle_order.clone(),
+                    ),
                     timestamp: battle.timestamp.or(self.timestamp),
                     midnight_timestamp: battle
                         .clone()
@@ -118,7 +252,7 @@ impl Battle {
                     e_hp_max: battle.e_hp_max.clone().or(self.e_hp_max.clone()),
                     e_combined_flag: battle
                         .e_combined_flag
-                        .or(self.e_combined_flag.clone()),
+                        .or(self.e_combined_flag),
                     f_total_damages: battle
                         .f_total_damages
                         .clone()
@@ -167,6 +301,10 @@ impl Battle {
                         .support_attack
                         .clone()
                         .or(self.support_attack.clone()),
+                    night_support_attack: battle
+                        .night_support_attack
+                        .clone()
+                        .or(self.night_support_attack.clone()),
                     opening_taisen: battle
                         .opening_taisen
                         .clone()
@@ -214,9 +352,125 @@ impl Battle {
                 battles.battles.insert(self.cell_id, battle_or);
             }
             None => {
-                battles.battles.insert(self.cell_id, self.clone());
+                let mut normalized = self.clone();
+                normalized.battle_order =
+                    merge_battle_order(None, normalized.battle_order.clone());
+                battles.battles.insert(self.cell_id, normalized);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{battle_order_phase_kind_consistent, merge_battle_order, BattlePhaseKind, BattleType};
+
+    fn representative_types() -> Vec<BattleType> {
+        vec![
+            BattleType::AirBaseAssult(()),
+            BattleType::CarrierBaseAssault(()),
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(0),
+            BattleType::SupportAttack(()),
+            BattleType::OpeningTaisen(()),
+            BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(0),
+            BattleType::ClosingRaigeki(()),
+            BattleType::FriendlyForceAttack(()),
+            BattleType::NightSupportAttack(()),
+            BattleType::MidnightHougeki(()),
+        ]
+    }
+
+    #[test]
+    fn battle_type_keys_are_unique() {
+        let types = representative_types();
+        for (i, left) in types.iter().enumerate() {
+            for right in types.iter().skip(i + 1) {
+                assert_ne!(
+                    i64::from(left.clone()),
+                    i64::from(right.clone()),
+                    "BattleType key collision: {:?} and {:?}",
+                    left,
+                    right
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn night_phase_classification_is_explicit() {
+        assert_eq!(
+            BattleType::NightSupportAttack(()).phase_kind(),
+            BattlePhaseKind::Night
+        );
+        assert_eq!(
+            BattleType::MidnightHougeki(()).phase_kind(),
+            BattlePhaseKind::Night
+        );
+        assert_eq!(BattleType::Hougeki(0).phase_kind(), BattlePhaseKind::Day);
+    }
+
+    #[test]
+    fn merge_battle_order_appends_only_new_phases() {
+        let existing = Some(vec![BattleType::Hougeki(0), BattleType::ClosingRaigeki(())]);
+        let incoming = Some(vec![BattleType::NightSupportAttack(()), BattleType::Hougeki(0)]);
+
+        let merged = merge_battle_order(existing, incoming).unwrap();
+        let keys: Vec<i64> = merged.into_iter().map(i64::from).collect();
+
+        assert_eq!(keys, vec![i64::from(BattleType::Hougeki(0)), i64::from(BattleType::ClosingRaigeki(())), i64::from(BattleType::NightSupportAttack(()))]);
+    }
+
+    #[test]
+    fn phase_kind_consistent_rejects_mixed_day_night() {
+        // 昼戦フェーズのみ → OK
+        assert!(battle_order_phase_kind_consistent(&[
+            BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(1),
+            BattleType::ClosingRaigeki(()),
+        ]));
+        // 夜戦フェーズのみ → OK
+        assert!(battle_order_phase_kind_consistent(&[
+            BattleType::NightSupportAttack(()),
+            BattleType::MidnightHougeki(()),
+        ]));
+        // 昼戦に夜戦を混入 → NG
+        assert!(!battle_order_phase_kind_consistent(&[
+            BattleType::Hougeki(1),
+            BattleType::MidnightHougeki(()),
+        ]));
+        // 夜戦に昼戦を混入 → NG
+        assert!(!battle_order_phase_kind_consistent(&[
+            BattleType::NightSupportAttack(()),
+            BattleType::Hougeki(0),
+        ]));
+    }
+
+    #[test]
+    fn merge_battle_order_panics_when_existing_has_duplicate_keys() {
+        let existing = Some(vec![BattleType::Hougeki(0), BattleType::Hougeki(0)]);
+
+        let result = std::panic::catch_unwind(|| {
+            let _ = merge_battle_order(existing, None);
+        });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn merge_battle_order_panics_when_incoming_has_duplicate_keys() {
+        let incoming = Some(vec![
+            BattleType::NightSupportAttack(()),
+            BattleType::NightSupportAttack(()),
+            BattleType::MidnightHougeki(()),
+        ]);
+
+        let result = std::panic::catch_unwind(|| {
+            let _ = merge_battle_order(None, incoming);
+        });
+
+        assert!(result.is_err());
     }
 }
 
@@ -401,13 +655,6 @@ pub struct MidnightHougeki {
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
-pub struct SupportAttack {
-    pub support_hourai: Option<SupportHourai>,
-    pub support_airatack: Option<SupportAiratack>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "battle.ts")]
 pub struct SupportHourai {
     pub cl_list: Vec<i64>,
     pub damage: Vec<f32>,
@@ -415,6 +662,20 @@ pub struct SupportHourai {
     pub ship_id: Vec<i64>,
     pub protect_flag: Vec<bool>,
     pub now_hps: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
+pub struct SupportAttack {
+    pub support_hourai: Option<SupportHourai>,
+    pub support_airatack: Option<SupportAiratack>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
+pub struct NightSupportAttack {
+    pub hourai: Option<SupportHourai>,
+    pub airatack: Option<SupportAiratack>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
