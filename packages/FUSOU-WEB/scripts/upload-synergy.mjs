@@ -33,6 +33,7 @@
  *   --admin-token       X-ADMIN-TOKEN value. Default: ADMIN_TOKEN env var
  *   --env               "production" or omit for dev
  *   --dry-run           Print plan without executing
+ *   --force             Treat duplicate-manifest 409 as success (idempotent)
  *
  * NOTE: --bucket-name must be the actual R2 bucket name (e.g. "kc-master-data"),
  * NOT the wrangler binding name ("MASTER_DATA_BUCKET").
@@ -40,13 +41,16 @@
 
 import { createHash } from "crypto";
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
-import { resolve, basename, dirname } from "path";
+import { resolve, basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Default file: equip_synergy_detector output lives next to FUSOU-WEB in the monorepo
-const DEFAULT_FILE = resolve(__dirname, "../../equip_synergy_detector/output/slot_item_effects.json");
+const DEFAULT_FILE = resolve(
+  __dirname,
+  "../../equip_synergy_detector/output/slot_item_effects.json",
+);
 
 // ── Parse CLI arguments ────────────────────────────────────────────
 function parseArgs(argv) {
@@ -54,12 +58,17 @@ function parseArgs(argv) {
   const opts = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--file" && args[i + 1]) opts.file = args[++i];
-    else if (args[i] === "--period-tag" && args[i + 1]) opts.periodTag = args[++i];
-    else if (args[i] === "--api-start2-hash" && args[i + 1]) opts.apiStart2Hash = args[++i];
-    else if (args[i] === "--bucket-name" && args[i + 1]) opts.bucketName = args[++i];
-    else if (args[i] === "--admin-token" && args[i + 1]) opts.adminToken = args[++i];
+    else if (args[i] === "--period-tag" && args[i + 1])
+      opts.periodTag = args[++i];
+    else if (args[i] === "--api-start2-hash" && args[i + 1])
+      opts.apiStart2Hash = args[++i];
+    else if (args[i] === "--bucket-name" && args[i + 1])
+      opts.bucketName = args[++i];
+    else if (args[i] === "--admin-token" && args[i + 1])
+      opts.adminToken = args[++i];
     else if (args[i] === "--env" && args[i + 1]) opts.env = args[++i];
     else if (args[i] === "--dry-run") opts.dryRun = true;
+    else if (args[i] === "--force") opts.force = true;
     else if (args[i] === "--help" || args[i] === "-h") opts.help = true;
   }
   return opts;
@@ -81,8 +90,18 @@ Options:
   --admin-token <token>   Default: ADMIN_TOKEN env var
   --env production        Target production (default: dev / localhost:4321)
   --dry-run               Print plan without executing
+  --force                 Treat duplicate-manifest 409 as success (idempotent)
   `);
   process.exit(1);
+}
+
+class ApiError extends Error {
+  constructor(status, body) {
+    super(`API ${status}: ${JSON.stringify(body)}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.body = body;
+  }
 }
 
 // ── Validation ─────────────────────────────────────────────────────
@@ -98,6 +117,14 @@ function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+function getSynergyManifestR2Keys(periodTag, periodRevision, contentHash) {
+  const basePath = `master_data_meta/sp_effect/${periodTag}/rev${periodRevision}/${contentHash}`;
+  return {
+    sp_effect_json: `${basePath}.json`,
+    manifest: `master_data_meta/manifest/${periodTag}/rev${periodRevision}/${contentHash}.manifest.json`,
+  };
+}
+
 // ── Resolve API base URL ───────────────────────────────────────────
 function resolveApiBase(env) {
   const envVar = process.env.SYNERGY_API_BASE;
@@ -107,7 +134,7 @@ function resolveApiBase(env) {
     const siteUrl = process.env.PUBLIC_SITE_URL_PRODUCTION;
     if (!siteUrl) {
       console.error(
-        "Error: PUBLIC_SITE_URL_PRODUCTION env var is required for production, or set SYNERGY_API_BASE"
+        "Error: PUBLIC_SITE_URL_PRODUCTION env var is required for production, or set SYNERGY_API_BASE",
       );
       process.exit(1);
     }
@@ -129,7 +156,7 @@ function resolveR2BucketName(env, cliOverride) {
   // Fail loudly for production rather than silently using the dev bucket.
   if (env === "production") {
     console.error(
-      "Error: --bucket-name (or MASTER_DATA_BUCKET_NAME env var) is required for production."
+      "Error: --bucket-name (or MASTER_DATA_BUCKET_NAME env var) is required for production.",
     );
     process.exit(1);
   }
@@ -138,15 +165,52 @@ function resolveR2BucketName(env, cliOverride) {
 
 // ── Wrangler R2 upload ─────────────────────────────────────────────
 function wranglerR2Put(r2Key, localPath, env, bucketName) {
-  // --remote uploads to the actual Cloudflare R2 (not local dev storage).
-  const remoteFlag = env === "production" ? " --remote" : "";
-  const cmd = `npx wrangler r2 object put "${bucketName}/${r2Key}" --file ${shellQuote(localPath)}${remoteFlag}`;
-  console.log(`  $ ${cmd}`);
-  execSync(cmd, { stdio: "inherit" });
-}
+  // Use argv-based spawn (not shell command string) to avoid platform-specific
+  // quoting issues on Windows paths passed to --file.
+  const wranglerArgs = [
+    "wrangler",
+    "r2",
+    "object",
+    "put",
+    `${bucketName}/${r2Key}`,
+    "--file",
+    localPath,
+  ];
+  if (env === "production") wranglerArgs.push("--remote");
 
-function shellQuote(value) {
-  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+  const localWrangler =
+    process.platform === "win32"
+      ? join(__dirname, "..", "node_modules", ".bin", "wrangler.cmd")
+      : join(__dirname, "..", "node_modules", ".bin", "wrangler");
+  const spawnOptions = {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  };
+
+  const command = localWrangler;
+  const commandArgs = wranglerArgs.slice(1);
+
+  console.log(`  $ ${command} ${commandArgs.join(" ")}`);
+  let result = spawnSync(command, commandArgs, spawnOptions);
+
+  // Fallback to npx only when direct local-binary execution fails to launch.
+  if (result.error) {
+    const npxCommand = "npx";
+    console.warn(
+      `  [warn] direct wrangler launch failed (${result.error.message}); falling back to ${npxCommand}`,
+    );
+    console.log(`  $ ${npxCommand} ${wranglerArgs.join(" ")}`);
+    result = spawnSync(npxCommand, wranglerArgs, spawnOptions);
+  }
+
+  if (result.error) {
+    throw new Error(`wrangler launch failed: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `wrangler r2 object put failed with exit code ${result.status}`,
+    );
+  }
 }
 
 // ── API calls ──────────────────────────────────────────────────────
@@ -162,7 +226,7 @@ async function apiPost(baseUrl, path, body, adminToken) {
   });
   const json = await res.json();
   if (!res.ok) {
-    throw new Error(`API ${res.status}: ${JSON.stringify(json)}`);
+    throw new ApiError(res.status, json);
   }
   return json;
 }
@@ -176,7 +240,9 @@ async function main() {
   const filePath = resolve(opts.file || DEFAULT_FILE);
   if (!existsSync(filePath)) {
     console.error(`Error: File not found: ${filePath}`);
-    console.error("  Run `pnpm scan:volatile` in equip_synergy_detector first, or pass --file <path>");
+    console.error(
+      "  Run `pnpm scan:volatile` in equip_synergy_detector first, or pass --file <path>",
+    );
     process.exit(1);
   }
 
@@ -202,8 +268,10 @@ async function main() {
   // period_tag priority: --period-tag CLI > _meta.period_tag (embedded by scan.js --period-tag) > error
   const periodTag = opts.periodTag || meta.period_tag || null;
   if (!periodTag) {
-    console.error('Error: period_tag is required.');
-    console.error('  Pass --period-tag YYYY-MM-DD, or re-run scan.js with --period-tag YYYY-MM-DD to embed it.');
+    console.error("Error: period_tag is required.");
+    console.error(
+      "  Pass --period-tag YYYY-MM-DD, or re-run scan.js with --period-tag YYYY-MM-DD to embed it.",
+    );
     process.exit(1);
   }
   const apiStart2Hash = opts.apiStart2Hash || meta.api_start2_batch_hash;
@@ -214,20 +282,28 @@ async function main() {
 
   // ── Validate ───────────────────────────────────────────────────────
   if (!validatePeriodTag(periodTag)) {
-    console.error(`Error: Invalid period-tag: "${periodTag}" (expected YYYY-MM-DD)`);
+    console.error(
+      `Error: Invalid period-tag: "${periodTag}" (expected YYYY-MM-DD)`,
+    );
     process.exit(1);
   }
   if (!apiStart2Hash) {
     console.error("Error: api-start2-hash not found.");
-    console.error("  Either pass --api-start2-hash, or re-run scan.js to embed it automatically.");
+    console.error(
+      "  Either pass --api-start2-hash, or re-run scan.js to embed it automatically.",
+    );
     process.exit(1);
   }
   if (!validateSHA256(apiStart2Hash)) {
-    console.error(`Error: api-start2-hash is not a valid 64-char SHA-256 hex string`);
+    console.error(
+      `Error: api-start2-hash is not a valid 64-char SHA-256 hex string`,
+    );
     process.exit(1);
   }
   if (!adminToken) {
-    console.error("Error: admin token not found. Pass --admin-token or set the ADMIN_TOKEN env var.");
+    console.error(
+      "Error: admin token not found. Pass --admin-token or set the ADMIN_TOKEN env var.",
+    );
     process.exit(1);
   }
 
@@ -246,31 +322,98 @@ async function main() {
 
   if (opts.dryRun) {
     console.log("[dry-run] Would execute the following steps:");
-    console.log(`  1. POST /api/master-data/synergy-manifest (allocate manifest)`);
-    console.log(`  2. wrangler r2 object put ${bucketName}/<r2key> (upload JSON to R2)`);
-    console.log(`  3. POST /api/master-data/synergy-manifest/complete (finalize)`);
+    console.log(
+      `  1. POST /api/master-data/synergy-manifest (allocate manifest)`,
+    );
+    console.log(
+      `  2. wrangler r2 object put ${bucketName}/<r2key> (upload JSON to R2)`,
+    );
+    console.log(
+      `  3. POST /api/master-data/synergy-manifest/complete (finalize)`,
+    );
     return;
   }
 
   // Step 1: Allocate manifest
   console.log("[1/3] Allocating synergy manifest...");
-  const manifest = await apiPost(apiBase, "/api/master-data/synergy-manifest", {
-    period_tag: periodTag,
-    sp_effect_sha256: fileHash,
-    api_start2_batch_hash: apiStart2Hash,
-    generator_version: generatorVersion,
-    generated_at: meta.generated,
-  }, adminToken);
-  console.log(
-    `  ✓ Allocated: period_revision=${manifest.period_revision}, id=${manifest.id}`
-  );
+  let manifest;
+  let reuseExistingManifest = false;
+  try {
+    manifest = await apiPost(
+      apiBase,
+      "/api/master-data/synergy-manifest",
+      {
+        period_tag: periodTag,
+        sp_effect_sha256: fileHash,
+        api_start2_batch_hash: apiStart2Hash,
+        generator_version: generatorVersion,
+        generated_at: meta.generated,
+      },
+      adminToken,
+    );
+  } catch (err) {
+    const isDuplicate =
+      err instanceof ApiError &&
+      err.status === 409 &&
+      typeof err.body?.error === "string" &&
+      err.body.error.includes("Duplicate");
+
+    if (isDuplicate && opts.force) {
+      const existingRevision = Number(err.body?.existing_period_revision);
+      if (!Number.isInteger(existingRevision) || existingRevision <= 0) {
+        throw new Error(
+          `${err.message}\nHint: duplicate response did not include a valid existing_period_revision.`,
+        );
+      }
+
+      reuseExistingManifest = true;
+      manifest = {
+        id: `existing-${existingRevision}`,
+        period_revision: existingRevision,
+        r2_keys: getSynergyManifestR2Keys(
+          periodTag,
+          existingRevision,
+          fileHash,
+        ),
+      };
+
+      console.warn(
+        `[force] Duplicate manifest already exists for period_tag=${periodTag} (existing_revision=${existingRevision}).`,
+      );
+      console.warn(
+        "[force] Reusing existing revision and continuing upload/complete steps.",
+      );
+    } else if (isDuplicate) {
+      throw new Error(
+        `${err.message}\nHint: If this is expected, retry with --force to treat duplicate as success.`,
+      );
+    } else {
+      throw err;
+    }
+  }
+  if (reuseExistingManifest) {
+    console.log(
+      `  ✓ Reusing existing manifest: period_revision=${manifest.period_revision}`,
+    );
+  } else {
+    console.log(
+      `  ✓ Allocated: period_revision=${manifest.period_revision}, id=${manifest.id}`,
+    );
+  }
   console.log(`  R2 key: ${manifest.r2_keys.sp_effect_json}`);
   console.log();
 
   // Step 2: Upload to R2 via wrangler
   console.log("[2/3] Uploading to R2...");
-  wranglerR2Put(manifest.r2_keys.sp_effect_json, filePath, opts.env, bucketName);
-  console.log(`  ✓ sp_effect_item uploaded: ${manifest.r2_keys.sp_effect_json}`);
+  wranglerR2Put(
+    manifest.r2_keys.sp_effect_json,
+    filePath,
+    opts.env,
+    bucketName,
+  );
+  console.log(
+    `  ✓ sp_effect_item uploaded: ${manifest.r2_keys.sp_effect_json}`,
+  );
 
   // Also create and upload the manifest sidecar JSON
   const manifestSidecar = JSON.stringify({
@@ -294,19 +437,41 @@ async function main() {
 
   // Step 3: Mark as completed
   console.log("[3/3] Finalizing manifest...");
-  const completed = await apiPost(
-    apiBase,
-    `/api/master-data/synergy-manifest/complete/${periodTag}/${manifest.period_revision}`,
-    {},
-    adminToken
-  );
-  console.log(`  ✓ ${completed.message} (status: ${completed.upload_status})`);
+  let finalUploadStatus;
+  try {
+    const completed = await apiPost(
+      apiBase,
+      `/api/master-data/synergy-manifest/complete/${periodTag}/${manifest.period_revision}`,
+      {},
+      adminToken,
+    );
+    finalUploadStatus = completed.upload_status;
+    console.log(
+      `  ✓ ${completed.message} (status: ${completed.upload_status})`,
+    );
+  } catch (err) {
+    const isNoPendingAfterForce =
+      reuseExistingManifest &&
+      err instanceof ApiError &&
+      err.status === 404 &&
+      typeof err.body?.error === "string" &&
+      err.body.error.includes("No pending manifest found");
+
+    if (!isNoPendingAfterForce) {
+      throw err;
+    }
+
+    finalUploadStatus = "already-completed";
+    console.warn(
+      "  [force] Manifest was not pending (likely already completed). Treating as success.",
+    );
+  }
   console.log();
 
   console.log("=== Done ===");
   console.log(`  period_tag:      ${periodTag}`);
   console.log(`  period_revision: ${manifest.period_revision}`);
-  console.log(`  upload_status:   ${completed.upload_status}`);
+  console.log(`  upload_status:   ${finalUploadStatus}`);
 }
 
 main().catch((err) => {
