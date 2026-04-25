@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::sync::Arc;
 
+use cap_std::fs::Dir;
 use kc_api::database::table::PORT_TABLE_NAMES;
 use tokio::fs;
 
 use crate::storage::constants::LOCAL_STORAGE_PROVIDER_NAME;
-#[cfg(any(not(dev), check_release))]
-use crate::storage::constants::STORAGE_SUB_DIR_NAME;
+use crate::storage::root_validator;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::{
     get_all_get_data_tables, get_all_port_tables,
@@ -13,25 +15,35 @@ use crate::storage::common::{
     integrate_by_table_name,
     path_layout,
 };
+use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryService};
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct LocalFileSystemProvider {
     root: PathBuf,
+    /// cap-std Dir handle rooted at `root`.  All write operations go through
+    /// this handle, which uses openat internally and prevents symlink escapes
+    /// and TOCTOU races at the kernel level.
+    root_dir: Arc<Dir>,
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
 }
 
 impl LocalFileSystemProvider {
-    pub fn try_new(output_directory: Option<String>) -> Result<Self, StorageError> {
-        let root = output_directory
-            .map(PathBuf::from)
-            .unwrap_or_else(default_root_directory);
-        Ok(Self { root })
-    }
-
-    fn period_directory(&self, period_tag: &str) -> PathBuf {
-        path_layout::master_dir(&self.root, period_tag)
-            .parent()
-            .unwrap()
-            .to_path_buf()
+    pub fn try_new(
+        output_directory: Option<String>,
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>,
+    ) -> Result<Self, StorageError> {
+        let root = root_validator::resolve_root(output_directory);
+        let root_dir = Arc::new(root_validator::open_root_dir(&root).map_err(|e| {
+            StorageError::Io(std::io::Error::other(e.to_string()))
+        })?);
+        Ok(Self {
+            root,
+            root_dir,
+            pending_store,
+            retry_service,
+        })
     }
 
     /// Get the integration batch size for LocalFS
@@ -47,28 +59,47 @@ impl LocalFileSystemProvider {
         fs::create_dir_all(path).await?;
         Ok(())
     }
-}
 
-fn default_root_directory() -> PathBuf {
-    #[cfg(dev)]
-    {
-        return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../FUSOU-DATABASE");
-    }
+    fn queue_local_write_retry(&self, file_path: &Path, bytes: &[u8], _error_msg: &str) {
+        let pending_save = self.pending_store.clone();
+        let retry = self.retry_service.clone();
+        let path = file_path.to_string_lossy().to_string();
+        let relative_path = match file_path.strip_prefix(&self.root) {
+            Ok(rel) => rel.to_string_lossy().to_string(),
+            Err(_) => {
+                tracing::warn!(
+                    file_path = %file_path.display(),
+                    root = %self.root.display(),
+                    "local fs write failed outside configured root; skipping pending retry"
+                );
+                return;
+            }
+        };
+        let data = bytes.to_vec();
 
-    #[cfg(any(not(dev), check_release))]
-    {
-        if let Some(doc_dir) = dirs::document_dir() {
-            doc_dir
-                .join("fusou")
-                .join(STORAGE_SUB_DIR_NAME)
-        } else if let Ok(current_dir) = std::env::current_dir() {
-            current_dir
-                .join("fusou")
-                .join(STORAGE_SUB_DIR_NAME)
-        } else {
-            PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME)
-        }
+        tokio::spawn(async move {
+            let mut headers = HashMap::new();
+            headers.insert("remote-path".to_string(), path.clone());
+
+            let context = UploadContext::Custom(serde_json::json!({
+                "operation": "localfs_write",
+                "relative_path": relative_path,
+            }));
+            let context_str = serde_json::to_string(&context).unwrap_or_default();
+
+            match pending_save.save_pending("localfs", &headers, &data, Some(context_str)) {
+                Ok(PendingSaveOutcome::Created(_)) => {
+                    tracing::warn!("local fs write failed; saved pending upload for retry");
+                    retry.trigger_retry().await;
+                }
+                Ok(PendingSaveOutcome::Existing(meta)) => {
+                    tracing::info!(pending_id = %meta.id, "matching pending localfs retry already exists");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to save pending localfs retry");
+                }
+            }
+        });
     }
 }
 
@@ -90,13 +121,25 @@ impl StorageProvider for LocalFileSystemProvider {
         table: &'a GetDataTableEncode,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let _period_dir = self.period_directory(period_tag);
             let master_dir = path_layout::master_dir(&self.root, period_tag);
             Self::ensure_dir(&master_dir).await?;
 
             for (table_name, bytes) in get_all_get_data_tables(table) {
                 let file_path = master_dir.join(generate_master_data_filename(table_name));
-                fs::write(file_path, bytes).await?;
+                let relative = match file_path.strip_prefix(&self.root) {
+                    Ok(r) => r.to_string_lossy().to_string(),
+                    Err(_) => {
+                        tracing::error!("master data path outside root; skipping");
+                        continue;
+                    }
+                };
+                let dir = Arc::clone(&self.root_dir);
+                let data = bytes.to_vec();
+                if let Err(e) = root_validator::write_at_relative_async(dir, relative, data).await {
+                    let io_err = std::io::Error::other(e.to_string());
+                    self.queue_local_write_retry(&file_path, bytes, &io_err.to_string());
+                    return Err(StorageError::Io(io_err));
+                }
             }
 
             Ok(())
@@ -111,7 +154,6 @@ impl StorageProvider for LocalFileSystemProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let _period_dir = self.period_directory(period_tag);
             let map_dir = path_layout::map_dir(&self.root, period_tag, maparea_id, mapinfo_no);
             Self::ensure_dir(&map_dir).await?;
 
@@ -127,15 +169,29 @@ impl StorageProvider for LocalFileSystemProvider {
                     );
                     continue;
                 }
-                    let table_dir = path_layout::table_dir(&self.root, period_tag, maparea_id, mapinfo_no, table_name);
+                let table_dir = path_layout::table_dir(&self.root, period_tag, maparea_id, mapinfo_no, table_name);
                 Self::ensure_dir(&table_dir).await?;
                 let file_path = table_dir.join(&file_name);
-                fs::write(&file_path, bytes).await?;
+                let relative = match file_path.strip_prefix(&self.root) {
+                    Ok(r) => r.to_string_lossy().to_string(),
+                    Err(_) => {
+                        tracing::error!("port table path outside root; skipping");
+                        continue;
+                    }
+                };
+                let dir = Arc::clone(&self.root_dir);
+                let data = bytes.to_vec();
+                let len = data.len();
+                if let Err(e) = root_validator::write_at_relative_async(dir, relative, data).await {
+                    let io_err = std::io::Error::other(e.to_string());
+                    self.queue_local_write_retry(&file_path, bytes, &io_err.to_string());
+                    return Err(StorageError::Io(io_err));
+                }
                 tracing::info!(
                     "Saved {} table to local FS: {} ({} bytes)",
                     table_name,
                     file_path.display(),
-                    bytes.len()
+                    len
                 );
             }
 
@@ -175,8 +231,8 @@ impl StorageProvider for LocalFileSystemProvider {
                 // Resolve map ids from folder name for consistent logging
                 let (maparea_id, mapinfo_no) = map_dir
                     .file_name()
-                    .and_then(|s| s.to_str())
-                    .and_then(|name| path_layout::parse_map_ids(name))
+                    .and_then(std::ffi::OsStr::to_str)
+                    .and_then(path_layout::parse_map_ids)
                     .unwrap_or((0, 0));
 
                 // Process each table type
@@ -240,7 +296,17 @@ impl StorageProvider for LocalFileSystemProvider {
                         Ok(content) if !content.is_empty() => {
                             // Write integrated file
                             let integrated_path = table_dir.join(&file_name);
-                            fs::write(&integrated_path, content).await?;
+                            let relative = match integrated_path.strip_prefix(&self.root) {
+                                Ok(r) => r.to_string_lossy().to_string(),
+                                Err(_) => {
+                                    tracing::error!("integrated path outside root; skipping");
+                                    continue;
+                                }
+                            };
+                            let dir = Arc::clone(&self.root_dir);
+                            root_validator::write_at_relative_async(dir, relative, content)
+                                .await
+                                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
 
                             // Delete original files
                             for file_path in &files_to_process {
