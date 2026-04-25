@@ -23,7 +23,13 @@ pub struct PendingMeta {
 }
 
 impl PendingMeta {
-    pub fn new(id: String, target_url: String, headers: HashMap<String, String>, file_path: PathBuf, context: Option<String>) -> Self {
+    pub fn new(
+        id: String,
+        target_url: String,
+        headers: HashMap<String, String>,
+        file_path: PathBuf,
+        context: Option<String>,
+    ) -> Self {
         let created_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
@@ -108,7 +114,28 @@ impl PendingStore {
         })
     }
 
-    pub fn save_pending(&self, target_url: &str, headers: &HashMap<String, String>, data: &[u8], context: Option<String>) -> Result<PendingSaveOutcome, io::Error> {
+    fn is_expected_pending_file_path(&self, meta: &PendingMeta) -> bool {
+        let expected = self.base_dir.join(format!("{}.bin", meta.id));
+        if meta.file_path != expected {
+            return false;
+        }
+
+        match (
+            fs::canonicalize(&self.base_dir),
+            fs::canonicalize(&meta.file_path),
+        ) {
+            (Ok(base_canonical), Ok(file_canonical)) => file_canonical.starts_with(base_canonical),
+            _ => false,
+        }
+    }
+
+    pub fn save_pending(
+        &self,
+        target_url: &str,
+        headers: &HashMap<String, String>,
+        data: &[u8],
+        context: Option<String>,
+    ) -> Result<PendingSaveOutcome, io::Error> {
         // Prevent duplicate-file races when multiple tasks fail the same upload simultaneously.
         let _guard = self
             .save_lock
@@ -123,12 +150,9 @@ impl PendingStore {
         let remote_path = normalized_headers.get("remote-path").map(String::as_str);
         let context_ref = context.as_deref();
 
-        if let Some(existing) = self.find_existing_pending(
-            target_url,
-            &content_hash,
-            remote_path,
-            context_ref,
-        ) {
+        if let Some(existing) =
+            self.find_existing_pending(target_url, &content_hash, remote_path, context_ref)
+        {
             tracing::info!(
                 pending_id = %existing.id,
                 target_url,
@@ -156,8 +180,14 @@ impl PendingStore {
         }
 
         // Create metadata
-        let meta = PendingMeta::new(id, target_url.to_string(), normalized_headers, file_path.clone(), context);
-        
+        let meta = PendingMeta::new(
+            id,
+            target_url.to_string(),
+            normalized_headers,
+            file_path.clone(),
+            context,
+        );
+
         // Save metadata
         let meta_file_name = format!("{}.json", meta.id);
         let meta_path = self.base_dir.join(&meta_file_name);
@@ -168,7 +198,7 @@ impl PendingStore {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, e));
             }
         };
-        
+
         if let Err(e) = fs::write(&meta_path, meta_json) {
             let _ = fs::remove_file(&file_path);
             return Err(e);
@@ -184,15 +214,16 @@ impl PendingStore {
 
     pub fn list_pending(&self) -> Vec<PendingMeta> {
         let mut pending_items = Vec::new();
-        
+
         if let Ok(entries) = fs::read_dir(&self.base_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("json") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         if let Ok(meta) = serde_json::from_str::<PendingMeta>(&content) {
-                            // Verify if binary file exists
-                            if meta.file_path.exists() {
+                            // Only load metadata that points to the expected id.bin file under base_dir.
+                            if self.is_expected_pending_file_path(&meta) && meta.file_path.exists()
+                            {
                                 pending_items.push(meta);
                             } else {
                                 // Cleanup orphaned metadata
@@ -203,7 +234,7 @@ impl PendingStore {
                 }
             }
         }
-        
+
         // Sort by created_at (oldest first)
         pending_items.sort_by_key(|k| k.created_at);
         pending_items
@@ -234,7 +265,7 @@ impl PendingStore {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-            
+
         let pending = self.list_pending();
         for meta in pending {
             if now > meta.created_at + ttl_seconds {
@@ -243,7 +274,7 @@ impl PendingStore {
             }
         }
     }
-    
+
     pub fn read_data(&self, meta: &PendingMeta) -> Result<Vec<u8>, io::Error> {
         fs::read(&meta.file_path)
     }
