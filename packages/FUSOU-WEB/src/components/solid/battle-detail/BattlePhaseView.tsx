@@ -65,6 +65,29 @@ function sumDamage(rows: Array<Record<string, unknown>>): number {
   return total;
 }
 
+function normalizeNightSupportAttackData(
+  battle: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const nested = battle.night_support_attack as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const hourai = (nested?.hourai ?? battle.night_support_hourai) as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const airatack = (nested?.airatack ??
+    nested?.airattack ??
+    battle.night_support_airatack ??
+    battle.night_support_airattack) as
+    | Record<string, unknown>
+    | null
+    | undefined;
+
+  if (!hourai && !airatack) return null;
+  return { hourai, airatack };
+}
+
 // ── Per-attack-type renderers ─────────────────────────────────────────────
 
 function ShellingRows(props: {
@@ -714,6 +737,23 @@ function PhaseCard(props: {
         badges.push(`航空 ${eDmg}`);
       }
       return badges;
+    } else if (key === "NightSupportAttack") {
+      const pd = props.phaseData as Record<string, unknown> | null;
+      const badges: string[] = [];
+      const totalDmg =
+        ((pd as any)?.hourai?.damage as number[] | undefined)?.reduce(
+          (s: number, d: number) => s + d,
+          0,
+        ) ?? 0;
+      if ((pd as any)?.hourai) badges.push(`砲雷 ${totalDmg}`);
+      if ((pd as any)?.airatack) {
+        const eDmg =
+          (
+            (pd as any).airatack.e_damage?.damages as number[] | undefined
+          )?.reduce((s: number, d: number) => s + d, 0) ?? 0;
+        badges.push(`航空 ${eDmg}`);
+      }
+      return badges.length > 0 ? badges : ["夜間支援 0"];
     }
     return [];
   };
@@ -748,6 +788,32 @@ function PhaseCard(props: {
         ? (props.phaseData as Record<string, unknown>[])[0]
         : (props.phaseData as Record<string, unknown>);
       if (first) return <AirAttackRows data={first} fleets={props.fleets} />;
+    } else if (key === "NightSupportAttack") {
+      const pd = props.phaseData as any;
+      return (
+        <div>
+          <Show when={pd?.hourai}>
+            <div class="text-sm">
+              夜間支援敵被ダメ合計:{" "}
+              <span class="font-mono text-error">
+                {pd.hourai.damage?.reduce((s: number, d: number) => s + d, 0) ??
+                  0}
+              </span>
+            </div>
+          </Show>
+          <Show when={pd?.airatack}>
+            <div class="text-sm">
+              夜間航空支援敵被ダメ合計:{" "}
+              <span class="font-mono text-error">
+                {pd.airatack.e_damage?.damages?.reduce(
+                  (s: number, d: number) => s + d,
+                  0,
+                ) ?? 0}
+              </span>
+            </div>
+          </Show>
+        </div>
+      );
     } else if (key === "SupportAttack") {
       const pd = props.phaseData as any;
       return (
@@ -836,6 +902,8 @@ function extractPhaseEntries(
         return battle.closing_raigeki;
       case "FriendlyForceAttack":
         return battle.friendly_force_attack;
+      case "NightSupportAttack":
+        return normalizeNightSupportAttackData(battle);
       case "MidnightHougeki":
         return battle.midnight_hougeki;
       default:
@@ -910,6 +978,11 @@ function extractPhaseEntries(
       entries.push({
         type: { FriendlyForceAttack: 0 },
         data: battle.friendly_force_attack,
+      });
+    if (normalizeNightSupportAttackData(battle))
+      entries.push({
+        type: { NightSupportAttack: 0 },
+        data: phaseDataForKey(battle, "NightSupportAttack", null),
       });
     if (battle.midnight_hougeki)
       entries.push({

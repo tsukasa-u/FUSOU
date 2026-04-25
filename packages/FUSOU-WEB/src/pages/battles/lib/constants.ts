@@ -9,6 +9,7 @@ export const PHASE_NAMES: Record<string, string> = {
   Hougeki: "砲撃戦",
   ClosingRaigeki: "閉幕雷撃",
   FriendlyForceAttack: "友軍艦隊",
+  NightSupportAttack: "夜間支援",
   MidnightHougeki: "夜戦",
 };
 
@@ -43,11 +44,21 @@ export const RANK_COLORS: Record<string, string> = {
 };
 
 export const FRIEND_COLORS = [
-  "#3b82f6", "#06b6d4", "#0ea5e9", "#6366f1", "#8b5cf6", "#38bdf8",
+  "#3b82f6",
+  "#06b6d4",
+  "#0ea5e9",
+  "#6366f1",
+  "#8b5cf6",
+  "#38bdf8",
 ];
 
 export const ENEMY_COLORS = [
-  "#ef4444", "#f97316", "#eab308", "#ec4899", "#f43f5e", "#fb923c",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#ec4899",
+  "#f43f5e",
+  "#fb923c",
 ];
 
 export const DAMAGE_ZONES = [

@@ -76,6 +76,29 @@ export function buildTimelineEvents(
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
+  function normalizeNightSupportAttack(
+    source: Record<string, unknown>,
+  ): Record<string, unknown> | null {
+    const nested = source.night_support_attack as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const hourai = (nested?.hourai ?? source.night_support_hourai) as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    const airatack = (nested?.airatack ??
+      nested?.airattack ??
+      source.night_support_airatack ??
+      source.night_support_airattack) as
+      | Record<string, unknown>
+      | null
+      | undefined;
+
+    if (!hourai && !airatack) return null;
+    return { hourai, airatack };
+  }
+
   function toValidIndex(value: unknown, limit: number): number | null {
     const idx = Number(value);
     if (!Number.isFinite(idx)) return null;
@@ -526,6 +549,61 @@ export function buildTimelineEvents(
             phaseLabel,
           );
         }
+      } else if (key === "NightSupportAttack") {
+        const night = normalizeNightSupportAttack(battle);
+        if (!night) continue;
+        const hourai = night.hourai as
+          | Record<string, unknown>
+          | null
+          | undefined;
+        if (hourai?.damage) {
+          const dmgs = Array.isArray(hourai.damage)
+            ? (hourai.damage as unknown[])
+            : [];
+          const eNow = Array.isArray(hourai.now_hps)
+            ? (hourai.now_hps as number[])
+            : [];
+          const shipIds = Array.isArray(hourai.ship_id)
+            ? (hourai.ship_id as unknown[])
+            : [];
+          for (let i = 0; i < dmgs.length; i++) {
+            const dmg = Number(dmgs[i] ?? 0) || 0;
+            if (dmg <= 0) continue;
+            const beforeHp = Number(eNow[i] ?? 0) || 0;
+            events.push({
+              phase: phaseLabel,
+              type: "shelling",
+              attackerSide: "friend",
+              attackerIdx: null,
+              attackerGroup: [],
+              defenderSide: "enemy",
+              defenderIdx: i,
+              damage: dmg,
+              crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+              sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+              slotItems: [],
+              fHps: [],
+              eHps: eNow,
+              attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+            });
+          }
+        }
+        const nightAir = night.airatack as Record<string, unknown> | undefined;
+        if (nightAir?.e_damage) {
+          const ed = nightAir.e_damage as Record<string, unknown>;
+          const fd = nightAir.f_damage as Record<string, unknown> | undefined;
+          extractAirAttackEvents(
+            {
+              e_damages: ed.damages,
+              f_damages: fd?.damages,
+              e_now_hps: ed.now_hps,
+              f_now_hps: fd?.now_hps,
+              e_plane_from: [],
+              f_plane_from: [],
+            },
+            phaseLabel,
+          );
+        }
       } else if (key === "FriendlyForceAttack") {
         const ffa = battle.friendly_force_attack as any;
         const ffShipIds: number[] = Array.isArray(ffa?.fleet_info?.ship_id)
@@ -668,6 +746,57 @@ export function buildTimelineEvents(
           f_plane_from: [],
         },
         PHASE_NAMES.SupportAttack,
+      );
+    }
+    const night = normalizeNightSupportAttack(battle);
+    const nightHourai = night?.hourai as Record<string, unknown> | undefined;
+    if (nightHourai?.damage) {
+      const hourai = nightHourai;
+      const dmgs = Array.isArray(hourai.damage)
+        ? (hourai.damage as unknown[])
+        : [];
+      const eNow = Array.isArray(hourai.now_hps)
+        ? (hourai.now_hps as number[])
+        : [];
+      const shipIds = Array.isArray(hourai.ship_id)
+        ? (hourai.ship_id as unknown[])
+        : [];
+      for (let i = 0; i < dmgs.length; i++) {
+        const dmg = Number(dmgs[i] ?? 0) || 0;
+        if (dmg <= 0) continue;
+        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        events.push({
+          phase: PHASE_NAMES.NightSupportAttack,
+          type: "shelling",
+          attackerSide: "friend",
+          attackerIdx: null,
+          attackerGroup: [],
+          defenderSide: "enemy",
+          defenderIdx: i,
+          damage: dmg,
+          crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          slotItems: [],
+          fHps: [],
+          eHps: eNow,
+          attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+        });
+      }
+    }
+    const nightAir = night?.airatack as Record<string, unknown> | undefined;
+    if (nightAir?.e_damage) {
+      const ed = nightAir.e_damage as Record<string, unknown>;
+      const fd = nightAir.f_damage as Record<string, unknown> | undefined;
+      extractAirAttackEvents(
+        {
+          e_damages: ed.damages,
+          f_damages: fd?.damages,
+          e_now_hps: ed.now_hps,
+          f_now_hps: fd?.now_hps,
+          e_plane_from: [],
+          f_plane_from: [],
+        },
+        PHASE_NAMES.NightSupportAttack,
       );
     }
     // Main battle phases
