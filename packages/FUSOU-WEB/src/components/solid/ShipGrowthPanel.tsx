@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import {
+  batch,
   createEffect,
   For,
   Show,
@@ -28,10 +29,29 @@ Chart.register(...registerables);
 
 // ── Types ──────────────────────────────────────────────────────────
 
+type PeriodSource = "live" | "cumulative";
+
 type PeriodSummary = {
   period_tag: string;
   table_version: string;
+  source?: PeriodSource;
 };
+
+const CUMULATIVE_PERIOD_TAG = "__cumulative__";
+const CUMULATIVE_TABLE_VERSION = "__archive__";
+
+function isCumulativePeriod(p: PeriodSummary | null | undefined): boolean {
+  return (
+    !!p &&
+    p.period_tag === CUMULATIVE_PERIOD_TAG &&
+    p.table_version === CUMULATIVE_TABLE_VERSION
+  );
+}
+
+function periodLabel(p: PeriodSummary): string {
+  if (isCumulativePeriod(p)) return "累積（過去アーカイブ統合）";
+  return `${p.period_tag} (v${p.table_version})`;
+}
 
 type ExpRow = {
   lv: number;
@@ -277,6 +297,12 @@ export default function ShipGrowthPanel() {
   const [initialMasterId, setInitialMasterId] = createSignal<number | null>(
     null,
   );
+  const [initialCumulative, setInitialCumulative] = createSignal(false);
+  // Tracks which period the exp data was actually fetched from. In cumulative
+  // mode, exp data is sourced from the most recent live period (archives do
+  // not store exp tables), so this differs from selectedPeriod().
+  const [expSourcePeriod, setExpSourcePeriod] =
+    createSignal<PeriodSummary | null>(null);
 
   const selectedPeriod = createMemo(
     () => periods()[selectedPeriodIdx()] ?? null,
@@ -344,10 +370,24 @@ export default function ShipGrowthPanel() {
       const json = (await res.json()) as {
         ok: boolean;
         periods: PeriodSummary[];
+        cumulative_available?: boolean;
       };
       if (!json.ok || !Array.isArray(json.periods))
         throw new Error("Unexpected response");
-      setPeriods(json.periods);
+      const base: PeriodSummary[] = json.periods.map((p) => ({
+        period_tag: p.period_tag,
+        table_version: p.table_version,
+        source: "live",
+      }));
+      const merged: PeriodSummary[] = [...base];
+      if (json.cumulative_available) {
+        merged.push({
+          period_tag: CUMULATIVE_PERIOD_TAG,
+          table_version: CUMULATIVE_TABLE_VERSION,
+          source: "cumulative",
+        });
+      }
+      setPeriods(merged);
     } catch (e) {
       setError(
         `期間データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
@@ -417,15 +457,35 @@ export default function ShipGrowthPanel() {
     setLoadingData(true);
     setError(null);
     try {
-      // Always fetch exp curve (no master_id required)
-      const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
-      const expRes = await cachedFetch(expUrl);
-      if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
-      const expJson = (await expRes.json()) as { ok: boolean; exp: ExpRow[] };
-      setExpRows(expJson.exp ?? []);
+      const cumulative = isCumulativePeriod(period);
 
-      // Always fetch full bounds once per period and reuse locally for ship switches.
-      const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
+      // Exp curve: not stored in archives. For cumulative selection fall back
+      // to whatever live period exists (best-effort) so the chart still shows
+      // a reference exp curve. If no live period exists, skip.
+      let expPeriod: PeriodSummary | null = period;
+      if (cumulative) {
+        expPeriod = periods().find((p) => p.source === "live") ?? null;
+      }
+      if (expPeriod) {
+        const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(expPeriod.period_tag)}&table_version=${encodeURIComponent(expPeriod.table_version)}`;
+        const expRes = await cachedFetch(expUrl);
+        if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
+        const expJson = (await expRes.json()) as {
+          ok: boolean;
+          exp: ExpRow[];
+        };
+        setExpRows(expJson.exp ?? []);
+        setExpSourcePeriod(expPeriod);
+      } else {
+        setExpRows([]);
+        setExpSourcePeriod(null);
+      }
+
+      // Bounds/caps: route to /cumulative for cumulative selection,
+      // /bounds for live periods.
+      const boundsUrl = cumulative
+        ? "/api/ship-growth/cumulative"
+        : `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
       const boundsRes = await cachedFetch(boundsUrl);
       if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
       const boundsJson = (await boundsRes.json()) as {
@@ -433,8 +493,10 @@ export default function ShipGrowthPanel() {
         bounds: BoundRow[];
         caps?: CapRow[];
       };
-      setAllBoundRows(normalizeBoundRows(boundsJson.bounds));
-      setAllCapRows(normalizeCapRows(boundsJson.caps));
+      batch(() => {
+        setAllBoundRows(normalizeBoundRows(boundsJson.bounds));
+        setAllCapRows(normalizeCapRows(boundsJson.caps));
+      });
       applySelectedShipBounds(selectedMasterId());
     } catch (e) {
       setError(
@@ -450,6 +512,7 @@ export default function ShipGrowthPanel() {
     setInitialPeriodTag(params.get("period_tag"));
     setInitialTableVersion(params.get("table_version"));
     setInitialMasterId(parsePositiveInt(params.get("master_id")));
+    setInitialCumulative(params.get("cumulative") === "1");
 
     fetchSummary();
     fetchShipMasters();
@@ -458,6 +521,15 @@ export default function ShipGrowthPanel() {
   createEffect(() => {
     const rows = periods();
     if (rows.length === 0) return;
+
+    if (initialCumulative()) {
+      const cIdx = rows.findIndex(isCumulativePeriod);
+      if (cIdx >= 0) setSelectedPeriodIdx(cIdx);
+      setInitialCumulative(false);
+      setInitialPeriodTag(null);
+      setInitialTableVersion(null);
+      return;
+    }
 
     const periodTag = initialPeriodTag();
     const tableVersion = initialTableVersion();
@@ -511,8 +583,15 @@ export default function ShipGrowthPanel() {
     if (!period) return;
 
     const url = new URL(window.location.href);
-    url.searchParams.set("period_tag", period.period_tag);
-    url.searchParams.set("table_version", period.table_version);
+    if (isCumulativePeriod(period)) {
+      url.searchParams.set("cumulative", "1");
+      url.searchParams.delete("period_tag");
+      url.searchParams.delete("table_version");
+    } else {
+      url.searchParams.delete("cumulative");
+      url.searchParams.set("period_tag", period.period_tag);
+      url.searchParams.set("table_version", period.table_version);
+    }
 
     const masterId = selectedMasterId();
     if (masterId != null) {
@@ -528,6 +607,9 @@ export default function ShipGrowthPanel() {
     const period = selectedPeriod();
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
+    // Cumulative is a synthetic local-only selection; share URLs must point
+    // to a real period.
+    if (isCumulativePeriod(period)) return null;
 
     return buildShareGrowthUrl(window.location.origin, {
       periodTag: period.period_tag,
@@ -633,11 +715,7 @@ export default function ShipGrowthPanel() {
                   }
                 >
                   <For each={periods()}>
-                    {(p, i) => (
-                      <option value={i()}>
-                        {p.period_tag} (v{p.table_version})
-                      </option>
-                    )}
+                    {(p, i) => <option value={i()}>{periodLabel(p)}</option>}
                   </For>
                 </select>
               </Show>
@@ -748,9 +826,10 @@ export default function ShipGrowthPanel() {
               <div class="card-body">
                 <h2 class="card-title text-lg">経験値テーブル (累積)</h2>
                 <p class="text-sm text-base-content/60">
-                  期間: {selectedPeriod()?.period_tag} / v
-                  {selectedPeriod()?.table_version} / Lv {expRows()[0]?.lv}〜
-                  {expRows()[expRows().length - 1]?.lv} ({expRows().length} 行)
+                  期間: {(expSourcePeriod() ?? selectedPeriod())?.period_tag} /
+                  v{(expSourcePeriod() ?? selectedPeriod())?.table_version} / Lv{" "}
+                  {expRows()[0]?.lv}〜{expRows()[expRows().length - 1]?.lv} (
+                  {expRows().length} 行)
                 </p>
                 <div class="w-full overflow-x-auto">
                   <div style="min-width: 400px; min-height: 320px;">
@@ -783,7 +862,13 @@ export default function ShipGrowthPanel() {
 
           {/* Empty state */}
           <Show
-            when={expRows().length === 0 && !loadingData() && !loadingPeriods()}
+            when={
+              expRows().length === 0 &&
+              boundRows().length === 0 &&
+              !loadingData() &&
+              !loadingPeriods() &&
+              !loadingShips()
+            }
           >
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body items-center text-center py-16">
