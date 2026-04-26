@@ -17,6 +17,7 @@ import {
 import {
   invalidateCanonicalSnapshots,
   loadOrRefreshCanonicalSnapshot,
+  saveCanonicalSnapshotToKv,
 } from "../utils/snapshot-cache";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -957,6 +958,396 @@ async function uploadShipGrowthArchiveIfNeeded(
   }
 }
 
+// ── Cumulative archive aggregation ────────────────────────────────
+//
+// The R2 archive bucket retains every old period_tag/table_version that has
+// been superseded in D1. The page needs a cumulative view (= union of all
+// past periods, max-naked / max-cap per ship-level).
+//
+// IMPORTANT: An archive object's customMetadata records the *new* period
+// that triggered the archive (= the period being prune-replaced in D1).
+// The *old* periods that the archive actually contains are only knowable
+// from the JSON body's `rows[*].period_tag` / `rows[*].table_version`.
+// As a result, any feature that depends on knowing archived (old) periods
+// must read object bodies, not customMetadata.
+//
+// Scaling strategy: archive objects are append-only (UUID-suffixed, never
+// overwritten or deleted under normal operation). We exploit that to do an
+// incremental, KV-cached delta refresh:
+//
+//   loadFull():   list every archive object, fetch all bodies, merge.
+//   delta():      list every archive object (cheap), diff against the cached
+//                 `processed_keys` set, fetch only new objects, merge into
+//                 cached bounds/caps. Idempotent merges (max(...)) make this
+//                 safe even if a key is re-processed.
+//
+// KV is the single source of truth across isolates. There is no in-isolate
+// memo — KV reads are cheap (~ms) and avoid stale-after-invalidation bugs.
+
+const ARCHIVE_PREFIX = "ship-growth/archive/";
+const ARCHIVE_FETCH_CONCURRENCY = 4;
+const ARCHIVE_LIST_PAGE_LIMIT = 1000;
+// Hard upper bound on a single LIST traversal. 1000 pages × 1000 objects =
+// 1,000,000 objects. Well above any plausible ingest rate.
+const ARCHIVE_LIST_MAX_PAGES = 1000;
+const CUMULATIVE_KV_KEY = "sg:cumulative:archive:v1";
+const CUMULATIVE_SCHEMA_VERSION = 1;
+
+interface CumulativeBoundsRow {
+  master_id: number;
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+}
+
+interface CumulativeCapsRow {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+}
+
+// Snapshot stored in KV. `processed_keys` enables delta refresh: when we
+// list R2 again we only fetch keys not already in this set. The list is
+// kept sorted to allow a quick set-difference scan.
+interface CumulativeKvSnapshot {
+  schema_version: typeof CUMULATIVE_SCHEMA_VERSION;
+  bounds: CumulativeBoundsRow[];
+  caps: CumulativeCapsRow[];
+  archive_object_count: number;
+  last_archived_at_sec: number;
+  processed_keys: string[];
+  refreshed_at: number; // epoch ms (CanonicalSnapshotBase)
+  db_synced_at: number; // epoch ms (CanonicalSnapshotBase) = last_archived_at_sec * 1000
+}
+
+function isCumulativeKvSnapshot(v: unknown): v is CumulativeKvSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    s.schema_version === CUMULATIVE_SCHEMA_VERSION &&
+    Array.isArray(s.bounds) &&
+    Array.isArray(s.caps) &&
+    typeof s.archive_object_count === "number" &&
+    typeof s.last_archived_at_sec === "number" &&
+    Array.isArray(s.processed_keys) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
+function mergeBoundsRow(
+  target: Map<string, CumulativeBoundsRow>,
+  row: CumulativeBoundsRow,
+): void {
+  const key = `${row.master_id}:${row.lv}`;
+  const existing = target.get(key);
+  if (!existing) {
+    target.set(key, { ...row });
+    return;
+  }
+  // Naked stats are derived by stripping known equipment effects from the
+  // observed value. Residual measurement noise from unmodelled equipment can
+  // only INFLATE the naked value, never deflate it. The true naked stat at
+  // (master_id, lv) is therefore best approximated by the MINIMUM observed
+  // value across all periods. This matches the in-period D1 UPSERT logic
+  // (`kaihi_naked = CASE WHEN excluded.kaihi_naked < kaihi_naked THEN
+  // excluded.kaihi_naked ELSE kaihi_naked END`).
+  //
+  // Zero is treated as "no observation" and is never used to overwrite a
+  // positive existing value (otherwise a stub/zero row would always win).
+  if (
+    row.kaihi_naked > 0 &&
+    (existing.kaihi_naked === 0 || row.kaihi_naked < existing.kaihi_naked)
+  )
+    existing.kaihi_naked = row.kaihi_naked;
+  if (
+    row.taisen_naked > 0 &&
+    (existing.taisen_naked === 0 || row.taisen_naked < existing.taisen_naked)
+  )
+    existing.taisen_naked = row.taisen_naked;
+  if (
+    row.sakuteki_naked > 0 &&
+    (existing.sakuteki_naked === 0 ||
+      row.sakuteki_naked < existing.sakuteki_naked)
+  )
+    existing.sakuteki_naked = row.sakuteki_naked;
+}
+
+function mergeCapsRow(
+  target: Map<number, CumulativeCapsRow>,
+  row: CumulativeCapsRow,
+): void {
+  const existing = target.get(row.master_id);
+  if (!existing) {
+    target.set(row.master_id, { ...row });
+    return;
+  }
+  // Caps grow upward over the life of a ship (kaizou, kaikou-2, etc.). The
+  // in-period D1 UPSERT keeps MAX (`excluded.kaihi_max > kaihi_max`); the
+  // cumulative across periods uses the same direction.
+  if (row.kaihi_max > existing.kaihi_max) existing.kaihi_max = row.kaihi_max;
+  if (row.taisen_max > existing.taisen_max)
+    existing.taisen_max = row.taisen_max;
+  if (row.sakuteki_max > existing.sakuteki_max)
+    existing.sakuteki_max = row.sakuteki_max;
+}
+
+interface ListedArchiveObject {
+  key: string;
+  archived_at_sec: number;
+}
+
+async function listAllArchiveObjects(
+  env: Bindings,
+): Promise<ListedArchiveObject[]> {
+  const out: ListedArchiveObject[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < ARCHIVE_LIST_MAX_PAGES; page += 1) {
+    const listed = await env.SHIP_GROWTH_ARCHIVE_BUCKET.list({
+      prefix: ARCHIVE_PREFIX,
+      cursor,
+      limit: ARCHIVE_LIST_PAGE_LIMIT,
+    });
+    for (const obj of listed.objects) {
+      const archivedAtRaw = obj.customMetadata?.archived_at;
+      const archivedAt = archivedAtRaw ? Number(archivedAtRaw) : NaN;
+      out.push({
+        key: obj.key,
+        archived_at_sec: Number.isFinite(archivedAt) ? archivedAt : 0,
+      });
+    }
+    if (!listed.truncated) {
+      cursor = undefined; // clear stale cursor so the post-loop check doesn't false-throw
+      break;
+    }
+    cursor = listed.cursor;
+    if (!cursor) break;
+  }
+  if (cursor) {
+    throw new Error(
+      `archive list exceeded max pages (${ARCHIVE_LIST_MAX_PAGES}); refusing partial cumulative snapshot`,
+    );
+  }
+  return out;
+}
+
+async function fetchAndMergeArchiveObject(
+  env: Bindings,
+  key: string,
+  boundsByKey: Map<string, CumulativeBoundsRow>,
+  capsByMaster: Map<number, CumulativeCapsRow>,
+): Promise<void> {
+  const obj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(key);
+  if (!obj) {
+    throw new Error(
+      `[ship-growth] archive object disappeared while reading: ${key}`,
+    );
+  }
+  const buffer = await obj.arrayBuffer();
+  const text = new TextDecoder("utf-8").decode(buffer);
+  let parsed: { rows?: { bounds?: unknown; caps?: unknown } };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch (err) {
+    throw new Error(
+      `[ship-growth] archive ${key} is not valid JSON: ${String(err)}`,
+    );
+  }
+  const bounds = Array.isArray(parsed.rows?.bounds) ? parsed.rows!.bounds! : [];
+  const caps = Array.isArray(parsed.rows?.caps) ? parsed.rows!.caps! : [];
+
+  for (const raw of bounds as Array<Record<string, unknown>>) {
+    const masterId = Number(raw.master_id);
+    const lv = Number(raw.lv);
+    if (!Number.isFinite(masterId) || masterId <= 0) continue;
+    if (!Number.isFinite(lv) || lv <= 0) continue;
+    mergeBoundsRow(boundsByKey, {
+      master_id: masterId,
+      lv,
+      // Clamp to ≥ 0: D1 naked stats are always non-negative (Math.max(0, ...)),
+      // but defensive clamping prevents a corrupted archive row with a negative
+      // value from permanently poisoning mergeBoundsRow's min-selection logic
+      // (a negative "existing" value would block all future positive updates).
+      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
+      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
+      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
+    });
+  }
+
+  for (const raw of caps as Array<Record<string, unknown>>) {
+    const masterId = Number(raw.master_id);
+    if (!Number.isFinite(masterId) || masterId <= 0) continue;
+    mergeCapsRow(capsByMaster, {
+      master_id: masterId,
+      kaihi_max: Number(raw.kaihi_max) || 0,
+      taisen_max: Number(raw.taisen_max) || 0,
+      sakuteki_max: Number(raw.sakuteki_max) || 0,
+    });
+  }
+}
+
+async function fetchAndMergeMany(
+  env: Bindings,
+  keys: string[],
+  boundsByKey: Map<string, CumulativeBoundsRow>,
+  capsByMaster: Map<number, CumulativeCapsRow>,
+): Promise<void> {
+  for (let i = 0; i < keys.length; i += ARCHIVE_FETCH_CONCURRENCY) {
+    const batch = keys.slice(i, i + ARCHIVE_FETCH_CONCURRENCY);
+    await Promise.all(
+      batch.map((key) =>
+        fetchAndMergeArchiveObject(env, key, boundsByKey, capsByMaster),
+      ),
+    );
+  }
+}
+
+function buildSnapshotFromMaps(
+  boundsByKey: Map<string, CumulativeBoundsRow>,
+  capsByMaster: Map<number, CumulativeCapsRow>,
+  processedKeys: string[],
+  archiveObjectCount: number,
+  lastArchivedAtSec: number,
+): CumulativeKvSnapshot {
+  const sortedKeys = processedKeys.slice().sort();
+  return {
+    schema_version: CUMULATIVE_SCHEMA_VERSION,
+    bounds: Array.from(boundsByKey.values()).sort(
+      (a, b) => a.master_id - b.master_id || a.lv - b.lv,
+    ),
+    caps: Array.from(capsByMaster.values()).sort(
+      (a, b) => a.master_id - b.master_id,
+    ),
+    archive_object_count: archiveObjectCount,
+    last_archived_at_sec: lastArchivedAtSec,
+    processed_keys: sortedKeys,
+    refreshed_at: Date.now(),
+    db_synced_at: lastArchivedAtSec * 1000,
+  };
+}
+
+async function loadFullCumulativeSnapshot(
+  env: Bindings,
+): Promise<CumulativeKvSnapshot> {
+  const objects = await listAllArchiveObjects(env);
+  const boundsByKey = new Map<string, CumulativeBoundsRow>();
+  const capsByMaster = new Map<number, CumulativeCapsRow>();
+  let lastArchivedAtSec = 0;
+  for (const obj of objects) {
+    if (obj.archived_at_sec > lastArchivedAtSec)
+      lastArchivedAtSec = obj.archived_at_sec;
+  }
+  await fetchAndMergeMany(
+    env,
+    objects.map((o) => o.key),
+    boundsByKey,
+    capsByMaster,
+  );
+  return buildSnapshotFromMaps(
+    boundsByKey,
+    capsByMaster,
+    objects.map((o) => o.key),
+    objects.length,
+    lastArchivedAtSec,
+  );
+}
+
+async function deltaRefreshCumulativeSnapshot(
+  env: Bindings,
+  cached: CumulativeKvSnapshot,
+): Promise<{ snapshot: CumulativeKvSnapshot; changed: boolean }> {
+  const objects = await listAllArchiveObjects(env);
+  const liveKeys = objects.map((o) => o.key);
+  const liveKeySet = new Set(liveKeys);
+
+  const cachedKeySet = new Set(cached.processed_keys);
+  const newKeys: string[] = [];
+  for (const key of liveKeys) if (!cachedKeySet.has(key)) newKeys.push(key);
+
+  // Detect deletions: a key in cache that is no longer in R2. Should not
+  // happen under normal operation (archives are append-only). If it does
+  // (e.g. manual cleanup), force a full rebuild because cached merged values
+  // may have absorbed deleted-object data and we cannot un-merge.
+  let removedDetected = false;
+  for (const key of cached.processed_keys) {
+    if (!liveKeySet.has(key)) {
+      removedDetected = true;
+      break;
+    }
+  }
+  if (removedDetected) {
+    console.warn(
+      "[ship-growth] cumulative archive: detected disappeared keys; rebuilding from scratch",
+    );
+    const full = await loadFullCumulativeSnapshot(env);
+    return { snapshot: full, changed: true };
+  }
+
+  if (newKeys.length === 0) {
+    // Cache still valid; just bump refreshed_at so `isFreshSnapshot` is happy.
+    return {
+      snapshot: { ...cached, refreshed_at: Date.now() },
+      changed: false,
+    };
+  }
+
+  const boundsByKey = new Map<string, CumulativeBoundsRow>();
+  for (const r of cached.bounds)
+    boundsByKey.set(`${r.master_id}:${r.lv}`, { ...r });
+  const capsByMaster = new Map<number, CumulativeCapsRow>();
+  for (const r of cached.caps) capsByMaster.set(r.master_id, { ...r });
+
+  await fetchAndMergeMany(env, newKeys, boundsByKey, capsByMaster);
+
+  let lastArchivedAtSec = cached.last_archived_at_sec;
+  for (const obj of objects) {
+    if (obj.archived_at_sec > lastArchivedAtSec)
+      lastArchivedAtSec = obj.archived_at_sec;
+  }
+
+  const snapshot = buildSnapshotFromMaps(
+    boundsByKey,
+    capsByMaster,
+    liveKeys,
+    objects.length,
+    lastArchivedAtSec,
+  );
+  return { snapshot, changed: true };
+}
+
+async function loadCumulativeShipGrowthSnapshot(env: Bindings): Promise<{
+  snapshot: CumulativeKvSnapshot;
+  cacheStatus: "HIT" | "REFRESHED" | "REVALIDATED" | "MISS" | "RESET";
+}> {
+  return loadOrRefreshCanonicalSnapshot<CumulativeKvSnapshot>({
+    kv: env.DATA_LOADER_CACHE_KV,
+    cacheKey: CUMULATIVE_KV_KEY,
+    ttlMs: KV_SNAPSHOT_TTL_MS,
+    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+    isValidSnapshot: isCumulativeKvSnapshot,
+    refreshFromDelta: (cached) => deltaRefreshCumulativeSnapshot(env, cached),
+    loadFull: () => loadFullCumulativeSnapshot(env),
+  });
+}
+
+/**
+ * Read-only cumulative snapshot peek for /summary. Does NOT trigger a
+ * refresh: returns whatever KV currently holds (or null). This keeps the
+ * /summary endpoint cheap (one KV read, no R2 access). After the very first
+ * archive write, the next /cumulative request populates KV; from then on
+ * /summary will report `cumulative_available: true`.
+ */
+async function peekCumulativeShipGrowthSnapshot(
+  env: Bindings,
+): Promise<CumulativeKvSnapshot | null> {
+  const kv = env.DATA_LOADER_CACHE_KV;
+  if (!kv) return null;
+  const raw = await kv.get(CUMULATIVE_KV_KEY, "json");
+  return isCumulativeKvSnapshot(raw) ? raw : null;
+}
+
 // ── Ingest processing ──────────────────────────────────────────────
 
 async function processShipGrowthIngest(
@@ -1038,46 +1429,48 @@ async function processShipGrowthIngest(
       period_tag,
       table_version,
     ));
-    // DO NOT upload archive yet—wait until after DB batch succeeds to avoid orphaned R2 objects.
   } catch (error) {
-    const detail = String(error);
-    if (detail.includes("SHIP_GROWTH_ARCHIVE_BUCKET is not configured")) {
-      return {
-        status: 503,
-        body: {
-          error: "Ship growth archive bucket is not configured",
-          action: "Configure SHIP_GROWTH_ARCHIVE_BUCKET in worker bindings",
-        },
-      };
-    }
-
     return {
       status: 500,
       body: {
         error: "Failed to collect ship growth history for archiving",
-        detail,
+        detail: String(error),
       },
     };
   }
 
   // Pre-check EXP boundary conflicts against existing DB rows before writing.
-  // Batch all LV lookups into a single IN-clause query instead of N sequential queries.
+  // D1 allows max 100 bound parameters per statement; 2 slots are used for
+  // period_tag and table_version, so at most 98 lv values per query. Chunk
+  // the lv list and run all chunks in parallel for minimum latency.
   if (expRows.length > 0) {
-    const placeholders = expRows.map(() => "?").join(", ");
-    const existingExpRows = (
-      await db
-        .prepare(
-          `SELECT lv, exp_current
-           FROM ship_level_exp_pairs
-           WHERE period_tag = ? AND table_version = ? AND lv IN (${placeholders})`,
-        )
-        .bind(period_tag, table_version, ...expRows.map((r) => r.lv))
-        .all()
-    ).results as { lv: number; exp_current: number }[];
+    const EXP_CHECK_CHUNK = 98;
+    const existingExpMap = new Map<number, number>();
+    const chunkPromises: Promise<void>[] = [];
+    for (let ci = 0; ci < expRows.length; ci += EXP_CHECK_CHUNK) {
+      const chunk = expRows.slice(ci, ci + EXP_CHECK_CHUNK);
+      const placeholders = chunk.map(() => "?").join(", ");
+      chunkPromises.push(
+        db
+          .prepare(
+            `SELECT lv, exp_current
+             FROM ship_level_exp_pairs
+             WHERE period_tag = ? AND table_version = ? AND lv IN (${placeholders})`,
+          )
+          .bind(period_tag, table_version, ...chunk.map((r) => r.lv))
+          .all()
+          .then((result) => {
+            for (const r of (result.results ?? []) as {
+              lv: number;
+              exp_current: number;
+            }[]) {
+              existingExpMap.set(r.lv, r.exp_current);
+            }
+          }),
+      );
+    }
+    await Promise.all(chunkPromises);
 
-    const existingExpMap = new Map(
-      existingExpRows.map((r) => [r.lv, r.exp_current]),
-    );
     for (const expRow of expRows) {
       const existingValue = existingExpMap.get(expRow.lv);
       if (existingValue !== undefined && existingValue !== expRow.exp_current) {
@@ -1092,11 +1485,43 @@ async function processShipGrowthIngest(
     }
   }
 
-  // Build all write statements: archive prune + exp inserts + bounds upserts + caps upserts.
-  // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity (100-stmt chunks).
-  const stmts: ReturnType<D1Database["prepare"]>[] = [];
+  // Persist old period/version rows to R2 BEFORE pruning them from D1.
+  // If R2 write fails, abort the ingest so the archive stays the source of truth
+  // for past periods. (Worst case on D1 failure after R2 success: a duplicate
+  // archive object will be written by the next ingest, which is harmless.)
+  if (oldBounds.length > 0 || oldCaps.length > 0) {
+    try {
+      await uploadShipGrowthArchiveIfNeeded(
+        env,
+        period_tag,
+        table_version,
+        nowSec,
+        oldBounds,
+        oldCaps,
+      );
+    } catch (archiveError) {
+      console.error(
+        "[ship-growth] Failed to archive old rows to R2; aborting ingest to avoid data loss:",
+        archiveError,
+      );
+      return {
+        status: 500,
+        body: {
+          error: "Failed to archive previous period data to R2 before prune",
+          detail: String(archiveError),
+        },
+      };
+    }
+  }
 
-  stmts.push(...buildArchivePruneStatements(db, oldBounds, oldCaps));
+  // Build all write statements: exp inserts + bounds upserts + caps upserts + archive prune DELETEs.
+  // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity (100-stmt chunks).
+  //
+  // IMPORTANT: DELETEs (archive prune) are appended LAST so that if a middle
+  // batch fails, the old rows are still in D1 and can be re-archived on the
+  // next ingest. A failure in the final DELETE batch leaves temporary duplicate
+  // rows (old + new period) which are harmless — the next ingest will clean them.
+  const stmts: ReturnType<D1Database["prepare"]>[] = [];
 
   for (const expRow of expRows) {
     stmts.push(
@@ -1119,10 +1544,10 @@ async function processShipGrowthIngest(
           `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(period_tag, table_version, master_id, lv) DO UPDATE SET
-             kaihi_naked = CASE WHEN excluded.kaihi_naked < kaihi_naked THEN excluded.kaihi_naked ELSE kaihi_naked END,
-             taisen_naked = CASE WHEN excluded.taisen_naked < taisen_naked THEN excluded.taisen_naked ELSE taisen_naked END,
-             sakuteki_naked = CASE WHEN excluded.sakuteki_naked < sakuteki_naked THEN excluded.sakuteki_naked ELSE sakuteki_naked END,
-             updated_at = CASE WHEN excluded.kaihi_naked < kaihi_naked OR excluded.taisen_naked < taisen_naked OR excluded.sakuteki_naked < sakuteki_naked THEN excluded.updated_at ELSE updated_at END`,
+             kaihi_naked = CASE WHEN excluded.kaihi_naked > 0 AND (kaihi_naked = 0 OR excluded.kaihi_naked < kaihi_naked) THEN excluded.kaihi_naked ELSE kaihi_naked END,
+             taisen_naked = CASE WHEN excluded.taisen_naked > 0 AND (taisen_naked = 0 OR excluded.taisen_naked < taisen_naked) THEN excluded.taisen_naked ELSE taisen_naked END,
+             sakuteki_naked = CASE WHEN excluded.sakuteki_naked > 0 AND (sakuteki_naked = 0 OR excluded.sakuteki_naked < sakuteki_naked) THEN excluded.sakuteki_naked ELSE sakuteki_naked END,
+             updated_at = CASE WHEN (excluded.kaihi_naked > 0 AND (kaihi_naked = 0 OR excluded.kaihi_naked < kaihi_naked)) OR (excluded.taisen_naked > 0 AND (taisen_naked = 0 OR excluded.taisen_naked < taisen_naked)) OR (excluded.sakuteki_naked > 0 AND (sakuteki_naked = 0 OR excluded.sakuteki_naked < sakuteki_naked)) THEN excluded.updated_at ELSE updated_at END`,
         )
         .bind(
           period_tag,
@@ -1161,6 +1586,9 @@ async function processShipGrowthIngest(
     );
   }
 
+  // DELETEs last — see ordering note above.
+  stmts.push(...buildArchivePruneStatements(db, oldBounds, oldCaps));
+
   const BATCH_SIZE = 100;
   try {
     // Execute batches, tracking failure points for debugging orphaned data.
@@ -1186,25 +1614,8 @@ async function processShipGrowthIngest(
     };
   }
 
-  // DB batch succeeded; now archive old rows to R2 (after DB write, not before).
-  // This prevents orphaned archives if DB batch had failed.
-  try {
-    await uploadShipGrowthArchiveIfNeeded(
-      env,
-      period_tag,
-      table_version,
-      nowSec,
-      oldBounds,
-      oldCaps,
-    );
-  } catch (archiveError) {
-    // Archive failed but DB succeeded—continue
-    console.error(
-      "[ship-growth] Failed to archive old rows to R2:",
-      archiveError,
-    );
-    // Continue: do not fail the ingest response.
-  }
+  // R2 archive was already written above (before D1 prune) so the old rows are
+  // safely persisted. Nothing more to do here.
 
   return {
     status: 200,
@@ -1229,9 +1640,11 @@ async function invalidateShipGrowthCaches(
     new URL("/ship-growth/summary", origin).toString(),
     new URL("/ship-growth/exp", origin).toString(),
     new URL("/ship-growth/bounds", origin).toString(),
+    new URL("/ship-growth/cumulative", origin).toString(),
     new URL("/api/ship-growth/summary", origin).toString(),
     new URL("/api/ship-growth/exp", origin).toString(),
     new URL("/api/ship-growth/bounds", origin).toString(),
+    new URL("/api/ship-growth/cumulative", origin).toString(),
   ];
 
   for (const target of targets) {
@@ -1312,10 +1725,49 @@ async function invalidateShipGrowthKvSnapshots(
   period_tag: string,
   table_version: string,
 ): Promise<void> {
-  await invalidateCanonicalSnapshots(kv, [
-    `sg:exp:${period_tag}:${table_version}`,
-    `sg:bounds:${period_tag}:${table_version}`,
+  // Run both invalidations in parallel: they are independent and sequential
+  // execution leaves a window where exp/bounds are invalidated but the
+  // cumulative snapshot is not yet stale-marked (or vice-versa).
+  await Promise.all([
+    invalidateCanonicalSnapshots(kv, [
+      `sg:exp:${period_tag}:${table_version}`,
+      `sg:bounds:${period_tag}:${table_version}`,
+    ]),
+    // Cumulative archive snapshot: instead of deleting (which forces a full
+    // N-object rebuild on the next read), STALE-MARK by writing the cached
+    // value back with refreshed_at = 0. The next read sees the cache as stale,
+    // takes the delta-refresh branch in loadOrRefreshCanonicalSnapshot, and
+    // only fetches the *newly added* archive object(s). This keeps the
+    // post-ingest hot path O(1 R2 GET) instead of O(N R2 GETs).
+    staleMarkCumulativeShipGrowthSnapshot(kv),
   ]);
+}
+
+async function staleMarkCumulativeShipGrowthSnapshot(
+  kv: KVNamespace | undefined,
+): Promise<void> {
+  if (!kv) return;
+  try {
+    const raw = await kv.get(CUMULATIVE_KV_KEY, "json");
+    if (!isCumulativeKvSnapshot(raw)) {
+      // No valid cache to stale-mark; ensure the slot is clear so the next
+      // read does a fresh full load (which is unavoidable anyway).
+      await kv.delete(CUMULATIVE_KV_KEY);
+      return;
+    }
+    await saveCanonicalSnapshotToKv(
+      kv,
+      CUMULATIVE_KV_KEY,
+      { ...raw, refreshed_at: 0 },
+      KV_EXPIRATION_TTL_S,
+    );
+  } catch (err) {
+    console.warn(
+      "[ship-growth] Failed to stale-mark cumulative snapshot; falling back to delete",
+      err,
+    );
+    await kv.delete(CUMULATIVE_KV_KEY).catch(() => {});
+  }
 }
 
 // ── Cache helper ───────────────────────────────────────────────────
@@ -1399,14 +1851,49 @@ app.get("/summary", async (c) => {
         .all()
     ).results ?? []) as Array<{ period_tag: string; table_version: string }>;
 
-    const response = c.json({ ok: true, periods });
+    // Archive presence check: prefer KV snapshot (cheap), but fall back to
+    // a tiny R2 LIST(limit=1) so first-ever archive data is visible in the UI
+    // before /cumulative has had a chance to populate KV.
+    let archiveObjectCount = 0;
+    if (c.env.SHIP_GROWTH_ARCHIVE_BUCKET) {
+      try {
+        const cached = await peekCumulativeShipGrowthSnapshot(c.env);
+        archiveObjectCount = cached?.archive_object_count ?? 0;
+        if (archiveObjectCount === 0) {
+          const listed = await c.env.SHIP_GROWTH_ARCHIVE_BUCKET.list({
+            prefix: ARCHIVE_PREFIX,
+            limit: 1,
+          });
+          archiveObjectCount = listed.objects.length > 0 ? 1 : 0;
+        }
+      } catch (err) {
+        console.warn(
+          "[ship-growth] Failed to peek cumulative snapshot for summary:",
+          err,
+        );
+      }
+    }
+
+    const response = c.json({
+      ok: true,
+      periods,
+      cumulative_available: archiveObjectCount > 0,
+      archive_object_count: archiveObjectCount,
+    });
     response.headers.set(
       "Cache-Control",
       "public, max-age=3600, stale-while-revalidate=86400",
     );
     response.headers.set("X-FUSOU-Cache", "MISS");
     if (cache) {
-      await putShipGrowthCache(c, cache, cacheKey, response);
+      try {
+        await putShipGrowthCache(c, cache, cacheKey, response);
+      } catch (cacheErr) {
+        console.warn(
+          "[ship-growth] Failed to populate CF cache for /summary:",
+          cacheErr,
+        );
+      }
     }
     return response;
   } catch (err) {
@@ -1748,6 +2235,52 @@ app.get("/bounds", async (c) => {
     return c.json({ error: "Failed to retrieve bounds data" }, 500);
   }
 });
+
+/**
+ * GET /cumulative — Cumulative bounds/caps merged from all R2 archive objects.
+ *
+ * Aggregation policy:
+ *  - bounds: per (master_id, lv), min naked stat across every archive object (zero = no observation, never overwrites positive).
+ *  - caps:   per master_id,        max cap stat across every archive object.
+ *
+ * Caching: canonical KV snapshot (1h freshness, 7-day TTL) with delta refresh.
+ *
+ * Note: per-period filtering is intentionally not exposed here. The archive
+ * object's customMetadata records the *new* period that triggered the
+ * archive, not the *old* periods stored inside it, so a query-only filter
+ * cannot be served from list metadata. If individual past-period selection
+ * is needed later, build it as a separate endpoint that reads object bodies
+ * (with its own caching).
+ */
+app.get("/cumulative", async (c) => {
+  const env = c.env;
+  if (!env.SHIP_GROWTH_ARCHIVE_BUCKET) {
+    return c.json({ error: "SHIP_GROWTH_ARCHIVE_BUCKET not configured" }, 503);
+  }
+
+  try {
+    const { snapshot, cacheStatus } =
+      await loadCumulativeShipGrowthSnapshot(env);
+
+    const response = c.json({
+      ok: true,
+      bounds: snapshot.bounds,
+      caps: snapshot.caps,
+      archive_object_count: snapshot.archive_object_count,
+      last_archived_at_sec: snapshot.last_archived_at_sec,
+    });
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    response.headers.set("X-FUSOU-Cache", cacheStatus);
+    return response;
+  } catch (err) {
+    console.error("[ship-growth] Failed to load cumulative archive:", err);
+    return c.json({ error: "Failed to load cumulative archive" }, 500);
+  }
+});
+
 // ── Two-stage ingest endpoint ──────────────────────────────────────
 
 app.post("/ingest", async (c) => {
@@ -1948,6 +2481,9 @@ app.post("/ingest", async (c) => {
         ),
       );
     }
+
+    // Cumulative archive KV snapshot is invalidated as part of
+    // invalidateShipGrowthKvSnapshots (see CUMULATIVE_KV_KEY) above.
 
     // CF Cache invalidation (best-effort, non-critical)
     const cfCache = (globalThis as { caches?: { default?: Cache } }).caches
