@@ -233,7 +233,7 @@ impl AppUploadRetryHandler {
                 self.auth_manager
                     .resolve_dataset_id_for_upload(None)
                     .await
-                    .unwrap_or_default()
+                    .ok_or("dataset_id not ready for master_data_bulk retry (auth unresolved)")?
             }
         };
 

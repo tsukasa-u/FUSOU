@@ -2,8 +2,8 @@ use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 
@@ -59,6 +59,12 @@ impl RetryBatchStats {
             None => next_due_at,
         });
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetryKind {
+    DatasetBound,
+    Other,
 }
 
 impl UploadRetryService {
@@ -125,6 +131,16 @@ impl UploadRetryService {
                     ..RetryBatchStats::default()
                 };
                 let batch_started_at = Self::now_epoch_seconds();
+                let dataset_id_ready = auth_manager
+                    .resolve_dataset_id_for_upload(None)
+                    .await
+                    .is_some();
+
+                if !dataset_id_ready {
+                    tracing::info!(
+                        "dataset_id is not ready; retry loop will defer dataset-bound pending items"
+                    );
+                }
 
                 tracing::info!(
                     total_pending = stats.total_pending,
@@ -142,6 +158,20 @@ impl UploadRetryService {
                 let mut processed_hashes = std::collections::HashSet::new();
 
                 for mut meta in pending_items {
+                    if !dataset_id_ready
+                        && Self::classify_retry_kind(&meta) == RetryKind::DatasetBound
+                    {
+                        let current_now = Self::now_epoch_seconds();
+                        let next_due_at =
+                            current_now.saturating_add(retry_config.get_interval_seconds());
+                        stats.note_deferred(next_due_at);
+                        tracing::debug!(
+                            pending_id = %meta.id,
+                            "dataset_id not ready; deferring dataset-bound pending retry"
+                        );
+                        continue;
+                    }
+
                     if meta.attempt_count >= retry_config.get_max_attempts() {
                         tracing::warn!(
                             "Max attempts ({}) reached for {}, deleting",
@@ -323,6 +353,31 @@ impl UploadRetryService {
             "{}|{}|{}|{}",
             meta.target_url, content_hash, remote_path, context
         ))
+    }
+
+    fn classify_retry_kind(meta: &PendingMeta) -> RetryKind {
+        if meta.target_url == "localfs" {
+            return RetryKind::Other;
+        }
+
+        let Some(context_str) = meta.context.as_deref() else {
+            return RetryKind::Other;
+        };
+
+        let Ok(context_json) = serde_json::from_str::<serde_json::Value>(context_str) else {
+            return RetryKind::Other;
+        };
+
+        if context_json.get("provider").and_then(|v| v.as_str()) == Some("r2") {
+            return RetryKind::DatasetBound;
+        }
+
+        let operation = context_json.get("operation").and_then(|v| v.as_str());
+        if operation == Some("localfs_write") {
+            return RetryKind::Other;
+        }
+
+        RetryKind::Other
     }
 
     async fn retry_one(

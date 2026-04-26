@@ -56,20 +56,52 @@ const DEFAULT_FILE = resolve(
 function parseArgs(argv) {
   const args = argv.slice(2);
   const opts = {};
+  const knownFlags = new Set([
+    "--file",
+    "--period-tag",
+    "--api-start2-hash",
+    "--bucket-name",
+    "--admin-token",
+    "--env",
+    "--dry-run",
+    "--force",
+    "--help",
+    "-h",
+  ]);
+  const readValue = (flag, index) => {
+    const value = args[index + 1];
+    if (!value || value.startsWith("--")) {
+      console.error(`Error: ${flag} requires a value.`);
+      process.exit(1);
+    }
+    return value;
+  };
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--file" && args[i + 1]) opts.file = args[++i];
-    else if (args[i] === "--period-tag" && args[i + 1])
-      opts.periodTag = args[++i];
-    else if (args[i] === "--api-start2-hash" && args[i + 1])
-      opts.apiStart2Hash = args[++i];
-    else if (args[i] === "--bucket-name" && args[i + 1])
-      opts.bucketName = args[++i];
-    else if (args[i] === "--admin-token" && args[i + 1])
-      opts.adminToken = args[++i];
-    else if (args[i] === "--env" && args[i + 1]) opts.env = args[++i];
-    else if (args[i] === "--dry-run") opts.dryRun = true;
-    else if (args[i] === "--force") opts.force = true;
-    else if (args[i] === "--help" || args[i] === "-h") opts.help = true;
+    const arg = args[i];
+    if (!arg.startsWith("--") && arg !== "-h") {
+      console.error(`Error: unexpected argument: ${arg}`);
+      process.exit(1);
+    }
+    if (arg.startsWith("--") || arg === "-h") {
+      if (!knownFlags.has(arg)) {
+        console.error(`Error: unknown option: ${arg}`);
+        process.exit(1);
+      }
+    }
+
+    if (arg === "--file") opts.file = readValue("--file", i++);
+    else if (arg === "--period-tag")
+      opts.periodTag = readValue("--period-tag", i++);
+    else if (arg === "--api-start2-hash")
+      opts.apiStart2Hash = readValue("--api-start2-hash", i++);
+    else if (arg === "--bucket-name")
+      opts.bucketName = readValue("--bucket-name", i++);
+    else if (arg === "--admin-token")
+      opts.adminToken = readValue("--admin-token", i++);
+    else if (arg === "--env") opts.env = readValue("--env", i++);
+    else if (arg === "--dry-run") opts.dryRun = true;
+    else if (arg === "--force") opts.force = true;
+    else if (arg === "--help" || arg === "-h") opts.help = true;
   }
   return opts;
 }
@@ -123,6 +155,41 @@ function getSynergyManifestR2Keys(periodTag, periodRevision, contentHash) {
     sp_effect_json: `${basePath}.json`,
     manifest: `master_data_meta/manifest/${periodTag}/rev${periodRevision}/${contentHash}.manifest.json`,
   };
+}
+
+function isConcurrentManifestConflict(err) {
+  return (
+    err instanceof ApiError &&
+    err.status === 409 &&
+    typeof err.body?.error === "string" &&
+    err.body.error.includes("Concurrent conflict")
+  );
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function allocateSynergyManifest(apiBase, requestBody, adminToken) {
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await apiPost(
+        apiBase,
+        "/api/master-data/synergy-manifest",
+        requestBody,
+        adminToken,
+      );
+    } catch (err) {
+      if (!isConcurrentManifestConflict(err) || attempt === maxAttempts) {
+        throw err;
+      }
+      console.warn(
+        `  [retry] Concurrent manifest allocation conflict (attempt ${attempt}/${maxAttempts}); retrying in 1s...`,
+      );
+      await sleep(1000);
+    }
+  }
 }
 
 // ── Resolve API base URL ───────────────────────────────────────────
@@ -224,17 +291,31 @@ async function apiPost(baseUrl, path, body, adminToken) {
     headers,
     body: JSON.stringify(body),
   });
-  const json = await res.json();
-  if (!res.ok) {
-    throw new ApiError(res.status, json);
+  const rawBody = await res.text();
+  let responseBody = null;
+  if (rawBody) {
+    try {
+      responseBody = JSON.parse(rawBody);
+    } catch {
+      responseBody = { raw: rawBody };
+    }
   }
-  return json;
+  if (!res.ok) {
+    throw new ApiError(res.status, responseBody);
+  }
+  return responseBody;
 }
 
 // ── Main ───────────────────────────────────────────────────────────
 async function main() {
   const opts = parseArgs(process.argv);
   if (opts.help) usage();
+  if (opts.env && opts.env !== "production" && opts.env !== "development") {
+    console.error(
+      `Error: --env must be one of: production, development. got: ${opts.env}`,
+    );
+    process.exit(1);
+  }
 
   // ── Resolve file path ─────────────────────────────────────────────
   const filePath = resolve(opts.file || DEFAULT_FILE);
@@ -300,7 +381,7 @@ async function main() {
     );
     process.exit(1);
   }
-  if (!adminToken) {
+  if (!opts.dryRun && !adminToken) {
     console.error(
       "Error: admin token not found. Pass --admin-token or set the ADMIN_TOKEN env var.",
     );
@@ -317,7 +398,12 @@ async function main() {
   console.log(`  Generated At:     ${meta.generated}`);
   console.log(`  API Base:         ${apiBase}`);
   console.log(`  R2 Bucket:        ${bucketName}`);
-  console.log(`  Admin Token:      ***`);
+  const adminTokenLabel = adminToken
+    ? "***"
+    : opts.dryRun
+      ? "(not required for dry-run)"
+      : "(missing)";
+  console.log(`  Admin Token:      ${adminTokenLabel}`);
   console.log();
 
   if (opts.dryRun) {
@@ -339,9 +425,8 @@ async function main() {
   let manifest;
   let reuseExistingManifest = false;
   try {
-    manifest = await apiPost(
+    manifest = await allocateSynergyManifest(
       apiBase,
-      "/api/master-data/synergy-manifest",
       {
         period_tag: periodTag,
         sp_effect_sha256: fileHash,
@@ -415,23 +500,36 @@ async function main() {
     `  ✓ sp_effect_item uploaded: ${manifest.r2_keys.sp_effect_json}`,
   );
 
-  // Also create and upload the manifest sidecar JSON
-  const manifestSidecar = JSON.stringify({
-    period_tag: periodTag,
-    period_revision: manifest.period_revision,
-    sp_effect_sha256: fileHash,
-    api_start2_batch_hash: apiStart2Hash,
-    generator_version: generatorVersion,
-    generated_at: meta.generated,
-    upload_status: "pending",
-  });
-  const sidecarTmp = resolve(filePath + ".manifest.json");
-  writeFileSync(sidecarTmp, manifestSidecar, "utf-8");
-  try {
-    wranglerR2Put(manifest.r2_keys.manifest, sidecarTmp, opts.env, bucketName);
-    console.log(`  ✓ manifest sidecar uploaded: ${manifest.r2_keys.manifest}`);
-  } finally {
-    unlinkSync(sidecarTmp);
+  if (reuseExistingManifest) {
+    console.log(
+      "  [force] Skip manifest sidecar overwrite for existing revision to keep completed state consistent.",
+    );
+  } else {
+    // Create and upload the manifest sidecar JSON for newly allocated revisions.
+    const manifestSidecar = JSON.stringify({
+      period_tag: periodTag,
+      period_revision: manifest.period_revision,
+      sp_effect_sha256: fileHash,
+      api_start2_batch_hash: apiStart2Hash,
+      generator_version: generatorVersion,
+      generated_at: meta.generated,
+      upload_status: "pending",
+    });
+    const sidecarTmp = resolve(filePath + ".manifest.json");
+    writeFileSync(sidecarTmp, manifestSidecar, "utf-8");
+    try {
+      wranglerR2Put(
+        manifest.r2_keys.manifest,
+        sidecarTmp,
+        opts.env,
+        bucketName,
+      );
+      console.log(
+        `  ✓ manifest sidecar uploaded: ${manifest.r2_keys.manifest}`,
+      );
+    } finally {
+      unlinkSync(sidecarTmp);
+    }
   }
   console.log();
 

@@ -1,35 +1,38 @@
-import { Hono } from 'hono';
+import { Hono } from "hono";
 import type {
   SynergyManifest,
   SynergyManifestRequest,
   SynergyManifestResponse,
-} from '../types/synergy';
+} from "../types/synergy";
 import {
   validateSHA256,
   validatePeriodTag,
   validateGeneratorVersion,
   getSynergyManifestR2Keys,
-} from '../types/synergy';
-import type { Bindings } from '../types';
-import { createEnvContext, verifyAdminToken } from '../utils';
+} from "../types/synergy";
+import type { Bindings } from "../types";
+import { createEnvContext, verifyAdminToken } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 /**
  * GET /synergy-manifest
  * (Mounted at /master-data → full path: /api/master-data/synergy-manifest)
- * 
+ *
  * Retrieve latest synergy manifest for a given period_tag
  */
-app.get('/synergy-manifest', async (c) => {
-  const periodTag = c.req.query('period_tag');
+app.get("/synergy-manifest", async (c) => {
+  const periodTag = c.req.query("period_tag");
 
   if (!periodTag) {
-    return c.json({ error: 'period_tag query parameter is required' }, 400);
+    return c.json({ error: "period_tag query parameter is required" }, 400);
   }
 
   if (!validatePeriodTag(periodTag)) {
-    return c.json({ error: 'Invalid period_tag format (expected YYYY-MM-DD)' }, 400);
+    return c.json(
+      { error: "Invalid period_tag format (expected YYYY-MM-DD)" },
+      400,
+    );
   }
 
   const db = c.env.MASTER_DATA_INDEX_DB;
@@ -45,19 +48,23 @@ app.get('/synergy-manifest', async (c) => {
       LIMIT 1
     `);
 
-    const result = (await stmt.bind(periodTag).first()) as SynergyManifest | null;
+    const result = (await stmt
+      .bind(periodTag)
+      .first()) as SynergyManifest | null;
 
     if (!result) {
       return c.json(
-        { error: `No completed synergy manifest found for period_tag: ${periodTag}` },
-        404
+        {
+          error: `No completed synergy manifest found for period_tag: ${periodTag}`,
+        },
+        404,
       );
     }
 
     const r2Keys = getSynergyManifestR2Keys(
       result.period_tag,
       result.period_revision,
-      result.content_hash
+      result.content_hash,
     );
 
     const response: SynergyManifestResponse = {
@@ -73,8 +80,8 @@ app.get('/synergy-manifest', async (c) => {
 
     return c.json(response, 200);
   } catch (error) {
-    console.error('Error fetching synergy manifest:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error("Error fetching synergy manifest:", error);
+    return c.json({ error: "Internal server error" }, 500);
   }
 });
 
@@ -85,10 +92,13 @@ app.get('/synergy-manifest', async (c) => {
  * Returns sp_effect_item JSON from R2 for the requested period_tag.
  * If period_tag is omitted, returns the latest completed manifest across all periods.
  */
-app.get('/synergy-data', async (c) => {
-  const periodTagQuery = c.req.query('period_tag');
+app.get("/synergy-data", async (c) => {
+  const periodTagQuery = c.req.query("period_tag");
   if (periodTagQuery && !validatePeriodTag(periodTagQuery)) {
-    return c.json({ error: 'Invalid period_tag format (expected YYYY-MM-DD)' }, 400);
+    return c.json(
+      { error: "Invalid period_tag format (expected YYYY-MM-DD)" },
+      400,
+    );
   }
 
   const db = c.env.MASTER_DATA_INDEX_DB;
@@ -103,12 +113,12 @@ app.get('/synergy-data', async (c) => {
            FROM master_data_index
            WHERE upload_status = 'completed'
            ORDER BY completed_at DESC, period_revision DESC
-           LIMIT 1`
+           LIMIT 1`,
         )
         .first()) as { period_tag: string } | null;
 
       if (!latestMasterData?.period_tag) {
-        return c.json({ error: 'No completed master_data found' }, 404);
+        return c.json({ error: "No completed master_data found" }, 404);
       }
       effectivePeriodTag = latestMasterData.period_tag;
     }
@@ -121,18 +131,21 @@ app.get('/synergy-data', async (c) => {
     const params: unknown[] = [];
 
     if (effectivePeriodTag) {
-      sql += ' AND period_tag = ?';
+      sql += " AND period_tag = ?";
       params.push(effectivePeriodTag);
     }
 
-    sql += ' ORDER BY completed_at DESC, period_revision DESC LIMIT 1';
+    sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
 
     const manifest = (await db
       .prepare(sql)
       .bind(...params)
-      .first()) as
-      | { period_tag: string; period_revision: number; content_hash: string; completed_at?: number | null }
-      | null;
+      .first()) as {
+      period_tag: string;
+      period_revision: number;
+      content_hash: string;
+      completed_at?: number | null;
+    } | null;
 
     if (!manifest) {
       return c.json(
@@ -141,30 +154,30 @@ app.get('/synergy-data', async (c) => {
             ? `No completed synergy manifest found for period_tag: ${periodTagQuery}`
             : `No completed synergy manifest found for period_tag: ${effectivePeriodTag}`,
         },
-        404
+        404,
       );
     }
 
     const r2Keys = getSynergyManifestR2Keys(
       manifest.period_tag,
       manifest.period_revision,
-      manifest.content_hash
+      manifest.content_hash,
     );
 
     // Conditional request support: return 304 when client already has this content hash.
     const etag = `"${manifest.content_hash}"`;
-    const ifNoneMatch = c.req.header('If-None-Match');
+    const ifNoneMatch = c.req.header("If-None-Match");
     if (ifNoneMatch) {
       const tags = ifNoneMatch
-        .split(',')
+        .split(",")
         .map((v) => v.trim())
         .filter(Boolean);
-      if (tags.includes('*') || tags.includes(etag)) {
+      if (tags.includes("*") || tags.includes(etag)) {
         return new Response(null, {
           status: 304,
           headers: {
-            'ETag': etag,
-            'Cache-Control': 'public, max-age=300',
+            ETag: etag,
+            "Cache-Control": "public, max-age=300",
           },
         });
       }
@@ -174,24 +187,24 @@ app.get('/synergy-data', async (c) => {
     if (!object) {
       return c.json(
         {
-          error: 'sp_effect_item.json not found in R2',
+          error: "sp_effect_item.json not found in R2",
           expected_r2_key: r2Keys.sp_effect_json,
         },
-        404
+        404,
       );
     }
 
     return new Response(object.body, {
       status: 200,
       headers: {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Cache-Control': 'public, max-age=300',
-        'ETag': etag,
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=300",
+        ETag: etag,
       },
     });
   } catch (error) {
-    console.error('Error fetching synergy data:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error("Error fetching synergy data:", error);
+    return c.json({ error: "Internal server error" }, 500);
   }
 });
 
@@ -203,58 +216,87 @@ app.get('/synergy-data', async (c) => {
  * Security: requires X-ADMIN-TOKEN header.
  * User will upload files to R2 at returned r2_keys, then call /complete endpoint.
  */
-app.post('/synergy-manifest', async (c) => {
-  const adminCheck = verifyAdminToken(createEnvContext({ env: c.env }), c.req.header('X-ADMIN-TOKEN'));
+app.post("/synergy-manifest", async (c) => {
+  const adminCheck = verifyAdminToken(
+    createEnvContext({ env: c.env }),
+    c.req.header("X-ADMIN-TOKEN"),
+  );
   if (!adminCheck.ok) {
     return c.json({ error: adminCheck.error }, adminCheck.status as 401 | 403);
   }
 
-  const body = (await c.req.json()) as SynergyManifestRequest;
+  let body: SynergyManifestRequest;
+  try {
+    const parsed = await c.req.json();
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return c.json({ error: "Request body must be a JSON object" }, 400);
+    }
+    body = parsed as SynergyManifestRequest;
+  } catch {
+    return c.json({ error: "Invalid JSON request body" }, 400);
+  }
 
   // Validation
   if (!body.period_tag || !validatePeriodTag(body.period_tag)) {
-    return c.json({ error: 'Invalid period_tag (expected YYYY-MM-DD)' }, 400);
+    return c.json({ error: "Invalid period_tag (expected YYYY-MM-DD)" }, 400);
   }
 
   if (!body.sp_effect_sha256 || !validateSHA256(body.sp_effect_sha256)) {
-    return c.json({ error: 'Invalid sp_effect_sha256 (expected 64-char SHA256 hex)' }, 400);
-  }
-
-  if (!body.api_start2_batch_hash || !validateSHA256(body.api_start2_batch_hash)) {
     return c.json(
-      { error: 'Invalid api_start2_batch_hash (expected 64-char SHA256 hex)' },
-      400
+      { error: "Invalid sp_effect_sha256 (expected 64-char SHA256 hex)" },
+      400,
     );
   }
 
-  if (!body.generator_version || !validateGeneratorVersion(body.generator_version)) {
+  if (
+    !body.api_start2_batch_hash ||
+    !validateSHA256(body.api_start2_batch_hash)
+  ) {
     return c.json(
-      { error: 'Invalid generator_version (expected format: vX.Y.Z)' },
-      400
+      { error: "Invalid api_start2_batch_hash (expected 64-char SHA256 hex)" },
+      400,
+    );
+  }
+
+  if (
+    !body.generator_version ||
+    !validateGeneratorVersion(body.generator_version)
+  ) {
+    return c.json(
+      { error: "Invalid generator_version (expected format: vX.Y.Z)" },
+      400,
     );
   }
 
   if (!body.generated_at) {
-    return c.json({ error: 'generated_at is required (ISO8601 format)' }, 400);
+    return c.json({ error: "generated_at is required (ISO8601 format)" }, 400);
   }
 
   const generatedAtMs = new Date(body.generated_at).getTime();
   if (Number.isNaN(generatedAtMs)) {
-    return c.json({ error: 'Invalid generated_at (must be a valid ISO8601 date string)' }, 400);
+    return c.json(
+      { error: "Invalid generated_at (must be a valid ISO8601 date string)" },
+      400,
+    );
   }
   const generatedAtEpoch = Math.floor(generatedAtMs / 1000);
 
   const db = c.env.MASTER_DATA_INDEX_DB;
 
   try {
-    // Check if same content_hash already exists for this period_tag
+    // Check if same content_hash already exists for this period_tag.
+    // Exclude 'failed' manifests so a re-upload of the same content after a previous
+    // failure can create a fresh manifest entry rather than hitting a stale 409.
     const existingStmt = db.prepare(`
       SELECT id, period_revision FROM synergy_manifest
       WHERE period_tag = ? AND sp_effect_sha256 = ?
+        AND upload_status != 'failed'
       LIMIT 1
     `);
 
-    const existing = (await existingStmt.bind(body.period_tag, body.sp_effect_sha256).first()) as {
+    const existing = (await existingStmt
+      .bind(body.period_tag, body.sp_effect_sha256)
+      .first()) as {
       id: number;
       period_revision: number;
     } | null;
@@ -262,10 +304,11 @@ app.post('/synergy-manifest', async (c) => {
     if (existing && existing.id) {
       return c.json(
         {
-          error: 'Duplicate: same sp_effect_sha256 already exists for this period_tag',
+          error:
+            "Duplicate: same sp_effect_sha256 already exists for this period_tag",
           existing_period_revision: existing.period_revision,
         },
-        409
+        409,
       );
     }
 
@@ -276,7 +319,9 @@ app.post('/synergy-manifest', async (c) => {
       WHERE period_tag = ?
     `);
 
-    const revisionResult = (await revisionStmt.bind(body.period_tag).first()) as {
+    const revisionResult = (await revisionStmt
+      .bind(body.period_tag)
+      .first()) as {
       next_revision: number;
     };
     const nextRevision = revisionResult.next_revision;
@@ -301,7 +346,7 @@ app.post('/synergy-manifest', async (c) => {
         body.sp_effect_sha256,
         body.api_start2_batch_hash,
         body.generator_version,
-        generatedAtEpoch
+        generatedAtEpoch,
       )
       .first()) as {
       id: number;
@@ -311,13 +356,13 @@ app.post('/synergy-manifest', async (c) => {
     } | null;
 
     if (!inserted || !inserted.id) {
-      return c.json({ error: 'Failed to allocate period_revision' }, 500);
+      return c.json({ error: "Failed to allocate period_revision" }, 500);
     }
 
     const r2Keys = getSynergyManifestR2Keys(
       inserted.period_tag,
       inserted.period_revision,
-      inserted.content_hash
+      inserted.content_hash,
     );
 
     return c.json(
@@ -326,22 +371,29 @@ app.post('/synergy-manifest', async (c) => {
         period_tag: inserted.period_tag,
         period_revision: inserted.period_revision,
         r2_keys: r2Keys,
-        upload_status: 'pending',
-        message: 'Manifest created. Upload files to R2 at r2_keys, then call /complete endpoint.',
+        upload_status: "pending",
+        message:
+          "Manifest created. Upload files to R2 at r2_keys, then call /complete endpoint.",
       },
-      201
+      201,
     );
   } catch (error) {
     // D1 UNIQUE constraint on (period_tag, period_revision) fires when two concurrent requests
     // race to allocate the same revision number. Return 409 so the caller can retry.
-    if (String(error).includes('UNIQUE constraint failed')) {
+    if (String(error).includes("UNIQUE constraint failed")) {
       return c.json(
-        { error: 'Concurrent conflict: period_revision already allocated. Please retry.' },
-        409
+        {
+          error:
+            "Concurrent conflict: period_revision already allocated. Please retry.",
+        },
+        409,
       );
     }
-    console.error('Error creating synergy manifest:', error);
-    return c.json({ error: 'Internal server error', details: String(error) }, 500);
+    console.error("Error creating synergy manifest:", error);
+    return c.json(
+      { error: "Internal server error", details: String(error) },
+      500,
+    );
   }
 });
 
@@ -353,22 +405,28 @@ app.post('/synergy-manifest', async (c) => {
  * Security: requires X-ADMIN-TOKEN header.
  * Verifies that the sp_effect_item.json actually exists in R2 before marking completed.
  */
-app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
-  const adminCheck = verifyAdminToken(createEnvContext({ env: c.env }), c.req.header('X-ADMIN-TOKEN'));
+app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
+  const adminCheck = verifyAdminToken(
+    createEnvContext({ env: c.env }),
+    c.req.header("X-ADMIN-TOKEN"),
+  );
   if (!adminCheck.ok) {
     return c.json({ error: adminCheck.error }, adminCheck.status as 401 | 403);
   }
 
-  const periodTag = c.req.param('periodTag');
-  const periodRevisionStr = c.req.param('periodRevision');
+  const periodTag = c.req.param("periodTag");
+  const periodRevisionStr = c.req.param("periodRevision");
 
   if (!periodTag || !validatePeriodTag(periodTag)) {
-    return c.json({ error: 'Invalid period_tag' }, 400);
+    return c.json({ error: "Invalid period_tag" }, 400);
   }
 
   const periodRevision = parseInt(periodRevisionStr, 10);
   if (isNaN(periodRevision) || periodRevision <= 0) {
-    return c.json({ error: 'Invalid period_revision (must be positive integer)' }, 400);
+    return c.json(
+      { error: "Invalid period_revision (must be positive integer)" },
+      400,
+    );
   }
 
   const db = c.env.MASTER_DATA_INDEX_DB;
@@ -381,7 +439,9 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
       WHERE period_tag = ? AND period_revision = ? AND upload_status = 'pending'
     `);
 
-    const pending = (await lookupStmt.bind(periodTag, periodRevision).first()) as {
+    const pending = (await lookupStmt
+      .bind(periodTag, periodRevision)
+      .first()) as {
       id?: number;
       content_hash?: string;
     } | null;
@@ -391,12 +451,16 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
         {
           error: `No pending manifest found for period_tag=${periodTag}, period_revision=${periodRevision}`,
         },
-        404
+        404,
       );
     }
 
     // Verify sp_effect_item.json exists in R2 before marking completed
-    const r2Keys = getSynergyManifestR2Keys(periodTag, periodRevision, pending.content_hash);
+    const r2Keys = getSynergyManifestR2Keys(
+      periodTag,
+      periodRevision,
+      pending.content_hash,
+    );
     const r2Head = await bucket.head(r2Keys.sp_effect_json);
 
     if (!r2Head) {
@@ -410,11 +474,11 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
 
       return c.json(
         {
-          error: 'sp_effect_item.json not found in R2',
+          error: "sp_effect_item.json not found in R2",
           expected_r2_key: r2Keys.sp_effect_json,
-          upload_status: 'failed',
+          upload_status: "failed",
         },
-        422
+        422,
       );
     }
 
@@ -436,8 +500,11 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
 
     if (!updated || !updated.id) {
       return c.json(
-        { error: 'Failed to mark manifest as completed (concurrent modification?)' },
-        409
+        {
+          error:
+            "Failed to mark manifest as completed (concurrent modification?)",
+        },
+        409,
       );
     }
 
@@ -456,13 +523,16 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
         period_revision: updated.period_revision,
         upload_status: updated.upload_status,
         completed_at: updated.completed_at,
-        message: 'Manifest marked as completed',
+        message: "Manifest marked as completed",
       },
-      200
+      200,
     );
   } catch (error) {
-    console.error('Error completing synergy manifest:', error);
-    return c.json({ error: 'Internal server error', details: String(error) }, 500);
+    console.error("Error completing synergy manifest:", error);
+    return c.json(
+      { error: "Internal server error", details: String(error) },
+      500,
+    );
   }
 });
 
@@ -473,11 +543,14 @@ app.post('/synergy-manifest/complete/:periodTag/:periodRevision', async (c) => {
  * Pre-backfill validation: checks synergy data readiness for a period_tag.
  * Cross-references api_start2_batch_hash against master_data_index.content_hash.
  */
-app.get('/synergy-manifest/validate', async (c) => {
-  const periodTag = c.req.query('period_tag');
+app.get("/synergy-manifest/validate", async (c) => {
+  const periodTag = c.req.query("period_tag");
 
   if (!periodTag || !validatePeriodTag(periodTag)) {
-    return c.json({ error: 'Invalid or missing period_tag (expected YYYY-MM-DD)' }, 400);
+    return c.json(
+      { error: "Invalid or missing period_tag (expected YYYY-MM-DD)" },
+      400,
+    );
   }
 
   const db = c.env.MASTER_DATA_INDEX_DB;
@@ -491,7 +564,7 @@ app.get('/synergy-manifest/validate', async (c) => {
          FROM synergy_manifest
          WHERE period_tag = ? AND upload_status = 'completed'
          ORDER BY period_revision DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .bind(periodTag)
       .first()) as {
@@ -507,10 +580,10 @@ app.get('/synergy-manifest/validate', async (c) => {
       return c.json(
         {
           ready: false,
-          reason: 'no_synergy_manifest',
+          reason: "no_synergy_manifest",
           message: `No completed synergy manifest for period_tag: ${periodTag}`,
         },
-        200
+        200,
       );
     }
 
@@ -521,7 +594,7 @@ app.get('/synergy-manifest/validate', async (c) => {
          FROM master_data_index
          WHERE period_tag = ? AND upload_status = 'completed'
          ORDER BY period_revision DESC
-         LIMIT 1`
+         LIMIT 1`,
       )
       .bind(periodTag)
       .first()) as { content_hash: string; period_revision: number } | null;
@@ -548,17 +621,18 @@ app.get('/synergy-manifest/validate', async (c) => {
             }
           : null,
         hash_match: hashMatch,
-        warning: hashMatch === false
-          ? 'api_start2_batch_hash mismatch: synergy data may be stale'
-          : hashMatch === null
-            ? 'No completed master_data found for this period_tag'
-            : undefined,
+        warning:
+          hashMatch === false
+            ? "api_start2_batch_hash mismatch: synergy data may be stale"
+            : hashMatch === null
+              ? "No completed master_data found for this period_tag"
+              : undefined,
       },
-      200
+      200,
     );
   } catch (error) {
-    console.error('Error validating synergy manifest:', error);
-    return c.json({ error: 'Internal server error' }, 500);
+    console.error("Error validating synergy manifest:", error);
+    return c.json({ error: "Internal server error" }, 500);
   }
 });
 

@@ -152,6 +152,10 @@ dry-run（計算なし）:
 pnpm upload:only:dry -- --period-tag <PERIOD_TAG>
 ```
 
+- dry-run は API 呼び出しを行わないため、`ADMIN_TOKEN` は不要です。
+- ただし plan 表示のために production では `PUBLIC_SITE_URL_PRODUCTION` と
+  `MASTER_DATA_BUCKET_NAME` は解決可能である必要があります。
+
 本番アップロード（計算なし）:
 
 ```bash
