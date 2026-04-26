@@ -775,18 +775,28 @@ function buildAggregatedShipGrowthRows(
           sakuteki_naked: derived.stats.sakuteki,
         });
       } else {
-        existingBound.kaihi_naked = Math.min(
-          existingBound.kaihi_naked,
-          derived.stats.kaihi,
-        );
-        existingBound.taisen_naked = Math.min(
-          existingBound.taisen_naked,
-          derived.stats.taisen,
-        );
-        existingBound.sakuteki_naked = Math.min(
-          existingBound.sakuteki_naked,
-          derived.stats.sakuteki,
-        );
+        // Zero-guard: 0 means the derivation was clamped from a negative value
+        // (i.e., no reliable observation). Only update if the incoming value is
+        // a positive observation. If existing is 0 (unset) and new is positive,
+        // take the new value. If both are positive, take the min (tighter bound).
+        if (derived.stats.kaihi > 0) {
+          existingBound.kaihi_naked =
+            existingBound.kaihi_naked > 0
+              ? Math.min(existingBound.kaihi_naked, derived.stats.kaihi)
+              : derived.stats.kaihi;
+        }
+        if (derived.stats.taisen > 0) {
+          existingBound.taisen_naked =
+            existingBound.taisen_naked > 0
+              ? Math.min(existingBound.taisen_naked, derived.stats.taisen)
+              : derived.stats.taisen;
+        }
+        if (derived.stats.sakuteki > 0) {
+          existingBound.sakuteki_naked =
+            existingBound.sakuteki_naked > 0
+              ? Math.min(existingBound.sakuteki_naked, derived.stats.sakuteki)
+              : derived.stats.sakuteki;
+        }
       }
     }
 
@@ -826,6 +836,12 @@ function buildAggregatedShipGrowthRows(
   return { expRows, boundRows, capRows, expInconsistencies };
 }
 
+// D1 supports up to 100 bound parameters per prepared statement.
+// Batch rowids into IN clauses (99 per statement) to avoid generating
+// tens-of-thousands of individual DELETE statements on large period
+// transitions, which would cause D1 batch call storms and Worker timeouts.
+const ROWID_IN_CHUNK = 99;
+
 function buildArchivePruneStatements(
   db: D1Database,
   oldBounds: ShipGrowthArchiveBoundRow[],
@@ -833,15 +849,27 @@ function buildArchivePruneStatements(
 ): ReturnType<D1Database["prepare"]>[] {
   const stmts: ReturnType<D1Database["prepare"]>[] = [];
   const boundRowIds = Array.from(new Set(oldBounds.map((row) => row.row_id)));
-  for (const rowId of boundRowIds) {
+  for (let i = 0; i < boundRowIds.length; i += ROWID_IN_CHUNK) {
+    const chunk = boundRowIds.slice(i, i + ROWID_IN_CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
     stmts.push(
-      db.prepare(`DELETE FROM ship_growth_bounds WHERE rowid = ?`).bind(rowId),
+      db
+        .prepare(
+          `DELETE FROM ship_growth_bounds WHERE rowid IN (${placeholders})`,
+        )
+        .bind(...chunk),
     );
   }
   const capRowIds = Array.from(new Set(oldCaps.map((row) => row.row_id)));
-  for (const rowId of capRowIds) {
+  for (let i = 0; i < capRowIds.length; i += ROWID_IN_CHUNK) {
+    const chunk = capRowIds.slice(i, i + ROWID_IN_CHUNK);
+    const placeholders = chunk.map(() => "?").join(", ");
     stmts.push(
-      db.prepare(`DELETE FROM ship_growth_caps WHERE rowid = ?`).bind(rowId),
+      db
+        .prepare(
+          `DELETE FROM ship_growth_caps WHERE rowid IN (${placeholders})`,
+        )
+        .bind(...chunk),
     );
   }
   return stmts;
@@ -1630,17 +1658,26 @@ app.get("/bounds", async (c) => {
         };
       },
       loadFull: async () => {
-        const boundsRows = ((
-          await db
-            .prepare(
-              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
-               FROM ship_growth_bounds
-               WHERE period_tag = ? AND table_version = ?
-               ORDER BY master_id ASC, lv ASC LIMIT 10000`,
-            )
-            .bind(periodTag, tableVersion)
-            .all()
-        ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
+        // Paginate bounds to handle large datasets (D1 per-query response size cap).
+        // KanColle can have 400+ ship classes × 180 levels = 72,000+ rows, well above
+        // a conservative per-query row limit. Each 5,000-row page is a separate D1 read.
+        const BOUNDS_PAGE = 5000;
+        let boundsRows: Array<BoundsRow & { updated_at: number }> = [];
+        for (let offset = 0; ; offset += BOUNDS_PAGE) {
+          const page = ((
+            await db
+              .prepare(
+                `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
+                 FROM ship_growth_bounds
+                 WHERE period_tag = ? AND table_version = ?
+                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`,
+              )
+              .bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
+              .all()
+          ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
+          boundsRows = boundsRows.concat(page);
+          if (page.length < BOUNDS_PAGE) break;
+        }
 
         const capsRows = ((
           await db
@@ -1809,7 +1846,7 @@ app.post("/ingest", async (c) => {
     return c.json({
       uploadUrl: uploadUrl.toString(),
       token,
-      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      expiresAt: new Date(Date.now() + tokenTtl * 1000).toISOString(),
     });
   }
 
