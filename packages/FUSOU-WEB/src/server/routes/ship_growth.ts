@@ -991,7 +991,7 @@ const ARCHIVE_LIST_PAGE_LIMIT = 1000;
 // 1,000,000 objects. Well above any plausible ingest rate.
 const ARCHIVE_LIST_MAX_PAGES = 1000;
 const CUMULATIVE_KV_KEY = "sg:cumulative:archive:v1";
-const CUMULATIVE_SCHEMA_VERSION = 1;
+const CUMULATIVE_SCHEMA_VERSION = 2;
 
 interface CumulativeBoundsRow {
   master_id: number;
@@ -999,6 +999,11 @@ interface CumulativeBoundsRow {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  // Source period ("period_tag/table_version") that contributed the winning
+  // (minimum) naked value for each stat. Populated during archive merging.
+  kaihi_source_period?: string;
+  taisen_source_period?: string;
+  sakuteki_source_period?: string;
 }
 
 interface CumulativeCapsRow {
@@ -1060,19 +1065,25 @@ function mergeBoundsRow(
   if (
     row.kaihi_naked > 0 &&
     (existing.kaihi_naked === 0 || row.kaihi_naked < existing.kaihi_naked)
-  )
+  ) {
     existing.kaihi_naked = row.kaihi_naked;
+    existing.kaihi_source_period = row.kaihi_source_period;
+  }
   if (
     row.taisen_naked > 0 &&
     (existing.taisen_naked === 0 || row.taisen_naked < existing.taisen_naked)
-  )
+  ) {
     existing.taisen_naked = row.taisen_naked;
+    existing.taisen_source_period = row.taisen_source_period;
+  }
   if (
     row.sakuteki_naked > 0 &&
     (existing.sakuteki_naked === 0 ||
       row.sakuteki_naked < existing.sakuteki_naked)
-  )
+  ) {
     existing.sakuteki_naked = row.sakuteki_naked;
+    existing.sakuteki_source_period = row.sakuteki_source_period;
+  }
 }
 
 function mergeCapsRow(
@@ -1163,6 +1174,12 @@ async function fetchAndMergeArchiveObject(
     const lv = Number(raw.lv);
     if (!Number.isFinite(masterId) || masterId <= 0) continue;
     if (!Number.isFinite(lv) || lv <= 0) continue;
+    // The source period is the OLD period the row was observed in (stored
+    // inside the archive object body as raw.period_tag / raw.table_version).
+    const sourcePeriod =
+      raw.period_tag && raw.table_version
+        ? `${String(raw.period_tag)}/${String(raw.table_version)}`
+        : undefined;
     mergeBoundsRow(boundsByKey, {
       master_id: masterId,
       lv,
@@ -1173,6 +1190,9 @@ async function fetchAndMergeArchiveObject(
       kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
       taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
       sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
+      kaihi_source_period: sourcePeriod,
+      taisen_source_period: sourcePeriod,
+      sakuteki_source_period: sourcePeriod,
     });
   }
 
@@ -1641,10 +1661,12 @@ async function invalidateShipGrowthCaches(
     new URL("/ship-growth/exp", origin).toString(),
     new URL("/ship-growth/bounds", origin).toString(),
     new URL("/ship-growth/cumulative", origin).toString(),
+    new URL("/ship-growth/all-periods", origin).toString(),
     new URL("/api/ship-growth/summary", origin).toString(),
     new URL("/api/ship-growth/exp", origin).toString(),
     new URL("/api/ship-growth/bounds", origin).toString(),
     new URL("/api/ship-growth/cumulative", origin).toString(),
+    new URL("/api/ship-growth/all-periods", origin).toString(),
   ];
 
   for (const target of targets) {
@@ -1740,6 +1762,7 @@ async function invalidateShipGrowthKvSnapshots(
     // only fetches the *newly added* archive object(s). This keeps the
     // post-ingest hot path O(1 R2 GET) instead of O(N R2 GETs).
     staleMarkCumulativeShipGrowthSnapshot(kv),
+    staleMarkAllPeriodsSnapshot(kv),
   ]);
 }
 
@@ -1767,6 +1790,31 @@ async function staleMarkCumulativeShipGrowthSnapshot(
       err,
     );
     await kv.delete(CUMULATIVE_KV_KEY).catch(() => {});
+  }
+}
+
+async function staleMarkAllPeriodsSnapshot(
+  kv: KVNamespace | undefined,
+): Promise<void> {
+  if (!kv) return;
+  try {
+    const raw = await kv.get(ALL_PERIODS_KV_KEY, "json");
+    if (!isAllPeriodsKvSnapshot(raw)) {
+      await kv.delete(ALL_PERIODS_KV_KEY);
+      return;
+    }
+    await saveCanonicalSnapshotToKv(
+      kv,
+      ALL_PERIODS_KV_KEY,
+      { ...raw, refreshed_at: 0 },
+      KV_EXPIRATION_TTL_S,
+    );
+  } catch (err) {
+    console.warn(
+      "[ship-growth] Failed to stale-mark all-periods snapshot; falling back to delete",
+      err,
+    );
+    await kv.delete(ALL_PERIODS_KV_KEY).catch(() => {});
   }
 }
 
@@ -2278,6 +2326,329 @@ app.get("/cumulative", async (c) => {
   } catch (err) {
     console.error("[ship-growth] Failed to load cumulative archive:", err);
     return c.json({ error: "Failed to load cumulative archive" }, 500);
+  }
+});
+
+// ── All-periods snapshot (per-period breakdown from archive objects) ──────────
+
+const ALL_PERIODS_KV_KEY = "sg:all-periods:archive:v1";
+const ALL_PERIODS_SCHEMA_VERSION = 1;
+
+/**
+ * One entry per (period_tag, table_version) observed across all archive
+ * objects. Bounds within a period use MIN (same logic as cumulative); caps use
+ * MAX.
+ */
+interface AllPeriodsEntry {
+  period_tag: string;
+  table_version: string;
+  bounds: Array<{
+    master_id: number;
+    lv: number;
+    kaihi_naked: number;
+    taisen_naked: number;
+    sakuteki_naked: number;
+  }>;
+  caps: Array<{
+    master_id: number;
+    kaihi_max: number;
+    taisen_max: number;
+    sakuteki_max: number;
+  }>;
+}
+
+interface AllPeriodsKvSnapshot {
+  schema_version: typeof ALL_PERIODS_SCHEMA_VERSION;
+  entries: AllPeriodsEntry[];
+  archive_object_count: number;
+  processed_keys: string[];
+  refreshed_at: number;
+  db_synced_at: number;
+}
+
+function isAllPeriodsKvSnapshot(v: unknown): v is AllPeriodsKvSnapshot {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    s.schema_version === ALL_PERIODS_SCHEMA_VERSION &&
+    Array.isArray(s.entries) &&
+    typeof s.archive_object_count === "number" &&
+    Array.isArray(s.processed_keys) &&
+    typeof s.refreshed_at === "number" &&
+    typeof s.db_synced_at === "number"
+  );
+}
+
+// Per-period working maps used during snapshot construction.
+type PeriodBoundsMap = Map<string, CumulativeBoundsRow>; // key: "master_id:lv"
+type PeriodCapsMap = Map<number, CumulativeCapsRow>; // key: master_id
+
+async function fetchAndMergeArchiveObjectForAllPeriods(
+  env: Bindings,
+  key: string,
+  byPeriod: Map<string, { bounds: PeriodBoundsMap; caps: PeriodCapsMap }>,
+): Promise<void> {
+  const obj = await env.SHIP_GROWTH_ARCHIVE_BUCKET.get(key);
+  if (!obj) {
+    throw new Error(
+      `[ship-growth] archive object disappeared while reading: ${key}`,
+    );
+  }
+  const buffer = await obj.arrayBuffer();
+  const text = new TextDecoder("utf-8").decode(buffer);
+  let parsed: { rows?: { bounds?: unknown; caps?: unknown } };
+  try {
+    parsed = JSON.parse(text) as typeof parsed;
+  } catch (err) {
+    throw new Error(
+      `[ship-growth] archive ${key} is not valid JSON: ${String(err)}`,
+    );
+  }
+
+  const bounds = Array.isArray(parsed.rows?.bounds)
+    ? (parsed.rows!.bounds! as Array<Record<string, unknown>>)
+    : [];
+  const caps = Array.isArray(parsed.rows?.caps)
+    ? (parsed.rows!.caps! as Array<Record<string, unknown>>)
+    : [];
+
+  for (const raw of bounds) {
+    const masterId = Number(raw.master_id);
+    const lv = Number(raw.lv);
+    if (!Number.isFinite(masterId) || masterId <= 0) continue;
+    if (!Number.isFinite(lv) || lv <= 0) continue;
+    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
+    const tableVersion =
+      typeof raw.table_version === "string" ? raw.table_version : "";
+    if (!periodTag || !tableVersion) continue;
+
+    const pKey = `${periodTag}/${tableVersion}`;
+    if (!byPeriod.has(pKey))
+      byPeriod.set(pKey, {
+        bounds: new Map(),
+        caps: new Map(),
+      });
+    const entry = byPeriod.get(pKey)!;
+    mergeBoundsRow(entry.bounds, {
+      master_id: masterId,
+      lv,
+      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
+      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
+      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
+    });
+  }
+
+  for (const raw of caps) {
+    const masterId = Number(raw.master_id);
+    if (!Number.isFinite(masterId) || masterId <= 0) continue;
+    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
+    const tableVersion =
+      typeof raw.table_version === "string" ? raw.table_version : "";
+    if (!periodTag || !tableVersion) continue;
+
+    const pKey = `${periodTag}/${tableVersion}`;
+    if (!byPeriod.has(pKey))
+      byPeriod.set(pKey, { bounds: new Map(), caps: new Map() });
+    const entry = byPeriod.get(pKey)!;
+    mergeCapsRow(entry.caps, {
+      master_id: masterId,
+      kaihi_max: Number(raw.kaihi_max) || 0,
+      taisen_max: Number(raw.taisen_max) || 0,
+      sakuteki_max: Number(raw.sakuteki_max) || 0,
+    });
+  }
+}
+
+function buildAllPeriodsSnapshotFromMaps(
+  byPeriod: Map<string, { bounds: PeriodBoundsMap; caps: PeriodCapsMap }>,
+  processedKeys: string[],
+  archiveObjectCount: number,
+  lastArchivedAtSec: number,
+): AllPeriodsKvSnapshot {
+  const entries: AllPeriodsEntry[] = [];
+  for (const [pKey, maps] of byPeriod) {
+    const slash = pKey.indexOf("/");
+    const period_tag = slash >= 0 ? pKey.slice(0, slash) : pKey;
+    const table_version = slash >= 0 ? pKey.slice(slash + 1) : "";
+    entries.push({
+      period_tag,
+      table_version,
+      bounds: Array.from(maps.bounds.values()).sort(
+        (a, b) => a.master_id - b.master_id || a.lv - b.lv,
+      ),
+      caps: Array.from(maps.caps.values()).sort(
+        (a, b) => a.master_id - b.master_id,
+      ),
+    });
+  }
+  // Sort entries by period_tag ascending (older first).
+  entries.sort(
+    (a, b) =>
+      a.period_tag.localeCompare(b.period_tag) ||
+      a.table_version.localeCompare(b.table_version),
+  );
+  return {
+    schema_version: ALL_PERIODS_SCHEMA_VERSION,
+    entries,
+    archive_object_count: archiveObjectCount,
+    processed_keys: processedKeys.slice().sort(),
+    refreshed_at: Date.now(),
+    db_synced_at: lastArchivedAtSec * 1000,
+  };
+}
+
+async function loadFullAllPeriodsSnapshot(
+  env: Bindings,
+): Promise<AllPeriodsKvSnapshot> {
+  const objects = await listAllArchiveObjects(env);
+  const byPeriod = new Map<
+    string,
+    { bounds: PeriodBoundsMap; caps: PeriodCapsMap }
+  >();
+  let lastArchivedAtSec = 0;
+  for (const obj of objects) {
+    if (obj.archived_at_sec > lastArchivedAtSec)
+      lastArchivedAtSec = obj.archived_at_sec;
+  }
+  for (let i = 0; i < objects.length; i += ARCHIVE_FETCH_CONCURRENCY) {
+    const batch = objects.slice(i, i + ARCHIVE_FETCH_CONCURRENCY);
+    await Promise.all(
+      batch.map((o) =>
+        fetchAndMergeArchiveObjectForAllPeriods(env, o.key, byPeriod),
+      ),
+    );
+  }
+  return buildAllPeriodsSnapshotFromMaps(
+    byPeriod,
+    objects.map((o) => o.key),
+    objects.length,
+    lastArchivedAtSec,
+  );
+}
+
+async function deltaRefreshAllPeriodsSnapshot(
+  env: Bindings,
+  cached: AllPeriodsKvSnapshot,
+): Promise<{ snapshot: AllPeriodsKvSnapshot; changed: boolean }> {
+  const objects = await listAllArchiveObjects(env);
+  const liveKeys = objects.map((o) => o.key);
+  const liveKeySet = new Set(liveKeys);
+
+  const cachedKeySet = new Set(cached.processed_keys);
+  const newKeys: string[] = [];
+  for (const key of liveKeys) if (!cachedKeySet.has(key)) newKeys.push(key);
+
+  // Detect deletions → full rebuild (cannot un-merge).
+  let removedDetected = false;
+  for (const key of cached.processed_keys) {
+    if (!liveKeySet.has(key)) {
+      removedDetected = true;
+      break;
+    }
+  }
+  if (removedDetected) {
+    console.warn(
+      "[ship-growth] all-periods archive: detected disappeared keys; rebuilding from scratch",
+    );
+    const full = await loadFullAllPeriodsSnapshot(env);
+    return { snapshot: full, changed: true };
+  }
+
+  if (newKeys.length === 0) {
+    return {
+      snapshot: { ...cached, refreshed_at: Date.now() },
+      changed: false,
+    };
+  }
+
+  // Rebuild per-period maps from cached entries, then merge new objects.
+  const byPeriod = new Map<
+    string,
+    { bounds: PeriodBoundsMap; caps: PeriodCapsMap }
+  >();
+  for (const entry of cached.entries) {
+    const pKey = `${entry.period_tag}/${entry.table_version}`;
+    const boundsMap: PeriodBoundsMap = new Map();
+    for (const r of entry.bounds) boundsMap.set(`${r.master_id}:${r.lv}`, { ...r });
+    const capsMap: PeriodCapsMap = new Map();
+    for (const r of entry.caps) capsMap.set(r.master_id, { ...r });
+    byPeriod.set(pKey, { bounds: boundsMap, caps: capsMap });
+  }
+
+  for (let i = 0; i < newKeys.length; i += ARCHIVE_FETCH_CONCURRENCY) {
+    const batch = newKeys.slice(i, i + ARCHIVE_FETCH_CONCURRENCY);
+    await Promise.all(
+      batch.map((key) =>
+        fetchAndMergeArchiveObjectForAllPeriods(env, key, byPeriod),
+      ),
+    );
+  }
+
+  let lastArchivedAtSec = 0;
+  for (const obj of objects) {
+    if (obj.archived_at_sec > lastArchivedAtSec)
+      lastArchivedAtSec = obj.archived_at_sec;
+  }
+
+  const snapshot = buildAllPeriodsSnapshotFromMaps(
+    byPeriod,
+    liveKeys,
+    objects.length,
+    lastArchivedAtSec,
+  );
+  return { snapshot, changed: true };
+}
+
+async function loadAllPeriodsShipGrowthSnapshot(env: Bindings): Promise<{
+  snapshot: AllPeriodsKvSnapshot;
+  cacheStatus: "HIT" | "REFRESHED" | "REVALIDATED" | "MISS" | "RESET";
+}> {
+  return loadOrRefreshCanonicalSnapshot<AllPeriodsKvSnapshot>({
+    kv: env.DATA_LOADER_CACHE_KV,
+    cacheKey: ALL_PERIODS_KV_KEY,
+    ttlMs: KV_SNAPSHOT_TTL_MS,
+    expirationTtlSeconds: KV_EXPIRATION_TTL_S,
+    isValidSnapshot: isAllPeriodsKvSnapshot,
+    refreshFromDelta: (cached) => deltaRefreshAllPeriodsSnapshot(env, cached),
+    loadFull: () => loadFullAllPeriodsSnapshot(env),
+  });
+}
+
+/**
+ * GET /all-periods — Per-period breakdown of bounds/caps from all R2 archive
+ * objects.
+ *
+ * Each entry corresponds to a distinct (period_tag, table_version) observed
+ * inside archive object bodies. Within a period, bounds are aggregated with
+ * the same MIN policy as /cumulative; caps use MAX.
+ *
+ * This endpoint intentionally does NOT include the current live period — the
+ * client fetches that separately via /bounds if needed.
+ */
+app.get("/all-periods", async (c) => {
+  const env = c.env;
+  if (!env.SHIP_GROWTH_ARCHIVE_BUCKET) {
+    return c.json({ error: "SHIP_GROWTH_ARCHIVE_BUCKET not configured" }, 503);
+  }
+
+  try {
+    const { snapshot, cacheStatus } =
+      await loadAllPeriodsShipGrowthSnapshot(env);
+
+    const response = c.json({
+      ok: true,
+      entries: snapshot.entries,
+      archive_object_count: snapshot.archive_object_count,
+    });
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    response.headers.set("X-FUSOU-Cache", cacheStatus);
+    return response;
+  } catch (err) {
+    console.error("[ship-growth] Failed to load all-periods archive:", err);
+    return c.json({ error: "Failed to load all-periods archive" }, 500);
   }
 });
 

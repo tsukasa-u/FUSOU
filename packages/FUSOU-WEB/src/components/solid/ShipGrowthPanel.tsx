@@ -29,7 +29,7 @@ Chart.register(...registerables);
 
 // ── Types ──────────────────────────────────────────────────────────
 
-type PeriodSource = "live" | "cumulative";
+type PeriodSource = "live" | "cumulative" | "all";
 
 type PeriodSummary = {
   period_tag: string;
@@ -40,6 +40,9 @@ type PeriodSummary = {
 const CUMULATIVE_PERIOD_TAG = "__cumulative__";
 const CUMULATIVE_TABLE_VERSION = "__archive__";
 
+const ALL_PERIODS_PERIOD_TAG = "__all-periods__";
+const ALL_PERIODS_TABLE_VERSION = "__all__";
+
 function isCumulativePeriod(p: PeriodSummary | null | undefined): boolean {
   return (
     !!p &&
@@ -48,8 +51,17 @@ function isCumulativePeriod(p: PeriodSummary | null | undefined): boolean {
   );
 }
 
+function isAllPeriodsPeriod(p: PeriodSummary | null | undefined): boolean {
+  return (
+    !!p &&
+    p.period_tag === ALL_PERIODS_PERIOD_TAG &&
+    p.table_version === ALL_PERIODS_TABLE_VERSION
+  );
+}
+
 function periodLabel(p: PeriodSummary): string {
   if (isCumulativePeriod(p)) return "累積（過去アーカイブ統合）";
+  if (isAllPeriodsPeriod(p)) return "全期間比較";
   return `${p.period_tag} (v${p.table_version})`;
 }
 
@@ -64,6 +76,18 @@ type BoundRow = {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  // Optional: source period that contributed the winning (minimum) value.
+  // Populated only in cumulative mode from /api/ship-growth/cumulative.
+  kaihi_source_period?: string;
+  taisen_source_period?: string;
+  sakuteki_source_period?: string;
+};
+
+type AllPeriodsEntry = {
+  period_tag: string;
+  table_version: string;
+  bounds: BoundRow[];
+  caps: CapRow[];
 };
 
 type CapRow = {
@@ -115,6 +139,18 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
         kaihi_naked: toFiniteNumber(r.kaihi_naked),
         taisen_naked: toFiniteNumber(r.taisen_naked),
         sakuteki_naked: toFiniteNumber(r.sakuteki_naked),
+        kaihi_source_period:
+          typeof r.kaihi_source_period === "string"
+            ? r.kaihi_source_period
+            : undefined,
+        taisen_source_period:
+          typeof r.taisen_source_period === "string"
+            ? r.taisen_source_period
+            : undefined,
+        sakuteki_source_period:
+          typeof r.sakuteki_source_period === "string"
+            ? r.sakuteki_source_period
+            : undefined,
       };
     })
     .filter(
@@ -148,17 +184,25 @@ function parsePositiveInt(raw: string | null): number | null {
   return value;
 }
 
+// Data point type for bounds chart — includes optional source period used by
+// the cumulative mode tooltip to show which period contributed the min value.
+type BoundsDataPoint = { x: number; y: number; sourcePeriod?: string };
+
 function buildBoundsChartData(
   boundRows: BoundRow[],
   cap: CapRow | null,
-): ChartData<"line", { x: number; y: number }[]> {
+): ChartData<"line", BoundsDataPoint[]> {
   const minLv = boundRows[0]?.lv ?? 1;
   const maxLv = boundRows[boundRows.length - 1]?.lv ?? 180;
 
-  const datasets: ChartDataset<"line", { x: number; y: number }[]>[] = [
+  const datasets: ChartDataset<"line", BoundsDataPoint[]>[] = [
     {
       label: "回避(naked)",
-      data: boundRows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
+      data: boundRows.map((r) => ({
+        x: r.lv,
+        y: r.kaihi_naked,
+        sourcePeriod: r.kaihi_source_period,
+      })),
       borderColor: "rgb(34, 197, 94)",
       backgroundColor: "transparent",
       tension: 0,
@@ -166,7 +210,11 @@ function buildBoundsChartData(
     },
     {
       label: "対潜(naked)",
-      data: boundRows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
+      data: boundRows.map((r) => ({
+        x: r.lv,
+        y: r.taisen_naked,
+        sourcePeriod: r.taisen_source_period,
+      })),
       borderColor: "rgb(249, 115, 22)",
       backgroundColor: "transparent",
       tension: 0,
@@ -174,7 +222,11 @@ function buildBoundsChartData(
     },
     {
       label: "索敵(naked)",
-      data: boundRows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
+      data: boundRows.map((r) => ({
+        x: r.lv,
+        y: r.sakuteki_naked,
+        sourcePeriod: r.sakuteki_source_period,
+      })),
       borderColor: "rgb(168, 85, 247)",
       backgroundColor: "transparent",
       tension: 0,
@@ -182,7 +234,10 @@ function buildBoundsChartData(
     },
   ];
 
-  if (cap) {
+  // Cap reference lines are only meaningful when there are bounds rows to
+  // compare against. Skip them when boundRows is empty to avoid generating a
+  // dataset-only chart on a detached canvas (e.g. ship absent from cumulative).
+  if (cap && boundRows.length > 0) {
     if (Number.isFinite(cap.kaihi_max) && cap.kaihi_max > 0) {
       datasets.push({
         label: "回避(cap)",
@@ -224,9 +279,91 @@ function buildBoundsChartData(
     }
   }
 
-  return {
-    datasets,
-  };
+  return { datasets };
+}
+
+// Stat colors used across all periods in the all-periods chart.
+// Same hue for every period — recency is communicated by opacity + line weight:
+//   newest period → full opacity + thicker line (vivid)
+//   older periods → progressively more transparent + thinner
+// Hover highlights use saturated border + larger point hit radius.
+const STAT_COLORS = {
+  kaihi: "34,197,94",      // green
+  taisen: "249,115,22",    // orange
+  sakuteki: "168,85,247",  // purple
+} as const;
+
+function buildAllPeriodsBoundsChartData(
+  entries: AllPeriodsEntry[],
+  masterId: number | null,
+): ChartData<"line", BoundsDataPoint[]> {
+  const datasets: ChartDataset<"line", BoundsDataPoint[]>[] = [];
+  const total = entries.length;
+  // Pre-compute the last index that actually has data for the selected ship.
+  // This is used to give the "newest" visual treatment (full opacity + thick
+  // border) to the most recent period that HAS data, not the most recent
+  // period overall (which may have been skipped for this ship).
+  let lastDataIdx = -1;
+  for (let i = total - 1; i >= 0; i--) {
+    const hasRows = masterId != null
+      ? entries[i].bounds.some((r) => r.master_id === masterId)
+      : entries[i].bounds.length > 0;
+    if (hasRows) { lastDataIdx = i; break; }
+  }
+  for (let i = 0; i < total; i++) {
+    const entry = entries[i];
+    const rows =
+      masterId != null
+        ? entry.bounds.filter((r) => r.master_id === masterId)
+        : entry.bounds;
+    if (rows.length === 0) continue;
+    // Older entries (lower index) get lower opacity; newest is fully opaque.
+    // Min alpha=0.15 keeps older lines legible while clearly marking them as "old".
+    const alpha = total > 1 ? 0.15 + 0.85 * (i / (total - 1)) : 1;
+    // The most recent period that has data for this ship gets a thicker line.
+    const borderWidth = i === lastDataIdx ? 2.5 : 1.5;
+    const shortLabel = `${entry.period_tag}(v${entry.table_version})`;
+    const { kaihi, taisen, sakuteki } = STAT_COLORS;
+    datasets.push(
+      {
+        label: `回避(naked) - ${shortLabel}`,
+        data: rows.map((r) => ({ x: r.lv, y: r.kaihi_naked })),
+        borderColor: `rgba(${kaihi},${alpha})`,
+        hoverBorderColor: `rgb(${kaihi})`,
+        backgroundColor: "transparent",
+        borderWidth,
+        hoverBorderWidth: 3,
+        tension: 0,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+      },
+      {
+        label: `対潜(naked) - ${shortLabel}`,
+        data: rows.map((r) => ({ x: r.lv, y: r.taisen_naked })),
+        borderColor: `rgba(${taisen},${alpha})`,
+        hoverBorderColor: `rgb(${taisen})`,
+        backgroundColor: "transparent",
+        borderWidth,
+        hoverBorderWidth: 3,
+        tension: 0,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+      },
+      {
+        label: `索敵(naked) - ${shortLabel}`,
+        data: rows.map((r) => ({ x: r.lv, y: r.sakuteki_naked })),
+        borderColor: `rgba(${sakuteki},${alpha})`,
+        hoverBorderColor: `rgb(${sakuteki})`,
+        backgroundColor: "transparent",
+        borderWidth,
+        hoverBorderWidth: 3,
+        tension: 0,
+        pointRadius: 1,
+        pointHoverRadius: 4,
+      },
+    );
+  }
+  return { datasets };
 }
 
 const CHART_OPTIONS_EXP = {
@@ -263,6 +400,66 @@ const CHART_OPTIONS_BOUNDS = {
   },
 } as const;
 
+// All-periods chart options: "nearest" interaction so hovering a single line
+// shows only that line's label (= period tag) and value in the tooltip.
+// Using "index" would show 3N entries (N periods × 3 stats) simultaneously,
+// which is unreadable when many archive periods are present.
+const CHART_OPTIONS_BOUNDS_ALL_PERIODS = {
+  responsive: true,
+  animation: false as const,
+  interaction: {
+    mode: "nearest" as const,
+    axis: "x" as const,
+    intersect: false,
+  },
+  plugins: {
+    legend: { display: true, position: "top" as const },
+    tooltip: {
+      mode: "nearest" as const,
+      intersect: false,
+    },
+  },
+  scales: {
+    x: {
+      type: "linear" as const,
+      title: { display: true, text: "レベル" },
+      ticks: { maxTicksLimit: 20 },
+    },
+    y: { title: { display: true, text: "ステータス値" } },
+  },
+} as const;
+
+// Cumulative-mode bounds chart: adds a per-dataset tooltip afterLabel line
+// showing which period contributed the minimum ("winning") value.
+const CHART_OPTIONS_BOUNDS_CUMULATIVE = {
+  responsive: true,
+  animation: false as const,
+  plugins: {
+    legend: { display: true, position: "top" as const },
+    tooltip: {
+      mode: "index" as const,
+      intersect: false,
+      callbacks: {
+        afterLabel: (item: {
+          raw: unknown;
+          dataset: { label?: string };
+        }): string | string[] => {
+          const raw = item.raw as { sourcePeriod?: string };
+          return raw?.sourcePeriod ? `  出典: ${raw.sourcePeriod}` : [];
+        },
+      },
+    },
+  },
+  scales: {
+    x: {
+      type: "linear" as const,
+      title: { display: true, text: "レベル" },
+      ticks: { maxTicksLimit: 20 },
+    },
+    y: { title: { display: true, text: "ステータス値" } },
+  },
+};
+
 // ── Component ──────────────────────────────────────────────────────
 
 export default function ShipGrowthPanel() {
@@ -298,6 +495,11 @@ export default function ShipGrowthPanel() {
     null,
   );
   const [initialCumulative, setInitialCumulative] = createSignal(false);
+  const [initialAllPeriods, setInitialAllPeriods] = createSignal(false);
+  // Per-period breakdown fetched from /api/ship-growth/all-periods.
+  const [allPeriodsEntries, setAllPeriodsEntries] = createSignal<
+    AllPeriodsEntry[]
+  >([]);
   // Tracks which period the exp data was actually fetched from. In cumulative
   // mode, exp data is sourced from the most recent live period (archives do
   // not store exp tables), so this differs from selectedPeriod().
@@ -386,6 +588,11 @@ export default function ShipGrowthPanel() {
           table_version: CUMULATIVE_TABLE_VERSION,
           source: "cumulative",
         });
+        merged.push({
+          period_tag: ALL_PERIODS_PERIOD_TAG,
+          table_version: ALL_PERIODS_TABLE_VERSION,
+          source: "all",
+        });
       }
       setPeriods(merged);
     } catch (e) {
@@ -450,20 +657,29 @@ export default function ShipGrowthPanel() {
     );
   }
 
+  let fetchGrowthDataVersion = 0;
+
   async function fetchGrowthData() {
     const period = selectedPeriod();
     if (!period) return;
+
+    // Increment version so any in-flight call that was started for a previous
+    // period can detect it is stale and discard its results.
+    const currentVersion = ++fetchGrowthDataVersion;
+    const isCurrentFetch = () => fetchGrowthDataVersion === currentVersion;
 
     setLoadingData(true);
     setError(null);
     try {
       const cumulative = isCumulativePeriod(period);
+      const allPeriods = isAllPeriodsPeriod(period);
 
-      // Exp curve: not stored in archives. For cumulative selection fall back
-      // to whatever live period exists (best-effort) so the chart still shows
-      // a reference exp curve. If no live period exists, skip.
+      // Exp curve: not stored in archives. For cumulative/all-periods
+      // selection fall back to whatever live period exists (best-effort) so
+      // the chart still shows a reference exp curve. If no live period exists,
+      // skip.
       let expPeriod: PeriodSummary | null = period;
-      if (cumulative) {
+      if (cumulative || allPeriods) {
         expPeriod = periods().find((p) => p.source === "live") ?? null;
       }
       if (expPeriod) {
@@ -474,11 +690,76 @@ export default function ShipGrowthPanel() {
           ok: boolean;
           exp: ExpRow[];
         };
+        // Guard: discard if period changed while awaiting exp data.
+        if (!isCurrentFetch()) return;
         setExpRows(expJson.exp ?? []);
         setExpSourcePeriod(expPeriod);
       } else {
         setExpRows([]);
         setExpSourcePeriod(null);
+      }
+
+      if (allPeriods) {
+        // All-periods mode: fetch per-period breakdown from archives, then
+        // also fetch the current live period's bounds to append (newest).
+        // Exp, all-periods, and live bounds are all fetched in parallel.
+        const livePeriodForBounds = periods().find((p) => p.source === "live");
+        const [apRes, liveRes] = await Promise.all([
+          cachedFetch("/api/ship-growth/all-periods"),
+          livePeriodForBounds
+            ? cachedFetch(
+                `/api/ship-growth/bounds?period_tag=${encodeURIComponent(livePeriodForBounds.period_tag)}&table_version=${encodeURIComponent(livePeriodForBounds.table_version)}`,
+              )
+            : Promise.resolve(null),
+        ]);
+        if (!apRes.ok) throw new Error(`all-periods HTTP ${apRes.status}`);
+        const apJson = (await apRes.json()) as {
+          ok: boolean;
+          entries: Array<{
+            period_tag: string;
+            table_version: string;
+            bounds: unknown;
+            caps: unknown;
+          }>;
+        };
+        const archivedEntries: AllPeriodsEntry[] = (apJson.entries ?? []).map(
+          (e) => ({
+            period_tag: e.period_tag,
+            table_version: e.table_version,
+            bounds: normalizeBoundRows(e.bounds),
+            caps: normalizeCapRows(e.caps),
+          }),
+        );
+
+        const combined: AllPeriodsEntry[] = [...archivedEntries];
+        if (liveRes && liveRes.ok) {
+          const liveJson = (await liveRes.json()) as {
+            ok: boolean;
+            bounds?: unknown;
+            caps?: unknown;
+          };
+          // Use the pre-computed livePeriodForBounds (same reference, no
+          // re-read of periods() after the await point).
+          if (liveJson.ok && livePeriodForBounds) {
+            combined.push({
+              period_tag: livePeriodForBounds.period_tag,
+              table_version: livePeriodForBounds.table_version,
+              bounds: normalizeBoundRows(liveJson.bounds),
+              caps: normalizeCapRows(liveJson.caps),
+            });
+          }
+        }
+        // Guard: discard if period changed while awaiting archive data.
+        if (!isCurrentFetch()) return;
+        batch(() => {
+          setAllPeriodsEntries(combined);
+          // Clear single-period signals so stale data doesn't show.
+          setAllBoundRows([]);
+          setAllCapRows([]);
+          setBoundRows([]);
+          setSelectedCap(null);
+        });
+        return;
       }
 
       // Bounds/caps: route to /cumulative for cumulative selection,
@@ -493,17 +774,26 @@ export default function ShipGrowthPanel() {
         bounds: BoundRow[];
         caps?: CapRow[];
       };
+      // Guard: discard if period changed while awaiting bounds data.
+      if (!isCurrentFetch()) return;
       batch(() => {
         setAllBoundRows(normalizeBoundRows(boundsJson.bounds));
         setAllCapRows(normalizeCapRows(boundsJson.caps));
+        setAllPeriodsEntries([]);
       });
       applySelectedShipBounds(selectedMasterId());
     } catch (e) {
-      setError(
-        `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
-      );
+      // Only surface error if this fetch is still the current one.
+      if (isCurrentFetch()) {
+        setError(
+          `成長データの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
     } finally {
-      setLoadingData(false);
+      // Only clear loading indicator if a newer fetch hasn't already taken over.
+      if (isCurrentFetch()) {
+        setLoadingData(false);
+      }
     }
   }
 
@@ -513,6 +803,7 @@ export default function ShipGrowthPanel() {
     setInitialTableVersion(params.get("table_version"));
     setInitialMasterId(parsePositiveInt(params.get("master_id")));
     setInitialCumulative(params.get("cumulative") === "1");
+    setInitialAllPeriods(params.get("all_periods") === "1");
 
     fetchSummary();
     fetchShipMasters();
@@ -526,6 +817,15 @@ export default function ShipGrowthPanel() {
       const cIdx = rows.findIndex(isCumulativePeriod);
       if (cIdx >= 0) setSelectedPeriodIdx(cIdx);
       setInitialCumulative(false);
+      setInitialPeriodTag(null);
+      setInitialTableVersion(null);
+      return;
+    }
+
+    if (initialAllPeriods()) {
+      const aIdx = rows.findIndex(isAllPeriodsPeriod);
+      if (aIdx >= 0) setSelectedPeriodIdx(aIdx);
+      setInitialAllPeriods(false);
       setInitialPeriodTag(null);
       setInitialTableVersion(null);
       return;
@@ -585,10 +885,17 @@ export default function ShipGrowthPanel() {
     const url = new URL(window.location.href);
     if (isCumulativePeriod(period)) {
       url.searchParams.set("cumulative", "1");
+      url.searchParams.delete("all_periods");
+      url.searchParams.delete("period_tag");
+      url.searchParams.delete("table_version");
+    } else if (isAllPeriodsPeriod(period)) {
+      url.searchParams.set("all_periods", "1");
+      url.searchParams.delete("cumulative");
       url.searchParams.delete("period_tag");
       url.searchParams.delete("table_version");
     } else {
       url.searchParams.delete("cumulative");
+      url.searchParams.delete("all_periods");
       url.searchParams.set("period_tag", period.period_tag);
       url.searchParams.set("table_version", period.table_version);
     }
@@ -607,9 +914,10 @@ export default function ShipGrowthPanel() {
     const period = selectedPeriod();
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
-    // Cumulative is a synthetic local-only selection; share URLs must point
-    // to a real period.
+    // Cumulative and all-periods are synthetic local-only selections; share
+    // URLs must point to a real period.
     if (isCumulativePeriod(period)) return null;
+    if (isAllPeriodsPeriod(period)) return null;
 
     return buildShareGrowthUrl(window.location.origin, {
       periodTag: period.period_tag,
@@ -638,9 +946,29 @@ export default function ShipGrowthPanel() {
   }
 
   const expChartData = createMemo(() => buildExpChartData(expRows()));
-  const boundsChartData = createMemo(() =>
-    buildBoundsChartData(boundRows(), selectedCap()),
-  );
+
+  // Bounds chart data: single-period or all-periods view.
+  const boundsChartData = createMemo(() => {
+    const period = selectedPeriod();
+    if (isAllPeriodsPeriod(period)) {
+      return buildAllPeriodsBoundsChartData(
+        allPeriodsEntries(),
+        selectedMasterId(),
+      );
+    }
+    return buildBoundsChartData(boundRows(), selectedCap());
+  });
+
+  // Chart options differ by mode:
+  //   cumulative   → afterLabel shows source period for each point
+  //   all-periods  → nearest-mode tooltip so the period label is readable
+  //   live         → standard index-mode tooltip
+  const boundsChartOptions = createMemo(() => {
+    const period = selectedPeriod();
+    if (isCumulativePeriod(period)) return CHART_OPTIONS_BOUNDS_CUMULATIVE;
+    if (isAllPeriodsPeriod(period)) return CHART_OPTIONS_BOUNDS_ALL_PERIODS;
+    return CHART_OPTIONS_BOUNDS;
+  });
 
   let expChart: Chart<"line"> | null = null;
   let boundsChart: Chart<"line"> | null = null;
@@ -667,8 +995,10 @@ export default function ShipGrowthPanel() {
 
   createEffect(() => {
     const canvas = boundsCanvas();
-    const rows = boundRows();
-    if (!canvas || rows.length === 0) {
+    const chartData = boundsChartData();
+    const hasData = chartData.datasets.length > 0 &&
+      chartData.datasets.some((ds) => ds.data.length > 0);
+    if (!canvas || !hasData) {
       boundsChart?.destroy();
       boundsChart = null;
       return;
@@ -681,8 +1011,8 @@ export default function ShipGrowthPanel() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     boundsChart = new Chart<"line">(ctx, {
       type: "line",
-      data: boundsChartData() as any,
-      options: CHART_OPTIONS_BOUNDS,
+      data: chartData as any,
+      options: boundsChartOptions() as any,
     });
   });
 
@@ -740,7 +1070,13 @@ export default function ShipGrowthPanel() {
 
             <ShareUrlButton
               id="ship-growth-share-btn"
-              disabled={loadingPeriods() || loadingShips() || !selectedPeriod()}
+              disabled={
+                loadingPeriods() ||
+                loadingShips() ||
+                !selectedPeriod() ||
+                isCumulativePeriod(selectedPeriod()) ||
+                isAllPeriodsPeriod(selectedPeriod())
+              }
               onClick={() => {
                 void issueShareUrl();
               }}
@@ -840,17 +1176,26 @@ export default function ShipGrowthPanel() {
             </div>
           </Show>
 
-          {/* Bounds chart */}
-          <Show when={boundRows().length > 0}>
+          {/* Bounds chart — shown when single-period has rows, OR all-periods
+               mode has at least one period with data for the selected ship. */}
+          <Show when={boundRows().length > 0 || (isAllPeriodsPeriod(selectedPeriod()) && boundsChartData().datasets.length > 0)}>
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body">
                 <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
-                <p class="text-sm text-base-content/60">
-                  艦: {selectedShip()?.name ?? "-"} (ID:{" "}
-                  {boundRows()[0]?.master_id}) / Lv {boundRows()[0]?.lv}〜
-                  {boundRows()[boundRows().length - 1]?.lv} (
-                  {boundRows().length} 行)
-                </p>
+                <Show when={isAllPeriodsPeriod(selectedPeriod())}>
+                  <p class="text-sm text-base-content/60">
+                    艦: {selectedShip()?.name ?? "-"} /{" "}
+                    {Math.round(boundsChartData().datasets.length / 3)} 期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
+                  </p>
+                </Show>
+                <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
+                  <p class="text-sm text-base-content/60">
+                    艦: {selectedShip()?.name ?? "-"} (ID:{" "}
+                    {boundRows()[0]?.master_id}) / Lv {boundRows()[0]?.lv}〜
+                    {boundRows()[boundRows().length - 1]?.lv} (
+                    {boundRows().length} 行)
+                  </p>
+                </Show>
                 <div class="w-full overflow-x-auto">
                   <div style="min-width: 400px; min-height: 320px;">
                     <canvas ref={setBoundsCanvas} width={800} height={320} />
@@ -860,11 +1205,57 @@ export default function ShipGrowthPanel() {
             </div>
           </Show>
 
-          {/* Empty state */}
+          {/* Cumulative mode: archive data exists but selected ship absent */}
+          <Show
+            when={
+              isCumulativePeriod(selectedPeriod()) &&
+              allBoundRows().length > 0 &&
+              boundRows().length === 0 &&
+              !loadingData()
+            }
+          >
+            <div class="card bg-base-100 shadow-sm">
+              <div class="card-body items-center text-center py-16">
+                <p class="text-base-content/50">
+                  選択した艦のデータは累積アーカイブに存在しません。
+                </p>
+                <p class="text-base-content/40 text-sm mt-1">
+                  現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。
+                </p>
+              </div>
+            </div>
+          </Show>
+
+          {/* All-periods mode: archive data exists but selected ship absent */}
+          <Show
+            when={
+              isAllPeriodsPeriod(selectedPeriod()) &&
+              allPeriodsEntries().length > 0 &&
+              boundsChartData().datasets.length === 0 &&
+              !loadingData()
+            }
+          >
+            <div class="card bg-base-100 shadow-sm">
+              <div class="card-body items-center text-center py-16">
+                <p class="text-base-content/50">
+                  選択した艦のデータは全期間のアーカイブに存在しません。
+                </p>
+                <p class="text-base-content/40 text-sm mt-1">
+                  現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。
+                </p>
+              </div>
+            </div>
+          </Show>
+
+          {/* Empty state — only when truly no data loaded at all (not the
+               same as "data loaded but selected ship absent", which is handled
+               by the Bug M / all-periods no-data cards above). */}
           <Show
             when={
               expRows().length === 0 &&
               boundRows().length === 0 &&
+              allBoundRows().length === 0 &&
+              allPeriodsEntries().length === 0 &&
               !loadingData() &&
               !loadingPeriods() &&
               !loadingShips()

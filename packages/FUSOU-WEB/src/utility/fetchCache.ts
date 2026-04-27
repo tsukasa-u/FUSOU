@@ -34,6 +34,8 @@ const CACHEABLE_PATHS = new Set([
   "/api/ship-growth/summary",
   "/api/ship-growth/exp",
   "/api/ship-growth/bounds",
+  "/api/ship-growth/cumulative",
+  "/api/ship-growth/all-periods",
   // quest-tree read endpoints
   "/api/quest-tree/graph",
   "/api/quest-tree/rules",
