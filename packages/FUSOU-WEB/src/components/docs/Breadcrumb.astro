@@ -1,13 +1,14 @@
 ---
 const { entry } = Astro.props;
+const currentPath = Astro.url.pathname;
 ---
 
-<div class="flex flex-nowrap">
+<div class="flex flex-nowrap overflow-x-auto pb-1">
   <div class="breadcrumbs text-sm">
     <ul>
       <li><a href="/">Home</a></li>
       <li><a href="/docs">Docs Index</a></li>
-      <li><a href=`${Astro.url}`>{entry.data.title}</a></li>
+      <li><a href={currentPath}>{entry.data.title}</a></li>
     </ul>
   </div>
 </div>

@@ -252,6 +252,17 @@ Use these shared primitives to keep UI changes low-cost and consistent.
 - Each preview row must vertically center-align the button and text (`items-center`).
 - Adjacent description text should use compact line-height suitable for single-line labels.
 
+### List Marker Rules (Scoped)
+
+- For selected non-markdown explanatory lists, use hyphen markers instead of disc bullets.
+- Use shared class `.fusou-hyphen-list` (defined in `src/assets/app.css`) rather than per-page one-off CSS.
+- Current mandatory targets:
+  - Home page guide lists (`src/components/Hero.astro`)
+  - Contact page takedown information list (`src/pages/contact.astro`)
+  - Tutorial step list inside modal (`src/components/TutorialModal.astro`)
+- Do not force-convert lists that already communicate semantics with custom markers/icons (for example, checkmark status lists).
+- Markdown article lists keep using existing `.markdown ul` hyphen rule and should not be restyled separately.
+
 ### Navigation and Header Action Border Rules
 
 - Navigation buttons should not show border lines.

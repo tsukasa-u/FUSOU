@@ -190,8 +190,27 @@
   @apply bg-error/10 border-error text-base-content/85;
 }
 
+/* Use hyphen markers for selected non-markdown lists. */
+.fusou-hyphen-list {
+  list-style: none;
+  margin-left: 1.25rem;
+}
+
+.fusou-hyphen-list > li {
+  position: relative;
+}
+
+.fusou-hyphen-list > li::before {
+  content: "-";
+  position: absolute;
+  left: -1rem;
+  color: color-mix(in oklch, var(--color-base-content) 52%, transparent);
+  font-weight: 600;
+}
+
 .markdown {
   @apply text-[15px] leading-7 text-base-content/90;
+  max-width: 74ch;
 }
 
 .markdown h1 {
@@ -204,6 +223,9 @@
 .markdown h2 {
   @apply text-xl font-bold;
   padding-top: 1rem;
+  border-top: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  margin-top: 1.25rem;
   margin-bottom: 0.75rem;
   scroll-margin-top: 6rem;
   cursor: default;
@@ -212,6 +234,7 @@
 .markdown h3 {
   @apply text-lg font-bold;
   padding-top: 0.75rem;
+  margin-top: 0.9rem;
   margin-bottom: 0.625rem;
   scroll-margin-top: 6rem;
   cursor: default;
@@ -286,16 +309,32 @@
   margin-bottom: 1rem;
   cursor: default;
   @apply rounded-md;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
 }
 
 .markdown p {
   margin-bottom: 1.1rem;
   cursor: default;
+  text-wrap: pretty;
 }
 
 .markdown p + ul,
 .markdown p + ol {
   margin-top: -0.25rem;
+}
+
+.markdown blockquote {
+  margin: 1rem 0 1.1rem;
+  padding: 0.65rem 0.9rem;
+  border-left: 4px solid
+    color-mix(in oklch, var(--color-info) 80%, var(--color-base-content) 10%);
+  background: color-mix(in oklch, var(--color-base-content) 4%, transparent);
+  border-radius: 0.35rem;
+}
+
+.markdown blockquote > *:last-child {
+  margin-bottom: 0;
 }
 
 .markdown li > p:first-of-type {
@@ -308,7 +347,9 @@
 
 .markdown a:hover {
   color: var(--color-link-hover);
+  text-decoration-line: underline;
   text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
 }
 
 .markdown a:visited {
