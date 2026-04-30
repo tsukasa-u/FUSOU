@@ -513,15 +513,23 @@ function StatCell(props: {
   const formatStatVal = (): string => {
     const ov = props.overrides[props.keyName];
     const baseVal = ov ?? props.base;
+    const equipSumVal = props.equipSums[props.keyName] || 0;
+    const bonusContrib = props.equipBonuses[props.keyName] || 0;
+
     if (baseVal == null) {
+      // For range, fall back to equipment-derived value when ship master `leng` is null.
+      if (props.keyName === "leng" && (equipSumVal > 0 || bonusContrib !== 0)) {
+        const total = equipSumVal + bonusContrib;
+        if (!props.isNumeric) return RANGE_NAMES[total] ?? String(total);
+        return String(total);
+      }
       return "-";
     }
 
-    const bonusContrib = props.equipBonuses[props.keyName] || 0;
     const total =
       props.keyName === "leng"
-        ? Math.max(baseVal, props.equipSums.leng || 0) + bonusContrib
-        : baseVal + (props.equipSums[props.keyName] || 0) + bonusContrib;
+        ? Math.max(baseVal, equipSumVal) + bonusContrib
+        : baseVal + equipSumVal + bonusContrib;
 
     if (!props.isNumeric && props.keyName === "soku")
       return SPEED_NAMES[total] ?? String(total);

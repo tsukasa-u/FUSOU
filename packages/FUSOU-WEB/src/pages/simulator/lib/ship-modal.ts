@@ -70,6 +70,18 @@ type ShipGrowthBoundRow = {
   sakuteki_naked: number;
 };
 
+type ShipGrowthBoundsResponse = {
+  caps?: ShipGrowthCaps[];
+  bounds?: ShipGrowthBoundRow[];
+  updated_at?: number;
+  updated_at_iso?: string | null;
+};
+
+type ShipGrowthCapLookup = {
+  cap: NormalizedShipGrowthCaps | null;
+  updatedAtIso: string | null;
+};
+
 type ShipVRow =
   | { kind: "header"; stype: number }
   | { kind: "item"; ship: MstShipData };
@@ -86,7 +98,7 @@ let _shipGrowthPeriodPromise: Promise<{
   period_tag: string;
   table_version: string;
 } | null> | null = null;
-const _shipGrowthCapsCache = new Map<number, NormalizedShipGrowthCaps | null>();
+const _shipGrowthCapsCache = new Map<number, ShipGrowthCapLookup | null>();
 
 function normalizeShipGrowthCaps(
   raw: ShipGrowthCaps | null,
@@ -186,7 +198,7 @@ function getLatestShipGrowthPeriod(): Promise<{
 
 async function getShipGrowthCaps(
   masterId: number,
-): Promise<NormalizedShipGrowthCaps | null> {
+): Promise<ShipGrowthCapLookup | null> {
   if (_shipGrowthCapsCache.has(masterId))
     return _shipGrowthCapsCache.get(masterId) ?? null;
 
@@ -205,10 +217,7 @@ async function getShipGrowthCaps(
       return null;
     }
 
-    const boundsJson = (await boundsRes.json()) as {
-      caps?: ShipGrowthCaps[];
-      bounds?: ShipGrowthBoundRow[];
-    };
+    const boundsJson = (await boundsRes.json()) as ShipGrowthBoundsResponse;
     const capFromCaps = normalizeShipGrowthCaps(
       (boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null,
     );
@@ -217,8 +226,15 @@ async function getShipGrowthCaps(
       boundsJson.bounds ?? [],
     );
     const merged = mergeShipGrowthCaps(capFromCaps, capFromBounds);
-    _shipGrowthCapsCache.set(masterId, merged);
-    return merged;
+    const result: ShipGrowthCapLookup = {
+      cap: merged,
+      updatedAtIso:
+        typeof boundsJson.updated_at_iso === "string"
+          ? boundsJson.updated_at_iso
+          : null,
+    };
+    _shipGrowthCapsCache.set(masterId, result);
+    return result;
   } catch {
     _shipGrowthCapsCache.set(masterId, null);
     return null;
@@ -736,9 +752,10 @@ async function renderShipDetail(ship: MstShipData) {
     (needsStatFallback(ship.tais) ||
       needsStatFallback(ship.kaih) ||
       needsStatFallback(ship.saku));
-  const shipGrowthCap = shouldLookupFallback
+  const shipGrowthLookup = shouldLookupFallback
     ? await getShipGrowthCaps(ship.id)
     : null;
+  const shipGrowthCap = shipGrowthLookup?.cap ?? null;
   if (renderSeq !== _shipDetailRenderSeq) return;
 
   const stats: [string, string | number][] = [
@@ -814,6 +831,14 @@ async function renderShipDetail(ship: MstShipData) {
     grid.appendChild(row);
   }
   panel.appendChild(grid);
+
+  if (!isMasterSource && shouldLookupFallback && shipGrowthCap) {
+    const note = document.createElement("p");
+    note.className = "mt-2 text-xs text-base-content/60";
+    note.textContent =
+      "対潜/回避/索敵の欠損値は ship-growth データの上限値で補完表示しています。";
+    panel.appendChild(note);
+  }
 }
 
 function resetShipDetail() {

@@ -4,10 +4,12 @@
  * Used by simulator/index.astro and simulator/details.astro.
  *
  * JS-facing API (via data-loader.ts updateDataStatus()):
- *   - #data-status           outer element – hidden/visible controlled by JS
+ *   - #data-status              outer element – hidden/visible controlled by JS
  *   - #data-status-icon-info | #data-status-icon-success | #data-status-icon-warning
- *                            exactly one shown at a time
- *   - #data-status-text      text content updated by JS
+ *                               exactly one shown at a time
+ *   - #data-status-text         main text content (e.g. "マスターデータ読込済み — …")
+ *   - #data-status-master-meta  sub-line: master data period/revision (hidden when unavailable)
+ *   - #data-status-synergy-meta sub-line: equipment synergy data period/version (hidden when unavailable)
  */
 
 interface Props {
@@ -28,6 +30,7 @@ const {
 
 <div
   id="data-status"
+  data-testid="master-data-status"
   class:list={[
     "alert",
     "alert-info",
@@ -92,5 +95,11 @@ const {
     ></path>
   </svg>
 
-  <span id="data-status-text" class="text-sm">{initialText}</span>
+  <span class="flex flex-col leading-tight gap-0.5">
+    <span id="data-status-text" class="text-sm">{initialText}</span>
+    <span id="data-status-master-meta" class="text-[11px] opacity-70 hidden"
+    ></span>
+    <span id="data-status-synergy-meta" class="text-[11px] opacity-70 hidden"
+    ></span>
+  </span>
 </div>

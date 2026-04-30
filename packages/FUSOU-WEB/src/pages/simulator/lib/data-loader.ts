@@ -22,17 +22,25 @@ import {
   setShipTypeSpriteSheetMeta,
   setShipTypeSpriteSheetUrl,
   setSlotItemEffects,
+  setSlotItemEffectsMeta,
+  setSokuSpeedData,
   setSpriteSheetMeta,
   setSpriteSheetUrl,
   setWeaponIconFrame,
 } from "./simulator-mutations";
 import { beginBulkLoad, endBulkLoad } from "./state";
-import { getAssetBaseUrl, getMasterDataCounts } from "./simulator-selectors";
+import {
+  getAssetBaseUrl,
+  getMasterDataCounts,
+  getSlotItemEffects,
+  getSlotItemEffectsMeta,
+} from "./simulator-selectors";
 import type {
   MstShipData,
   MstSlotItemData,
   MstSlotItemEquipTypeData,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
   MstStypeData,
   MstEquipExslotData,
   MstEquipShipData,
@@ -47,12 +55,141 @@ export function normalizeMstSlotItem(raw: MstSlotItemData): MstSlotItemData {
   return raw;
 }
 
+/**
+ * Normalize MstShip from Avro-decoded JSON.
+ * Avro schema declares `leng` as nullable (["null","int"]); fall back to 0 so
+ * downstream stat computations (range bonuses) never see undefined/null base.
+ */
+export function normalizeMstShip(raw: MstShipData): MstShipData {
+  const out = raw as MstShipData;
+  if (out.leng == null) {
+    return { ...out, leng: 0 };
+  }
+  return out;
+}
+
+function formatEpochSecondsToJst(value: number | null): string | null {
+  if (!Number.isFinite(value) || value == null || value <= 0) return null;
+  try {
+    return new Date(value * 1000).toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
+function getSlotItemEffectsMetaForStatus(): string | null {
+  const meta = getSlotItemEffectsMeta();
+  if (!meta) return null;
+  if (meta.source === "dev-fallback") {
+    return "ローカル開発フォールバック (収集データ未投入)";
+  }
+  const completedAtText = formatEpochSecondsToJst(meta.completed_at);
+  const when = completedAtText ? `${completedAtText} JST` : "時刻不明";
+  const core = `${meta.period_tag} rev${meta.period_revision} (${when})`;
+  if (meta.generator_version) {
+    return `${core} / ${meta.generator_version}`;
+  }
+  return core;
+}
+
+function parseIntHeader(value: string | null): number | null {
+  if (!value) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
+  return n;
+}
+
+async function fetchSynergyDataWithMeta(): Promise<{
+  data: SlotItemEffectsData | null;
+  meta: SlotItemEffectsMeta | null;
+}> {
+  try {
+    const res = await fetch("/api/master-data/synergy-data", {
+      cache: "no-store",
+    });
+    if (!res.ok) {
+      console.warn("[simulator] slot_item_effects fetch failed", {
+        url: "/api/master-data/synergy-data",
+        status: res.status,
+      });
+      return { data: null, meta: null };
+    }
+
+    let parsed: (SlotItemEffectsData & {
+      _meta?: {
+        generator_version?: string;
+        table_version?: string;
+      };
+    }) | null = null;
+    try {
+      parsed = (await res.json()) as SlotItemEffectsData;
+    } catch (err) {
+      console.error("[simulator] slot_item_effects json parse failed", {
+        url: "/api/master-data/synergy-data",
+        error: String(err),
+      });
+      return { data: null, meta: null };
+    }
+
+    const periodTag = res.headers.get("X-FUSOU-Synergy-Period-Tag") ?? "";
+    const periodRevision = parseIntHeader(
+      res.headers.get("X-FUSOU-Synergy-Period-Revision"),
+    );
+    const completedAt = parseIntHeader(
+      res.headers.get("X-FUSOU-Synergy-Completed-At"),
+    );
+    const source = res.headers.get("X-FUSOU-Synergy-Source");
+
+    const meta: SlotItemEffectsMeta | null =
+      periodTag && periodRevision != null
+        ? {
+            period_tag: periodTag,
+            period_revision: periodRevision,
+            completed_at: completedAt,
+            source,
+            generator_version: parsed?._meta?.generator_version ?? null,
+            table_version: parsed?._meta?.table_version ?? null,
+          }
+        : source === "dev-fallback"
+          ? {
+              period_tag: "local-dev",
+              period_revision: 0,
+              completed_at: null,
+              source,
+              generator_version: parsed?._meta?.generator_version ?? null,
+              table_version: parsed?._meta?.table_version ?? null,
+            }
+          : null;
+
+    return { data: parsed, meta };
+  } catch (err) {
+    console.error("[simulator] slot_item_effects fetch error", {
+      url: "/api/master-data/synergy-data",
+      error: String(err),
+    });
+    return { data: null, meta: null };
+  }
+}
+
 export function updateDataStatus() {
   const statusEl = document.getElementById("data-status");
   const textEl = document.getElementById("data-status-text");
+  const masterMetaEl = document.getElementById("data-status-master-meta");
+  const synergyMetaEl = document.getElementById("data-status-synergy-meta");
   const counts = getMasterDataCounts();
   const shipCount = counts.ships;
   const equipCount = counts.equips;
+  const synergyMetaText = getSlotItemEffectsMetaForStatus();
+  const hasSynergyData = !!getSlotItemEffects();
 
   if (!statusEl || !textEl) {
     // Some render paths may load data before the status elements are mounted.
@@ -83,6 +220,29 @@ export function updateDataStatus() {
   }
 
   statusEl.classList.remove("hidden");
+
+  if (masterMetaEl) {
+    if (_masterDataPeriodTag && _masterDataPeriodRevision != null) {
+      masterMetaEl.classList.remove("hidden");
+      masterMetaEl.textContent = `マスターデータ: ${_masterDataPeriodTag} rev${_masterDataPeriodRevision}`;
+    } else {
+      masterMetaEl.classList.add("hidden");
+      masterMetaEl.textContent = "";
+    }
+  }
+
+  if (synergyMetaEl) {
+    if (synergyMetaText) {
+      synergyMetaEl.classList.remove("hidden");
+      synergyMetaEl.textContent = `装備シナジーデータ: ${synergyMetaText}`;
+    } else if (hasSynergyData) {
+      synergyMetaEl.classList.remove("hidden");
+      synergyMetaEl.textContent = "装備シナジーデータ読込済み";
+    } else {
+      synergyMetaEl.classList.add("hidden");
+      synergyMetaEl.textContent = "";
+    }
+  }
 
   if (shipCount > 0 && equipCount > 0) {
     setHasMasterData(true);
@@ -235,7 +395,7 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
       if (Array.isArray(obj.mst_ships)) {
         for (const v of obj.mst_ships) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
-            setMasterShip(v as MstShipData);
+            setMasterShip(normalizeMstShip(v as MstShipData));
           }
         }
       } else {
@@ -243,7 +403,9 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
           obj.mst_ships as Record<string, unknown>,
         )) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
-            setMasterShip({ ...(v as MstShipData), id: Number(k) });
+            setMasterShip(
+              normalizeMstShip({ ...(v as MstShipData), id: Number(k) }),
+            );
           }
         }
       }
@@ -314,6 +476,8 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
 
 let _weaponIconDataUrl: string | null = null;
 let _shipTypeIconDataUrl: string | null = null;
+let _masterDataPeriodTag: string | null = null;
+let _masterDataPeriodRevision: number | null = null;
 
 async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
   try {
@@ -347,6 +511,8 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
 export async function loadMasterData(renderAll: () => void) {
   beginBulkLoad();
   try {
+    const synergyBundle = await fetchSynergyDataWithMeta();
+
     const [
       shipData,
       equipData,
@@ -356,7 +522,6 @@ export async function loadMasterData(renderAll: () => void) {
       equipImageData,
       iconFrameData,
       shipTypeIconFrameData,
-      synergyData,
       equipTypeData,
       stypeData,
       equipExslotData,
@@ -364,7 +529,7 @@ export async function loadMasterData(renderAll: () => void) {
       equipExslotShipData,
       equipLimitExslotData,
     ] = await Promise.all([
-      fetchJsonSafe<{ records: MstShipData[] }>(
+      fetchJsonSafe<{ records: MstShipData[]; period_tag?: string; period_revision?: number; table_version?: string }>(
         "/api/master-data/json?table_name=mst_ship",
         "mst_ship",
       ),
@@ -403,10 +568,6 @@ export async function loadMasterData(renderAll: () => void) {
         >;
         meta?: { size?: { w: number; h: number } };
       }>("/api/asset-sync/ship-type-icon-frames?v=1", "ship-type-icon-frames"),
-      fetchJsonSafe<SlotItemEffectsData>(
-        "/api/master-data/synergy-data",
-        "slot_item_effects",
-      ),
       fetchJsonSafe<{ records: MstSlotItemEquipTypeData[] }>(
         "/api/master-data/json?table_name=mst_slotitem_equiptype",
         "mst_slotitem_equiptype",
@@ -435,9 +596,11 @@ export async function loadMasterData(renderAll: () => void) {
 
     if (shipData?.records) {
       for (const s of shipData.records) {
-        if (s && s.id != null && s.name) setMasterShip(s);
+        if (s && s.id != null && s.name) setMasterShip(normalizeMstShip(s));
       }
     }
+    _masterDataPeriodTag = shipData?.period_tag ?? null;
+    _masterDataPeriodRevision = shipData?.period_revision ?? null;
 
     if (equipData?.records) {
       for (const e of equipData.records) {
@@ -570,9 +733,28 @@ export async function loadMasterData(renderAll: () => void) {
       }
     }
 
-    if (synergyData?.effects && synergyData.cross_effects) {
-      setSlotItemEffects(synergyData);
+    setSlotItemEffects(
+      synergyBundle.data && (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
+        ? synergyBundle.data
+        : null,
+    );
+    setSlotItemEffectsMeta(synergyBundle.meta);
+
+    const speedUpgradeUrl = new URL(
+      "/api/soku-speed-observed/speed-upgrade",
+      window.location.origin,
+    );
+    if (shipData?.period_tag && shipData?.table_version) {
+      speedUpgradeUrl.searchParams.set("period_tag", shipData.period_tag);
+      speedUpgradeUrl.searchParams.set("table_version", shipData.table_version);
     }
+    const speedUpgradeData = await fetchJsonSafe<{
+      ok: boolean;
+      data: import("./types").SokuSpeedData;
+    }>(speedUpgradeUrl.toString(), "soku-speed-upgrade");
+    setSokuSpeedData(
+      speedUpgradeData?.ok && speedUpgradeData.data ? speedUpgradeData.data : null,
+    );
 
     if (equipTypeData?.records) {
       for (const t of equipTypeData.records) {

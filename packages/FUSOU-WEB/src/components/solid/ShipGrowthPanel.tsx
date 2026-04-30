@@ -288,9 +288,9 @@ function buildBoundsChartData(
 //   older periods → progressively more transparent + thinner
 // Hover highlights use saturated border + larger point hit radius.
 const STAT_COLORS = {
-  kaihi: "34,197,94",      // green
-  taisen: "249,115,22",    // orange
-  sakuteki: "168,85,247",  // purple
+  kaihi: "34,197,94", // green
+  taisen: "249,115,22", // orange
+  sakuteki: "168,85,247", // purple
 } as const;
 
 function buildAllPeriodsBoundsChartData(
@@ -305,10 +305,14 @@ function buildAllPeriodsBoundsChartData(
   // period overall (which may have been skipped for this ship).
   let lastDataIdx = -1;
   for (let i = total - 1; i >= 0; i--) {
-    const hasRows = masterId != null
-      ? entries[i].bounds.some((r) => r.master_id === masterId)
-      : entries[i].bounds.length > 0;
-    if (hasRows) { lastDataIdx = i; break; }
+    const hasRows =
+      masterId != null
+        ? entries[i].bounds.some((r) => r.master_id === masterId)
+        : entries[i].bounds.length > 0;
+    if (hasRows) {
+      lastDataIdx = i;
+      break;
+    }
   }
   for (let i = 0; i < total; i++) {
     const entry = entries[i];
@@ -996,7 +1000,8 @@ export default function ShipGrowthPanel() {
   createEffect(() => {
     const canvas = boundsCanvas();
     const chartData = boundsChartData();
-    const hasData = chartData.datasets.length > 0 &&
+    const hasData =
+      chartData.datasets.length > 0 &&
       chartData.datasets.some((ds) => ds.data.length > 0);
     if (!canvas || !hasData) {
       boundsChart?.destroy();
@@ -1178,14 +1183,21 @@ export default function ShipGrowthPanel() {
 
           {/* Bounds chart — shown when single-period has rows, OR all-periods
                mode has at least one period with data for the selected ship. */}
-          <Show when={boundRows().length > 0 || (isAllPeriodsPeriod(selectedPeriod()) && boundsChartData().datasets.length > 0)}>
+          <Show
+            when={
+              boundRows().length > 0 ||
+              (isAllPeriodsPeriod(selectedPeriod()) &&
+                boundsChartData().datasets.length > 0)
+            }
+          >
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body">
                 <h2 class="card-title text-lg">レベル別パラメータ推移</h2>
                 <Show when={isAllPeriodsPeriod(selectedPeriod())}>
                   <p class="text-sm text-base-content/60">
                     艦: {selectedShip()?.name ?? "-"} /{" "}
-                    {Math.round(boundsChartData().datasets.length / 3)} 期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
+                    {Math.round(boundsChartData().datasets.length / 3)}{" "}
+                    期間分の履歴 (全 {allPeriodsEntries().length} 期間中)
                   </p>
                 </Show>
                 <Show when={!isAllPeriodsPeriod(selectedPeriod())}>
@@ -1220,7 +1232,8 @@ export default function ShipGrowthPanel() {
                   選択した艦のデータは累積アーカイブに存在しません。
                 </p>
                 <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。
+                  現在の期間 (ライブ)
+                  では存在する可能性があります。期間を切り替えてご確認ください。
                 </p>
               </div>
             </div>
@@ -1241,7 +1254,8 @@ export default function ShipGrowthPanel() {
                   選択した艦のデータは全期間のアーカイブに存在しません。
                 </p>
                 <p class="text-base-content/40 text-sm mt-1">
-                  現在の期間 (ライブ) では存在する可能性があります。期間を切り替えてご確認ください。
+                  現在の期間 (ライブ)
+                  では存在する可能性があります。期間を切り替えてご確認ください。
                 </p>
               </div>
             </div>

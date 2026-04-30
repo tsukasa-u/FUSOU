@@ -773,6 +773,7 @@ function renderEquipDetail(equip: MstSlotItemData) {
         raig: "雷装",
         tyku: "対空",
         souk: "装甲",
+        soku: "速力",
         kaih: "回避",
         tais: "対潜",
         saku: "索敵",

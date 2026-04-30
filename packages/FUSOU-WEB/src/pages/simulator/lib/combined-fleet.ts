@@ -11,18 +11,30 @@ export type CombinedFleetValidation = {
   escortErrors: string[];
 };
 
-const DD_CLASS = new Set([1, 2]);
-const DD_ONLY = new Set([2]);
-const CL_CLASS = new Set([3, 4]);
-const CRUISER_OR_ABOVE = new Set([3, 4, 5, 6, 8, 9, 10]);
-const HEAVY_CRUISER_CLASS = new Set([5, 6]);
-const BATTLESHIP_CLASS = new Set([8, 9, 10]);
-const CARRIER_CLASS = new Set([7, 11, 18]);
-const REGULAR_CARRIER_CLASS = new Set([11, 18]);
-const SEAPLANE_TENDER_CLASS = new Set([16]);
-const BATTLESHIP_NO_AVIATION = new Set([8, 9]);
-const SUBMARINE_CLASS = new Set([13, 14]);
+// ── 艦種(stype)グループ定義 ─────────────────────────────────────────────
+// ゲーム仕様に基づく連合艦隊バリデーション用の艦種分類。
+// mst_stype には「カテゴリ」フィールドが存在しないため、ここで定義する。
+// stype 番号と艦種の対応:
+//   1=海防艦, 2=駆逐艦, 3=軽巡, 4=重雷装巡洋艦, 5=重巡, 6=航巡,
+//   7=軽空母, 8=巡洋戦艦, 9=戦艦, 10=航空戦艦, 11=正規空母,
+//   12=超弩級戦艦, 13=潜水艦, 14=潜水空母, 16=水上機母艦,
+//   17=揚陸艦, 18=装甲空母, 19=工作艦, 20=潜水母艦, 21=練習巡洋艦, 22=補給艦
+const DD_CLASS = new Set([1, 2]);              // 駆逐級(海防+駆逐)
+const DD_ONLY = new Set([2]);                  // 駆逐艦のみ
+const CL_CLASS = new Set([3, 4]);              // 軽巡級(軽巡+重雷装)
+const CRUISER_OR_ABOVE = new Set([3, 4, 5, 6, 8, 9, 10]); // 巡洋艦以上(潜水・空母除く)
+const HEAVY_CRUISER_CLASS = new Set([5, 6]);   // 重巡級(重巡+航巡)
+const BATTLESHIP_CLASS = new Set([8, 9, 10]);  // 戦艦級(巡戦+戦艦+航空戦艦)
+const CARRIER_CLASS = new Set([7, 11, 18]);    // 空母級(軽母+正規空母+装甲空母)
+const REGULAR_CARRIER_CLASS = new Set([11, 18]); // 正規空母(正規+装甲)
+const SEAPLANE_TENDER_CLASS = new Set([16]);   // 水上機母艦
+const BATTLESHIP_NO_AVIATION = new Set([8, 9]); // 航空戦艦を除く戦艦級(巡戦+戦艦)
+const SUBMARINE_CLASS = new Set([13, 14]);     // 潜水艦(潜水+潜水空母)
 
+// ── 速力バケット ────────────────────────────────────────────────────────
+// ship.soku の数値(0/5/10/15/20)を 0〜4 の段階に変換する。
+//   0=最速(>15), 1=高速+(>10), 2=高速(>5), 3=低速(>0), 4=陸上(0)
+// この閾値はゲーム内 soku 定義値(0,5,10,15,20)に対応する。
 function speedBucket(soku: number | null | undefined): 0 | 1 | 2 | 3 | 4 {
   const speed = Number(soku ?? 0);
   if (speed > 15) return 0;
@@ -36,6 +48,22 @@ function initCounts(): FleetCounts {
   return Array.from({ length: 100 }, () => 0);
 }
 
+// ── counts 配列の仮想インデックス定義 ──────────────────────────────────
+// counts[1..22]  : stype 別の艦数（mst_stype の id に直接対応）
+// counts[51]     : 駆逐艦のみ (DD_ONLY)
+// counts[52]     : 軽巡級 (CL_CLASS)
+// counts[53]     : 重巡級 (HEAVY_CRUISER_CLASS)
+// counts[54]     : 戦艦級 (BATTLESHIP_CLASS)
+// counts[55]     : 空母級 (CARRIER_CLASS)
+// counts[56]     : 水上機母艦 (SEAPLANE_TENDER_CLASS)
+// counts[57]     : 正規空母 (REGULAR_CARRIER_CLASS)
+// counts[58]     : 巡洋艦以上 (CRUISER_OR_ABOVE)
+// counts[59]     : 航空戦艦なし戦艦級 (BATTLESHIP_NO_AVIATION)
+// counts[60]     : 駆逐級 (DD_CLASS)
+// counts[61]     : 潜水艦 (SUBMARINE_CLASS)
+// counts[62]     : 低速戦艦（isSlowBattleship）
+// counts[63]     : 高速戦艦（isFastBattleship）
+// counts[64]     : 対潜値>0の軽空母（輸送護衛部隊で軽空母枠に算入される艦）
 function countShip(counts: FleetCounts, ship: MstShipData): void {
   const stype = ship.stype;
   counts[stype]++;
@@ -53,6 +81,8 @@ function countShip(counts: FleetCounts, ship: MstShipData): void {
 
   const speedType = speedBucket(ship.soku);
   const isBattleship = stype === 8 || stype === 9 || stype === 10;
+  // 大和改二(364)・武蔵改二(733)は基本速力が「低速」だが装備で高速化可能な特例艦。
+  // speedBucket が 高速+(1) 以上でなくとも高速戦艦として扱う。
   const isSpecialFast =
     isBattleship &&
     [364, 733].includes(ship.id) &&
@@ -70,6 +100,7 @@ function countShip(counts: FleetCounts, ship: MstShipData): void {
   if (isSlowBattleship) {
     counts[62]++;
   }
+  // 軽空母(stype=7)のうち対潜値を持つ艦のみ輸送護衛部隊の「軽空母」枠に算入。
   if (stype === 7 && (ship.tais?.[0] ?? 0) > 0) {
     counts[64]++;
   }

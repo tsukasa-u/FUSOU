@@ -8,6 +8,7 @@
 //   mst_equip_limit_exslot — per-ship excluded exslot equipment type[2] IDs
 
 import type { MstSlotItemData } from "./types";
+import type { MstEquipShipData } from "./types";
 import {
   getBaseExslotEquipCount,
   getMasterEquipExslotShip,
@@ -23,50 +24,6 @@ type NormalSlotRule = {
   itemAllowListByType: Map<number, Set<number>>;
 };
 
-const NORMAL_SLOT_EXCLUDED_TYPES_BY_SHIP: Array<{
-  shipIds: number[];
-  slotIndex: number | { min: number };
-  mode: "exclude" | "allow-only";
-  typeIds: number[];
-}> = [
-  {
-    shipIds: [553, 554],
-    slotIndex: { min: 2 },
-    mode: "exclude",
-    typeIds: [2, 3],
-  },
-  {
-    shipIds: [622, 623, 624],
-    slotIndex: 3,
-    mode: "exclude",
-    typeIds: [1, 2, 5, 22],
-  },
-  {
-    shipIds: [622, 623, 624],
-    slotIndex: 4,
-    mode: "allow-only",
-    typeIds: [12, 21, 43],
-  },
-  {
-    shipIds: [662, 663, 668],
-    slotIndex: 3,
-    mode: "exclude",
-    typeIds: [5],
-  },
-  {
-    shipIds: [963, 968],
-    slotIndex: 3,
-    mode: "exclude",
-    typeIds: [1, 5, 13],
-  },
-  {
-    shipIds: [978],
-    slotIndex: 2,
-    mode: "exclude",
-    typeIds: [2],
-  },
-];
-
 export type EquipSelectionRequirement = {
   level: number;
   alv: number;
@@ -77,8 +34,67 @@ type NormalSlotTypeRestriction = {
   typeIds: Set<number>;
 };
 
+type NormalSlotRestrictionMode = "exclude" | "allow-only";
+
+type NormalSlotRestrictionSourceRule = {
+  slotIndex: number | { min: number };
+  mode: NormalSlotRestrictionMode;
+  typeIds: number[];
+};
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function isIntegerNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value);
+}
+
+function parseRestrictionMode(value: unknown): NormalSlotRestrictionMode | null {
+  return value === "exclude" || value === "allow-only" ? value : null;
+}
+
+function parseShipSpecificNormalSlotRules(
+  shipOverride: MstEquipShipData | undefined,
+): NormalSlotRestrictionSourceRule[] {
+  const rawRules = shipOverride?.normal_slot_type_restrictions;
+  if (!Array.isArray(rawRules)) return [];
+
+  const parsed: NormalSlotRestrictionSourceRule[] = [];
+  for (const rawRule of rawRules) {
+    if (!rawRule || typeof rawRule !== "object") continue;
+
+    const mode = parseRestrictionMode(rawRule.mode);
+    if (!mode) continue;
+
+    const slotIndexRaw = rawRule.slot_index;
+    const minSlotIndexRaw = rawRule.min_slot_index;
+    const slotIndex = Number.isInteger(slotIndexRaw)
+      ? Number(slotIndexRaw)
+      : Number.isInteger(minSlotIndexRaw)
+        ? { min: Number(minSlotIndexRaw) }
+        : null;
+    if (!slotIndex) continue;
+
+    const rawTypeIds = Array.isArray(rawRule.type_ids) ? rawRule.type_ids : [];
+    const typeIds = [...new Set(rawTypeIds.filter(isIntegerNumber))];
+    if (typeIds.length === 0) continue;
+
+    parsed.push({
+      slotIndex,
+      mode,
+      typeIds,
+    });
+  }
+
+  return parsed;
+}
+
+function getNormalSlotRestrictionRulesForShip(
+  shipId: number,
+): NormalSlotRestrictionSourceRule[] {
+  const shipOverride = getMasterEquipShipMap()[shipId];
+  return parseShipSpecificNormalSlotRules(shipOverride);
 }
 
 function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
@@ -149,8 +165,7 @@ function getNormalSlotTypeRestriction(
 ): NormalSlotTypeRestriction | null {
   if (slotIdx == null || slotIdx < 0) return null;
 
-  for (const rule of NORMAL_SLOT_EXCLUDED_TYPES_BY_SHIP) {
-    if (!rule.shipIds.includes(shipId)) continue;
+  for (const rule of getNormalSlotRestrictionRulesForShip(shipId)) {
 
     const matchesSlot =
       typeof rule.slotIndex === "number"
