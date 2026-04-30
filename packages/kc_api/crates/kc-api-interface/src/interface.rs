@@ -1,4 +1,3 @@
-use crate::use_items::UseItems;
 use crate::air_base::AirBases;
 use crate::battle::Battle;
 use crate::cells::{Cell, Cells};
@@ -24,6 +23,8 @@ use crate::remodel::{RemodelDetail, RemodelSlotList};
 use crate::ship::Ships;
 use crate::ship_growth::ShipGrowthSnapshot;
 use crate::slot_item::SlotItems;
+use crate::soku_speed_observed::SokuSpeedObservedSnapshot;
+use crate::use_items::UseItems;
 
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +80,7 @@ pub enum Set {
     MstShipUpgrades(MstShipUpgrades),
     Quests(Quests),
     ShipGrowthSnapshot(ShipGrowthSnapshot),
+    SokuSpeedObservedSnapshot(SokuSpeedObservedSnapshot),
     RemodelSlotList(RemodelSlotList),
     RemodelDetail(RemodelDetail),
     Dammy(()),

@@ -9,8 +9,8 @@ pub struct ShipGrowthSnapshot {
 pub struct SlotComposition {
     pub slotitem_id: i64,
     pub locked: bool,
-    pub level: i64,  // ★0–★10 改修値 (0 = no improvement)
-    pub alv: i64,    // 熟練度 (0–7)
+    pub level: i64, // ★0–★10 改修値 (0 = no improvement)
+    pub alv: i64,   // 熟練度 (0–7)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
