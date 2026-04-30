@@ -300,6 +300,14 @@ save_file_location = ""
     # If empty, ship growth sender is disabled
     ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
 
+    [app.soku_speed_sender]
+    # Whether to enable speed observed data collection
+    # default is false
+    enable = false
+
+    # Endpoint to ingest soku_speed observed data
+    ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
+
     [app.remodel_sender]
     # Whether to enable remodel tree data ingestion (experimental feature)
     # This sends your remodel recipe observations to help build the remodel tree.

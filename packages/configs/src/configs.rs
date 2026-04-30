@@ -926,6 +926,26 @@ impl ConfigsAppShipGrowthSender {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppSokuSpeedSender {
+    enable: Option<bool>,
+    ingest_endpoint: Option<String>,
+}
+
+impl ConfigsAppSokuSpeedSender {
+    pub fn get_enable(&self) -> bool {
+        self.enable
+            .unwrap_or_else(|| get_default_configs().app.soku_speed_sender.enable.unwrap())
+    }
+
+    pub fn get_ingest_endpoint(&self) -> Option<String> {
+        match self.ingest_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppRemodelSender {
     enable: Option<bool>,
     ingest_endpoint: Option<String>,
@@ -959,6 +979,7 @@ pub struct ConfigsApp {
     pub kc_window: ConfigsAppWindow,
     pub quest_tree_sender: ConfigsAppQuestTreeSender,
     pub ship_growth_sender: ConfigsAppShipGrowthSender,
+    pub soku_speed_sender: ConfigsAppSokuSpeedSender,
     pub remodel_sender: ConfigsAppRemodelSender,
 }
 
@@ -1483,6 +1504,7 @@ mod tests {
             ttl_seconds: None,
             interval_seconds: None,
             auth_backoff_seconds: None,
+            item_interval_seconds: None,
         };
 
         assert_eq!(
