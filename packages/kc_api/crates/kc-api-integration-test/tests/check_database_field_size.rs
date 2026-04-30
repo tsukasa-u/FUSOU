@@ -101,6 +101,7 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::ShipGrowthSnapshot(_) => {}
+            Set::SokuSpeedObservedSnapshot(_) => {}
             Set::RemodelSlotList(_) => {}
             Set::RemodelDetail(_) => {}
             Set::Dammy(_) => {}

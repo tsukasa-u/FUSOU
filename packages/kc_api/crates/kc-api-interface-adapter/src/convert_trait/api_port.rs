@@ -6,6 +6,10 @@ use kc_api_interface::n_dock::NDocks;
 use kc_api_interface::ship::Ships;
 use kc_api_interface::slot_item::SlotItems;
 use kc_api_interface::ship_growth::{ShipGrowthEntry, ShipGrowthSnapshot, SlotComposition};
+use kc_api_interface::soku_speed_observed::{
+    SokuSpeedObservedEntry, SokuSpeedObservedSnapshot,
+    SlotComposition as SokuSpeedSlotComposition,
+};
 
 use kc_api_dto::endpoints::api_port::*;
 
@@ -21,6 +25,25 @@ fn build_slot_composition(slot_id: i64, slot_items: &SlotItems) -> Option<SlotCo
         level: si.level,
         alv: si.alv.unwrap_or(0),
     })
+}
+
+fn build_soku_speed_slot(slot_id: i64, slot_items: &SlotItems) -> Option<SokuSpeedSlotComposition> {
+    if slot_id <= 0 {
+        return None;
+    }
+    slot_items.slot_items.get(&slot_id).map(|si| SokuSpeedSlotComposition {
+        slotitem_id: si.slotitem_id,
+        locked: si.locked != 0,
+        level: si.level,
+        alv: si.alv.unwrap_or(0),
+    })
+}
+
+fn build_soku_speed_slot_vec(slot_ids: &[i64], slot_items: &SlotItems) -> Vec<SokuSpeedSlotComposition> {
+    slot_ids
+        .iter()
+        .filter_map(|&slot_id| build_soku_speed_slot(slot_id, slot_items))
+        .collect()
 }
 
 fn build_slot_composition_vec(slot_ids: &[i64], slot_items: &SlotItems) -> Vec<SlotComposition> {
@@ -87,11 +110,29 @@ impl TraitForConvert for port::Res {
             entries: growth_entries,
         };
 
+        let soku_speed_entries = self
+            .api_data
+            .api_ship
+            .iter()
+            .map(|s| SokuSpeedObservedEntry {
+                master_id: s.api_ship_id,
+                lv: s.api_lv,
+                soku_observed: s.api_soku,
+                slots: build_soku_speed_slot_vec(&s.api_slot, &slot_items),
+                exslot: build_soku_speed_slot(s.api_slot_ex, &slot_items),
+            })
+            .collect::<Vec<_>>();
+
+        let soku_speed_snapshot = SokuSpeedObservedSnapshot {
+            entries: soku_speed_entries,
+        };
+
         Some(vec![
             EmitData::Set(Set::Basic(basic)),
             EmitData::Set(Set::Materials(materials)),
             EmitData::Set(Set::Ships(ships)),
             EmitData::Set(Set::ShipGrowthSnapshot(growth_snapshot)),
+            EmitData::Set(Set::SokuSpeedObservedSnapshot(soku_speed_snapshot)),
             EmitData::Set(Set::NDocks(ndocks)),
             EmitData::Set(Set::Logs(logs)),
             EmitData::Set(Set::DeckPorts(deck_ports)),

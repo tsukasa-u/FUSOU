@@ -1,9 +1,13 @@
 use kc_api_interface::air_base::AirBases;
+use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::quest::Quests;
 use kc_api_interface::ship_growth::{ShipGrowthEntry, ShipGrowthSnapshot, SlotComposition};
 use kc_api_interface::slot_item::SlotItems;
-use kc_api_interface::deck_port::DeckPorts;
+use kc_api_interface::soku_speed_observed::{
+    SokuSpeedObservedEntry, SokuSpeedObservedSnapshot,
+    SlotComposition as SokuSpeedSlotComposition,
+};
 
 use kc_api_dto::endpoints::api_get_member::*;
 use kc_api_interface::use_items::UseItems;
@@ -14,7 +18,29 @@ fn build_slot_composition(slot_id: i64, slot_items: &SlotItems) -> Option<SlotCo
     if slot_id <= 0 {
         return None;
     }
-    slot_items.slot_items.get(&slot_id).map(|si| SlotComposition {
+    slot_items
+        .slot_items
+        .get(&slot_id)
+        .map(|si| SlotComposition {
+            slotitem_id: si.slotitem_id,
+            locked: si.locked != 0,
+            level: si.level,
+            alv: si.alv.unwrap_or(0),
+        })
+}
+
+fn build_slot_composition_vec(slot_ids: &[i64], slot_items: &SlotItems) -> Vec<SlotComposition> {
+    slot_ids
+        .iter()
+        .filter_map(|&slot_id| build_slot_composition(slot_id, slot_items))
+        .collect()
+}
+
+fn build_soku_speed_slot(slot_id: i64, slot_items: &SlotItems) -> Option<SokuSpeedSlotComposition> {
+    if slot_id <= 0 {
+        return None;
+    }
+    slot_items.slot_items.get(&slot_id).map(|si| SokuSpeedSlotComposition {
         slotitem_id: si.slotitem_id,
         locked: si.locked != 0,
         level: si.level,
@@ -22,10 +48,10 @@ fn build_slot_composition(slot_id: i64, slot_items: &SlotItems) -> Option<SlotCo
     })
 }
 
-fn build_slot_composition_vec(slot_ids: &[i64], slot_items: &SlotItems) -> Vec<SlotComposition> {
+fn build_soku_speed_slot_vec(slot_ids: &[i64], slot_items: &SlotItems) -> Vec<SokuSpeedSlotComposition> {
     slot_ids
         .iter()
-        .filter_map(|&slot_id| build_slot_composition(slot_id, slot_items))
+        .filter_map(|&slot_id| build_soku_speed_slot(slot_id, slot_items))
         .collect()
 }
 
@@ -186,9 +212,24 @@ impl TraitForConvert for ship2::Res {
             })
             .collect::<Vec<_>>();
 
-        Some(vec![EmitData::Set(Set::ShipGrowthSnapshot(
-            ShipGrowthSnapshot { entries },
-        ))])
+        let soku_speed_entries = self
+            .api_data
+            .iter()
+            .map(|s| SokuSpeedObservedEntry {
+                master_id: s.api_ship_id,
+                lv: s.api_lv,
+                soku_observed: s.api_soku,
+                slots: build_soku_speed_slot_vec(&s.api_slot, &slot_items),
+                exslot: build_soku_speed_slot(s.api_slot_ex, &slot_items),
+            })
+            .collect::<Vec<_>>();
+
+        Some(vec![
+            EmitData::Set(Set::ShipGrowthSnapshot(ShipGrowthSnapshot { entries })),
+            EmitData::Set(Set::SokuSpeedObservedSnapshot(SokuSpeedObservedSnapshot {
+                entries: soku_speed_entries,
+            })),
+        ])
     }
 }
 
@@ -232,8 +273,24 @@ impl TraitForConvert for ship3::Res {
             })
             .collect::<Vec<_>>();
 
-        Some(vec![EmitData::Set(Set::ShipGrowthSnapshot(
-            ShipGrowthSnapshot { entries },
-        ))])
+        let soku_speed_entries_3 = self
+            .api_data
+            .api_ship_data
+            .iter()
+            .map(|s| SokuSpeedObservedEntry {
+                master_id: s.api_ship_id,
+                lv: s.api_lv,
+                soku_observed: s.api_soku,
+                slots: build_soku_speed_slot_vec(&s.api_slot, &slot_items),
+                exslot: build_soku_speed_slot(s.api_slot_ex, &slot_items),
+            })
+            .collect::<Vec<_>>();
+
+        Some(vec![
+            EmitData::Set(Set::ShipGrowthSnapshot(ShipGrowthSnapshot { entries })),
+            EmitData::Set(Set::SokuSpeedObservedSnapshot(SokuSpeedObservedSnapshot {
+                entries: soku_speed_entries_3,
+            })),
+        ])
     }
 }
