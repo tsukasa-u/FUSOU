@@ -104,7 +104,11 @@ impl From<interface::ShipGrowthEntry> for ShipGrowthEntry {
 impl From<interface::ShipGrowthSnapshot> for ShipGrowthSnapshot {
     fn from(value: interface::ShipGrowthSnapshot) -> Self {
         Self {
-            entries: value.entries.into_iter().map(ShipGrowthEntry::from).collect(),
+            entries: value
+                .entries
+                .into_iter()
+                .map(ShipGrowthEntry::from)
+                .collect(),
         }
     }
 }
