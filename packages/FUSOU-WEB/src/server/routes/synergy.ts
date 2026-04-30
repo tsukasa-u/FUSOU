@@ -15,6 +15,17 @@ import { createEnvContext, verifyAdminToken } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+const EMPTY_SYNERGY_DATA = {
+  effect_rules: [],
+  cross_rules: [],
+  _meta: {
+    api_start2_batch_hash: "unknown",
+    table_version: "unknown",
+    generator_version: "unknown",
+    generated_at: "1970-01-01T00:00:00.000Z",
+  },
+};
+
 /**
  * GET /synergy-manifest
  * (Mounted at /master-data → full path: /api/master-data/synergy-manifest)
@@ -101,6 +112,7 @@ app.get("/synergy-data", async (c) => {
     );
   }
 
+  const envCtx = createEnvContext({ env: c.env });
   const db = c.env.MASTER_DATA_INDEX_DB;
   const bucket = c.env.MASTER_DATA_BUCKET;
 
@@ -117,10 +129,31 @@ app.get("/synergy-data", async (c) => {
         )
         .first()) as { period_tag: string } | null;
 
-      if (!latestMasterData?.period_tag) {
-        return c.json({ error: "No completed master_data found" }, 404);
+        if (latestMasterData?.period_tag) {
+          effectivePeriodTag = latestMasterData.period_tag;
+        }
+    }
+    // Fallback to synergy_manifest if needed
+    if (!effectivePeriodTag) {
+      const latestSynergy = (await db
+        .prepare(
+          `SELECT period_tag FROM synergy_manifest WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
+        )
+        .first()) as { period_tag: string } | null;
+      if (latestSynergy?.period_tag) {
+        effectivePeriodTag = latestSynergy.period_tag;
+      } else {
+        if (envCtx.isDev && !periodTagQuery) {
+          return c.json(EMPTY_SYNERGY_DATA, 200, {
+            "Cache-Control": "public, max-age=300",
+            "X-FUSOU-Synergy-Source": "dev-fallback",
+            "X-FUSOU-Synergy-Period-Tag": "local-dev",
+            "X-FUSOU-Synergy-Period-Revision": "0",
+            "X-FUSOU-Synergy-Completed-At": "unknown",
+          });
+        }
+        return c.json({ error: "No completed synergy_manifest found" }, 404);
       }
-      effectivePeriodTag = latestMasterData.period_tag;
     }
 
     let sql = `
@@ -137,7 +170,7 @@ app.get("/synergy-data", async (c) => {
 
     sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
 
-    const manifest = (await db
+    let manifest = (await db
       .prepare(sql)
       .bind(...params)
       .first()) as {
@@ -147,7 +180,33 @@ app.get("/synergy-data", async (c) => {
       completed_at?: number | null;
     } | null;
 
+    if (!manifest && !periodTagQuery) {
+      manifest = (await db
+        .prepare(
+          `SELECT period_tag, period_revision, content_hash, completed_at
+           FROM synergy_manifest
+           WHERE upload_status = 'completed'
+           ORDER BY completed_at DESC, period_revision DESC
+           LIMIT 1`,
+        )
+        .first()) as {
+        period_tag: string;
+        period_revision: number;
+        content_hash: string;
+        completed_at?: number | null;
+      } | null;
+    }
+
     if (!manifest) {
+      if (envCtx.isDev && !periodTagQuery) {
+        return c.json(EMPTY_SYNERGY_DATA, 200, {
+          "Cache-Control": "public, max-age=300",
+          "X-FUSOU-Synergy-Source": "dev-fallback",
+          "X-FUSOU-Synergy-Period-Tag": "local-dev",
+          "X-FUSOU-Synergy-Period-Revision": "0",
+          "X-FUSOU-Synergy-Completed-At": "unknown",
+        });
+      }
       return c.json(
         {
           error: periodTagQuery
@@ -158,11 +217,47 @@ app.get("/synergy-data", async (c) => {
       );
     }
 
-    const r2Keys = getSynergyManifestR2Keys(
+    let r2Keys = getSynergyManifestR2Keys(
       manifest.period_tag,
       manifest.period_revision,
       manifest.content_hash,
     );
+    let object = await bucket.get(r2Keys.sp_effect_json);
+
+    // When period is not specified, avoid sticking to a manifest row whose object is missing.
+    // Pick the latest completed manifest that actually exists in R2.
+    if (!object && !periodTagQuery) {
+      const candidates = (await db
+        .prepare(
+          `SELECT period_tag, period_revision, content_hash, completed_at
+           FROM synergy_manifest
+           WHERE upload_status = 'completed'
+           ORDER BY completed_at DESC, period_revision DESC
+           LIMIT 20`,
+        )
+        .all()) as {
+        results?: Array<{
+          period_tag: string;
+          period_revision: number;
+          content_hash: string;
+          completed_at?: number | null;
+        }>;
+      };
+
+      for (const candidate of candidates.results ?? []) {
+        const candidateKeys = getSynergyManifestR2Keys(
+          candidate.period_tag,
+          candidate.period_revision,
+          candidate.content_hash,
+        );
+        const candidateObject = await bucket.get(candidateKeys.sp_effect_json);
+        if (!candidateObject) continue;
+        manifest = candidate;
+        r2Keys = candidateKeys;
+        object = candidateObject;
+        break;
+      }
+    }
 
     // Conditional request support: return 304 when client already has this content hash.
     const etag = `"${manifest.content_hash}"`;
@@ -183,15 +278,17 @@ app.get("/synergy-data", async (c) => {
       }
     }
 
-    const object = await bucket.get(r2Keys.sp_effect_json);
     if (!object) {
-      return c.json(
-        {
-          error: "sp_effect_item.json not found in R2",
-          expected_r2_key: r2Keys.sp_effect_json,
-        },
-        404,
-      );
+      // Fallback: return empty synergy data for local dev
+      return c.json(EMPTY_SYNERGY_DATA, 200, {
+        ETag: etag,
+        "Cache-Control": "public, max-age=300",
+        "X-FUSOU-Synergy-Source": "dev-fallback",
+        "X-FUSOU-Synergy-Period-Tag": manifest.period_tag,
+        "X-FUSOU-Synergy-Period-Revision": manifest.period_revision.toString(),
+        "X-FUSOU-Synergy-Completed-At":
+          manifest.completed_at?.toString() || "unknown",
+      });
     }
 
     return new Response(object.body, {
@@ -200,6 +297,11 @@ app.get("/synergy-data", async (c) => {
         "Content-Type": "application/json; charset=utf-8",
         "Cache-Control": "public, max-age=300",
         ETag: etag,
+        "X-FUSOU-Synergy-Source": "manifest-r2",
+        "X-FUSOU-Synergy-Period-Tag": manifest.period_tag,
+        "X-FUSOU-Synergy-Period-Revision": manifest.period_revision.toString(),
+        "X-FUSOU-Synergy-Completed-At":
+          manifest.completed_at?.toString() || "unknown",
       },
     });
   } catch (error) {

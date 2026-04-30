@@ -429,22 +429,39 @@ async function loadSynergyDataSet(
   ) as {
     effects?: Record<string, unknown>;
     cross_effects?: Record<string, unknown>;
+    effect_rules?: Array<{ ships: number[]; b: Record<string, number>; l?: Record<string, number>; c2?: Record<string, number>; c3?: Record<string, number>; items: number[] }>;
+    cross_rules?: Array<{ ships: number[]; synergy: Record<string, number>; pairs: Array<[number, number]> }>;
   };
 
   const singleByItem = new Map<number, SynergySingleRule[]>();
   let droppedSingleCount = 0;
-  for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
-    const itemId = Number(itemKey);
-    if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) {
-      droppedSingleCount += 1;
-      continue;
+
+  // Prefer new effect_rules format; fall back to legacy effects dict
+  if (parsed.effect_rules && Array.isArray(parsed.effect_rules)) {
+    for (const rule of parsed.effect_rules) {
+      if (!rule || !Array.isArray(rule.items)) continue;
+      const synRule: SynergySingleRule = { ships: rule.ships ?? [], b: rule.b ?? {}, l: rule.l, c2: rule.c2, c3: rule.c3 };
+      for (const itemId of rule.items) {
+        if (!Number.isInteger(itemId) || itemId <= 0) { droppedSingleCount++; continue; }
+        let list = singleByItem.get(itemId);
+        if (!list) { list = []; singleByItem.set(itemId, list); }
+        list.push(synRule);
+      }
     }
-    singleByItem.set(
-      itemId,
-      rawRules.filter(
-        (rule) => typeof rule === "object" && rule != null,
-      ) as SynergySingleRule[],
-    );
+  } else {
+    for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
+      const itemId = Number(itemKey);
+      if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) {
+        droppedSingleCount += 1;
+        continue;
+      }
+      singleByItem.set(
+        itemId,
+        rawRules.filter(
+          (rule) => typeof rule === "object" && rule != null,
+        ) as SynergySingleRule[],
+      );
+    }
   }
   if (droppedSingleCount > 0) {
     console.warn(
@@ -454,19 +471,34 @@ async function loadSynergyDataSet(
 
   const crossByPair = new Map<string, SynergyCrossRule[]>();
   let droppedCrossCount = 0;
-  for (const [pairKey, rawRules] of Object.entries(
-    parsed.cross_effects ?? {},
-  )) {
-    if (!Array.isArray(rawRules)) {
-      droppedCrossCount += 1;
-      continue;
+
+  // Prefer new cross_rules format; fall back to legacy cross_effects dict
+  if (parsed.cross_rules && Array.isArray(parsed.cross_rules)) {
+    for (const rule of parsed.cross_rules) {
+      if (!rule || !Array.isArray(rule.pairs)) continue;
+      const synRule: SynergyCrossRule = { ships: rule.ships ?? [], synergy: rule.synergy ?? {} };
+      for (const [a, b] of rule.pairs) {
+        const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
+        let list = crossByPair.get(key);
+        if (!list) { list = []; crossByPair.set(key, list); }
+        list.push(synRule);
+      }
     }
-    crossByPair.set(
-      pairKey,
-      rawRules.filter(
-        (rule) => typeof rule === "object" && rule != null,
-      ) as SynergyCrossRule[],
-    );
+  } else {
+    for (const [pairKey, rawRules] of Object.entries(
+      parsed.cross_effects ?? {},
+    )) {
+      if (!Array.isArray(rawRules)) {
+        droppedCrossCount += 1;
+        continue;
+      }
+      crossByPair.set(
+        pairKey,
+        rawRules.filter(
+          (rule) => typeof rule === "object" && rule != null,
+        ) as SynergyCrossRule[],
+      );
+    }
   }
   if (droppedCrossCount > 0) {
     console.warn(
@@ -2053,6 +2085,11 @@ app.get("/exp", async (c) => {
       period_tag: periodTag,
       table_version: tableVersion,
       exp: snapshot.rows,
+      updated_at: snapshot.db_synced_at,
+      updated_at_iso:
+        snapshot.db_synced_at > 0
+          ? new Date(snapshot.db_synced_at * 1000).toISOString()
+          : null,
     });
     response.headers.set(
       "Cache-Control",
@@ -2271,6 +2308,11 @@ app.get("/bounds", async (c) => {
       table_version: tableVersion,
       bounds: responseBounds,
       caps: responseCaps,
+      updated_at: snapshot.db_synced_at,
+      updated_at_iso:
+        snapshot.db_synced_at > 0
+          ? new Date(snapshot.db_synced_at * 1000).toISOString()
+          : null,
     });
     response.headers.set(
       "Cache-Control",
@@ -2569,7 +2611,8 @@ async function deltaRefreshAllPeriodsSnapshot(
   for (const entry of cached.entries) {
     const pKey = `${entry.period_tag}/${entry.table_version}`;
     const boundsMap: PeriodBoundsMap = new Map();
-    for (const r of entry.bounds) boundsMap.set(`${r.master_id}:${r.lv}`, { ...r });
+    for (const r of entry.bounds)
+      boundsMap.set(`${r.master_id}:${r.lv}`, { ...r });
     const capsMap: PeriodCapsMap = new Map();
     for (const r of entry.caps) capsMap.set(r.master_id, { ...r });
     byPeriod.set(pKey, { bounds: boundsMap, caps: capsMap });

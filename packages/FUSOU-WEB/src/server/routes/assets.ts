@@ -27,6 +27,13 @@ import { handleTwoStageUpload } from "../utils/upload";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const BROTLI_DECOMPRESSION_FORMAT = "brotli" as unknown as CompressionFormat;
+const TRANSPARENT_PNG_1X1 = new Uint8Array([
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
+  0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
+  0, 0, 0, 11, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0, 5,
+  0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
+  96, 130,
+]);
 
 // OPTIONS（CORS）
 app.options(
@@ -650,6 +657,16 @@ app.get("/equip-image-map", async (c) => {
       ...CORS_HEADERS,
     });
   } catch (err) {
+    if (
+      envCtx.isDev &&
+      err instanceof Error &&
+      /no such table:\s*files/i.test(err.message)
+    ) {
+      return c.json({ base_url: assetBaseUrl, card: {}, item_up: {} }, 200, {
+        "Cache-Control": "no-store",
+        ...CORS_HEADERS,
+      });
+    }
     console.error("[asset-sync] equip-image-map error:", err);
     return c.json({ error: "Failed to build equip image map" }, 500);
   }
@@ -763,6 +780,17 @@ app.get("/weapon-icons", async (c) => {
     const r2Object = await bucket.get(r2Key);
 
     if (!r2Object) {
+      if (envCtx.isDev) {
+        return new Response(TRANSPARENT_PNG_1X1, {
+          status: 200,
+          headers: {
+            "Content-Type": "image/png",
+            "Content-Length": String(TRANSPARENT_PNG_1X1.byteLength),
+            "Cache-Control": "no-store",
+            ...CORS_HEADERS,
+          },
+        });
+      }
       return new Response(null, { status: 404 });
     }
 
@@ -812,6 +840,17 @@ app.get("/ship-type-icons", async (c) => {
     const r2Object = await bucket.get(r2Key);
 
     if (!r2Object) {
+      if (envCtx.isDev) {
+        return new Response(TRANSPARENT_PNG_1X1, {
+          status: 200,
+          headers: {
+            "Content-Type": "image/png",
+            "Content-Length": String(TRANSPARENT_PNG_1X1.byteLength),
+            "Cache-Control": "no-store",
+            ...CORS_HEADERS,
+          },
+        });
+      }
       return new Response(null, { status: 404 });
     }
 
@@ -861,6 +900,12 @@ app.get("/weapon-icon-frames", async (c) => {
     const jsonKey = "assets/kcs2/img/common/common_icon_weapon.json";
     const r2Object = await bucket.get(jsonKey);
     if (!r2Object) {
+      if (envCtx.isDev) {
+        return c.json({ frames: {}, meta: { size: { w: 0, h: 0 } } }, 200, {
+          "Cache-Control": "no-store",
+          ...CORS_HEADERS,
+        });
+      }
       return c.json({ error: "Sprite atlas not found" }, 404);
     }
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
@@ -916,6 +961,12 @@ app.get("/ship-type-icon-frames", async (c) => {
     const jsonKey = "assets/kcs2/img/organize/organize_ship.json";
     const r2Object = await bucket.get(jsonKey);
     if (!r2Object) {
+      if (envCtx.isDev) {
+        return c.json({ frames: {}, meta: { size: { w: 0, h: 0 } } }, 200, {
+          "Cache-Control": "no-store",
+          ...CORS_HEADERS,
+        });
+      }
       return c.json({ error: "Sprite atlas not found" }, 404);
     }
 
