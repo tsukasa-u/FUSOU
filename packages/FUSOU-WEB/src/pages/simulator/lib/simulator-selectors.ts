@@ -9,6 +9,8 @@ import type {
   MstShipData,
   MstSlotItemData,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
+  SokuSpeedData,
 } from "./types";
 
 export type ShipModalSource = "snapshot" | "master";
@@ -230,6 +232,17 @@ export function getShipTypeSpriteSheetMeta(): { width: number; height: number; u
 export function getSlotItemEffects(): SlotItemEffectsData | null {
   return state.slotItemEffects;
 }
+
+export function getSlotItemEffectsMeta(): SlotItemEffectsMeta | null {
+  return state.slotItemEffectsMeta;
+}
+
+export function getSokuSpeedData(): SokuSpeedData | null {
+  return state.sokuSpeedData;
+}
+
+// Legacy compatibility selector.
+export const getSokuLengSpeedData = getSokuSpeedData;
 
 export function getAssetBaseUrl(): string {
   return state.assetBaseUrl;

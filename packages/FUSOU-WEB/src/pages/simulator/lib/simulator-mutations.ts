@@ -16,6 +16,8 @@ import type {
   MstStypeData,
   ShipSelection,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
+  SokuSpeedData,
 } from "./types";
 import { emptyAirBase, emptyFleetSlot } from "./types";
 import type {
@@ -487,3 +489,18 @@ export function setSlotItemEffects(slotItemEffects: SlotItemEffectsData | null):
   state.slotItemEffects = slotItemEffects;
   markSimulatorStateDirty();
 }
+
+export function setSlotItemEffectsMeta(
+  slotItemEffectsMeta: SlotItemEffectsMeta | null,
+): void {
+  state.slotItemEffectsMeta = slotItemEffectsMeta;
+  markSimulatorStateDirty();
+}
+
+export function setSokuSpeedData(data: SokuSpeedData | null): void {
+  state.sokuSpeedData = data;
+  markSimulatorStateDirty();
+}
+
+// Legacy compatibility mutation.
+export const setSokuLengSpeedData = setSokuSpeedData;
