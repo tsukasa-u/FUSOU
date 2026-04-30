@@ -144,6 +144,9 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::ShipGrowthSnapshot(data) => {
                 crate::ship_growth_sender::enqueue_snapshot(data);
             }
+            Set::SokuSpeedObservedSnapshot(data) => {
+                crate::senders::soku_speed_sender::enqueue_snapshot(data);
+            }
             Set::RemodelSlotList(data) => {
                 crate::remodel_sender::enqueue_slotlist(data);
             }

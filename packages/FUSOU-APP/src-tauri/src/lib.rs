@@ -25,7 +25,7 @@ mod storage;
 mod util;
 mod window;
 mod wrap_proxy;
-use senders::{quest_tree_sender, remodel_sender, ship_growth_sender};
+use senders::{quest_tree_sender, remodel_sender, ship_growth_sender, soku_speed_sender};
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
@@ -342,6 +342,30 @@ pub async fn run() {
                     } else {
                         tracing::warn!(
                             "ship_growth_sender enabled but ingest_endpoint not configured"
+                        );
+                    }
+                }
+
+                if app_configs.soku_speed_sender.get_enable() {
+                    if let Some(ingest_endpoint) =
+                        app_configs.soku_speed_sender.get_ingest_endpoint()
+                    {
+                        let auth_manager_for_soku_speed = Arc::new(auth_manager.clone());
+                        let soku_speed_cache_root = util::get_ROAMING_DIR()
+                            .join("cache")
+                            .join("request_suppression")
+                            .join("soku_speed_sender");
+                        tracing::info!("starting soku_speed sender");
+                        soku_speed_sender::start(
+                            ingest_endpoint,
+                            auth_manager_for_soku_speed,
+                            pending_store.clone(),
+                            retry_service.clone(),
+                            soku_speed_cache_root,
+                        );
+                    } else {
+                        tracing::warn!(
+                            "soku_speed_sender enabled but ingest_endpoint not configured"
                         );
                     }
                 }
