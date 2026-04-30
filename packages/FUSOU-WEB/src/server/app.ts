@@ -11,6 +11,7 @@ import kcApp from './routes/kc';
 import compactApp from './routes/compact';
 import battleDataApp from './routes/battle_data';
 import userApp from './routes/user';
+import sokuSpeedObserved from './routes/soku_speed_observed';
 import adminApp from './routes/admin';
 import dataLoaderApp from './routes/data_loader';
 import masterDataApp from './routes/master_data';
@@ -193,6 +194,7 @@ app.route('/auth', anonymousSyncApp); // anonymousSyncApp declares /anonymous-sy
 app.route('/shorten', shortenerApp); // shortener app declares POST /
 app.route('/quest-tree', questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
 app.route('/remodel-data', remodelDataApp); // remodelDataApp declares /ingest
+app.route('/soku-speed-observed', sokuSpeedObserved); // Mount new route for sokuSpeedObserved
 
 // Catch-all 404
 app.all('*', (c) => {
