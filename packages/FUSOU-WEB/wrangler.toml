@@ -93,6 +93,12 @@ database_id = "d2acda7f-d0f4-4adc-9292-19c7523ef4e1"
 migrations_dir = "migrations/ship-growth"
 
 [[d1_databases]]
+binding = "SOKU_SPEED_OBSERVED_DB"
+database_name = "dev-kc-soku-speed-observed"
+database_id = "35cc3c0e-e504-4375-b84e-fd573a4d3d44"
+migrations_dir = "migrations/soku-speed-observed"
+
+[[d1_databases]]
 binding = "REMODEL_INDEX_DB"
 database_name = "dev-kc-remodel-index"
 database_id = "7da1ac34-ec76-42eb-b272-6288a522de98"

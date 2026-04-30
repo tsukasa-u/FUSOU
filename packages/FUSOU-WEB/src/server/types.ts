@@ -18,6 +18,7 @@ export type Bindings = {
   SHIP_GROWTH_ARCHIVE_BUCKET: R2BucketBinding;
   MASTER_DATA_INDEX_DB: D1Database;
   SHIP_GROWTH_DB: D1Database;
+  SOKU_SPEED_OBSERVED_DB: D1Database;
   REMODEL_INDEX_DB: D1Database;
 
   // Supabase config (JWKS verification requires URL)

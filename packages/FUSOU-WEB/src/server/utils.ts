@@ -202,6 +202,7 @@ export function injectEnv(_locals?: unknown): Bindings {
     SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime.SHIP_GROWTH_ARCHIVE_BUCKET!,
     MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
     SHIP_GROWTH_DB: ctx.runtime.SHIP_GROWTH_DB!,
+    SOKU_SPEED_OBSERVED_DB: ctx.runtime.SOKU_SPEED_OBSERVED_DB!,
     REMODEL_INDEX_DB: ctx.runtime.REMODEL_INDEX_DB!,
     ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
     // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
