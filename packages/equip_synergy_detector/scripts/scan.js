@@ -205,6 +205,132 @@ function makeShip(shipData) {
   };
 }
 
+// ── Equip permission tables ────────────────────────────────────────
+// Per ship-type: Set of equip types (api_type[2]) that can be used in normal slots
+const stypeEquipTypeSet = {};
+for (const st of masterData.api_mst_stype) {
+  const allowed = new Set();
+  for (const [etStr, v] of Object.entries(st.api_equip_type)) {
+    if (v === 1) allowed.add(parseInt(etStr));
+  }
+  stypeEquipTypeSet[st.api_id] = allowed;
+}
+
+// Ship-specific equip overrides (additively grant permissions beyond stype)
+const shipEquipOverrideMap = {};
+for (const [shipIdStr, info] of Object.entries(masterData.api_mst_equip_ship || {})) {
+  if (info.api_equip_type) shipEquipOverrideMap[parseInt(shipIdStr)] = info.api_equip_type;
+}
+
+// Equip types allowed in the reinforcement expansion slot (補強増設)
+const exslotEquipTypes = new Set((masterData.api_mst_equip_exslot || []).map(Number));
+
+// Ship/stype/ctype-specific exslot exceptions
+const exslotShipExcMap = {};
+for (const [etStr, info] of Object.entries(masterData.api_mst_equip_exslot_ship || {})) {
+  exslotShipExcMap[parseInt(etStr)] = info;
+}
+
+// Item equip type (api_type[2]) per item ID
+const itemEquipType2 = {};
+for (const si of mstSlotitems) {
+  itemEquipType2[si.api_id] = (si.api_type && si.api_type[2]) || 0;
+}
+
+/**
+ * Returns true if this ship can equip the given item in any slot
+ * (normal slot via stype, exslot via api_mst_equip_exslot, or ship-specific override).
+ */
+function canEquipItem(shipId, stypeId, ctypeId, itemId) {
+  const et2 = itemEquipType2[itemId];
+  if (!et2) return false;
+  // Normal slot via stype
+  if (stypeEquipTypeSet[stypeId]?.has(et2)) return true;
+  // Reinforcement expansion slot (exslot) – global types
+  if (exslotEquipTypes.has(et2)) return true;
+  // Exslot – ship/stype/ctype-specific exceptions
+  const exc = exslotShipExcMap[et2];
+  if (exc) {
+    if (exc.api_ship_ids?.[shipId]) return true;
+    if (exc.api_stypes?.[stypeId]) return true;
+    if (exc.api_ctypes?.[ctypeId]) return true;
+  }
+  // Ship-specific override grants additional permission
+  const ov = shipEquipOverrideMap[shipId];
+  if (ov && et2 in ov) {
+    const val = ov[et2];
+    if (val === null) return true;
+    if (Array.isArray(val) && val.includes(itemId)) return true;
+  }
+  return false;
+}
+
+// Pre-build equippable item list per ship (sorted ascending)
+const equippableByShip = {};
+for (const shipData of mstShips) {
+  const sid = shipData.api_id;
+  const stid = shipData.api_stype;
+  const ctid = shipData.api_ctype || 0;
+  const list = [];
+  for (const si of slotInfos) {
+    if (canEquipItem(sid, stid, ctid, si.id)) list.push(si.id);
+  }
+  equippableByShip[sid] = list;
+}
+
+// Effective slot count per ship: normal slots + 1 for expansion slot
+const effectiveSlotsOf = {};
+for (const shipData of mstShips) {
+  effectiveSlotsOf[shipData.api_id] = (shipData.api_slot_num || 0) + 1;
+}
+
+// ── Combinatorial helpers ──────────────────────────────────────────
+
+/** Binomial coefficient C(n, k). */
+function choose(n, k) {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  k = Math.min(k, n - k);
+  let r = 1;
+  for (let i = 0; i < k; i++) r = Math.round(r * (n - i) / (i + 1));
+  return r;
+}
+
+/**
+ * For a synergyMap (Map<comboKey, Map<profileKey, {ships,synergy}>>) find
+ * groups whose stored combos are exactly all C(pool, comboSize) combinations
+ * of some item pool. Returns { shipId → [{pool: sortedItemIds}] } for groups
+ * where pool.length > comboSize. Used to prune Phase 5/6 to known pools.
+ */
+function detectPoolsByShip(synergyMap, comboSize) {
+  const groups = new Map();
+  for (const [key, profileMap] of synergyMap) {
+    const items = key.split(':').map(Number);
+    for (const { ships, synergy } of profileMap.values()) {
+      const shipsSorted = [...ships].sort((a, b) => a - b);
+      const synSorted = Object.fromEntries(Object.entries(synergy).sort());
+      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      if (!groups.has(groupKey)) {
+        groups.set(groupKey, { ships: shipsSorted, allItems: new Set(), count: 0 });
+      }
+      const g = groups.get(groupKey);
+      for (const id of items) g.allItems.add(id);
+      g.count++;
+    }
+  }
+  const byShip = {};
+  for (const { ships, allItems, count } of groups.values()) {
+    const pool = [...allItems].sort((a, b) => a - b);
+    if (pool.length <= comboSize) continue;
+    if (choose(pool.length, comboSize) !== count) continue;
+    for (const shipId of ships) {
+      if (!byShip[shipId]) byShip[shipId] = [];
+      byShip[shipId].push({ pool });
+    }
+  }
+  return byShip;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Phase 1: Single-item scan
 // ═══════════════════════════════════════════════════════════════════
@@ -224,6 +350,7 @@ for (let si = 0; si < mstShips.length; si++) {
 
   for (let ei = 0; ei < slotInfos.length; ei++) {
     const slot = slotInfos[ei];
+    if (!canEquipItem(shipId, shipData.api_stype, shipData.api_ctype || 0, slot.id)) continue;
 
     // ★0 ×1
     const r0 = SlotItemEffectUtil.getSlotitemEffect(ship, [
@@ -325,7 +452,6 @@ for (const s of mstShips) shipById[s.api_id] = s;
 const synergies = new Map();
 let synergyCount = 0;
 let pairsTested = 0;
-const allItemIds = slotInfos.map((s) => s.id).sort((a, b) => a - b);
 
 for (let ai = 0; ai < bonusItemIds.length; ai++) {
   const itemA = bonusItemIds[ai];
@@ -337,16 +463,16 @@ for (let ai = 0; ai < bonusItemIds.length; ai++) {
   }
   if (shipsForA.length === 0) continue;
 
-  for (let bi = 0; bi < allItemIds.length; bi++) {
-    const itemB = allItemIds[bi];
-    if (itemB === itemA) continue; // same-item stacking handled in Phase 1
+  // For each ship, only test items the ship can actually equip
+  for (const shipId of shipsForA) {
+    const shipData = shipById[shipId];
+    if (!shipData) continue;
+    const ship = makeShip(shipData);
+    const equippable = equippableByShip[shipId] || [];
 
-    // Test the pair on all ships where itemA has a bonus
-    for (const shipId of shipsForA) {
+    for (const itemB of equippable) {
+      if (itemB === itemA) continue; // same-item stacking handled in Phase 1
       pairsTested++;
-      const shipData = shipById[shipId];
-      if (!shipData) continue;
-      const ship = makeShip(shipData);
 
       const combined = SlotItemEffectUtil.getSlotitemEffect(ship, [
         makeSlot(itemA, 0),
@@ -401,46 +527,490 @@ console.log(
 );
 
 // ═══════════════════════════════════════════════════════════════════
+// Phase 3: Triple cross-item synergy scan
+//   For each ship, test all triples (A, B, C) of synergy-participating items.
+//   Compute the residual delta not explained by individual bonuses and
+//   pairwise synergies. A non-zero residual means the same execFunc is
+//   triggered by multiple pairs and the triple correction prevents
+//   double-counting (hence negative values are expected and correct).
+//
+//   Why negative triple deltas?
+//   If execFunc F fires for A+B (+1) and also A+C (+1), but only once per
+//   getSlotitemEffect call, then combined(A,B,C)=+1 instead of +2.
+//   triple_delta = 1 - 0 - 0 - 0 - 1 - 1 - 0 = -1  (necessary correction)
+//
+//   Pruning: test triples where items have individual bonuses OR participate
+//   in pair synergies on the same ship.
+// ═══════════════════════════════════════════════════════════════════
+console.log("\n[Phase 3] Triple cross-item synergy scan ...");
+const t3 = Date.now();
+let tripleCount = 0;
+let triplesTested = 0;
+
+// synergyItemsByShip[shipId] = sorted array of item IDs that participate in
+// any synergy (individual bonus OR pair synergy) on that ship.
+// This is broader than just Phase 1 items to catch items that have no solo
+// bonus but do participate in pair synergies (e.g. the "B" in A+B->bonus
+// where B alone gives nothing but the pair fires an execFunc).
+const bonusItemsByShip = {};
+for (const [itemId, profileMap] of equipResults) {
+  for (const { ships } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!bonusItemsByShip[shipId]) bonusItemsByShip[shipId] = [];
+      if (!bonusItemsByShip[shipId].includes(itemId)) {
+        bonusItemsByShip[shipId].push(itemId);
+      }
+    }
+  }
+}
+// Also include items that only appear in pair synergies (no individual bonus).
+for (const [, profileMap] of synergies) {
+  for (const { ships, items } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!bonusItemsByShip[shipId]) bonusItemsByShip[shipId] = [];
+      for (const itemId of items) {
+        if (!bonusItemsByShip[shipId].includes(itemId)) {
+          bonusItemsByShip[shipId].push(itemId);
+        }
+      }
+    }
+  }
+}
+for (const items of Object.values(bonusItemsByShip)) {
+  items.sort((a, b) => a - b);
+}
+
+// pairByShipKey[shipId]["a:b"] = synergy stats (from Phase 2)
+const pairByShipKey = {};
+for (const [pairKey, profileMap] of synergies) {
+  for (const { ships, synergy } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!pairByShipKey[shipId]) pairByShipKey[shipId] = {};
+      pairByShipKey[shipId][pairKey] = synergy;
+    }
+  }
+}
+
+// Triple synergy storage: Map<tripleKey, Map<profileKey, {ships, synergy, items}>>
+const tripleSynergies = new Map();
+
+const shipIdsWithBonuses = Object.keys(bonusItemsByShip).map(Number).sort((a, b) => a - b);
+const { getSlotitemEffect } = SlotItemEffectUtil;
+
+for (let si = 0; si < shipIdsWithBonuses.length; si++) {
+  const shipId = shipIdsWithBonuses[si];
+  const bItems = bonusItemsByShip[shipId]; // sorted
+  if (bItems.length < 3) continue;
+  if (effectiveSlotsOf[shipId] < 3) continue;
+
+  const shipData = shipById[shipId];
+  if (!shipData) continue;
+  const ship = makeShip(shipData);
+
+  // Precompute single-item results for all bonus items on this ship
+  const aloneResults = {};
+  for (const itemId of bItems) {
+    aloneResults[itemId] = extractNonZero(getSlotitemEffect(ship, [makeSlot(itemId, 0)]));
+  }
+
+  for (let ai = 0; ai < bItems.length - 2; ai++) {
+    const itemA = bItems[ai];
+    const aloneA = aloneResults[itemA];
+
+    for (let bi = ai + 1; bi < bItems.length - 1; bi++) {
+      const itemB = bItems[bi];
+      const aloneB = aloneResults[itemB];
+      const abKey = `${itemA}:${itemB}`; // guaranteed a < b
+      const delta2AB = pairByShipKey[shipId]?.[abKey] ?? null;
+
+      for (let ci = bi + 1; ci < bItems.length; ci++) {
+        const itemC = bItems[ci];
+        const aloneC = aloneResults[itemC];
+        triplesTested++;
+
+        const acKey = `${itemA}:${itemC}`; // guaranteed a < c
+        const bcKey = `${itemB}:${itemC}`; // guaranteed b < c
+        const delta2AC = pairByShipKey[shipId]?.[acKey] ?? null;
+        const delta2BC = pairByShipKey[shipId]?.[bcKey] ?? null;
+
+        // Test all 3 items together
+        const combined = extractNonZero(
+          getSlotitemEffect(ship, [makeSlot(itemA, 0), makeSlot(itemB, 0), makeSlot(itemC, 0)]),
+        );
+
+        // Expected = aloneA + aloneB + aloneC + delta2(A,B) + delta2(A,C) + delta2(B,C)
+        let expected = statsAdd(aloneA, aloneB);
+        expected = statsAdd(expected, aloneC);
+        if (delta2AB) expected = statsAdd(expected, delta2AB);
+        if (delta2AC) expected = statsAdd(expected, delta2AC);
+        if (delta2BC) expected = statsAdd(expected, delta2BC);
+
+        // Residual = combined - expected (true 3-item exclusive bonus)
+        const residual = statsSub(combined, expected);
+        if (!residual) continue;
+
+        tripleCount++;
+        const tripleKey = `${itemA}:${itemB}:${itemC}`; // a < b < c
+        const profileKey = bkey(residual);
+
+        if (!tripleSynergies.has(tripleKey)) tripleSynergies.set(tripleKey, new Map());
+        const pm = tripleSynergies.get(tripleKey);
+        if (!pm.has(profileKey)) {
+          pm.set(profileKey, { ships: [], items: [itemA, itemB, itemC], synergy: residual });
+        }
+        const entry = pm.get(profileKey);
+        if (!entry.ships.includes(shipId)) entry.ships.push(shipId);
+      }
+    }
+  }
+
+  if ((si + 1) % 50 === 0 || si === shipIdsWithBonuses.length - 1) {
+    const e = ((Date.now() - t3) / 1000).toFixed(1);
+    process.stdout.write(
+      `\r  ${si + 1}/${shipIdsWithBonuses.length} ships | ${tripleCount} synergies | ${triplesTested} tests | ${e}s`,
+    );
+  }
+}
+console.log("");
+console.log(
+  `[Phase 3] Done: ${tripleCount} triple synergies from ${tripleSynergies.size} triples in ${((Date.now() - t3) / 1000).toFixed(1)}s`,
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 4: Quad cross-item correction scan
+//   For each ship with ≥4 synergy items, test all quadruples (A, B, C, D).
+//   Computes the residual not explained by singles + pair_deltas + triple_corrections.
+//   This handles the case where the same execFunc fires for 3+ different items
+//   (e.g. "ship X with any of radar-A, radar-B, radar-C, radar-D: +bonus"),
+//   causing triple corrections to themselves be over-counted without a quad fix.
+//
+//   Pruning: only test quadruples where at least one sub-triple has a
+//   non-zero triple correction (cheapest indicator that a quad may matter).
+// ═══════════════════════════════════════════════════════════════════
+console.log("\n[Phase 4] Quad cross-item correction scan ...");
+const t4 = Date.now();
+let quadCount = 0;
+let quadsTested = 0;
+
+// Build triple-correction lookup by ship: tripleByShipKey[shipId]["a:b:c"] = stats
+const tripleByShipKey = {};
+for (const [tripleKey, profileMap] of tripleSynergies) {
+  for (const { ships, synergy } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!tripleByShipKey[shipId]) tripleByShipKey[shipId] = {};
+      tripleByShipKey[shipId][tripleKey] = synergy;
+    }
+  }
+}
+
+// Quad correction storage: Map<quadKey, Map<profileKey, {ships, synergy, items}>>
+const quadSynergies = new Map();
+
+for (let si = 0; si < shipIdsWithBonuses.length; si++) {
+  const shipId = shipIdsWithBonuses[si];
+  const bItems = bonusItemsByShip[shipId]; // sorted
+  if (bItems.length < 4) continue;
+  if (effectiveSlotsOf[shipId] < 4) continue;
+  if (!tripleByShipKey[shipId]) continue; // skip: no triple corrections on this ship
+
+  const shipData = shipById[shipId];
+  if (!shipData) continue;
+  const ship = makeShip(shipData);
+
+  // Lazily compute single results
+  const aloneResults = {};
+  const getAlone = (id) => {
+    if (!(id in aloneResults)) {
+      aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+    }
+    return aloneResults[id];
+  };
+
+  const tMap = tripleByShipKey[shipId];
+  const pMap = pairByShipKey[shipId] || {};
+
+  for (let ai = 0; ai < bItems.length - 3; ai++) {
+    const A = bItems[ai];
+    for (let bi = ai + 1; bi < bItems.length - 2; bi++) {
+      const B = bItems[bi];
+      for (let ci = bi + 1; ci < bItems.length - 1; ci++) {
+        const C = bItems[ci];
+        for (let di = ci + 1; di < bItems.length; di++) {
+          const D = bItems[di];
+
+          // Pruning: at least one sub-triple must have a non-zero correction
+          const tABC = tMap[`${A}:${B}:${C}`] ?? null;
+          const tABD = tMap[`${A}:${B}:${D}`] ?? null;
+          const tACD = tMap[`${A}:${C}:${D}`] ?? null;
+          const tBCD = tMap[`${B}:${C}:${D}`] ?? null;
+          if (!tABC && !tABD && !tACD && !tBCD) continue;
+
+          quadsTested++;
+
+          const combined = extractNonZero(
+            getSlotitemEffect(ship, [
+              makeSlot(A, 0), makeSlot(B, 0), makeSlot(C, 0), makeSlot(D, 0),
+            ]),
+          );
+
+          // Expected = singles + pair_deltas + triple_corrections
+          let expected = statsAdd(getAlone(A), getAlone(B));
+          expected = statsAdd(expected, getAlone(C));
+          expected = statsAdd(expected, getAlone(D));
+
+          // 6 pairs
+          for (const [x, y] of [[A,B],[A,C],[A,D],[B,C],[B,D],[C,D]]) {
+            const d = pMap[`${x}:${y}`];
+            if (d) expected = statsAdd(expected, d);
+          }
+          // 4 triple corrections
+          if (tABC) expected = statsAdd(expected, tABC);
+          if (tABD) expected = statsAdd(expected, tABD);
+          if (tACD) expected = statsAdd(expected, tACD);
+          if (tBCD) expected = statsAdd(expected, tBCD);
+
+          const residual = statsSub(combined, expected);
+          if (!residual) continue;
+
+          quadCount++;
+          const quadKey = `${A}:${B}:${C}:${D}`;
+          const profileKey = bkey(residual);
+
+          if (!quadSynergies.has(quadKey)) quadSynergies.set(quadKey, new Map());
+          const pm2 = quadSynergies.get(quadKey);
+          if (!pm2.has(profileKey)) {
+            pm2.set(profileKey, { ships: [], items: [A, B, C, D], synergy: residual });
+          }
+          const entry = pm2.get(profileKey);
+          if (!entry.ships.includes(shipId)) entry.ships.push(shipId);
+        }
+      }
+    }
+  }
+
+  if ((si + 1) % 50 === 0 || si === shipIdsWithBonuses.length - 1) {
+    const e = ((Date.now() - t4) / 1000).toFixed(1);
+    process.stdout.write(
+      `\r  ${si + 1}/${shipIdsWithBonuses.length} ships | ${quadCount} corrections | ${quadsTested} tests | ${e}s`,
+    );
+  }
+}
+console.log("");
+console.log(
+  `[Phase 4] Done: ${quadCount} quad corrections from ${quadSynergies.size} quads in ${((Date.now() - t4) / 1000).toFixed(1)}s`,
+);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 5: Penta cross-item correction scan
+//   Uses item pools detected from Phase 4 quad rules.
+//   Only tests quintuples within known pools (pool.length >= 5).
+//   Ships need effectiveSlotsOf >= 5.
+// ═══════════════════════════════════════════════════════════════════
+console.log("\n[Phase 5] Penta cross-item correction scan ...");
+const t5 = Date.now();
+let pentaCount = 0;
+let pentasTested = 0;
+
+// Build quad correction lookup by ship: quadByShipKey[shipId]["a:b:c:d"] = stats
+const quadByShipKey = {};
+for (const [quadKey, profileMap] of quadSynergies) {
+  for (const { ships, synergy } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!quadByShipKey[shipId]) quadByShipKey[shipId] = {};
+      quadByShipKey[shipId][quadKey] = synergy;
+    }
+  }
+}
+
+const quadPoolsByShip = detectPoolsByShip(quadSynergies, 4);
+const shipIdsForPenta = Object.keys(quadPoolsByShip).map(Number)
+  .filter(sid => effectiveSlotsOf[sid] >= 5)
+  .sort((a, b) => a - b);
+
+const pentaSynergies = new Map();
+
+for (let si = 0; si < shipIdsForPenta.length; si++) {
+  const shipId = shipIdsForPenta[si];
+  const pools = quadPoolsByShip[shipId];
+  const shipData = shipById[shipId];
+  if (!shipData) continue;
+  const ship = makeShip(shipData);
+
+  const aloneResults = {};
+  const getAlone5 = (id) => {
+    if (!(id in aloneResults)) aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+    return aloneResults[id];
+  };
+  const pMap5 = pairByShipKey[shipId] || {};
+  const tMap5 = tripleByShipKey[shipId] || {};
+  const qMap5 = quadByShipKey[shipId] || {};
+
+  for (const { pool } of pools) {
+    for (let ai = 0; ai < pool.length - 4; ai++) {
+      const A = pool[ai];
+      for (let bi = ai + 1; bi < pool.length - 3; bi++) {
+        const B = pool[bi];
+        for (let ci = bi + 1; ci < pool.length - 2; ci++) {
+          const C = pool[ci];
+          for (let di = ci + 1; di < pool.length - 1; di++) {
+            const D = pool[di];
+            for (let ei = di + 1; ei < pool.length; ei++) {
+              const E = pool[ei];
+              if (!qMap5[`${A}:${B}:${C}:${D}`] && !qMap5[`${A}:${B}:${C}:${E}`] &&
+                  !qMap5[`${A}:${B}:${D}:${E}`] && !qMap5[`${A}:${C}:${D}:${E}`] &&
+                  !qMap5[`${B}:${C}:${D}:${E}`]) continue;
+              pentasTested++;
+              const combined = extractNonZero(
+                getSlotitemEffect(ship, [makeSlot(A, 0), makeSlot(B, 0), makeSlot(C, 0), makeSlot(D, 0), makeSlot(E, 0)])
+              );
+              let expected = statsAdd(getAlone5(A), getAlone5(B));
+              expected = statsAdd(expected, getAlone5(C));
+              expected = statsAdd(expected, getAlone5(D));
+              expected = statsAdd(expected, getAlone5(E));
+              for (const [x, y] of [[A,B],[A,C],[A,D],[A,E],[B,C],[B,D],[B,E],[C,D],[C,E],[D,E]]) {
+                const d = pMap5[`${x}:${y}`]; if (d) expected = statsAdd(expected, d);
+              }
+              for (const [x, y, z] of [[A,B,C],[A,B,D],[A,B,E],[A,C,D],[A,C,E],[A,D,E],[B,C,D],[B,C,E],[B,D,E],[C,D,E]]) {
+                const d = tMap5[`${x}:${y}:${z}`]; if (d) expected = statsAdd(expected, d);
+              }
+              for (const k of [`${A}:${B}:${C}:${D}`,`${A}:${B}:${C}:${E}`,`${A}:${B}:${D}:${E}`,`${A}:${C}:${D}:${E}`,`${B}:${C}:${D}:${E}`]) {
+                const d = qMap5[k]; if (d) expected = statsAdd(expected, d);
+              }
+              const residual = statsSub(combined, expected);
+              if (!residual) continue;
+              pentaCount++;
+              const pentaKey = `${A}:${B}:${C}:${D}:${E}`;
+              const profileKey5 = bkey(residual);
+              if (!pentaSynergies.has(pentaKey)) pentaSynergies.set(pentaKey, new Map());
+              const pm5 = pentaSynergies.get(pentaKey);
+              if (!pm5.has(profileKey5)) pm5.set(profileKey5, { ships: [], items: [A, B, C, D, E], synergy: residual });
+              const entry5 = pm5.get(profileKey5);
+              if (!entry5.ships.includes(shipId)) entry5.ships.push(shipId);
+            }
+          }
+        }
+      }
+    }
+  }
+  if ((si + 1) % 50 === 0 || si === shipIdsForPenta.length - 1) {
+    const e = ((Date.now() - t5) / 1000).toFixed(1);
+    process.stdout.write(`\r  ${si + 1}/${shipIdsForPenta.length} ships | ${pentaCount} corrections | ${pentasTested} tests | ${e}s`);
+  }
+}
+console.log('');
+console.log(`[Phase 5] Done: ${pentaCount} penta corrections from ${pentaSynergies.size} pentas in ${((Date.now() - t5) / 1000).toFixed(1)}s`);
+
+// ═══════════════════════════════════════════════════════════════════
+// Phase 6: Hexa cross-item correction scan
+//   Uses item pools detected from Phase 5 penta rules.
+//   Only tests sextuples within known pools (pool.length >= 6).
+//   Ships need effectiveSlotsOf >= 6.
+// ═══════════════════════════════════════════════════════════════════
+console.log("\n[Phase 6] Hexa cross-item correction scan ...");
+const t6 = Date.now();
+let hexaCount = 0;
+let hexasTested = 0;
+
+const pentaByShipKey = {};
+for (const [pentaKey, profileMap] of pentaSynergies) {
+  for (const { ships, synergy } of profileMap.values()) {
+    for (const shipId of ships) {
+      if (!pentaByShipKey[shipId]) pentaByShipKey[shipId] = {};
+      pentaByShipKey[shipId][pentaKey] = synergy;
+    }
+  }
+}
+
+const pentaPoolsByShip = detectPoolsByShip(pentaSynergies, 5);
+const shipIdsForHexa = Object.keys(pentaPoolsByShip).map(Number)
+  .filter(sid => effectiveSlotsOf[sid] >= 6)
+  .sort((a, b) => a - b);
+
+const hexaSynergies = new Map();
+
+for (let si = 0; si < shipIdsForHexa.length; si++) {
+  const shipId = shipIdsForHexa[si];
+  const pools = pentaPoolsByShip[shipId];
+  const shipData = shipById[shipId];
+  if (!shipData) continue;
+  const ship = makeShip(shipData);
+
+  const aloneResults = {};
+  const getAlone6 = (id) => {
+    if (!(id in aloneResults)) aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+    return aloneResults[id];
+  };
+  const pMap6 = pairByShipKey[shipId] || {};
+  const tMap6 = tripleByShipKey[shipId] || {};
+  const qMap6 = quadByShipKey[shipId] || {};
+  const p5Map6 = pentaByShipKey[shipId] || {};
+
+  for (const { pool } of pools) {
+    for (let ai = 0; ai < pool.length - 5; ai++) {
+      const A = pool[ai];
+      for (let bi = ai + 1; bi < pool.length - 4; bi++) {
+        const B = pool[bi];
+        for (let ci = bi + 1; ci < pool.length - 3; ci++) {
+          const C = pool[ci];
+          for (let di = ci + 1; di < pool.length - 2; di++) {
+            const D = pool[di];
+            for (let ei = di + 1; ei < pool.length - 1; ei++) {
+              const E = pool[ei];
+              for (let fi = ei + 1; fi < pool.length; fi++) {
+                const F = pool[fi];
+                if (!p5Map6[`${A}:${B}:${C}:${D}:${E}`] && !p5Map6[`${A}:${B}:${C}:${D}:${F}`] &&
+                    !p5Map6[`${A}:${B}:${C}:${E}:${F}`] && !p5Map6[`${A}:${B}:${D}:${E}:${F}`] &&
+                    !p5Map6[`${A}:${C}:${D}:${E}:${F}`] && !p5Map6[`${B}:${C}:${D}:${E}:${F}`]) continue;
+                hexasTested++;
+                const combined = extractNonZero(
+                  getSlotitemEffect(ship, [makeSlot(A,0),makeSlot(B,0),makeSlot(C,0),makeSlot(D,0),makeSlot(E,0),makeSlot(F,0)])
+                );
+                let expected = statsAdd(getAlone6(A), getAlone6(B));
+                expected = statsAdd(expected, getAlone6(C));
+                expected = statsAdd(expected, getAlone6(D));
+                expected = statsAdd(expected, getAlone6(E));
+                expected = statsAdd(expected, getAlone6(F));
+                for (const [x,y] of [[A,B],[A,C],[A,D],[A,E],[A,F],[B,C],[B,D],[B,E],[B,F],[C,D],[C,E],[C,F],[D,E],[D,F],[E,F]]) {
+                  const d = pMap6[`${x}:${y}`]; if (d) expected = statsAdd(expected, d);
+                }
+                for (const [x,y,z] of [[A,B,C],[A,B,D],[A,B,E],[A,B,F],[A,C,D],[A,C,E],[A,C,F],[A,D,E],[A,D,F],[A,E,F],[B,C,D],[B,C,E],[B,C,F],[B,D,E],[B,D,F],[B,E,F],[C,D,E],[C,D,F],[C,E,F],[D,E,F]]) {
+                  const d = tMap6[`${x}:${y}:${z}`]; if (d) expected = statsAdd(expected, d);
+                }
+                for (const k of [`${A}:${B}:${C}:${D}`,`${A}:${B}:${C}:${E}`,`${A}:${B}:${C}:${F}`,`${A}:${B}:${D}:${E}`,`${A}:${B}:${D}:${F}`,`${A}:${B}:${E}:${F}`,`${A}:${C}:${D}:${E}`,`${A}:${C}:${D}:${F}`,`${A}:${C}:${E}:${F}`,`${A}:${D}:${E}:${F}`,`${B}:${C}:${D}:${E}`,`${B}:${C}:${D}:${F}`,`${B}:${C}:${E}:${F}`,`${B}:${D}:${E}:${F}`,`${C}:${D}:${E}:${F}`]) {
+                  const d = qMap6[k]; if (d) expected = statsAdd(expected, d);
+                }
+                for (const k of [`${A}:${B}:${C}:${D}:${E}`,`${A}:${B}:${C}:${D}:${F}`,`${A}:${B}:${C}:${E}:${F}`,`${A}:${B}:${D}:${E}:${F}`,`${A}:${C}:${D}:${E}:${F}`,`${B}:${C}:${D}:${E}:${F}`]) {
+                  const d = p5Map6[k]; if (d) expected = statsAdd(expected, d);
+                }
+                const residual = statsSub(combined, expected);
+                if (!residual) continue;
+                hexaCount++;
+                const hexaKey = `${A}:${B}:${C}:${D}:${E}:${F}`;
+                const profileKey6 = bkey(residual);
+                if (!hexaSynergies.has(hexaKey)) hexaSynergies.set(hexaKey, new Map());
+                const pm6 = hexaSynergies.get(hexaKey);
+                if (!pm6.has(profileKey6)) pm6.set(profileKey6, { ships: [], items: [A,B,C,D,E,F], synergy: residual });
+                const entry6 = pm6.get(profileKey6);
+                if (!entry6.ships.includes(shipId)) entry6.ships.push(shipId);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  if ((si + 1) % 50 === 0 || si === shipIdsForHexa.length - 1) {
+    const e = ((Date.now() - t6) / 1000).toFixed(1);
+    process.stdout.write(`\r  ${si + 1}/${shipIdsForHexa.length} ships | ${hexaCount} corrections | ${hexasTested} tests | ${e}s`);
+  }
+}
+console.log('');
+console.log(`[Phase 6] Done: ${hexaCount} hexa corrections from ${hexaSynergies.size} hexas in ${((Date.now() - t6) / 1000).toFixed(1)}s`);
+
+// ═══════════════════════════════════════════════════════════════════
 // Build output
 // ═══════════════════════════════════════════════════════════════════
 console.log("\n[output] Building ...");
-
-// Collect referenced IDs
-const refShipIds = new Set();
-const refItemIds = new Set();
-for (const [slotId, profileMap] of equipResults) {
-  refItemIds.add(slotId);
-  for (const { ships } of profileMap.values()) {
-    for (const sid of ships) refShipIds.add(sid);
-  }
-}
-for (const pm of synergies.values()) {
-  for (const { ships, items } of pm.values()) {
-    for (const sid of ships) refShipIds.add(sid);
-    for (const id of items) refItemIds.add(id);
-  }
-}
-
-// Ship lookup
-const shipLookup = {};
-for (const s of mstShips) {
-  if (refShipIds.has(s.api_id)) {
-    shipLookup[s.api_id] = {
-      name: s.api_name,
-      yomi: s.api_yomi,
-      stype: s.api_stype,
-      ctype: s.api_ctype,
-    };
-  }
-}
-
-// Item lookup
-const itemLookup = {};
-for (const si of mstSlotitems) {
-  if (refItemIds.has(si.api_id)) {
-    itemLookup[si.api_id] = { name: si.api_name, type: si.api_type };
-  }
-}
 
 const previewNameManifest = {
   _meta: {
@@ -464,34 +1034,122 @@ const previewNameManifest = {
   ),
 };
 
-// Single-item effects
-const effects = {};
-for (const [slotId, profileMap] of equipResults) {
-  const entries = [];
-  for (const { ships, profile } of profileMap.values()) {
-    ships.sort((a, b) => a - b);
-    const entry = { ships, b: profile.b };
-    if (profile.l) entry.l = profile.l;
-    if (profile.c2) entry.c2 = profile.c2;
-    if (profile.c3) entry.c3 = profile.c3;
-    entries.push(entry);
+// ── Compressed output builders ─────────────────────────────────────
+
+/**
+ * Groups single-item bonuses by (ships_array, bonus_profile) across all items.
+ * Returns array of { ships, b, l?, c2?, c3?, items: [itemId...] }.
+ */
+function buildEffectRules(equipResultsMap) {
+  const rulesMap = new Map();
+  for (const [itemId, profileMap] of equipResultsMap) {
+    for (const { ships, profile } of profileMap.values()) {
+      const shipsSorted = [...ships].sort((a, b) => a - b);
+      const profNorm = { b: Object.fromEntries(Object.entries(profile.b).sort()) };
+      if (profile.l) profNorm.l = Object.fromEntries(Object.entries(profile.l).sort());
+      if (profile.c2) profNorm.c2 = Object.fromEntries(Object.entries(profile.c2).sort());
+      if (profile.c3) profNorm.c3 = Object.fromEntries(Object.entries(profile.c3).sort());
+      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(profNorm);
+      if (!rulesMap.has(groupKey)) {
+        rulesMap.set(groupKey, { ships: shipsSorted, ...profNorm, items: [] });
+      }
+      rulesMap.get(groupKey).items.push(itemId);
+    }
   }
-  entries.sort((a, b) => a.ships[0] - b.ships[0]);
-  effects[slotId] = entries;
+  const rules = [...rulesMap.values()];
+  for (const rule of rules) rule.items.sort((a, b) => a - b);
+  rules.sort((a, b) => a.ships[0] - b.ships[0]);
+  return rules;
 }
 
-// Cross-item synergies
-const crossEffects = {};
-for (const [pairKey, profileMap] of synergies) {
-  const entries = [];
-  for (const { ships, synergy, items } of profileMap.values()) {
-    ships.sort((a, b) => a - b);
-    entries.push({ ships, items, synergy });
+/**
+ * Groups pair synergies by (ships_array, synergy) across all pairs.
+ * Returns array of { ships, synergy, pairs: [[a,b], ...] }.
+ */
+function buildCrossRules(synergiesMap) {
+  const rulesMap = new Map();
+  for (const [pairKey, profileMap] of synergiesMap) {
+    const [aStr, bStr] = pairKey.split(':');
+    const pair = [parseInt(aStr), parseInt(bStr)]; // a < b guaranteed
+    for (const { ships, synergy } of profileMap.values()) {
+      const shipsSorted = [...ships].sort((a, b) => a - b);
+      const synSorted = Object.fromEntries(Object.entries(synergy).sort());
+      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      if (!rulesMap.has(groupKey)) {
+        rulesMap.set(groupKey, { ships: shipsSorted, synergy: synSorted, pairs: [] });
+      }
+      rulesMap.get(groupKey).pairs.push(pair);
+    }
   }
-  entries.sort((a, b) => a.ships[0] - b.ships[0]);
-  crossEffects[pairKey] = entries;
+  const rules = [...rulesMap.values()];
+  for (const rule of rules) rule.pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  rules.sort((a, b) => a.ships[0] - b.ships[0]);
+  return rules;
 }
 
+/**
+ * Groups triple/quad/penta/hexa synergies by (ships, synergy) then detects
+ * when a group's combos are exactly all C(pool, comboSize) combinations (item_pool).
+ * Stores item_pool instead of explicit combos when the pool is complete — up to
+ * 1000× compression for large pools. Falls back to explicit combos otherwise.
+ */
+function buildRules(synergyMap, comboSize) {
+  const rulesMap = new Map();
+  for (const [key, profileMap] of synergyMap) {
+    const items = key.split(':').map(Number);
+    for (const { ships, synergy } of profileMap.values()) {
+      const shipsSorted = [...ships].sort((a, b) => a - b);
+      const synSorted = Object.fromEntries(Object.entries(synergy).sort());
+      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      if (!rulesMap.has(groupKey)) {
+        rulesMap.set(groupKey, { ships: shipsSorted, synergy: synSorted, combos: [], _allItems: new Set() });
+      }
+      const rule = rulesMap.get(groupKey);
+      rule.combos.push(items);
+      for (const id of items) rule._allItems.add(id);
+    }
+  }
+  const rules = [...rulesMap.values()];
+  for (const rule of rules) {
+    rule.combos.sort((a, b) => {
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return a[i] - b[i];
+      }
+      return 0;
+    });
+    const pool = [...rule._allItems].sort((a, b) => a - b);
+    delete rule._allItems;
+    if (pool.length >= comboSize && choose(pool.length, comboSize) === rule.combos.length) {
+      rule.item_pool = pool;
+      delete rule.combos;
+    } else if (pool.length < 256) {
+      // Compact encoding: base64 of Uint8 indices into pool.
+      // Each group of comboSize bytes encodes one combo as local indices.
+      const itemIdx = new Map(pool.map((id, i) => [id, i]));
+      const buf = new Uint8Array(rule.combos.length * comboSize);
+      let pos = 0;
+      for (const combo of rule.combos) {
+        for (const id of combo) buf[pos++] = itemIdx.get(id);
+      }
+      rule.items = pool;
+      rule.combos_b64 = Buffer.from(buf).toString('base64');
+      delete rule.combos;
+    }
+    // else: pool.length >= 256 → keep explicit combos (extremely rare)
+  }
+  rules.sort((a, b) => a.ships[0] - b.ships[0]);
+  return rules;
+}
+
+// Single-item effects grouped by (ships, profile) across items
+const effectRules = buildEffectRules(equipResults);
+// Cross-item synergies grouped by (ships, synergy) across pairs
+const crossRules = buildCrossRules(synergies);
+// Triple/quad/penta/hexa corrections with item_pool compression
+const tripleRules = buildRules(tripleSynergies, 3);
+const quadRules = buildRules(quadSynergies, 4);
+const pentaRules = buildRules(pentaSynergies, 5);
+const hexaRules = buildRules(hexaSynergies, 6);
 const pkgVersion = (() => {
   try {
     return (
@@ -518,18 +1176,22 @@ const output = {
     total_items: mstSlotitems.length,
     total_single_bonuses: nonZeroCount,
     total_cross_synergies: synergyCount,
+    total_triple_synergies: tripleCount,
     unique_items_with_bonus: equipResults.size,
     unique_synergy_pairs: synergies.size,
-    fields: {
-      b: "bonus with 1× at ★0",
-      l: "bonus with 1× at ★10 (only if differs from b)",
-      c2: "bonus with 2× at ★0 (only if not exactly 2×b)",
-      c3: "bonus with 3× at ★0 (only if not exactly 3×b)",
-    },
-    cross_fields: {
-      items: "[itemA_id, itemB_id]",
-      synergy: "additional bonus beyond sum of individual bonuses",
-    },
+    unique_synergy_triples: tripleSynergies.size,
+    total_quad_corrections: quadCount,
+    unique_synergy_quads: quadSynergies.size,
+    total_penta_corrections: pentaCount,
+    unique_synergy_pentas: pentaSynergies.size,
+    total_hexa_corrections: hexaCount,
+    unique_synergy_hexas: hexaSynergies.size,
+    effect_rule_count: effectRules.length,
+    cross_rule_count: crossRules.length,
+    triple_rule_count: tripleRules.length,
+    quad_rule_count: quadRules.length,
+    penta_rule_count: pentaRules.length,
+    hexa_rule_count: hexaRules.length,
     stats: {
       houg: "火力",
       raig: "雷装",
@@ -543,10 +1205,12 @@ const output = {
       leng: "射程",
     },
   },
-  _ships: shipLookup,
-  _items: itemLookup,
-  effects,
-  cross_effects: crossEffects,
+  effect_rules: effectRules,
+  cross_rules: crossRules,
+  triple_rules: tripleRules,
+  quad_rules: quadRules,
+  penta_rules: pentaRules,
+  hexa_rules: hexaRules,
 };
 
 const dir = path.dirname(outputPath);
