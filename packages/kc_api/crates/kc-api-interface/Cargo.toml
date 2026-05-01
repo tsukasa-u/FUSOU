@@ -20,3 +20,6 @@ from20250627 = ["20250627"]
 20250627 = []
 # Enable zstandard for native builds
 zstandard = ["apache-avro/zstandard"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

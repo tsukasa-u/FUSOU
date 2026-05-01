@@ -27,10 +27,116 @@ where
     }
     let mut bytes = writer.into_inner()?;
 
+    // Canonicalize header metadata map entry order (e.g. avro.schema/codec).
+    normalize_header_metadata_order(&mut bytes);
+
     // Replace the random sync marker with a schema-derived deterministic one.
     fix_sync_marker(&mut bytes, &schema);
 
     Ok(bytes)
+}
+
+fn normalize_header_metadata_order(data: &mut Vec<u8>) {
+    let Some((entries, marker_pos)) = parse_header_metadata_entries(data) else {
+        return;
+    };
+    if marker_pos + 16 > data.len() {
+        return;
+    }
+
+    let mut sorted_entries = entries;
+    sorted_entries.sort_by(|(ka, _), (kb, _)| ka.cmp(kb));
+
+    let marker = data[marker_pos..marker_pos + 16].to_vec();
+    let body = data[marker_pos + 16..].to_vec();
+
+    let mut out = Vec::with_capacity(data.len());
+    out.extend_from_slice(b"Obj\x01");
+    out.extend_from_slice(&encode_zigzag_long(sorted_entries.len() as i64));
+    for (key, value) in sorted_entries {
+        write_avro_bytes(&mut out, key.as_bytes());
+        write_avro_bytes(&mut out, &value);
+    }
+    out.extend_from_slice(&encode_zigzag_long(0));
+    out.extend_from_slice(&marker);
+    out.extend_from_slice(&body);
+
+    *data = out;
+}
+
+fn parse_header_metadata_entries(data: &[u8]) -> Option<(Vec<(String, Vec<u8>)>, usize)> {
+    if data.len() < 5 || &data[..4] != b"Obj\x01" {
+        return None;
+    }
+
+    let mut pos = 4usize;
+    let mut entries = Vec::new();
+
+    loop {
+        let (count, n) = decode_zigzag_long(&data[pos..])?;
+        pos += n;
+
+        if count == 0 {
+            break;
+        }
+
+        let abs_count = if count < 0 {
+            // Negative-count map blocks include a byte-size prefix.
+            let (_, m) = decode_zigzag_long(&data[pos..])?;
+            pos += m;
+            (-count) as usize
+        } else {
+            count as usize
+        };
+
+        for _ in 0..abs_count {
+            let (key_len, kn) = decode_zigzag_long(&data[pos..])?;
+            if key_len < 0 {
+                return None;
+            }
+            pos += kn;
+            let key_end = pos.checked_add(key_len as usize)?;
+            let key = std::str::from_utf8(data.get(pos..key_end)?)
+                .ok()?
+                .to_string();
+            pos = key_end;
+
+            let (val_len, vn) = decode_zigzag_long(&data[pos..])?;
+            if val_len < 0 {
+                return None;
+            }
+            pos += vn;
+            let val_end = pos.checked_add(val_len as usize)?;
+            let value = data.get(pos..val_end)?.to_vec();
+            pos = val_end;
+
+            entries.push((key, value));
+        }
+    }
+
+    Some((entries, pos))
+}
+
+fn write_avro_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&encode_zigzag_long(bytes.len() as i64));
+    out.extend_from_slice(bytes);
+}
+
+fn encode_zigzag_long(value: i64) -> Vec<u8> {
+    let mut n = ((value << 1) ^ (value >> 63)) as u64;
+    let mut out = Vec::new();
+    loop {
+        let mut byte = (n & 0x7F) as u8;
+        n >>= 7;
+        if n != 0 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+        if n == 0 {
+            break;
+        }
+    }
+    out
 }
 
 /// Derive a 16-byte deterministic sync marker from the schema JSON.
@@ -39,7 +145,9 @@ fn deterministic_marker(schema: &Schema) -> [u8; 16] {
     // given schema definition, so the marker is stable across processes.
     let schema_json = serde_json::to_string(schema).unwrap_or_default();
     let hash = Sha256::digest(schema_json.as_bytes());
-    hash[..16].try_into().expect("SHA-256 is always >= 16 bytes")
+    hash[..16]
+        .try_into()
+        .expect("SHA-256 is always >= 16 bytes")
 }
 
 /// Replace the Writer-generated random sync marker with a deterministic one.

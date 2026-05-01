@@ -3,13 +3,16 @@
 use std::str::FromStr;
 
 use crate::models::airbase::{AirBase, PlaneInfo};
-use crate::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList, MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai
-};
-#[cfg(feature = "schema_v0_5")]
-use crate::models::battle::NightSupportHourai;
 #[cfg(feature = "schema_v0_5")]
 use crate::models::battle::BattleResult;
+#[cfg(feature = "schema_v0_5")]
+use crate::models::battle::NightSupportHourai;
+use crate::models::battle::{
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+};
 
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -33,6 +36,16 @@ use kc_api_interface::mst_use_item::{MstUseItem, MstUseItems};
 
 use register_trait::FieldSizeChecker;
 use uuid::Uuid;
+
+fn collect_values_sorted_by_key<K, V>(map: &std::collections::HashMap<K, V>) -> Vec<V>
+where
+    K: Ord,
+    V: Clone,
+{
+    let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+    pairs.sort_by(|(ka, _), (kb, _)| ka.cmp(kb));
+    pairs.into_iter().map(|(_, value)| value.clone()).collect()
+}
 
 // Import DATABASE_TABLE_VERSION from schema_version module
 pub use crate::schema_version::DATABASE_TABLE_VERSION;
@@ -403,7 +416,14 @@ impl PortTable {
         let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
         {
             let uuid = Uuid::new_v7(ts);
-            Cells::new_ret_option(ts, uuid, interface_cells.clone(), &mut table, &mut dedup, env_uuid)
+            Cells::new_ret_option(
+                ts,
+                uuid,
+                interface_cells.clone(),
+                &mut table,
+                &mut dedup,
+                env_uuid,
+            )
         };
         tracing::debug!(
             "PortTable::new created with {} cells, maparea_id={}, mapinfo_no={}, battles={}",
@@ -496,63 +516,24 @@ impl FromStr for GetDataTableEnum {
 impl GetDataTable {
     #[allow(clippy::new_without_default)]
     pub fn new() -> GetDataTable {
-        let mst_ship = MstShips::load().mst_ships.values().cloned().collect();
-        let mst_slot_item = MstSlotItems::load()
-            .mst_slot_items
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_exslot_ship = MstEquipExslotShips::load()
-            .mst_equip_ships
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_exslot = MstEquipExslots::load()
-            .mst_equip_exslots
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_limit_exslot = MstEquipLimitExslots::load()
-            .mst_equip_limit_exslots
-            .values()
-            .cloned()
-            .collect();
-        let mst_slot_item_equip_type = MstSlotItemEquipTypes::load()
-            .mst_slotitem_equip_types
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_ship = MstEquipShips::load()
-            .mst_equip_ships
-            .values()
-            .cloned()
-            .collect();
-        let mst_stype = MstStypes::load().mst_stypes.values().cloned().collect();
-        let mst_use_item = MstUseItems::load()
-            .mst_use_items
-            .values()
-            .cloned()
-            .collect();
-        let mst_ship_graph = MstShipGraphs::load()
-            .mst_ship_graphs
-            .values()
-            .cloned()
-            .collect();
-        let mst_map_area = MstMapAreas::load()
-            .mst_map_areas
-            .values()
-            .cloned()
-            .collect();
-        let mst_map_info = MstMapInfos::load()
-            .mst_map_infos
-            .values()
-            .cloned()
-            .collect();
-        let mst_ship_upgrade = MstShipUpgrades::load()
-            .mst_ship_upgrades
-            .values()
-            .cloned()
-            .collect();
+        let mst_ship = collect_values_sorted_by_key(&MstShips::load().mst_ships);
+        let mst_slot_item = collect_values_sorted_by_key(&MstSlotItems::load().mst_slot_items);
+        let mst_equip_exslot_ship =
+            collect_values_sorted_by_key(&MstEquipExslotShips::load().mst_equip_ships);
+        let mst_equip_exslot =
+            collect_values_sorted_by_key(&MstEquipExslots::load().mst_equip_exslots);
+        let mst_equip_limit_exslot =
+            collect_values_sorted_by_key(&MstEquipLimitExslots::load().mst_equip_limit_exslots);
+        let mst_slot_item_equip_type =
+            collect_values_sorted_by_key(&MstSlotItemEquipTypes::load().mst_slotitem_equip_types);
+        let mst_equip_ship = collect_values_sorted_by_key(&MstEquipShips::load().mst_equip_ships);
+        let mst_stype = collect_values_sorted_by_key(&MstStypes::load().mst_stypes);
+        let mst_use_item = collect_values_sorted_by_key(&MstUseItems::load().mst_use_items);
+        let mst_ship_graph = collect_values_sorted_by_key(&MstShipGraphs::load().mst_ship_graphs);
+        let mst_map_area = collect_values_sorted_by_key(&MstMapAreas::load().mst_map_areas);
+        let mst_map_info = collect_values_sorted_by_key(&MstMapInfos::load().mst_map_infos);
+        let mst_ship_upgrade =
+            collect_values_sorted_by_key(&MstShipUpgrades::load().mst_ship_upgrades);
 
         GetDataTable {
             mst_ship,
@@ -620,7 +601,7 @@ mod schema_invariants {
     //! tests below remain valid by construction; they only fail if a future
     //! refactor breaks one of the above invariants.
     use super::*;
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
 
     #[test]
@@ -628,8 +609,16 @@ mod schema_invariants {
         let mut seen = HashSet::new();
         for v in PortTableEnum::variants().iter().copied() {
             let name = v.table_name();
-            assert!(!name.is_empty(), "PortTableEnum::{:?} has empty table_name", v);
-            assert!(seen.insert(name), "duplicate PortTableEnum table_name: {}", name);
+            assert!(
+                !name.is_empty(),
+                "PortTableEnum::{:?} has empty table_name",
+                v
+            );
+            assert!(
+                seen.insert(name),
+                "duplicate PortTableEnum table_name: {}",
+                name
+            );
         }
         assert_eq!(seen.len(), PortTableEnum::variants().len());
     }
@@ -639,8 +628,16 @@ mod schema_invariants {
         let mut seen = HashSet::new();
         for v in GetDataTableEnum::variants().iter().copied() {
             let name = v.table_name();
-            assert!(!name.is_empty(), "GetDataTableEnum::{:?} has empty table_name", v);
-            assert!(seen.insert(name), "duplicate GetDataTableEnum table_name: {}", name);
+            assert!(
+                !name.is_empty(),
+                "GetDataTableEnum::{:?} has empty table_name",
+                v
+            );
+            assert!(
+                seen.insert(name),
+                "duplicate GetDataTableEnum table_name: {}",
+                name
+            );
         }
         assert_eq!(seen.len(), GetDataTableEnum::variants().len());
     }
@@ -715,5 +712,216 @@ mod schema_invariants {
                 .encode_for_variant(v)
                 .unwrap_or_else(|e| panic!("encode_for_variant({:?}) failed: {}", v, e));
         }
+    }
+
+    #[test]
+    fn collect_values_sorted_by_key_is_deterministic() {
+        let mut map_a = HashMap::<i32, &str>::new();
+        map_a.insert(2, "two");
+        map_a.insert(1, "one");
+
+        let mut map_b = HashMap::<i32, &str>::new();
+        map_b.insert(1, "one");
+        map_b.insert(2, "two");
+
+        let values_a = collect_values_sorted_by_key(&map_a);
+        let values_b = collect_values_sorted_by_key(&map_b);
+
+        assert_eq!(values_a, values_b);
+        assert_eq!(values_a, vec!["one", "two"]);
+    }
+
+    #[test]
+    fn get_data_table_encoding_is_deterministic_across_insertion_orders() {
+        let original_exslot_ships = MstEquipExslotShips::load();
+        let original_equip_ships = MstEquipShips::load();
+        let original_stypes = MstStypes::load();
+
+        let mut exslot_map_a = HashMap::new();
+        exslot_map_a.insert(
+            "2".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 2,
+                ship_ids: Some(HashMap::from([("b".to_string(), 2), ("a".to_string(), 1)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+        exslot_map_a.insert(
+            "1".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 1,
+                ship_ids: Some(HashMap::from([("b".to_string(), 2), ("a".to_string(), 1)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+
+        let mut exslot_map_b = HashMap::new();
+        exslot_map_b.insert(
+            "1".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 1,
+                ship_ids: Some(HashMap::from([("a".to_string(), 1), ("b".to_string(), 2)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+        exslot_map_b.insert(
+            "2".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 2,
+                ship_ids: Some(HashMap::from([("a".to_string(), 1), ("b".to_string(), 2)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+
+        let mut stype_map_a = HashMap::new();
+        stype_map_a.insert(
+            2,
+            MstStype {
+                id: 2,
+                sortno: 2,
+                name: "stype-2".to_string(),
+                equip_type: HashMap::from([("2".to_string(), 20), ("1".to_string(), 10)]),
+            },
+        );
+        stype_map_a.insert(
+            1,
+            MstStype {
+                id: 1,
+                sortno: 1,
+                name: "stype-1".to_string(),
+                equip_type: HashMap::from([("2".to_string(), 20), ("1".to_string(), 10)]),
+            },
+        );
+
+        let mut stype_map_b = HashMap::new();
+        stype_map_b.insert(
+            1,
+            MstStype {
+                id: 1,
+                sortno: 1,
+                name: "stype-1".to_string(),
+                equip_type: HashMap::from([("1".to_string(), 10), ("2".to_string(), 20)]),
+            },
+        );
+        stype_map_b.insert(
+            2,
+            MstStype {
+                id: 2,
+                sortno: 2,
+                name: "stype-2".to_string(),
+                equip_type: HashMap::from([("1".to_string(), 10), ("2".to_string(), 20)]),
+            },
+        );
+
+        let equip_type_a: HashMap<String, Option<Vec<i32>>> = HashMap::from([
+            ("2".to_string(), Some(vec![2])),
+            ("1".to_string(), Some(vec![1])),
+        ]);
+        let equip_type_b: HashMap<String, Option<Vec<i32>>> = HashMap::from([
+            ("1".to_string(), Some(vec![1])),
+            ("2".to_string(), Some(vec![2])),
+        ]);
+
+        let mut equip_ship_map_a = HashMap::new();
+        equip_ship_map_a.insert(
+            2,
+            MstEquipShip {
+                ship_id: 2,
+                equip_type: equip_type_a.clone(),
+            },
+        );
+        equip_ship_map_a.insert(
+            1,
+            MstEquipShip {
+                ship_id: 1,
+                equip_type: equip_type_a,
+            },
+        );
+
+        let mut equip_ship_map_b = HashMap::new();
+        equip_ship_map_b.insert(
+            1,
+            MstEquipShip {
+                ship_id: 1,
+                equip_type: equip_type_b.clone(),
+            },
+        );
+        equip_ship_map_b.insert(
+            2,
+            MstEquipShip {
+                ship_id: 2,
+                equip_type: equip_type_b,
+            },
+        );
+
+        MstEquipExslotShips {
+            mst_equip_ships: exslot_map_a,
+        }
+        .restore();
+        MstEquipShips {
+            mst_equip_ships: equip_ship_map_a,
+        }
+        .restore();
+        MstStypes {
+            mst_stypes: stype_map_a,
+        }
+        .restore();
+
+        let table_a = GetDataTable::new().encode().expect("encode table a");
+        let bytes_a_exslot_ship = table_a
+            .get(GetDataTableEnum::MstEquipExslotShip)
+            .expect("bytes a exslot ship")
+            .to_vec();
+        let bytes_a_equip_ship = table_a
+            .get(GetDataTableEnum::MstEquipShip)
+            .expect("bytes a equip ship")
+            .to_vec();
+        let bytes_a_stype = table_a
+            .get(GetDataTableEnum::MstStype)
+            .expect("bytes a stype")
+            .to_vec();
+
+        MstEquipExslotShips {
+            mst_equip_ships: exslot_map_b,
+        }
+        .restore();
+        MstEquipShips {
+            mst_equip_ships: equip_ship_map_b,
+        }
+        .restore();
+        MstStypes {
+            mst_stypes: stype_map_b,
+        }
+        .restore();
+
+        let table_b = GetDataTable::new().encode().expect("encode table b");
+        let bytes_b_exslot_ship = table_b
+            .get(GetDataTableEnum::MstEquipExslotShip)
+            .expect("bytes b exslot ship")
+            .to_vec();
+        let bytes_b_equip_ship = table_b
+            .get(GetDataTableEnum::MstEquipShip)
+            .expect("bytes b equip ship")
+            .to_vec();
+        let bytes_b_stype = table_b
+            .get(GetDataTableEnum::MstStype)
+            .expect("bytes b stype")
+            .to_vec();
+
+        MstEquipExslotShips::restore(&original_exslot_ships);
+        MstEquipShips::restore(&original_equip_ships);
+        MstStypes::restore(&original_stypes);
+
+        assert_eq!(bytes_a_exslot_ship, bytes_b_exslot_ship);
+        assert_eq!(bytes_a_equip_ship, bytes_b_equip_ship);
+        assert_eq!(bytes_a_stype, bytes_b_stype);
     }
 }
