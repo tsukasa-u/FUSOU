@@ -32,7 +32,7 @@ pip install fusou-datasets
 export FUSOU_API_KEY="your_api_key_here"
 ```
 
-> [!TIP]
+> [!TIP]\
 > API キーは [FUSOU ウェブサイト](https://fusou.dev) で取得できます。取得方法は [API キー管理ガイド](../dashboard/api_keys) を参照してください。
 
 ### 3. データを取得
@@ -70,7 +70,7 @@ df = fusou_datasets.load("ship_type")
 df.head()
 ```
 
-> [!NOTE]
+> [!NOTE]\
 > Google Colab では、Google アカウントのメールアドレスが API キーと一致する場合、デバイス認証が自動で行われます。
 
 ## 基本的なデータ取得フロー

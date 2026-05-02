@@ -195,9 +195,9 @@ save_file_location = ""
 
     [app.database.r2]
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    upload_endpoint = "https://dev.fusou.pages.dev/api/battle-data/upload"
+    upload_endpoint = "https://fusou.dev/api/battle-data/upload"
     # Master-data upload endpoint
-    master_data_upload_endpoint = "https://dev.fusou.pages.dev/api/master-data/upload"
+    master_data_upload_endpoint = "https://fusou.dev/api/master-data/upload"
 
     [app.database.local]
     # Base directory used when writing KanColle data locally
@@ -230,16 +230,16 @@ save_file_location = ""
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    asset_upload_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/upload"
+    asset_upload_endpoint = "https://fusou.dev/api/asset-sync/upload"
 
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
-    fleet_snapshot_endpoint = "https://dev.fusou.pages.dev/api/fleet/snapshot"
+    fleet_snapshot_endpoint = "https://fusou.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
-    kc_period_endpoint = "https://dev.fusou.pages.dev/api/kc-period/latest"
+    kc_period_endpoint = "https://fusou.dev/api/kc-period/latest"
 
     # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
-    asset_existing_keys_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/keys"
+    asset_existing_keys_endpoint = "https://fusou.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     asset_skip_extensions = ["mp3", "woff2", "js"]
@@ -250,17 +250,21 @@ save_file_location = ""
 
     [app.asset_sync.retry]
     # Maximum number of retry attempts for failed uploads
-    max_attempts = 5
+    max_attempts = 10
 
     # Time to live (in seconds) for pending upload files
     # Files older than this will be deleted
-    ttl_seconds = 86400 # 24 hours
+    ttl_seconds = 2592000 # 30 days
 
     # Interval (in seconds) between retry attempts
-    interval_seconds = 300 # 5 minutes
+    interval_seconds = 900 # 15 minutes (base for exponential backoff)
 
     # Cooldown (in seconds) after an authentication failure before retrying
     auth_backoff_seconds = 600
+
+    # Minimum wait time (in seconds) between individual items within a single retry batch run.
+    # Set to 0 to disable the wait. Increase to reduce CPU/network load during large retry batches.
+    item_interval_seconds = 5
 
 
     [app.auth]
@@ -273,10 +277,46 @@ save_file_location = ""
     auth_page_url = "https://fusou.dev/auth/local/signin"
 
     # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
-    member_map_endpoint = "https://dev.fusou.pages.dev/api/user/member-map/upsert"
+    member_map_endpoint = "https://fusou.dev/api/user/member-map/upsert"
 
     # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
-    anonymous_sync_endpoint = "https://dev.fusou.pages.dev/api/auth/anonymous-sync"
+    anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
+
+    [app.quest_tree_sender]
+    # Whether to enable quest tree data ingestion
+    # default is false
+    enable = false
+
+    # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
+    # If empty, quest tree sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
+
+    [app.ship_growth_sender]
+    # Whether to enable ship growth data ingestion
+    # default is false
+    enable = false
+
+    # Endpoint to ingest ship growth data
+    # If empty, ship growth sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
+    [app.soku_speed_sender]
+    # Whether to enable speed observed data collection
+    # default is false
+    enable = false
+
+    # Endpoint to ingest soku_speed observed data
+    ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
+
+    [app.remodel_sender]
+    # Whether to enable remodel tree data ingestion (experimental feature)
+    # This sends your remodel recipe observations to help build the remodel tree.
+    # default is false
+    enable = false
+
+    # Endpoint to ingest remodel data
+    # Must be set when enable=true
+    ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events

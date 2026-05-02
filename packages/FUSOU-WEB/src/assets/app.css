@@ -30,9 +30,12 @@
   --color-warning-content: oklch(98% 0.016 73.684);
   --color-error: oklch(63% 0.237 25.331);
   --color-error-content: oklch(97% 0.013 17.38);
+  --color-link: #0b63ce;
+  --color-link-hover: #084ea8;
+  --color-link-visited: #6a4bc3;
   --radius-selector: 0.5rem;
   --radius-field: 0.5rem;
-  --radius-box: 0.5rem;
+  --radius-box: 0.75rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -65,9 +68,12 @@
   --color-warning-content: oklch(98% 0.016 73.684);
   --color-error: oklch(63% 0.237 25.331);
   --color-error-content: oklch(97% 0.013 17.38);
+  --color-link: #7db4ff;
+  --color-link-hover: #a7cbff;
+  --color-link-visited: #c3a6ff;
   --radius-selector: 0.5rem;
   --radius-field: 0.5rem;
-  --radius-box: 0.5rem;
+  --radius-box: 0.75rem;
   --size-selector: 0.25rem;
   --size-field: 0.25rem;
   --border: 1px;
@@ -75,29 +81,177 @@
   --noise: 0;
 }
 
+/* Global baseline normalization for consistent UI across pages */
+.btn {
+  @apply rounded-lg font-medium;
+  letter-spacing: 0.01em;
+}
+
+.btn:not(.btn-link) {
+  border-width: 1px;
+  border-color: color-mix(in oklch, var(--color-base-content) 14%, transparent);
+}
+
+.btn.btn-primary {
+  border-color: color-mix(
+    in oklch,
+    var(--color-primary-content) 45%,
+    transparent
+  );
+}
+
+.btn.btn-outline,
+.btn.btn-ghost {
+  border-color: color-mix(in oklch, var(--color-base-content) 18%, transparent);
+}
+
+.btn.btn-link {
+  border-color: transparent;
+}
+
+.btn.btn-sm {
+  min-height: 2rem;
+}
+
+.btn.btn-ghost {
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 12%, transparent);
+}
+
+.navbar .btn {
+  border-width: 0;
+  border-color: transparent;
+}
+
+.card {
+  @apply rounded-xl shadow-none;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 12%, transparent);
+}
+
+.modal-box {
+  @apply rounded-xl shadow-none;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 14%, transparent);
+}
+
+.input:focus,
+.input:focus-within,
+.select:focus,
+.select:focus-within,
+.textarea:focus,
+.textarea:focus-within,
+.file-input:focus,
+.file-input:focus-within {
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
+  isolation: auto;
+  z-index: auto;
+}
+
+.input:focus,
+.input:focus-within,
+.select:focus,
+.select:focus-within,
+.textarea:focus,
+.textarea:focus-within,
+.file-input:focus,
+.file-input:focus-within {
+  border-color: color-mix(
+    in oklch,
+    var(--color-primary) 52%,
+    var(--color-base-content) 24%
+  );
+}
+
+.table th {
+  @apply font-semibold;
+}
+
+.alert {
+  @apply rounded-xl border text-sm;
+  border-width: 1px;
+}
+
+.alert.alert-info {
+  @apply bg-info/10 border-info text-base-content/85;
+}
+
+.alert.alert-success {
+  @apply bg-success/10 border-success text-base-content/85;
+}
+
+.alert.alert-warning {
+  @apply bg-warning/10 border-warning text-base-content/85;
+}
+
+.alert.alert-error {
+  @apply bg-error/10 border-error text-base-content/85;
+}
+
+/* Use hyphen markers for selected non-markdown lists. */
+.fusou-hyphen-list {
+  list-style: none;
+  margin-left: 1.25rem;
+}
+
+.fusou-hyphen-list > li {
+  position: relative;
+}
+
+.fusou-hyphen-list > li::before {
+  content: "-";
+  position: absolute;
+  left: -1rem;
+  color: color-mix(in oklch, var(--color-base-content) 52%, transparent);
+  font-weight: 600;
+}
+
+.markdown {
+  @apply text-[15px] leading-7 text-base-content/90;
+  max-width: 74ch;
+}
 
 .markdown h1 {
   @apply text-3xl font-bold;
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
 .markdown h2 {
   @apply text-xl font-bold;
-  padding-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  margin-top: 1.25rem;
+  margin-bottom: 0.75rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
 .markdown h3 {
   @apply text-lg font-bold;
-  padding-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  padding-top: 0.75rem;
+  margin-top: 0.9rem;
+  margin-bottom: 0.625rem;
+  scroll-margin-top: 6rem;
   cursor: default;
 }
 
+.markdown hr {
+  border: 0;
+  border-top: 1px solid
+    color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  margin: 1.25rem 0;
+}
+
 .markdown table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
+  display: block;
+  overflow-x: auto;
   border-collapse: collapse;
   margin-bottom: 1rem;
   cursor: default;
@@ -112,6 +266,7 @@
 }
 
 .markdown th {
+  @apply bg-base-200/65;
   border-bottom: 2px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
   font-weight: bold;
@@ -148,16 +303,20 @@
 }
 
 .markdown pre {
+  @apply bg-base-200/55;
   padding: 1rem 1rem;
   overflow-x: auto;
   margin-bottom: 1rem;
   cursor: default;
   @apply rounded-md;
+  border: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
 }
 
 .markdown p {
-  margin-bottom: 1rem;
+  margin-bottom: 1.1rem;
   cursor: default;
+  text-wrap: pretty;
 }
 
 .markdown p + ul,
@@ -165,12 +324,42 @@
   margin-top: -0.25rem;
 }
 
+.markdown blockquote {
+  margin: 1rem 0 1.1rem;
+  padding: 0.65rem 0.9rem;
+  border-left: 4px solid
+    color-mix(in oklch, var(--color-info) 80%, var(--color-base-content) 10%);
+  background: color-mix(in oklch, var(--color-base-content) 4%, transparent);
+  border-radius: 0.35rem;
+}
+
+.markdown blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
 .markdown li > p:first-of-type {
   margin-bottom: 0.25rem;
 }
 
 .markdown a {
-  @apply text-blue-600 hover:underline;
+  color: var(--color-link);
+}
+
+.markdown a:hover {
+  color: var(--color-link-hover);
+  text-decoration-line: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 2px;
+}
+
+.markdown a:visited {
+  color: var(--color-link-visited);
+}
+
+.markdown a:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--color-link) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.2rem;
 }
 
 .markdown code {
@@ -186,6 +375,41 @@
 .markdown p > code,
 .markdown li > code {
   margin-left: 0 !important;
+}
+
+/* Link styling: use --color-link for better contrast in light mode */
+.link {
+  color: var(--color-link);
+}
+
+.link:hover {
+  color: var(--color-link-hover);
+}
+
+.link:visited {
+  color: var(--color-link-visited);
+}
+
+.markdown .katex {
+  font-size: 1.02em;
+}
+
+.markdown .katex-display {
+  @apply rounded-lg border border-base-300/70 bg-base-200/45;
+  margin: 1rem 0 1.1rem;
+  padding: 0.7rem 0.8rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.markdown .katex-display > .katex {
+  min-width: max-content;
+  font-size: 1.08em;
+}
+
+.markdown .katex-error {
+  @apply text-error;
+  font-weight: 600;
 }
 
 .markdown [data-callout] {
@@ -365,6 +589,92 @@
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
   border-bottom: 1px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}
+
+/* FUSOU design primitives */
+.fusou-page {
+  @apply pt-16 min-h-screen bg-base-200;
+}
+
+.fusou-page-container {
+  @apply mx-auto px-4;
+}
+
+.fusou-page-header {
+  @apply flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6;
+}
+
+.fusou-page-title {
+  @apply text-3xl font-bold tracking-tight;
+}
+
+.fusou-page-title-compact {
+  @apply text-2xl font-bold tracking-tight;
+}
+
+.fusou-page-subtitle {
+  @apply text-base text-base-content/60 mt-1;
+}
+
+.fusou-page-subtitle-compact {
+  @apply text-sm text-base-content/55 mt-0.5;
+}
+
+.fusou-page-actions {
+  @apply flex gap-2 flex-wrap;
+}
+
+.fusou-page-actions .btn {
+  border-width: 0;
+  border-color: transparent;
+}
+
+.fusou-card {
+  @apply bg-base-100 rounded-xl border border-base-300/60;
+}
+
+.fusou-card-body {
+  @apply p-6;
+}
+
+.fusou-btn-primary {
+  @apply btn btn-primary btn-sm rounded-lg border border-primary-content/45;
+}
+
+.fusou-btn-secondary {
+  @apply btn btn-outline btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-btn-ghost {
+  @apply btn btn-ghost btn-sm rounded-lg border border-base-300;
+}
+
+.fusou-footer-note {
+  @apply border-t border-base-300/60 mt-8 py-4 px-4 text-center;
+}
+
+.fusou-control-preview {
+  @apply inline-flex items-center gap-1.5 pointer-events-none select-none;
+}
+
+.fusou-control-preview-icon {
+  @apply inline-flex items-center justify-center w-5 h-5 rounded-md border border-base-300/80 text-base-content/55 bg-base-100;
+}
+
+.fusou-control-preview-chip {
+  @apply inline-flex items-center h-7 min-h-7 px-2.5 rounded-md text-[11px] font-semibold pointer-events-none select-none;
+}
+
+.fusou-control-preview-chip-primary {
+  @apply bg-primary/16 text-primary border-primary/45;
+}
+
+.fusou-control-preview-chip-outline {
+  @apply bg-base-100 text-base-content/75 border-base-300/90;
+}
+
+.fusou-control-preview-chip-ghost {
+  @apply bg-base-200 text-base-content/70 border-base-300/70;
 }
 
 .markdown

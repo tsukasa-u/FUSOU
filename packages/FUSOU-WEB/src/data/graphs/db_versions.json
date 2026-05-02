@@ -5,7 +5,7 @@
       "version": "0.4"
     },
     "v0_5": {
-      "tableCount": 46,
+      "tableCount": 47,
       "version": "0.5"
     }
   },
@@ -24,6 +24,20 @@
   },
   "diffs": {
     "v0_4_to_v0_5": {
+      "battle_result": {
+        "status": "added",
+        "addedFields": [
+          "env_uuid",
+          "uuid",
+          "win_rank",
+          "drop_ship_id",
+          "landing_hp_now",
+          "landing_hp_max",
+          "landing_sub_value"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      },
       "airbase_airattack": {
         "status": "changed",
         "addedFields": [

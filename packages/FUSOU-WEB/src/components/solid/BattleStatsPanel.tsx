@@ -7,7 +7,10 @@ type BattleRecord = {
   midnight_timestamp?: number | null;
   f_formation?: number | null;
   formation?: number[] | null;
-  battle_result?: { win_rank: string; drop_ship_id: number | null } | string | null;
+  battle_result?:
+    | { win_rank: string; drop_ship_id: number | null }
+    | string
+    | null;
   opening_air_attack?: Array<{ air_superiority: number | null } | null> | null;
 };
 
@@ -78,7 +81,10 @@ function emptyStats(): StatsState {
   };
 }
 
-function buildConicGradient(entries: Array<[string, number]>, colorMap: Record<string, string>): string {
+function buildConicGradient(
+  entries: Array<[string, number]>,
+  colorMap: Record<string, string>,
+): string {
   const total = entries.reduce((sum, [, value]) => sum + value, 0);
   if (total <= 0) return "conic-gradient(#e5e7eb 0 100%)";
 
@@ -94,7 +100,11 @@ function buildConicGradient(entries: Array<[string, number]>, colorMap: Record<s
   return `conic-gradient(${segments.join(",")})`;
 }
 
-function buildLinePath(points: DailyPoint[], width: number, height: number): string {
+function buildLinePath(
+  points: DailyPoint[],
+  width: number,
+  height: number,
+): string {
   if (points.length === 0) return "";
   const maxY = Math.max(1, ...points.map((p) => p.count));
   const stepX = points.length === 1 ? 0 : width / (points.length - 1);
@@ -124,10 +134,16 @@ export default function BattleStatsPanel() {
     Object.entries(stats().airStateDistribution).sort((a, b) => b[1] - a[1]),
   );
 
-  const rankConic = createMemo(() => buildConicGradient(rankEntries(), RANK_COLORS));
-  const airConic = createMemo(() => buildConicGradient(airEntries(), AIR_COLORS));
+  const rankConic = createMemo(() =>
+    buildConicGradient(rankEntries(), RANK_COLORS),
+  );
+  const airConic = createMemo(() =>
+    buildConicGradient(airEntries(), AIR_COLORS),
+  );
 
-  const linePath = createMemo(() => buildLinePath(stats().dailySorties, 760, 220));
+  const linePath = createMemo(() =>
+    buildLinePath(stats().dailySorties, 760, 220),
+  );
 
   function normalizeEpochMs(value: number | null | undefined): number | null {
     if (!value || !Number.isFinite(value)) return null;
@@ -136,7 +152,10 @@ export default function BattleStatsPanel() {
 
   function resolveBattleResult(
     raw: BattleRecord["battle_result"],
-    battleResultByUuid: Map<string, { win_rank: string; drop_ship_id: number | null }>,
+    battleResultByUuid: Map<
+      string,
+      { win_rank: string; drop_ship_id: number | null }
+    >,
   ): { win_rank: string; drop_ship_id: number | null } | null {
     if (!raw) return null;
     if (typeof raw === "string") return battleResultByUuid.get(raw) ?? null;
@@ -168,7 +187,10 @@ export default function BattleStatsPanel() {
       const battleResultPayload = battleResultRes.ok
         ? ((await battleResultRes.json()) as { records?: BattleResultRecord[] })
         : { records: [] };
-      const battleResultByUuid = new Map<string, { win_rank: string; drop_ship_id: number | null }>();
+      const battleResultByUuid = new Map<
+        string,
+        { win_rank: string; drop_ship_id: number | null }
+      >();
       for (const rec of battleResultPayload.records || []) {
         if (!rec?.uuid || !rec.win_rank) continue;
         battleResultByUuid.set(rec.uuid, {
@@ -185,21 +207,32 @@ export default function BattleStatsPanel() {
 
       const unresolvedResultUuids = new Set<string>();
       for (const battle of battles) {
-        if (typeof battle.battle_result === "string" && !battleResultByUuid.has(battle.battle_result)) {
+        if (
+          typeof battle.battle_result === "string" &&
+          !battleResultByUuid.has(battle.battle_result)
+        ) {
           unresolvedResultUuids.add(battle.battle_result);
         }
       }
 
       if (unresolvedResultUuids.size > 0) {
         const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchFilterJson = encodeURIComponent(
+          JSON.stringify({ uuid: fillTargets }),
+        );
         const batchRes = await cachedFetch(
           `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
         if (batchRes.ok) {
-          const body = (await batchRes.json().catch(() => ({}))) as { records?: BattleResultRecord[] };
+          const body = (await batchRes.json().catch(() => ({}))) as {
+            records?: BattleResultRecord[];
+          };
           for (const found of body.records || []) {
-            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
+            if (
+              found?.uuid &&
+              found.win_rank &&
+              !battleResultByUuid.has(found.uuid)
+            ) {
               battleResultByUuid.set(found.uuid, {
                 win_rank: found.win_rank,
                 drop_ship_id: found.drop_ship_id ?? null,
@@ -216,7 +249,10 @@ export default function BattleStatsPanel() {
       let drops = 0;
 
       for (const b of battles) {
-        const resolvedBattleResult = resolveBattleResult(b.battle_result, battleResultByUuid);
+        const resolvedBattleResult = resolveBattleResult(
+          b.battle_result,
+          battleResultByUuid,
+        );
         const rank = resolvedBattleResult?.win_rank ?? "未記録";
         rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
 
@@ -234,7 +270,9 @@ export default function BattleStatsPanel() {
           airCounts[name] = (airCounts[name] ?? 0) + 1;
         }
 
-        const ts = normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
+        const ts =
+          normalizeEpochMs(b.timestamp) ??
+          normalizeEpochMs(b.midnight_timestamp);
         if (ts) {
           const d = new Date(ts);
           const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -254,7 +292,8 @@ export default function BattleStatsPanel() {
       setStats({
         total,
         sRate: `${((sCount / total) * 100).toFixed(1)}%`,
-        airRate: airTotal > 0 ? `${((airSecured / airTotal) * 100).toFixed(1)}%` : "-",
+        airRate:
+          airTotal > 0 ? `${((airSecured / airTotal) * 100).toFixed(1)}%` : "-",
         drops,
         dailySorties,
         rankDistribution: rankCounts,
@@ -298,8 +337,11 @@ export default function BattleStatsPanel() {
         <div class="card-body p-4">
           <div class="flex flex-wrap gap-4 items-end">
             <div class="form-control">
-              <label class="label"><span class="label-text">期間</span></label>
+              <label class="label">
+                <span class="label-text">期間</span>
+              </label>
               <select
+                id="battle-stats-filter-period"
                 class="select select-bordered select-sm"
                 value={periodTag()}
                 onInput={(e) => setPeriodTag(e.currentTarget.value)}
@@ -308,11 +350,18 @@ export default function BattleStatsPanel() {
                 <option value="all">全期間</option>
               </select>
             </div>
-            <button class="btn btn-primary btn-sm" onClick={() => void loadStats()} disabled={loading()}>
+            <button
+              id="battle-stats-aggregate-btn"
+              class="btn btn-primary btn-sm"
+              onClick={() => void loadStats()}
+              disabled={loading()}
+            >
               {loading() ? "集計中..." : "集計"}
             </button>
           </div>
-          <Show when={error()}>{(msg) => <p class="mt-2 text-sm text-error">{msg()}</p>}</Show>
+          <Show when={error()}>
+            {(msg) => <p class="mt-2 text-sm text-error">{msg()}</p>}
+          </Show>
         </div>
       </div>
 
@@ -321,14 +370,32 @@ export default function BattleStatsPanel() {
           <h3 class="font-bold mb-2">日別出撃数</h3>
           <Show
             when={stats().dailySorties.length > 0}
-            fallback={<div class="h-[260px] flex items-center justify-center text-base-content/40">データ読込後に表示されます</div>}
+            fallback={
+              <div class="h-[260px] flex items-center justify-center text-base-content/40">
+                データ読込後に表示されます
+              </div>
+            }
           >
             <svg viewBox="0 0 800 260" class="w-full h-[260px]">
-              <rect x="20" y="20" width="760" height="220" fill="#eff6ff"></rect>
-              <path d={linePath()} fill="none" stroke="#2563eb" stroke-width="3" transform="translate(20 20)"></path>
+              <rect
+                x="20"
+                y="20"
+                width="760"
+                height="220"
+                fill="#eff6ff"
+              ></rect>
+              <path
+                d={linePath()}
+                fill="none"
+                stroke="#2563eb"
+                stroke-width="3"
+                transform="translate(20 20)"
+              ></path>
             </svg>
             <div class="mt-2 text-xs text-base-content/70">
-              最新: {stats().dailySorties[stats().dailySorties.length - 1]?.date} / {stats().dailySorties[stats().dailySorties.length - 1]?.count} 回
+              最新:{" "}
+              {stats().dailySorties[stats().dailySorties.length - 1]?.date} /{" "}
+              {stats().dailySorties[stats().dailySorties.length - 1]?.count} 回
             </div>
           </Show>
         </div>
@@ -336,17 +403,27 @@ export default function BattleStatsPanel() {
         <div class="bg-base-100 rounded-box p-4 shadow-sm">
           <h3 class="font-bold mb-2">戦闘結果分布</h3>
           <div class="flex items-center gap-6">
-            <div class="w-44 h-44 rounded-full border border-base-300" style={{ background: rankConic() }}></div>
+            <div
+              class="w-44 h-44 rounded-full border border-base-300"
+              style={{ background: rankConic() }}
+            ></div>
             <div class="flex-1 text-sm">
               <Show
                 when={rankEntries().length > 0}
-                fallback={<div class="py-8 text-base-content/50">戦闘結果データがありません</div>}
+                fallback={
+                  <div class="py-8 text-base-content/50">
+                    戦闘結果データがありません
+                  </div>
+                }
               >
                 <For each={rankEntries()}>
                   {([name, value]) => (
                     <div class="flex items-center justify-between py-1 border-b border-base-200">
                       <span class="flex items-center gap-2">
-                        <span class="inline-block w-3 h-3 rounded-sm" style={{ background: RANK_COLORS[name] ?? "#94a3b8" }}></span>
+                        <span
+                          class="inline-block w-3 h-3 rounded-sm"
+                          style={{ background: RANK_COLORS[name] ?? "#94a3b8" }}
+                        ></span>
                         {name}
                       </span>
                       <span>{value}</span>
@@ -363,13 +440,22 @@ export default function BattleStatsPanel() {
           <div class="space-y-2">
             <For each={formationEntries()}>
               {([name, value]) => {
-                const max = Math.max(1, ...(formationEntries().map(([, c]) => c)));
+                const max = Math.max(
+                  1,
+                  ...formationEntries().map(([, c]) => c),
+                );
                 const width = Math.max(4, Math.round((value / max) * 100));
                 return (
                   <div>
-                    <div class="flex justify-between text-xs mb-1"><span>{name}</span><span>{value}</span></div>
+                    <div class="flex justify-between text-xs mb-1">
+                      <span>{name}</span>
+                      <span>{value}</span>
+                    </div>
                     <div class="w-full h-3 bg-base-200 rounded-full overflow-hidden">
-                      <div class="h-full bg-primary" style={{ width: `${width}%` }}></div>
+                      <div
+                        class="h-full bg-primary"
+                        style={{ width: `${width}%` }}
+                      ></div>
                     </div>
                   </div>
                 );
@@ -381,17 +467,27 @@ export default function BattleStatsPanel() {
         <div class="bg-base-100 rounded-box p-4 shadow-sm">
           <h3 class="font-bold mb-2">制空状態分布</h3>
           <div class="flex items-center gap-6">
-            <div class="w-44 h-44 rounded-full border border-base-300" style={{ background: airConic() }}></div>
+            <div
+              class="w-44 h-44 rounded-full border border-base-300"
+              style={{ background: airConic() }}
+            ></div>
             <div class="flex-1 text-sm">
               <Show
                 when={airEntries().length > 0}
-                fallback={<div class="py-8 text-base-content/50">制空データがありません</div>}
+                fallback={
+                  <div class="py-8 text-base-content/50">
+                    制空データがありません
+                  </div>
+                }
               >
                 <For each={airEntries()}>
                   {([name, value]) => (
                     <div class="flex items-center justify-between py-1 border-b border-base-200">
                       <span class="flex items-center gap-2">
-                        <span class="inline-block w-3 h-3 rounded-sm" style={{ background: AIR_COLORS[name] ?? "#94a3b8" }}></span>
+                        <span
+                          class="inline-block w-3 h-3 rounded-sm"
+                          style={{ background: AIR_COLORS[name] ?? "#94a3b8" }}
+                        ></span>
                         {name}
                       </span>
                       <span>{value}</span>

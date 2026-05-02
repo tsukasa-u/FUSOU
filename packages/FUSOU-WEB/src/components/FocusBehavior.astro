@@ -1,0 +1,73 @@
+<script is:inline>
+  (() => {
+    const isAutoFocusedField = (element) => {
+      if (!(element instanceof HTMLElement)) return false;
+      return element.matches(
+        "input, textarea, select, [contenteditable='true']",
+      );
+    };
+
+    const blurAutoFocusedField = () => {
+      const active = document.activeElement;
+      if (isAutoFocusedField(active)) {
+        active.blur();
+      }
+    };
+
+    const focusDialogShell = (dialog) => {
+      if (!(dialog instanceof HTMLDialogElement)) return;
+      if (!dialog.hasAttribute("tabindex")) {
+        dialog.setAttribute("tabindex", "-1");
+      }
+      requestAnimationFrame(() => {
+        dialog.focus({ preventScroll: true });
+        blurAutoFocusedField();
+      });
+    };
+
+    const patchDialogFocus = () => {
+      if (typeof HTMLDialogElement === "undefined") return;
+      const proto = HTMLDialogElement.prototype;
+      if (proto.fusouFocusPatched) return;
+
+      const originalShowModal = proto.showModal;
+      const originalShow = proto.show;
+
+      proto.showModal = function (...args) {
+        const result = originalShowModal.apply(this, args);
+        focusDialogShell(this);
+        return result;
+      };
+
+      proto.show = function (...args) {
+        const result = originalShow.apply(this, args);
+        focusDialogShell(this);
+        return result;
+      };
+
+      Object.defineProperty(proto, "fusouFocusPatched", {
+        value: true,
+        configurable: false,
+        enumerable: false,
+        writable: false,
+      });
+    };
+
+    patchDialogFocus();
+
+    const scheduleInitialBlur = () => {
+      requestAnimationFrame(() => {
+        blurAutoFocusedField();
+        setTimeout(blurAutoFocusedField, 0);
+      });
+    };
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", scheduleInitialBlur, {
+        once: true,
+      });
+    } else {
+      scheduleInitialBlur();
+    }
+  })();
+</script>

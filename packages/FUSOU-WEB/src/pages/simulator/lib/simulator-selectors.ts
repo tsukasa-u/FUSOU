@@ -9,6 +9,8 @@ import type {
   MstShipData,
   MstSlotItemData,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
+  SokuSpeedData,
 } from "./types";
 
 export type ShipModalSource = "snapshot" | "master";
@@ -215,9 +217,32 @@ export function getSpriteSheetMeta(): { width: number; height: number; url: stri
   };
 }
 
+export function getShipTypeIconFrame(stype: number): [number, number, number, number] | undefined {
+  return state.shipTypeIconFrames[stype];
+}
+
+export function getShipTypeSpriteSheetMeta(): { width: number; height: number; url: string } {
+  return {
+    width: state.shipTypeSpriteSheetW,
+    height: state.shipTypeSpriteSheetH,
+    url: state.shipTypeSpriteSheetUrl,
+  };
+}
+
 export function getSlotItemEffects(): SlotItemEffectsData | null {
   return state.slotItemEffects;
 }
+
+export function getSlotItemEffectsMeta(): SlotItemEffectsMeta | null {
+  return state.slotItemEffectsMeta;
+}
+
+export function getSokuSpeedData(): SokuSpeedData | null {
+  return state.sokuSpeedData;
+}
+
+// Legacy compatibility selector.
+export const getSokuLengSpeedData = getSokuSpeedData;
 
 export function getAssetBaseUrl(): string {
   return state.assetBaseUrl;
@@ -229,6 +254,10 @@ export function getBannerMap(): typeof state.bannerMap {
 
 export function getCardMap(): typeof state.cardMap {
   return state.cardMap;
+}
+
+export function getShipIconMap(): typeof state.shipIconMap {
+  return state.shipIconMap;
 }
 
 export function getEquipCardMap(): typeof state.equipCardMap {

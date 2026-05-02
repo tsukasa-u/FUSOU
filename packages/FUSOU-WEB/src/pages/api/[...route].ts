@@ -20,14 +20,14 @@ function stripApiPrefix(req: Request): Request {
 }
 
 export const GET = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);
 export const POST = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);
 export const PUT = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);
 export const DELETE = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);
 export const PATCH = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);
 export const OPTIONS = async ({ request }: any) =>
-  app.fetch(stripApiPrefix(request), { env: cfEnv });
+  app.fetch(stripApiPrefix(request), cfEnv);

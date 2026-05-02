@@ -48,7 +48,7 @@ $env:FUSOU_API_KEY = "your_api_key_here"
 
 API キーをローカルに永続保存する場合:
 
-> [!TIP]
+> [!TIP]\
 > 環境変数の設定が難しい場合は、この方法が最も簡単です。Python で一度だけ実行すれば設定が保存されます。
 
 ```python
@@ -58,7 +58,7 @@ import fusou_datasets
 fusou_datasets.save_api_key("your_api_key_here")
 ```
 
-> [!CAUTION]
+> [!CAUTION]\
 > 設定ファイルに保存した API キーは平文で保存されます。共有マシンでは環境変数の使用を推奨します。
 
 ### 方法 3: プログラム内で設定
@@ -130,7 +130,7 @@ Code (1/3):
 
 API キーに紐づいたメールアドレスに届いた 6 桁のコードを入力してください。
 
-> [!NOTE]
+> [!NOTE]\
 > 認証は 3 回まで試行可能です。失敗するとエラーが発生します。
 
 ## Google Colab での自動認証
@@ -194,8 +194,7 @@ fusou-datasets --client-id
 }
 ```
 
-> [!WARNING]
->
+> [!WARNING]\
 > `settings.json` を削除すると新しいクライアント ID が生成され、再度デバイス認証が必要になります。
 
 ## トラブルシューティング

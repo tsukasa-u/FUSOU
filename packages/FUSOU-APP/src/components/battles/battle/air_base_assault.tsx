@@ -77,7 +77,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
             (plane) =>
               slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
           );
-          if (idx && idx != -1) {
+          if (idx != -1) {
             ret.push(plane_info[idx].slotid);
             delete plane_info[idx];
           }
@@ -85,6 +85,24 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     }
     return ret;
   });
+
+  const display_sprite_counts = () => {
+    const assault = props.battle_selected()?.air_base_assault;
+    if (!assault) return null;
+
+    const f_fly = assault.f_sprite_fly_count;
+    const e_fly = assault.e_sprite_fly_count;
+    const f_crash1 = assault.f_sprite_crash_stage1_count;
+    const f_crash2 = assault.f_sprite_crash_stage2_count;
+    const e_crash1 = assault.e_sprite_crash_stage1_count;
+    const e_crash2 = assault.e_sprite_crash_stage2_count;
+
+    return (
+      <div class="pl-2 text-xs">
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"}/{e_crash1 ?? "?"}+{e_crash2 ?? "?"}
+      </div>
+    );
+  };
 
   const attacker_planes = () => {
     return (
@@ -213,6 +231,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Air Base Assault</summary>
           <ul class="pl-0">
+            {display_sprite_counts()}
             <table class="table table-xs">
               <thead>
                 <tr>

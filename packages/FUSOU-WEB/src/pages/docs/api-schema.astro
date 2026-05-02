@@ -2,25 +2,177 @@
 import "@/assets/app.css";
 import "@/styles/global.css";
 import Navigation from "@/components/Navigation.astro";
+import LeftMenu from "@/components/docs/LeftMenu.astro";
+import RightMenu from "@/components/docs/RightMenu.astro";
+import Breadcrumb from "@/components/docs/Breadcrumb.astro";
 import Layout from "@/layouts/Layout.astro";
 import SchemaGraph from "@/components/react/SchemaGraph";
+
+const pageEntry = {
+  data: {
+    title: "API Schema Explorer",
+  },
+};
+
+const pageHeadings = [
+  { slug: "schema-overview", text: "Overview", depth: 2 },
+  { slug: "schema-explorer", text: "Explorer canvas", depth: 2 },
+  { slug: "schema-related-links", text: "Related links", depth: 2 },
+];
+
+const tutorialGuide = {
+  id: "docs-api-schema",
+  title: "API Schema Explorerの操作説明",
+  summary:
+    "テーブル構造・エンドポイント構造・レイアウト方式を切り替えて、依存関係を詳細に確認できます。",
+  controls: [
+    {
+      sourceSelector: "#schema-mode-database",
+      description:
+        "Database Tables表示へ切り替えます。テーブル間のFK参照関係を中心に確認したいときに使います。",
+      tone: "outline",
+    },
+    {
+      sourceSelector: "#schema-mode-endpoints",
+      description:
+        "API Endpoints表示へ切り替えます。リクエスト/レスポンス構造を追いたいときに使います。",
+      tone: "outline",
+    },
+    {
+      sourceSelector: "#schema-dir-lr",
+      description:
+        "グラフの向きを左→右にします。横長モニタで全体構造を比較しやすくなります。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-dir-tb",
+      description:
+        "グラフの向きを上→下にします。階層順に読み下したい場合に有効です。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-spacing-compact",
+      description:
+        "ノード間隔を詰めて表示します。広い構造を一画面で把握したいときに使います。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-spacing-normal",
+      description:
+        "標準の間隔に戻します。通常の閲覧に適したバランス表示です。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-spacing-spacious",
+      description:
+        "ノード間隔を広く取ります。線の交差が多い箇所を読みやすくしたいときに使います。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-edge-bezier",
+      description:
+        "曲線エッジで表示します。流れをなめらかに把握したいときに使います。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-edge-smoothstep",
+      description:
+        "折れ線エッジで表示します。分岐点を直感的に追いやすくなります。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-edge-straight",
+      description:
+        "直線エッジで表示します。最短線で接続関係を確認したいときに使います。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-algo-dagre",
+      description:
+        "高速レイアウト(Dagre)に切り替えます。操作レスポンス重視で素早く確認したい場合に向いています。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-algo-elk",
+      description:
+        "ELK Layeredに切り替えます。交差最小化を重視して見やすく配置したいときに使います。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#schema-algo-tree",
+      description:
+        "ELK Treeに切り替えます。木構造に近いデータを確認する際に有効です。",
+      tone: "ghost",
+    },
+    {
+      sourceSelector: "#tutorial-open-btn",
+      description:
+        "この操作説明モーダルを再表示します。画面操作を再確認したいときに使います。",
+      tone: "primary",
+    },
+  ],
+  steps: [
+    "最初に『Database Tables / API Endpoints』で分析対象を切り替えてください。",
+    "Database Tablesではノードクリックで親テーブル(参照先)と子テーブル(参照元)がハイライトされ、依存関係を段階的に追跡できます。",
+    "API EndpointsではGroupとEndpointを選択し、Versionを切り替えて差分(Added/Removed/Changed)を確認します。",
+    "Direction(LR/TB)を切り替えると読み方向を変更できます。資料用途ではTB、広い比較ではLRが見やすいです。",
+    "SpacingはCompact/Normal/Spaciousを使い分け、密集時はSpacious、全体俯瞰はCompactがおすすめです。",
+    "Edge表示(Bezier/Step/Straight)は好みに応じて変更し、線の追跡しやすさを最適化してください。",
+    "AlgorithmはDagre(高速)・ELK(交差最小化)・Tree(木構造向け)を切り替えて、最も読みやすい配置を選びます。",
+    "右上のノード数/エッジ数を目安に複雑度を把握し、MiniMapとズームで詳細と全体を行き来しながら分析してください。",
+    "必要な箇所はノード詳細パネルで型・フィールド情報を確認し、関連ドキュメントと突き合わせると理解が速くなります。",
+  ],
+};
 ---
 
-<Layout title="API Schema | FUSOU">
+<Layout title="API Schema | FUSOU" tutorial={tutorialGuide}>
   <div class="h-16"></div>
-  <div class="flex max-w-[1440px] mx-auto">
+  <div class="flex">
     <div class="flex-1 min-w-0"></div>
-    <div class="w-full max-w-[1440px] px-4 sm:px-6 md:px-8 lg:px-12 pt-4">
-      <header class="mb-4">
-        <h1 class="text-2xl font-bold text-base-content">
-          kc-api Schema Explorer
-        </h1>
-        <p class="mt-1 text-sm text-base-content/60">
-          Interactive visualization of database tables and API endpoint
-          structures, version by version.
-        </p>
-      </header>
-      <SchemaGraph client:only="react" />
+    <div class="grid grid-cols-24 gap-x-4 sm:gap-x-6 md:gap-x-8 pt-4 max-w-[1600px] w-full px-4 sm:px-6 md:px-8">
+      <aside
+        class="hidden md:block md:col-span-8 md:col-start-1 xl:col-span-5 xl:col-start-2 pr-4 sticky top-20 self-start h-fit"
+      >
+        <LeftMenu />
+      </aside>
+      <main class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0">
+        <Breadcrumb entry={pageEntry} />
+        <header id="schema-overview" class="mb-5 rounded-xl border border-base-300/70 bg-base-100/90 p-4 sm:p-5">
+          <h1 class="text-2xl sm:text-3xl font-bold text-base-content tracking-tight">
+            kc-api Schema Explorer
+          </h1>
+          <p class="mt-1 text-sm sm:text-base text-base-content/70 max-w-[72ch]">
+            Interactive visualization of database tables and API endpoint structures, version by version.
+            Switch mode, direction, spacing, and layout algorithm to inspect dependencies efficiently.
+          </p>
+          <div class="mt-3 flex flex-wrap gap-2 text-xs sm:text-sm">
+            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">3 min read</span>
+            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">3 sections</span>
+            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">Updated 2026年4月29日</span>
+          </div>
+        </header>
+        <details class="xl:hidden mb-4 rounded-xl border border-base-300/70 bg-base-100 p-3">
+          <summary class="cursor-pointer text-sm font-semibold text-base-content">On this page (3)</summary>
+          <ul class="mt-3 space-y-1 text-sm text-base-content/80">
+            <li><a href="#schema-overview" class="link link-hover">Overview</a></li>
+            <li><a href="#schema-explorer" class="link link-hover">Explorer canvas</a></li>
+            <li><a href="#schema-related-links" class="link link-hover">Related links</a></li>
+          </ul>
+        </details>
+        <section id="schema-explorer">
+          <SchemaGraph client:only="react" />
+        </section>
+        <section id="schema-related-links" class="mt-4 rounded-xl border border-base-300/70 bg-base-100 p-4 text-sm">
+          <h2 class="text-base font-semibold text-base-content">Related links</h2>
+          <ul class="mt-2 space-y-1">
+            <li><a href="/docs" class="link link-hover">Back to Docs Index</a></li>
+            <li><a href="/docs/kc-api/full" class="link link-hover">kc-api full reference</a></li>
+          </ul>
+        </section>
+      </main>
+      <aside class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit">
+        <RightMenu headings={pageHeadings} />
+      </aside>
     </div>
     <div class="flex-1 min-w-0"></div>
   </div>

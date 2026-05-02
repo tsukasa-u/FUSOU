@@ -254,7 +254,7 @@ const platforms: Platform[] = [
       {
         platforms.map((platform, platformIndex) => (
           <article
-            class={`border border-base-300 p-6 flex flex-col gap-6 ${platformIndex === 0 ? "" : "hidden"}`}
+            class={`rounded-xl border border-base-300 p-6 flex flex-col gap-6 ${platformIndex === 0 ? "" : "hidden"}`}
             data-platform-panel={platform.id}
           >
             <div class="flex flex-col gap-2">
@@ -291,7 +291,7 @@ const platforms: Platform[] = [
                 data-arch-panel={arch.id}
               >
                 {arch.downloads.map((entry) => (
-                  <div class="border border-base-300 p-4 flex flex-col gap-2">
+                  <div class="rounded-xl border border-base-300 p-4 flex flex-col gap-2">
                     <div class="flex flex-wrap items-baseline gap-2">
                       <span class="text-lg font-semibold">{entry.label}</span>
                       {entry.recommended && (
@@ -334,17 +334,17 @@ const platforms: Platform[] = [
   const platformTabs =
     document.querySelectorAll<HTMLButtonElement>("[data-platform]");
   const platformPanels = document.querySelectorAll<HTMLElement>(
-    "[data-platform-panel]"
+    "[data-platform-panel]",
   );
 
   platformTabs.forEach((btn) => {
     btn.addEventListener("click", () => {
       const target = btn.dataset.platform;
       platformTabs.forEach((tab) =>
-        tab.classList.replace("btn-primary", "btn-outline")
+        tab.classList.replace("btn-primary", "btn-outline"),
       );
       platformTabs.forEach((tab) =>
-        tab.classList.replace("border-primary-content", "border-base-300")
+        tab.classList.replace("border-primary-content", "border-base-300"),
       );
       btn.classList.replace("btn-outline", "btn-primary");
       btn.classList.replace("border-base-300", "border-primary-content");
@@ -381,7 +381,7 @@ const platforms: Platform[] = [
       container.querySelectorAll<HTMLButtonElement>("[data-arch]");
     const archPanels =
       container.parentElement?.querySelectorAll<HTMLElement>(
-        "[data-arch-panel]"
+        "[data-arch-panel]",
       ) ?? [];
     archTabs.forEach((archBtn: HTMLButtonElement) => {
       archBtn.addEventListener("click", () => {

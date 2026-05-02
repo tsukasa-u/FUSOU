@@ -1,5 +1,6 @@
 ---
 import Layout from "../../layouts/Layout.astro";
+import Navigation from "../../components/Navigation.astro";
 import AlertBox from "../../components/AlertBox.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
@@ -8,8 +9,17 @@ const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as Record<string, any>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
-// Get member_id_hash from query params
-const memberIdHash = Astro.url.searchParams.get("hash");
+// Read member_id_hash from a short-lived cookie set by local callback.
+const memberIdHashFromCookie = cookies.get("mih-conflict-hash")?.value ?? null;
+if (memberIdHashFromCookie) {
+  cookies.delete("mih-conflict-hash", { path: "/account/conflict" });
+}
+
+// DEV-only fallback for manual testing with legacy URL format.
+const memberIdHashFromQuery = import.meta.env.DEV
+  ? Astro.url.searchParams.get("hash")
+  : null;
+const memberIdHash = memberIdHashFromCookie ?? memberIdHashFromQuery;
 
 let hints: any = null;
 let error: string | null = null;
@@ -22,7 +32,7 @@ if (!memberIdHash) {
     "rpc_get_member_conflict_hints",
     {
       member_id_hash: memberIdHash,
-    }
+    },
   );
 
   if (rpcError) {
@@ -37,6 +47,8 @@ if (!memberIdHash) {
 ---
 
 <Layout title="Account Conflict - FUSOU">
+  <Navigation />
+  <!-- <div class="h-16"></div> -->
   <div class="min-h-screen flex items-center justify-center px-4 py-8">
     <div class="w-full max-w-2xl">
       <div class="bg-base-100 rounded-md p-6">
@@ -176,6 +188,7 @@ if (!memberIdHash) {
                         </p>
                         <div class="card-actions justify-end mt-3">
                           <a
+                            id="switch-account-btn"
                             href="/auth/local/signin"
                             class="btn btn-primary btn-wide btn-sm"
                           >
@@ -218,6 +231,7 @@ if (!memberIdHash) {
                         </div>
                         <div class="card-actions justify-end">
                           <button
+                            id="learn-transfer-btn"
                             class="btn btn-outline btn-wide btn-sm"
                             onclick="alert('Transfer feature coming soon. Please contact support for assistance.')"
                           >
@@ -227,43 +241,23 @@ if (!memberIdHash) {
                       </div>
                     </div>
 
-                    <div class="alert alert-info bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3">
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        class="w-6 h-6 shrink-0 text-info stroke-current"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      <div class="flex-1">
-                        <div class="font-semibold text-base-content mb-3">
-                          Need Help?
-                        </div>
-                        <div class="flex gap-4 items-center justify-between">
-                          <p class="flex-1">
-                            If you cannot access the old account or need
-                            additional assistance, please contact our support
-                            team.
-                          </p>
-                        </div>
-                        <div class="card-actions justify-end mt-3">
-                          <a
-                            href="https://github.com/tsukasa-u/FUSOU/issues"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="btn btn-primary btn-wide btn-sm"
-                          >
-                            Contact Support
-                          </a>
-                        </div>
+                    <AlertBox type="info" title="Need Help?">
+                      <p>
+                        If you cannot access the old account or need additional
+                        assistance, please contact our support team.
+                      </p>
+                      <div class="card-actions justify-end mt-3">
+                        <a
+                          id="contact-support-link"
+                          href="https://github.com/tsukasa-u/FUSOU/issues"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="fusou-btn-primary btn-wide"
+                        >
+                          Contact Support
+                        </a>
                       </div>
-                    </div>
+                    </AlertBox>
                   </div>
                 </div>
               </>

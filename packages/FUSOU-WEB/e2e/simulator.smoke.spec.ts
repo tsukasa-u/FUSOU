@@ -113,10 +113,19 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await mockSimulatorData(page);
     await page.goto("/simulator");
     await page.waitForLoadState("domcontentloaded");
+
+    // Close first-visit tutorial modal if auto-opened to avoid interaction overlap.
+    const tutorialCloseBtn = page.locator("#tutorial-close-btn");
+    if (await tutorialCloseBtn.isVisible().catch(() => false)) {
+      await tutorialCloseBtn.click();
+      await expect(page.locator("#tutorial-modal")).toBeHidden();
+    }
   });
 
   test("loads simulator shell and critical controls with mocked data", async ({ page }) => {
-    await expect(page.getByRole("heading", { name: "編成シミュレータ" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "編成シミュレータ", exact: true }),
+    ).toBeVisible();
     await expect(page.locator("#fleet-sections")).toBeVisible();
     await expect(page.locator("#btn-display-settings")).toBeVisible();
     await expect(page.locator("#btn-share")).toBeVisible();
@@ -126,12 +135,27 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
   });
 
   test("opens ship selection modal from first fleet slot", async ({ page }) => {
+    await expect(page.locator("#data-status-text")).toContainText(
+      "マスターデータ読込済み",
+    );
+
     const emptySlot = page.locator("#fleet-1-slots div.cursor-pointer", {
-      hasText: "艦娘を配置",
+      hasText: "艦を配置",
     }).first();
 
     await expect(emptySlot).toBeVisible();
     await emptySlot.click({ force: true });
+
+    await expect
+      .poll(
+        async () =>
+          page
+            .locator("#ship-select-modal")
+            .evaluate((el) => (el as HTMLDialogElement).open)
+            .catch(() => false),
+        { timeout: 10000 },
+      )
+      .toBe(true);
 
     await expect(page.locator("#ship-select-modal")).toBeVisible();
     await expect(page.locator("#ship-modal-grid")).toContainText("テスト艦");

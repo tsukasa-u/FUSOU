@@ -24,7 +24,7 @@ let storedAccessToken = cookies.get("stored-sb-access-token");
 let storedRefreshToken = cookies.get("stored-sb-refresh-token");
 let storedProviderToken = cookies.get("stored-sb-provider-token");
 let storedProviderRefreshToken = cookies.get(
-  "stored-sb-provider-refresh-token"
+  "stored-sb-provider-refresh-token",
 );
 
 if (
@@ -180,7 +180,37 @@ cookies.set(
 );
 ---
 
-<Layout title="dashboard">
+<Layout
+  title="dashboard"
+  tutorial={{
+    id: "dashboard",
+    title: "ダッシュボードの使い方",
+    summary: "接続済みアカウントの切り替えと追加ができます。",
+    controls: [
+      {
+        label: "Switch",
+        sourceSelector: ".btn-switch-account",
+        description: "選択したアカウントへ切り替えます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#dashboard-signin-google-btn",
+        description: "追加アカウントを連携します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#dashboard-signout-btn",
+        description: "現在のセッションからサインアウトします。",
+        tone: "outline",
+      },
+    ],
+    steps: [
+      "Your accounts で現在の利用可能アカウントを確認します。",
+      "別アカウントを使う場合は Switch を押します。",
+      "新規追加は Sign in with Google、終了は Sign out を使います。",
+    ],
+  }}
+>
   <div class="min-h-screen flex flex-col">
     <div class="flex justify-center flex-1 items-center">
       <div class="w-full max-w-md">
@@ -200,9 +230,14 @@ cookies.set(
                     <div class="flex items-center gap-4">
                       <span
                         class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
-                        title={session?.data.session?.user.app_metadata.provider || "provider"}
+                        title={
+                          session?.data.session?.user.app_metadata.provider ||
+                          "provider"
+                        }
                       >
-                        {providerInitial(session?.data.session?.user.app_metadata.provider)}
+                        {providerInitial(
+                          session?.data.session?.user.app_metadata.provider,
+                        )}
                       </span>
                       <div>
                         <div>
@@ -225,7 +260,7 @@ cookies.set(
                           <input type="hidden" name="index" value={idx} />
                           <button
                             type="submit"
-                            class="btn btn-sm btn-ghost border border-base-300 w-20"
+                            class="btn btn-sm btn-ghost border border-base-300 w-20 btn-switch-account"
                           >
                             Switch
                           </button>
@@ -244,6 +279,7 @@ cookies.set(
           <div class="h-1"></div>
           <form action="/api/auth/signin" method="post">
             <button
+              id="dashboard-signin-google-btn"
               class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
               value="google"
               name="provider"
@@ -256,7 +292,9 @@ cookies.set(
                 fill="currentColor"
                 aria-hidden="true"
               >
-                <path d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z" />
+                <path
+                  d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"
+                ></path>
               </svg>
               <div class="w-36 text-start">Sign in with Google</div>
             </button>
@@ -265,6 +303,7 @@ cookies.set(
           <form action="/api/auth/signout" method="post">
             <div class="divider">OR</div>
             <button
+              id="dashboard-signout-btn"
               class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
               type="submit">Sign out</button
             >
@@ -275,5 +314,3 @@ cookies.set(
     <Navigation />
   </div>
 </Layout>
-
-

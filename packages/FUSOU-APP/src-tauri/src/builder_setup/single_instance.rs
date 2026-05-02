@@ -1,7 +1,7 @@
 #[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
 use tauri::{Manager, Url};
-use fusou_auth::{AuthManager, FileStorage, Session};
+use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
 use kc_api::interface::deck_port::Basic;
 use serde_json::json;
@@ -10,7 +10,15 @@ use uuid::Uuid;
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
     // Initialization code for single instance
     if let Some(path) = argv.get(1) {
-        let url = Url::parse(path).unwrap();
+        let url = match Url::parse(path) {
+            Ok(url) => url,
+            Err(e) => {
+                tracing::warn!("single instance received invalid url argument: {}", e);
+                // Invalid deeplink should not stop window restore/focus flow.
+                goto_restore_window(app, &argv);
+                return;
+            }
+        };
 
         // Check if this is a Realtime-based member_id_hash sync request
         // fusou://sync?token=xxx&return_url=yyy
@@ -25,75 +33,14 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             return;
         }
 
-        // Parse tokens from URL query parameters
-        // These are sent from FUSOU-WEB after OAuth authentication
-        let mut providrer_refresh_token = String::new();
-        let mut supabase_refresh_token = String::new();
-        let mut supabase_access_token = String::new();
-        let mut expires_at_str = String::new();
-
-        url.query_pairs().for_each(|(key, value)| {
-            // println!("key: {}, value: {}", key, value);
-            if key.eq("provider_refresh_token") {
-                providrer_refresh_token = value.to_string();
-            } else if key.eq("supabase_refresh_token") {
-                supabase_refresh_token = value.to_string();
-            } else if key.eq("supabase_access_token") {
-                supabase_access_token = value.to_string();
-            } else if key.eq("expires_at") {
-                expires_at_str = value.to_string();
-            }
-        });
-        
-        // Provider refresh token (e.g., Google Drive)
-        // Kept for future cloud provider features (currently deprecated)
-        #[cfg(feature = "gdrive")]
-        if !providrer_refresh_token.is_empty() {
-            let token_type = "Bearer";
-            let _ = gdrive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
-        }
-        
-        // Supabase session tokens (for social auth like Google OAuth)
-        // Required: Enables cross-device account persistence
-        // Different from anonymous auth which is local-only
-        if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
-            let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-            let manager = { auth_manager.lock().unwrap().clone() };
-            
-            let expires_at = expires_at_str
-                .parse::<i64>()
-                .ok()
-                .and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
-
-            let session = Session {
-                access_token: supabase_access_token.clone(),
-                refresh_token: supabase_refresh_token.clone(),
-                expires_at,
-                token_type: Some("bearer".to_string()),
-            };
-            
-            let handle_clone = app.clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = manager.save_session(&session).await {
-                    tracing::error!("Failed to save session in single instance: {}", e);
-                } else {
-                    tracing::info!("Social auth session saved successfully via OAuth callback");
-                    // Mark that a social session is now active so that
-                    // try_anonymous_auth does not overwrite it.
-                    crate::util::set_social_session_active();
-                    // Reset the upsert flag so the mapping is re-evaluated with
-                    // the new social session (even if a previous upsert already succeeded).
-                    crate::util::reset_member_id_upsert_flag();
-                    // Immediately upsert member_id mapping so user_member_map
-                    // reflects the social user_id instead of the anonymous one.
-                    crate::util::try_upsert_member_id(&handle_clone).await;
-                }
-            });
-            // Note: No need to emit tokens to frontend
-            // Session saved to FileStorage and managed by AuthManager
-        }
+        // Anonymous-only mode: ignore OAuth callback tokens from FUSOU-WEB.
+        // Deep-link parsing is maintained for compatibility with existing flows.
     }
 
+    goto_restore_window(app, &argv);
+}
+
+fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
     let singleton_window = match app.get_webview_window("main") {
         Some(window) => window,
         None => {
@@ -102,17 +49,23 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         }
     };
 
-    singleton_window.show().unwrap();
-
-    if singleton_window.is_minimized().unwrap() {
-        singleton_window.unminimize().unwrap();
+    if let Err(e) = singleton_window.show() {
+        tracing::warn!("failed to show main window in single instance handler: {}", e);
     }
 
-    if !singleton_window.is_focused().unwrap() {
-        singleton_window.set_focus().unwrap();
+    if singleton_window.is_minimized().unwrap_or(false) {
+        if let Err(e) = singleton_window.unminimize() {
+            tracing::warn!("failed to unminimize main window in single instance handler: {}", e);
+        }
     }
 
-    println!("single instance: {:?}", argv.clone().get(1).unwrap());
+    if !singleton_window.is_focused().unwrap_or(false) {
+        if let Err(e) = singleton_window.set_focus() {
+            tracing::warn!("failed to focus main window in single instance handler: {}", e);
+        }
+    }
+
+    tracing::debug!("single instance arg: {:?}", argv.get(1));
 }
 
 /// Handle fusou://request-member-id?return_url=xxx
@@ -124,12 +77,15 @@ fn handle_member_id_request(url: &Url) {
         .find(|(key, _)| key == "return_url")
         .map(|(_, value)| value.to_string());
 
-    if return_url.is_none() {
+    let Some(return_url) = return_url else {
         tracing::warn!("request-member-id called without return_url parameter");
         return;
-    }
+    };
 
-    let return_url = return_url.unwrap();
+    if !is_allowed_return_url(&return_url) {
+        tracing::warn!("request-member-id called with untrusted return_url");
+        return;
+    }
 
     // Get member_id_hash from game data
     let basic = Basic::load();
@@ -158,7 +114,7 @@ fn handle_member_id_request(url: &Url) {
     let callback_url = format!("{}{}member_id_hash={}", return_url, separator, member_id_hash);
 
 
-    tracing::info!("Sending member_id_hash to browser: {}", callback_url);
+    tracing::info!("Sending member_id_hash to browser (hash redacted)");
     
     // This will cause the browser to navigate, updating the existing page
     // The WEB page JavaScript will read the parameter and continue the flow
@@ -190,7 +146,7 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
         }
     };
 
-    tracing::info!("[Realtime Sync] Received sync request with token: {}", token);
+    tracing::info!("[Realtime Sync] Received sync request");
 
     // 2. Generate APP instance ID (for handling multiple APP instances on same machine)
     let app_instance_id = get_or_create_app_instance_id();
@@ -200,8 +156,7 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
         match handle_realtime_sync_async(&token, &app_instance_id).await {
             Ok(_) => {
                 tracing::info!(
-                    "[Realtime Sync] Successfully synced with token: {}",
-                    token
+                    "[Realtime Sync] Successfully synced"
                 );
             }
             Err(e) => {
@@ -234,10 +189,7 @@ async fn handle_realtime_sync_async(
         );
     }
 
-    tracing::info!(
-        "[Realtime Sync] Loaded member_id_hash: {}...",
-        &member_id_hash[..std::cmp::min(10, member_id_hash.len())]
-    );
+    tracing::info!("[Realtime Sync] Loaded member_id_hash");
 
     // Save to cache for future use
     if let Err(e) = MemberIdCache::save(&member_id_hash) {
@@ -311,6 +263,23 @@ async fn handle_realtime_sync_async(
     }
 
     Err(last_error.unwrap_or_else(|| "Unknown error".to_string()).into())
+}
+
+fn is_allowed_return_url(return_url: &str) -> bool {
+    let return_parsed = match Url::parse(return_url) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    let auth_page_url = configs::get_user_configs_for_app().auth.get_auth_page_url();
+    let auth_page_parsed = match Url::parse(auth_page_url.as_str()) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+
+    return_parsed.scheme() == auth_page_parsed.scheme()
+        && return_parsed.host_str() == auth_page_parsed.host_str()
+        && return_parsed.port_or_known_default() == auth_page_parsed.port_or_known_default()
 }
 
 /// Send PATCH request to Supabase

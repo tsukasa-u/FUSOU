@@ -1,6 +1,7 @@
 import { handleRead as handleHybridRead } from "./reader";
 import { handleCron } from "./cron";
 import { handleBufferConsumerChunked } from "./buffer-consumer";
+import { runQuestInferenceTasks } from "./quest_tree_inference";
 import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
@@ -9,6 +10,7 @@ import {
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
@@ -17,6 +19,12 @@ interface Env {
   TIDB_KC_DB_URL?: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
+  // Bearer token required for /battle-data/upload (must be set; endpoint is disabled without it)
+  UPLOAD_INGEST_TOKEN?: string;
+  // Optional cap for task batch size. Defaults to 100.
+  QUEST_TREE_CRON_LIMIT?: string;
+  // Required explicit switch for experimental quest collection/inference.
+  QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED?: string;
 }
 
 const CORS_HEADERS = {
@@ -66,6 +74,51 @@ const queueDLQ = {
   },
 };
 
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
+/** Timing-safe string equality using XOR byte-by-byte comparison */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
+function parseStrictBoolean(value: string | undefined, envKey: string): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  throw new Error(`${envKey} must be explicitly set to one of: true, false, 1, 0`);
+}
+
+async function runQuestInferenceCron(env: Env): Promise<void> {
+  const enabled = parseStrictBoolean(
+    env.QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED,
+    "QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED",
+  );
+  if (!enabled) {
+    console.log("[scheduled] quest inference cron skipped: experimental collection disabled");
+    return;
+  }
+
+  const limit = Math.min(200, parsePositiveInt(env.QUEST_TREE_CRON_LIMIT, 100));
+  if (!env.QUEST_INDEX_DB) {
+    console.warn("[scheduled] quest inference cron skipped: QUEST_INDEX_DB is not configured");
+    return;
+  }
+  const result = await runQuestInferenceTasks(env.QUEST_INDEX_DB, { limit });
+  console.log("[scheduled] quest inference cron completed", result);
+}
+
 export default {
   async fetch(
     request: Request,
@@ -80,7 +133,23 @@ export default {
     }
 
     if (path === "/battle-data/upload" && request.method === "POST") {
-      // Inline upload handler: accept base64 Avro slices and enqueue
+      // Require bearer token auth (fail closed if not configured)
+      const uploadToken = env.UPLOAD_INGEST_TOKEN;
+      if (!uploadToken) {
+        return new Response(
+          JSON.stringify({ error: "Upload endpoint disabled: UPLOAD_INGEST_TOKEN not configured" }),
+          { status: 403, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      const authHeader = request.headers.get("Authorization") ?? "";
+      const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+      if (!timingSafeEqual(provided, uploadToken)) {
+        return new Response(
+          JSON.stringify({ error: "Unauthorized" }),
+          { status: 401, headers: { ...CORS_HEADERS, "Content-Type": "application/json" } },
+        );
+      }
+      // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
         const payload: any = await request.json();
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
@@ -94,6 +163,15 @@ export default {
         if (!dataset_id || !table || !slices.length) {
           return new Response(
             JSON.stringify({ error: "Missing dataset_id, table, or slices" }),
+            {
+              status: 400,
+              headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+            },
+          );
+        }
+        if (!/^[a-f0-9]{64}$/i.test(String(dataset_id))) {
+          return new Response(
+            JSON.stringify({ error: "dataset_id must be a 64-character SHA-256 hex string" }),
             {
               status: 400,
               headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
@@ -210,5 +288,11 @@ export default {
         }),
       );
     }
+
+    ctx.waitUntil(
+      runQuestInferenceCron(env).catch((err) => {
+        console.error("[scheduled] Quest inference cron error:", err);
+      }),
+    );
   },
 };

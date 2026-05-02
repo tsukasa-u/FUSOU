@@ -12,7 +12,7 @@ serde = { workspace = true }
 ts-rs = { workspace = true }
 # Use minimal apache-avro config for WASM compatibility
 # zstandard can be enabled via feature flag for native builds
-apache-avro = { version = "0.17", default-features = false, features = ["snappy", "derive"] }
+apache-avro = { version = "0.19", default-features = false, features = ["snappy", "derive"] }
 
 [features]
 default = [ "from20250627" ]
@@ -20,3 +20,6 @@ from20250627 = ["20250627"]
 20250627 = []
 # Enable zstandard for native builds
 zstandard = ["apache-avro/zstandard"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

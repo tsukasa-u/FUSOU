@@ -403,7 +403,7 @@ mod tests {
     /// Test: URL parameter encoding (token in query string)
     #[test]
     fn test_execution_url_format() {
-        let base_endpoint = "https://dev.fusou.pages.dev/api/master-data/upload";
+        let base_endpoint = "https://fusou.dev/api/master-data/upload";
         let token = "signed_token_here";
 
         let execution_url = format!("{}?token={}", base_endpoint, token);

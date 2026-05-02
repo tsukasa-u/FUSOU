@@ -11,6 +11,8 @@ import type {
   MstSlotItemData,
   MstSlotItemEquipTypeData,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
+  SokuSpeedData,
   ShipSelection,
   EquipSelection,
   MstStypeData,
@@ -170,6 +172,10 @@ export const state = {
 
   // Equipment bonus / synergy data
   slotItemEffects: null as SlotItemEffectsData | null,
+  slotItemEffectsMeta: null as SlotItemEffectsMeta | null,
+
+  // Observed speed data (turbine/boiler upgrades) from soku_speed_observed
+  sokuSpeedData: null as SokuSpeedData | null,
 
   // Weapon icon sprite sheet
   weaponIconFrames: {} as Record<number, [number, number, number, number]>,
@@ -177,9 +183,16 @@ export const state = {
   spriteSheetH: 0,
   spriteSheetUrl: "",
 
+  // Ship type icon sprite sheet (organize_ship)
+  shipTypeIconFrames: {} as Record<number, [number, number, number, number]>,
+  shipTypeSpriteSheetW: 0,
+  shipTypeSpriteSheetH: 0,
+  shipTypeSpriteSheetUrl: "",
+
   // Asset URL maps
   bannerMap: {} as Record<string, string>,
   cardMap: {} as Record<string, string>,
+  shipIconMap: {} as Record<string, string>,
   assetBaseUrl: "",
   equipCardMap: {} as Record<string, string>,
   equipItemUpMap: {} as Record<string, string>,

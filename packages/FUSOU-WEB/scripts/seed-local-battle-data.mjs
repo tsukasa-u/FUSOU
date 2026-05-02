@@ -18,6 +18,7 @@
  *   --period <latest|all|tag> (default: latest)
  *   --tables <csv>            (default: battle,cells,env_info,enemy_deck,enemy_ship,enemy_slotitem,own_deck,own_ship,own_slotitem,carrierbase_assault,closing_raigeki,hougeki,hougeki_list,midnight_hougeki,midnight_hougeki_list,opening_airattack,opening_airattack_list,opening_raigeki,opening_taisen,opening_taisen_list)
  *   --limit <number>          (default: 2000, max: 20000)
+ *   --target-timestamp <sec>  (optional: only seed block rows whose time range contains this unix timestamp)
  */
 
 import { execSync } from "child_process";
@@ -27,6 +28,7 @@ import { join } from "path";
 const TMP_DIR = join(process.cwd(), ".seed-battle-tmp");
 const SUPPORTED_TABLES = [
   "battle",
+  "battle_result",
   "cells",
   "env_info",
   "enemy_deck",
@@ -50,7 +52,11 @@ const SUPPORTED_TABLES = [
 const DEFAULT_TABLES = [...SUPPORTED_TABLES];
 
 function run(cmd) {
-  return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+  return execSync(cmd, {
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
 }
 
 function runQuiet(cmd) {
@@ -61,23 +67,50 @@ function runQuiet(cmd) {
   }
 }
 
+function runWithRetry(cmd, attempts = 3) {
+  let lastError = null;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return run(cmd);
+    } catch (e) {
+      lastError = e;
+      if (i < attempts) {
+        process.stdout.write(`retry ${i}/${attempts - 1} ... `);
+      }
+    }
+  }
+  throw lastError;
+}
+
 function esc(value) {
   return String(value).replace(/'/g, "''");
+}
+
+function normalizeSql(sql) {
+  return String(sql).replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function quoteForCommand(sql) {
+  return normalizeSql(sql).replace(/"/g, '\\"');
 }
 
 function parseArgs() {
   const args = process.argv.slice(2);
   const wranglerPath = join(process.cwd(), "wrangler.toml");
-  const wranglerText = existsSync(wranglerPath) ? readFileSync(wranglerPath, "utf8") : "";
+  const wranglerText = existsSync(wranglerPath)
+    ? readFileSync(wranglerPath, "utf8")
+    : "";
 
   const bucketFromWrangler = (() => {
-    const pattern = /\[\[r2_buckets\]\][\s\S]*?binding\s*=\s*"BATTLE_DATA_BUCKET"[\s\S]*?bucket_name\s*=\s*"([^"]+)"/m;
+    const pattern =
+      /\[\[r2_buckets\]\][\s\S]*?binding\s*=\s*"BATTLE_DATA_BUCKET"[\s\S]*?bucket_name\s*=\s*"([^"]+)"/m;
     const match = wranglerText.match(pattern);
     return match?.[1] || "";
   })();
 
   const dbFromWrangler = (() => {
-    const pattern = /\[\[d1_databases\]\][\s\S]*?binding\s*=\s*"BATTLE_INDEX_DB"[\s\S]*?database_name\s*=\s*"([^"]+)"/m;
+    const pattern =
+      /\[\[d1_databases\]\][\s\S]*?binding\s*=\s*"BATTLE_INDEX_DB"[\s\S]*?database_name\s*=\s*"([^"]+)"/m;
     const match = wranglerText.match(pattern);
     return match?.[1] || "";
   })();
@@ -96,13 +129,15 @@ function parseArgs() {
     period: "latest",
     tables: [...DEFAULT_TABLES],
     limit: 2000,
+    targetTimestamp: null,
   };
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--bucket") options.bucket = (args[++i] || "").trim();
     else if (arg === "--db") options.db = (args[++i] || "").trim();
-    else if (arg === "--period") options.period = (args[++i] || "latest").trim();
+    else if (arg === "--period")
+      options.period = (args[++i] || "latest").trim();
     else if (arg === "--tables") {
       options.tables = (args[++i] || "")
         .split(",")
@@ -113,14 +148,23 @@ function parseArgs() {
       if (Number.isFinite(parsed) && parsed > 0) {
         options.limit = Math.min(parsed, 20000);
       }
+    } else if (arg === "--target-timestamp") {
+      const parsed = Number.parseInt(args[++i] || "", 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        options.targetTimestamp = parsed;
+      }
     }
   }
 
   if (!options.bucket) {
-    throw new Error("Missing battle bucket name. Pass --bucket, set SEED_BATTLE_BUCKET/BATTLE_DATA_BUCKET_NAME, or configure BATTLE_DATA_BUCKET in wrangler.toml");
+    throw new Error(
+      "Missing battle bucket name. Pass --bucket, set SEED_BATTLE_BUCKET/BATTLE_DATA_BUCKET_NAME, or configure BATTLE_DATA_BUCKET in wrangler.toml",
+    );
   }
   if (!options.db) {
-    throw new Error("Missing D1 database name. Pass --db, set SEED_BATTLE_DB/BATTLE_INDEX_DB_NAME, or configure BATTLE_INDEX_DB in wrangler.toml");
+    throw new Error(
+      "Missing D1 database name. Pass --db, set SEED_BATTLE_DB/BATTLE_INDEX_DB_NAME, or configure BATTLE_INDEX_DB in wrangler.toml",
+    );
   }
 
   const invalid = options.tables.filter((t) => !SUPPORTED_TABLES.includes(t));
@@ -134,15 +178,14 @@ function parseArgs() {
 function d1Query(dbName, sql, remote = false) {
   const remoteFlag = remote ? "--remote" : "";
   const out = run(
-    `npx wrangler d1 execute ${dbName} ${remoteFlag} --command "${sql}" --json`,
+    `npx wrangler d1 execute ${dbName} ${remoteFlag} --command "${quoteForCommand(sql)}" --json`,
   );
   const parsed = JSON.parse(out);
   return parsed?.[0]?.results || [];
 }
 
 function ensureLocalSchema(dbName) {
-  runQuiet(
-    `npx wrangler d1 execute ${dbName} --command "
+  const schemaSql = `
 CREATE TABLE IF NOT EXISTS archived_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL UNIQUE,
@@ -170,11 +213,13 @@ CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
 CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start_byte);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
-"`,
+`;
+  runQuiet(
+    `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
   );
 }
 
-function getRemoteRows({ db, period, tables, limit }) {
+function getRemoteRows({ db, period, tables, limit, targetTimestamp }) {
   const tableListSql = tables.map((t) => `'${esc(t)}'`).join(",");
 
   let periodCondition = "";
@@ -183,6 +228,11 @@ function getRemoteRows({ db, period, tables, limit }) {
       "AND bi.period_tag = (SELECT MAX(b2.period_tag) FROM block_indexes b2 WHERE b2.table_name = bi.table_name)";
   } else if (period !== "all") {
     periodCondition = `AND bi.period_tag = '${esc(period)}'`;
+  }
+
+  let timestampCondition = "";
+  if (Number.isFinite(targetTimestamp) && targetTimestamp > 0) {
+    timestampCondition = `AND bi.start_timestamp <= ${targetTimestamp} AND bi.end_timestamp >= ${targetTimestamp}`;
   }
 
   const sql = `
@@ -205,6 +255,7 @@ FROM block_indexes bi
 JOIN archived_files af ON af.id = bi.file_id
 WHERE bi.table_name IN (${tableListSql})
 ${periodCondition}
+${timestampCondition}
 ORDER BY bi.start_timestamp DESC
 LIMIT ${limit};`;
 
@@ -221,24 +272,30 @@ function seedR2Files(bucket, rows) {
   mkdirSync(TMP_DIR, { recursive: true });
 
   let ok = 0;
+  let failed = 0;
   const uploadedPaths = new Set();
   for (const [filePath] of uniqueByPath) {
     const safeName = filePath.replace(/[^a-zA-Z0-9._-]/g, "_");
     const localFile = join(TMP_DIR, safeName);
     process.stdout.write(`  R2 ${filePath} ... `);
     try {
-      run(`npx wrangler r2 object get ${bucket}/${filePath} --file "${localFile}" --remote`);
-      run(`npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}"`);
+      runWithRetry(
+        `npx wrangler r2 object get ${bucket}/${filePath} --file "${localFile}" --remote`,
+      );
+      runWithRetry(
+        `npx wrangler r2 object put ${bucket}/${filePath} --file "${localFile}"`,
+      );
       ok++;
       uploadedPaths.add(filePath);
       console.log("OK");
     } catch (e) {
+      failed++;
       console.log(`ERROR (${e.message?.split("\n")?.[0] || "unknown"})`);
     }
   }
 
   if (existsSync(TMP_DIR)) rmSync(TMP_DIR, { recursive: true });
-  return { objectCount: ok, uploadedPaths };
+  return { objectCount: ok, failedCount: failed, uploadedPaths };
 }
 
 function seedLocalD1(db, rows, tables, period, uploadedPaths) {
@@ -246,7 +303,9 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
   const tableListSql = tables.map((t) => `'${esc(t)}'`).join(",");
 
   if (period === "all" || period === "latest") {
-    runQuiet(`npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql});"`);
+    runQuiet(
+      `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql});"`,
+    );
   } else {
     runQuiet(
       `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql}) AND period_tag='${esc(period)}';"`,
@@ -295,6 +354,9 @@ async function main() {
   console.log(`Period: ${opts.period}`);
   console.log(`Tables: ${opts.tables.join(", ")}`);
   console.log(`Limit: ${opts.limit}`);
+  if (opts.targetTimestamp) {
+    console.log(`Target timestamp: ${opts.targetTimestamp}`);
+  }
   console.log();
 
   console.log("[1/4] Fetching remote block metadata from D1...");
@@ -306,8 +368,14 @@ async function main() {
   console.log(`  Found ${rows.length} block row(s).`);
 
   console.log("[2/4] Seeding local R2 objects...");
-  const { objectCount, uploadedPaths } = seedR2Files(opts.bucket, rows);
+  const { objectCount, failedCount, uploadedPaths } = seedR2Files(
+    opts.bucket,
+    rows,
+  );
   console.log(`  Uploaded ${objectCount} R2 object(s) to local bucket.`);
+  if (failedCount > 0) {
+    console.log(`  Failed to upload ${failedCount} object(s).`);
+  }
 
   console.log("[3/4] Ensuring local D1 schema...");
   ensureLocalSchema(opts.db);
@@ -320,7 +388,9 @@ async function main() {
     opts.period,
     uploadedPaths,
   );
-  console.log(`  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`);
+  console.log(
+    `  Inserted ${fileCount} archived file row(s), ${blockCount} block index row(s).`,
+  );
 
   console.log();
   console.log("Done! Local battle data has been seeded to R2 + D1.");

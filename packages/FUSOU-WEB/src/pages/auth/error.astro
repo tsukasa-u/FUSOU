@@ -1,0 +1,67 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Navigation from "../../components/Navigation.astro";
+
+const reason = Astro.url.searchParams.get("reason") ?? "unknown";
+
+const messageMap: Record<string, string> = {
+  no_code:
+    "認証コードが見つかりませんでした。もう一度サインインを試みてください。",
+  exchange_failed:
+    "認証コードの検証に失敗しました。時間をおいて再度お試しください。",
+  server_misconfiguration:
+    "サーバーの設定に問題が発生しました。管理者にお問い合わせください。",
+  unknown:
+    "認証中に予期しないエラーが発生しました。もう一度サインインを試みてください。",
+};
+
+const message = messageMap[reason] ?? messageMap.unknown;
+---
+
+<Layout title="認証エラー - FUSOU">
+  <Navigation />
+  <div class="min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-md">
+      <div
+        class="bg-base-100 rounded-md p-8 flex flex-col items-center gap-6 shadow-md"
+      >
+        <div class="flex flex-col items-center gap-3">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-12 w-12 text-error"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            stroke-width="1.5"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+            ></path>
+          </svg>
+          <h1 class="text-2xl font-semibold text-center">認証に失敗しました</h1>
+        </div>
+
+        <p class="text-sm text-base-content/70 text-center leading-relaxed">
+          {message}
+        </p>
+
+        <div class="flex flex-col gap-3 w-full">
+          <a href="/auth/signin" class="btn btn-primary w-full">
+            サインインページへ戻る
+          </a>
+          <a href="/" class="btn btn-ghost w-full"> トップページへ </a>
+        </div>
+
+        <p class="text-xs text-base-content/50 text-center">
+          問題が続く場合は
+          <a href="/contact" class="underline hover:no-underline"
+            >お問い合わせページ</a
+          >
+          からご連絡ください。
+        </p>
+      </div>
+    </div>
+  </div>
+</Layout>

@@ -23,8 +23,11 @@ const expiresAtCookie = cookies.get("sb-local-expires-at");
 const envCtx = createEnvContext({ env: runtimeEnv });
 const allowedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim()!;
 
-// Get member_id_hash from query params (passed by desktop app during auth)
-const memberIdHash = Astro.url.searchParams.get("member_id_hash");
+// Get member_id_hash from the short-lived HttpOnly cookie set by /api/local_auth/callback.
+// It must NOT be read from URL query params to avoid exposure in logs / history.
+const memberIdHash = cookies.get("mih-hint")?.value ?? null;
+// Consume it immediately.
+cookies.delete("mih-hint", { path: "/auth/local/callback" });
 
 // Detect if request originated from Tauri app
 // Check for: app origin parameter, fusou:// referer, or fusou:// deep link indicator
@@ -85,10 +88,16 @@ if (refreshToken?.value && accessToken?.value) {
             !conflictCheckResponse.ok &&
             conflictCheckResponse.status === 409
           ) {
-            // Redirect to conflict resolution page with member_id_hash
-            return Astro.redirect(
-              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`,
-            );
+            // Pass member_id_hash via short-lived HttpOnly cookie to avoid
+            // exposing it in URL/query logs.
+            cookies.set("mih-conflict-hash", memberIdHash, {
+              path: "/account/conflict",
+              httpOnly: true,
+              secure: import.meta.env.PROD,
+              sameSite: "strict",
+              maxAge: 60 * 5,
+            });
+            return Astro.redirect("/account/conflict");
           }
 
           if (!conflictCheckResponse.ok) {
@@ -195,7 +204,42 @@ cookies.delete("sb-local-provider", { path: "/" });
 cookies.delete("sb-local-expires-at", { path: "/" });
 ---
 
-<Layout title="Account Setup - Link Game to Social Account">
+<Layout
+  title="Account Setup - Link Game to Social Account"
+  tutorial={{
+    id: "auth-local-callback",
+    openOnFirstVisit: false,
+    title: "連携完了ページの使い方",
+    summary: "認証結果を確認し、アプリまたはダッシュボードへ戻れます。",
+    controls: [
+      {
+        sourceSelector: "#dashboard-btn",
+        description: "Web側ダッシュボードへ進みます。",
+        tone: "primary",
+      },
+      {
+        sourceSelector: "#app-return-link",
+        description: "デスクトップアプリへ戻ります。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#retry-link",
+        description:
+          "認証に失敗した場合、サインインページへ戻ってやり直します。",
+        tone: "primary",
+      },
+      {
+        sourceSelector: "#continue-guest-btn",
+        description: "連携なしでゲストとして続行します。",
+        tone: "ghost",
+      },
+    ],
+    steps: [
+      "Web継続時は Continue to Dashboard、アプリ復帰は Return to App を使います。",
+      "失敗時はRetry Sign-in で認証をやり直すか、または Continue as Guest で一時的にローカル連携をスキップできます。",
+    ],
+  }}
+>
   <div class="min-h-screen flex items-center justify-center px-4 py-8">
     <div class="w-full max-w-2xl">
       <!-- Header -->
@@ -379,12 +423,14 @@ cookies.delete("sb-local-expires-at", { path: "/" });
 
           <div class="flex flex-col gap-3">
             <a
+              id="retry-link"
               href={`/auth/local/signin${appOriginParam ? `?app_origin=${encodeURIComponent(appOriginParam)}` : ""}`}
               class="btn btn-primary w-full border border-primary-content"
             >
               ← Retry Sign-in
             </a>
             <button
+              id="continue-guest-btn"
               onclick="window.location.href = '/'"
               class="btn btn-ghost w-full border border-base-300"
             >
@@ -512,7 +558,9 @@ cookies.delete("sb-local-expires-at", { path: "/" });
               "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
-            step3Circle.replaceChildren(createStepStatusIcon("M6 18L18 6M6 6l12 12"));
+            step3Circle.replaceChildren(
+              createStepStatusIcon("M6 18L18 6M6 6l12 12"),
+            );
           }
 
           // On error, do not auto-redirect to the app with any token URL.
@@ -536,7 +584,10 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
             if (hasAppRedirect) {
-              appReturnLink.setAttribute("href", "/api/local_auth/app-redirect");
+              appReturnLink.setAttribute(
+                "href",
+                "/api/local_auth/app-redirect",
+              );
             } else {
               appReturnLink.setAttribute("href", "fusou://auth?status=success");
             }

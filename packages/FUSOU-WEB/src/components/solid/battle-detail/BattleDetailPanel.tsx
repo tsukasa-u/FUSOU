@@ -1,51 +1,121 @@
 /** @jsxImportSource solid-js */
-import { createSignal, createMemo, onMount, Show } from "solid-js";
+import {
+  createSignal,
+  createMemo,
+  onMount,
+  onCleanup,
+  Show,
+  createEffect,
+} from "solid-js";
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/pages/battles/lib/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utility/fetchCache";
+import { buildShareBattleUrl, copyTextWithFallback } from "@/utility/share-url";
 import {
   FORMATION_NAMES,
   AIR_STATE,
   RANK_COLORS,
 } from "@/pages/battles/lib/constants";
-import { normalizeEpochMs, resolveBattleResult } from "@/pages/battles/lib/helpers";
+import {
+  normalizeEpochMs,
+  resolveBattleResult,
+} from "@/pages/battles/lib/helpers";
 import {
   fetchBattleResultByUuid,
   fetchBattleRecordsByUuid,
   fetchRecordsByField,
+  getMstShipById,
   getWeaponIconFrames,
   getMstSlotItemById,
   resolveMidnightHougeki,
   resolveOpeningTaisen,
   resolveHougeki,
   resolveOpeningAirAttack,
+  resolveOpeningRaigeki,
+  resolveClosingRaigeki,
   resolveFriendlyFleet,
   resolveEnemyFleet,
 } from "@/pages/battles/lib/data-service";
-import { ShipRows } from "./ui";
+import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
+import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
+import { ShareUrlButton } from "../common/ShareUrlButton";
+
+type DropShipInfo = {
+  shipId: number;
+  name: string;
+  bannerUrl: string;
+};
 
 // ── Main orchestrator component ───────────────────────────────────────────
 
 export default function BattleDetailPanel(props: {
   battleId: string;
 }): JSX.Element {
-  const [battle, setBattle] = createSignal<Record<string, unknown> | null>(null);
+  let disposed = false;
+  onCleanup(() => {
+    disposed = true;
+  });
+
+  const [battle, setBattle] = createSignal<Record<string, unknown> | null>(
+    null,
+  );
   const [fleets, setFleets] = createSignal<BattleFleets | null>(null);
-  const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<number, Record<string, unknown>> | null>(null);
+  const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<
+    number,
+    Record<string, unknown>
+  > | null>(null);
+  const [mstShipById, setMstShipById] = createSignal<Map<
+    number,
+    Record<string, unknown>
+  > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
   const [cellLabel, setCellLabel] = createSignal<string>("-");
+  const [dropShipInfo, setDropShipInfo] = createSignal<DropShipInfo | null>(
+    null,
+  );
+  function parseViewMode(raw: string | null): "phase" | "timeline" | null {
+    if (raw === "phase" || raw === "timeline") return raw;
+    return null;
+  }
+
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
+  const [showPhaseSeparators, setShowPhaseSeparators] = createSignal(false);
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
+  let displaySettingsModalRef!: HTMLDialogElement;
+
+  function buildCurrentShareUrl(): string {
+    return buildShareBattleUrl(window.location.origin, {
+      battleId: props.battleId,
+      view: viewMode(),
+      separators: viewMode() === "timeline" && showPhaseSeparators(),
+    });
+  }
+
+  async function issueShareUrl(): Promise<void> {
+    const shareUrl = buildCurrentShareUrl();
+    const copied = await copyTextWithFallback(shareUrl);
+    if (copied) {
+      alert("共有URLをクリップボードにコピーしました");
+      return;
+    }
+
+    window.prompt(
+      "自動コピーに失敗しました。以下を手動でコピーしてください:",
+      shareUrl,
+    );
+  }
 
   // Derived values
   const ts = createMemo(() => {
     const b = battle();
     if (!b) return "-";
-    const tsValue = normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
+    const tsValue =
+      normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
     return tsValue
       ? new Date(tsValue).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
       : "-";
@@ -73,14 +143,21 @@ export default function BattleDetailPanel(props: {
     return label;
   };
 
-  async function resolveBattleCellLabel(battleRecord: Record<string, unknown>): Promise<string> {
+  async function resolveBattleCellLabel(
+    battleRecord: Record<string, unknown>,
+  ): Promise<string> {
     const rawCellId = Number(battleRecord.cell_id ?? NaN);
     if (!Number.isFinite(rawCellId)) return "-";
     if (rawCellId === 0) return "港";
 
     const mapAreaId = Number(battleRecord.maparea_id ?? NaN);
     const mapInfoNo = Number(battleRecord.mapinfo_no ?? NaN);
-    if (!Number.isFinite(mapAreaId) || !Number.isFinite(mapInfoNo) || mapAreaId <= 0 || mapInfoNo <= 0) {
+    if (
+      !Number.isFinite(mapAreaId) ||
+      !Number.isFinite(mapInfoNo) ||
+      mapAreaId <= 0 ||
+      mapInfoNo <= 0
+    ) {
       return alphaCellLabel(rawCellId);
     }
 
@@ -93,7 +170,9 @@ export default function BattleDetailPanel(props: {
       if (!response.ok) return alphaCellLabel(rawCellId);
       const payload = (await response.json()) as Record<string, string>;
       const label = payload?.[String(rawCellId)];
-      return typeof label === "string" && label ? label : alphaCellLabel(rawCellId);
+      return typeof label === "string" && label
+        ? label
+        : alphaCellLabel(rawCellId);
     } catch {
       return alphaCellLabel(rawCellId);
     }
@@ -129,16 +208,22 @@ export default function BattleDetailPanel(props: {
   const rankCls = createMemo(() => RANK_COLORS[rank()] ?? "");
 
   const dropInfo = createMemo(() => {
-    const b = battle();
-    if (!b) return null;
-    const dropId = (b.battle_result as any)?.drop_ship_id;
-    return dropId ? `ドロップ: 艦#${dropId}` : null;
+    const drop = dropShipInfo();
+    if (!drop) return null;
+    return drop;
   });
 
-  const FleetLoadingFallback = () => (
+  const FleetFallback = (props: { emptyLabel: string }) => (
     <div class="flex items-center justify-center py-6 text-base-content/40">
-      <span class="loading loading-spinner loading-sm mr-2" />
-      <span class="text-sm">艦隊データ読込中…</span>
+      <Show
+        when={loading()}
+        fallback={<span class="text-sm">{props.emptyLabel}</span>}
+      >
+        <>
+          <span class="loading loading-spinner loading-sm mr-2" />
+          <span class="text-sm">艦隊データ読込中…</span>
+        </>
+      </Show>
     </div>
   );
 
@@ -172,8 +257,7 @@ export default function BattleDetailPanel(props: {
     const records = await fetchRecordsByField("cells", "battles", uuid, 50);
     const first = records.find(
       (cell) =>
-        Number(cell?.maparea_id ?? 0) > 0 &&
-        Number(cell?.mapinfo_no ?? 0) > 0,
+        Number(cell?.maparea_id ?? 0) > 0 && Number(cell?.mapinfo_no ?? 0) > 0,
     );
     if (!first) return null;
     return `${first.maparea_id}-${first.mapinfo_no}`;
@@ -187,7 +271,12 @@ export default function BattleDetailPanel(props: {
     if (battleData) {
       try {
         const parsed = JSON.parse(battleData);
-        if (parsed) {
+        // Only use the cached data if it matches the current battleId to avoid
+        // showing a stale preview from a previously visited battle.
+        const cachedUuid =
+          typeof parsed?.uuid === "string" ? parsed.uuid : null;
+        const cachedMatchesCurrent = cachedUuid === props.battleId;
+        if (parsed && cachedMatchesCurrent) {
           preloadedBattle = parsed;
           const preloaded = {
             ...parsed,
@@ -196,6 +285,7 @@ export default function BattleDetailPanel(props: {
               normalizeEpochMs(parsed.midnight_timestamp) ??
               null,
           };
+          if (disposed) return;
           setBattle(preloaded);
         }
       } catch (e) {
@@ -211,7 +301,10 @@ export default function BattleDetailPanel(props: {
       let matched: Record<string, unknown> | null = null;
 
       if (isLikelyUuid) {
-        const latestCandidates = await fetchBattleRecordsByUuid(idText, "latest");
+        const latestCandidates = await fetchBattleRecordsByUuid(
+          idText,
+          "latest",
+        );
         const allCandidates =
           latestCandidates.length > 0
             ? latestCandidates
@@ -229,21 +322,49 @@ export default function BattleDetailPanel(props: {
           };
           const records = payload.records ?? [];
           matched = records[fallbackIdx] ?? null;
+        } else {
+          // Local dev fallback for numeric detail IDs.
+          const localByIndex = await fetchRecordsByField(
+            "battle",
+            "index",
+            fallbackIdx,
+            1,
+          );
+          if (localByIndex.length > 0) {
+            matched = localByIndex[0];
+          }
         }
       }
 
-      if (matched) {
-        let resolvedBattleResult: { win_rank: string; drop_ship_id: unknown } | null = null;
-        if (typeof matched.battle_result === "string") {
-          resolvedBattleResult = await fetchBattleResultByUuid(matched.battle_result);
-        } else {
-          resolvedBattleResult = resolveBattleResult(matched.battle_result, new Map());
-        }
+      if (!matched && preloadedBattle) {
+        matched = preloadedBattle;
+      }
 
-        const resolvedMidnightHougeki = await resolveMidnightHougeki(matched.midnight_hougeki);
-        const resolvedOpeningTaisen = await resolveOpeningTaisen(matched.opening_taisen);
-        const resolvedHougeki = await resolveHougeki(matched.hougeki);
-        const resolvedOpeningAirAttack = await resolveOpeningAirAttack(matched.opening_air_attack);
+      if (matched) {
+        const resolvedBattleResultPromise =
+          typeof matched.battle_result === "string"
+            ? fetchBattleResultByUuid(matched.battle_result)
+            : Promise.resolve(
+                resolveBattleResult(matched.battle_result, new Map()),
+              );
+
+        const [
+          resolvedBattleResult,
+          resolvedMidnightHougeki,
+          resolvedOpeningTaisen,
+          resolvedHougeki,
+          resolvedOpeningAirAttack,
+          resolvedOpeningRaigeki,
+          resolvedClosingRaigeki,
+        ] = await Promise.all([
+          resolvedBattleResultPromise,
+          resolveMidnightHougeki(matched.midnight_hougeki),
+          resolveOpeningTaisen(matched.opening_taisen),
+          resolveHougeki(matched.hougeki),
+          resolveOpeningAirAttack(matched.opening_air_attack),
+          resolveOpeningRaigeki(matched.opening_raigeki),
+          resolveClosingRaigeki(matched.closing_raigeki),
+        ]);
 
         const merged = {
           ...matched,
@@ -256,6 +377,8 @@ export default function BattleDetailPanel(props: {
           opening_taisen: resolvedOpeningTaisen,
           hougeki: resolvedHougeki,
           opening_air_attack: resolvedOpeningAirAttack,
+          opening_raigeki: resolvedOpeningRaigeki,
+          closing_raigeki: resolvedClosingRaigeki,
         };
 
         const label = matched.uuid
@@ -269,26 +392,64 @@ export default function BattleDetailPanel(props: {
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
+        const resolvedMstShip = await getMstShipById();
         const resolvedCellLabel = await resolveBattleCellLabel(merged);
 
+        const dropShipId = Number(resolvedBattleResult?.drop_ship_id ?? 0) || 0;
+        const dropShip =
+          dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
+
+        if (disposed) return;
         setBattle(merged);
         setFleets(resolvedFleets);
         setMstSlotItemById(resolvedMst);
+        setMstShipById(resolvedMstShip);
         setMapLabel(label);
         setCellLabel(resolvedCellLabel);
+        setDropShipInfo(
+          dropShipId > 0
+            ? {
+                shipId: dropShipId,
+                name: String(dropShip?.name ?? `艦#${dropShipId}`),
+                bannerUrl: `/api/asset-sync/ship-banner/${dropShipId}`,
+              }
+            : null,
+        );
       } else if (!preloadedBattle) {
+        if (disposed) return;
         setError("指定された戦闘データが見つかりませんでした");
       }
     } catch (e) {
       console.error("Failed to load battle detail:", e);
+      if (disposed) return;
       setError("戦闘データ読込中にエラーが発生しました");
     } finally {
+      if (disposed) return;
       setLoading(false);
     }
   }
 
   onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialView = parseViewMode(params.get("view"));
+    if (initialView) {
+      setViewMode(initialView);
+    }
+    setShowPhaseSeparators(params.get("separators") === "1");
+    setUrlStateReady(true);
     void loadBattle();
+  });
+
+  createEffect(() => {
+    if (!urlStateReady()) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", viewMode());
+    if (viewMode() === "timeline" && showPhaseSeparators()) {
+      url.searchParams.set("separators", "1");
+    } else {
+      url.searchParams.delete("separators");
+    }
+    window.history.replaceState({}, "", url.toString());
   });
 
   // ── Render ────────────────────────────────────────────────────────
@@ -307,7 +468,11 @@ export default function BattleDetailPanel(props: {
         <div class="card bg-base-100 shadow-sm mb-6">
           <div class="card-body">
             <h2 class="card-title">戦闘詳細</h2>
-            <span class={error()!.includes("エラー") ? "text-error" : "text-warning"}>
+            <span
+              class={
+                error()!.includes("エラー") ? "text-error" : "text-warning"
+              }
+            >
               {error()}
             </span>
           </div>
@@ -322,10 +487,18 @@ export default function BattleDetailPanel(props: {
               <div class="card-body">
                 <h2 class="card-title">戦闘詳細</h2>
                 <div class="flex flex-wrap gap-6 text-sm">
-                  <span>日時: <strong>{ts()}</strong></span>
-                  <span>海域: <strong>{mapText()}</strong></span>
-                  <span>セル: <strong>{cellLabel()}</strong></span>
-                  <span>デッキ: <strong>{String(b().deck_id ?? "-")}</strong></span>
+                  <span>
+                    日時: <strong>{ts()}</strong>
+                  </span>
+                  <span>
+                    海域: <strong>{mapText()}</strong>
+                  </span>
+                  <span>
+                    セル: <strong>{cellLabel()}</strong>
+                  </span>
+                  <span>
+                    デッキ: <strong>{String(b().deck_id ?? "-")}</strong>
+                  </span>
                 </div>
               </div>
             </div>
@@ -349,16 +522,38 @@ export default function BattleDetailPanel(props: {
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">制空状態</h3>
-                  <p class={`text-lg font-bold ${airInfo().cls}`}>{airInfo().label}</p>
+                  <h3 class="font-bold text-sm text-base-content/60">
+                    制空状態
+                  </h3>
+                  <p class={`text-lg font-bold ${airInfo().cls}`}>
+                    {airInfo().label}
+                  </p>
                 </div>
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">戦闘結果</h3>
+                  <h3 class="font-bold text-sm text-base-content/60">
+                    戦闘結果
+                  </h3>
                   <p class={`text-2xl font-bold ${rankCls()}`}>{rank()}</p>
                   <Show when={dropInfo()}>
-                    <p class="text-sm">{dropInfo()}</p>
+                    {(drop) => (
+                      <div class="mt-2 flex items-center gap-2">
+                        <ShipBanner
+                          src={drop().bannerUrl}
+                          alt={drop().name}
+                          class="h-8 w-28"
+                        />
+                        <div class="min-w-0">
+                          <p class="text-[10px] text-base-content/55">
+                            ドロップ艦
+                          </p>
+                          <p class="truncate text-sm font-medium">
+                            {drop().name}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </Show>
                 </div>
               </div>
@@ -368,24 +563,33 @@ export default function BattleDetailPanel(props: {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">味方艦隊</h3>
+                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
+                    味方艦隊
+                  </h3>
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.friendlyShips?.length}
-                      fallback={<FleetLoadingFallback />}
+                      fallback={
+                        <FleetFallback emptyLabel="味方艦隊データなし" />
+                      }
                     >
-                      <ShipRows ships={fleets()!.friendlyShips} sideLabel="味方" />
+                      <ShipRows
+                        ships={fleets()!.friendlyShips}
+                        sideLabel="味方"
+                      />
                     </Show>
                   </div>
                 </div>
               </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60 mb-2">敵艦隊</h3>
+                  <h3 class="font-bold text-sm text-base-content/60 mb-2">
+                    敵艦隊
+                  </h3>
                   <div class="space-y-2">
                     <Show
                       when={fleets()?.enemyShips?.length}
-                      fallback={<FleetLoadingFallback />}
+                      fallback={<FleetFallback emptyLabel="敵艦隊データなし" />}
                     >
                       <ShipRows ships={fleets()!.enemyShips} sideLabel="敵" />
                     </Show>
@@ -397,20 +601,58 @@ export default function BattleDetailPanel(props: {
             {/* Battle Phases / Timeline */}
             <div class="card bg-base-100 shadow-sm">
               <div class="card-body">
-                <div class="flex items-center justify-between gap-4 mb-4">
+                <div class="flex items-center justify-between gap-4 mb-4 flex-wrap">
                   <h3 class="card-title text-lg">戦闘フェーズ</h3>
-                  <div class="join">
+                  <div class="flex items-center gap-2">
+                    <div class="join">
+                      <button
+                        id="battle-view-mode-phase"
+                        class={`join-item btn btn-sm ${viewMode() === "phase" ? "btn-active" : ""}`}
+                        onClick={() => setViewMode("phase")}
+                      >
+                        フェーズ
+                      </button>
+                      <button
+                        id="battle-view-mode-timeline"
+                        class={`join-item btn btn-sm ${viewMode() === "timeline" ? "btn-active" : ""}`}
+                        onClick={() => setViewMode("timeline")}
+                      >
+                        タイムライン
+                      </button>
+                    </div>
+                    <ShareUrlButton
+                      id="battle-detail-share-url-btn"
+                      onClick={() => {
+                        void issueShareUrl();
+                      }}
+                    />
                     <button
-                      class={`join-item btn btn-sm ${viewMode() === "phase" ? "btn-active" : ""}`}
-                      onClick={() => setViewMode("phase")}
+                      id="battle-detail-display-settings-btn"
+                      class="btn btn-sm btn-ghost gap-1.5"
+                      type="button"
+                      onClick={() => displaySettingsModalRef.showModal()}
                     >
-                      フェーズ
-                    </button>
-                    <button
-                      class={`join-item btn btn-sm ${viewMode() === "timeline" ? "btn-active" : ""}`}
-                      onClick={() => setViewMode("timeline")}
-                    >
-                      タイムライン
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        class="h-4 w-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M12 9a3 3 0 100 6 3 3 0 000-6z"
+                        />
+                      </svg>
+                      表示設定
                     </button>
                   </div>
                 </div>
@@ -430,6 +672,8 @@ export default function BattleDetailPanel(props: {
                     battle={b()}
                     fleets={fleets()}
                     mstSlotItemById={mstSlotItemById()}
+                    mstShipById={mstShipById()}
+                    showPhaseSeparators={showPhaseSeparators()}
                   />
                 </div>
               </div>
@@ -437,6 +681,15 @@ export default function BattleDetailPanel(props: {
           </>
         )}
       </Show>
+
+      {/* Display settings modal */}
+      <BattleDisplaySettingsModal
+        ref={(el) => {
+          displaySettingsModalRef = el;
+        }}
+        showPhaseSeparators={showPhaseSeparators}
+        setShowPhaseSeparators={setShowPhaseSeparators}
+      />
 
       {/* Loading state (only when no preloaded data yet) */}
       <Show when={loading() && !battle()}>

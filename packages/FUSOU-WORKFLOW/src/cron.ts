@@ -253,8 +253,9 @@ async function registerArchivedFile(
     return existing.id;
   }
 
-  // New file: INSERT
-  await db
+  // New file: INSERT — capture last_row_id from result meta to avoid a separate
+  // SELECT last_insert_rowid() that D1 might route to a read replica (returning 0).
+  const insertResult = await db
     .prepare(
       `
     INSERT INTO archived_files (file_path, table_version, file_size, compression_codec, created_at, last_modified_at)
@@ -264,10 +265,7 @@ async function registerArchivedFile(
     .bind(filePath, tableVersion, fileSize, codec, now, now)
     .run();
 
-  const row = await db
-    .prepare("SELECT last_insert_rowid() AS id")
-    .first<{ id: number }>();
-  return row?.id ?? 0;
+  return insertResult.meta.last_row_id;
 }
 
 async function insertBlockIndexes(

@@ -26,12 +26,21 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 let _ = handle.emit_to("main", "add-kcs-ships", data);
             }
             Add::Battle(data) => {
+                let cell_id = data.cell_id;
                 data.add_or();
-                let _ = handle.emit_to("main", "add-kcs-battle", data);
+                let merged_battle = Cells::load()
+                    .battles
+                    .get(&cell_id)
+                    .cloned()
+                    .unwrap_or(data);
+                let _ = handle.emit_to("main", "add-kcs-battle", merged_battle);
             }
             Add::Cell(data) => {
                 data.add_or();
                 let _ = handle.emit_to("main", "add-kcs-cell", data);
+            }
+            Add::QuestEvent(data) => {
+                crate::quest_tree_sender::enqueue(data);
             }
             Add::Dammy(_) => {
                 let _ = handle.emit_to("main", "add-kcs-dammy", ());
@@ -126,6 +135,23 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::MstEquipLimitExslots(data) => {
                 data.restore();
+            }
+            Set::Quests(data) => {
+                data.restore();
+                crate::quest_tree_sender::enqueue_snapshot(data.clone());
+                let _ = handle.emit_to("main", "set-kcs-quests", data);
+            }
+            Set::ShipGrowthSnapshot(data) => {
+                crate::ship_growth_sender::enqueue_snapshot(data);
+            }
+            Set::SokuSpeedObservedSnapshot(data) => {
+                crate::senders::soku_speed_sender::enqueue_snapshot(data);
+            }
+            Set::RemodelSlotList(data) => {
+                crate::remodel_sender::enqueue_slotlist(data);
+            }
+            Set::RemodelDetail(data) => {
+                crate::remodel_sender::enqueue_detail(data);
             }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());

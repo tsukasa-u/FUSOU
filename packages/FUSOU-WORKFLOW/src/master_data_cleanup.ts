@@ -27,6 +27,19 @@ interface MasterDataRecord {
   table_count: number;
 }
 
+/** Timing-safe string equality using XOR byte-by-byte comparison */
+function timingSafeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const aBytes = enc.encode(a);
+  const bBytes = enc.encode(b);
+  if (aBytes.length !== bBytes.length) return false;
+  let diff = 0;
+  for (let i = 0; i < aBytes.length; i++) {
+    diff |= aBytes[i] ^ bBytes[i];
+  }
+  return diff === 0;
+}
+
 /**
  * Cleanup orphaned master data uploads
  * Called via scheduled cron job
@@ -215,11 +228,11 @@ export async function handleCleanupRequest(req: Request, env: Env): Promise<Resp
     );
   }
 
-  // [P2 FIX] Use Bearer token format
-  const authHeader = req.headers.get("Authorization");
-  const expectedAuth = `Bearer ${cleanupToken}`;
+  // [P2 FIX] Use Bearer token format with constant-time comparison
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
 
-  if (authHeader !== expectedAuth) {
+  if (!timingSafeEqual(provided, cleanupToken)) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },

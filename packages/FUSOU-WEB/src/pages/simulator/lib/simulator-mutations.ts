@@ -16,6 +16,8 @@ import type {
   MstStypeData,
   ShipSelection,
   SlotItemEffectsData,
+  SlotItemEffectsMeta,
+  SokuSpeedData,
 } from "./types";
 import { emptyAirBase, emptyFleetSlot } from "./types";
 import type {
@@ -117,7 +119,7 @@ export function applyFleetEquipSelection(
     const equip = getMasterSlotItem(selection.id);
     if (!equip || shipId == null || getMasterShip(shipId) == null) return;
 
-    const filtered = filterForNormalSlot(shipId, [equip]);
+    const filtered = filterForNormalSlot(shipId, [equip], equipIdx);
     if (filtered && filtered.length === 0) return;
   }
 
@@ -426,6 +428,11 @@ export function setCardMap(cardMap: Record<string, string>): void {
   markSimulatorStateDirty();
 }
 
+export function setShipIconMap(shipIconMap: Record<string, string>): void {
+  state.shipIconMap = shipIconMap;
+  markSimulatorStateDirty();
+}
+
 export function setEquipCardMap(equipCardMap: Record<string, string>): void {
   state.equipCardMap = equipCardMap;
   markSimulatorStateDirty();
@@ -457,7 +464,43 @@ export function setSpriteSheetUrl(spriteSheetUrl: string): void {
   markSimulatorStateDirty();
 }
 
+export function resetShipTypeIconFrames(): void {
+  state.shipTypeIconFrames = {};
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeIconFrame(stype: number, frame: [number, number, number, number]): void {
+  state.shipTypeIconFrames[stype] = frame;
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeSpriteSheetMeta(width: number, height: number): void {
+  state.shipTypeSpriteSheetW = width;
+  state.shipTypeSpriteSheetH = height;
+  markSimulatorStateDirty();
+}
+
+export function setShipTypeSpriteSheetUrl(spriteSheetUrl: string): void {
+  state.shipTypeSpriteSheetUrl = spriteSheetUrl;
+  markSimulatorStateDirty();
+}
+
 export function setSlotItemEffects(slotItemEffects: SlotItemEffectsData | null): void {
   state.slotItemEffects = slotItemEffects;
   markSimulatorStateDirty();
 }
+
+export function setSlotItemEffectsMeta(
+  slotItemEffectsMeta: SlotItemEffectsMeta | null,
+): void {
+  state.slotItemEffectsMeta = slotItemEffectsMeta;
+  markSimulatorStateDirty();
+}
+
+export function setSokuSpeedData(data: SokuSpeedData | null): void {
+  state.sokuSpeedData = data;
+  markSimulatorStateDirty();
+}
+
+// Legacy compatibility mutation.
+export const setSokuLengSpeedData = setSokuSpeedData;

@@ -2,6 +2,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::dedup::DedupCache;
 use crate::models::airbase::AirBase;
 use crate::models::airbase::AirBaseId;
 use crate::models::deck::EnemyDeck;
@@ -14,7 +15,6 @@ use crate::models::deck::OwnDeck;
 use crate::models::deck::OwnDeckId;
 use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
-use crate::dedup::DedupCache;
 use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
 use kc_api_interface::air_base::AirBases;
@@ -39,8 +39,12 @@ pub type AirBaseAirAttackId = Uuid;
 pub type AirBaseAssultId = Uuid;
 pub type CarrierBaseAssaultId = Uuid;
 pub type SupportHouraiId = Uuid;
+#[cfg(feature = "schema_v0_5")]
+pub type NightSupportHouraiId = Uuid;
 pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
+#[cfg(feature = "schema_v0_5")]
+pub type NightSupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
 #[cfg(feature = "schema_v0_5")]
 pub type BattleResultId = Uuid;
@@ -258,18 +262,12 @@ impl MidnightHougekiList {
         let new_data = MidnightHougekiList {
             env_uuid,
             uuid,
-            f_flare_pos: data
-                .midnight_flare_pos
-                .clone()
-                .map(|pos| pos[0] as i32),
+            f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0] as i32),
             f_touch_plane: data
                 .midnight_touchplane
                 .clone()
                 .map(|plane| plane[0] as i32),
-            e_flare_pos: data
-                .midnight_flare_pos
-                .clone()
-                .map(|pos| pos[1] as i32),
+            e_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[1] as i32),
             e_touch_plane: data
                 .midnight_touchplane
                 .clone()
@@ -333,10 +331,7 @@ impl MidnightHougeki {
                         env_uuid,
                         uuid,
                         index: i as i32,
-                        at: data
-                            .at_list
-                            .clone()
-                            .map(|values| values[i] as i32),
+                        at: data.at_list.clone().map(|values| values[i] as i32),
                         df: data
                             .df_list
                             .clone()
@@ -349,10 +344,7 @@ impl MidnightHougeki {
                             .damage
                             .clone()
                             .map(|values| values[i].clone().into_i32()),
-                        at_eflag: data
-                            .at_eflag
-                            .clone()
-                            .map(|values| values[i] as i32),
+                        at_eflag: data.at_eflag.clone().map(|values| values[i] as i32),
                         si: data
                             .si_list
                             .clone()
@@ -512,26 +504,10 @@ impl ClosingRaigeki {
             uuid,
             f_dam: data.fdam.clone().into_i32(),
             e_dam: data.edam.clone().into_i32(),
-            f_rai: data
-                .frai
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
-            e_rai: data
-                .erai
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
-            f_cl: data
-                .fcl
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
-            e_cl: data
-                .ecl
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
+            f_rai: data.frai.into_iter().map(|value| value as i32).collect(),
+            e_rai: data.erai.into_iter().map(|value| value as i32).collect(),
+            f_cl: data.fcl.into_iter().map(|value| value as i32).collect(),
+            e_cl: data.ecl.into_iter().map(|value| value as i32).collect(),
             f_protect_flag: data.f_protect_flag,
             e_protect_flag: data.e_protect_flag,
             f_now_hps: data
@@ -768,7 +744,12 @@ impl OpeningAirAttack {
             f_rai_flag: data.f_damage.rai_flag.into_i32(),
             f_bak_flag: data.f_damage.bak_flag.into_i32(),
             f_protect_flag: data.f_damage.protect_flag,
-            f_now_hps: data.f_damage.now_hps.into_iter().map(|value| value as i32).collect(),
+            f_now_hps: data
+                .f_damage
+                .now_hps
+                .into_iter()
+                .map(|value| value as i32)
+                .collect(),
             e_plane_from: data.e_damage.plane_from.into_i32(),
             e_touch_plane: data.e_damage.touch_plane.into_i32(),
             e_loss_plane1: data.e_damage.loss_plane1 as i32,
@@ -778,12 +759,19 @@ impl OpeningAirAttack {
             e_rai_flag: data.e_damage.rai_flag.into_i32(),
             e_bak_flag: data.e_damage.bak_flag.into_i32(),
             e_protect_flag: data.e_damage.protect_flag,
-            e_now_hps: data.e_damage.now_hps.into_iter().map(|value| value as i32).collect(),
+            e_now_hps: data
+                .e_damage
+                .now_hps
+                .into_iter()
+                .map(|value| value as i32)
+                .collect(),
             airfire_idx: data.air_fire.clone().map(|fire| fire.idx as i32),
-            airfire_use_item: data
-                .air_fire
-                .clone()
-                .map(|fire| fire.use_item.into_iter().map(|value| value as i32).collect()),
+            airfire_use_item: data.air_fire.clone().map(|fire| {
+                fire.use_item
+                    .into_iter()
+                    .map(|value| value as i32)
+                    .collect()
+            }),
             air_superiority: data.air_superiority.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
@@ -938,12 +926,9 @@ impl AirBaseAirAttack {
         // ------------------------------------------------------------------------
         // Create AirBase record (deduplicate by base_id)
         let air_base_clone = air_base.clone();
-        let new_airbase_id = dedup.get_or_insert_with(
-            "airbase",
-            data.base_id,
-            ts,
-            |uuid| AirBase::new_ret_option(ts, uuid, air_base_clone, table, env_uuid),
-        );
+        let new_airbase_id = dedup.get_or_insert_with("airbase", data.base_id, ts, |uuid| {
+            AirBase::new_ret_option(ts, uuid, air_base_clone, table, env_uuid)
+        });
         // ------------------------------------------------------------------------
 
         let new_data = AirBaseAirAttack {
@@ -1275,8 +1260,7 @@ impl SupportHourai {
                     Some(ship) => ship.nowhp,
                     None => Some(0),
                 }
-                .unwrap_or(0)
-                as i32
+                .unwrap_or(0) as i32
             })
             .collect();
 
@@ -1293,21 +1277,93 @@ impl SupportHourai {
             f_damage: new_vec_0,
             f_protect_flag: new_vec_false,
             f_now_hps: new_f_now_hps,
-            e_cl: data
-                .cl_list
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
+            e_cl: data.cl_list.into_iter().map(|value| value as i32).collect(),
             e_damage: data.damage.iter().map(|x| (*x) as i32).collect(),
             e_protect_flag: data.protect_flag,
-            e_now_hps: data
-                .now_hps
-                .into_iter()
-                .map(|value| value as i32)
-                .collect(),
+            e_now_hps: data.now_hps.into_iter().map(|value| value as i32).collect(),
         };
 
         table.support_hourai.push(new_data);
+
+        Some(())
+    }
+}
+
+#[cfg(feature = "schema_v0_5")]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
+pub struct NightSupportHourai {
+    pub env_uuid: EnvInfoId,
+    pub uuid: NightSupportHouraiId,
+    pub f_cl: Vec<i32>,
+    pub f_damage: Vec<i32>,
+    pub f_protect_flag: Vec<bool>,
+    pub f_now_hps: Vec<i32>,
+    pub e_cl: Vec<i32>,
+    pub e_damage: Vec<i32>,
+    pub e_protect_flag: Vec<bool>,
+    pub e_now_hps: Vec<i32>,
+}
+
+#[cfg(feature = "schema_v0_5")]
+impl NightSupportHourai {
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: kc_api_interface::battle::SupportHourai,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let decks = DeckPorts::load();
+        let deck = decks.deck_ports.get(&data.deck_id)?;
+
+        match deck.ship.clone() {
+            Some(ship) if !ship.is_empty() => {}
+            _ => return None,
+        }
+
+        let ships = Ships::load();
+
+        let new_f_now_hps = deck
+            .ship
+            .clone()
+            .unwrap()
+            .iter()
+            .map(|ship_id| {
+                match ships.ships.get(ship_id) {
+                    Some(ship) => ship.nowhp,
+                    None => Some(0),
+                }
+                .unwrap_or(0) as i32
+            })
+            .collect();
+
+        let deck_len = deck.ship.clone().unwrap().len();
+        let new_vec_0 = vec![0i32; deck_len];
+        let new_vec_false = vec![false; deck_len];
+
+        let new_data = NightSupportHourai {
+            env_uuid,
+            uuid,
+            f_cl: new_vec_0.clone(),
+            f_damage: new_vec_0,
+            f_protect_flag: new_vec_false,
+            f_now_hps: new_f_now_hps,
+            e_cl: data.cl_list.into_iter().map(|value| value as i32).collect(),
+            e_damage: data.damage.iter().map(|x| (*x) as i32).collect(),
+            e_protect_flag: data.protect_flag,
+            e_now_hps: data.now_hps.into_iter().map(|value| value as i32).collect(),
+        };
+
+        table.night_support_hourai.push(new_data);
 
         Some(())
     }
@@ -1355,13 +1411,11 @@ pub struct SupportAirattack {
 }
 
 impl SupportAirattack {
-    pub fn new_ret_option(
-        _ts: uuid::Timestamp,
+    fn build_record(
         uuid: Uuid,
         data: kc_api_interface::battle::SupportAiratack,
-        table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<()> {
+    ) -> Option<SupportAirattack> {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
@@ -1386,7 +1440,7 @@ impl SupportAirattack {
         let f_damage = data.f_damage;
         let e_damage = data.e_damage;
 
-        let new_data = SupportAirattack {
+        Some(SupportAirattack {
             env_uuid,
             uuid,
             f_plane_from: f_damage.plane_from.into_i32(),
@@ -1415,9 +1469,43 @@ impl SupportAirattack {
             f_sprite_crash_count: data.f_sprite_crash_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_count: data.e_sprite_crash_count.map(|value| value as i32),
-        };
+        })
+    }
+
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: kc_api_interface::battle::SupportAiratack,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let new_data = Self::build_record(uuid, data, env_uuid)?;
         table.support_airattack.push(new_data);
 
+        Some(())
+    }
+
+    #[cfg(feature = "schema_v0_5")]
+    pub fn new_ret_option_night(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: kc_api_interface::battle::SupportAiratack,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let support_airatack = kc_api_interface::battle::SupportAiratack {
+            deck_id: data.deck_id,
+            ship_id: data.ship_id,
+            f_damage: data.f_damage,
+            e_damage: data.e_damage,
+            f_sprite_fly_count: data.f_sprite_fly_count,
+            e_sprite_fly_count: data.e_sprite_fly_count,
+            f_sprite_crash_count: data.f_sprite_crash_count,
+            e_sprite_crash_count: data.e_sprite_crash_count,
+        };
+        let _ = ts;
+        let new_data = Self::build_record(uuid, support_airatack, env_uuid)?;
+        table.night_support_airattack.push(new_data);
         Some(())
     }
 }
@@ -1451,24 +1539,13 @@ impl FriendlySupportHouraiList {
         let new_hourai_list = Uuid::new_v7(ts);
         let kc_api_interface::battle::FriendlySupportHourai { flare_pos, hougeki } = data;
 
-        let result = FriendlySupportHourai::new_ret_option(
-            ts,
-            new_hourai_list,
-            hougeki,
-            table,
-            env_uuid,
-        );
+        let result =
+            FriendlySupportHourai::new_ret_option(ts, new_hourai_list, hougeki, table, env_uuid);
         let new_hourai_list_wrap = result.map(|_| new_hourai_list);
 
         let flare_pos: Vec<i32> = flare_pos.into_i32();
-        let new_f_flare_pos = flare_pos
-            .get(0)
-            .copied()
-            .filter(|value| *value != -1);
-        let new_e_flare_pos = flare_pos
-            .get(1)
-            .copied()
-            .filter(|value| *value != -1);
+        let new_f_flare_pos = flare_pos.get(0).copied().filter(|value| *value != -1);
+        let new_e_flare_pos = flare_pos.get(1).copied().filter(|value| *value != -1);
 
         let new_data = FriendlySupportHouraiList {
             env_uuid,
@@ -1532,10 +1609,7 @@ impl FriendlySupportHourai {
                         env_uuid,
                         uuid,
                         index: i as i32,
-                        at: data
-                            .at_list
-                            .clone()
-                            .map(|values| values[i] as i32),
+                        at: data.at_list.clone().map(|values| values[i] as i32),
                         df: data
                             .df_list
                             .clone()
@@ -1548,10 +1622,7 @@ impl FriendlySupportHourai {
                             .damage
                             .clone()
                             .map(|values| values[i].clone().into_i32()),
-                        at_eflag: data
-                            .at_eflag
-                            .clone()
-                            .map(|values| values[i] as i32),
+                        at_eflag: data.at_eflag.clone().map(|values| values[i] as i32),
                         si: data
                             .si_list
                             .clone()
@@ -1660,6 +1731,10 @@ pub struct Battle {
     pub opening_air_attack: Option<OpeningAirAttackListId>,
     pub support_hourai: Option<SupportHouraiId>,
     pub support_airattack: Option<SupportAirattackId>,
+    #[cfg(feature = "schema_v0_5")]
+    pub night_support_hourai: Option<NightSupportHouraiId>,
+    #[cfg(feature = "schema_v0_5")]
+    pub night_support_airattack: Option<NightSupportAirattackId>,
     pub opening_taisen: Option<OpeningTaisenListId>,
     pub opening_raigeki: Option<OpeningRaigekiId>,
     pub hougeki: Option<HougekiListId>,
@@ -1718,27 +1793,35 @@ impl Battle {
                 })
                 .map(|_| uuid)
         };
-        let new_support_deck_id = data.clone()
-            .support_attack
-            .and_then(|attack| {
+        let new_support_deck_id = {
+            let support_deck_source = data.clone().support_attack.and_then(|attack| {
                 attack
                     .support_airatack
                     .map(|air| air.deck_id)
                     .or(attack.support_hourai.map(|hourai| hourai.deck_id))
-            })
-            .and_then(|deck_id| {
+            });
+            #[cfg(feature = "schema_v0_5")]
+            let support_deck_source = support_deck_source.or_else(|| {
+                data.clone().night_support_attack.and_then(|attack| {
+                    attack
+                        .airatack
+                        .map(|air| air.deck_id)
+                        .or(attack.hourai.map(|hourai| hourai.deck_id))
+                })
+            });
+
+            support_deck_source.and_then(|deck_id| {
                 dedup.get_or_insert_with("support_deck", deck_id, ts, |uuid| {
                     let cashe = true;
                     SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
                 })
-            });
+            })
+        };
         let new_air_base_assault = {
             let uuid = Uuid::new_v7(ts);
             data.clone()
                 .air_base_assault
-                .and_then(|assult| {
-                    AirBaseAssult::new_ret_option(ts, uuid, assult, table, env_uuid)
-                })
+                .and_then(|assult| AirBaseAssult::new_ret_option(ts, uuid, assult, table, env_uuid))
                 .map(|_| uuid)
         };
         let new_carrier_base_assault = {
@@ -1788,6 +1871,30 @@ impl Battle {
                 .and_then(|attack| {
                     attack.support_airatack.and_then(|airattack| {
                         SupportAirattack::new_ret_option(ts, uuid, airattack, table, env_uuid)
+                    })
+                })
+                .map(|_| uuid)
+        };
+        #[cfg(feature = "schema_v0_5")]
+        let new_night_support_hourai = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .night_support_attack
+                .and_then(|attack| {
+                    attack.hourai.and_then(|hourai| {
+                        NightSupportHourai::new_ret_option(ts, uuid, hourai, table, env_uuid)
+                    })
+                })
+                .map(|_| uuid)
+        };
+        #[cfg(feature = "schema_v0_5")]
+        let new_night_support_airattack = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .night_support_attack
+                .and_then(|attack| {
+                    attack.airatack.and_then(|airattack| {
+                        SupportAirattack::new_ret_option_night(ts, uuid, airattack, table, env_uuid)
                     })
                 })
                 .map(|_| uuid)
@@ -1862,22 +1969,10 @@ impl Battle {
             e_deck_id: new_e_deck_id,
             friend_deck_id: new_friend_deck_id,
             support_deck_id: new_support_deck_id,
-            f_formation: data
-                .clone()
-                .formation
-                .map(|formation| formation[0] as i32),
-            e_formation: data
-                .clone()
-                .formation
-                .map(|formation| formation[1] as i32),
-            f_total_damages: data
-                .clone()
-                .f_total_damages
-                .map(|values| values.into_i32()),
-            e_total_damages: data
-                .clone()
-                .e_total_damages
-                .map(|values| values.into_i32()),
+            f_formation: data.clone().formation.map(|formation| formation[0] as i32),
+            e_formation: data.clone().formation.map(|formation| formation[1] as i32),
+            f_total_damages: data.clone().f_total_damages.map(|values| values.into_i32()),
+            e_total_damages: data.clone().e_total_damages.map(|values| values.into_i32()),
             friend_total_damages: data
                 .clone()
                 .friend_total_damages
@@ -1890,31 +1985,22 @@ impl Battle {
                 .clone()
                 .midnight_e_total_damages
                 .map(|values| values.into_i32()),
-            f_reconnaissance: data
-                .clone()
-                .reconnaissance
-                .map(|recon| recon[0] as i32),
-            e_reconnaissance: data
-                .clone()
-                .reconnaissance
-                .map(|recon| recon[1] as i32),
-            f_escape_idx: data
-                .clone()
-                .escape_idx
-                .map(|values| values.into_i32()),
+            f_reconnaissance: data.clone().reconnaissance.map(|recon| recon[0] as i32),
+            e_reconnaissance: data.clone().reconnaissance.map(|recon| recon[1] as i32),
+            f_escape_idx: data.clone().escape_idx.map(|values| values.into_i32()),
             smoke_type: data.clone().smoke_type.map(|value| value as i32),
-            f_combat_ration: data
-                .clone()
-                .combat_ration
-                .map(|values| values.into_i32()),
+            f_combat_ration: data.clone().combat_ration.map(|values| values.into_i32()),
             balloon_flag: data.clone().balloon_flag.map(|value| value as i32),
             air_base_assault: new_air_base_assault,
             carrier_base_assault: new_carrier_base_assault,
             air_base_air_attacks: new_air_base_air_attacks,
             opening_air_attack: new_opening_air_attack,
-            // support_attack: new_support_attack,
             support_hourai: new_support_hourai,
             support_airattack: new_support_airattack,
+            #[cfg(feature = "schema_v0_5")]
+            night_support_hourai: new_night_support_hourai,
+            #[cfg(feature = "schema_v0_5")]
+            night_support_airattack: new_night_support_airattack,
             opening_taisen: new_opening_taisen,
             opening_raigeki: new_opening_raigeki,
             hougeki: new_hougeki,

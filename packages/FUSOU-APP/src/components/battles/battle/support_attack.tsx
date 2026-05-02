@@ -338,7 +338,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
 
     return (
       <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash ?? 0}/{e_crash ?? 0}
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash ?? "?"}/{e_crash ?? "?"}
       </div>
     );
   };

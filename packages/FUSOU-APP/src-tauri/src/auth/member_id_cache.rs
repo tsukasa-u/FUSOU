@@ -67,11 +67,16 @@ impl MemberIdCache {
         
         match serde_json::to_string_pretty(&cache) {
             Ok(json) => {
-                if let Err(e) = fs::write(&cache_path, json) {
+                if let Err(e) = fs::write(&cache_path, &json) {
                     tracing::error!("Failed to write member_id_hash cache: {}", e);
                     return Err(format!("Failed to write cache: {}", e));
                 }
-                tracing::info!("Saved member_id_hash to cache: {}...", &member_id_hash[..member_id_hash.len().min(10)]);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&cache_path, fs::Permissions::from_mode(0o600));
+                }
+                tracing::info!("Saved member_id_hash to cache");
                 Ok(())
             }
             Err(e) => {

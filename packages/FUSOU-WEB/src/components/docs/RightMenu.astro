@@ -8,40 +8,113 @@ export interface Props {
 }
 
 const { headings } = Astro.props;
+const tocHeadings = headings.filter((heading) => heading.depth >= 2);
 ---
 
 <div class="sticky top-20">
-  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
-    <h2 class="text-lg font-bold mb-2">On this page</h2>
-    <nav>
-      <ul class="space-y-1 text-sm text-gray-500 font-semibold">
-        {
-          headings.map((heading) => (
-            <li class={`heading-level-${heading.depth} hover:text-gray-900`}>
-              <a href={`#${heading.slug}`}>{heading.text}</a>
-            </li>
-          ))
-        }
-      </ul>
-    </nav>
+  <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2 bg-base-100 rounded-xl border border-base-300/70 p-3">
+    <div class="flex items-center justify-between mb-2">
+      <h2 class="text-lg font-bold text-base-content">On this page</h2>
+      <span class="text-xs text-base-content/60">{tocHeadings.length} sections</span>
+    </div>
+    <div class="text-xs mb-3 flex gap-2">
+      <a href="#" class="link link-hover">Top</a>
+      <span class="text-base-content/40">/</span>
+      <a href="/docs" class="link link-hover">Docs index</a>
+    </div>
+    {
+      tocHeadings.length > 0 ? (
+        <nav aria-label="On this page">
+          <ul
+            class="space-y-1 text-sm text-base-content/70 font-semibold"
+          >
+            {
+              tocHeadings.map((heading) => (
+                <li class={`heading-level-${heading.depth}`}>
+                  <a href={`#${heading.slug}`} class="toc-link" data-toc-link={heading.slug}>{heading.text}</a>
+                </li>
+              ))
+            }
+          </ul>
+        </nav>
+      ) : (
+        <p class="text-sm text-base-content/65">No section headings</p>
+      )
+    }
   </div>
 </div>
 
 <style>
-  .toc ul {
-    list-style-type: none;
-    padding-left: 0;
+  .toc-link {
+    display: block;
+    border-left: 2px solid transparent;
+    padding: 0.2rem 0.35rem 0.2rem 0.55rem;
+    border-radius: 0.35rem;
+    transition: background-color 0.15s ease, color 0.15s ease,
+      border-color 0.15s ease;
   }
 
-  .toc li {
-    margin-bottom: 0.5rem;
+  .toc-link:hover {
+    background: color-mix(in oklch, var(--color-base-content) 7%, transparent);
+    color: var(--color-base-content);
   }
 
-  /* 階層ごとのスタイル */
+  .toc-link.is-active {
+    border-left-color: var(--color-primary);
+    background: color-mix(in oklch, var(--color-primary) 13%, transparent);
+    color: var(--color-base-content);
+  }
+
   .heading-level-2 {
-    padding-left: 1rem;
+    padding-left: 0rem;
   }
+
   .heading-level-3 {
-    padding-left: 2rem;
+    padding-left: 0.8rem;
+  }
+
+  .heading-level-4,
+  .heading-level-5,
+  .heading-level-6 {
+    padding-left: 1.3rem;
   }
 </style>
+
+<script is:inline>
+  const links = Array.from(document.querySelectorAll("[data-toc-link]"));
+  if (links.length > 0) {
+    const bySlug = new Map();
+    links.forEach((link) => {
+      const slug = link.getAttribute("data-toc-link");
+      if (slug) bySlug.set(slug, link);
+    });
+
+    const setActive = (slug) => {
+      links.forEach((link) => link.classList.remove("is-active"));
+      const active = slug ? bySlug.get(slug) : null;
+      if (active) active.classList.add("is-active");
+    };
+
+    const sections = Array.from(bySlug.keys())
+      .map((slug) => document.getElementById(slug))
+      .filter(Boolean);
+
+    if (sections.length > 0 && "IntersectionObserver" in window) {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          const visible = entries
+            .filter((entry) => entry.isIntersecting)
+            .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+          if (visible.length > 0) {
+            setActive(visible[0].target.id);
+          }
+        },
+        { rootMargin: "-96px 0px -68% 0px", threshold: [0, 1] },
+      );
+      sections.forEach((el) => observer.observe(el));
+    }
+
+    const hash = window.location.hash.replace(/^#/, "");
+    if (hash) setActive(hash);
+  }
+</script>

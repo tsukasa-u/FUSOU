@@ -29,17 +29,29 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, "..");
 
 const ASSET_BUCKET = "dev-kc-assets";
-const ASSET_DB = "dev_kc_asset_index";
+const ASSET_DB = "dev-kc-asset-index";
 
 const DEFAULT_PROXY_DATA = resolve(PROJECT_ROOT, "..", "FUSOU-PROXY-DATA");
 const PROXY_DATA_DIR = process.env.PROXY_DATA_DIR || DEFAULT_PROXY_DATA;
 
 // Maps type name → { proxySubpath, r2Prefix }
 const ASSET_TYPES = {
-  banner:       { proxySubpath: "kcs2/resources/ship/banner",    r2Prefix: "assets/kcs2/resources/ship/banner" },
-  card:         { proxySubpath: "kcs2/resources/ship/card",      r2Prefix: "assets/kcs2/resources/ship/card" },
-  slot_card:    { proxySubpath: "kcs2/resources/slot/card",      r2Prefix: "assets/kcs2/resources/slot/card" },
-  slot_item_up: { proxySubpath: "kcs2/resources/slot/item_up",   r2Prefix: "assets/kcs2/resources/slot/item_up" },
+  banner: {
+    proxySubpath: "kcs2/resources/ship/banner",
+    r2Prefix: "assets/kcs2/resources/ship/banner",
+  },
+  card: {
+    proxySubpath: "kcs2/resources/ship/card",
+    r2Prefix: "assets/kcs2/resources/ship/card",
+  },
+  slot_card: {
+    proxySubpath: "kcs2/resources/slot/card",
+    r2Prefix: "assets/kcs2/resources/slot/card",
+  },
+  slot_item_up: {
+    proxySubpath: "kcs2/resources/slot/item_up",
+    r2Prefix: "assets/kcs2/resources/slot/item_up",
+  },
 };
 
 /**
@@ -49,18 +61,22 @@ const ASSET_TYPES = {
 const SINGLE_FILE_ASSETS = {
   weapon_icon_png: {
     srcPath: "kcs2/img/common/common_icon_weapon.png",
-    r2Key:   "assets/kcs2/img/common/common_icon_weapon.png",
+    r2Key: "assets/kcs2/img/common/common_icon_weapon.png",
     contentType: "image/png",
   },
   weapon_icon_json: {
     srcPath: "kcs2/img/common/common_icon_weapon.json",
-    r2Key:   "assets/kcs2/img/common/common_icon_weapon.json",
+    r2Key: "assets/kcs2/img/common/common_icon_weapon.json",
     contentType: "application/json",
   },
 };
 
 function run(cmd) {
-  return execSync(cmd, { encoding: "utf8", cwd: PROJECT_ROOT, stdio: ["pipe", "pipe", "pipe"] });
+  return execSync(cmd, {
+    encoding: "utf8",
+    cwd: PROJECT_ROOT,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 }
 
 function runQuiet(cmd) {
@@ -103,7 +119,9 @@ async function seedSingleFile(type, config) {
   }
   process.stdout.write(`  ${srcPath}...`);
   try {
-    run(`npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "${contentType}"`);
+    run(
+      `npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "${contentType}"`,
+    );
     console.log(" OK");
     return 1;
   } catch (e) {
@@ -112,7 +130,8 @@ async function seedSingleFile(type, config) {
   }
 }
 
-async function seedAssetType(type, config, limit) {  const { proxySubpath, r2Prefix } = config;
+async function seedAssetType(type, config, limit) {
+  const { proxySubpath, r2Prefix } = config;
   console.log(`\n--- Seeding ${type} images ---`);
 
   // Collect from PROXY-DATA
@@ -124,9 +143,13 @@ async function seedAssetType(type, config, limit) {  const { proxySubpath, r2Pre
   }
 
   // Apply limit
-  const entries = [...fileMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const entries = [...fileMap.entries()].sort((a, b) =>
+    a[0].localeCompare(b[0]),
+  );
   const limited = limit ? entries.slice(0, limit) : entries;
-  console.log(`  Found ${fileMap.size} unique files, seeding ${limited.length}.`);
+  console.log(
+    `  Found ${fileMap.size} unique files, seeding ${limited.length}.`,
+  );
 
   // Upload to local R2 + insert D1 records
   console.log(`  [2/2] Seeding local R2 & D1...`);
@@ -135,12 +158,14 @@ async function seedAssetType(type, config, limit) {  const { proxySubpath, r2Pre
     const r2Key = `${r2Prefix}/${filename}`;
     process.stdout.write(`    ${filename}...`);
     try {
-      run(`npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "image/png"`);
+      run(
+        `npx wrangler r2 object put ${ASSET_BUCKET}/${r2Key} --file "${filePath}" --content-type "image/png"`,
+      );
 
       const escapedKey = r2Key.replace(/'/g, "''");
       const now = Math.floor(Date.now() / 1000);
       runQuiet(
-        `npx wrangler d1 execute ${ASSET_DB} --command "INSERT OR IGNORE INTO files (key, size, content_type, uploaded_at, uploader_id) VALUES ('${escapedKey}', 0, 'image/png', ${now}, 'local-seed');"`
+        `npx wrangler d1 execute ${ASSET_DB} --command "INSERT OR IGNORE INTO files (key, size, content_type, uploaded_at, uploader_id) VALUES ('${escapedKey}', 0, 'image/png', ${now}, 'local-seed');"`,
       );
 
       seeded++;
@@ -155,13 +180,16 @@ async function seedAssetType(type, config, limit) {  const { proxySubpath, r2Pre
 
 async function main() {
   const limitIdx = process.argv.indexOf("--limit");
-  const limit = limitIdx >= 0 ? parseInt(process.argv[limitIdx + 1], 10) || null : null;
+  const limit =
+    limitIdx >= 0 ? parseInt(process.argv[limitIdx + 1], 10) || null : null;
   const typeIdx = process.argv.indexOf("--type");
   const typeFilter = typeIdx >= 0 ? process.argv[typeIdx + 1] : null;
 
   const allTypes = { ...ASSET_TYPES, ...SINGLE_FILE_ASSETS };
   if (typeFilter && !allTypes[typeFilter]) {
-    console.error(`Unknown type: ${typeFilter}. Available: ${Object.keys(allTypes).join(", ")}`);
+    console.error(
+      `Unknown type: ${typeFilter}. Available: ${Object.keys(allTypes).join(", ")}`,
+    );
     process.exit(1);
   }
 
@@ -171,14 +199,16 @@ async function main() {
 
   if (!existsSync(PROXY_DATA_DIR)) {
     console.error(`\nERROR: PROXY-DATA directory not found: ${PROXY_DATA_DIR}`);
-    console.error("Set PROXY_DATA_DIR env var or ensure FUSOU-PROXY-DATA exists.");
+    console.error(
+      "Set PROXY_DATA_DIR env var or ensure FUSOU-PROXY-DATA exists.",
+    );
     process.exit(1);
   }
 
   // Ensure local D1 schema
   console.log("\nEnsuring local D1 files table...");
   runQuiet(
-    `npx wrangler d1 execute ${ASSET_DB} --command "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, size INTEGER NOT NULL, content_type TEXT DEFAULT 'application/octet-stream', content_hash TEXT, uploaded_at INTEGER NOT NULL, uploader_id TEXT NOT NULL, finder_tag TEXT DEFAULT NULL, metadata TEXT DEFAULT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);"`
+    `npx wrangler d1 execute ${ASSET_DB} --command "CREATE TABLE IF NOT EXISTS files (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL UNIQUE, size INTEGER NOT NULL, content_type TEXT DEFAULT 'application/octet-stream', content_hash TEXT, uploaded_at INTEGER NOT NULL, uploader_id TEXT NOT NULL, finder_tag TEXT DEFAULT NULL, metadata TEXT DEFAULT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP);"`,
   );
   console.log("  Schema ready.");
 
@@ -186,7 +216,9 @@ async function main() {
 
   // Batch (multi-file) asset types
   const batchTypes = typeFilter
-    ? (ASSET_TYPES[typeFilter] ? { [typeFilter]: ASSET_TYPES[typeFilter] } : {})
+    ? ASSET_TYPES[typeFilter]
+      ? { [typeFilter]: ASSET_TYPES[typeFilter] }
+      : {}
     : ASSET_TYPES;
   for (const [type, config] of Object.entries(batchTypes)) {
     totalSeeded += await seedAssetType(type, config, limit);
@@ -194,7 +226,9 @@ async function main() {
 
   // Single-file asset types
   const singleTypes = typeFilter
-    ? (SINGLE_FILE_ASSETS[typeFilter] ? { [typeFilter]: SINGLE_FILE_ASSETS[typeFilter] } : {})
+    ? SINGLE_FILE_ASSETS[typeFilter]
+      ? { [typeFilter]: SINGLE_FILE_ASSETS[typeFilter] }
+      : {}
     : SINGLE_FILE_ASSETS;
   for (const [type, config] of Object.entries(singleTypes)) {
     totalSeeded += await seedSingleFile(type, config);

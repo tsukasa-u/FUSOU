@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 /**
  * Member ID Sync ボタンコンポーネント
- * 
+ *
  * Tauri アプリとリアルタイムで member_id_hash を同期
  * - ページ遷移なし
  * - Realtime 通知で即座に更新
@@ -9,7 +9,11 @@
  */
 
 import { createSignal, onCleanup, onMount } from "solid-js";
-import { syncMemberIdHashWithApp, cleanupAllRealtimeSessions } from "../../utils/realtime-sync";
+import {
+  syncMemberIdHashWithApp,
+  cleanupAllRealtimeSessions,
+} from "../../utils/realtime-sync";
+import { AlertMessage } from "./common/AlertMessage";
 
 interface MemberIdSyncButtonProps {
   onSuccess?: (memberIdHash: string) => void;
@@ -112,24 +116,23 @@ export function MemberIdSyncButton(props: MemberIdSyncButtonProps) {
             同期中...
           </>
         ) : (
-          <>
-            🔄 ゲームと同期
-          </>
+          <>🔄 ゲームと同期</>
         )}
       </button>
 
       {syncStatus().type && (
-        <div
-          class={`alert alert-${syncStatus().type === "success" ? "success" : "error"} mt-2`}
+        <AlertMessage
+          type={syncStatus().type === "success" ? "success" : "error"}
+          class="mt-2"
         >
-          <span>{syncStatus().message}</span>
-        </div>
+          {syncStatus().message}
+        </AlertMessage>
       )}
 
       {memberIdHash() && (
-        <div class="alert alert-info mt-2">
-          <span>Member ID: {memberIdHash()}</span>
-        </div>
+        <AlertMessage type="info" class="mt-2">
+          Member ID: {memberIdHash()}
+        </AlertMessage>
       )}
     </div>
   );

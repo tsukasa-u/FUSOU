@@ -10,7 +10,7 @@ use kc_api_interface::battle::{BattleResult, BattleType};
 use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
     FriendlyForceAttack, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
-    SupportAttack,
+    SupportAttack, NightSupportAttack,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 
@@ -67,6 +67,7 @@ impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for Interf
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -114,7 +115,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -159,6 +160,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -203,18 +205,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAssult(()),
-            BattleType::CarrierBaseAssault(()),
-            BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(0),
-            BattleType::SupportAttack(()),
-            BattleType::OpeningTaisen(()),
-            BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(0),
-            BattleType::ClosingRaigeki(()),
-            BattleType::Hougeki(1),
-            BattleType::Hougeki(2),
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
@@ -250,6 +241,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -301,7 +293,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -347,6 +339,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -398,7 +391,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -444,6 +437,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -497,7 +491,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -543,6 +537,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -594,7 +589,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -640,6 +635,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -683,7 +679,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAirAttack(()),
             BattleType::OpeningAirAttack(0),
         ];
@@ -720,6 +716,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -753,7 +750,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
@@ -790,6 +787,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -815,16 +813,21 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
     fn from(battle: kcapi_main::api_req_combined_battle::sp_midnight::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
+        let has_night_support = battle.api_n_support_flag > 0;
+        let night_support_attack: Option<NightSupportAttack> = battle.api_n_support_info.map(unwrap_into);
 
         let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let mut battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
+        if has_night_support || night_support_attack.is_some() {
+            battle_order.insert(1, BattleType::NightSupportAttack(()));
+        }
 
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
@@ -858,6 +861,7 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,

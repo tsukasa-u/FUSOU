@@ -10,11 +10,7 @@ import {
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
-export const POST: APIRoute = async ({
-  request,
-  cookies,
-  redirect,
-}) => {
+export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
   const currentUrl = new URL(request.url);
   const appOriginParam = currentUrl.searchParams.get("app_origin");
@@ -68,7 +64,10 @@ export const POST: APIRoute = async ({
           },
           env: {
             PUBLIC_SITE_URL: siteUrl,
-            PUBLIC_SITE_ALLOWED_HOSTS: getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"),
+            PUBLIC_SITE_ALLOWED_HOSTS: getEnv(
+              envCtx,
+              "PUBLIC_SITE_ALLOWED_HOSTS",
+            ),
           },
         },
         null,
@@ -83,7 +82,8 @@ export const POST: APIRoute = async ({
 
   const provider = formData.get("provider")?.toString();
   // Get app_origin from form data (passed from signin page)
-  const appOriginFormParam = formData.get("app_origin")?.toString() || appOriginParam;
+  const appOriginFormParam =
+    formData.get("app_origin")?.toString() || appOriginParam;
   const memberIdHash = formData.get("member_id_hash")?.toString();
 
   const validProviders = ["google"];
@@ -98,14 +98,25 @@ export const POST: APIRoute = async ({
 
   const supabase = createSupabaseServerClient(cookies);
 
+  // Store member_id_hash in a short-lived HttpOnly cookie instead of passing it
+  // in the OAuth redirect URL (which would be visible to Google and in browser history).
+  if (memberIdHash && /^[0-9a-fA-F]{64}$/.test(memberIdHash)) {
+    cookies.set("mih-hint", memberIdHash, {
+      ...TEMPORARY_COOKIE_OPTIONS,
+      // sameSite=lax is required: Google redirects back cross-site, so strict would
+      // drop the cookie before /api/local_auth/callback can read it.
+      sameSite: "lax",
+      path: "/",
+    });
+  }
+
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
   }
-  if (memberIdHash) {
-    callbackUrl.searchParams.set("member_id_hash", memberIdHash);
-  }
+  // member_id_hash is intentionally NOT added to the callback URL.
+  // It is passed via the mih-hint HttpOnly cookie set above.
 
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {

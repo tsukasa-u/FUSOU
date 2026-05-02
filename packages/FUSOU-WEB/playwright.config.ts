@@ -50,7 +50,7 @@ const reuseExistingServer = parseBoolean(
 );
 const webServerCommand =
   process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ??
-  `pnpm astro dev --host ${baseUrl.hostname} --port ${baseUrl.port} --strictPort`;
+  `pnpm run dev -- --host ${baseUrl.hostname} --port ${baseUrl.port} --strict-port`;
 const webServerReadyUrl = new URL(readinessPath, baseUrl.origin).toString();
 
 export default defineConfig({

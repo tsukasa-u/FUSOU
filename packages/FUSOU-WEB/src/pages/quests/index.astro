@@ -1,0 +1,42 @@
+---
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import QuestTreePanel from "@/components/solid/QuestTreePanel";
+import PageShell from "@/components/ui/PageShell.astro";
+import PageHeader from "@/components/ui/PageHeader.astro";
+
+export const prerender = false;
+---
+
+<PageLayout
+  title="FUSOU - クエストツリー"
+  tutorial={{
+    id: "quests-tree",
+    title: "クエストツリーページの使い方",
+    summary: "クエストの依存関係をグラフで追跡できます。",
+    controls: [
+      {
+        sourceSelector: "#tutorial-open-btn",
+        description:
+          "この説明モーダルを再表示します。操作方法を確認したいときに利用してください。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      // "コインのような円形ノードが各クエストを表します。ノードをクリックすると前提クエストと後続クエストがハイライトされます。",
+      // "給をたどることで辺る完了までの順序を視覚的に確認できます。",
+      // "辺リをクリックすると、その交戦や条件の詳細が表示されます。",
+      // "お気に入りのクエストを中心に放めて完了に必要な撪筆を一目で把握しましょう。",
+    ],
+  }}
+>
+  <Navigation filled={true} />
+  <PageShell>
+    <PageHeader
+      title="クエスト依存ツリー"
+      subtitle="収集データからマイニングされたクエスト達成条件ルールの可視化"
+    />
+
+    <QuestTreePanel client:only="solid-js" />
+  </PageShell>
+</PageLayout>

@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
+import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import {
-  CORS_HEADERS,
-  MAX_UPLOAD_BYTES,
-  SIGNED_URL_TTL_SECONDS,
-} from "../constants";
-import { createEnvContext, getEnv, validateJWT, extractBearer } from "../utils";
+  createEnvContext,
+  getEnv,
+  validateJWT,
+  extractBearer,
+  timingSafeEqual,
+} from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
-import { ERROR_CODES, createErrorResponse } from "../error-codes";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -31,6 +32,21 @@ const ALLOWED_MASTER_TABLES = new Set([
   "mst_ship_upgrade",
 ]);
 
+// Strict table version format for object-key safety and predictability.
+// Examples: 0.4, 0.5, 1.0.0
+const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
+
+function isValidMasterTableVersion(value: string): boolean {
+  return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
+function parsePositiveRecordId(value: string | undefined): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
 // OPTIONS (CORS)
 app.options(
   "*",
@@ -50,18 +66,18 @@ app.options(
  *
  * Key constraints:
  * - Master data is shared across all users (global)
- * - Each period_tag can only be uploaded once (all tables together)
+ * - Same period_tag/table_version may have multiple revisions when content differs
  * - Once uploaded, content is immutable
  *
  * Race condition handling (D1-first pattern):
- * 1. Preparation: INSERT ... ON CONFLICT DO NOTHING to claim ownership for entire period
- *    - If returns id: this user is first, proceed with R2 upload
- *    - If returns NULL: another user already has this period, return 409
+ * 1. Preparation: dedupe by content_hash for (period_tag, table_version)
+ *    - If same hash already pending/completed: return 409 (duplicate upload)
+ *    - If hash differs: allocate next period_revision and create a pending row
  * 2. Execution: Split data by table_offsets, upload all to R2, then UPDATE D1 status to 'completed'
  *
  * Upload flow:
  * 1. Client concatenates all tables and sends metadata + table_offsets in preparation phase
- * 2. Server attempts to claim ownership in D1 with UNIQUE(period_tag, table_version) constraint
+ * 2. Server compares hash and claims a revision row in D1
  * 3. If successful, client uploads concatenated binary data
  * 4. Server splits by table_offsets, uploads each to R2, marks D1 as 'completed'
  * 5. Cleanup job handles orphaned 'pending' records after timeout
@@ -95,6 +111,7 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    requireDatasetToken: true,
     tokenTTL: 300, // 5 minutes is enough for ~240kB (no dynamic TTL needed)
     maxBodySize: MAX_UPLOAD_BYTES,
 
@@ -152,6 +169,30 @@ app.post("/upload", async (c) => {
 
       if (!tableVersion) {
         return c.json({ error: "table_version is required" }, 400);
+      }
+      if (
+        tableVersion.length > 32 ||
+        !isValidMasterTableVersion(tableVersion)
+      ) {
+        return c.json(
+          {
+            error:
+              "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+          },
+          400,
+        );
+      }
+      if (
+        tableVersion.startsWith(".") ||
+        tableVersion.startsWith("/") ||
+        tableVersion.includes("..")
+      ) {
+        return c.json(
+          {
+            error: "table_version cannot start with . or / or contain ..",
+          },
+          400,
+        );
       }
 
       // Validate content_hash
@@ -319,44 +360,129 @@ app.post("/upload", async (c) => {
         }
       }
 
-      // Attempt to claim ownership for this period via INSERT ... ON CONFLICT DO NOTHING
-      // UNIQUE(period_tag, table_version) ensures only one upload per period+version
+      // Dedupe and claim a revision row for this period/version.
+      // IMPORTANT: Only suppress on 'completed'. A 'pending' record may be from a previous
+      // failed upload (Stage 2 never ran). Suppressing on 'pending' would permanently block
+      // re-uploads for the same content. 'failed' records are also not suppressed (allow retry).
       try {
-        const stmt = db.prepare(`
-          INSERT INTO master_data_index 
-            (period_tag, table_version, content_hash, upload_status, uploaded_by, created_at)
-          VALUES (?, ?, ?, 'pending', ?, ?)
-          ON CONFLICT(period_tag, table_version) DO NOTHING
-          RETURNING id
+        const sameHashStmt = db.prepare(`
+          SELECT id, period_revision, upload_status
+          FROM master_data_index
+          WHERE period_tag = ? AND table_version = ? AND content_hash = ?
+          ORDER BY period_revision DESC
+          LIMIT 1
         `);
+        const sameHashRecord = (await sameHashStmt
+          .bind(periodTag, tableVersion, contentHash)
+          .first()) as {
+          id?: number;
+          period_revision?: number;
+          upload_status?: string;
+        } | null;
 
-        const now = Date.now();
-        const result = (await stmt
-          .bind(periodTag, tableVersion, contentHash, user.id, now)
-          .first()) as { id?: number } | null;
-
-        if (!result?.id) {
-          // Another user already claimed this period
-          console.info(`[master-data] Duplicate period detected: ${periodTag}`);
+        if (sameHashRecord && sameHashRecord.upload_status === "completed") {
+          console.info(
+            `[master-data] Duplicate content detected (completed): period=${periodTag}, version=${tableVersion}, revision=${sameHashRecord.period_revision}`,
+          );
           return c.json(
             {
-              error: "Master data for this period has already been uploaded",
+              error:
+                "Master data with the same content has already been uploaded",
               period_tag: periodTag,
+              table_version: tableVersion,
+              period_revision: sameHashRecord.period_revision ?? null,
+              existing_id: sameHashRecord.id ?? null,
             },
             409,
           );
         }
 
+        let claimedId: number | null = null;
+        let claimedRevision: number | null = null;
+
+        for (let attempt = 0; attempt < 4; attempt++) {
+          const nextRevisionStmt = db.prepare(`
+            SELECT COALESCE(MAX(period_revision), 0) + 1 AS next_revision
+            FROM master_data_index
+            WHERE period_tag = ? AND table_version = ?
+          `);
+          const nextRevisionRow = (await nextRevisionStmt
+            .bind(periodTag, tableVersion)
+            .first()) as { next_revision?: number } | null;
+          const nextRevision = Number(nextRevisionRow?.next_revision ?? 1);
+
+          const insertStmt = db.prepare(`
+            INSERT INTO master_data_index
+              (period_tag, table_version, period_revision, content_hash, upload_status, uploaded_by, created_at)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?)
+            ON CONFLICT(period_tag, table_version, period_revision) DO NOTHING
+            RETURNING id, period_revision
+          `);
+
+          const now = Date.now();
+          const inserted = (await insertStmt
+            .bind(
+              periodTag,
+              tableVersion,
+              nextRevision,
+              contentHash,
+              user.id,
+              now,
+            )
+            .first()) as { id?: number; period_revision?: number } | null;
+
+          if (inserted?.id) {
+            claimedId = Number(inserted.id);
+            claimedRevision = Number(inserted.period_revision ?? nextRevision);
+            break;
+          }
+        }
+
+        if (!claimedId || !claimedRevision) {
+          const conflictSameHash = (await sameHashStmt
+            .bind(periodTag, tableVersion, contentHash)
+            .first()) as {
+            id?: number;
+            period_revision?: number;
+            upload_status?: string;
+          } | null;
+          if (
+            conflictSameHash &&
+            conflictSameHash.upload_status === "completed"
+          ) {
+            return c.json(
+              {
+                error:
+                  "Master data with the same content has already been uploaded",
+                period_tag: periodTag,
+                table_version: tableVersion,
+                period_revision: conflictSameHash.period_revision ?? null,
+                existing_id: conflictSameHash.id ?? null,
+              },
+              409,
+            );
+          }
+
+          return c.json(
+            {
+              error:
+                "Failed to allocate master-data revision due to concurrent uploads. Please retry.",
+            },
+            503,
+          );
+        }
+
         // We successfully claimed ownership
         console.info(
-          `[master-data] Claimed ownership: id=${result.id}, period=${periodTag}, tables=${tableOffsets.length}`,
+          `[master-data] Claimed ownership: id=${claimedId}, period=${periodTag}, version=${tableVersion}, revision=${claimedRevision}, tables=${tableOffsets.length}`,
         );
 
         return {
           tokenPayload: {
-            record_id: result.id,
+            record_id: claimedId,
             period_tag: periodTag,
             table_version: tableVersion,
+            period_revision: claimedRevision,
             content_hash: contentHash,
             declared_size: declaredSize,
             table_offsets: tableOffsetsStr,
@@ -374,7 +500,6 @@ app.post("/upload", async (c) => {
         return c.json(
           {
             error: "Failed to process upload request",
-            details: err instanceof Error ? err.message : String(err),
           },
           500,
         );
@@ -389,6 +514,7 @@ app.post("/upload", async (c) => {
         "record_id",
         "period_tag",
         "table_version",
+        "period_revision",
         "content_hash",
         "table_offsets",
         "table_count",
@@ -414,9 +540,19 @@ app.post("/upload", async (c) => {
       const recordId = tokenPayload.record_id as number;
       const periodTag = tokenPayload.period_tag as string;
       const tableVersion = tokenPayload.table_version as string;
+      const periodRevision = Number(tokenPayload.period_revision ?? 1);
       const expectedContentHash = tokenPayload.content_hash as string;
       const tableOffsetsStr = tokenPayload.table_offsets as string;
-      const tableCount = tokenPayload.table_count as number;
+
+      if (!Number.isInteger(periodRevision) || periodRevision < 1) {
+        return new Response(
+          JSON.stringify({ error: "Invalid period_revision in token" }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
 
       // [Bug Fix #2] Verify uploaded data size matches declared size
       if (data.byteLength !== tokenPayload.declared_size) {
@@ -450,7 +586,10 @@ app.post("/upload", async (c) => {
 
         // [Bug Fix #15] Hash comparison must be case-insensitive
         if (
-          actualContentHash.toLowerCase() !== expectedContentHash.toLowerCase()
+          !timingSafeEqual(
+            actualContentHash.toLowerCase(),
+            expectedContentHash.toLowerCase(),
+          )
         ) {
           console.warn(
             `[master-data] Content hash mismatch for id=${recordId}: expected ${expectedContentHash}, got ${actualContentHash}`,
@@ -515,10 +654,12 @@ app.post("/upload", async (c) => {
           r2_key: string;
           size: number;
         }> = [];
+        // Cache per-table hashes computed during R2 upload to avoid double computation
+        const tableHashes = new Map<string, string>();
 
         for (const offset of tableOffsets) {
           const tableData = data.slice(offset.start, offset.end);
-          const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
+          const r2Key = `master_data/${tableVersion}/${periodTag}/rev${periodRevision}/${offset.table_name}.avro`;
 
           console.info(
             `[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`,
@@ -534,6 +675,8 @@ app.post("/upload", async (c) => {
               .map((b) => b.toString(16).padStart(2, "0"))
               .join("");
 
+            tableHashes.set(offset.table_name, tableContentHash);
+
             const r2Result = await bucket.put(r2Key, tableData, {
               httpMetadata: {
                 contentType: "application/octet-stream",
@@ -543,6 +686,7 @@ app.post("/upload", async (c) => {
                 table_name: offset.table_name,
                 period_tag: periodTag,
                 table_version: tableVersion,
+                period_revision: String(periodRevision),
                 table_hash: tableContentHash, // Hash of individual table
                 uploaded_by: user.id,
                 batch_hash: expectedContentHash, // Hash of entire batch for reference
@@ -625,29 +769,18 @@ app.post("/upload", async (c) => {
         );
 
         try {
-          // Insert master_data_tables records for querying by data-loader
-          for (let i = 0; i < tableOffsets.length; i++) {
-            const offset = tableOffsets[i];
-            const tableStmt = db.prepare(`
-              INSERT INTO master_data_tables 
-                (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `);
-
-            // Compute hash for this individual table
-            const tableData = data.slice(offset.start, offset.end);
-            const tableHashBuf = await crypto.subtle.digest(
-              "SHA-256",
-              tableData,
-            );
-            const tableContentHash = Array.from(new Uint8Array(tableHashBuf))
-              .map((b) => b.toString(16).padStart(2, "0"))
-              .join("");
-
-            const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
-            const now = Date.now();
-
-            await tableStmt
+          // Build all D1 statements and submit atomically via db.batch() to avoid
+          // partial writes if the Worker is killed mid-loop.
+          const now = Date.now();
+          const batchStmts = tableOffsets.map((offset, i) => {
+            const tableContentHash = tableHashes.get(offset.table_name) ?? "";
+            const r2Key = `master_data/${tableVersion}/${periodTag}/rev${periodRevision}/${offset.table_name}.avro`;
+            return db
+              .prepare(
+                `INSERT INTO master_data_tables 
+                  (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              )
               .bind(
                 recordId,
                 offset.table_name,
@@ -659,20 +792,30 @@ app.post("/upload", async (c) => {
                 r2Key,
                 tableContentHash,
                 now,
+              );
+          });
+
+          batchStmts.push(
+            db
+              .prepare(
+                `UPDATE master_data_index
+                SET upload_status = 'completed', 
+                    r2_keys = ?,
+                    table_offsets = ?,
+                    table_count = ?,
+                    completed_at = ?
+                WHERE id = ?`,
               )
-              .run();
-          }
+              .bind(
+                JSON.stringify(r2Keys),
+                tableOffsetsStr,
+                tableOffsets.length,
+                now,
+                recordId,
+              ),
+          );
 
-          const stmt = db.prepare(`
-            UPDATE master_data_index
-            SET upload_status = 'completed', 
-                r2_keys = ?, 
-                completed_at = ?
-            WHERE id = ?
-          `);
-
-          const now = Date.now();
-          await stmt.bind(JSON.stringify(r2Keys), now, recordId).run();
+          await db.batch(batchStmts);
 
           console.info(
             `[master-data] D1 record updated: id=${recordId}, status=completed, tables=${r2Keys.length}`,
@@ -726,6 +869,8 @@ app.post("/upload", async (c) => {
           response: {
             ok: true,
             period_tag: periodTag,
+            table_version: tableVersion,
+            period_revision: periodRevision,
             tables_uploaded: uploadResults.length,
             total_size: data.byteLength,
             r2_keys: r2Keys,
@@ -767,6 +912,7 @@ app.post("/upload", async (c) => {
  * Query params:
  * - table_name: required (e.g. mst_ship, mst_slotitem)
  * - table_version: optional (defaults to latest)
+ * - record_id: optional positive integer; when provided, returns only the matching record
  *
  * No authentication required — master data is public reference data.
  * Returns decoded JSON records with aggressive caching (immutable data).
@@ -782,6 +928,8 @@ app.get("/json", async (c) => {
 
   const tableName = c.req.query("table_name");
   const requestedVersion = c.req.query("table_version");
+  const requestedRecordIdRaw = c.req.query("record_id");
+  const requestedRecordId = parsePositiveRecordId(requestedRecordIdRaw);
 
   if (!tableName) {
     return c.json({ error: "table_name is required" }, 400);
@@ -796,18 +944,38 @@ app.get("/json", async (c) => {
     );
   }
 
+  if (requestedVersion && !isValidMasterTableVersion(requestedVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
+
+  if (requestedRecordIdRaw && requestedRecordId == null) {
+    return c.json(
+      {
+        error: "record_id must be a positive integer",
+      },
+      400,
+    );
+  }
+
   try {
     let sql = `
-      SELECT period_tag, table_version, r2_keys
-      FROM master_data_index
-      WHERE upload_status = 'completed'
+      SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
+      FROM master_data_tables t
+      JOIN master_data_index i ON i.id = t.master_data_id
+      WHERE i.upload_status = 'completed' AND t.table_name = ?
     `;
-    const params: unknown[] = [];
+    const params: unknown[] = [tableName];
     if (requestedVersion) {
-      sql += " AND table_version = ?";
+      sql += " AND i.table_version = ?";
       params.push(requestedVersion);
     }
-    sql += " ORDER BY completed_at DESC LIMIT 1";
+    sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
 
     const record = (await db
       .prepare(sql)
@@ -815,7 +983,8 @@ app.get("/json", async (c) => {
       .first()) as {
       period_tag: string;
       table_version: string;
-      r2_keys: string;
+      period_revision: number;
+      r2_key: string;
     } | null;
 
     if (!record) {
@@ -832,10 +1001,12 @@ app.get("/json", async (c) => {
       );
     }
 
-    const { period_tag, table_version } = record;
-
-    // Build R2 key
-    const r2Key = `master_data/${table_version}/${period_tag}/${tableName}.avro`;
+    const {
+      period_tag,
+      table_version,
+      period_revision,
+      r2_key: r2Key,
+    } = record;
 
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);
@@ -845,6 +1016,7 @@ app.get("/json", async (c) => {
           table_name: tableName,
           table_version,
           period_tag,
+          period_revision,
           count: 0,
           records: [],
         },
@@ -856,14 +1028,33 @@ app.get("/json", async (c) => {
     // Guard against excessively large objects before pulling into memory
     const MAX_AVRO_BYTES = 50 * 1024 * 1024; // 50 MB
     if (r2Object.size > MAX_AVRO_BYTES) {
-      console.error(`[master-data] ${tableName} object too large: ${r2Object.size} bytes`);
-      return c.json({ error: "Master data object exceeds maximum size limit" }, 503);
+      console.error(
+        `[master-data] ${tableName} object too large: ${r2Object.size} bytes`,
+      );
+      return c.json(
+        { error: "Master data object exceeds maximum size limit" },
+        503,
+      );
     }
 
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
-    const records = decodeAvroOcfToJson(avroBytes);
+    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
+      Record<string, unknown>
+    >;
+    const records =
+      requestedRecordId == null
+        ? decodedRecords
+        : decodedRecords.filter((row) => {
+            const rowId =
+              typeof row.id === "number"
+                ? row.id
+                : typeof row.api_id === "number"
+                  ? row.api_id
+                  : null;
+            return rowId === requestedRecordId;
+          });
 
     // When an explicit version is requested the data is immutable — cache aggressively.
     // When serving the latest version the key changes after each upload, so use a short
@@ -877,6 +1068,7 @@ app.get("/json", async (c) => {
         table_name: tableName,
         table_version,
         period_tag,
+        period_revision,
         count: records.length,
         records,
       },
@@ -926,9 +1118,19 @@ app.get("/exists", async (c) => {
     return c.json({ error: "period_tag is required" }, 400);
   }
 
+  if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
+  }
+
   try {
     let sql = `
-      SELECT id, period_tag, table_version, content_hash, r2_keys, upload_status, created_at, completed_at
+      SELECT id, period_tag, table_version, period_revision, content_hash, r2_keys, upload_status, created_at, completed_at, table_count, table_offsets
       FROM master_data_index
       WHERE period_tag = ? AND upload_status = 'completed'
     `;
@@ -937,7 +1139,7 @@ app.get("/exists", async (c) => {
       sql += " AND table_version = ?";
       params.push(tableVersion);
     }
-    sql += " LIMIT 1";
+    sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
 
     const stmt = db.prepare(sql);
     const result = await stmt.bind(...params).first();
@@ -952,6 +1154,7 @@ app.get("/exists", async (c) => {
         id: result.id,
         period_tag: result.period_tag,
         table_version: result.table_version,
+        period_revision: result.period_revision,
         table_count: result.table_count,
         table_offsets: result.table_offsets
           ? JSON.parse(result.table_offsets)
@@ -996,8 +1199,17 @@ app.get("/latest", async (c) => {
 
   try {
     const tableVersion = c.req.query("table_version");
+    if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+      return c.json(
+        {
+          error:
+            "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+        },
+        400,
+      );
+    }
     let sql = `
-      SELECT id, period_tag, table_version, content_hash, r2_keys, upload_status, created_at, completed_at
+      SELECT id, period_tag, table_version, period_revision, content_hash, r2_keys, upload_status, created_at, completed_at, table_count, table_offsets
       FROM master_data_index
       WHERE upload_status = 'completed'
     `;
@@ -1006,7 +1218,7 @@ app.get("/latest", async (c) => {
       sql += " AND table_version = ?";
       params.push(tableVersion);
     }
-    sql += " ORDER BY completed_at DESC LIMIT 1";
+    sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
 
     const stmt = db.prepare(sql);
     const result = await stmt.bind(...params).first();
@@ -1021,6 +1233,7 @@ app.get("/latest", async (c) => {
         id: result.id,
         period_tag: result.period_tag,
         table_version: result.table_version,
+        period_revision: result.period_revision,
         table_count: result.table_count,
         table_offsets: result.table_offsets
           ? JSON.parse(result.table_offsets)
@@ -1068,6 +1281,7 @@ app.get("/download", async (c) => {
   const periodTag = c.req.query("period_tag");
   const tableName = c.req.query("table_name");
   const tableVersion = c.req.query("table_version");
+  const periodRevisionParam = c.req.query("period_revision");
 
   if (!periodTag) {
     return c.json({ error: "period_tag is required" }, 400);
@@ -1077,8 +1291,14 @@ app.get("/download", async (c) => {
     return c.json({ error: "table_name is required" }, 400);
   }
 
-  if (!tableVersion) {
-    return c.json({ error: "table_version is required" }, 400);
+  if (tableVersion && !isValidMasterTableVersion(tableVersion)) {
+    return c.json(
+      {
+        error:
+          "table_version must be a numeric dot-separated version like 0.5 or 1.0.0",
+      },
+      400,
+    );
   }
 
   // Validate table_name
@@ -1092,70 +1312,43 @@ app.get("/download", async (c) => {
   }
 
   try {
-    // Find the metadata record for this period
+    // Find table row by period/version/name. If revision omitted, return latest revision.
     let sql = `
-      SELECT r2_keys, table_offsets
-      FROM master_data_index
-      WHERE period_tag = ? AND upload_status = 'completed'
+      SELECT i.period_revision, t.r2_key
+      FROM master_data_tables t
+      JOIN master_data_index i ON i.id = t.master_data_id
+      WHERE i.period_tag = ?
+        AND i.upload_status = 'completed'
+        AND t.table_name = ?
     `;
-    const params: unknown[] = [periodTag];
+    const params: unknown[] = [periodTag, tableName];
     if (tableVersion) {
-      sql += " AND table_version = ?";
+      sql += " AND i.table_version = ?";
       params.push(tableVersion);
     }
-    sql += " LIMIT 1";
+    if (periodRevisionParam) {
+      const parsedRevision = Number(periodRevisionParam);
+      if (!Number.isInteger(parsedRevision) || parsedRevision < 1) {
+        return c.json(
+          { error: "period_revision must be a positive integer" },
+          400,
+        );
+      }
+      sql += " AND i.period_revision = ?";
+      params.push(parsedRevision);
+    }
+    sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
     const stmt = db.prepare(sql);
 
     const record = (await stmt.bind(...params).first()) as {
-      r2_keys?: string;
-      table_offsets?: string;
+      period_revision: number;
+      r2_key: string;
     } | null;
 
-    if (!record?.r2_keys) {
+    if (!record?.r2_key) {
       return c.json({ error: "Master data not found for this period" }, 404);
     }
-
-    // Parse r2_keys to find the key for this table
-    let r2Keys: string[] = [];
-    try {
-      r2Keys = JSON.parse(record.r2_keys);
-    } catch (e) {
-      console.error(`[master-data] Failed to parse r2_keys: ${String(e)}`);
-      return c.json({ error: "Invalid metadata" }, 500);
-    }
-
-    // [Bug Fix #8] Explicitly use table_offsets to validate table presence
-    let tableOffsetsArray: Array<{
-      table_name: string;
-      start: number;
-      end: number;
-    }> = [];
-    if (record.table_offsets) {
-      try {
-        tableOffsetsArray = JSON.parse(record.table_offsets);
-      } catch (e) {
-        console.warn(
-          `[master-data] Failed to parse table_offsets for metadata: ${String(e)}`,
-        );
-      }
-    }
-
-    // Find the R2 key for this specific table
-    // Format: master_data/{table_version}/{period_tag}/{table_name}.avro
-    const expectedKey = `master_data/${tableVersion}/${periodTag}/${tableName}.avro`;
-    const r2Key = r2Keys.find((key) => key === expectedKey);
-
-    if (!r2Key) {
-      return c.json(
-        {
-          error: `Table ${tableName} not found in this period`,
-          available_tables: r2Keys
-            .map((k) => k.split("/").pop()?.replace(".avro", ""))
-            .filter(Boolean),
-        },
-        404,
-      );
-    }
+    const r2Key = record.r2_key;
 
     // Fetch from R2
     const r2Object = await bucket.get(r2Key);

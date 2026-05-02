@@ -11,10 +11,15 @@ export type Bindings = {
   ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
   BATTLE_INDEX_DB: D1Database;
+  QUEST_INDEX_DB: D1Database;
   FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
   BATTLE_DATA_BUCKET: R2BucketBinding;
   MASTER_DATA_BUCKET: R2BucketBinding;
+  SHIP_GROWTH_ARCHIVE_BUCKET: R2BucketBinding;
   MASTER_DATA_INDEX_DB: D1Database;
+  SHIP_GROWTH_DB: D1Database;
+  SOKU_SPEED_OBSERVED_DB: D1Database;
+  REMODEL_INDEX_DB: D1Database;
 
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
@@ -24,6 +29,9 @@ export type Bindings = {
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
   MASTER_DATA_SIGNING_SECRET: string;
+  QUEST_TREE_SIGNING_SECRET?: string;
+  SHIP_GROWTH_SIGNING_SECRET?: string;
+  REMODEL_DATA_SIGNING_SECRET?: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
   DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails
@@ -106,6 +114,7 @@ export type BucketPutOptions = {
 
 export type D1Database = {
   prepare(sql: string): D1Statement;
+  batch<T = D1Row>(statements: D1Statement[]): Promise<{ results?: T[] }[]>;
 };
 
 export type D1Statement = {

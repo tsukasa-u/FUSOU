@@ -30,6 +30,7 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Add::Cell(data) => {
                 data.add_or();
             }
+            Add::QuestEvent(_) => {}
             Add::Dammy(_) => {}
         },
         EmitData::Set(data) => match data {
@@ -96,6 +97,13 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::MstEquipLimitExslots(data) => {
                 data.restore();
             }
+            Set::Quests(data) => {
+                data.restore();
+            }
+            Set::ShipGrowthSnapshot(_) => {}
+            Set::SokuSpeedObservedSnapshot(_) => {}
+            Set::RemodelSlotList(_) => {}
+            Set::RemodelDetail(_) => {}
             Set::Dammy(_) => {}
         },
         EmitData::Identifier(data) => match data {

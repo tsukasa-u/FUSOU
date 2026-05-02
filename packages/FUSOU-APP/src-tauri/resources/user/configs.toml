@@ -209,6 +209,37 @@ save_file_location = ""
     window_title_bar_height = 68
 
 
+    [app.quest_tree_sender]
+    # Whether to enable quest tree data ingestion (experimental feature)
+    # This sends your quest list observations to the shared inference pipeline to help
+    # build a quest unlock prerequisite graph. Requires user authentication.
+    # default is false
+    enable = false
+
+    # Endpoint to ingest quest tree data
+    # Must be set to the FUSOU-WEB quest-tree ingest API endpoint to use this feature
+    ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
+
+    [app.ship_growth_sender]
+    # Whether to enable ship growth data ingestion
+    # default is false
+    enable = false
+
+    # Endpoint to ingest ship growth data
+    # If empty, ship growth sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
+    [app.remodel_sender]
+    # Whether to enable remodel tree data ingestion (experimental feature)
+    # This sends your remodel recipe observations to help build the remodel tree.
+    # default is false
+    enable = false
+
+    # Endpoint to ingest remodel data
+    # Must be set when enable=true
+    ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
+
+
 [env]
 # Environment-specific configurations
 # Keep it empty for now

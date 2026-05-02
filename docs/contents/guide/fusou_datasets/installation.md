@@ -48,7 +48,8 @@ cd FUSOU/packages/fusou-datasets/python
 pip install -e .
 ```
 
-> [!TIP] > `-e` オプションを使用すると、コードを編集した際に再インストール不要で変更が反映されます（editable install）。
+> [!TIP]\
+> `-e` オプションを使用すると、コードを編集した際に再インストール不要で変更が反映されます（editable install）。
 
 ## 依存関係
 
@@ -97,7 +98,7 @@ fusou-datasets --client-id
 # 出力例: Client ID: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 ```
 
-> [!IMPORTANT]
+> [!IMPORTANT]\
 > クライアント ID は初回実行時に自動生成され、`~/.fusou_loader/settings.json` に保存されます。これはデバイス認証に使用されます。
 
 ## Google Colab でのセットアップ

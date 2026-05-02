@@ -484,15 +484,19 @@ export async function handleRead(
   env: Env,
 ): Promise<Response> {
   const url = new URL(request.url);
+  const fromRaw = url.searchParams.get("from");
+  const toRaw = url.searchParams.get("to");
   const params: QueryParams = {
     dataset_id: url.searchParams.get("dataset_id") ?? "",
     table_name: url.searchParams.get("table_name") ?? "",
-    from: url.searchParams.has("from")
-      ? Number(url.searchParams.get("from"))
-      : undefined,
-    to: url.searchParams.has("to")
-      ? Number(url.searchParams.get("to"))
-      : undefined,
+    from:
+      fromRaw != null && Number.isFinite(Number(fromRaw))
+        ? Number(fromRaw)
+        : undefined,
+    to:
+      toRaw != null && Number.isFinite(Number(toRaw))
+        ? Number(toRaw)
+        : undefined,
     format: url.searchParams.get("format") ?? "json",
     table_version: url.searchParams.get("table_version") ?? undefined,
   };

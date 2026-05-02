@@ -1,8 +1,50 @@
 ---
 import "../assets/app.css";
 import "../styles/global.css";
+import FocusBehavior from "@/components/FocusBehavior.astro";
+import TutorialModal from "@/components/TutorialModal.astro";
 
-const { title = "FUSOU" } = Astro.props;
+type TutorialGuide = {
+  id: string;
+  title: string;
+  summary: string;
+  steps: string[];
+  controls?: Array<{
+    label?: string;
+    description: string;
+    tone?: "primary" | "outline" | "ghost";
+    sourceSelector?: string;
+    previewClass?: string;
+    previewIconHtml?: string;
+  }>;
+  buttonLabel?: string;
+  openOnFirstVisit?: boolean;
+};
+
+const { title = "FUSOU", tutorial = null } = Astro.props as {
+  title?: string;
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+  tutorial?: TutorialGuide | null;
+};
+
+const {
+  description =
+    "FUSOU is a website designed to extract, display, analyze, and utilize data from Kantai Collection (KanColle) using a proxy server, providing innovative tools and insights for users.",
+  ogTitle = title,
+  ogDescription = description,
+  ogImage = "/favicon.svg",
+} = Astro.props as {
+  description?: string;
+  ogTitle?: string;
+  ogDescription?: string;
+  ogImage?: string;
+};
+
+const absoluteOgImage = new URL(ogImage, Astro.url).toString();
+const canonicalUrl = Astro.url.toString();
 ---
 
 <!doctype html>
@@ -16,8 +58,19 @@ const { title = "FUSOU" } = Astro.props;
     <link rel="sitemap" href="/sitemap-index.xml" />
     <meta
       name="description"
-      content="FUSOU is a website designed to extract, display, analyze, and utilize data from Kantai Collection (KanColle) using a proxy server, providing innovative tools and insights for users."
+      content={description}
     />
+    <link rel="canonical" href={canonicalUrl} />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FUSOU" />
+    <meta property="og:title" content={ogTitle} />
+    <meta property="og:description" content={ogDescription} />
+    <meta property="og:url" content={canonicalUrl} />
+    <meta property="og:image" content={absoluteOgImage} />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={ogTitle} />
+    <meta name="twitter:description" content={ogDescription} />
+    <meta name="twitter:image" content={absoluteOgImage} />
     {
       import.meta.env.PROD && (
         <!-- Cloudflare Web Analytics -->
@@ -32,7 +85,9 @@ const { title = "FUSOU" } = Astro.props;
     }
   </head>
   <body>
+    <FocusBehavior />
     <slot />
+    {tutorial && <TutorialModal guide={tutorial} />}
   </body>
 </html>
 

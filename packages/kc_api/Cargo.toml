@@ -20,7 +20,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
-apache-avro = { version = "0.17.0", features = ["derive", "zstandard"] }
+apache-avro = { version = "0.19.0", features = ["derive", "zstandard"] }
 arrow = { version = "53.3.0", features = ["prettyprint"] }
 datafusion = { version = "43.0.0" }
 parquet = { version = "53.3.0", features = ["async", "arrow"] }

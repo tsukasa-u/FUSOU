@@ -17,6 +17,7 @@ pub fn get_user_configs_for_app() -> configs::ConfigsApp {
 }
 
 pub use configs::ConfigsAppAssetSync;
+pub use configs::ConfigsAppQuestTreeSender;
 pub use configs::ChannelTransportKind;
 
 #[cfg(target_os = "linux")]

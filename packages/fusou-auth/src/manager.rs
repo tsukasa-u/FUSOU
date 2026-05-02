@@ -1,7 +1,7 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
 use tracing;
-use crate::types::Session;
+use crate::types::{DatasetToken, DatasetTokenStore, Session};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use std::sync::Arc;
@@ -12,6 +12,17 @@ const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
+
+fn masked_error_payload(input: &str) -> String {
+    if cfg!(debug_assertions) {
+        return input.to_string();
+    }
+    if input.trim().is_empty() {
+        "".to_string()
+    } else {
+        "********".to_string()
+    }
+}
 
 #[derive(Clone)]
 pub struct AuthConfig {
@@ -29,6 +40,10 @@ pub struct AuthManager<S: Storage + 'static> {
     client: Client,
     // mutex to ensure single-flight refresh
     refresh_lock: Arc<Mutex<()>>,
+    // dataset_token cache shared across all clones of this manager
+    dataset_token_cache: Arc<Mutex<DatasetTokenStore>>,
+    // file path for persistent dataset_token storage (optional)
+    dataset_token_path: Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
 }
 
 impl<S: Storage> Clone for AuthManager<S> {
@@ -38,6 +53,8 @@ impl<S: Storage> Clone for AuthManager<S> {
             storage: self.storage.clone(),
             client: self.client.clone(),
             refresh_lock: self.refresh_lock.clone(),
+            dataset_token_cache: self.dataset_token_cache.clone(),
+            dataset_token_path: self.dataset_token_path.clone(),
         }
     }
 }
@@ -49,7 +66,97 @@ impl<S: Storage> AuthManager<S> {
             storage,
             client: Client::new(),
             refresh_lock: Arc::new(Mutex::new(())),
+            dataset_token_cache: Arc::new(Mutex::new(DatasetTokenStore::default())),
+            dataset_token_path: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Create with optional persistent dataset_token storage path.
+    pub fn new_with_dataset_token_path(
+        config: AuthConfig,
+        storage: Arc<S>,
+        dataset_token_path: Option<std::path::PathBuf>,
+    ) -> Self {
+        Self {
+            config,
+            storage,
+            client: Client::new(),
+            refresh_lock: Arc::new(Mutex::new(())),
+            dataset_token_cache: Arc::new(Mutex::new(DatasetTokenStore::default())),
+            dataset_token_path: Arc::new(std::sync::Mutex::new(dataset_token_path)),
+        }
+    }
+
+    /// Set or update the dataset_token persistent storage path.
+    pub fn set_dataset_token_path(&mut self, path: Option<std::path::PathBuf>) {
+        if let Ok(mut guard) = self.dataset_token_path.lock() {
+            *guard = path;
+        }
+    }
+
+    async fn read_dataset_token_store_from_disk(&self) -> Result<DatasetTokenStore, AuthError> {
+        let path = self
+            .dataset_token_path
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+
+        let Some(path) = path else {
+            return Ok(DatasetTokenStore::default());
+        };
+
+        match tokio::fs::read_to_string(&path).await {
+            Ok(s) => {
+                if let Ok(store) = serde_json::from_str::<DatasetTokenStore>(&s) {
+                    return Ok(store);
+                }
+
+                if let Ok(single) = serde_json::from_str::<DatasetToken>(&s) {
+                    let mut store = DatasetTokenStore::default();
+                    if let Some(dataset_id) = single.dataset_id.clone() {
+                        store.tokens.insert(dataset_id, single);
+                    }
+                    return Ok(store);
+                }
+
+                Ok(DatasetTokenStore::default())
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    Ok(DatasetTokenStore::default())
+                } else {
+                    Err(AuthError::Other(e.to_string()))
+                }
+            }
+        }
+    }
+
+    async fn persist_dataset_token_store(&self, store: &DatasetTokenStore) -> Result<(), AuthError> {
+        let path = self
+            .dataset_token_path
+            .lock()
+            .ok()
+            .and_then(|guard| guard.clone());
+
+        let Some(path) = path else {
+            return Ok(());
+        };
+
+        let s = serde_json::to_string(store)?;
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| AuthError::Other(e.to_string()))?;
+        }
+        tokio::fs::write(&path, &s)
+            .await
+            .map_err(|e| AuthError::Other(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+        Ok(())
     }
 
     /// Create an AuthManager by reading `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` from env.
@@ -93,16 +200,16 @@ impl<S: Storage> AuthManager<S> {
         if let Some(exp) = session.expires_at {
             let now = Utc::now();
             let seconds_until_expiry = (exp - now).num_seconds();
-            tracing::info!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
+            tracing::debug!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
                 exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::info!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
+                tracing::debug!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
                 return Ok(session.access_token);
             } else {
-                tracing::info!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
+                tracing::debug!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
             }
         } else {
-            tracing::warn!("get_access_token: no expires_at in session, will refresh");
+            tracing::debug!("get_access_token: no expires_at in session, will refresh");
         }
 
         // otherwise refresh
@@ -119,27 +226,19 @@ impl<S: Storage> AuthManager<S> {
             let now = Utc::now();
             let seconds_until_expiry = (exp - now).num_seconds();
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::info!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
+                tracing::debug!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
                 return Ok(session2.access_token);
             }
         }
 
-        tracing::info!("get_access_token: calling force_refresh");
+        tracing::debug!("get_access_token: calling force_refresh");
         let refreshed = self.force_refresh(&session2).await?;
-        let token_preview = if refreshed.access_token.len() > 20 {
-            format!("{}...{}", &refreshed.access_token[..10], &refreshed.access_token[refreshed.access_token.len()-10..])
-        } else {
-            "<short-token>".to_string()
-        };
-        tracing::info!("get_access_token: refresh completed, new token preview: {}", token_preview);
+        tracing::info!("get_access_token: refresh completed");
         Ok(refreshed.access_token)
     }
 
     pub async fn is_authenticated(&self) -> bool {
-        match self.storage.load_session().await {
-            Ok(Some(session)) => !session.refresh_token.is_empty(),
-            _ => false,
-        }
+        self.get_access_token().await.is_ok()
     }
 
     pub async fn save_session(&self, session: &Session) -> Result<(), AuthError> {
@@ -157,6 +256,7 @@ impl<S: Storage> AuthManager<S> {
 
     /// Force refresh using the stored refresh_token. Returns saved session on success.
     pub async fn force_refresh(&self, current: &Session) -> Result<Session, AuthError> {
+        tracing::info!("supabase refresh started");
         if current.refresh_token.trim().is_empty() {
             return Err(AuthError::RefreshFailed("empty refresh token".to_string()));
         }
@@ -185,7 +285,8 @@ impl<S: Storage> AuthManager<S> {
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            tracing::warn!(status = %status, url = %url, body = %text, "supabase refresh request failed");
+            let masked_body = masked_error_payload(&text);
+            tracing::warn!(status = %status, body = %masked_body, "supabase refresh request failed");
 
             // If the refresh token is invalid/expired/already used, clear and signal re-auth.
             if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
@@ -194,7 +295,7 @@ impl<S: Storage> AuthManager<S> {
                 return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
             }
 
-            return Err(AuthError::RefreshFailed(format!("status {}: {}", status, text)));
+            return Err(AuthError::RefreshFailed(format!("status {}", status)));
         }
 
         let body: serde_json::Value = resp.json().await?;
@@ -338,10 +439,29 @@ impl<S: Storage> AuthManager<S> {
 impl<S: Storage> AuthManager<S> {
     /// 匿名認証セッションとdataset_tokenを取得・更新する
     /// member_id_hash: ユーザー識別用のハッシュ（Set::Basicで取得）
+    ///
+    /// Multi-device注意：既存のセッションがある場合は、新しい anonymous user_id を生成するのではなく
+    /// 既存セッションを再利用します。これにより、複数端末で同じ user_id が維持され、
+    /// dataset_token の帰属（user_id）が一貫性を保ちます。
     pub async fn get_or_refresh_anonymous_session(
         &self,
         member_id_hash: &str,
-    ) -> Result<(Session, String), AuthError> {
+    ) -> Result<(Option<Session>, String), AuthError> {
+        let member_id_hash = member_id_hash.trim();
+        tracing::info!("anonymous-sync started");
+        if member_id_hash.is_empty() {
+            return Err(AuthError::Other(
+                "member_id_hash is not ready for anonymous-sync".to_string(),
+            ));
+        }
+
+        // Load existing dataset_token if available (multi-device consistency check)
+        let existing_store = self.read_dataset_token_store_from_disk().await.ok();
+        let has_existing_mapping = existing_store
+            .as_ref()
+            .map(|store| !store.tokens.is_empty())
+            .unwrap_or(false);
+
         // configs.toml から anonymous_sync_endpoint を取得
         let url = configs::get_user_configs_for_app()
             .auth
@@ -355,23 +475,41 @@ impl<S: Storage> AuthManager<S> {
         let resp = self
             .client
             .post(&url)
-            .header("apikey", &self.config.api_key)
-            .json(&body)
-            .send()
-            .await?;
+            .header("apikey", &self.config.api_key);
+
+        let resp = match self.get_access_token().await {
+            Ok(access_token) => {
+                resp
+                    .bearer_auth(access_token)
+                    .json(&body)
+                    .send()
+                    .await?
+            }
+            Err(_) => {
+                // If no existing session but we have a previous mapping on disk, use that
+                // to retrieve dataset_token without generating a new anonymous user_id
+                if has_existing_mapping {
+                    tracing::info!("no local access token, but existing mapping found on disk for this device (multi-device scenario)");
+                }
+                resp
+                    .json(&body)
+                    .send()
+                    .await?
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
+            let masked_body = masked_error_payload(&text);
             tracing::warn!(
                 status = %status,
-                url = %url,
-                body = %text,
+                body = %masked_body,
                 "anonymous-sync request failed"
             );
             return Err(AuthError::RefreshFailed(format!(
-                "anonymous-sync failed: status {}: {}",
-                status, text
+                "anonymous-sync failed: status {}",
+                status
             )));
         }
 
@@ -380,7 +518,6 @@ impl<S: Storage> AuthManager<S> {
             access_token: Option<String>,
             refresh_token: Option<String>,
             dataset_token: String,
-            dataset_token_expires_at: i64,
         }
 
         let response_data: AnonymousSyncResponse = resp.json().await?;
@@ -389,32 +526,49 @@ impl<S: Storage> AuthManager<S> {
         let session = if let (Some(at), Some(rt)) = (response_data.access_token.clone(), response_data.refresh_token.clone()) {
             // 新しい匿名セッションが取得できた場合
             let expires_at = Utc::now() + Duration::seconds(DEFAULT_ACCESS_TOKEN_TTL_SECS);
-            Session {
+            Some(Session {
                 access_token: at,
                 refresh_token: rt,
                 expires_at: Some(expires_at),
                 token_type: Some("bearer".to_string()),
-            }
+            })
         } else {
-            // Fallback: 既存セッションを再利用（匿名サインイン失敗時など）
+            // Fallback: 既存セッションを再利用（既存デバイスで dataset_token のみ更新した場合など）
             match self.storage.load_session().await? {
-                Some(current) => current,
+                Some(current) => Some(current),
                 None => {
-                    return Err(AuthError::RefreshFailed("anonymous-sync did not return tokens and no existing session is available".to_string()));
+                    tracing::info!(
+                        "anonymous-sync returned dataset_token without session tokens and no local session exists"
+                    );
+                    None
                 }
             }
         };
+
+        tracing::info!(
+            session_tokens = if session.is_some() { "present" } else { "absent" },
+            "anonymous-sync completed"
+        );
 
         Ok((session, response_data.dataset_token))
     }
 
     /// dataset_tokenの有効期限をチェックし、必要なら更新
     /// 有効期限が1日以内の場合、自動更新する
+    ///
+    /// 新しいセッションが返された場合は自動的にストレージに保存する。
     pub async fn ensure_dataset_token_valid(
         &self,
         member_id_hash: &str,
         current_token: Option<&crate::types::DatasetToken>,
     ) -> Result<crate::types::DatasetToken, AuthError> {
+        let member_id_hash = member_id_hash.trim();
+        if member_id_hash.is_empty() {
+            return Err(AuthError::Other(
+                "dataset_id is not ready for dataset_token refresh".to_string(),
+            ));
+        }
+
         // 現在のトークンが有効かチェック（期限1日前を基準）
         let needs_refresh = if let Some(token) = current_token {
             let one_day = Duration::days(1);
@@ -424,38 +578,135 @@ impl<S: Storage> AuthManager<S> {
         };
 
         if needs_refresh {
-            let (_session, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
+            tracing::info!("dataset_token refresh started");
+            let (session_opt, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
+
+            // 新しいセッションが返された場合はストレージに保存（マルチデバイスで
+            // セッションが無い端末でもアップロード時にセッションを自動取得できるようにする）
+            if let Some(session) = session_opt {
+                if let Err(e) = self.storage.save_session(&session).await {
+                    tracing::warn!("ensure_dataset_token_valid: failed to save session: {}", e);
+                }
+            }
             
             // 7日後に有効期限切れ
             let expires_at = Utc::now() + Duration::days(7);
+
+            tracing::info!("dataset_token refresh completed");
             
             Ok(crate::types::DatasetToken {
                 token: dataset_token_str,
                 expires_at,
+                dataset_id: Some(member_id_hash.to_string()),
             })
         } else {
+            tracing::info!("dataset_token still valid; refresh skipped");
             // 既存のトークンを返す
             Ok(current_token.unwrap().clone())
         }
     }
 
-    /// dataset_tokenをストレージに保存
-    pub async fn save_dataset_token(&self, token: &crate::types::DatasetToken) -> Result<(), AuthError> {
-        // Note: This requires storage that supports DatasetToken
-        // For now, this is a placeholder that could be extended to support MultiSessionStorage
-        let token_preview = if token.token.len() > 20 {
-            format!("{}...{}", &token.token[..10], &token.token[token.token.len()-10..])
-        } else {
-            "<short-token>".to_string()
+    /// dataset_tokenを dataset_id 単位で保存する。
+    pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
+        let Some(dataset_id) = token.dataset_id.clone() else {
+            tracing::warn!("Skipping dataset_token persistence because dataset_id is missing");
+            return Ok(());
         };
-        tracing::debug!("dataset_token saved (token: {})", token_preview);
+
+        let mut cache = self.dataset_token_cache.lock().await;
+        cache.tokens.insert(dataset_id, token.clone());
+
+        if let Err(e) = self.persist_dataset_token_store(&cache).await {
+            tracing::warn!("Failed to persist dataset_token store: {}", e);
+        }
+
         Ok(())
     }
 
-    /// ストレージからdataset_tokenを読み込む
-    pub async fn load_dataset_token(&self) -> Result<Option<crate::types::DatasetToken>, AuthError> {
-        // Note: This requires storage that supports DatasetToken
-        // For now, this is a placeholder that could be extended to support MultiSessionStorage
+    /// 指定 dataset_id に紐づく dataset_token を読み込む。
+    pub async fn load_dataset_token_for_dataset(
+        &self,
+        dataset_id: &str,
+    ) -> Result<Option<DatasetToken>, AuthError> {
+        {
+            let cache = self.dataset_token_cache.lock().await;
+            if let Some(token) = cache.tokens.get(dataset_id) {
+                return Ok(Some(token.clone()));
+            }
+        }
+
+        let store = self.read_dataset_token_store_from_disk().await?;
+        if let Some(token) = store.tokens.get(dataset_id).cloned() {
+            let mut cache = self.dataset_token_cache.lock().await;
+            *cache = store;
+            return Ok(Some(token));
+        }
+
+        let mut cache = self.dataset_token_cache.lock().await;
+        *cache = store;
         Ok(None)
+    }
+
+    /// Resolve the dataset_id to use for uploads.
+    ///
+    /// Priority:
+    /// 1. `preferred_dataset_id` when explicitly provided (used by retry paths to keep original ownership).
+    /// 2. The non-expired dataset_id with the latest expiry in cache/disk store.
+    pub async fn resolve_dataset_id_for_upload(
+        &self,
+        preferred_dataset_id: Option<&str>,
+    ) -> Option<String> {
+        if let Some(preferred) = preferred_dataset_id
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            return Some(preferred.to_string());
+        }
+
+        let now = Utc::now();
+
+        {
+            let cache = self.dataset_token_cache.lock().await;
+            let mut best: Option<(String, DateTime<Utc>)> = None;
+            for (dataset_id, token) in cache.tokens.iter() {
+                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                    continue;
+                }
+                let replace = match &best {
+                    Some((_, exp)) => token.expires_at > *exp,
+                    None => true,
+                };
+                if replace {
+                    best = Some((dataset_id.clone(), token.expires_at));
+                }
+            }
+            if let Some((dataset_id, _)) = best {
+                return Some(dataset_id);
+            }
+        }
+
+        if let Ok(store) = self.read_dataset_token_store_from_disk().await {
+            let mut best: Option<(String, DateTime<Utc>)> = None;
+            for (dataset_id, token) in store.tokens.iter() {
+                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                    continue;
+                }
+                let replace = match &best {
+                    Some((_, exp)) => token.expires_at > *exp,
+                    None => true,
+                };
+                if replace {
+                    best = Some((dataset_id.clone(), token.expires_at));
+                }
+            }
+
+            if let Some((dataset_id, _)) = best {
+                let mut cache = self.dataset_token_cache.lock().await;
+                *cache = store;
+                return Some(dataset_id);
+            }
+        }
+
+        None
     }
 }

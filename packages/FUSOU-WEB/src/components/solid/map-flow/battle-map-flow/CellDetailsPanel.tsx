@@ -200,7 +200,7 @@ export default function CellDetailsPanel(props: Props) {
             </div>
             <Show
               when={d().dropCounts.length > 0}
-              fallback={<div class="text-xs text-base-content/50">艦娘ドロップ記録はありません</div>}
+              fallback={<div class="text-xs text-base-content/50">艦ドロップ記録はありません</div>}
             >
               <For each={d().dropCounts}>
                 {([drop, count]) => <div class="text-xs text-base-content/80">{drop} ({count})</div>}
@@ -231,7 +231,7 @@ export default function CellDetailsPanel(props: Props) {
                       <Show when={battle.result?.drop_ship_id}>
                         {(dropId) => (
                           <div class="text-base-content/60">
-                            ドロップ: {props.mstShipNameById.get(dropId()) ?? `艦娘ID:${dropId()}`}
+                            ドロップ: {props.mstShipNameById.get(dropId()) ?? `艦ID:${dropId()}`}
                           </div>
                         )}
                       </Show>

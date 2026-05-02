@@ -6,6 +6,8 @@ use kc_api_database::models::battle::{
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
+#[cfg(feature = "schema_v0_5")]
+use kc_api_database::models::battle::BattleResult;
 use kc_api_database::models::cell::Cells;
 use kc_api_database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use kc_api_database::models::env_info::EnvInfo;
@@ -83,6 +85,10 @@ fn main() {
     schemas.push(get_schema_json::<SupportAirattack>("support_airattack"));
     schemas.push(get_schema_json::<SupportHourai>("support_hourai"));
     schemas.push(get_schema_json::<Battle>("battle"));
+
+    // BattleResult is only available in schema_v0_5+
+    #[cfg(feature = "schema_v0_5")]
+    schemas.push(get_schema_json::<BattleResult>("battle_result"));
 
     // Output as JSON with table_version metadata
     let output = json!({

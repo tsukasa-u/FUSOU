@@ -56,17 +56,18 @@ pub async fn launch_with_options(
                         let period_tag = supabase::get_period_tag().await;
 
                         #[cfg(dev)]
-                        let save_path = format!("./../../FUSOU-PROXY-DATA/{}", period_tag);
+                        let proxy_base_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                            .join("../../FUSOU-PROXY-DATA");
                         #[cfg(any(not(dev), check_release))]
-                        let save_path = window
-                            .app_handle()
-                            .path()
-                            .document_dir()
-                            .expect_or_log("failed to get doc dirs")
-                            .join("FUSOU")
-                            .join("FUSOU-PROXY-DATA")
+                        let proxy_base_dir = match window.app_handle().path().document_dir() {
+                            Ok(path) => path.join("fusou").join("FUSOU-PROXY-DATA"),
+                            Err(e) => {
+                                tracing::error!("failed to get document_dir: {}", e);
+                                return Err(());
+                            }
+                        };
+                        let save_path = proxy_base_dir
                             .join(&period_tag)
-                            .as_path()
                             .to_str()
                             .expect_or_log("failed to convert str")
                             .to_string();
@@ -151,7 +152,7 @@ pub async fn launch_with_options(
                 if browse_webview != 0 {
                     create_external_window(window.app_handle(), None, true);
                 } else {
-                    let browser = SHARED_BROWSER.lock().unwrap().get_browser();
+                    let browser = SHARED_BROWSER.lock().unwrap_or_else(|e| e.into_inner()).get_browser();
                     create_external_window(window.app_handle(), Some(browser), false);
                 }
             }
