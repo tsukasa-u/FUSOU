@@ -14,6 +14,7 @@
 
 const path = require("path");
 const fs = require("fs");
+const zlib = require("zlib");
 const { createHash } = require("crypto");
 const {
   ROOT,
@@ -136,13 +137,69 @@ function extractNonZero(result) {
   const obj = {};
   let any = false;
   for (const k of STAT_KEYS) {
-    const v = result[k];
+    const raw = result[k];
+    if (raw == null) continue;
+    const v = Number(raw);
+    if (!Number.isFinite(v)) continue;
+    const iv = Math.trunc(v);
+    if (iv !== v) {
+      throw new Error(
+        `[scan] non-integer bonus detected: stat=${k}, value=${String(raw)}`,
+      );
+    }
     if (v !== 0) {
-      obj[k] = v;
+      obj[k] = iv;
       any = true;
     }
   }
   return any ? obj : null;
+}
+
+function encodeCombosB64(combos, pool, comboSize) {
+  const itemIdx = new Map(pool.map((id, i) => [id, i]));
+  let raw;
+  let codec;
+  if (pool.length < 256) {
+    const buf = new Uint8Array(combos.length * comboSize);
+    let pos = 0;
+    for (const combo of combos) {
+      for (const id of combo) buf[pos++] = itemIdx.get(id);
+    }
+    raw = Buffer.from(buf);
+    codec = "u8";
+  } else if (pool.length < 65536) {
+    raw = Buffer.allocUnsafe(combos.length * comboSize * 2);
+    let pos = 0;
+    for (const combo of combos) {
+      for (const id of combo) {
+        raw.writeUInt16LE(itemIdx.get(id), pos);
+        pos += 2;
+      }
+    }
+    codec = "u16";
+  } else {
+    raw = Buffer.allocUnsafe(combos.length * comboSize * 4);
+    let pos = 0;
+    for (const combo of combos) {
+      for (const id of combo) {
+        raw.writeUInt32LE(itemIdx.get(id), pos);
+        pos += 4;
+      }
+    }
+    codec = "u32";
+  }
+
+  const plainB64 = raw.toString("base64");
+  if (codec === "u8") {
+    return { items: pool, combos_b64: plainB64 };
+  }
+  if (codec === "u16") {
+    return { items: pool, combos_u16_b64: plainB64 };
+  }
+  return {
+    items: pool,
+    combos_u32_b64: plainB64,
+  };
 }
 
 function bkey(obj) {
@@ -218,16 +275,23 @@ for (const st of masterData.api_mst_stype) {
 
 // Ship-specific equip overrides (additively grant permissions beyond stype)
 const shipEquipOverrideMap = {};
-for (const [shipIdStr, info] of Object.entries(masterData.api_mst_equip_ship || {})) {
-  if (info.api_equip_type) shipEquipOverrideMap[parseInt(shipIdStr)] = info.api_equip_type;
+for (const [shipIdStr, info] of Object.entries(
+  masterData.api_mst_equip_ship || {},
+)) {
+  if (info.api_equip_type)
+    shipEquipOverrideMap[parseInt(shipIdStr)] = info.api_equip_type;
 }
 
 // Equip types allowed in the reinforcement expansion slot (補強増設)
-const exslotEquipTypes = new Set((masterData.api_mst_equip_exslot || []).map(Number));
+const exslotEquipTypes = new Set(
+  (masterData.api_mst_equip_exslot || []).map(Number),
+);
 
 // Ship/stype/ctype-specific exslot exceptions
 const exslotShipExcMap = {};
-for (const [etStr, info] of Object.entries(masterData.api_mst_equip_exslot_ship || {})) {
+for (const [etStr, info] of Object.entries(
+  masterData.api_mst_equip_exslot_ship || {},
+)) {
   exslotShipExcMap[parseInt(etStr)] = info;
 }
 
@@ -292,7 +356,7 @@ function choose(n, k) {
   if (k === 0 || k === n) return 1;
   k = Math.min(k, n - k);
   let r = 1;
-  for (let i = 0; i < k; i++) r = Math.round(r * (n - i) / (i + 1));
+  for (let i = 0; i < k; i++) r = Math.round((r * (n - i)) / (i + 1));
   return r;
 }
 
@@ -305,13 +369,17 @@ function choose(n, k) {
 function detectPoolsByShip(synergyMap, comboSize) {
   const groups = new Map();
   for (const [key, profileMap] of synergyMap) {
-    const items = key.split(':').map(Number);
+    const items = key.split(":").map(Number);
     for (const { ships, synergy } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
       const synSorted = Object.fromEntries(Object.entries(synergy).sort());
-      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted);
       if (!groups.has(groupKey)) {
-        groups.set(groupKey, { ships: shipsSorted, allItems: new Set(), count: 0 });
+        groups.set(groupKey, {
+          ships: shipsSorted,
+          allItems: new Set(),
+          count: 0,
+        });
       }
       const g = groups.get(groupKey);
       for (const id of items) g.allItems.add(id);
@@ -350,7 +418,15 @@ for (let si = 0; si < mstShips.length; si++) {
 
   for (let ei = 0; ei < slotInfos.length; ei++) {
     const slot = slotInfos[ei];
-    if (!canEquipItem(shipId, shipData.api_stype, shipData.api_ctype || 0, slot.id)) continue;
+    if (
+      !canEquipItem(
+        shipId,
+        shipData.api_stype,
+        shipData.api_ctype || 0,
+        slot.id,
+      )
+    )
+      continue;
 
     // ★0 ×1
     const r0 = SlotItemEffectUtil.getSlotitemEffect(ship, [
@@ -363,12 +439,32 @@ for (let si = 0; si < mstShips.length; si++) {
     if (!singleBonus[shipId]) singleBonus[shipId] = {};
     singleBonus[shipId][slot.id] = b;
 
-    // ★10 ×1
-    const r10 = SlotItemEffectUtil.getSlotitemEffect(ship, [
-      makeSlot(slot.id, 10),
-    ]);
-    const l10 = extractNonZero(r10);
-    const l = l10 && !statsEqual(b, l10) ? l10 : undefined;
+    // ★1..★10 ×1 (discrete; no interpolation in consumer)
+    const improvementTransitions = [];
+    let prevLevelStats = b;
+    for (let star = 1; star <= 10; star++) {
+      const rStar = SlotItemEffectUtil.getSlotitemEffect(ship, [
+        makeSlot(slot.id, star),
+      ]);
+      const sStar = extractNonZero(rStar);
+      if (!statsEqual(prevLevelStats, sStar)) {
+        improvementTransitions.push([star, sStar || {}]);
+        prevLevelStats = sStar;
+      }
+    }
+
+    // Backward-compact path: only ★10 differs -> keep legacy `l`.
+    let l;
+    let i;
+    if (
+      improvementTransitions.length === 1 &&
+      improvementTransitions[0][0] === 10
+    ) {
+      const only = improvementTransitions[0][1];
+      if (!statsEqual(b, only)) l = only;
+    } else if (improvementTransitions.length > 0) {
+      i = improvementTransitions;
+    }
 
     // ★0 ×2
     const r2 = SlotItemEffectUtil.getSlotitemEffect(ship, [
@@ -405,6 +501,7 @@ for (let si = 0; si < mstShips.length; si++) {
 
     const profile = { b };
     if (l) profile.l = l;
+    if (i) profile.i = i;
     if (c2) profile.c2 = c2;
     if (c3) profile.c3 = c3;
     const pk = bkey(profile);
@@ -594,7 +691,9 @@ for (const [pairKey, profileMap] of synergies) {
 // Triple synergy storage: Map<tripleKey, Map<profileKey, {ships, synergy, items}>>
 const tripleSynergies = new Map();
 
-const shipIdsWithBonuses = Object.keys(bonusItemsByShip).map(Number).sort((a, b) => a - b);
+const shipIdsWithBonuses = Object.keys(bonusItemsByShip)
+  .map(Number)
+  .sort((a, b) => a - b);
 const { getSlotitemEffect } = SlotItemEffectUtil;
 
 for (let si = 0; si < shipIdsWithBonuses.length; si++) {
@@ -610,7 +709,9 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
   // Precompute single-item results for all bonus items on this ship
   const aloneResults = {};
   for (const itemId of bItems) {
-    aloneResults[itemId] = extractNonZero(getSlotitemEffect(ship, [makeSlot(itemId, 0)]));
+    aloneResults[itemId] = extractNonZero(
+      getSlotitemEffect(ship, [makeSlot(itemId, 0)]),
+    );
   }
 
   for (let ai = 0; ai < bItems.length - 2; ai++) {
@@ -635,7 +736,11 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
 
         // Test all 3 items together
         const combined = extractNonZero(
-          getSlotitemEffect(ship, [makeSlot(itemA, 0), makeSlot(itemB, 0), makeSlot(itemC, 0)]),
+          getSlotitemEffect(ship, [
+            makeSlot(itemA, 0),
+            makeSlot(itemB, 0),
+            makeSlot(itemC, 0),
+          ]),
         );
 
         // Expected = aloneA + aloneB + aloneC + delta2(A,B) + delta2(A,C) + delta2(B,C)
@@ -653,10 +758,15 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
         const tripleKey = `${itemA}:${itemB}:${itemC}`; // a < b < c
         const profileKey = bkey(residual);
 
-        if (!tripleSynergies.has(tripleKey)) tripleSynergies.set(tripleKey, new Map());
+        if (!tripleSynergies.has(tripleKey))
+          tripleSynergies.set(tripleKey, new Map());
         const pm = tripleSynergies.get(tripleKey);
         if (!pm.has(profileKey)) {
-          pm.set(profileKey, { ships: [], items: [itemA, itemB, itemC], synergy: residual });
+          pm.set(profileKey, {
+            ships: [],
+            items: [itemA, itemB, itemC],
+            synergy: residual,
+          });
         }
         const entry = pm.get(profileKey);
         if (!entry.ships.includes(shipId)) entry.ships.push(shipId);
@@ -721,7 +831,9 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
   const aloneResults = {};
   const getAlone = (id) => {
     if (!(id in aloneResults)) {
-      aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+      aloneResults[id] = extractNonZero(
+        getSlotitemEffect(ship, [makeSlot(id, 0)]),
+      );
     }
     return aloneResults[id];
   };
@@ -749,7 +861,10 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
 
           const combined = extractNonZero(
             getSlotitemEffect(ship, [
-              makeSlot(A, 0), makeSlot(B, 0), makeSlot(C, 0), makeSlot(D, 0),
+              makeSlot(A, 0),
+              makeSlot(B, 0),
+              makeSlot(C, 0),
+              makeSlot(D, 0),
             ]),
           );
 
@@ -759,7 +874,14 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
           expected = statsAdd(expected, getAlone(D));
 
           // 6 pairs
-          for (const [x, y] of [[A,B],[A,C],[A,D],[B,C],[B,D],[C,D]]) {
+          for (const [x, y] of [
+            [A, B],
+            [A, C],
+            [A, D],
+            [B, C],
+            [B, D],
+            [C, D],
+          ]) {
             const d = pMap[`${x}:${y}`];
             if (d) expected = statsAdd(expected, d);
           }
@@ -776,10 +898,15 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
           const quadKey = `${A}:${B}:${C}:${D}`;
           const profileKey = bkey(residual);
 
-          if (!quadSynergies.has(quadKey)) quadSynergies.set(quadKey, new Map());
+          if (!quadSynergies.has(quadKey))
+            quadSynergies.set(quadKey, new Map());
           const pm2 = quadSynergies.get(quadKey);
           if (!pm2.has(profileKey)) {
-            pm2.set(profileKey, { ships: [], items: [A, B, C, D], synergy: residual });
+            pm2.set(profileKey, {
+              ships: [],
+              items: [A, B, C, D],
+              synergy: residual,
+            });
           }
           const entry = pm2.get(profileKey);
           if (!entry.ships.includes(shipId)) entry.ships.push(shipId);
@@ -823,8 +950,9 @@ for (const [quadKey, profileMap] of quadSynergies) {
 }
 
 const quadPoolsByShip = detectPoolsByShip(quadSynergies, 4);
-const shipIdsForPenta = Object.keys(quadPoolsByShip).map(Number)
-  .filter(sid => effectiveSlotsOf[sid] >= 5)
+const shipIdsForPenta = Object.keys(quadPoolsByShip)
+  .map(Number)
+  .filter((sid) => effectiveSlotsOf[sid] >= 5)
   .sort((a, b) => a - b);
 
 const pentaSynergies = new Map();
@@ -838,7 +966,10 @@ for (let si = 0; si < shipIdsForPenta.length; si++) {
 
   const aloneResults = {};
   const getAlone5 = (id) => {
-    if (!(id in aloneResults)) aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+    if (!(id in aloneResults))
+      aloneResults[id] = extractNonZero(
+        getSlotitemEffect(ship, [makeSlot(id, 0)]),
+      );
     return aloneResults[id];
   };
   const pMap5 = pairByShipKey[shipId] || {};
@@ -856,34 +987,82 @@ for (let si = 0; si < shipIdsForPenta.length; si++) {
             const D = pool[di];
             for (let ei = di + 1; ei < pool.length; ei++) {
               const E = pool[ei];
-              if (!qMap5[`${A}:${B}:${C}:${D}`] && !qMap5[`${A}:${B}:${C}:${E}`] &&
-                  !qMap5[`${A}:${B}:${D}:${E}`] && !qMap5[`${A}:${C}:${D}:${E}`] &&
-                  !qMap5[`${B}:${C}:${D}:${E}`]) continue;
+              if (
+                !qMap5[`${A}:${B}:${C}:${D}`] &&
+                !qMap5[`${A}:${B}:${C}:${E}`] &&
+                !qMap5[`${A}:${B}:${D}:${E}`] &&
+                !qMap5[`${A}:${C}:${D}:${E}`] &&
+                !qMap5[`${B}:${C}:${D}:${E}`]
+              )
+                continue;
               pentasTested++;
               const combined = extractNonZero(
-                getSlotitemEffect(ship, [makeSlot(A, 0), makeSlot(B, 0), makeSlot(C, 0), makeSlot(D, 0), makeSlot(E, 0)])
+                getSlotitemEffect(ship, [
+                  makeSlot(A, 0),
+                  makeSlot(B, 0),
+                  makeSlot(C, 0),
+                  makeSlot(D, 0),
+                  makeSlot(E, 0),
+                ]),
               );
               let expected = statsAdd(getAlone5(A), getAlone5(B));
               expected = statsAdd(expected, getAlone5(C));
               expected = statsAdd(expected, getAlone5(D));
               expected = statsAdd(expected, getAlone5(E));
-              for (const [x, y] of [[A,B],[A,C],[A,D],[A,E],[B,C],[B,D],[B,E],[C,D],[C,E],[D,E]]) {
-                const d = pMap5[`${x}:${y}`]; if (d) expected = statsAdd(expected, d);
+              for (const [x, y] of [
+                [A, B],
+                [A, C],
+                [A, D],
+                [A, E],
+                [B, C],
+                [B, D],
+                [B, E],
+                [C, D],
+                [C, E],
+                [D, E],
+              ]) {
+                const d = pMap5[`${x}:${y}`];
+                if (d) expected = statsAdd(expected, d);
               }
-              for (const [x, y, z] of [[A,B,C],[A,B,D],[A,B,E],[A,C,D],[A,C,E],[A,D,E],[B,C,D],[B,C,E],[B,D,E],[C,D,E]]) {
-                const d = tMap5[`${x}:${y}:${z}`]; if (d) expected = statsAdd(expected, d);
+              for (const [x, y, z] of [
+                [A, B, C],
+                [A, B, D],
+                [A, B, E],
+                [A, C, D],
+                [A, C, E],
+                [A, D, E],
+                [B, C, D],
+                [B, C, E],
+                [B, D, E],
+                [C, D, E],
+              ]) {
+                const d = tMap5[`${x}:${y}:${z}`];
+                if (d) expected = statsAdd(expected, d);
               }
-              for (const k of [`${A}:${B}:${C}:${D}`,`${A}:${B}:${C}:${E}`,`${A}:${B}:${D}:${E}`,`${A}:${C}:${D}:${E}`,`${B}:${C}:${D}:${E}`]) {
-                const d = qMap5[k]; if (d) expected = statsAdd(expected, d);
+              for (const k of [
+                `${A}:${B}:${C}:${D}`,
+                `${A}:${B}:${C}:${E}`,
+                `${A}:${B}:${D}:${E}`,
+                `${A}:${C}:${D}:${E}`,
+                `${B}:${C}:${D}:${E}`,
+              ]) {
+                const d = qMap5[k];
+                if (d) expected = statsAdd(expected, d);
               }
               const residual = statsSub(combined, expected);
               if (!residual) continue;
               pentaCount++;
               const pentaKey = `${A}:${B}:${C}:${D}:${E}`;
               const profileKey5 = bkey(residual);
-              if (!pentaSynergies.has(pentaKey)) pentaSynergies.set(pentaKey, new Map());
+              if (!pentaSynergies.has(pentaKey))
+                pentaSynergies.set(pentaKey, new Map());
               const pm5 = pentaSynergies.get(pentaKey);
-              if (!pm5.has(profileKey5)) pm5.set(profileKey5, { ships: [], items: [A, B, C, D, E], synergy: residual });
+              if (!pm5.has(profileKey5))
+                pm5.set(profileKey5, {
+                  ships: [],
+                  items: [A, B, C, D, E],
+                  synergy: residual,
+                });
               const entry5 = pm5.get(profileKey5);
               if (!entry5.ships.includes(shipId)) entry5.ships.push(shipId);
             }
@@ -894,11 +1073,15 @@ for (let si = 0; si < shipIdsForPenta.length; si++) {
   }
   if ((si + 1) % 50 === 0 || si === shipIdsForPenta.length - 1) {
     const e = ((Date.now() - t5) / 1000).toFixed(1);
-    process.stdout.write(`\r  ${si + 1}/${shipIdsForPenta.length} ships | ${pentaCount} corrections | ${pentasTested} tests | ${e}s`);
+    process.stdout.write(
+      `\r  ${si + 1}/${shipIdsForPenta.length} ships | ${pentaCount} corrections | ${pentasTested} tests | ${e}s`,
+    );
   }
 }
-console.log('');
-console.log(`[Phase 5] Done: ${pentaCount} penta corrections from ${pentaSynergies.size} pentas in ${((Date.now() - t5) / 1000).toFixed(1)}s`);
+console.log("");
+console.log(
+  `[Phase 5] Done: ${pentaCount} penta corrections from ${pentaSynergies.size} pentas in ${((Date.now() - t5) / 1000).toFixed(1)}s`,
+);
 
 // ═══════════════════════════════════════════════════════════════════
 // Phase 6: Hexa cross-item correction scan
@@ -922,8 +1105,9 @@ for (const [pentaKey, profileMap] of pentaSynergies) {
 }
 
 const pentaPoolsByShip = detectPoolsByShip(pentaSynergies, 5);
-const shipIdsForHexa = Object.keys(pentaPoolsByShip).map(Number)
-  .filter(sid => effectiveSlotsOf[sid] >= 6)
+const shipIdsForHexa = Object.keys(pentaPoolsByShip)
+  .map(Number)
+  .filter((sid) => effectiveSlotsOf[sid] >= 6)
   .sort((a, b) => a - b);
 
 const hexaSynergies = new Map();
@@ -937,7 +1121,10 @@ for (let si = 0; si < shipIdsForHexa.length; si++) {
 
   const aloneResults = {};
   const getAlone6 = (id) => {
-    if (!(id in aloneResults)) aloneResults[id] = extractNonZero(getSlotitemEffect(ship, [makeSlot(id, 0)]));
+    if (!(id in aloneResults))
+      aloneResults[id] = extractNonZero(
+        getSlotitemEffect(ship, [makeSlot(id, 0)]),
+      );
     return aloneResults[id];
   };
   const pMap6 = pairByShipKey[shipId] || {};
@@ -958,38 +1145,121 @@ for (let si = 0; si < shipIdsForHexa.length; si++) {
               const E = pool[ei];
               for (let fi = ei + 1; fi < pool.length; fi++) {
                 const F = pool[fi];
-                if (!p5Map6[`${A}:${B}:${C}:${D}:${E}`] && !p5Map6[`${A}:${B}:${C}:${D}:${F}`] &&
-                    !p5Map6[`${A}:${B}:${C}:${E}:${F}`] && !p5Map6[`${A}:${B}:${D}:${E}:${F}`] &&
-                    !p5Map6[`${A}:${C}:${D}:${E}:${F}`] && !p5Map6[`${B}:${C}:${D}:${E}:${F}`]) continue;
+                if (
+                  !p5Map6[`${A}:${B}:${C}:${D}:${E}`] &&
+                  !p5Map6[`${A}:${B}:${C}:${D}:${F}`] &&
+                  !p5Map6[`${A}:${B}:${C}:${E}:${F}`] &&
+                  !p5Map6[`${A}:${B}:${D}:${E}:${F}`] &&
+                  !p5Map6[`${A}:${C}:${D}:${E}:${F}`] &&
+                  !p5Map6[`${B}:${C}:${D}:${E}:${F}`]
+                )
+                  continue;
                 hexasTested++;
                 const combined = extractNonZero(
-                  getSlotitemEffect(ship, [makeSlot(A,0),makeSlot(B,0),makeSlot(C,0),makeSlot(D,0),makeSlot(E,0),makeSlot(F,0)])
+                  getSlotitemEffect(ship, [
+                    makeSlot(A, 0),
+                    makeSlot(B, 0),
+                    makeSlot(C, 0),
+                    makeSlot(D, 0),
+                    makeSlot(E, 0),
+                    makeSlot(F, 0),
+                  ]),
                 );
                 let expected = statsAdd(getAlone6(A), getAlone6(B));
                 expected = statsAdd(expected, getAlone6(C));
                 expected = statsAdd(expected, getAlone6(D));
                 expected = statsAdd(expected, getAlone6(E));
                 expected = statsAdd(expected, getAlone6(F));
-                for (const [x,y] of [[A,B],[A,C],[A,D],[A,E],[A,F],[B,C],[B,D],[B,E],[B,F],[C,D],[C,E],[C,F],[D,E],[D,F],[E,F]]) {
-                  const d = pMap6[`${x}:${y}`]; if (d) expected = statsAdd(expected, d);
+                for (const [x, y] of [
+                  [A, B],
+                  [A, C],
+                  [A, D],
+                  [A, E],
+                  [A, F],
+                  [B, C],
+                  [B, D],
+                  [B, E],
+                  [B, F],
+                  [C, D],
+                  [C, E],
+                  [C, F],
+                  [D, E],
+                  [D, F],
+                  [E, F],
+                ]) {
+                  const d = pMap6[`${x}:${y}`];
+                  if (d) expected = statsAdd(expected, d);
                 }
-                for (const [x,y,z] of [[A,B,C],[A,B,D],[A,B,E],[A,B,F],[A,C,D],[A,C,E],[A,C,F],[A,D,E],[A,D,F],[A,E,F],[B,C,D],[B,C,E],[B,C,F],[B,D,E],[B,D,F],[B,E,F],[C,D,E],[C,D,F],[C,E,F],[D,E,F]]) {
-                  const d = tMap6[`${x}:${y}:${z}`]; if (d) expected = statsAdd(expected, d);
+                for (const [x, y, z] of [
+                  [A, B, C],
+                  [A, B, D],
+                  [A, B, E],
+                  [A, B, F],
+                  [A, C, D],
+                  [A, C, E],
+                  [A, C, F],
+                  [A, D, E],
+                  [A, D, F],
+                  [A, E, F],
+                  [B, C, D],
+                  [B, C, E],
+                  [B, C, F],
+                  [B, D, E],
+                  [B, D, F],
+                  [B, E, F],
+                  [C, D, E],
+                  [C, D, F],
+                  [C, E, F],
+                  [D, E, F],
+                ]) {
+                  const d = tMap6[`${x}:${y}:${z}`];
+                  if (d) expected = statsAdd(expected, d);
                 }
-                for (const k of [`${A}:${B}:${C}:${D}`,`${A}:${B}:${C}:${E}`,`${A}:${B}:${C}:${F}`,`${A}:${B}:${D}:${E}`,`${A}:${B}:${D}:${F}`,`${A}:${B}:${E}:${F}`,`${A}:${C}:${D}:${E}`,`${A}:${C}:${D}:${F}`,`${A}:${C}:${E}:${F}`,`${A}:${D}:${E}:${F}`,`${B}:${C}:${D}:${E}`,`${B}:${C}:${D}:${F}`,`${B}:${C}:${E}:${F}`,`${B}:${D}:${E}:${F}`,`${C}:${D}:${E}:${F}`]) {
-                  const d = qMap6[k]; if (d) expected = statsAdd(expected, d);
+                for (const k of [
+                  `${A}:${B}:${C}:${D}`,
+                  `${A}:${B}:${C}:${E}`,
+                  `${A}:${B}:${C}:${F}`,
+                  `${A}:${B}:${D}:${E}`,
+                  `${A}:${B}:${D}:${F}`,
+                  `${A}:${B}:${E}:${F}`,
+                  `${A}:${C}:${D}:${E}`,
+                  `${A}:${C}:${D}:${F}`,
+                  `${A}:${C}:${E}:${F}`,
+                  `${A}:${D}:${E}:${F}`,
+                  `${B}:${C}:${D}:${E}`,
+                  `${B}:${C}:${D}:${F}`,
+                  `${B}:${C}:${E}:${F}`,
+                  `${B}:${D}:${E}:${F}`,
+                  `${C}:${D}:${E}:${F}`,
+                ]) {
+                  const d = qMap6[k];
+                  if (d) expected = statsAdd(expected, d);
                 }
-                for (const k of [`${A}:${B}:${C}:${D}:${E}`,`${A}:${B}:${C}:${D}:${F}`,`${A}:${B}:${C}:${E}:${F}`,`${A}:${B}:${D}:${E}:${F}`,`${A}:${C}:${D}:${E}:${F}`,`${B}:${C}:${D}:${E}:${F}`]) {
-                  const d = p5Map6[k]; if (d) expected = statsAdd(expected, d);
+                for (const k of [
+                  `${A}:${B}:${C}:${D}:${E}`,
+                  `${A}:${B}:${C}:${D}:${F}`,
+                  `${A}:${B}:${C}:${E}:${F}`,
+                  `${A}:${B}:${D}:${E}:${F}`,
+                  `${A}:${C}:${D}:${E}:${F}`,
+                  `${B}:${C}:${D}:${E}:${F}`,
+                ]) {
+                  const d = p5Map6[k];
+                  if (d) expected = statsAdd(expected, d);
                 }
                 const residual = statsSub(combined, expected);
                 if (!residual) continue;
                 hexaCount++;
                 const hexaKey = `${A}:${B}:${C}:${D}:${E}:${F}`;
                 const profileKey6 = bkey(residual);
-                if (!hexaSynergies.has(hexaKey)) hexaSynergies.set(hexaKey, new Map());
+                if (!hexaSynergies.has(hexaKey))
+                  hexaSynergies.set(hexaKey, new Map());
                 const pm6 = hexaSynergies.get(hexaKey);
-                if (!pm6.has(profileKey6)) pm6.set(profileKey6, { ships: [], items: [A,B,C,D,E,F], synergy: residual });
+                if (!pm6.has(profileKey6))
+                  pm6.set(profileKey6, {
+                    ships: [],
+                    items: [A, B, C, D, E, F],
+                    synergy: residual,
+                  });
                 const entry6 = pm6.get(profileKey6);
                 if (!entry6.ships.includes(shipId)) entry6.ships.push(shipId);
               }
@@ -1001,11 +1271,15 @@ for (let si = 0; si < shipIdsForHexa.length; si++) {
   }
   if ((si + 1) % 50 === 0 || si === shipIdsForHexa.length - 1) {
     const e = ((Date.now() - t6) / 1000).toFixed(1);
-    process.stdout.write(`\r  ${si + 1}/${shipIdsForHexa.length} ships | ${hexaCount} corrections | ${hexasTested} tests | ${e}s`);
+    process.stdout.write(
+      `\r  ${si + 1}/${shipIdsForHexa.length} ships | ${hexaCount} corrections | ${hexasTested} tests | ${e}s`,
+    );
   }
 }
-console.log('');
-console.log(`[Phase 6] Done: ${hexaCount} hexa corrections from ${hexaSynergies.size} hexas in ${((Date.now() - t6) / 1000).toFixed(1)}s`);
+console.log("");
+console.log(
+  `[Phase 6] Done: ${hexaCount} hexa corrections from ${hexaSynergies.size} hexas in ${((Date.now() - t6) / 1000).toFixed(1)}s`,
+);
 
 // ═══════════════════════════════════════════════════════════════════
 // Build output
@@ -1038,18 +1312,29 @@ const previewNameManifest = {
 
 /**
  * Groups single-item bonuses by (ships_array, bonus_profile) across all items.
- * Returns array of { ships, b, l?, c2?, c3?, items: [itemId...] }.
+ * Returns array of { ships, b, l?, i?, c2?, c3?, items: [itemId...] }.
  */
 function buildEffectRules(equipResultsMap) {
   const rulesMap = new Map();
   for (const [itemId, profileMap] of equipResultsMap) {
     for (const { ships, profile } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
-      const profNorm = { b: Object.fromEntries(Object.entries(profile.b).sort()) };
-      if (profile.l) profNorm.l = Object.fromEntries(Object.entries(profile.l).sort());
-      if (profile.c2) profNorm.c2 = Object.fromEntries(Object.entries(profile.c2).sort());
-      if (profile.c3) profNorm.c3 = Object.fromEntries(Object.entries(profile.c3).sort());
-      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(profNorm);
+      const profNorm = {
+        b: Object.fromEntries(Object.entries(profile.b).sort()),
+      };
+      if (profile.l)
+        profNorm.l = Object.fromEntries(Object.entries(profile.l).sort());
+      if (profile.i) {
+        profNorm.i = profile.i.map(([lv, stats]) => [
+          lv,
+          Object.fromEntries(Object.entries(stats).sort()),
+        ]);
+      }
+      if (profile.c2)
+        profNorm.c2 = Object.fromEntries(Object.entries(profile.c2).sort());
+      if (profile.c3)
+        profNorm.c3 = Object.fromEntries(Object.entries(profile.c3).sort());
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(profNorm);
       if (!rulesMap.has(groupKey)) {
         rulesMap.set(groupKey, { ships: shipsSorted, ...profNorm, items: [] });
       }
@@ -1069,20 +1354,25 @@ function buildEffectRules(equipResultsMap) {
 function buildCrossRules(synergiesMap) {
   const rulesMap = new Map();
   for (const [pairKey, profileMap] of synergiesMap) {
-    const [aStr, bStr] = pairKey.split(':');
+    const [aStr, bStr] = pairKey.split(":");
     const pair = [parseInt(aStr), parseInt(bStr)]; // a < b guaranteed
     for (const { ships, synergy } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
       const synSorted = Object.fromEntries(Object.entries(synergy).sort());
-      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted);
       if (!rulesMap.has(groupKey)) {
-        rulesMap.set(groupKey, { ships: shipsSorted, synergy: synSorted, pairs: [] });
+        rulesMap.set(groupKey, {
+          ships: shipsSorted,
+          synergy: synSorted,
+          pairs: [],
+        });
       }
       rulesMap.get(groupKey).pairs.push(pair);
     }
   }
   const rules = [...rulesMap.values()];
-  for (const rule of rules) rule.pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (const rule of rules)
+    rule.pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   rules.sort((a, b) => a.ships[0] - b.ships[0]);
   return rules;
 }
@@ -1096,13 +1386,18 @@ function buildCrossRules(synergiesMap) {
 function buildRules(synergyMap, comboSize) {
   const rulesMap = new Map();
   for (const [key, profileMap] of synergyMap) {
-    const items = key.split(':').map(Number);
+    const items = key.split(":").map(Number);
     for (const { ships, synergy } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
       const synSorted = Object.fromEntries(Object.entries(synergy).sort());
-      const groupKey = shipsSorted.join(',') + '|' + JSON.stringify(synSorted);
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted);
       if (!rulesMap.has(groupKey)) {
-        rulesMap.set(groupKey, { ships: shipsSorted, synergy: synSorted, combos: [], _allItems: new Set() });
+        rulesMap.set(groupKey, {
+          ships: shipsSorted,
+          synergy: synSorted,
+          combos: [],
+          _allItems: new Set(),
+        });
       }
       const rule = rulesMap.get(groupKey);
       rule.combos.push(items);
@@ -1119,23 +1414,44 @@ function buildRules(synergyMap, comboSize) {
     });
     const pool = [...rule._allItems].sort((a, b) => a - b);
     delete rule._allItems;
-    if (pool.length >= comboSize && choose(pool.length, comboSize) === rule.combos.length) {
+    if (
+      pool.length >= comboSize &&
+      choose(pool.length, comboSize) === rule.combos.length
+    ) {
+      // All C(pool, comboSize) combinations: store pool only.
       rule.item_pool = pool;
       delete rule.combos;
-    } else if (pool.length < 256) {
-      // Compact encoding: base64 of Uint8 indices into pool.
-      // Each group of comboSize bytes encodes one combo as local indices.
-      const itemIdx = new Map(pool.map((id, i) => [id, i]));
-      const buf = new Uint8Array(rule.combos.length * comboSize);
-      let pos = 0;
-      for (const combo of rule.combos) {
-        for (const id of combo) buf[pos++] = itemIdx.get(id);
+    } else if (comboSize > 1 && rule.combos.length > 0) {
+      // Try fixed-item encoding: items present in EVERY combo become fixed_items,
+      // the remainder form free_pool. If C(free_pool, comboSize - k) == comboCount,
+      // we can store just {fixed_items, free_pool} instead of explicit combo list.
+      const comboCount = rule.combos.length;
+      const freq = new Map();
+      for (const combo of rule.combos)
+        for (const id of combo) freq.set(id, (freq.get(id) || 0) + 1);
+      const fixedItems = pool.filter((id) => freq.get(id) === comboCount);
+      let usedFixed = false;
+      if (fixedItems.length > 0 && fixedItems.length < comboSize) {
+        const fixedSet = new Set(fixedItems);
+        const freePool = pool.filter((id) => !fixedSet.has(id));
+        const remainingSize = comboSize - fixedItems.length;
+        if (choose(freePool.length, remainingSize) === comboCount) {
+          rule.fixed_items = fixedItems;
+          rule.free_pool = freePool;
+          delete rule.combos;
+          usedFixed = true;
+        }
       }
-      rule.items = pool;
-      rule.combos_b64 = Buffer.from(buf).toString('base64');
+      if (!usedFixed) {
+        // Fall back to compact base64 encoding.
+        Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
+        delete rule.combos;
+      }
+    } else {
+      // Compact encoding with dynamic index width (u8/u16/u32), then base64.
+      Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
       delete rule.combos;
     }
-    // else: pool.length >= 256 → keep explicit combos (extremely rare)
   }
   rules.sort((a, b) => a.ships[0] - b.ships[0]);
   return rules;
@@ -1220,6 +1536,18 @@ fs.writeFileSync(outputPath, jsonOut, "utf-8");
 const sizeKB = (Buffer.byteLength(jsonOut) / 1024).toFixed(1);
 console.log(
   `[output] Saved: ${path.relative(ROOT, outputPath)} (${sizeKB} KB)`,
+);
+
+const brotliOut = zlib.brotliCompressSync(Buffer.from(jsonOut, "utf-8"), {
+  params: {
+    [zlib.constants.BROTLI_PARAM_QUALITY]: 11,
+  },
+});
+const brotliPath = `${outputPath}.br`;
+fs.writeFileSync(brotliPath, brotliOut);
+const brotliSizeKB = (brotliOut.byteLength / 1024).toFixed(1);
+console.log(
+  `[output] Saved: ${path.relative(ROOT, brotliPath)} (${brotliSizeKB} KB)`,
 );
 
 const previewManifestJson = JSON.stringify(previewNameManifest);

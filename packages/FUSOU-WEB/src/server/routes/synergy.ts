@@ -15,6 +15,33 @@ import { createEnvContext, verifyAdminToken } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+async function decompressBytes(
+  body: Uint8Array,
+  format: "gzip" | "br",
+): Promise<Uint8Array> {
+  const ds = new DecompressionStream(format as CompressionFormat);
+  const ab = new Uint8Array(body).buffer;
+  const stream = new Blob([ab]).stream().pipeThrough(ds);
+  const out = await new Response(stream).arrayBuffer();
+  return new Uint8Array(out);
+}
+
+async function decodeSynergyPayload(body: Uint8Array): Promise<Uint8Array> {
+  if (body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b) {
+    return await decompressBytes(body, "gzip");
+  }
+  // Brotli stream magic heuristic (RFC7932): first byte is often 0x8b/0x8f/0x93 etc.
+  // We avoid strict magic and try decode only when payload is not plain JSON.
+  if (body.length > 0 && body[0] !== 0x7b && body[0] !== 0x5b) {
+    try {
+      return await decompressBytes(body, "br");
+    } catch {
+      // not brotli; fall through as-is
+    }
+  }
+  return body;
+}
+
 const EMPTY_SYNERGY_DATA = {
   effect_rules: [],
   cross_rules: [],
@@ -129,9 +156,9 @@ app.get("/synergy-data", async (c) => {
         )
         .first()) as { period_tag: string } | null;
 
-        if (latestMasterData?.period_tag) {
-          effectivePeriodTag = latestMasterData.period_tag;
-        }
+      if (latestMasterData?.period_tag) {
+        effectivePeriodTag = latestMasterData.period_tag;
+      }
     }
     // Fallback to synergy_manifest if needed
     if (!effectivePeriodTag) {
@@ -291,7 +318,12 @@ app.get("/synergy-data", async (c) => {
       });
     }
 
-    return new Response(object.body, {
+    const raw = new Uint8Array(await object.arrayBuffer());
+    const decoded = await decodeSynergyPayload(raw);
+
+    const jsonText = new TextDecoder().decode(decoded);
+
+    return new Response(jsonText, {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",

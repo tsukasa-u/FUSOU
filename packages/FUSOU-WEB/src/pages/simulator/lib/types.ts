@@ -79,6 +79,8 @@ export interface EffectRule {
   ships: number[];
   b: Record<string, number>;
   l?: Record<string, number>;
+  /** Improvement-level transition list: [[starLevel, bonus], ...]. */
+  i?: Array<[number, Record<string, number>]>;
   c2?: Record<string, number>;
   c3?: Record<string, number>;
   /** Item IDs that share this exact (ships, profile) combination. */
@@ -94,7 +96,8 @@ export interface CrossRule {
 }
 
 /** Base for triple/quad/penta/hexa rules. Combos are stored either as item_pool
- *  (when all C(|pool|, combo_size) are present — the dominant case) or as explicit
+ *  (when all C(|pool|, combo_size) are present — the dominant case), as
+ *  fixed_items + free_pool (when some items appear in every combo), or as explicit
  *  combos for partial/irregular patterns. */
 interface MultiItemRule {
   ships: number[];
@@ -103,11 +106,26 @@ interface MultiItemRule {
    *  At runtime: apply synergy × C(overlap, combo_size) times where overlap is
    *  the count of item_pool members present in the equipped set. */
   item_pool?: number[];
+  /** Fixed-item encoding: every combo contains all fixed_items plus exactly
+   *  (combo_size - fixed_items.length) distinct items from free_pool.
+   *  Combos are all C(free_pool.length, combo_size - fixed_items.length).
+   *  At runtime: match if all fixed_items are equipped AND overlap from free_pool
+   *  ≥ (combo_size - fixed_items.length); apply synergy × C(overlap, needed) times. */
+  fixed_items?: number[];
+  free_pool?: number[];
   /** Compact encoding for partial patterns: base64 of Uint8Array where each
    *  group of comboSize bytes is one combo encoded as indices into items[].
    *  items.length must be < 256. Decoded once and cached at runtime. */
   items?: number[];
   combos_b64?: string;
+  /** Same as combos_b64 but with Uint16 local indices (items.length < 65536). */
+  combos_u16_b64?: string;
+  /** Same as combos_b64 but with Uint32 local indices. */
+  combos_u32_b64?: string;
+  /** Gzip-compressed local-index bytes encoded as base64. */
+  combos_gz_b64?: string;
+  /** Codec used for combos_gz_b64 payload. */
+  combos_codec?: "u8" | "u16" | "u32";
   /** Explicit combos (fallback for items.length ≥ 256, extremely rare). */
   combos?: number[][];
 }

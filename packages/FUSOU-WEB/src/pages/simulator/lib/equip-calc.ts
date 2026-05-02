@@ -25,7 +25,7 @@ function choose(n: number, k: number): number {
   if (k === 0 || k === n) return 1;
   k = Math.min(k, n - k);
   let r = 1;
-  for (let i = 0; i < k; i++) r = Math.round(r * (n - i) / (i + 1));
+  for (let i = 0; i < k; i++) r = Math.round((r * (n - i)) / (i + 1));
   return r;
 }
 
@@ -37,6 +37,8 @@ let _crossIndex: Map<string, CrossRule[]> = new Map();
 
 // Cache for decoded combo Uint8Arrays (keyed by rule object; GC'd with old data).
 const _combosB64Cache = new WeakMap<object, Uint8Array>();
+const _combosU16B64Cache = new WeakMap<object, Uint16Array>();
+const _combosU32B64Cache = new WeakMap<object, Uint32Array>();
 
 function ensureIndex(data: SlotItemEffectsData): void {
   if (_indexedDataRef === data) return;
@@ -46,7 +48,10 @@ function ensureIndex(data: SlotItemEffectsData): void {
   for (const rule of data.effect_rules ?? []) {
     for (const itemId of rule.items) {
       let list = _effectIndex.get(itemId);
-      if (!list) { list = []; _effectIndex.set(itemId, list); }
+      if (!list) {
+        list = [];
+        _effectIndex.set(itemId, list);
+      }
       list.push(rule);
     }
   }
@@ -54,7 +59,10 @@ function ensureIndex(data: SlotItemEffectsData): void {
     for (const [a, b] of rule.pairs) {
       const key = `${a}:${b}`;
       let list = _crossIndex.get(key);
-      if (!list) { list = []; _crossIndex.set(key, list); }
+      if (!list) {
+        list = [];
+        _crossIndex.set(key, list);
+      }
       list.push(rule);
     }
   }
@@ -67,16 +75,22 @@ function ensureIndex(data: SlotItemEffectsData): void {
   // Back-compat: index legacy cross_effects dict if present and cross_rules absent
   if (!data.cross_rules && data.cross_effects) {
     for (const [key, entries] of Object.entries(data.cross_effects)) {
-      _crossIndex.set(key, entries.map(e => ({
-        ships: e.ships,
-        synergy: e.synergy,
-        pairs: [e.items],
-      })));
+      _crossIndex.set(
+        key,
+        entries.map((e) => ({
+          ships: e.ships,
+          synergy: e.synergy,
+          pairs: [e.items],
+        })),
+      );
     }
   }
 }
 
-export function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number) {
+export function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  ms: number,
+) {
   let timer: number;
   return (...args: Parameters<T>) => {
     clearTimeout(timer);
@@ -94,9 +108,12 @@ function isSortedMultisetSubset(subset: number[], superset: number[]): boolean {
   let si = 0;
   let pi = 0;
   while (si < subset.length && pi < superset.length) {
-    if (subset[si] === superset[pi]) { si++; pi++; }
-    else if (superset[pi] < subset[si]) { pi++; }
-    else return false; // subset[si] < superset[pi]: element not in superset
+    if (subset[si] === superset[pi]) {
+      si++;
+      pi++;
+    } else if (superset[pi] < subset[si]) {
+      pi++;
+    } else return false; // subset[si] < superset[pi]: element not in superset
   }
   return si === subset.length;
 }
@@ -110,9 +127,15 @@ export function intersectSorted(a: number[], b: number[]): number[] {
   let ai = 0;
   let bi = 0;
   while (ai < a.length && bi < b.length) {
-    if (a[ai] === b[bi]) { result.push(a[ai]); ai++; bi++; }
-    else if (a[ai] < b[bi]) { ai++; }
-    else { bi++; }
+    if (a[ai] === b[bi]) {
+      result.push(a[ai]);
+      ai++;
+      bi++;
+    } else if (a[ai] < b[bi]) {
+      ai++;
+    } else {
+      bi++;
+    }
   }
   return result;
 }
@@ -140,7 +163,8 @@ export function computeEquipBonuses(
     if (id == null) continue;
     allItems.push({ id, improvement: equipImprovements[i] || 0 });
   }
-  if (exSlotId != null) allItems.push({ id: exSlotId, improvement: exSlotImprovement || 0 });
+  if (exSlotId != null)
+    allItems.push({ id: exSlotId, improvement: exSlotImprovement || 0 });
   if (allItems.length === 0) return bonuses;
 
   const itemGroups: Record<number, number[]> = {};
@@ -162,8 +186,18 @@ export function computeEquipBonuses(
 
       let src: Record<string, number>;
       if (count === 1) {
-        const hasStar10 = levels.some((lv) => lv >= 10);
-        src = hasStar10 && entry.l ? entry.l : entry.b;
+        const lv = levels[0] ?? 0;
+        src = entry.b;
+        // Detector now emits discrete improvement transitions; use exact step values.
+        if (entry.i && entry.i.length > 0) {
+          for (const [threshold, stats] of entry.i) {
+            if (lv < threshold) break;
+            src = stats;
+          }
+        } else if (entry.l && lv >= 10) {
+          // Backward compatibility for legacy max-only profile.
+          src = entry.l;
+        }
       } else if (count >= 3 && entry.c3) {
         src = { ...entry.c3 };
         if (count > 3) {
@@ -216,13 +250,39 @@ export function computeEquipBonuses(
   const equippedSet = new Set(uniqueIds);
 
   // Helper: apply a multi-item rule (triple/quad/penta/hexa).
-  // Supports item_pool (pool), combos_b64 (compact base64), and explicit combos.
-  const applyMultiRule = (rule: { ships: number[]; synergy: Record<string, number>; item_pool?: number[]; items?: number[]; combos_b64?: string; combos?: number[][] }, comboSize: number) => {
+  // Supports item_pool (pool), fixed_items+free_pool, combos_b64, and explicit combos.
+  const applyMultiRule = (
+    rule: {
+      ships: number[];
+      synergy: Record<string, number>;
+      item_pool?: number[];
+      fixed_items?: number[];
+      free_pool?: number[];
+      items?: number[];
+      combos_b64?: string;
+      combos_u16_b64?: string;
+      combos_u32_b64?: string;
+      combos?: number[][];
+    },
+    comboSize: number,
+  ) => {
     if (!rule.ships.includes(shipId)) return;
     if (rule.item_pool) {
-      const overlap = rule.item_pool.filter(id => equippedSet.has(id)).length;
+      const overlap = rule.item_pool.filter((id) => equippedSet.has(id)).length;
       if (overlap >= comboSize) {
         const times = choose(overlap, comboSize);
+        for (const [k, v] of Object.entries(rule.synergy)) {
+          if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
+        }
+      }
+    } else if (rule.fixed_items && rule.free_pool) {
+      if (!rule.fixed_items.every((id) => equippedSet.has(id))) return;
+      const neededFree = comboSize - rule.fixed_items.length;
+      const freeOverlap = rule.free_pool.filter((id) =>
+        equippedSet.has(id),
+      ).length;
+      if (freeOverlap >= neededFree) {
+        const times = choose(freeOverlap, neededFree);
         for (const [k, v] of Object.entries(rule.synergy)) {
           if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
         }
@@ -230,8 +290,54 @@ export function computeEquipBonuses(
     } else if (rule.combos_b64 && rule.items) {
       let buf = _combosB64Cache.get(rule);
       if (!buf) {
-        buf = Uint8Array.from(atob(rule.combos_b64), c => c.charCodeAt(0));
+        buf = Uint8Array.from(atob(rule.combos_b64), (c) => c.charCodeAt(0));
         _combosB64Cache.set(rule, buf);
+      }
+      const count = buf.length / comboSize;
+      outer: for (let ci = 0; ci < count; ci++) {
+        const base = ci * comboSize;
+        for (let j = 0; j < comboSize; j++) {
+          if (!equippedSet.has(rule.items[buf[base + j]])) continue outer;
+        }
+        for (const [k, v] of Object.entries(rule.synergy)) {
+          if (v) bonuses[k] = (bonuses[k] || 0) + v;
+        }
+      }
+    } else if (rule.combos_u16_b64 && rule.items) {
+      let buf = _combosU16B64Cache.get(rule);
+      if (!buf) {
+        const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) =>
+          c.charCodeAt(0),
+        );
+        buf = new Uint16Array(
+          raw.buffer,
+          raw.byteOffset,
+          Math.floor(raw.byteLength / 2),
+        );
+        _combosU16B64Cache.set(rule, buf);
+      }
+      const count = buf.length / comboSize;
+      outer: for (let ci = 0; ci < count; ci++) {
+        const base = ci * comboSize;
+        for (let j = 0; j < comboSize; j++) {
+          if (!equippedSet.has(rule.items[buf[base + j]])) continue outer;
+        }
+        for (const [k, v] of Object.entries(rule.synergy)) {
+          if (v) bonuses[k] = (bonuses[k] || 0) + v;
+        }
+      }
+    } else if (rule.combos_u32_b64 && rule.items) {
+      let buf = _combosU32B64Cache.get(rule);
+      if (!buf) {
+        const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) =>
+          c.charCodeAt(0),
+        );
+        buf = new Uint32Array(
+          raw.buffer,
+          raw.byteOffset,
+          Math.floor(raw.byteLength / 4),
+        );
+        _combosU32B64Cache.set(rule, buf);
       }
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
@@ -245,7 +351,7 @@ export function computeEquipBonuses(
       }
     } else if (rule.combos) {
       for (const combo of rule.combos) {
-        if (combo.every(id => equippedSet.has(id))) {
+        if (combo.every((id) => equippedSet.has(id))) {
           for (const [k, v] of Object.entries(rule.synergy)) {
             if (v) bonuses[k] = (bonuses[k] || 0) + v;
           }
@@ -287,7 +393,10 @@ export function computeEquipBonuses(
       const masterObs = speedData?.[shipId];
       if (masterObs && masterObs.length > 0) {
         // Build sorted multiset of currently equipped non-zero item IDs.
-        const currentIds = allItems.map((i) => i.id).filter((id) => id > 0).sort((a, b) => a - b);
+        const currentIds = allItems
+          .map((i) => i.id)
+          .filter((id) => id > 0)
+          .sort((a, b) => a - b);
 
         // Group speed-upgrade observations by their observed speed tier.
         const tierMap = new Map<number, number[][]>();
@@ -349,7 +458,18 @@ export function computeEquipSum(
     if (id == null) continue;
     const eq = getMasterSlotItem(id);
     if (!eq) continue;
-    for (const k of ["houg", "raig", "tyku", "tais", "baku", "saku", "houm", "souk", "luck", "soku"] as const) {
+    for (const k of [
+      "houg",
+      "raig",
+      "tyku",
+      "tais",
+      "baku",
+      "saku",
+      "houm",
+      "souk",
+      "luck",
+      "soku",
+    ] as const) {
       const v = eq[k] || 0;
       if (v) sums[k] = (sums[k] || 0) + v;
     }
@@ -415,7 +535,11 @@ export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
   return el;
 }
 
-export function createShipTypeIconEl(stype: number, width = 66, height = 18): HTMLElement {
+export function createShipTypeIconEl(
+  stype: number,
+  width = 66,
+  height = 18,
+): HTMLElement {
   const frame = getShipTypeIconFrame(stype);
   const spriteSheet = getShipTypeSpriteSheetMeta();
   if (frame && spriteSheet.url) {

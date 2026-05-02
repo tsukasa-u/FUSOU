@@ -108,6 +108,61 @@ function parseIntHeader(value: string | null): number | null {
   return n;
 }
 
+function base64ToBytes(base64: string): Uint8Array {
+  return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    const chunk = bytes.subarray(i, i + 0x8000);
+    out += String.fromCharCode(...chunk);
+  }
+  return btoa(out);
+}
+
+async function gunzipBytes(input: Uint8Array): Promise<Uint8Array> {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("DecompressionStream is not available in this browser");
+  }
+  const ds = new DecompressionStream("gzip");
+  const ab = new Uint8Array(input).buffer;
+  const stream = new Blob([ab]).stream().pipeThrough(ds);
+  const out = await new Response(stream).arrayBuffer();
+  return new Uint8Array(out);
+}
+
+async function normalizeCompressedComboRules(
+  data: SlotItemEffectsData,
+): Promise<SlotItemEffectsData> {
+  const ruleLists = [
+    data.triple_rules,
+    data.quad_rules,
+    data.penta_rules,
+    data.hexa_rules,
+  ];
+
+  for (const rules of ruleLists) {
+    if (!rules) continue;
+    for (const rule of rules) {
+      if (!rule.combos_gz_b64 || !rule.combos_codec) continue;
+      const inflated = await gunzipBytes(base64ToBytes(rule.combos_gz_b64));
+      const inflatedB64 = bytesToBase64(inflated);
+      if (rule.combos_codec === "u8") {
+        rule.combos_b64 = inflatedB64;
+      } else if (rule.combos_codec === "u16") {
+        rule.combos_u16_b64 = inflatedB64;
+      } else {
+        rule.combos_u32_b64 = inflatedB64;
+      }
+      delete rule.combos_gz_b64;
+      delete rule.combos_codec;
+    }
+  }
+
+  return data;
+}
+
 async function fetchSynergyDataWithMeta(): Promise<{
   data: SlotItemEffectsData | null;
   meta: SlotItemEffectsMeta | null;
@@ -124,14 +179,19 @@ async function fetchSynergyDataWithMeta(): Promise<{
       return { data: null, meta: null };
     }
 
-    let parsed: (SlotItemEffectsData & {
-      _meta?: {
-        generator_version?: string;
-        table_version?: string;
-      };
-    }) | null = null;
+    let parsed:
+      | (SlotItemEffectsData & {
+          _meta?: {
+            generator_version?: string;
+            table_version?: string;
+          };
+        })
+      | null = null;
     try {
       parsed = (await res.json()) as SlotItemEffectsData;
+      if (parsed) {
+        parsed = await normalizeCompressedComboRules(parsed);
+      }
     } catch (err) {
       console.error("[simulator] slot_item_effects json parse failed", {
         url: "/api/master-data/synergy-data",
@@ -478,6 +538,19 @@ let _weaponIconDataUrl: string | null = null;
 let _shipTypeIconDataUrl: string | null = null;
 let _masterDataPeriodTag: string | null = null;
 let _masterDataPeriodRevision: number | null = null;
+let _masterDataTableVersion: string | null = null;
+
+export function getLoadedMasterDataMeta(): {
+  period_tag: string | null;
+  period_revision: number | null;
+  table_version: string | null;
+} {
+  return {
+    period_tag: _masterDataPeriodTag,
+    period_revision: _masterDataPeriodRevision,
+    table_version: _masterDataTableVersion,
+  };
+}
 
 async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
   try {
@@ -529,10 +602,12 @@ export async function loadMasterData(renderAll: () => void) {
       equipExslotShipData,
       equipLimitExslotData,
     ] = await Promise.all([
-      fetchJsonSafe<{ records: MstShipData[]; period_tag?: string; period_revision?: number; table_version?: string }>(
-        "/api/master-data/json?table_name=mst_ship",
-        "mst_ship",
-      ),
+      fetchJsonSafe<{
+        records: MstShipData[];
+        period_tag?: string;
+        period_revision?: number;
+        table_version?: string;
+      }>("/api/master-data/json?table_name=mst_ship", "mst_ship"),
       fetchJsonSafe<{ records: MstSlotItemData[] }>(
         "/api/master-data/json?table_name=mst_slotitem",
         "mst_slotitem",
@@ -601,6 +676,7 @@ export async function loadMasterData(renderAll: () => void) {
     }
     _masterDataPeriodTag = shipData?.period_tag ?? null;
     _masterDataPeriodRevision = shipData?.period_revision ?? null;
+    _masterDataTableVersion = shipData?.table_version ?? null;
 
     if (equipData?.records) {
       for (const e of equipData.records) {
@@ -734,7 +810,8 @@ export async function loadMasterData(renderAll: () => void) {
     }
 
     setSlotItemEffects(
-      synergyBundle.data && (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
+      synergyBundle.data &&
+        (synergyBundle.data.effect_rules ?? synergyBundle.data.effects)
         ? synergyBundle.data
         : null,
     );
@@ -753,7 +830,9 @@ export async function loadMasterData(renderAll: () => void) {
       data: import("./types").SokuSpeedData;
     }>(speedUpgradeUrl.toString(), "soku-speed-upgrade");
     setSokuSpeedData(
-      speedUpgradeData?.ok && speedUpgradeData.data ? speedUpgradeData.data : null,
+      speedUpgradeData?.ok && speedUpgradeData.data
+        ? speedUpgradeData.data
+        : null,
     );
 
     if (equipTypeData?.records) {

@@ -44,6 +44,7 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from "fs";
 import { resolve, basename, dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { spawnSync } from "child_process";
+import { brotliCompressSync, constants as zlibConstants } from "zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Default file: equip_synergy_detector output lives next to FUSOU-WEB in the monorepo
@@ -65,6 +66,7 @@ function parseArgs(argv) {
     "--env",
     "--dry-run",
     "--force",
+    "--no-br",
     "--help",
     "-h",
   ]);
@@ -101,6 +103,7 @@ function parseArgs(argv) {
     else if (arg === "--env") opts.env = readValue("--env", i++);
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--force") opts.force = true;
+    else if (arg === "--no-br") opts.noBr = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
   }
   return opts;
@@ -123,6 +126,7 @@ Options:
   --env production        Target production (default: dev / localhost:4321)
   --dry-run               Print plan without executing
   --force                 Treat duplicate-manifest 409 as success (idempotent)
+  --no-br                 Upload raw JSON (disable Brotli payload)
   `);
   process.exit(1);
 }
@@ -331,6 +335,14 @@ async function main() {
   const fileBuffer = readFileSync(filePath);
   const fileHash = sha256(fileBuffer);
   const fileSizeKB = (fileBuffer.length / 1024).toFixed(1);
+  const uploadBuffer = opts.noBr
+    ? fileBuffer
+    : brotliCompressSync(fileBuffer, {
+        params: {
+          [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
+        },
+      });
+  const uploadSizeKB = (uploadBuffer.length / 1024).toFixed(1);
 
   let meta;
   try {
@@ -391,6 +403,9 @@ async function main() {
   // ── Print plan ─────────────────────────────────────────────────────
   console.log("=== Synergy Upload Plan ===");
   console.log(`  File:             ${basename(filePath)} (${fileSizeKB} KB)`);
+  console.log(
+    `  Upload Payload:   ${opts.noBr ? "raw json" : "brotli"} (${uploadSizeKB} KB)`,
+  );
   console.log(`  SHA-256:          ${fileHash}`);
   console.log(`  Period Tag:       ${periodTag}`);
   console.log(`  API Start2 Hash:  ${apiStart2Hash}`);
@@ -490,12 +505,18 @@ async function main() {
 
   // Step 2: Upload to R2 via wrangler
   console.log("[2/3] Uploading to R2...");
-  wranglerR2Put(
-    manifest.r2_keys.sp_effect_json,
-    filePath,
-    opts.env,
-    bucketName,
-  );
+  const uploadTmpPath = resolve(`${filePath}.upload.bin`);
+  writeFileSync(uploadTmpPath, uploadBuffer);
+  try {
+    wranglerR2Put(
+      manifest.r2_keys.sp_effect_json,
+      uploadTmpPath,
+      opts.env,
+      bucketName,
+    );
+  } finally {
+    if (existsSync(uploadTmpPath)) unlinkSync(uploadTmpPath);
+  }
   console.log(
     `  ✓ sp_effect_item uploaded: ${manifest.r2_keys.sp_effect_json}`,
   );
