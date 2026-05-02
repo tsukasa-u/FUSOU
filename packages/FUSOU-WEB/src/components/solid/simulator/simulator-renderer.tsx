@@ -553,7 +553,7 @@ function StatCell(props: {
 
   return (
     <div class="grid grid-cols-[1.25rem_1fr_1.5rem] items-center gap-0 group/stat h-3.5 w-[5.9rem]">
-      <span class="text-base-content/40 font-medium text-[10px]">
+      <span class="text-base-content/40 font-medium text-[10px] whitespace-nowrap">
         {props.label}
       </span>
 
@@ -927,7 +927,7 @@ function ShipCard(props: {
                 {isLabeledStat ? (
                   <>
                     <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
-                      <span class="font-medium text-base-content/70">
+                      <span class="font-medium text-base-content/70 whitespace-nowrap">
                         {st[0]}
                       </span>
                       <div class="justify-self-end flex items-center justify-end leading-6">
@@ -968,7 +968,7 @@ function ShipCard(props: {
                 ) : (
                   <div>
                     <div class="grid grid-cols-[1.75rem_1fr] items-center gap-2">
-                      <span class="font-medium text-base-content/70">
+                      <span class="font-medium text-base-content/70 whitespace-nowrap">
                         {st[0]}
                       </span>
                       <div class="justify-self-end flex items-center justify-end gap-1">
