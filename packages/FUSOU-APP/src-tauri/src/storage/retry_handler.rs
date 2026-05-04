@@ -255,7 +255,7 @@ impl AppUploadRetryHandler {
                 self.handle_payload_retry(context, data, PayloadHashMode::ContextPayloadHash)
                     .await
             }
-            "ship_growth_ingest" | "remodel_data_ingest" => {
+            "ship_growth_ingest" | "remodel_data_ingest" | "soku_speed_ingest" => {
                 self.handle_payload_retry(context, data, PayloadHashMode::ComputedContentHash)
                     .await
             }
