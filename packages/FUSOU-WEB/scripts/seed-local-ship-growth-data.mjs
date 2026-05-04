@@ -10,7 +10,7 @@
  *   node scripts/seed-local-ship-growth-data.mjs --db <database_name> --period 2026-04-07 --table-version 0.5
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -51,7 +51,9 @@ function runWrangler(dbName, mode, commandOrFile) {
     throw new Error("commandOrFile must include command or file");
   }
 
-  const stdout = execSync(base.map((x) => JSON.stringify(x)).join(" "), {
+  const command = base[0];
+  const args = base.slice(1);
+  const stdout = execFileSync(command, args, {
     encoding: "utf8",
     stdio: ["pipe", "pipe", "pipe"],
   });
