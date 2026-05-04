@@ -16,7 +16,7 @@
  *   - wrangler.toml に D1 バインディングが設定されていること
  */
 
-import { execSync } from "child_process";
+import { execFileSync } from "child_process";
 
 // ── CLI 引数 ────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -31,17 +31,23 @@ const DB = {
 };
 
 // ── ヘルパー ────────────────────────────────────────────────────────
-function run(cmd) {
-  return execSync(cmd, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
+function run(file, args) {
+  return execFileSync(file, args, { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] });
 }
 
 function d1query(dbName, sql) {
-  // Collapse whitespace to a single line to avoid shell escape issues
+  // Collapse whitespace to a single line
   const oneLine = sql.replace(/\s+/g, " ").trim();
-  const escaped = oneLine.replace(/"/g, '\\"');
-  const out = run(
-    `npx wrangler d1 execute ${dbName} --remote --command "${escaped}" --json`,
-  );
+  const out = run("npx", [
+    "wrangler",
+    "d1",
+    "execute",
+    dbName,
+    "--remote",
+    "--command",
+    oneLine,
+    "--json",
+  ]);
   const parsed = JSON.parse(out);
   return parsed?.[0]?.results ?? [];
 }
