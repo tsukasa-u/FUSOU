@@ -86,7 +86,7 @@ function normalizeSql(sql) {
 }
 
 function quoteForCommand(sql) {
-  return normalizeSql(sql).replace(/"/g, '\\"');
+  return normalizeSql(sql).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function d1ExecuteSql(sql, { remote = false, json = false } = {}) {
