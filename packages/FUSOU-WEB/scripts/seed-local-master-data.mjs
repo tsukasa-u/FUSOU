@@ -72,7 +72,7 @@ function sqlQuote(value) {
 
 function shellQuote(value) {
   const raw = String(value ?? "");
-  return `"${raw.replace(/"/g, '\\"')}"`;
+  return `"${raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
 function toSafeInt(value, fallback = 0) {
