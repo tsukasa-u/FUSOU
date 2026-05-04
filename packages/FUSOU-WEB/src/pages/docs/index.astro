@@ -45,6 +45,18 @@ const docs = rawDocs
   url: string;
 }[];
 
+const docsWithSchema = [
+  {
+    slug: "schema/api-schema-explorer",
+    segments: ["schema", "api-schema-explorer"],
+    title: "API Schema Explorer",
+    description:
+      "Interactive visualization of kc-api database tables and API endpoint structures with ReactFlow.",
+    url: "/docs/api-schema",
+  },
+  ...docs,
+];
+
 type MenuNode = {
   title: string;
   url?: string;
@@ -63,7 +75,7 @@ const root = new Map<
   }
 >();
 
-for (const entry of docs) {
+for (const entry of docsWithSchema) {
   let current = root;
   entry.segments.forEach((segment, index) => {
     const isLeaf = index === entry.segments.length - 1;
@@ -96,6 +108,14 @@ const mapToArray = (nodeMap: Map<string, any>): MenuNode[] =>
     }));
 
 const menuTree = mapToArray(root);
+const topLevelSections = menuTree.length;
+const totalDocs = docsWithSchema.length;
+const quickLinks = docsWithSchema.map((doc) => ({
+    title: doc.title,
+    description: doc.description,
+    url: doc.url,
+  }));
+const suggestedQuickLinks = quickLinks.slice(0, 8);
 
 const escapeHtml = (value: string) =>
   value
@@ -125,7 +145,7 @@ const renderMenuHtml = (
     .map((node) => {
       const safeUrl = sanitizeDocsUrl(node.url);
       const label = safeUrl
-        ? `<div class="space-y-${maxDepth / depth}"><a href="${escapeHtml(safeUrl)}" class="text-lg font-semibold text-sky-600 hover:underline">${escapeHtml(
+        ? `<div class="space-y-${maxDepth / depth}"><a href="${escapeHtml(safeUrl)}" class="inline-flex items-center rounded-md px-1 text-lg font-semibold text-sky-600 transition-all hover:bg-sky-500/10 hover:text-sky-500 hover:underline hover:translate-x-0.5">${escapeHtml(
             node.title,
           )}</a>${
             node.description
@@ -165,34 +185,95 @@ const menuHtml = renderMenuHtml(menuTree, 2, 4);
       <main
         class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0"
       >
-        <h1 class="text-3xl font-bold text-base-content">
-          Documentation Index
-        </h1>
-        <p class="mt-2 text-base text-base-content/80">
-          Browse every guide, quick start, and reference entry grouped by their
-          slug hierarchy.
-        </p>
-        <div class="mt-6 mb-4 p-4 bg-base-200 rounded-xl">
-          <a
-            href="/docs/api-schema"
-            class="text-lg font-semibold text-sky-600 hover:underline"
-          >
-            API Schema Explorer
-          </a>
-          <p class="text-sm text-base-content/70 mt-1">
-            Interactive visualization of kc-api database tables and API endpoint
-            structures with ReactFlow.
+        <section class="rounded-xl border border-base-300/70 bg-base-100 p-5 sm:p-6">
+          <h1 class="text-3xl font-bold text-base-content">
+            Documentation Index
+          </h1>
+          <p class="mt-2 text-base text-base-content/80 max-w-[70ch]">
+            Browse every guide, quick start, and reference entry grouped by hierarchy.
+            Start from the left menu if you know the category, or jump from the links below.
           </p>
-        </div>
-        <ul class="bg-base-100 rounded-xl py-6 space-y-8" set:html={menuHtml} />
+          <div class="mt-4 flex flex-wrap gap-2 text-sm">
+            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{totalDocs} documents</span>
+            <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{topLevelSections} top-level sections</span>
+          </div>
+        </section>
+        <ul class="mt-6 bg-base-100 rounded-xl border border-base-300/70 py-6 px-4 sm:px-6 space-y-8" set:html={menuHtml} />
       </main>
 
       <aside
         class="hidden xl:block xl:col-span-5 pl-4 sticky top-20 self-start h-fit"
       >
+        <div class="max-h-[calc(100vh-9.5rem)] pr-2">
+          <section class="rounded-xl border border-base-300/70 bg-base-100 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <h2 class="text-base font-semibold text-base-content">Quick search</h2>
+              <span id="docs-search-hint" class="text-xs text-base-content/60">Suggested pages</span>
+            </div>
+            <label class="input input-bordered mt-3 flex items-center gap-2 w-full">
+              <span class="text-base-content/55">Search</span>
+              <input
+                id="docs-search-input"
+                type="text"
+                class="grow"
+                placeholder="e.g. auth, battle, schema"
+              />
+            </label>
+            <ul id="docs-quick-links" class="mt-3 space-y-2 max-h-[calc(100vh-18rem)] overflow-y-auto pr-1">
+              {
+                quickLinks.map((item) => (
+                  <li
+                    data-doc-item
+                    data-title={item.title.toLowerCase()}
+                    data-description={item.description.toLowerCase()}
+                    data-suggested={suggestedQuickLinks.some((suggested) => suggested.url === item.url) ? "true" : "false"}
+                  >
+                    <a href={item.url} class="block rounded-lg border border-base-300/70 bg-base-100 px-3 py-2 hover:bg-base-200/60 transition-colors">
+                      <p class="text-sm font-semibold text-base-content">{item.title}</p>
+                      {item.description && (
+                        <p class="text-xs text-base-content/65 mt-0.5 line-clamp-2">{item.description}</p>
+                      )}
+                    </a>
+                  </li>
+                ))
+              }
+            </ul>
+            <p id="docs-search-empty" class="hidden mt-2 text-sm text-base-content/65">No matches found.</p>
+          </section>
+        </div>
       </aside>
     </div>
     <div class="flex-1 min-w-0"></div>
   </div>
   <Navigation />
 </Layout>
+
+<script is:inline>
+  const input = document.getElementById("docs-search-input");
+  const hint = document.getElementById("docs-search-hint");
+  const items = Array.from(document.querySelectorAll("[data-doc-item]"));
+  const empty = document.getElementById("docs-search-empty");
+
+  const updateFilter = () => {
+    const q = (input?.value || "").trim().toLowerCase();
+    const hasQuery = q.length > 0;
+    if (hint) {
+      hint.textContent = hasQuery ? "Matching results" : "Suggested pages";
+    }
+    let visible = 0;
+    items.forEach((item) => {
+      const t = item.getAttribute("data-title") || "";
+      const d = item.getAttribute("data-description") || "";
+      const isSuggested = item.getAttribute("data-suggested") === "true";
+      const match = hasQuery ? t.includes(q) || d.includes(q) : isSuggested;
+      item.classList.toggle("hidden", !match);
+      if (match) visible += 1;
+    });
+    if (empty) {
+      empty.classList.toggle("hidden", !hasQuery || visible > 0);
+    }
+  };
+
+  input?.addEventListener("input", updateFilter);
+  updateFilter();
+</script>

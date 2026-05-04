@@ -5,8 +5,9 @@ use kc_api::database::models::airbase::{AirBase, PlaneInfo};
 use kc_api::database::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
-    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
-    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai, BattleResult
+    MidnightHougeki, MidnightHougekiList, NightSupportHourai, OpeningAirAttack,
+    OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack,
+    SupportHourai, BattleResult
 };
 use kc_api::database::models::cell::Cells;
 use kc_api::database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -50,6 +51,8 @@ pub fn integrate_by_table_name(
         PortTableEnum::HougekiList => integrate::<HougekiList>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::MidnightHougeki => integrate::<MidnightHougeki>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::MidnightHougekiList => integrate::<MidnightHougekiList>(file_contents).map_err(|e| e.to_string()),
+        PortTableEnum::NightSupportHourai => integrate::<NightSupportHourai>(file_contents).map_err(|e| e.to_string()),
+        PortTableEnum::NightSupportAirattack => integrate::<SupportAirattack>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::OpeningAirAttack => integrate::<OpeningAirAttack>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::OpeningAirAttackList => integrate::<OpeningAirAttackList>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::OpeningRaigeki => integrate::<OpeningRaigeki>(file_contents).map_err(|e| e.to_string()),

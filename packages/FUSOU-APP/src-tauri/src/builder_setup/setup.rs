@@ -12,7 +12,7 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    auth::auth_server, builder_setup::{
+    builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
@@ -49,7 +49,7 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn set_paths(
+pub fn set_paths(
     #[allow(unused_variables)] app: &mut tauri::App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(dev)]
@@ -184,6 +184,7 @@ fn setup_tray(
         MenuItemBuilder::with_id("force-local-sign-out".to_string(), "Force Local Sign Out")
             .build(app)?;
 
+    #[cfg(dev)]
     let open_auth_page_menu =
         MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page")
             .build(app)?;
@@ -218,8 +219,12 @@ fn setup_tray(
         .item(&intergrate_file)
         .item(&check_update)
         .item(&check_session_health)
-        .item(&force_local_sign_out)
-        .item(&open_auth_page_menu)
+        .item(&force_local_sign_out);
+
+    #[cfg(dev)]
+    let advanced_sub_menu = advanced_sub_menu.item(&open_auth_page_menu);
+
+    let advanced_sub_menu = advanced_sub_menu
         .separator()
         .item(&danger_ope_sub_menu)
         .build()?;
@@ -447,7 +452,7 @@ fn setup_tray(
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         let app_handle_clone = app_handle.clone();
                         let auth_manager_clone = auth_manager.inner().clone();
@@ -498,7 +503,7 @@ fn setup_tray(
                     "check-session-health" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         tauri::async_runtime::spawn(async move {
                             match manager.peek_session().await {
@@ -528,7 +533,7 @@ fn setup_tray(
                                         notify::show(
                                             &app_handle,
                                             "Session Unavailable",
-                                            "Background sign-in failed. Use 'Open Auth Page' when you want to link a social account."
+                                            "Background sign-in failed. Check network and try again."
                                         );
                                     }
                                 }
@@ -545,7 +550,7 @@ fn setup_tray(
                     "force-local-sign-out" => {
                         let app_handle = tray.app_handle().clone();
                         let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
+                        let manager = { auth_manager.lock().unwrap_or_else(|e| e.into_inner()).clone() };
 
                         tauri::async_runtime::spawn(async move {
                             match manager.clear().await {
@@ -553,7 +558,7 @@ fn setup_tray(
                                     notify::show(
                                         &app_handle,
                                         "Local Sign Out",
-                                        "Local tokens cleared (cloud session not revoked). Re-auth when needed from 'Open Auth Page'."
+                                        "Local tokens cleared. Anonymous session will be recreated automatically when needed."
                                     );
                                     let main_window = app_handle.get_webview_window("main");
                                     if let Some(window) = main_window {
@@ -570,31 +575,15 @@ fn setup_tray(
                             }
                         });
                     }
+                    #[cfg(dev)]
                     "open-auth-page" => {
                         let app_handle = tray.app_handle().clone();
-                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
-                        let manager = { auth_manager.lock().unwrap().clone() };
-
                         tauri::async_runtime::spawn(async move {
-                            // Use as an explicit trigger to switch anonymous → social login
-                            let _already_has_session = manager.is_authenticated().await;
-
-                            match auth_server::open_auth_page_with_current_member_id() {
-                                Ok(_) => {
-                                    notify::show(
-                                        &app_handle,
-                                        "Auth Page",
-                                        "Opening auth page to link your account (switch from anonymous to social)."
-                                    );
-                                }
-                                Err(e) => {
-                                    notify::show(
-                                        &app_handle,
-                                        "Auth Page Error",
-                                        &format!("Failed to open auth page: {}", e)
-                                    );
-                                }
-                            }
+                            notify::show(
+                                &app_handle,
+                                "Anonymous-Only Mode",
+                                "Social auth is disabled. This app uses anonymous session only.",
+                            );
                         });
                     }
                     "main-open/close" => {
@@ -773,7 +762,8 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     cli::prepare_terminal_logs(&cli_invocation);
     cli::handle_metadata_commands(app, &cli_invocation)?;
 
-    set_paths(app)?;
+    // set_paths() is called by lib.rs before setup_init() to initialize ROAMING_DIR
+    // early enough for PendingStore/AuthManager construction. Do not call it again here.
     logger::setup(app);
     #[cfg(any(not(dev), check_release))]
     setup_updater(app)?;

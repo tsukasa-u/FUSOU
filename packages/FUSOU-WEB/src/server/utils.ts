@@ -106,6 +106,26 @@ export async function verifySignedToken(
   }
 }
 
+/** Dataset Token Secret の有効性をチェック */
+export function validateDatasetTokenSecret(secret: string | undefined): {
+  ok: boolean;
+  error?: string;
+} {
+  if (!secret) {
+    return { ok: false, error: "DATASET_TOKEN_SECRET not configured" };
+  }
+
+  if (secret.length < 32) {
+    return {
+      ok: false,
+      error:
+        "DATASET_TOKEN_SECRET too short (minimum 32 characters recommended)",
+    };
+  }
+
+  return { ok: true };
+}
+
 /**
  * 環境変数を取得（暗号化対応）
  * @deprecated Use createEnvContext() + getEnv() instead
@@ -175,10 +195,15 @@ export function injectEnv(_locals?: unknown): Bindings {
     ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
     ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
     BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
+    QUEST_INDEX_DB: ctx.runtime.QUEST_INDEX_DB!,
     FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
     BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
     MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
+    SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime.SHIP_GROWTH_ARCHIVE_BUCKET!,
     MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
+    SHIP_GROWTH_DB: ctx.runtime.SHIP_GROWTH_DB!,
+    SOKU_SPEED_OBSERVED_DB: ctx.runtime.SOKU_SPEED_OBSERVED_DB!,
+    REMODEL_INDEX_DB: ctx.runtime.REMODEL_INDEX_DB!,
     ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
     // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
@@ -194,6 +219,9 @@ export function injectEnv(_locals?: unknown): Bindings {
     )!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
+    QUEST_TREE_SIGNING_SECRET: getEnv(ctx, "QUEST_TREE_SIGNING_SECRET"),
+    SHIP_GROWTH_SIGNING_SECRET: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
+    REMODEL_DATA_SIGNING_SECRET: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
@@ -317,9 +345,13 @@ export function sanitizeFileName(input: string | null): string | null {
 // ========================
 
 // Cache RemoteJWKSet globally to leverage Cloudflare Workers hot-instance caching.
-// Use build-time env for initial JWKS setup (runtime env not available at module load)
+// `cfEnv` is used for runtime env (Workers Dashboard vars) so that PUBLIC_SUPABASE_URL
+// does not need to be decrypted/embedded at build time. Without cfEnv here,
+// getEnv() falls through to import.meta.env which contains the "encrypted:..." string
+// that getEnv() refuses to return, leaving SUPABASE_URL=null and all JWT validation
+// failing with 401.
 const initCtx: EnvContext = {
-  runtime: {},
+  runtime: cfEnv as unknown as Record<string, any>,
   buildtime: import.meta.env as Record<string, any>,
   isDev: import.meta.env.DEV,
 };
@@ -362,6 +394,7 @@ export async function validateJWT(token: string): Promise<{
     const { payload } = await jwtVerify(token, jwks, {
       issuer: `${SUPABASE_URL}/auth/v1`,
       audience: "authenticated",
+      clockTolerance: 30, // Allow 30 seconds of clock skew
     });
 
     return {
@@ -373,6 +406,69 @@ export async function validateJWT(token: string): Promise<{
     console.error("validateJWT: JWT verification failed:", error);
     return null;
   }
+}
+
+function isValidMemberIdHash(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
+export function extractMemberIdHashFromJwtPayload(
+  payload?: Record<string, any>,
+): string | null {
+  const candidates = [
+    payload?.member_id_hash,
+    payload?.user_metadata?.member_id_hash,
+    payload?.app_metadata?.member_id_hash,
+  ];
+
+  for (const candidate of candidates) {
+    if (isValidMemberIdHash(candidate)) {
+      return candidate.trim();
+    }
+  }
+
+  return null;
+}
+
+export async function resolveLinkedMemberIdHashForUser(options: {
+  supabaseAdmin: any;
+  userId?: string;
+  jwtPayload?: Record<string, any>;
+}): Promise<{
+  memberIdHash: string | null;
+  source: "jwt_metadata" | "canonical_owner" | null;
+}> {
+  const { supabaseAdmin, userId, jwtPayload } = options;
+
+  const fromJwtMetadata = extractMemberIdHashFromJwtPayload(jwtPayload);
+  if (fromJwtMetadata) {
+    return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
+  }
+
+  if (!userId) {
+    return { memberIdHash: null, source: null };
+  }
+
+  // Anonymous-only mode: lookup member ID in canonical owner mapping only
+  const { data: canonicalMapping, error: canonicalMappingError } =
+    await supabaseAdmin
+      .from("user_member_map")
+      .select("member_id_hash")
+      .eq("user_id", userId)
+      .maybeSingle();
+
+  if (canonicalMappingError) {
+    throw canonicalMappingError;
+  }
+
+  if (isValidMemberIdHash(canonicalMapping?.member_id_hash)) {
+    return {
+      memberIdHash: canonicalMapping.member_id_hash.trim(),
+      source: "canonical_owner",
+    };
+  }
+
+  return { memberIdHash: null, source: null };
 }
 
 /**
@@ -387,6 +483,7 @@ export async function validateDatasetToken(
   secret: string,
 ): Promise<{
   dataset_id: string;
+  user_id: string;
 } | null> {
   try {
     if (!secret) {
@@ -408,11 +505,82 @@ export async function validateDatasetToken(
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
       dataset_id: payload.dataset_id,
+      user_id: payload.sub,
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
     return null;
   }
+}
+
+export interface DatasetTokenValidationOptions {
+  token: string | null | undefined;
+  secret: string | undefined;
+  expectedDatasetId?: string;
+  expectedUserId?: string;
+}
+
+export interface DatasetTokenValidationResult {
+  ok: boolean;
+  status?: 400 | 401 | 403 | 500;
+  error?: string;
+  token?: {
+    dataset_id: string;
+    user_id: string;
+  };
+}
+
+export function resolveDatasetToken(
+  headerToken: string | null | undefined,
+  bodyToken: unknown,
+): string {
+  const header = typeof headerToken === "string" ? headerToken.trim() : "";
+  if (header) return header;
+  return typeof bodyToken === "string" ? bodyToken.trim() : "";
+}
+
+export async function validateDatasetTokenWithConstraints(
+  options: DatasetTokenValidationOptions,
+): Promise<DatasetTokenValidationResult> {
+  const { token, secret, expectedDatasetId, expectedUserId } = options;
+
+  if (!token) {
+    return { ok: false, status: 401, error: "dataset_token is required" };
+  }
+  if (!secret) {
+    return { ok: false, status: 500, error: "Server configuration error" };
+  }
+
+  const validated = await validateDatasetToken(token, secret);
+  if (!validated) {
+    return {
+      ok: false,
+      status: 401,
+      error: "Invalid or expired dataset_token",
+    };
+  }
+
+  if (
+    typeof expectedDatasetId === "string" &&
+    expectedDatasetId.trim() &&
+    validated.dataset_id !== expectedDatasetId.trim()
+  ) {
+    return { ok: false, status: 403, error: "dataset_id does not match token" };
+  }
+
+  if (
+    typeof expectedUserId === "string" &&
+    expectedUserId.trim() &&
+    validated.user_id !== expectedUserId.trim()
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: "dataset_token user does not match JWT user",
+    };
+  }
+
+  return { ok: true, token: validated };
 }
 
 /** 許可リストに違反するかチェック */

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
+import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -13,6 +13,54 @@ import {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+function transformOpeningRaigekiData(raw: any): any {
+  if (!raw) return raw;
+  const result: any = {};
+
+  // Transform field names from test schema to expected schema
+  if (raw.frai_list_items) {
+    result.f_rai =
+      typeof raw.frai_list_items === "string"
+        ? JSON.parse(raw.frai_list_items)
+        : raw.frai_list_items;
+  }
+  if (raw.erai_list_items) {
+    result.e_rai =
+      typeof raw.erai_list_items === "string"
+        ? JSON.parse(raw.erai_list_items)
+        : raw.erai_list_items;
+  }
+  if (raw.friend_damage) {
+    result.f_dam =
+      typeof raw.friend_damage === "string"
+        ? JSON.parse(raw.friend_damage)
+        : raw.friend_damage;
+  }
+  if (raw.enemy_damage) {
+    result.e_dam =
+      typeof raw.enemy_damage === "string"
+        ? JSON.parse(raw.enemy_damage)
+        : raw.enemy_damage;
+  }
+
+  // Build HP arrays based on damage array length (critical for timeline to know fleet size)
+  const fDam = result.f_dam || [];
+  const eDam = result.e_dam || [];
+
+  // Create HP arrays with proper length
+  result.f_now_hps = Array(fDam.length)
+    .fill(null)
+    .map((_, i) => 100 + i * 20);
+  result.e_now_hps = Array(eDam.length)
+    .fill(null)
+    .map((_, i) => 100 + i * 20);
+
+  // Add ship class/type values
+  result.f_cl = Array(result.f_now_hps.length).fill(2);
+  result.e_cl = Array(result.e_now_hps.length).fill(2);
+
+  return result;
+}
 /**
  * Convert Uint8Array to base64 string (Cloudflare Workers compatible)
  * Uses chunks to avoid O(n²) string concatenation
@@ -53,7 +101,11 @@ const PUBLIC_RECORD_TABLES = new Set([
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
 
-function parsePositiveInt(value: string | undefined, fallbackValue: number, max: number): number {
+function parsePositiveInt(
+  value: string | undefined,
+  fallbackValue: number,
+  max: number,
+): number {
   const parsed = Number.parseInt(value ?? "", 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallbackValue;
@@ -84,10 +136,14 @@ function attachSortieIds(records: any[]): void {
   };
 
   const sortable: Item[] = records
-    .filter((rec): rec is Record<string, unknown> => !!rec && typeof rec === "object")
+    .filter(
+      (rec): rec is Record<string, unknown> => !!rec && typeof rec === "object",
+    )
     .map((rec) => ({
       rec,
-      ts: normalizeTimestamp(rec.timestamp) ?? normalizeTimestamp(rec.midnight_timestamp),
+      ts:
+        normalizeTimestamp(rec.timestamp) ??
+        normalizeTimestamp(rec.midnight_timestamp),
     }))
     .sort((a, b) => {
       const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
@@ -95,12 +151,16 @@ function attachSortieIds(records: any[]): void {
       return aTs - bTs;
     });
 
-  const byDataset = new Map<string, { mapKey: string; ts: number | null; sortieNo: number }>();
+  const byDataset = new Map<
+    string,
+    { mapKey: string; ts: number | null; sortieNo: number }
+  >();
 
   for (const item of sortable) {
-    const datasetId = typeof item.rec.dataset_id === "string" && item.rec.dataset_id
-      ? item.rec.dataset_id
-      : "global";
+    const datasetId =
+      typeof item.rec.dataset_id === "string" && item.rec.dataset_id
+        ? item.rec.dataset_id
+        : "global";
     const mapArea = Number(item.rec.maparea_id ?? 0) || 0;
     const mapInfo = Number(item.rec.mapinfo_no ?? 0) || 0;
     const mapKey = `${mapArea}-${mapInfo}`;
@@ -121,7 +181,10 @@ function attachSortieIds(records: any[]): void {
   }
 }
 
-function matchesRecordFilter(record: unknown, filterObj: Record<string, unknown>): boolean {
+function matchesRecordFilter(
+  record: unknown,
+  filterObj: Record<string, unknown>,
+): boolean {
   if (!record || typeof record !== "object") {
     return false;
   }
@@ -175,13 +238,16 @@ async function putCacheSafely(
   try {
     const waitUntil = c.executionCtx?.waitUntil;
     if (typeof waitUntil === "function") {
-      waitUntil(putPromise);
+      waitUntil.call(c.executionCtx, putPromise);
       return;
     }
   } catch (err) {
     // Hono can throw this in stateless contexts; direct await keeps behavior correct.
     if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[battle-data] ExecutionContext unavailable for cache put", err);
+      console.warn(
+        "[battle-data] ExecutionContext unavailable for cache put",
+        err,
+      );
     }
   }
   await putPromise;
@@ -202,7 +268,9 @@ async function decodeIndexedBlock(
   if (!sourceObject?.body) {
     return [];
   }
-  const sourceBytes = new Uint8Array(await new Response(sourceObject.body).arrayBuffer());
+  const sourceBytes = new Uint8Array(
+    await new Response(sourceObject.body).arrayBuffer(),
+  );
   const endByte = Math.min(sourceBytes.byteLength, startByte + length);
   if (startByte >= endByte) {
     return [];
@@ -210,7 +278,9 @@ async function decodeIndexedBlock(
 
   const headerBytes = sourceBytes.subarray(0, startByte);
   const dataBytes = sourceBytes.subarray(startByte, endByte);
-  const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
+  const combined = new Uint8Array(
+    headerBytes.byteLength + dataBytes.byteLength,
+  );
   combined.set(headerBytes, 0);
   combined.set(dataBytes, headerBytes.byteLength);
 
@@ -260,44 +330,18 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
-    preparationValidator: async (body, _user) => {
-      // Extract and validate dataset_token (X-Dataset-Token header or dataset_token in body)
-      const datasetTokenHeader = c.req.header("X-Dataset-Token");
-      const datasetTokenBody =
-        typeof body?.dataset_token === "string"
-          ? body.dataset_token.trim()
-          : "";
-      const datasetToken = datasetTokenHeader || datasetTokenBody;
-
-      if (datasetToken) {
-        const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
-        if (!datasetTokenSecret) {
-          console.error("[battle-data] DATASET_TOKEN_SECRET not configured");
-          return c.json({ error: "Server configuration error" }, 500);
-        }
-
-        const validatedToken = await validateDatasetToken(
-          datasetToken,
-          datasetTokenSecret,
-        );
-        if (!validatedToken) {
-          console.warn("[battle-data] Invalid or expired dataset_token");
-          return c.json({ error: "Invalid or expired dataset_token" }, 401);
-        }
-
-        // Verify dataset_id matches token
-        const requestedDatasetId =
-          typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-        if (requestedDatasetId !== validatedToken.dataset_id) {
-          console.warn(`[battle-data] dataset_id mismatch detected`);
-          return c.json({ error: "dataset_id does not match token" }, 403);
-        }
-
-        console.log(`[battle-data] dataset_token validated successfully`);
+    requireDatasetToken: true,
+    preparationValidator: async (body, _user, authContext) => {
+      const datasetIdFromToken =
+        authContext.datasetToken?.dataset_id?.trim() ?? "";
+      const requestedDatasetId =
+        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
+        console.warn(`[battle-data] dataset_id mismatch detected`);
+        return c.json({ error: "dataset_id does not match token" }, 403);
       }
 
-      const datasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+      const datasetId = datasetIdFromToken || requestedDatasetId;
       const table = typeof body?.table === "string" ? body.table.trim() : "";
       const periodTag =
         typeof body?.kc_period_tag === "string"
@@ -335,7 +379,7 @@ app.post("/upload", async (c) => {
       }
 
       if (!datasetId) {
-        return c.json({ error: "dataset_id is required" }, 400);
+        return c.json({ error: "dataset_id could not be resolved" }, 401);
       }
       if (!table) {
         return c.json({ error: "table is required" }, 400);
@@ -416,6 +460,30 @@ app.post("/upload", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
+      // Content hash verification
+      const expectedContentHash = tokenPayload.content_hash as string;
+      if (expectedContentHash) {
+        const hashBuffer = await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          data as unknown as BufferSource,
+        );
+        const actualHash = Array.from(new Uint8Array(hashBuffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        if (
+          !timingSafeEqual(
+            actualHash.toLowerCase(),
+            expectedContentHash.toLowerCase(),
+          )
+        ) {
+          console.error("[battle-data] Content hash mismatch");
+          return c.json(
+            { error: "Content hash mismatch - data may be corrupted" },
+            400,
+          );
+        }
+      }
+
       const datasetId = tokenPayload.dataset_id as string;
       const table = tokenPayload.table as string;
       const periodTag = (tokenPayload as any).period_tag as string;
@@ -716,7 +784,11 @@ app.get("/chunks", async (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
-  const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
+  const MAX_OFFSET = 100000;
+  const offset = Math.min(
+    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    MAX_OFFSET,
+  );
 
   if (!datasetId || !table) {
     return c.json({ error: "dataset_id and table are required" }, 400);
@@ -888,7 +960,11 @@ app.get("/global/chunks", async (c) => {
   const from = c.req.query("from");
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
-  const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
+  const MAX_GLOBAL_OFFSET = 100000;
+  const offset = Math.min(
+    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    MAX_GLOBAL_OFFSET,
+  );
 
   if (!table) {
     return c.json({ error: "table is required" }, 400);
@@ -965,7 +1041,7 @@ app.get("/global/chunks", async (c) => {
  *   - table: battle | cells | enemy_deck | enemy_ship
  *   - period_tag: latest | all | specific tag
  *   - dataset_id: optional dataset filter
- *   - limit_blocks: max archived blocks to decode (default 10, max 40)
+ *   - limit_blocks: max archived blocks to decode (default 10; when filter_json is set, default 120)
  *   - limit_records: max records in response (default 3000, max 20000)
  */
 app.get("/global/records", async (c) => {
@@ -974,32 +1050,57 @@ app.get("/global/records", async (c) => {
   const bucket = env.runtime.BATTLE_DATA_BUCKET;
 
   if (!indexDb || !bucket) {
-    return c.json({ error: "BATTLE index DB or R2 bucket is not configured" }, 500);
+    return c.json(
+      { error: "BATTLE index DB or R2 bucket is not configured" },
+      500,
+    );
   }
 
   const table = (c.req.query("table") || "battle").trim();
   const periodTagParam = (c.req.query("period_tag") || "latest").trim();
   const datasetId = c.req.query("dataset_id")?.trim();
-  const includeSortieKeyRaw =
-    (c.req.query("include_sortie_key") || "1").trim().toLowerCase();
-  const includeSortieKey = !["0", "false", "off", "no"].includes(includeSortieKeyRaw);
+  const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
+    .trim()
+    .toLowerCase();
+  const includeSortieKey = !["0", "false", "off", "no"].includes(
+    includeSortieKeyRaw,
+  );
   const filterJsonRaw = c.req.query("filter_json")?.trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 10, 40);
-  const limitRecords = parsePositiveInt(c.req.query("limit_records"), 3000, 20000);
-  const cacheControl = periodTagParam === "latest"
-    ? "public, max-age=600, stale-while-revalidate=3600"
-    : "public, max-age=3600, stale-while-revalidate=86400";
+  const hasFilter = Boolean(filterJsonRaw);
+  const limitBlocks = parsePositiveInt(
+    c.req.query("limit_blocks"),
+    hasFilter ? 120 : 10,
+    hasFilter ? 400 : 40,
+  );
+  const limitRecords = parsePositiveInt(
+    c.req.query("limit_records"),
+    3000,
+    20000,
+  );
+  const cacheControl =
+    periodTagParam === "latest"
+      ? "public, max-age=600, stale-while-revalidate=3600"
+      : "public, max-age=3600, stale-while-revalidate=86400";
 
   let recordFilter: Record<string, unknown> | null = null;
   if (filterJsonRaw) {
     try {
       const parsed = JSON.parse(filterJsonRaw) as unknown;
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        return c.json({ error: "INVALID_FILTER", message: "filter_json must be a JSON object" }, 400);
+        return c.json(
+          {
+            error: "INVALID_FILTER",
+            message: "filter_json must be a JSON object",
+          },
+          400,
+        );
       }
       recordFilter = parsed as Record<string, unknown>;
     } catch {
-      return c.json({ error: "INVALID_FILTER", message: "filter_json must be valid JSON" }, 400);
+      return c.json(
+        { error: "INVALID_FILTER", message: "filter_json must be valid JSON" },
+        400,
+      );
     }
   }
 
@@ -1013,7 +1114,8 @@ app.get("/global/records", async (c) => {
     );
   }
 
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches
+    ?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
@@ -1056,7 +1158,10 @@ app.get("/global/records", async (c) => {
     sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
     params.push(limitBlocks);
 
-    const blockResult = await indexDb.prepare(sql).bind(...params).all?.();
+    const blockResult = await indexDb
+      .prepare(sql)
+      .bind(...params)
+      .all?.();
     const rows = (blockResult?.results || []) as Array<{
       id: number;
       dataset_id: string;
@@ -1070,9 +1175,10 @@ app.get("/global/records", async (c) => {
 
     // Build a lightweight ETag from the block IDs so conditional requests can
     // skip the expensive R2 decode step entirely.
-    const blockEtag = rows.length > 0
-      ? `"br-${rows.map((r) => r.id).join("-")}-${limitRecords}"`
-      : null;
+    const blockEtag =
+      rows.length > 0
+        ? `"br-${rows.map((r) => r.id).join("-")}-${limitRecords}"`
+        : null;
 
     const ifNoneMatch = c.req.header("If-None-Match");
     if (blockEtag && ifNoneMatch === blockEtag) {
@@ -1096,10 +1202,7 @@ app.get("/global/records", async (c) => {
         source_blocks: 0,
       };
       const response = c.json(payload);
-      response.headers.set(
-        "Cache-Control",
-        cacheControl,
-      );
+      response.headers.set("Cache-Control", cacheControl);
       response.headers.set("X-FUSOU-Cache", "MISS");
       if (cache) {
         await putCacheSafely(c, cache, cacheKey, response);
@@ -1129,12 +1232,15 @@ app.get("/global/records", async (c) => {
           break;
         }
       } catch (err) {
-        console.warn("[battle-data] failed to decode block in /global/records", {
-          table,
-          blockId: row.id,
-          filePath: row.file_path,
-          error: String(err),
-        });
+        console.warn(
+          "[battle-data] failed to decode block in /global/records",
+          {
+            table,
+            blockId: row.id,
+            filePath: row.file_path,
+            error: String(err),
+          },
+        );
       }
     }
 
@@ -1151,10 +1257,7 @@ app.get("/global/records", async (c) => {
       source_blocks: rows.length,
     };
     const response = c.json(payload);
-    response.headers.set(
-      "Cache-Control",
-      cacheControl,
-    );
+    response.headers.set("Cache-Control", cacheControl);
     response.headers.set("X-FUSOU-Cache", "MISS");
     if (blockEtag) {
       response.headers.set("ETag", blockEtag);
@@ -1233,6 +1336,161 @@ app.get("/global/latest", async (c) => {
   } catch (err) {
     console.error("[battle_data] Failed to query global latest:", err);
     return c.json({ error: "Failed to retrieve global latest fragment" }, 500);
+  }
+});
+
+/**
+ * DEV ONLY: GET /dev/local-records - Query local D1 tables directly
+ * Bypasses R2/block_indexes for testing with synthetic data
+ */
+app.get("/dev/local-records", async (c) => {
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
+
+  if (!indexDb) {
+    return c.json({ error: "D1 database not configured" }, 500);
+  }
+
+  const battleId = c.req.query("uuid");
+  const rawField = (c.req.query("field") || "").trim();
+  const rawValue = (c.req.query("value") || battleId || "").trim();
+
+  const table = (c.req.query("table") || "battle").trim();
+
+  if (!battleId) {
+    return c.json({ error: "uuid is required" }, 400);
+  }
+
+  try {
+    const safeField = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(rawField) ? rawField : "";
+    const safeValue = rawValue || battleId;
+    const tableAllowlist = new Set([
+      "battle",
+      "battle_result",
+      "cells",
+      "env_info",
+      "enemy_deck",
+      "enemy_ship",
+      "enemy_slotitem",
+      "own_deck",
+      "own_ship",
+      "own_slotitem",
+      "carrierbase_assault",
+      "closing_raigeki",
+      "hougeki",
+      "hougeki_list",
+      "midnight_hougeki",
+      "midnight_hougeki_list",
+      "opening_airattack",
+      "opening_airattack_list",
+      "opening_raigeki",
+      "opening_taisen",
+      "opening_taisen_list",
+    ]);
+
+    if (!tableAllowlist.has(table)) {
+      return c.json({ error: `unsupported table: ${table}` }, 400);
+    }
+
+    let records: any[] = [];
+
+    if (table === "battle") {
+      const battleResult = (await indexDb
+        .prepare(`SELECT * FROM battle WHERE uuid = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const openingRaigekiResult = (await indexDb
+        .prepare(`SELECT * FROM opening_raigeki WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const ownShipResult = (await indexDb
+        .prepare(`SELECT * FROM own_ship WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      const enemyShipResult = (await indexDb
+        .prepare(`SELECT * FROM enemy_ship WHERE battle_id = ?`)
+        .bind(battleId)
+        .all?.()) as { results: any[] };
+
+      records = battleResult.results || [];
+      if (records.length > 0 && openingRaigekiResult.results?.length) {
+        records[0].opening_raigeki = transformOpeningRaigekiData(
+          openingRaigekiResult.results[0],
+        );
+      }
+      if (records.length > 0 && ownShipResult.results?.length) {
+        records[0].own_ship = ownShipResult.results;
+      }
+      if (records.length > 0 && enemyShipResult.results?.length) {
+        records[0].enemy_ship = enemyShipResult.results;
+      }
+      // DEV: Inject synthetic hougeki (shelling) data for test UUID
+      if (records.length > 0 && battleId === "test-multi-attacker-001") {
+        // 1番艦(idx0)→敵6番(idx5)単発、2番艦(idx1)と3番艦(idx2)→同じ敵5番(idx4)連撃
+        // 友軍HP: 全ターン変化なし(被弾なし)
+        const fH = [100, 120, 110, 90, 80, 70];
+        // 敵HP: ターンごとに減少
+        const eH0 = [100, 120, 110, 90, 200, 130]; // 開始前
+        const eH1 = [100, 120, 110, 90, 200, 102]; // 1番艦→敵6番 (-28後)
+        const eH2 = [100, 120, 110, 90, 165, 102]; // 2番艦→敵5番1/2 (-35後)
+        const eH3 = [100, 120, 110, 90, 143, 102]; // 2番艦→敵5番2/2 (-22後)
+        const eH4 = [100, 120, 110, 90, 125, 102]; // 3番艦→敵5番1/2 (-18後)
+        records[0].hougeki = {
+          at_list: [0, 1, 1, 2, 2],
+          df_list: [[5], [4], [4], [4], [4]],
+          damage: [[28], [35], [22], [18], [31]],
+          cl_list: [[1], [2], [1], [1], [2]],
+          at_eflag: [0, 0, 0, 0, 0],
+          si_list: [[-1], [-1], [-1], [-1], [-1]],
+          protect_flag: [[0], [0], [0], [0], [0]],
+          f_now_hps: [fH, fH, fH, fH, fH],
+          e_now_hps: [eH0, eH1, eH2, eH3, eH4],
+        };
+      }
+    } else if (safeField && safeValue) {
+      const result = (await indexDb
+        .prepare(`SELECT * FROM ${table} WHERE ${safeField} = ?`)
+        .bind(safeValue)
+        .all?.()) as { results: any[] };
+      records = result.results || [];
+    } else {
+      const result = (await indexDb
+        .prepare(
+          `SELECT * FROM ${table} WHERE uuid = ? OR battle_id = ? OR id = ?`,
+        )
+        .bind(safeValue, safeValue, safeValue)
+        .all?.()) as { results: any[] };
+      records = result.results || [];
+    }
+
+    if (table === "opening_raigeki") {
+      records = (records || []).map((r) => transformOpeningRaigekiData(r));
+    }
+
+    const payload = {
+      success: true,
+      table,
+      count: records.length,
+      records: records,
+      source: "dev-local-d1",
+    };
+
+    return c.json(payload);
+  } catch (err) {
+    const msg = String((err as any)?.message || err || "");
+    if (msg.includes("no such table") || msg.includes("no such column")) {
+      // During partial/local seeding, some optional tables may be absent.
+      // Some tables also do not have every fallback key column (uuid/battle_id/id).
+      return c.json(
+        { success: true, table, count: 0, records: [], source: "dev-local-d1" },
+        200,
+      );
+    }
+    console.error("[battle-data] DEV: Failed to query local records:", err);
+    return c.json({ error: "Failed to query local records" }, 500);
   }
 });
 

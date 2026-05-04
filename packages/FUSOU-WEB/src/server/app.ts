@@ -11,13 +11,18 @@ import kcApp from './routes/kc';
 import compactApp from './routes/compact';
 import battleDataApp from './routes/battle_data';
 import userApp from './routes/user';
+import sokuSpeedObserved from './routes/soku_speed_observed';
 import adminApp from './routes/admin';
 import dataLoaderApp from './routes/data_loader';
 import masterDataApp from './routes/master_data';
+import synergyApp from './routes/synergy';
+import shipGrowthApp from './routes/ship_growth';
 import apiKeysApp from './routes/api_keys';
 import memberLookupApp from './routes/member-lookup';
 import anonymousSyncApp from './routes/anonymous-sync';
 import shortenerApp from './routes/shortener';
+import questTreeApp from './routes/quest_tree';
+import remodelDataApp from './routes/remodel_data';
 
 const app = new Hono<{ Bindings: Bindings }>();
 const SAFE_CORS_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -181,10 +186,15 @@ app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
 app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 app.route('/data-loader', dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 app.route('/master-data', masterDataApp); // masterDataApp declares /upload (Stage 1), /download-master (Stage 2+3)
+app.route('/master-data', synergyApp); // synergyApp declares /synergy-manifest, /synergy-manifest/*
+app.route('/ship-growth', shipGrowthApp); // shipGrowthApp declares /ingest
 app.route('/api-keys', apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
 app.route('/member-lookup', memberLookupApp); // memberLookupApp declares /check-hash, /verify-ownership
 app.route('/auth', anonymousSyncApp); // anonymousSyncApp declares /anonymous-sync
 app.route('/shorten', shortenerApp); // shortener app declares POST /
+app.route('/quest-tree', questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
+app.route('/remodel-data', remodelDataApp); // remodelDataApp declares /ingest
+app.route('/soku-speed-observed', sokuSpeedObserved); // Mount new route for sokuSpeedObserved
 
 // Catch-all 404
 app.all('*', (c) => {

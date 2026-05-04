@@ -59,6 +59,7 @@ jobs:
     env:
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
       PLAYWRIGHT_REUSE_SERVER: "false"
+      PLAYWRIGHT_WEB_SERVER_COMMAND: pnpm exec astro dev --host 127.0.0.1 --port 4401 --strict-port
       PUBLIC_SITE_URL: http://127.0.0.1:4401
 
     steps:
@@ -102,6 +103,7 @@ jobs:
     env:
       PLAYWRIGHT_BASE_URL: http://127.0.0.1:4401
       PLAYWRIGHT_REUSE_SERVER: "false"
+      PLAYWRIGHT_WEB_SERVER_COMMAND: pnpm exec astro dev --host 127.0.0.1 --port 4401 --strict-port
       PUBLIC_SITE_URL: http://127.0.0.1:4401
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

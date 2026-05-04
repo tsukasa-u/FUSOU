@@ -250,17 +250,21 @@ save_file_location = ""
 
     [app.asset_sync.retry]
     # Maximum number of retry attempts for failed uploads
-    max_attempts = 5
+    max_attempts = 10
 
     # Time to live (in seconds) for pending upload files
     # Files older than this will be deleted
-    ttl_seconds = 86400 # 24 hours
+    ttl_seconds = 2592000 # 30 days
 
     # Interval (in seconds) between retry attempts
-    interval_seconds = 300 # 5 minutes
+    interval_seconds = 900 # 15 minutes (base for exponential backoff)
 
     # Cooldown (in seconds) after an authentication failure before retrying
     auth_backoff_seconds = 600
+
+    # Minimum wait time (in seconds) between individual items within a single retry batch run.
+    # Set to 0 to disable the wait. Increase to reduce CPU/network load during large retry batches.
+    item_interval_seconds = 5
 
 
     [app.auth]
@@ -277,6 +281,42 @@ save_file_location = ""
 
     # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
     anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
+
+    [app.quest_tree_sender]
+    # Whether to enable quest tree data ingestion
+    # default is false
+    enable = true
+
+    # Endpoint to ingest quest tree data (e.g., WEB D1 ingest endpoint)
+    # If empty, quest tree sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/quest-tree/ingest"
+
+    [app.ship_growth_sender]
+    # Whether to enable ship growth data ingestion
+    # default is false
+    enable = true
+
+    # Endpoint to ingest ship growth data
+    # If empty, ship growth sender is disabled
+    ingest_endpoint = "https://fusou.dev/api/ship-growth/ingest"
+
+    [app.soku_speed_sender]
+    # Whether to enable speed observed data collection
+    # default is false
+    enable = false
+
+    # Endpoint to ingest soku_speed observed data
+    ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
+
+    [app.remodel_sender]
+    # Whether to enable remodel tree data ingestion (experimental feature)
+    # This sends your remodel recipe observations to help build the remodel tree.
+    # default is false
+    enable = true
+
+    # Endpoint to ingest remodel data
+    # Must be set when enable=true
+    ingest_endpoint = "https://fusou.dev/api/remodel-data/ingest"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events

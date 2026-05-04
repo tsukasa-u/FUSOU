@@ -7,7 +7,7 @@
 [![docs](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
 [![build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield)
+[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Ffusou%2Ffusou.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B52222%2Ffusou%2Ffusou?ref=badge_shield&issueType=license)
 
 FUSOU is a simple data viewer for [Kantai Collection](https://games.dmm.com/detail/kancolle) (艦隊これくしょん -艦これ-).<br>
 The goal of this app is to display only the data that users can normally obtain through regular gameplay and to perform analysis using that data, unlike other similar apps.
@@ -71,9 +71,9 @@ We use [dotenvx](https://dotenvx.com/) to securely manage and encrypt environmen
 
 ### PreRequirement 事前準備
 
-- pnpm (https://pnpm.io/en/installation)
-- rust (https://rust-lang.org/en/tools/install/)
-  - just (Optional) (https://crates.io/crates/just)
+- pnpm (<https://pnpm.io/en/installation>)
+- rust (<https://rust-lang.org/en/tools/install/>)
+  - just (Optional) (<https://crates.io/crates/just>)
 
 ### 1. install module
 

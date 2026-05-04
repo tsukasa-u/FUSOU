@@ -7,8 +7,9 @@ use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::battle::{
     AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleType,
     CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,
-    FriendlySupportHourai, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki,
-    OpeningTaisen, SupportAiratack, SupportAttack, SupportHourai, BattleResult,
+    FriendlySupportHourai, Hougeki, MidnightHougeki, NightSupportAttack,
+    OpeningAirAttack, OpeningRaigeki, OpeningTaisen, SupportAiratack,
+    SupportAttack, SupportHourai, BattleResult,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 use kc_api_interface::deck_port::DeckPorts;
@@ -242,11 +243,73 @@ fn count_friend_sprite_fly_from_optional_airbase_squadrons(
     counts: Option<&Vec<Option<i64>>>,
 ) -> Option<i64> {
     let counts = counts?;
-    let mut resolved = Vec::with_capacity(counts.len());
-    for count in counts {
-        resolved.push(count.as_ref().copied()?);
-    }
+    // API may return null for unused squadrons; treat null as 0 instead of
+    // dropping the entire metric to keep sprite display stable.
+    let resolved = counts
+        .iter()
+        .map(|count| count.unwrap_or(0))
+        .collect::<Vec<_>>();
     Some(count_friend_sprite_fly_from_airbase_squadrons(&resolved))
+}
+
+fn calc_sprite_crash_stage_counts(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    loss_stage2: i64,
+) -> (Option<i64>, Option<i64>) {
+    let fly_count = fly_count.map(|value| value.max(0));
+    let Some(fly_count) = fly_count else {
+        return (None, None);
+    };
+
+    let stage1 = loss_stage1.max(0).min(fly_count);
+    let remaining = fly_count.saturating_sub(stage1);
+    let stage2 = loss_stage2.max(0).min(remaining);
+    (Some(stage1), Some(stage2))
+}
+
+fn calc_sprite_crash_total(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    loss_stage2: i64,
+) -> Option<i64> {
+    fly_count?;
+    let (stage1, stage2) = calc_sprite_crash_stage_counts(fly_count, loss_stage1, loss_stage2);
+    Some(stage1.unwrap_or(0) + stage2.unwrap_or(0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        calc_sprite_crash_stage_counts, calc_sprite_crash_total,
+        count_friend_sprite_fly_from_optional_airbase_squadrons,
+    };
+
+    #[test]
+    fn optional_airbase_squadrons_none_is_zero() {
+        let counts = vec![Some(18), None, Some(5), Some(0)];
+        // 18 -> 2 sprites, None(0) -> 0, 5 -> 1, 0 -> 0
+        assert_eq!(
+            count_friend_sprite_fly_from_optional_airbase_squadrons(Some(&counts)),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn sprite_crash_counts_are_clamped_by_fly_count() {
+        let (s1, s2) = calc_sprite_crash_stage_counts(Some(3), 10, 10);
+        assert_eq!(s1, Some(3));
+        assert_eq!(s2, Some(0));
+        assert_eq!(calc_sprite_crash_total(Some(3), 10, 10), Some(3));
+    }
+
+    #[test]
+    fn sprite_crash_counts_none_when_fly_unknown() {
+        let (s1, s2) = calc_sprite_crash_stage_counts(None, 1, 1);
+        assert_eq!(s1, None);
+        assert_eq!(s2, None);
+        assert_eq!(calc_sprite_crash_total(None, 1, 1), None);
+    }
 }
 
 pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
@@ -261,10 +324,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         for attack in opening_air_attack.iter_mut().flatten() {
             attack.f_sprite_fly_count = count_sprite_fly_from_plane_from(attack.f_damage.plane_from.as_ref(), f_air_war.as_ref());
             attack.e_sprite_fly_count = count_sprite_fly_from_plane_from(attack.e_damage.plane_from.as_ref(), e_air_war.as_ref());
-            attack.f_sprite_crash_count_stage1 = None;
-            attack.f_sprite_crash_count_stage2 = None;
-            attack.e_sprite_crash_count_stage1 = None;
-            attack.e_sprite_crash_count_stage2 = None;
+            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+                attack.f_sprite_fly_count,
+                attack.f_damage.loss_plane1,
+                attack.f_damage.loss_plane2,
+            );
+            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+                attack.e_sprite_fly_count,
+                attack.e_damage.loss_plane1,
+                attack.e_damage.loss_plane2,
+            );
+            attack.f_sprite_crash_count_stage1 = f_stage1;
+            attack.f_sprite_crash_count_stage2 = f_stage2;
+            attack.e_sprite_crash_count_stage1 = e_stage1;
+            attack.e_sprite_crash_count_stage2 = e_stage2;
         }
     }
 
@@ -277,10 +350,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             carrier_base_assault.e_damage.plane_from.as_ref(),
             e_air_war_jet.as_ref(),
         );
-        carrier_base_assault.f_sprite_crash_stage1_count = None;
-        carrier_base_assault.f_sprite_crash_stage2_count = None;
-        carrier_base_assault.e_sprite_crash_stage1_count = None;
-        carrier_base_assault.e_sprite_crash_stage2_count = None;
+        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            carrier_base_assault.f_sprite_fly_count,
+            carrier_base_assault.f_damage.loss_plane1,
+            carrier_base_assault.f_damage.loss_plane2,
+        );
+        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            carrier_base_assault.e_sprite_fly_count,
+            carrier_base_assault.e_damage.loss_plane1,
+            carrier_base_assault.e_damage.loss_plane2,
+        );
+        carrier_base_assault.f_sprite_crash_stage1_count = f_stage1;
+        carrier_base_assault.f_sprite_crash_stage2_count = f_stage2;
+        carrier_base_assault.e_sprite_crash_stage1_count = e_stage1;
+        carrier_base_assault.e_sprite_crash_stage2_count = e_stage2;
     }
 
     if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
@@ -289,10 +372,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             air_base_assault.e_damage.plane_from.as_ref(),
             e_air_unit_jet.as_ref(),
         );
-        air_base_assault.f_sprite_crash_stage1_count = None;
-        air_base_assault.f_sprite_crash_stage2_count = None;
-        air_base_assault.e_sprite_crash_stage1_count = None;
-        air_base_assault.e_sprite_crash_stage2_count = None;
+        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            air_base_assault.f_sprite_fly_count,
+            air_base_assault.f_damage.loss_plane1,
+            air_base_assault.f_damage.loss_plane2,
+        );
+        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            air_base_assault.e_sprite_fly_count,
+            air_base_assault.e_damage.loss_plane1,
+            air_base_assault.e_damage.loss_plane2,
+        );
+        air_base_assault.f_sprite_crash_stage1_count = f_stage1;
+        air_base_assault.f_sprite_crash_stage2_count = f_stage2;
+        air_base_assault.e_sprite_crash_stage1_count = e_stage1;
+        air_base_assault.e_sprite_crash_stage2_count = e_stage2;
     }
 
     if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
@@ -302,10 +395,20 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 attack.e_damage.plane_from.as_ref(),
                 e_air_unit.as_ref(),
             );
-            attack.f_sprite_crash_stage1_count = None;
-            attack.f_sprite_crash_stage2_count = None;
-            attack.e_sprite_crash_stage1_count = None;
-            attack.e_sprite_crash_stage2_count = None;
+            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+                attack.f_sprite_fly_count,
+                attack.f_damage.loss_plane1,
+                attack.f_damage.loss_plane2,
+            );
+            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+                attack.e_sprite_fly_count,
+                attack.e_damage.loss_plane1,
+                attack.e_damage.loss_plane2,
+            );
+            attack.f_sprite_crash_stage1_count = f_stage1;
+            attack.f_sprite_crash_stage2_count = f_stage2;
+            attack.e_sprite_crash_stage1_count = e_stage1;
+            attack.e_sprite_crash_stage2_count = e_stage2;
         }
     }
 
@@ -319,8 +422,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             support_airattack.e_damage.plane_from.as_ref(),
             e_air_war.as_ref(),
         );
-        support_airattack.f_sprite_crash_count = None;
-        support_airattack.e_sprite_crash_count = None;
+        support_airattack.f_sprite_crash_count = calc_sprite_crash_total(
+            support_airattack.f_sprite_fly_count,
+            support_airattack.f_damage.loss_plane1,
+            support_airattack.f_damage.loss_plane2,
+        );
+        support_airattack.e_sprite_crash_count = calc_sprite_crash_total(
+            support_airattack.e_sprite_fly_count,
+            support_airattack.e_damage.loss_plane1,
+            support_airattack.e_damage.loss_plane2,
+        );
     }
 }
 
@@ -1483,6 +1594,37 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             }
+            BattleType::NightSupportAttack(()) => {
+                if let Some(night_support_attack) = battle.night_support_attack.as_mut() {
+                    midnight_flag = true;
+
+                    if let Some(hourai) = night_support_attack.hourai.as_mut() {
+                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            hourai.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
+                        });
+
+                        hourai
+                            .damage
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, &x)| {
+                                midnight_e_total_damages[idx] += x as i64;
+                            });
+                    }
+
+                    if let Some(airatack) = night_support_attack.airatack.as_mut() {
+                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            airatack.e_damage.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
+                        });
+
+                        if let Some(damages) = &airatack.e_damage.damages {
+                            damages.iter().enumerate().for_each(|(idx, &x)| {
+                                midnight_e_total_damages[idx] += x as i64;
+                            });
+                        }
+                    }
+                }
+            }
             BattleType::MidnightHougeki(()) => {
                 if let Some(midnight_hougeki) = battle.midnight_hougeki.as_mut() {
                     midnight_flag = true;
@@ -1586,6 +1728,7 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1652,7 +1795,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
@@ -1696,6 +1839,7 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for InterfaceWrapper<Batt
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen,
             opening_raigeki,
             hougeki,
@@ -1738,18 +1882,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAssult(()),
-            BattleType::CarrierBaseAssault(()),
-            BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(0),
-            BattleType::OpeningAirAttack(1),
-            BattleType::SupportAttack(()),
-            BattleType::OpeningTaisen(()),
-            BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(0),
-            BattleType::Hougeki(1),
-            BattleType::ClosingRaigeki(()),
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
@@ -1785,6 +1918,7 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1810,16 +1944,22 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
         let midnight_hougeki: Option<MidnightHougeki> =
             Some(InterfaceWrapper::from(battle.api_hougeki).unwrap());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
+        let has_night_support = battle.api_n_support_flag > 0;
+        let night_support_attack: Option<NightSupportAttack> =
+            battle.api_n_support_info.map(unwrap_into);
 
         let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let mut battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
+        if has_night_support || night_support_attack.is_some() {
+            battle_order.insert(1, BattleType::NightSupportAttack(()));
+        }
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
 
@@ -1852,6 +1992,7 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Interfa
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
+            night_support_attack,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1895,7 +2036,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::AirBaseAirAttack(()),
             BattleType::OpeningAirAttack(0),
         ];
@@ -1931,6 +2072,7 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for InterfaceWrappe
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -1975,7 +2117,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
-        let battle_order: Vec<BattleType> = vec![
+        let battle_order: Vec<BattleType> = kc_api_interface::battle_order_checked![
             BattleType::OpeningAirAttack(0),
             BattleType::OpeningAirAttack(1),
         ];
@@ -2012,6 +2154,7 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for InterfaceWrapper<B
             air_base_air_attacks,
             opening_air_attack,
             support_attack,
+            night_support_attack: None,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,
@@ -2129,5 +2272,18 @@ pub fn parse_landing_hp(landing_hp: DuoType<i64, String>) -> Option<i64> {
     match landing_hp {
         DuoType::Type1(num) => Some(num),
         DuoType::Type2(s) => s.trim().parse::<i64>().ok(),
+    }
+}
+
+impl From<kcapi_common::common_battle::ApiSupportInfo> for InterfaceWrapper<NightSupportAttack> {
+    fn from(support_info: kcapi_common::common_battle::ApiSupportInfo) -> Self {
+        let hourai: Option<SupportHourai> = support_info
+            .api_support_hourai
+            .map(|support_hourai| InterfaceWrapper::from(support_hourai).unwrap());
+        let airatack: Option<SupportAiratack> = support_info
+            .api_support_airatack
+            .map(|support_airatack| InterfaceWrapper::from(support_airatack).unwrap());
+
+        Self(NightSupportAttack { hourai, airatack })
     }
 }

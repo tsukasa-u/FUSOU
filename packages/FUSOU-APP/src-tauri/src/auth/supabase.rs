@@ -3,6 +3,7 @@ use configs::get_user_configs_for_app;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::sync::OnceCell;
 
 static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
@@ -10,13 +11,23 @@ static KC_PERIOD_ENDPOINT: OnceLock<String> = OnceLock::new();
 static PERIOD_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 pub async fn get_period_tag() -> String {
+    if KC_PERIOD_TAG.initialized() {
+        return KC_PERIOD_TAG.get().unwrap().clone();
+    }
+    tracing::info!("get_period_tag: fetching kc-period tag (first call)");
     KC_PERIOD_TAG
         .get_or_init(|| async {
             match fetch_period_tag_via_api().await {
                 Ok(tag) => tag,
                 Err(err) => {
-                    tracing::warn!(error = %err, "failed to fetch kc-period tag via API");
-                    "0".to_string()
+                    // Fall back to today's date in JST (YYYY-MM-DD).
+                    // The server validates period_tag against ^\d{4}-\d{2}-\d{2}$,
+                    // so returning "0" would cause every ingest to fail with 400.
+                    use chrono::{FixedOffset, Utc};
+                    let jst = FixedOffset::east_opt(9 * 3600).unwrap();
+                    let today_jst = Utc::now().with_timezone(&jst).format("%Y-%m-%d").to_string();
+                    tracing::warn!(error = %err, fallback = %today_jst, "failed to fetch kc-period tag via API; using today's JST date as fallback");
+                    today_jst
                 }
             }
         })
@@ -44,6 +55,8 @@ fn get_period_http_client() -> &'static Client {
     PERIOD_HTTP_CLIENT.get_or_init(|| {
         Client::builder()
             .user_agent("FUSOU-APP/period-fetcher")
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(15))
             .build()
             .expect("failed to build kc period reqwest client")
     })

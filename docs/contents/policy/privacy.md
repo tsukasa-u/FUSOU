@@ -39,6 +39,6 @@ The contents of this policy may be changed as necessary. If significant changes 
 **7. Contact Information**
 If you have any questions regarding this Privacy Policy, please contact us at:
 
-- Contact: <ogu.hide.u@gmail.com>
+- Contact: ogu.hide.u [at] gmail [dot] com
 
 **Effective Date**: 2025-12-4

@@ -5,7 +5,9 @@ use futures::future::join_all;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
-use crate::storage::cloud_provider_trait::{CloudProviderFactory, CloudStorageProvider};
+use crate::storage::cloud_provider_trait::CloudStorageProvider;
+#[cfg(feature = "gdrive")]
+use crate::storage::cloud_provider_trait::CloudProviderFactory;
 use crate::storage::common::{
     get_all_get_data_tables,
     get_all_port_tables,
@@ -16,7 +18,7 @@ use crate::storage::common::{
 #[cfg(feature = "gdrive")]
 use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
-use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
+use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryService};
 
 /// StorageProvider implementation backed by a CloudStorageProvider.
 /// Maintains existing folder/file layout so current consumers remain compatible.
@@ -61,9 +63,26 @@ impl CloudTableStorageProvider {
     async fn upload_bytes(&self, remote_path: &str, bytes: &[u8]) -> Result<(), StorageError> {
         let mut temp_path = std::env::temp_dir();
         temp_path.push(format!("fusou-upload-{}", Uuid::new_v4()));
-        tokio::fs::write(&temp_path, bytes)
-            .await
-            .map_err(|e| StorageError::Io(e))?;
+        {
+            use tokio::io::AsyncWriteExt;
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temp_path)
+                .await
+                .map_err(StorageError::Io)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                tokio::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600))
+                    .await
+                    .map_err(StorageError::Io)?;
+            }
+            if let Err(e) = file.write_all(bytes).await {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                return Err(StorageError::Io(e));
+            }
+        }
 
         // Create a hash of the data to detect duplicates
         use sha2::{Digest, Sha256};
@@ -77,10 +96,9 @@ impl CloudTableStorageProvider {
             .await
             .map(|_| ())
             .map_err(|e| {
+                let retryable = Self::is_retryable_upload_error(e.as_ref());
                 let msg = format!("{e}");
-                // Detect auth errors (401/403 pattern in error message) and save for retry
-                // ONLY trigger retry if this is an auth/transient error that should be retried
-                if msg.contains("401") || msg.contains("403") || msg.contains("Unauthorized") || msg.contains("Forbidden") {
+                if retryable {
                     let pending_save = self.pending_store.clone();
                     let retry = self.retry_service.clone();
                     let provider = self.provider_name.to_string();
@@ -91,33 +109,27 @@ impl CloudTableStorageProvider {
                         let mut headers = HashMap::new();
                         headers.insert("remote-path".to_string(), path.clone());
                         headers.insert("content-hash".to_string(), hash.clone());
-                        let context = UploadContext::Custom(serde_json::json!({ 
-                            "operation": "upload", 
+                        let context = UploadContext::Custom(serde_json::json!({
+                            "operation": "upload",
                             "remote_path": path,
                             "content_hash": hash
                         }));
                         let context_str = serde_json::to_string(&context).unwrap_or_default();
-                        
-                        // Check if this exact file already has pending items
-                        let pending_items = pending_save.list_pending();
-                        let already_pending = pending_items.iter().any(|item| {
-                            item.headers.get("content-hash").map(|h| h == &hash).unwrap_or(false)
-                        });
-                        
-                        if already_pending {
-                            tracing::info!("upload already pending for file (hash={}), skipping duplicate entry", hash);
-                        } else {
-                            if let Err(e) = pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
-                                tracing::warn!(error = %e, "failed to save pending upload");
-                            } else {
-                                tracing::info!("saved pending upload for retry (hash={})", hash);
-                                // Only trigger retry after FIRST save, not on every error
+
+                        match pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
+                            Ok(PendingSaveOutcome::Created(_)) => {
+                                tracing::warn!("cloud upload failed with retryable error; saved pending upload for retry (hash={})", hash);
                                 retry.trigger_retry().await;
+                            }
+                            Ok(PendingSaveOutcome::Existing(meta)) => {
+                                tracing::info!(pending_id = %meta.id, "matching pending upload already exists for file (hash={})", hash);
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "failed to save pending upload");
                             }
                         }
                     });
                 } else {
-                    // Non-retryable errors: log and fail fast
                     tracing::error!("Non-retryable upload error for {}: {}", remote_path, msg);
                 }
                 StorageError::Operation(msg)
@@ -125,6 +137,66 @@ impl CloudTableStorageProvider {
 
         let _ = tokio::fs::remove_file(&temp_path).await;
         result
+    }
+
+    fn is_retryable_upload_error(err: &(dyn std::error::Error + 'static)) -> bool {
+        // 1) Strict status-code based decision when HTTP status is available.
+        #[cfg(feature = "gdrive")]
+        if let Some(g_err) = err.downcast_ref::<google_drive3::Error>() {
+            if let google_drive3::Error::Failure(resp) = g_err {
+                return Self::is_retryable_status(resp.status().as_u16());
+            }
+        }
+
+        if let Some(r_err) = err.downcast_ref::<reqwest::Error>() {
+            if let Some(status) = r_err.status() {
+                return Self::is_retryable_status(status.as_u16());
+            }
+
+            // No status available: transport-level transient failures.
+            if r_err.is_timeout() || r_err.is_connect() {
+                return true;
+            }
+        }
+
+        if let Some(ioe) = err.downcast_ref::<std::io::Error>() {
+            use std::io::ErrorKind;
+            match ioe.kind() {
+                ErrorKind::TimedOut
+                | ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::ConnectionAborted
+                | ErrorKind::WouldBlock
+                | ErrorKind::Interrupted
+                | ErrorKind::NotConnected => return true,
+                _ => {}
+            }
+        }
+
+        // 2) No status available: allow only obvious transient IO cases.
+        let mut source = err.source();
+        while let Some(s) = source {
+            if let Some(ioe) = s.downcast_ref::<std::io::Error>() {
+                use std::io::ErrorKind;
+                match ioe.kind() {
+                    ErrorKind::TimedOut
+                    | ErrorKind::ConnectionReset
+                    | ErrorKind::ConnectionRefused
+                    | ErrorKind::ConnectionAborted
+                    | ErrorKind::WouldBlock
+                    | ErrorKind::Interrupted
+                    | ErrorKind::NotConnected => return true,
+                    _ => {}
+                }
+            }
+            source = s.source();
+        }
+
+        false
+    }
+
+    fn is_retryable_status(status: u16) -> bool {
+        matches!(status, 401 | 403 | 408 | 429 | 500 | 502 | 503 | 504)
     }
 
     async fn download_bytes(&self, remote_path: &str) -> Result<Vec<u8>, StorageError> {

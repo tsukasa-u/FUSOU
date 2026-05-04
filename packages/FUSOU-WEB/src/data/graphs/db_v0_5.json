@@ -1,7 +1,7 @@
 {
   "version": "0.5",
   "versionKey": "v0_5",
-  "tableCount": 46,
+  "tableCount": 47,
   "nodes": [
     {
       "id": "airbase",
@@ -932,6 +932,76 @@
             "isUuid": true,
             "isKey": false,
             "isFk": true,
+            "isEnvRef": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "battle_result",
+      "type": "schemaTableNode",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "data": {
+        "tableName": "battle_result",
+        "recordName": "BattleResult",
+        "fields": [
+          {
+            "name": "env_uuid",
+            "type": "uuid",
+            "isUuid": true,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": true
+          },
+          {
+            "name": "uuid",
+            "type": "uuid",
+            "isUuid": true,
+            "isKey": true,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "win_rank",
+            "type": "string",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "drop_ship_id",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "landing_hp_now",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "landing_hp_max",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "landing_sub_value",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
             "isEnvRef": false
           }
         ]
@@ -4913,6 +4983,14 @@
       "target": "airbase_assult",
       "targetHandle": "airbase_assult-uuid",
       "label": "air_base_assault"
+    },
+    {
+      "id": "e-battle-battle_result-battle_result",
+      "source": "battle",
+      "sourceHandle": "battle-battle_result",
+      "target": "battle_result",
+      "targetHandle": "battle_result-uuid",
+      "label": "battle_result"
     },
     {
       "id": "e-battle-carrier_base_assault-carrierbase_assault",

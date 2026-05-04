@@ -2,27 +2,87 @@
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
 import BattlesListPanel from "@/components/solid/BattlesListPanel";
+import PageShell from "@/components/ui/PageShell.astro";
+import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
 ---
 
-<PageLayout title="FUSOU - Battles">
+<PageLayout
+  title="FUSOU - Battles"
+  tutorial={{
+    id: "battles-index",
+    title: "戦闘一覧ページの使い方",
+    summary: "条件で絞り込みながら対象戦闘を探せます。",
+    controls: [
+      {
+        sourceSelector: "#battles-filter-period",
+        description: "集計対象期間（最新 / 全期間）を切り替えます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-filter-map",
+        description: "海域で絞り込み、対象マップの戦闘だけを表示します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-filter-result",
+        description: "勝敗ランクで絞り込み、S勝利や敗北戦闘を比較できます。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-load-btn",
+        description: "最新の条件で戦闘一覧を再取得します。",
+        tone: "primary",
+      },
+      {
+        sourceSelector: "#battles-map-flow-link",
+        description: "進軍ルート表示ページへ移動します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-stats-link",
+        description: "統計ダッシュボードへ移動します。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#battles-detail-link",
+        description: "選択した行の戦闘詳細ページへ移動します。",
+        tone: "ghost",
+      },
+      {
+        sourceSelector: "#tutorial-open-btn",
+        description: "この説明モーダルを再表示します。",
+        tone: "primary",
+      },
+    ],
+    steps: [
+      "フィルタで期間・海域・勝敗を絞り込みます。",
+      "行をクリックして戦闘詳細へ遷移します。",
+      "右上導線からマップ進行・統計に切り替えて分析します。",
+    ],
+  }}
+>
   <Navigation filled={true} />
-  <div class="pt-16 min-h-screen bg-base-200">
-    <div class="max-w-[1440px] mx-auto px-4 py-8">
-      <!-- Header -->
-      <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
-        <div>
-          <h1 class="text-3xl font-bold">戦闘データ</h1>
-          <p class="text-base-content/60 mt-1">R2に保存された戦闘履歴を閲覧・分析</p>
-        </div>
-        <div class="flex gap-2">
-          <a href="/battles/map-flow" class="btn btn-outline btn-sm">マップ進行</a>
-          <a href="/battles/stats" class="btn btn-outline btn-sm">統計</a>
-        </div>
-      </div>
+  <PageShell>
+    <PageHeader
+      title="戦闘データ"
+      subtitle="R2に保存された戦闘履歴を閲覧・分析"
+    >
+      <Fragment slot="actions">
+        <a
+          id="battles-map-flow-link"
+          href="/battles/map-flow"
+          class="fusou-btn-secondary">マップ進行</a
+        >
+        <a
+          id="battles-stats-link"
+          href="/battles/stats"
+          class="fusou-btn-secondary">統計</a
+        >
+      </Fragment>
+    </PageHeader>
 
-      <BattlesListPanel client:only="solid-js" />
-    </div>
-  </div>
+    <BattlesListPanel client:only="solid-js" />
+  </PageShell>
 </PageLayout>

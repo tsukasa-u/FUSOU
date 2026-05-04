@@ -20,7 +20,7 @@
 
 import { execSync } from "child_process";
 
-const ASSET_DB = "dev_kc_asset_index";
+const ASSET_DB = "dev-kc-asset-index";
 const BATCH_SIZE = 50;
 
 function run(cmd) {

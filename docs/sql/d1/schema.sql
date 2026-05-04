@@ -143,3 +143,176 @@ CREATE INDEX idx_master_data_tables_by_period_and_name
   ON master_data_tables(master_data_id, table_name);
 CREATE INDEX idx_master_data_tables_by_version
   ON master_data_tables(table_version);
+
+-- ============================================================================
+-- Database: dev_kc_battle_index (Quest tree inference)
+-- Purpose: Quest ingest events, sessions, occurrence contexts, and inferred rules
+-- ============================================================================
+
+CREATE TABLE quest_collection_sessions (
+  collection_session_id TEXT PRIMARY KEY,
+  dataset_id TEXT NOT NULL,
+  started_at_ms INTEGER NOT NULL,
+  ended_at_ms INTEGER,
+  start_reason TEXT NOT NULL DEFAULT 'resume',
+  has_data_gap INTEGER NOT NULL DEFAULT 0,
+  bootstrap_completed_at_ms INTEGER,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX idx_qsess_dataset_started
+  ON quest_collection_sessions(dataset_id, started_at_ms DESC);
+
+CREATE TABLE quest_ingest_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  quest_id INTEGER,
+  page_no INTEGER,
+  timestamp_ms INTEGER NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ingested',
+  created_at INTEGER NOT NULL,
+  UNIQUE(request_id, payload_hash),
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE questlist_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  page_no INTEGER NOT NULL,
+  snapshot_hash TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  visible_quest_ids_json TEXT NOT NULL,
+  captured_at_ms INTEGER NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_state_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  quest_id INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  state_after TEXT NOT NULL,
+  timestamp_ms INTEGER NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  payload_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_state_latest (
+  dataset_id TEXT NOT NULL,
+  quest_id INTEGER NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  state TEXT NOT NULL,
+  updated_at_ms INTEGER NOT NULL,
+  last_event_type TEXT NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  is_claimed INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(dataset_id, quest_id),
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_appearance_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  target_quest_id INTEGER NOT NULL,
+  appeared_at_ms INTEGER NOT NULL,
+  source_endpoint TEXT NOT NULL,
+  source_event_id INTEGER,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  is_bootstrap_unknown INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  UNIQUE(dataset_id, collection_session_id, target_quest_id, appeared_at_ms),
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_inference_tasks (
+  task_id TEXT PRIMARY KEY,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  from_ts INTEGER NOT NULL,
+  to_ts INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_occurrence_contexts (
+  occurrence_id TEXT PRIMARY KEY,
+  dataset_id TEXT NOT NULL,
+  collection_session_id TEXT NOT NULL,
+  target_quest_id INTEGER NOT NULL,
+  occurred_at_ms INTEGER NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  is_bootstrap_unknown INTEGER NOT NULL DEFAULT 0,
+  has_cross_session_inference INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY(collection_session_id) REFERENCES quest_collection_sessions(collection_session_id)
+);
+
+CREATE TABLE quest_occurrence_prerequisites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  occurrence_id TEXT NOT NULL,
+  quest_id INTEGER NOT NULL,
+  is_recent INTEGER NOT NULL DEFAULT 0,
+  is_completed INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  UNIQUE(occurrence_id, quest_id),
+  FOREIGN KEY(occurrence_id) REFERENCES quest_occurrence_contexts(occurrence_id)
+);
+
+CREATE TABLE quest_rule_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_quest_id INTEGER NOT NULL,
+  prereq_set_hash TEXT NOT NULL,
+  prereq_set_json TEXT NOT NULL,
+  set_size INTEGER NOT NULL,
+  support INTEGER NOT NULL,
+  exposure INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  lift REAL NOT NULL,
+  score REAL NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  quality_tier TEXT NOT NULL DEFAULT 'high',
+  updated_at_ms INTEGER NOT NULL,
+  UNIQUE(target_quest_id, prereq_set_hash, period_tag, table_version)
+);
+
+CREATE TABLE quest_rule_edges (
+  rule_id TEXT PRIMARY KEY,
+  target_quest_id INTEGER NOT NULL,
+  prereq_set_json TEXT NOT NULL,
+  set_size INTEGER NOT NULL,
+  class TEXT NOT NULL,
+  support INTEGER NOT NULL,
+  confidence REAL NOT NULL,
+  lift REAL NOT NULL,
+  score REAL NOT NULL,
+  period_tag TEXT NOT NULL,
+  table_version TEXT NOT NULL,
+  is_primary INTEGER NOT NULL DEFAULT 0,
+  quality_tier TEXT NOT NULL DEFAULT 'high',
+  updated_at_ms INTEGER NOT NULL,
+  UNIQUE(target_quest_id, prereq_set_json, period_tag, table_version)
+);

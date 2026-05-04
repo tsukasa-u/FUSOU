@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
+use crate::common::common_battle::ApiSupportInfo;
 use crate::common::common_midnight::ApiHougeki;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
@@ -77,6 +78,11 @@ pub struct ApiData {
     pub api_atoll_cell: i64,
     #[serde(rename = "api_n_support_flag")]
     pub api_n_support_flag: i64,
+    /// Night support payload (`ApiSupportInfo`) paired with `api_n_support_flag`.
+    /// Added to keep DTO schema-aligned when the endpoint includes detailed night support data.
+    /// As of 2026-04-25, this field has not been observed in real captures.
+    #[serde(rename = "api_n_support_info")]
+    pub api_n_support_info: Option<ApiSupportInfo>,
     #[serde(rename = "api_touch_plane")]
     pub api_touch_plane: Vec<i64>,
     #[serde(rename = "api_flare_pos")]

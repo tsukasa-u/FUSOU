@@ -201,7 +201,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
 
     return (
       <span class="pl-2">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0}/{e_crash1 ?? 0}+{e_crash2 ?? 0}
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"}/{e_crash1 ?? "?"}+{e_crash2 ?? "?"}
       </span>
     );
   };

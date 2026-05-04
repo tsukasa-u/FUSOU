@@ -59,7 +59,7 @@ where
             .await
             .expect_or_log("failed to execute process");
 
-        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     });
 
     tracing::info!("register AutoConfigURL: {}", path_clone);
@@ -94,7 +94,7 @@ where
             .await
             .expect_or_log("failed to execute process");
 
-        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     });
 
     tracing::info!("unregister AutoConfigURL");
@@ -145,7 +145,7 @@ where
             .await
             .expect_or_log("failed to execute process");
 
-        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     });
 }
 
@@ -172,7 +172,7 @@ where
         .expect_or_log("failed to execute process");
 
     let status = output.status;
-    tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
+    tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     if status.success() {
         tracing::info!("CA certificate is installed");
     } else {

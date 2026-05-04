@@ -191,7 +191,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             Fly: {f_fly ?? "?"}/{e_fly ?? "?"}
           </span>
           <span class="pl-2">
-            Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0} / {e_crash1 ?? 0}+{e_crash2 ?? 0}
+            Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"} / {e_crash1 ?? "?"}+{e_crash2 ?? "?"}
           </span>
         </Show>
       </>

@@ -2,13 +2,17 @@
 
 use std::str::FromStr;
 
-use crate::encode::encode;
 use crate::models::airbase::{AirBase, PlaneInfo};
-use crate::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList, MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai
-};
 #[cfg(feature = "schema_v0_5")]
 use crate::models::battle::BattleResult;
+#[cfg(feature = "schema_v0_5")]
+use crate::models::battle::NightSupportHourai;
+use crate::models::battle::{
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+};
 
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -33,390 +37,368 @@ use kc_api_interface::mst_use_item::{MstUseItem, MstUseItems};
 use register_trait::FieldSizeChecker;
 use uuid::Uuid;
 
+fn collect_values_sorted_by_key<K, V>(map: &std::collections::HashMap<K, V>) -> Vec<V>
+where
+    K: Ord,
+    V: Clone,
+{
+    let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+    pairs.sort_by(|(ka, _), (kb, _)| ka.cmp(kb));
+    pairs.into_iter().map(|(_, value)| value.clone()).collect()
+}
+
 // Import DATABASE_TABLE_VERSION from schema_version module
 pub use crate::schema_version::DATABASE_TABLE_VERSION;
 
+/// Generic enum-keyed encode container shared by all table groups.
+///
+/// `*Encode` types in this module (e.g. `PortTableEncode`, `GetDataTableEncode`)
+/// are type aliases over `TableEncode<K>`. Storing bytes keyed by a typed enum
+/// (rather than as named `Vec<u8>` struct fields) eliminates the
+/// "all-fields-have-the-same-type" footgun where a developer can silently swap
+/// payloads between unrelated tables.
+///
+/// Iteration order follows the variant's `Ord` implementation, which is derived
+/// in declaration order on each enum, giving deterministic, declaration-aligned
+/// iteration without any extra bookkeeping.
 #[derive(Debug, Clone)]
-pub enum PortTableEnum {
-    EnvInfo,
-    Cells,
-    AirBase,
-    PlaneInfo,
-    OwnSlotItem,
-    EnemySlotItem,
-    FriendSlotItem,
-    OwnShip,
-    EnemyShip,
-    FriendShip,
-    OwnDeck,
-    SupportDeck,
-    EnemyDeck,
-    FriendDeck,
-    AirBaseAirAttack,
-    AirBaseAirAttackList,
-    AirBaseAssult,
-    CarrierBaseAssault,
-    ClosingRaigeki,
-    FriendlySupportHourai,
-    FriendlySupportHouraiList,
-    Hougeki,
-    HougekiList,
-    MidnightHougeki,
-    MidnightHougekiList,
-    OpeningAirAttack,
-    OpeningAirAttackList,
-    OpeningRaigeki,
-    OpeningTaisen,
-    OpeningTaisenList,
-    SupportAirattack,
-    SupportHourai,
-    Battle,
+pub struct TableEncode<K: Copy + Ord + 'static> {
+    entries: std::collections::BTreeMap<K, Vec<u8>>,
+}
+
+impl<K: Copy + Ord + 'static> Default for TableEncode<K> {
+    fn default() -> Self {
+        Self {
+            entries: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl<K: Copy + Ord + 'static> TableEncode<K> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert encoded bytes for `variant`. Replaces any prior entry.
+    pub fn insert(&mut self, variant: K, bytes: Vec<u8>) -> Option<Vec<u8>> {
+        self.entries.insert(variant, bytes)
+    }
+
+    pub fn get(&self, variant: K) -> Option<&[u8]> {
+        self.entries.get(&variant).map(|v| v.as_slice())
+    }
+
+    /// Convenience: returns an empty slice when `variant` is absent.
+    /// Useful for upload payloads that must include all expected tables.
+    pub fn get_or_empty(&self, variant: K) -> &[u8] {
+        self.entries
+            .get(&variant)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn contains(&self, variant: K) -> bool {
+        self.entries.contains_key(&variant)
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    /// Iterate (variant, bytes) pairs in `K`'s `Ord` order (declaration order).
+    pub fn iter(&self) -> impl Iterator<Item = (K, &[u8])> {
+        self.entries.iter().map(|(k, v)| (*k, v.as_slice()))
+    }
+}
+
+impl<K: Copy + Ord + 'static> From<Vec<(K, Vec<u8>)>> for TableEncode<K> {
+    fn from(items: Vec<(K, Vec<u8>)>) -> Self {
+        let mut encode = Self::new();
+        for (variant, bytes) in items {
+            encode.insert(variant, bytes);
+        }
+        encode
+    }
+}
+
+/// Defines the entire port table schema from a single source list.
+///
+/// Entry format:
+/// `Variant => field_name: RustType => getter_name => "table_name"`
+///
+/// What is generated from each entry:
+/// - `PortTableEnum` variant (`Copy + Ord` so it works as a `BTreeMap` key)
+/// - `PortTable` field (`Vec<RustType>`)
+/// - `PortTableEnum::table_name()` arm
+/// - `PortTable::record_count_for_variant` arm
+/// - `PortTable::encode_for_variant` arm (clones the per-variant `Vec<RustType>`
+///   and runs the avro encoder)
+/// - type-level table-name getter (e.g. `Type::get_table_name()`)
+///
+/// `PortTableEncode` itself is a type alias over the enum-keyed
+/// [`TableEncode`] so it cannot be field-mismatched.
+///
+/// For schema-specific entries, place `#[cfg(feature = "...")]` on the entry.
+macro_rules! define_port_table_schema {
+    (
+        $(
+            $(#[$meta:meta])*
+            $variant:ident => $field:ident : $ty:ty => $getter:ident => $name:literal,
+        )+
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub enum PortTableEnum {
+            $(
+                $(#[$meta])*
+                $variant,
+            )+
+        }
+
+        impl PortTableEnum {
+            pub const ALL: &'static [PortTableEnum] = &[
+                $(
+                    $(#[$meta])*
+                    PortTableEnum::$variant,
+                )+
+            ];
+
+            pub fn variants() -> &'static [PortTableEnum] {
+                Self::ALL
+            }
+
+            pub const fn table_name(self) -> &'static str {
+                match self {
+                    $(
+                        $(#[$meta])*
+                        PortTableEnum::$variant => $name,
+                    )+
+                }
+            }
+        }
+
+        #[derive(Debug, Clone, Default, FieldSizeChecker)]
+        pub struct PortTable {
+            $(
+                $(#[$meta])*
+                pub $field: Vec<$ty>,
+            )+
+        }
+
+        impl PortTable {
+            fn record_count_for_variant(&self, variant: PortTableEnum) -> usize {
+                match variant {
+                    $(
+                        $(#[$meta])*
+                        PortTableEnum::$variant => self.$field.len(),
+                    )+
+                }
+            }
+
+            fn encode_for_variant(
+                &self,
+                variant: PortTableEnum,
+            ) -> Result<Vec<u8>, apache_avro::Error> {
+                match variant {
+                    $(
+                        $(#[$meta])*
+                        PortTableEnum::$variant => $crate::encode::encode(self.$field.clone()),
+                    )+
+                }
+            }
+        }
+
+        $(
+            $(#[$meta])*
+            impl $ty {
+                pub fn $getter() -> String {
+                    $name.to_string()
+                }
+            }
+        )+
+    };
+}
+
+/// Defines the entire master / get_data table schema from a single source list.
+///
+/// Entry format:
+/// `Variant => field_name: RustType => "table_name"`
+///
+/// What is generated from each entry:
+/// - `GetDataTableEnum` variant (`Copy + Ord` so it works as a `BTreeMap` key)
+/// - `GetDataTable` field (`Vec<RustType>`)
+/// - `GetDataTableEnum::table_name()` arm
+/// - `GetDataTable::record_count_for_variant` arm
+/// - `GetDataTable::encode_for_variant` arm
+///
+/// `GetDataTableEncode` itself is a type alias over the enum-keyed
+/// [`TableEncode`].
+///
+/// (Type-level `Type::get_table_name()` getters are intentionally NOT generated
+/// here, because the `Mst*` types live in `kc-api-interface` and Rust's orphan
+/// rules forbid inherent impls on foreign types from this crate.)
+///
+/// **No `Default` is derived for `GetDataTable`** — the contract is that every
+/// master table must be populated at construction time (via
+/// [`GetDataTable::new`], which uses an exhaustive struct literal). Allowing
+/// `GetDataTable::default()` would let callers silently skip loading after a
+/// new variant is added. A `#[cfg(test)] fn empty_for_test()` constructor is
+/// auto-generated by the macro for testing purposes only; it lists every field
+/// explicitly so that adding a new variant immediately produces a compile
+/// error in both `new()` and the test helper.
+macro_rules! define_get_data_table_schema {
+    (
+        $(
+            $(#[$meta:meta])*
+            $variant:ident => $field:ident : $ty:ty => $name:literal,
+        )+
+    ) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        pub enum GetDataTableEnum {
+            $(
+                $(#[$meta])*
+                $variant,
+            )+
+        }
+
+        impl GetDataTableEnum {
+            pub const ALL: &'static [GetDataTableEnum] = &[
+                $(
+                    $(#[$meta])*
+                    GetDataTableEnum::$variant,
+                )+
+            ];
+
+            pub fn variants() -> &'static [GetDataTableEnum] {
+                Self::ALL
+            }
+
+            pub const fn table_name(self) -> &'static str {
+                match self {
+                    $(
+                        $(#[$meta])*
+                        GetDataTableEnum::$variant => $name,
+                    )+
+                }
+            }
+        }
+
+        // Intentionally NO `Default` derive — see macro doc. Forces every call
+        // site to enumerate all fields, so adding a variant becomes a compile
+        // error at construction sites (e.g. GetDataTable::new) instead of a
+        // silent "load missed" hazard.
+        #[derive(Debug, Clone, FieldSizeChecker)]
+        pub struct GetDataTable {
+            $(
+                $(#[$meta])*
+                pub $field: Vec<$ty>,
+            )+
+        }
+
+        #[cfg(test)]
+        impl GetDataTable {
+            /// Test-only empty constructor. Lists every field explicitly so
+            /// that adding a new variant to `define_get_data_table_schema!`
+            /// also forces this helper to be regenerated by the macro.
+            pub(crate) fn empty_for_test() -> Self {
+                Self {
+                    $(
+                        $(#[$meta])*
+                        $field: Vec::new(),
+                    )+
+                }
+            }
+        }
+
+        impl GetDataTable {
+            fn record_count_for_variant(&self, variant: GetDataTableEnum) -> usize {
+                match variant {
+                    $(
+                        $(#[$meta])*
+                        GetDataTableEnum::$variant => self.$field.len(),
+                    )+
+                }
+            }
+
+            fn encode_for_variant(
+                &self,
+                variant: GetDataTableEnum,
+            ) -> Result<Vec<u8>, apache_avro::Error> {
+                match variant {
+                    $(
+                        $(#[$meta])*
+                        GetDataTableEnum::$variant => $crate::encode::encode(self.$field.clone()),
+                    )+
+                }
+            }
+        }
+    };
+}
+
+pub type PortTableEncode = TableEncode<PortTableEnum>;
+pub type GetDataTableEncode = TableEncode<GetDataTableEnum>;
+
+define_port_table_schema! {
+    EnvInfo => env_info: EnvInfo => get_table_name => "env_info",
+    Cells => cells: Cells => get_table_name => "cells",
+    AirBase => airbase: AirBase => get_table_name => "airbase",
+    PlaneInfo => plane_info: PlaneInfo => get_table_name => "plane_info",
+    OwnSlotItem => own_slotitem: OwnSlotItem => get_table_name => "own_slotitem",
+    EnemySlotItem => enemy_slotitem: EnemySlotItem => get_table_name => "enemy_slotitem",
+    FriendSlotItem => friend_slotitem: FriendSlotItem => get_table_name => "friend_slotitem",
+    OwnShip => own_ship: OwnShip => get_table_name => "own_ship",
+    EnemyShip => enemy_ship: EnemyShip => get_table_name => "enemy_ship",
+    FriendShip => friend_ship: FriendShip => get_table_name => "friend_ship",
+    OwnDeck => own_deck: OwnDeck => get_table_name => "own_deck",
+    SupportDeck => support_deck: SupportDeck => get_table_name => "support_deck",
+    EnemyDeck => enemy_deck: EnemyDeck => get_table_name => "enemy_deck",
+    FriendDeck => friend_deck: FriendDeck => get_table_name => "friend_deck",
+    AirBaseAirAttack => airbase_airattack: AirBaseAirAttack => get_table_name => "airbase_airattack",
+    AirBaseAirAttackList => airbase_airattack_list: AirBaseAirAttackList => get_table_name => "airbase_airattack_list",
+    AirBaseAssult => airbase_assult: AirBaseAssult => get_table_name => "airbase_assult",
+    CarrierBaseAssault => carrierbase_assault: CarrierBaseAssault => get_table_name => "carrierbase_assault",
+    ClosingRaigeki => closing_raigeki: ClosingRaigeki => get_table_name => "closing_raigeki",
+    FriendlySupportHourai => friendly_support_hourai: FriendlySupportHourai => get_table_name => "friendly_support_hourai",
+    FriendlySupportHouraiList => friendly_support_hourai_list: FriendlySupportHouraiList => get_table_name => "friendly_support_hourai_list",
+    Hougeki => hougeki: Hougeki => get_table_name => "hougeki",
+    HougekiList => hougeki_list: HougekiList => get_table_name => "hougeki_list",
+    MidnightHougeki => midnight_hougeki: MidnightHougeki => get_table_name => "midnight_hougeki",
+    MidnightHougekiList => midnight_hougeki_list: MidnightHougekiList => get_table_name => "midnight_hougeki_list",
     #[cfg(feature = "schema_v0_5")]
-    BattleResult,
-}
-
-#[derive(Debug, Clone, Default, FieldSizeChecker)]
-pub struct PortTable {
-    pub env_info: Vec<EnvInfo>,
-    pub cells: Vec<Cells>,
-    pub airbase: Vec<AirBase>,
-    pub plane_info: Vec<PlaneInfo>,
-    pub own_slotitem: Vec<OwnSlotItem>,
-    pub enemy_slotitem: Vec<EnemySlotItem>,
-    pub friend_slotitem: Vec<FriendSlotItem>,
-    pub own_ship: Vec<OwnShip>,
-    pub enemy_ship: Vec<EnemyShip>,
-    pub friend_ship: Vec<FriendShip>,
-    pub own_deck: Vec<OwnDeck>,
-    pub support_deck: Vec<SupportDeck>,
-    pub enemy_deck: Vec<EnemyDeck>,
-    pub friend_deck: Vec<FriendDeck>,
-    pub airbase_airattack: Vec<AirBaseAirAttack>,
-    pub airbase_airattack_list: Vec<AirBaseAirAttackList>,
-    pub airbase_assult: Vec<AirBaseAssult>,
-    pub carrierbase_assault: Vec<CarrierBaseAssault>,
-    pub closing_raigeki: Vec<ClosingRaigeki>,
-    pub friendly_support_hourai: Vec<FriendlySupportHourai>,
-    pub friendly_support_hourai_list: Vec<FriendlySupportHouraiList>,
-    pub hougeki: Vec<Hougeki>,
-    pub hougeki_list: Vec<HougekiList>,
-    pub midnight_hougeki: Vec<MidnightHougeki>,
-    pub midnight_hougeki_list: Vec<MidnightHougekiList>,
-    pub opening_airattack: Vec<OpeningAirAttack>,
-    pub opening_airattack_list: Vec<OpeningAirAttackList>,
-    pub opening_raigeki: Vec<OpeningRaigeki>,
-    pub opening_taisen: Vec<OpeningTaisen>,
-    pub opening_taisen_list: Vec<OpeningTaisenList>,
-    pub support_airattack: Vec<SupportAirattack>,
-    pub support_hourai: Vec<SupportHourai>,
-    pub battle: Vec<Battle>,
+    NightSupportHourai => night_support_hourai: NightSupportHourai => get_table_name => "night_support_hourai",
     #[cfg(feature = "schema_v0_5")]
-    pub battle_result: Vec<BattleResult>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct PortTableEncode {
-    pub env_info: Vec<u8>,
-    pub cells: Vec<u8>,
-    pub airbase: Vec<u8>,
-    pub plane_info: Vec<u8>,
-    pub own_slotitem: Vec<u8>,
-    pub enemy_slotitem: Vec<u8>,
-    pub friend_slotitem: Vec<u8>,
-    pub own_ship: Vec<u8>,
-    pub enemy_ship: Vec<u8>,
-    pub friend_ship: Vec<u8>,
-    pub own_deck: Vec<u8>,
-    pub support_deck: Vec<u8>,
-    pub enemy_deck: Vec<u8>,
-    pub friend_deck: Vec<u8>,
-    pub airbase_airattack: Vec<u8>,
-    pub airbase_airattack_list: Vec<u8>,
-    pub airbase_assult: Vec<u8>,
-    pub carrierbase_assault: Vec<u8>,
-    pub closing_raigeki: Vec<u8>,
-    pub friendly_support_hourai: Vec<u8>,
-    pub friendly_support_hourai_list: Vec<u8>,
-    pub hougeki: Vec<u8>,
-    pub hougeki_list: Vec<u8>,
-    pub midnight_hougeki: Vec<u8>,
-    pub midnight_hougeki_list: Vec<u8>,
-    pub opening_airattack: Vec<u8>,
-    pub opening_airattack_list: Vec<u8>,
-    pub opening_raigeki: Vec<u8>,
-    pub opening_taisen: Vec<u8>,
-    pub opening_taisen_list: Vec<u8>,
-    pub support_airattack: Vec<u8>,
-    pub support_hourai: Vec<u8>,
-    pub battle: Vec<u8>,
+    NightSupportAirattack => night_support_airattack: SupportAirattack => get_night_table_name => "night_support_airattack",
+    OpeningAirAttack => opening_airattack: OpeningAirAttack => get_table_name => "opening_airattack",
+    OpeningAirAttackList => opening_airattack_list: OpeningAirAttackList => get_table_name => "opening_airattack_list",
+    OpeningRaigeki => opening_raigeki: OpeningRaigeki => get_table_name => "opening_raigeki",
+    OpeningTaisen => opening_taisen: OpeningTaisen => get_table_name => "opening_taisen",
+    OpeningTaisenList => opening_taisen_list: OpeningTaisenList => get_table_name => "opening_taisen_list",
+    SupportAirattack => support_airattack: SupportAirattack => get_table_name => "support_airattack",
+    SupportHourai => support_hourai: SupportHourai => get_table_name => "support_hourai",
+    Battle => battle: Battle => get_table_name => "battle",
     #[cfg(feature = "schema_v0_5")]
-    pub battle_result: Vec<u8>,
-}
-
-impl EnvInfo {
-    pub fn get_table_name() -> String {
-        "env_info".to_string()
-    }
-}
-impl Cells {
-    pub fn get_table_name() -> String {
-        "cells".to_string()
-    }
-}
-impl AirBase {
-    pub fn get_table_name() -> String {
-        "airbase".to_string()
-    }
-}
-impl PlaneInfo {
-    pub fn get_table_name() -> String {
-        "plane_info".to_string()
-    }
-}
-impl OwnSlotItem {
-    pub fn get_table_name() -> String {
-        "own_slotitem".to_string()
-    }
-}
-impl EnemySlotItem {
-    pub fn get_table_name() -> String {
-        "enemy_slotitem".to_string()
-    }
-}
-impl FriendSlotItem {
-    pub fn get_table_name() -> String {
-        "friend_slotitem".to_string()
-    }
-}
-impl OwnShip {
-    pub fn get_table_name() -> String {
-        "own_ship".to_string()
-    }
-}
-impl EnemyShip {
-    pub fn get_table_name() -> String {
-        "enemy_ship".to_string()
-    }
-}
-impl FriendShip {
-    pub fn get_table_name() -> String {
-        "friend_ship".to_string()
-    }
-}
-impl OwnDeck {
-    pub fn get_table_name() -> String {
-        "own_deck".to_string()
-    }
-}
-impl SupportDeck {
-    pub fn get_table_name() -> String {
-        "support_deck".to_string()
-    }
-}
-impl EnemyDeck {
-    pub fn get_table_name() -> String {
-        "enemy_deck".to_string()
-    }
-}
-impl FriendDeck {
-    pub fn get_table_name() -> String {
-        "friend_deck".to_string()
-    }
-}
-impl AirBaseAirAttack {
-    pub fn get_table_name() -> String {
-        "airbase_airattack".to_string()
-    }
-}
-impl AirBaseAirAttackList {
-    pub fn get_table_name() -> String {
-        "airbase_airattack_list".to_string()
-    }
-}
-impl AirBaseAssult {
-    pub fn get_table_name() -> String {
-        "airbase_assult".to_string()
-    }
-}
-impl CarrierBaseAssault {
-    pub fn get_table_name() -> String {
-        "carrierbase_assault".to_string()
-    }
-}
-impl ClosingRaigeki {
-    pub fn get_table_name() -> String {
-        "closing_raigeki".to_string()
-    }
-}
-impl FriendlySupportHourai {
-    pub fn get_table_name() -> String {
-        "friendly_support_hourai".to_string()
-    }
-}
-impl FriendlySupportHouraiList {
-    pub fn get_table_name() -> String {
-        "friendly_support_hourai_list".to_string()
-    }
-}
-impl Hougeki {
-    pub fn get_table_name() -> String {
-        "hougeki".to_string()
-    }
-}
-impl HougekiList {
-    pub fn get_table_name() -> String {
-        "hougeki_list".to_string()
-    }
-}
-impl MidnightHougeki {
-    pub fn get_table_name() -> String {
-        "midnight_hougeki".to_string()
-    }
-}
-impl MidnightHougekiList {
-    pub fn get_table_name() -> String {
-        "midnight_hougeki_list".to_string()
-    }
-}
-impl OpeningAirAttack {
-    pub fn get_table_name() -> String {
-        "opening_airattack".to_string()
-    }
-}
-impl OpeningAirAttackList {
-    pub fn get_table_name() -> String {
-        "opening_airattack_list".to_string()
-    }
-}
-impl OpeningRaigeki {
-    pub fn get_table_name() -> String {
-        "opening_raigeki".to_string()
-    }
-}
-impl OpeningTaisen {
-    pub fn get_table_name() -> String {
-        "opening_taisen".to_string()
-    }
-}
-impl OpeningTaisenList {
-    pub fn get_table_name() -> String {
-        "opening_taisen_list".to_string()
-    }
-}
-impl SupportAirattack {
-    pub fn get_table_name() -> String {
-        "support_airattack".to_string()
-    }
-}
-impl SupportHourai {
-    pub fn get_table_name() -> String {
-        "support_hourai".to_string()
-    }
-}
-impl Battle {
-    pub fn get_table_name() -> String {
-        "battle".to_string()
-    }
-}
-
-#[cfg(feature = "schema_v0_5")]
-impl BattleResult {
-    pub fn get_table_name() -> String {
-        "battle_result".to_string()
-    }
+    BattleResult => battle_result: BattleResult => get_table_name => "battle_result",
 }
 
 pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
-    vec![
-        EnvInfo::get_table_name(),
-        Cells::get_table_name(),
-        AirBase::get_table_name(),
-        PlaneInfo::get_table_name(),
-        OwnSlotItem::get_table_name(),
-        EnemySlotItem::get_table_name(),
-        FriendSlotItem::get_table_name(),
-        OwnShip::get_table_name(),
-        EnemyShip::get_table_name(),
-        FriendShip::get_table_name(),
-        OwnDeck::get_table_name(),
-        EnemyDeck::get_table_name(),
-        FriendDeck::get_table_name(),
-        SupportDeck::get_table_name(),
-        SupportAirattack::get_table_name(),
-        OpeningAirAttack::get_table_name(),
-        OpeningAirAttackList::get_table_name(),
-        OpeningRaigeki::get_table_name(),
-        OpeningTaisen::get_table_name(),
-        OpeningTaisenList::get_table_name(),
-        AirBaseAirAttack::get_table_name(),
-        AirBaseAirAttackList::get_table_name(),
-        AirBaseAssult::get_table_name(),
-        CarrierBaseAssault::get_table_name(),
-        FriendlySupportHourai::get_table_name(),
-        FriendlySupportHouraiList::get_table_name(),
-        Hougeki::get_table_name(),
-        HougekiList::get_table_name(),
-        MidnightHougeki::get_table_name(),
-        MidnightHougekiList::get_table_name(),
-        ClosingRaigeki::get_table_name(),
-        Battle::get_table_name(),
-        #[cfg(feature = "schema_v0_5")]
-        BattleResult::get_table_name(),
-    ]
+    PortTableEnum::variants()
+        .iter()
+        .map(|variant| variant.table_name().to_string())
+        .collect()
 });
 
 impl FromStr for PortTableEnum {
     type Err = ();
 
     fn from_str(input: &str) -> Result<PortTableEnum, Self::Err> {
-        match input.to_string() {
-            x if x == EnvInfo::get_table_name() => Ok(PortTableEnum::EnvInfo),
-            x if x == Cells::get_table_name() => Ok(PortTableEnum::Cells),
-            x if x == AirBase::get_table_name() => Ok(PortTableEnum::AirBase),
-            x if x == PlaneInfo::get_table_name() => Ok(PortTableEnum::PlaneInfo),
-            x if x == OwnSlotItem::get_table_name() => Ok(PortTableEnum::OwnSlotItem),
-            x if x == EnemySlotItem::get_table_name() => Ok(PortTableEnum::EnemySlotItem),
-            x if x == FriendSlotItem::get_table_name() => Ok(PortTableEnum::FriendSlotItem),
-            x if x == OwnShip::get_table_name() => Ok(PortTableEnum::OwnShip),
-            x if x == EnemyShip::get_table_name() => Ok(PortTableEnum::EnemyShip),
-            x if x == FriendShip::get_table_name() => Ok(PortTableEnum::FriendShip),
-            x if x == OwnDeck::get_table_name() => Ok(PortTableEnum::OwnDeck),
-            x if x == SupportDeck::get_table_name() => Ok(PortTableEnum::SupportDeck),
-            x if x == EnemyDeck::get_table_name() => Ok(PortTableEnum::EnemyDeck),
-            x if x == FriendDeck::get_table_name() => Ok(PortTableEnum::FriendDeck),
-            x if x == AirBaseAirAttack::get_table_name() => Ok(PortTableEnum::AirBaseAirAttack),
-            x if x == AirBaseAirAttackList::get_table_name() => {
-                Ok(PortTableEnum::AirBaseAirAttackList)
-            }
-            x if x == AirBaseAssult::get_table_name() => Ok(PortTableEnum::AirBaseAssult),
-            x if x == CarrierBaseAssault::get_table_name() => Ok(PortTableEnum::CarrierBaseAssault),
-            x if x == ClosingRaigeki::get_table_name() => Ok(PortTableEnum::ClosingRaigeki),
-            x if x == FriendlySupportHourai::get_table_name() => {
-                Ok(PortTableEnum::FriendlySupportHourai)
-            }
-            x if x == FriendlySupportHouraiList::get_table_name() => {
-                Ok(PortTableEnum::FriendlySupportHouraiList)
-            }
-            x if x == Hougeki::get_table_name() => Ok(PortTableEnum::Hougeki),
-            x if x == HougekiList::get_table_name() => Ok(PortTableEnum::HougekiList),
-            x if x == MidnightHougeki::get_table_name() => Ok(PortTableEnum::MidnightHougeki),
-            x if x == MidnightHougekiList::get_table_name() => {
-                Ok(PortTableEnum::MidnightHougekiList)
-            }
-            x if x == OpeningAirAttack::get_table_name() => Ok(PortTableEnum::OpeningAirAttack),
-            x if x == OpeningAirAttackList::get_table_name() => {
-                Ok(PortTableEnum::OpeningAirAttackList)
-            }
-            x if x == OpeningRaigeki::get_table_name() => Ok(PortTableEnum::OpeningRaigeki),
-            x if x == OpeningTaisen::get_table_name() => Ok(PortTableEnum::OpeningTaisen),
-            x if x == OpeningTaisenList::get_table_name() => Ok(PortTableEnum::OpeningTaisenList),
-            x if x == SupportAirattack::get_table_name() => Ok(PortTableEnum::SupportAirattack),
-            x if x == SupportHourai::get_table_name() => Ok(PortTableEnum::SupportHourai),
-            x if x == Battle::get_table_name() => Ok(PortTableEnum::Battle),
-             #[cfg(feature = "schema_v0_5")]
-            x if x == BattleResult::get_table_name() => Ok(PortTableEnum::BattleResult),
-            _ => Err(()),
-        }
+        PortTableEnum::variants()
+            .iter()
+            .copied()
+            .find(|variant| variant.table_name() == input)
+            .ok_or(())
     }
 }
 
@@ -434,7 +416,14 @@ impl PortTable {
         let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
         {
             let uuid = Uuid::new_v7(ts);
-            Cells::new_ret_option(ts, uuid, interface_cells.clone(), &mut table, &mut dedup, env_uuid)
+            Cells::new_ret_option(
+                ts,
+                uuid,
+                interface_cells.clone(),
+                &mut table,
+                &mut dedup,
+                env_uuid,
+            )
         };
         tracing::debug!(
             "PortTable::new created with {} cells, maparea_id={}, mapinfo_no={}, battles={}",
@@ -447,276 +436,37 @@ impl PortTable {
     }
 
     pub fn encode(&self) -> Result<PortTableEncode, apache_avro::Error> {
-        let airbase = encode(self.airbase.clone())?;
-        let plane_info = encode(self.plane_info.clone())?;
-        let own_slotitem = encode(self.own_slotitem.clone())?;
-        let enemy_slotitem = encode(self.enemy_slotitem.clone())?;
-        let friend_slotitem = encode(self.friend_slotitem.clone())?;
-        let own_ship = encode(self.own_ship.clone())?;
-        let enemy_ship = encode(self.enemy_ship.clone())?;
-        let friend_ship = encode(self.friend_ship.clone())?;
-        let own_deck = encode(self.own_deck.clone())?;
-        let support_deck = encode(self.support_deck.clone())?;
-        let enemy_deck = encode(self.enemy_deck.clone())?;
-        let friend_deck = encode(self.friend_deck.clone())?;
-        let airbase_airattack = encode(self.airbase_airattack.clone())?;
-        let airbase_airattack_list = encode(self.airbase_airattack_list.clone())?;
-        let airbase_assult = encode(self.airbase_assult.clone())?;
-        let carrierbase_assault = encode(self.carrierbase_assault.clone())?;
-        let closing_raigeki = encode(self.closing_raigeki.clone())?;
-        let friendly_support_hourai = encode(self.friendly_support_hourai.clone())?;
-        let friendly_support_hourai_list = encode(self.friendly_support_hourai_list.clone())?;
-        let hougeki = encode(self.hougeki.clone())?;
-        let hougeki_list = encode(self.hougeki_list.clone())?;
-        let midnight_hougeki = encode(self.midnight_hougeki.clone())?;
-        let midnight_hougeki_list = encode(self.midnight_hougeki_list.clone())?;
-        let opening_airattack = encode(self.opening_airattack.clone())?;
-        let opening_airattack_list = encode(self.opening_airattack_list.clone())?;
-        let opening_raigeki = encode(self.opening_raigeki.clone())?;
-        let opening_taisen = encode(self.opening_taisen.clone())?;
-        let opening_taisen_list = encode(self.opening_taisen_list.clone())?;
-        let support_airattack = encode(self.support_airattack.clone())?;
-        let support_hourai = encode(self.support_hourai.clone())?;
-        let battle = encode(self.battle.clone())?;
-        #[cfg(feature = "schema_v0_5")]
-        let battle_result = encode(self.battle_result.clone())?;
-
-        let cells = encode(self.cells.clone())?;
-        tracing::debug!(
-            "PortTable::encode - cells: {} records, {} bytes",
-            self.cells.len(),
-            cells.len()
-        );
-        let env_info = encode(self.env_info.clone())?;
-
-        let table_encode = PortTableEncode {
-            env_info,
-            cells,
-            airbase,
-            plane_info,
-            own_slotitem,
-            enemy_slotitem,
-            friend_slotitem,
-            own_ship,
-            enemy_ship,
-            friend_ship,
-            own_deck,
-            support_deck,
-            enemy_deck,
-            friend_deck,
-            airbase_airattack,
-            airbase_airattack_list,
-            airbase_assult,
-            carrierbase_assault,
-            closing_raigeki,
-            friendly_support_hourai,
-            friendly_support_hourai_list,
-            hougeki,
-            hougeki_list,
-            midnight_hougeki,
-            midnight_hougeki_list,
-            opening_airattack,
-            opening_airattack_list,
-            opening_raigeki,
-            opening_taisen,
-            opening_taisen_list,
-            support_airattack,
-            support_hourai,
-            battle,
-            #[cfg(feature = "schema_v0_5")]
-            battle_result,
-        };
+        let mut table_encode = PortTableEncode::default();
+        for variant in PortTableEnum::variants().iter().copied() {
+            let bytes = self.encode_for_variant(variant)?;
+            if variant == PortTableEnum::Cells {
+                tracing::debug!(
+                    "PortTable::encode - cells: {} records, {} bytes",
+                    self.cells.len(),
+                    bytes.len()
+                );
+            }
+            table_encode.insert(variant, bytes);
+        }
         Ok(table_encode)
     }
 
-    /// Encode only non-empty tables and return Vec of (table_name, avro_bytes)
-    pub fn encode_non_empty_tables(&self) -> Result<Vec<(String, Vec<u8>)>, apache_avro::Error> {
-        let mut tables: Vec<(String, Vec<u8>)> = Vec::new();
+    /// Encode only non-empty tables and return Vec of (table enum, avro_bytes)
+    pub fn encode_non_empty_tables(
+        &self,
+    ) -> Result<Vec<(PortTableEnum, Vec<u8>)>, apache_avro::Error> {
+        let mut tables: Vec<(PortTableEnum, Vec<u8>)> = Vec::new();
 
-        // helper macro to encode and push when non-empty
-        macro_rules! enc_push_if_non_empty {
-            ($name:expr, $vec_len:expr, $encode_expr:expr) => {
-                if $vec_len > 0 {
-                    let bytes = $encode_expr?;
-                    if !bytes.is_empty() {
-                        tables.push(($name.to_string(), bytes));
-                    }
-                }
-            };
+        for variant in PortTableEnum::variants().iter().copied() {
+            if self.record_count_for_variant(variant) == 0 {
+                continue;
+            }
+
+            let bytes = self.encode_for_variant(variant)?;
+            if !bytes.is_empty() {
+                tables.push((variant, bytes));
+            }
         }
-
-        // Use the same encoders as encode(), but guard by record counts
-        enc_push_if_non_empty!(
-            EnvInfo::get_table_name(),
-            self.env_info.len(),
-            encode(self.env_info.clone())
-        );
-        enc_push_if_non_empty!(
-            Cells::get_table_name(),
-            self.cells.len(),
-            encode(self.cells.clone())
-        );
-        enc_push_if_non_empty!(
-            AirBase::get_table_name(),
-            self.airbase.len(),
-            encode(self.airbase.clone())
-        );
-        enc_push_if_non_empty!(
-            PlaneInfo::get_table_name(),
-            self.plane_info.len(),
-            encode(self.plane_info.clone())
-        );
-        enc_push_if_non_empty!(
-            OwnSlotItem::get_table_name(),
-            self.own_slotitem.len(),
-            encode(self.own_slotitem.clone())
-        );
-        enc_push_if_non_empty!(
-            EnemySlotItem::get_table_name(),
-            self.enemy_slotitem.len(),
-            encode(self.enemy_slotitem.clone())
-        );
-        enc_push_if_non_empty!(
-            FriendSlotItem::get_table_name(),
-            self.friend_slotitem.len(),
-            encode(self.friend_slotitem.clone())
-        );
-        enc_push_if_non_empty!(
-            OwnShip::get_table_name(),
-            self.own_ship.len(),
-            encode(self.own_ship.clone())
-        );
-        enc_push_if_non_empty!(
-            EnemyShip::get_table_name(),
-            self.enemy_ship.len(),
-            encode(self.enemy_ship.clone())
-        );
-        enc_push_if_non_empty!(
-            FriendShip::get_table_name(),
-            self.friend_ship.len(),
-            encode(self.friend_ship.clone())
-        );
-        enc_push_if_non_empty!(
-            OwnDeck::get_table_name(),
-            self.own_deck.len(),
-            encode(self.own_deck.clone())
-        );
-        enc_push_if_non_empty!(
-            SupportDeck::get_table_name(),
-            self.support_deck.len(),
-            encode(self.support_deck.clone())
-        );
-        enc_push_if_non_empty!(
-            EnemyDeck::get_table_name(),
-            self.enemy_deck.len(),
-            encode(self.enemy_deck.clone())
-        );
-        enc_push_if_non_empty!(
-            FriendDeck::get_table_name(),
-            self.friend_deck.len(),
-            encode(self.friend_deck.clone())
-        );
-        enc_push_if_non_empty!(
-            AirBaseAirAttack::get_table_name(),
-            self.airbase_airattack.len(),
-            encode(self.airbase_airattack.clone())
-        );
-        enc_push_if_non_empty!(
-            AirBaseAirAttackList::get_table_name(),
-            self.airbase_airattack_list.len(),
-            encode(self.airbase_airattack_list.clone())
-        );
-        enc_push_if_non_empty!(
-            AirBaseAssult::get_table_name(),
-            self.airbase_assult.len(),
-            encode(self.airbase_assult.clone())
-        );
-        enc_push_if_non_empty!(
-            CarrierBaseAssault::get_table_name(),
-            self.carrierbase_assault.len(),
-            encode(self.carrierbase_assault.clone())
-        );
-        enc_push_if_non_empty!(
-            ClosingRaigeki::get_table_name(),
-            self.closing_raigeki.len(),
-            encode(self.closing_raigeki.clone())
-        );
-        enc_push_if_non_empty!(
-            FriendlySupportHourai::get_table_name(),
-            self.friendly_support_hourai.len(),
-            encode(self.friendly_support_hourai.clone())
-        );
-        enc_push_if_non_empty!(
-            FriendlySupportHouraiList::get_table_name(),
-            self.friendly_support_hourai_list.len(),
-            encode(self.friendly_support_hourai_list.clone())
-        );
-        enc_push_if_non_empty!(
-            Hougeki::get_table_name(),
-            self.hougeki.len(),
-            encode(self.hougeki.clone())
-        );
-        enc_push_if_non_empty!(
-            HougekiList::get_table_name(),
-            self.hougeki_list.len(),
-            encode(self.hougeki_list.clone())
-        );
-        enc_push_if_non_empty!(
-            MidnightHougeki::get_table_name(),
-            self.midnight_hougeki.len(),
-            encode(self.midnight_hougeki.clone())
-        );
-        enc_push_if_non_empty!(
-            MidnightHougekiList::get_table_name(),
-            self.midnight_hougeki_list.len(),
-            encode(self.midnight_hougeki_list.clone())
-        );
-        enc_push_if_non_empty!(
-            OpeningAirAttack::get_table_name(),
-            self.opening_airattack.len(),
-            encode(self.opening_airattack.clone())
-        );
-        enc_push_if_non_empty!(
-            OpeningAirAttackList::get_table_name(),
-            self.opening_airattack_list.len(),
-            encode(self.opening_airattack_list.clone())
-        );
-        enc_push_if_non_empty!(
-            OpeningRaigeki::get_table_name(),
-            self.opening_raigeki.len(),
-            encode(self.opening_raigeki.clone())
-        );
-        enc_push_if_non_empty!(
-            OpeningTaisen::get_table_name(),
-            self.opening_taisen.len(),
-            encode(self.opening_taisen.clone())
-        );
-        enc_push_if_non_empty!(
-            OpeningTaisenList::get_table_name(),
-            self.opening_taisen_list.len(),
-            encode(self.opening_taisen_list.clone())
-        );
-        enc_push_if_non_empty!(
-            SupportAirattack::get_table_name(),
-            self.support_airattack.len(),
-            encode(self.support_airattack.clone())
-        );
-        enc_push_if_non_empty!(
-            SupportHourai::get_table_name(),
-            self.support_hourai.len(),
-            encode(self.support_hourai.clone())
-        );
-        enc_push_if_non_empty!(
-            Battle::get_table_name(),
-            self.battle.len(),
-            encode(self.battle.clone())
-        );
-        #[cfg(feature = "schema_v0_5")]
-        enc_push_if_non_empty!(
-            BattleResult::get_table_name(),
-            self.battle_result.len(),
-            encode(self.battle_result.clone())
-        );
 
         Ok(tables)
     }
@@ -726,163 +476,64 @@ impl PortTable {
 //     pub slotitem: Vec<OwnSlotItem>,
 // }
 
-#[derive(Debug, Clone, Default, FieldSizeChecker)]
-pub struct GetDataTable {
-    pub mst_ship: Vec<MstShip>,
-    pub mst_slot_item: Vec<MstSlotItem>,
-    pub mst_equip_exslot_ship: Vec<MstEquipExslotShip>,
-    pub mst_equip_exslot: Vec<MstEquipExslot>,
-    pub mst_equip_limit_exslot: Vec<MstEquipLimitExslot>,
-    pub mst_slot_item_equip_type: Vec<MstSlotItemEquipType>,
-    pub mst_equip_ship: Vec<MstEquipShip>,
-    pub mst_stype: Vec<MstStype>,
-    pub mst_use_item: Vec<MstUseItem>,
-    pub mst_map_area: Vec<MstMapArea>,
-    pub mst_map_info: Vec<MstMapInfo>,
-    pub mst_ship_graph: Vec<MstShipGraph>,
-    pub mst_ship_upgrade: Vec<MstShipUpgrade>,
-}
-#[derive(Debug, Clone, Default)]
-pub struct GetDataTableEncode {
-    pub mst_ship: Vec<u8>,
-    pub mst_slot_item: Vec<u8>,
-    pub mst_equip_exslot_ship: Vec<u8>,
-    pub mst_equip_exslot: Vec<u8>,
-    pub mst_equip_limit_exslot: Vec<u8>,
-    pub mst_slot_item_equip_type: Vec<u8>,
-    pub mst_equip_ship: Vec<u8>,
-    pub mst_stype: Vec<u8>,
-    pub mst_use_item: Vec<u8>,
-    pub mst_map_area: Vec<u8>,
-    pub mst_map_info: Vec<u8>,
-    pub mst_ship_graph: Vec<u8>,
-    pub mst_ship_upgrade: Vec<u8>,
-}
-
-#[derive(Debug, Clone)]
-pub enum GetDataTableEnum {
-    MstShip,
-    MstSlotItem,
-    MstEquipExslotShip,
-    MstEquipExslot,
-    MstEquipLimitExslot,
-    MstSlotItemEquipType,
-    MstEquipShip,
-    MstStype,
-    MstUseItem,
-    MstMapArea,
-    MstMapInfo,
-    MstShipGraph,
-    MstShipUpgrade,
+define_get_data_table_schema! {
+    MstShip => mst_ship: MstShip => "mst_ship",
+    MstSlotItem => mst_slot_item: MstSlotItem => "mst_slot_item",
+    MstEquipExslotShip => mst_equip_exslot_ship: MstEquipExslotShip => "mst_equip_exslot_ship",
+    MstEquipExslot => mst_equip_exslot: MstEquipExslot => "mst_equip_exslot",
+    MstEquipLimitExslot => mst_equip_limit_exslot: MstEquipLimitExslot => "mst_equip_limit_exslot",
+    MstSlotItemEquipType => mst_slot_item_equip_type: MstSlotItemEquipType => "mst_slot_item_equip_type",
+    MstEquipShip => mst_equip_ship: MstEquipShip => "mst_equip_ship",
+    MstStype => mst_stype: MstStype => "mst_stype",
+    MstUseItem => mst_use_item: MstUseItem => "mst_use_item",
+    MstMapArea => mst_map_area: MstMapArea => "mst_map_area",
+    MstMapInfo => mst_map_info: MstMapInfo => "mst_map_info",
+    MstShipGraph => mst_ship_graph: MstShipGraph => "mst_ship_graph",
+    MstShipUpgrade => mst_ship_upgrade: MstShipUpgrade => "mst_ship_upgrade",
 }
 
 pub static GET_DATA_TABLE_NAMES: std::sync::LazyLock<Vec<String>> =
     std::sync::LazyLock::new(|| {
-        vec![
-            MstShip::get_table_name(),
-            MstSlotItem::get_table_name(),
-            MstEquipExslotShip::get_table_name(),
-            MstEquipExslot::get_table_name(),
-            MstEquipLimitExslot::get_table_name(),
-            MstSlotItemEquipType::get_table_name(),
-            MstEquipShip::get_table_name(),
-            MstStype::get_table_name(),
-            MstUseItem::get_table_name(),
-            MstMapArea::get_table_name(),
-            MstMapInfo::get_table_name(),
-            MstShipGraph::get_table_name(),
-            MstShipUpgrade::get_table_name(),
-        ]
+        GetDataTableEnum::variants()
+            .iter()
+            .copied()
+            .map(|variant| variant.table_name().to_string())
+            .collect()
     });
 
 impl FromStr for GetDataTableEnum {
     type Err = ();
 
     fn from_str(input: &str) -> Result<GetDataTableEnum, Self::Err> {
-        match input.to_string() {
-            x if x == MstShip::get_table_name() => Ok(GetDataTableEnum::MstShip),
-            x if x == MstSlotItem::get_table_name() => Ok(GetDataTableEnum::MstSlotItem),
-            x if x == MstEquipExslotShip::get_table_name() => {
-                Ok(GetDataTableEnum::MstEquipExslotShip)
-            }
-            x if x == MstEquipExslot::get_table_name() => Ok(GetDataTableEnum::MstEquipExslot),
-            x if x == MstEquipLimitExslot::get_table_name() => {
-                Ok(GetDataTableEnum::MstEquipLimitExslot)
-            }
-            x if x == MstSlotItemEquipType::get_table_name() => {
-                Ok(GetDataTableEnum::MstSlotItemEquipType)
-            }
-            x if x == MstEquipShip::get_table_name() => Ok(GetDataTableEnum::MstEquipShip),
-            x if x == MstStype::get_table_name() => Ok(GetDataTableEnum::MstStype),
-            x if x == MstUseItem::get_table_name() => Ok(GetDataTableEnum::MstUseItem),
-            x if x == MstMapArea::get_table_name() => Ok(GetDataTableEnum::MstMapArea),
-            x if x == MstMapInfo::get_table_name() => Ok(GetDataTableEnum::MstMapInfo),
-            x if x == MstShipGraph::get_table_name() => Ok(GetDataTableEnum::MstShipGraph),
-            x if x == MstShipUpgrade::get_table_name() => Ok(GetDataTableEnum::MstShipUpgrade),
-            _ => Err(()),
-        }
+        GetDataTableEnum::variants()
+            .iter()
+            .copied()
+            .find(|variant| variant.table_name() == input)
+            .ok_or(())
     }
 }
 
 impl GetDataTable {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> GetDataTable {
-        let mst_ship = MstShips::load().mst_ships.values().cloned().collect();
-        let mst_slot_item = MstSlotItems::load()
-            .mst_slot_items
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_exslot_ship = MstEquipExslotShips::load()
-            .mst_equip_ships
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_exslot = MstEquipExslots::load()
-            .mst_equip_exslots
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_limit_exslot = MstEquipLimitExslots::load()
-            .mst_equip_limit_exslots
-            .values()
-            .cloned()
-            .collect();
-        let mst_slot_item_equip_type = MstSlotItemEquipTypes::load()
-            .mst_slotitem_equip_types
-            .values()
-            .cloned()
-            .collect();
-        let mst_equip_ship = MstEquipShips::load()
-            .mst_equip_ships
-            .values()
-            .cloned()
-            .collect();
-        let mst_stype = MstStypes::load().mst_stypes.values().cloned().collect();
-        let mst_use_item = MstUseItems::load()
-            .mst_use_items
-            .values()
-            .cloned()
-            .collect();
-        let mst_ship_graph = MstShipGraphs::load()
-            .mst_ship_graphs
-            .values()
-            .cloned()
-            .collect();
-        let mst_map_area = MstMapAreas::load()
-            .mst_map_areas
-            .values()
-            .cloned()
-            .collect();
-        let mst_map_info = MstMapInfos::load()
-            .mst_map_infos
-            .values()
-            .cloned()
-            .collect();
-        let mst_ship_upgrade = MstShipUpgrades::load()
-            .mst_ship_upgrades
-            .values()
-            .cloned()
-            .collect();
+        let mst_ship = collect_values_sorted_by_key(&MstShips::load().mst_ships);
+        let mst_slot_item = collect_values_sorted_by_key(&MstSlotItems::load().mst_slot_items);
+        let mst_equip_exslot_ship =
+            collect_values_sorted_by_key(&MstEquipExslotShips::load().mst_equip_ships);
+        let mst_equip_exslot =
+            collect_values_sorted_by_key(&MstEquipExslots::load().mst_equip_exslots);
+        let mst_equip_limit_exslot =
+            collect_values_sorted_by_key(&MstEquipLimitExslots::load().mst_equip_limit_exslots);
+        let mst_slot_item_equip_type =
+            collect_values_sorted_by_key(&MstSlotItemEquipTypes::load().mst_slotitem_equip_types);
+        let mst_equip_ship = collect_values_sorted_by_key(&MstEquipShips::load().mst_equip_ships);
+        let mst_stype = collect_values_sorted_by_key(&MstStypes::load().mst_stypes);
+        let mst_use_item = collect_values_sorted_by_key(&MstUseItems::load().mst_use_items);
+        let mst_ship_graph = collect_values_sorted_by_key(&MstShipGraphs::load().mst_ship_graphs);
+        let mst_map_area = collect_values_sorted_by_key(&MstMapAreas::load().mst_map_areas);
+        let mst_map_info = collect_values_sorted_by_key(&MstMapInfos::load().mst_map_infos);
+        let mst_ship_upgrade =
+            collect_values_sorted_by_key(&MstShipUpgrades::load().mst_ship_upgrades);
 
         GetDataTable {
             mst_ship,
@@ -902,35 +553,375 @@ impl GetDataTable {
     }
 
     pub fn encode(&self) -> Result<GetDataTableEncode, apache_avro::Error> {
-        let mst_ship = encode(self.mst_ship.clone())?;
-        let mst_slot_item = encode(self.mst_slot_item.clone())?;
-        let mst_equip_exslot_ship = encode(self.mst_equip_exslot_ship.clone())?;
-        let mst_equip_exslot = encode(self.mst_equip_exslot.clone())?;
-        let mst_equip_limit_exslot = encode(self.mst_equip_limit_exslot.clone())?;
-        let mst_slot_item_equip_type = encode(self.mst_slot_item_equip_type.clone())?;
-        let mst_equip_ship = encode(self.mst_equip_ship.clone())?;
-        let mst_stype = encode(self.mst_stype.clone())?;
-        let mst_use_item = encode(self.mst_use_item.clone())?;
-        let mst_map_area = encode(self.mst_map_area.clone())?;
-        let mst_map_info = encode(self.mst_map_info.clone())?;
-        let mst_ship_graph = encode(self.mst_ship_graph.clone())?;
-        let mst_ship_upgrade = encode(self.mst_ship_upgrade.clone())?;
-
-        let table_encode = GetDataTableEncode {
-            mst_ship,
-            mst_slot_item,
-            mst_equip_exslot_ship,
-            mst_equip_exslot,
-            mst_equip_limit_exslot,
-            mst_slot_item_equip_type,
-            mst_equip_ship,
-            mst_stype,
-            mst_use_item,
-            mst_ship_graph,
-            mst_map_area,
-            mst_map_info,
-            mst_ship_upgrade,
-        };
+        let mut table_encode = GetDataTableEncode::default();
+        for variant in GetDataTableEnum::variants().iter().copied() {
+            let bytes = self.encode_for_variant(variant)?;
+            table_encode.insert(variant, bytes);
+        }
         Ok(table_encode)
+    }
+
+    pub fn encode_non_empty_tables(
+        &self,
+    ) -> Result<Vec<(GetDataTableEnum, Vec<u8>)>, apache_avro::Error> {
+        let mut tables: Vec<(GetDataTableEnum, Vec<u8>)> = Vec::new();
+
+        for variant in GetDataTableEnum::variants().iter().copied() {
+            if self.record_count_for_variant(variant) == 0 {
+                continue;
+            }
+
+            let bytes = self.encode_for_variant(variant)?;
+            if !bytes.is_empty() {
+                tables.push((variant, bytes));
+            }
+        }
+
+        Ok(tables)
+    }
+}
+
+#[cfg(test)]
+mod schema_invariants {
+    //! Compile-time + runtime safety net for the macro-generated table schemas.
+    //!
+    //! These tests guarantee that `#[cfg(feature = "...")]`-driven additions or
+    //! removals of variants cannot silently break the system:
+    //!
+    //! * Every variant has a non-empty, unique `table_name` (no typo collisions).
+    //! * `FromStr` is a perfect inverse of `table_name` for every variant.
+    //! * `*Encode` (BTreeMap-backed) preserves all variants as distinct keys
+    //!   in declaration order.
+    //! * `record_count_for_variant` / `encode_for_variant` are callable for
+    //!   every variant — exhaustiveness is enforced at compile time by the
+    //!   generated `match`, and exercised at runtime here.
+    //!
+    //! When a new variant is added to `define_port_table_schema!` or
+    //! `define_get_data_table_schema!` (with or without `#[cfg(...)]`), all
+    //! tests below remain valid by construction; they only fail if a future
+    //! refactor breaks one of the above invariants.
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::str::FromStr;
+
+    #[test]
+    fn port_table_names_are_unique_and_nonempty() {
+        let mut seen = HashSet::new();
+        for v in PortTableEnum::variants().iter().copied() {
+            let name = v.table_name();
+            assert!(
+                !name.is_empty(),
+                "PortTableEnum::{:?} has empty table_name",
+                v
+            );
+            assert!(
+                seen.insert(name),
+                "duplicate PortTableEnum table_name: {}",
+                name
+            );
+        }
+        assert_eq!(seen.len(), PortTableEnum::variants().len());
+    }
+
+    #[test]
+    fn get_data_table_names_are_unique_and_nonempty() {
+        let mut seen = HashSet::new();
+        for v in GetDataTableEnum::variants().iter().copied() {
+            let name = v.table_name();
+            assert!(
+                !name.is_empty(),
+                "GetDataTableEnum::{:?} has empty table_name",
+                v
+            );
+            assert!(
+                seen.insert(name),
+                "duplicate GetDataTableEnum table_name: {}",
+                name
+            );
+        }
+        assert_eq!(seen.len(), GetDataTableEnum::variants().len());
+    }
+
+    #[test]
+    fn port_table_from_str_roundtrip() {
+        for v in PortTableEnum::variants().iter().copied() {
+            assert_eq!(PortTableEnum::from_str(v.table_name()), Ok(v));
+        }
+        assert!(PortTableEnum::from_str("__not_a_real_table__").is_err());
+    }
+
+    #[test]
+    fn get_data_table_from_str_roundtrip() {
+        for v in GetDataTableEnum::variants().iter().copied() {
+            assert_eq!(GetDataTableEnum::from_str(v.table_name()), Ok(v));
+        }
+        assert!(GetDataTableEnum::from_str("__not_a_real_table__").is_err());
+    }
+
+    #[test]
+    fn port_table_encode_keys_match_variants() {
+        let mut encode = PortTableEncode::default();
+        for v in PortTableEnum::variants().iter().copied() {
+            encode.insert(v, Vec::new());
+        }
+        assert_eq!(encode.len(), PortTableEnum::variants().len());
+        let collected: Vec<_> = encode.iter().map(|(k, _)| k).collect();
+        assert_eq!(collected, PortTableEnum::variants().to_vec());
+    }
+
+    #[test]
+    fn get_data_table_encode_keys_match_variants() {
+        let mut encode = GetDataTableEncode::default();
+        for v in GetDataTableEnum::variants().iter().copied() {
+            encode.insert(v, Vec::new());
+        }
+        assert_eq!(encode.len(), GetDataTableEnum::variants().len());
+        let collected: Vec<_> = encode.iter().map(|(k, _)| k).collect();
+        assert_eq!(collected, GetDataTableEnum::variants().to_vec());
+    }
+
+    #[test]
+    fn port_table_encode_for_every_variant_is_callable() {
+        let table = PortTable::default();
+        for v in PortTableEnum::variants().iter().copied() {
+            assert_eq!(
+                table.record_count_for_variant(v),
+                0,
+                "default PortTable should have 0 records for {:?}",
+                v
+            );
+            table
+                .encode_for_variant(v)
+                .unwrap_or_else(|e| panic!("encode_for_variant({:?}) failed: {}", v, e));
+        }
+    }
+
+    #[test]
+    fn get_data_table_encode_for_every_variant_is_callable() {
+        // Intentionally use empty_for_test() instead of any Default impl —
+        // see macro doc on define_get_data_table_schema! for rationale.
+        let table = GetDataTable::empty_for_test();
+        for v in GetDataTableEnum::variants().iter().copied() {
+            assert_eq!(
+                table.record_count_for_variant(v),
+                0,
+                "default GetDataTable should have 0 records for {:?}",
+                v
+            );
+            table
+                .encode_for_variant(v)
+                .unwrap_or_else(|e| panic!("encode_for_variant({:?}) failed: {}", v, e));
+        }
+    }
+
+    #[test]
+    fn collect_values_sorted_by_key_is_deterministic() {
+        let mut map_a = HashMap::<i32, &str>::new();
+        map_a.insert(2, "two");
+        map_a.insert(1, "one");
+
+        let mut map_b = HashMap::<i32, &str>::new();
+        map_b.insert(1, "one");
+        map_b.insert(2, "two");
+
+        let values_a = collect_values_sorted_by_key(&map_a);
+        let values_b = collect_values_sorted_by_key(&map_b);
+
+        assert_eq!(values_a, values_b);
+        assert_eq!(values_a, vec!["one", "two"]);
+    }
+
+    #[test]
+    fn get_data_table_encoding_is_deterministic_across_insertion_orders() {
+        let original_exslot_ships = MstEquipExslotShips::load();
+        let original_equip_ships = MstEquipShips::load();
+        let original_stypes = MstStypes::load();
+
+        let mut exslot_map_a = HashMap::new();
+        exslot_map_a.insert(
+            "2".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 2,
+                ship_ids: Some(HashMap::from([("b".to_string(), 2), ("a".to_string(), 1)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+        exslot_map_a.insert(
+            "1".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 1,
+                ship_ids: Some(HashMap::from([("b".to_string(), 2), ("a".to_string(), 1)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+
+        let mut exslot_map_b = HashMap::new();
+        exslot_map_b.insert(
+            "1".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 1,
+                ship_ids: Some(HashMap::from([("a".to_string(), 1), ("b".to_string(), 2)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+        exslot_map_b.insert(
+            "2".to_string(),
+            MstEquipExslotShip {
+                slotitem_id: 2,
+                ship_ids: Some(HashMap::from([("a".to_string(), 1), ("b".to_string(), 2)])),
+                stypes: None,
+                ctypes: None,
+                req_level: 0,
+            },
+        );
+
+        let mut stype_map_a = HashMap::new();
+        stype_map_a.insert(
+            2,
+            MstStype {
+                id: 2,
+                sortno: 2,
+                name: "stype-2".to_string(),
+                equip_type: HashMap::from([("2".to_string(), 20), ("1".to_string(), 10)]),
+            },
+        );
+        stype_map_a.insert(
+            1,
+            MstStype {
+                id: 1,
+                sortno: 1,
+                name: "stype-1".to_string(),
+                equip_type: HashMap::from([("2".to_string(), 20), ("1".to_string(), 10)]),
+            },
+        );
+
+        let mut stype_map_b = HashMap::new();
+        stype_map_b.insert(
+            1,
+            MstStype {
+                id: 1,
+                sortno: 1,
+                name: "stype-1".to_string(),
+                equip_type: HashMap::from([("1".to_string(), 10), ("2".to_string(), 20)]),
+            },
+        );
+        stype_map_b.insert(
+            2,
+            MstStype {
+                id: 2,
+                sortno: 2,
+                name: "stype-2".to_string(),
+                equip_type: HashMap::from([("1".to_string(), 10), ("2".to_string(), 20)]),
+            },
+        );
+
+        let equip_type_a: HashMap<String, Option<Vec<i32>>> = HashMap::from([
+            ("2".to_string(), Some(vec![2])),
+            ("1".to_string(), Some(vec![1])),
+        ]);
+        let equip_type_b: HashMap<String, Option<Vec<i32>>> = HashMap::from([
+            ("1".to_string(), Some(vec![1])),
+            ("2".to_string(), Some(vec![2])),
+        ]);
+
+        let mut equip_ship_map_a = HashMap::new();
+        equip_ship_map_a.insert(
+            2,
+            MstEquipShip {
+                ship_id: 2,
+                equip_type: equip_type_a.clone(),
+            },
+        );
+        equip_ship_map_a.insert(
+            1,
+            MstEquipShip {
+                ship_id: 1,
+                equip_type: equip_type_a,
+            },
+        );
+
+        let mut equip_ship_map_b = HashMap::new();
+        equip_ship_map_b.insert(
+            1,
+            MstEquipShip {
+                ship_id: 1,
+                equip_type: equip_type_b.clone(),
+            },
+        );
+        equip_ship_map_b.insert(
+            2,
+            MstEquipShip {
+                ship_id: 2,
+                equip_type: equip_type_b,
+            },
+        );
+
+        MstEquipExslotShips {
+            mst_equip_ships: exslot_map_a,
+        }
+        .restore();
+        MstEquipShips {
+            mst_equip_ships: equip_ship_map_a,
+        }
+        .restore();
+        MstStypes {
+            mst_stypes: stype_map_a,
+        }
+        .restore();
+
+        let table_a = GetDataTable::new().encode().expect("encode table a");
+        let bytes_a_exslot_ship = table_a
+            .get(GetDataTableEnum::MstEquipExslotShip)
+            .expect("bytes a exslot ship")
+            .to_vec();
+        let bytes_a_equip_ship = table_a
+            .get(GetDataTableEnum::MstEquipShip)
+            .expect("bytes a equip ship")
+            .to_vec();
+        let bytes_a_stype = table_a
+            .get(GetDataTableEnum::MstStype)
+            .expect("bytes a stype")
+            .to_vec();
+
+        MstEquipExslotShips {
+            mst_equip_ships: exslot_map_b,
+        }
+        .restore();
+        MstEquipShips {
+            mst_equip_ships: equip_ship_map_b,
+        }
+        .restore();
+        MstStypes {
+            mst_stypes: stype_map_b,
+        }
+        .restore();
+
+        let table_b = GetDataTable::new().encode().expect("encode table b");
+        let bytes_b_exslot_ship = table_b
+            .get(GetDataTableEnum::MstEquipExslotShip)
+            .expect("bytes b exslot ship")
+            .to_vec();
+        let bytes_b_equip_ship = table_b
+            .get(GetDataTableEnum::MstEquipShip)
+            .expect("bytes b equip ship")
+            .to_vec();
+        let bytes_b_stype = table_b
+            .get(GetDataTableEnum::MstStype)
+            .expect("bytes b stype")
+            .to_vec();
+
+        MstEquipExslotShips::restore(&original_exslot_ships);
+        MstEquipShips::restore(&original_equip_ships);
+        MstStypes::restore(&original_stypes);
+
+        assert_eq!(bytes_a_exslot_ship, bytes_b_exslot_ship);
+        assert_eq!(bytes_a_equip_ship, bytes_b_equip_ship);
+        assert_eq!(bytes_a_stype, bytes_b_stype);
     }
 }

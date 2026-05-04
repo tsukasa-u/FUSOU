@@ -89,7 +89,7 @@ async function sha256(data: ArrayBuffer): Promise<string> {
 adminApp.get('/fix-mime-types', async (c) => {
   const dryRun = c.req.query('dryRun') !== 'false';
   const prefix = c.req.query('prefix') || '';
-  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const limit = Math.max(1, Math.min(1000, parseInt(c.req.query('limit') || '100', 10) || 100));
   const inputCursor = c.req.query('cursor') || undefined;
   
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
@@ -158,7 +158,8 @@ adminApp.get('/fix-mime-types', async (c) => {
         
         results.fixed++;
       } catch (err) {
-        results.errors.push({ key: obj.key, error: err instanceof Error ? err.message : String(err) });
+        console.error(`[admin] backfill error for key=${obj.key}:`, err);
+        results.errors.push({ key: obj.key, error: 'Operation failed' });
       }
     } else {
       results.fixed++;
@@ -192,7 +193,7 @@ adminApp.get('/backfill-asset-index', async (c) => {
     return c.json({ error: 'Missing R2 or D1 bindings' }, 500);
   }
   
-  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const limit = Math.max(1, Math.min(1000, parseInt(c.req.query('limit') || '100', 10) || 100));
   const dryRun = c.req.query('dry_run') === 'true';
   const cursor = c.req.query('cursor') || undefined;
   

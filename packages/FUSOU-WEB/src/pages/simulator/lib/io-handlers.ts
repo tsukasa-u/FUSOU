@@ -27,9 +27,7 @@ import {
 } from "./viewer-workspace";
 import { resolveShareInput } from "./share-resolver";
 import { decodePayloadBase64, pickNumericRecord } from "./payload-codec";
-import {
-  setWorkspaceReadOnly,
-} from "./simulator-mutations";
+import { setWorkspaceReadOnly } from "./simulator-mutations";
 import {
   getAirBaseState,
   getCombinedFleetType,
@@ -86,7 +84,10 @@ function encodePayloadBase64(payload: unknown): string {
   return btoa(binary);
 }
 
-function serializeFleetForShare(fleet: FleetSlot[], includeDetailedStats: boolean): FleetSlot[] {
+function serializeFleetForShare(
+  fleet: FleetSlot[],
+  includeDetailedStats: boolean,
+): FleetSlot[] {
   return fleet.map((slot) => {
     const row: FleetSlot = {
       shipId: slot.shipId ?? null,
@@ -145,8 +146,12 @@ function buildCurrentPlaygroundPayload(): Record<string, unknown> {
   const snapshotPayload = buildSnapshotPayloadForShare();
   return {
     ...payload,
-    ...(snapshotPayload.snapshotShips ? { snapshotShips: snapshotPayload.snapshotShips } : {}),
-    ...(snapshotPayload.snapshotSlotItems ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems } : {}),
+    ...(snapshotPayload.snapshotShips
+      ? { snapshotShips: snapshotPayload.snapshotShips }
+      : {}),
+    ...(snapshotPayload.snapshotSlotItems
+      ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems }
+      : {}),
   };
 }
 
@@ -171,15 +176,30 @@ function applyPlaygroundDraftOrBlank(): void {
     fleet3: [],
     fleet4: [],
     airBases: [
-      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
-      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
-      { equipIds: [null, null, null, null], equipImprovement: [0, 0, 0, 0], equipProficiency: [0, 0, 0, 0] },
+      {
+        equipIds: [null, null, null, null],
+        equipImprovement: [0, 0, 0, 0],
+        equipProficiency: [0, 0, 0, 0],
+      },
+      {
+        equipIds: [null, null, null, null],
+        equipImprovement: [0, 0, 0, 0],
+        equipProficiency: [0, 0, 0, 0],
+      },
+      {
+        equipIds: [null, null, null, null],
+        equipImprovement: [0, 0, 0, 0],
+        equipProficiency: [0, 0, 0, 0],
+      },
     ],
   });
   setSnapshotPlaygroundMode(false);
 }
 
-function finalizePlaygroundLoad(snapshotMode: boolean = hasSnapshotData(), rerender = false): void {
+function finalizePlaygroundLoad(
+  snapshotMode: boolean = hasSnapshotData(),
+  rerender = false,
+): void {
   clearActive();
   // Playground should always stay editable even if a locked workspace item was
   // active immediately before loading.
@@ -189,7 +209,10 @@ function finalizePlaygroundLoad(snapshotMode: boolean = hasSnapshotData(), reren
   if (rerender) renderWorkspacePanel();
 }
 
-function activateWorkspaceEntry(entry: ViewerEntry, rememberPlayground = true): void {
+function activateWorkspaceEntry(
+  entry: ViewerEntry,
+  rememberPlayground = true,
+): void {
   const activeEntry = getActiveWorkspaceEntry();
 
   if (activeEntry && activeEntry.id !== entry.id) {
@@ -216,9 +239,15 @@ function switchToPlayground(): void {
 }
 
 function getShareOptions(): ShareOptions {
-  const includeAirBasesEl = document.getElementById("share-include-airbase") as HTMLInputElement | null;
-  const includeDetailedStatsEl = document.getElementById("share-include-detailed-stats") as HTMLInputElement | null;
-  const includeSnapshotDataEl = document.getElementById("share-include-snapshot") as HTMLInputElement | null;
+  const includeAirBasesEl = document.getElementById(
+    "share-include-airbase",
+  ) as HTMLInputElement | null;
+  const includeDetailedStatsEl = document.getElementById(
+    "share-include-detailed-stats",
+  ) as HTMLInputElement | null;
+  const includeSnapshotDataEl = document.getElementById(
+    "share-include-snapshot",
+  ) as HTMLInputElement | null;
 
   return {
     includeAirBases: includeAirBasesEl?.checked ?? true,
@@ -247,7 +276,10 @@ function saveCurrentStateToEntry(entry: ViewerEntry): void {
   });
 }
 
-function createOwnDeckFromCurrentState(name: string, memo: string): ViewerEntry {
+function createOwnDeckFromCurrentState(
+  name: string,
+  memo: string,
+): ViewerEntry {
   const mergedPayload = buildCurrentPlaygroundPayload();
 
   return addEntry({
@@ -270,13 +302,23 @@ function saveActiveOwnDeckIfNeeded(): void {
 
 function getWorkspaceModalElements() {
   return {
-    modal: document.getElementById("workspace-add-modal") as HTMLDialogElement | null,
+    modal: document.getElementById(
+      "workspace-add-modal",
+    ) as HTMLDialogElement | null,
     title: document.getElementById("workspace-modal-title"),
     description: document.getElementById("workspace-modal-description"),
-    labelInput: document.getElementById("workspace-entry-label") as HTMLInputElement | null,
-    memoInput: document.getElementById("workspace-entry-memo") as HTMLTextAreaElement | null,
-    shareInput: document.getElementById("workspace-share-input") as HTMLInputElement | null,
-    confirmBtn: document.getElementById("btn-workspace-add-confirm") as HTMLButtonElement | null,
+    labelInput: document.getElementById(
+      "workspace-entry-label",
+    ) as HTMLInputElement | null,
+    memoInput: document.getElementById(
+      "workspace-entry-memo",
+    ) as HTMLTextAreaElement | null,
+    shareInput: document.getElementById(
+      "workspace-share-input",
+    ) as HTMLInputElement | null,
+    confirmBtn: document.getElementById(
+      "btn-workspace-add-confirm",
+    ) as HTMLButtonElement | null,
   };
 }
 
@@ -339,7 +381,9 @@ function createLockIconElement(locked: boolean): SVGElement {
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
   _isSnapshotPlayground = enabled;
-  const btn = document.getElementById("btn-workspace-add-current") as HTMLButtonElement | null;
+  const btn = document.getElementById(
+    "btn-workspace-add-current",
+  ) as HTMLButtonElement | null;
   if (!btn) return;
   const isPlayground = getWorkspace().activeId === null;
   btn.disabled = !isPlayground;
@@ -353,8 +397,14 @@ function hasSnapshotLink(entry: ViewerEntry): boolean {
   const payload = entry.payload as Record<string, unknown>;
   const snapshotShips = payload.snapshotShips;
   const snapshotSlotItems = payload.snapshotSlotItems;
-  const hasShips = !!snapshotShips && typeof snapshotShips === "object" && Object.keys(snapshotShips).length > 0;
-  const hasItems = !!snapshotSlotItems && typeof snapshotSlotItems === "object" && Object.keys(snapshotSlotItems).length > 0;
+  const hasShips =
+    !!snapshotShips &&
+    typeof snapshotShips === "object" &&
+    Object.keys(snapshotShips).length > 0;
+  const hasItems =
+    !!snapshotSlotItems &&
+    typeof snapshotSlotItems === "object" &&
+    Object.keys(snapshotSlotItems).length > 0;
   return hasShips || hasItems;
 }
 
@@ -380,9 +430,10 @@ function renderWorkspaceModeIndicator(): void {
   }
   const typeLabel = active.sourceType === "ownDeck" ? "DECK" : "URL";
   el.textContent = `WORKSPACE: ${typeLabel}`;
-  el.className = active.sourceType === "ownDeck"
-    ? "badge badge-sm badge-success"
-    : "badge badge-sm badge-accent";
+  el.className =
+    active.sourceType === "ownDeck"
+      ? "badge badge-sm badge-success"
+      : "badge badge-sm badge-accent";
 }
 
 function syncLockedEditState(): void {
@@ -392,7 +443,9 @@ function syncLockedEditState(): void {
   const lockedMessage = "ロック中のため編集できません";
   setWorkspaceReadOnly(locked);
 
-  const deckCaptureArea = document.getElementById("deck-capture-area") as HTMLElement | null;
+  const deckCaptureArea = document.getElementById(
+    "deck-capture-area",
+  ) as HTMLElement | null;
   if (deckCaptureArea) {
     deckCaptureArea.title = locked ? lockedMessage : "";
   }
@@ -406,24 +459,38 @@ function syncLockedEditState(): void {
     }
   }
 
-  const modeBadge = document.getElementById("workspace-mode-status") as HTMLElement | null;
+  const modeBadge = document.getElementById(
+    "workspace-mode-status",
+  ) as HTMLElement | null;
   if (modeBadge) {
     modeBadge.title = locked ? lockedMessage : "";
   }
 
-  const shipGrid = document.getElementById("ship-modal-grid") as HTMLElement | null;
-  const equipGrid = document.getElementById("equip-modal-grid") as HTMLElement | null;
+  const shipGrid = document.getElementById(
+    "ship-modal-grid",
+  ) as HTMLElement | null;
+  const equipGrid = document.getElementById(
+    "equip-modal-grid",
+  ) as HTMLElement | null;
   if (shipGrid) shipGrid.title = locked ? lockedMessage : "";
   if (equipGrid) equipGrid.title = locked ? lockedMessage : "";
 }
 
 function resetWorkspaceModal(): void {
-  const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
-    getWorkspaceModalElements();
+  const {
+    modal,
+    title,
+    description,
+    labelInput,
+    memoInput,
+    shareInput,
+    confirmBtn,
+  } = getWorkspaceModalElements();
   if (modal) delete modal.dataset.editEntryId;
   if (title) title.textContent = "ワークスペースにURLを追加";
   if (description) {
-    description.textContent = "共有URL（/s/xxxx or /simulator?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
+    description.textContent =
+      "共有URL（/share/short/xxxx or /share/data?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
   }
   if (labelInput) labelInput.value = "";
   if (memoInput) memoInput.value = "";
@@ -438,8 +505,15 @@ function resetWorkspaceModal(): void {
 }
 
 function openWorkspaceEditModal(entry: ViewerEntry): void {
-  const { modal, title, description, labelInput, memoInput, shareInput, confirmBtn } =
-    getWorkspaceModalElements();
+  const {
+    modal,
+    title,
+    description,
+    labelInput,
+    memoInput,
+    shareInput,
+    confirmBtn,
+  } = getWorkspaceModalElements();
   if (!modal) return;
 
   modal.dataset.editEntryId = entry.id;
@@ -509,8 +583,11 @@ function renderWorkspacePanel() {
   list.replaceChildren();
   if (listFooter) listFooter.replaceChildren();
 
-  const activeIndex = ws.activeId ? ws.entries.findIndex((entry) => entry.id === ws.activeId) : -1;
-  const shouldAutoExpandForActive = activeIndex >= WORKSPACE_COLLAPSED_VISIBLE_COUNT;
+  const activeIndex = ws.activeId
+    ? ws.entries.findIndex((entry) => entry.id === ws.activeId)
+    : -1;
+  const shouldAutoExpandForActive =
+    activeIndex >= WORKSPACE_COLLAPSED_VISIBLE_COUNT;
   const isExpanded = _workspaceListExpanded || shouldAutoExpandForActive;
   const visibleEntries = isExpanded
     ? ws.entries
@@ -565,7 +642,8 @@ function renderWorkspacePanel() {
     nameSpan.textContent = entry.name;
 
     const memoSpan = document.createElement("div");
-    memoSpan.className = "text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden";
+    memoSpan.className =
+      "text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden";
     memoSpan.textContent = entry.memo?.trim() ?? "";
 
     textBlock.appendChild(nameSpan);
@@ -574,23 +652,33 @@ function renderWorkspacePanel() {
     }
 
     const badge = document.createElement("span");
-    badge.className = "badge badge-sm shrink-0 " + (entry.sourceType === "ownDeck" ? "badge-warning" : "badge-accent");
+    badge.className =
+      "badge badge-sm shrink-0 " +
+      (entry.sourceType === "ownDeck" ? "badge-warning" : "badge-accent");
     badge.textContent = entry.sourceType === "ownDeck" ? "DECK" : "URL";
 
     const snapshotBadge = document.createElement("span");
-    snapshotBadge.className = "badge badge-sm shrink-0 " + (hasSnapshotLink(entry) ? "badge-info" : "badge-ghost");
+    snapshotBadge.className =
+      "badge badge-sm shrink-0 " +
+      (hasSnapshotLink(entry) ? "badge-info" : "badge-ghost");
     snapshotBadge.textContent = hasSnapshotLink(entry) ? "SNAP" : "NO-SNAP";
 
     const lockBtn = document.createElement("button");
-    lockBtn.className = "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors";
+    lockBtn.className =
+      "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors";
     lockBtn.replaceChildren(createLockIconElement(Boolean(entry.locked)));
     lockBtn.style.color = entry.locked ? "#dc2626" : "#16a34a";
-    lockBtn.style.backgroundColor = entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)";
+    lockBtn.style.backgroundColor = entry.locked
+      ? "rgba(220, 38, 38, 0.10)"
+      : "rgba(22, 163, 74, 0.10)";
     lockBtn.style.border = `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`;
     lockBtn.title = entry.locked
       ? "ロック中：R2再読込で上書きされません。クリックで解除"
       : "ロック解除中：R2再読込で上書きされます。クリックでロック";
-    lockBtn.setAttribute("aria-label", entry.locked ? "ロック中" : "ロック解除中");
+    lockBtn.setAttribute(
+      "aria-label",
+      entry.locked ? "ロック中" : "ロック解除中",
+    );
     lockBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       toggleLock(entry.id);
@@ -656,7 +744,9 @@ function renderWorkspacePanel() {
 
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "btn btn-ghost btn-xs";
-    toggleBtn.textContent = isExpanded ? "折りたたむ" : `さらに表示 (${hiddenCount})`;
+    toggleBtn.textContent = isExpanded
+      ? "折りたたむ"
+      : `さらに表示 (${hiddenCount})`;
     toggleBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
     toggleBtn.addEventListener("click", () => {
       _workspaceListExpanded = !isExpanded;
@@ -674,7 +764,9 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
   let sharedSnapshotPayload: Record<string, unknown> | null = null;
 
   try {
-    const rawSnapshotPayload = sessionStorage.getItem(SHARED_SNAPSHOT_SESSION_KEY);
+    const rawSnapshotPayload = sessionStorage.getItem(
+      SHARED_SNAPSHOT_SESSION_KEY,
+    );
     if (rawSnapshotPayload) {
       const parsed = JSON.parse(rawSnapshotPayload);
       if (parsed && typeof parsed === "object") {
@@ -696,7 +788,10 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
           if (sharedSnapshotPayload.snapshotShips && !merged.snapshotShips) {
             merged.snapshotShips = sharedSnapshotPayload.snapshotShips;
           }
-          if (sharedSnapshotPayload.snapshotSlotItems && !merged.snapshotSlotItems) {
+          if (
+            sharedSnapshotPayload.snapshotSlotItems &&
+            !merged.snapshotSlotItems
+          ) {
             merged.snapshotSlotItems = sharedSnapshotPayload.snapshotSlotItems;
           }
         }
@@ -708,6 +803,35 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
       }
     } catch {
       // Invalid data param
+    }
+  }
+
+  const fleetTag = params.get("fleet")?.trim();
+  if (fleetTag) {
+    if (!_accessToken) {
+      console.warn("fleet param was provided but access token is unavailable");
+      return null;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
+        { headers: authHeaders() },
+      );
+      if (res.ok) {
+        const payload = (await res.json()) as {
+          ok?: boolean;
+          snapshot?: Record<string, unknown>;
+        };
+        if (payload.snapshot) {
+          applyFleetSnapshot(payload.snapshot);
+          _playgroundDraft = buildCurrentPlaygroundPayload();
+          setSnapshotPlaygroundMode(true);
+          clearActive();
+        }
+      }
+    } catch {
+      // Ignore invalid or unavailable fleet snapshot links.
     }
   }
 
@@ -723,11 +847,19 @@ interface ApiPasteCallbacks {
 }
 
 function initApiPasteDialog(cb: ApiPasteCallbacks): void {
-  const modal = document.getElementById("api-paste-modal") as HTMLDialogElement | null;
+  const modal = document.getElementById(
+    "api-paste-modal",
+  ) as HTMLDialogElement | null;
 
-  const portTextarea = document.getElementById("api-paste-port") as HTMLTextAreaElement | null;
-  const requireTextarea = document.getElementById("api-paste-require") as HTMLTextAreaElement | null;
-  const masterTextarea = document.getElementById("api-paste-master") as HTMLTextAreaElement | null;
+  const portTextarea = document.getElementById(
+    "api-paste-port",
+  ) as HTMLTextAreaElement | null;
+  const requireTextarea = document.getElementById(
+    "api-paste-require",
+  ) as HTMLTextAreaElement | null;
+  const masterTextarea = document.getElementById(
+    "api-paste-master",
+  ) as HTMLTextAreaElement | null;
 
   function setFieldMessage(
     section: "port" | "require" | "master",
@@ -738,18 +870,31 @@ function initApiPasteDialog(cb: ApiPasteCallbacks): void {
     if (!el) return;
     el.textContent = msg;
     el.className = `text-xs mt-1 min-h-[1.2em] ${
-      kind === "success" ? "text-success" : kind === "error" ? "text-error" : "text-base-content/60"
+      kind === "success"
+        ? "text-success"
+        : kind === "error"
+          ? "text-error"
+          : "text-base-content/60"
     }`;
   }
 
-  function setBadge(section: "port" | "require" | "master", text: string, success: boolean): void {
+  function setBadge(
+    section: "port" | "require" | "master",
+    text: string,
+    success: boolean,
+  ): void {
     const badge = document.getElementById(`api-paste-status-${section}`);
     if (!badge) return;
     badge.textContent = text;
-    badge.className = success ? "badge badge-success badge-sm" : "badge badge-ghost badge-sm";
+    badge.className = success
+      ? "badge badge-success badge-sm"
+      : "badge badge-ghost badge-sm";
   }
 
-  function tryParseJson(textarea: HTMLTextAreaElement | null, section: "port" | "require" | "master"): Record<string, unknown> | null {
+  function tryParseJson(
+    textarea: HTMLTextAreaElement | null,
+    section: "port" | "require" | "master",
+  ): Record<string, unknown> | null {
     const raw = textarea?.value ?? "";
     if (!raw.trim()) return null; // empty is not an error — just skip
     try {
@@ -777,102 +922,162 @@ function initApiPasteDialog(cb: ApiPasteCallbacks): void {
   });
 
   // Apply — parse all non-empty textareas at once
-  document.getElementById("btn-api-paste-apply")?.addEventListener("click", () => {
-    // Clear previous messages
-    for (const s of ["port", "require", "master"] as const) setFieldMessage(s, "");
+  document
+    .getElementById("btn-api-paste-apply")
+    ?.addEventListener("click", () => {
+      // Clear previous messages
+      for (const s of ["port", "require", "master"] as const)
+        setFieldMessage(s, "");
 
-    let hadError = false;
+      let hadError = false;
 
-    // --- master data (getData) ---
-    const masterJson = tryParseJson(masterTextarea, "master");
-    if (masterJson) {
-      const kind = detectResponseKind(masterJson);
-      if (kind === "getData") {
-        cb.onLoadMasterData(convertGetDataToMasterData(masterJson));
-        setBadge("master", "読込済み", true);
-        setFieldMessage("master", "マスターデータを読み込みました", "success");
-        if (masterTextarea) masterTextarea.value = "";
-      } else if (masterJson.mst_ships || masterJson.mst_slot_items || masterJson.ships || masterJson.equipments) {
-        cb.onLoadMasterData(masterJson);
-        setBadge("master", "読込済み", true);
-        setFieldMessage("master", "マスターデータを読み込みました", "success");
-        if (masterTextarea) masterTextarea.value = "";
-      } else {
-        setFieldMessage("master", "api_start2/getData のレスポンスではありません", "error");
-        hadError = true;
+      // --- master data (getData) ---
+      const masterJson = tryParseJson(masterTextarea, "master");
+      if (masterJson) {
+        const kind = detectResponseKind(masterJson);
+        if (kind === "getData") {
+          cb.onLoadMasterData(convertGetDataToMasterData(masterJson));
+          setBadge("master", "読込済み", true);
+          setFieldMessage(
+            "master",
+            "マスターデータを読み込みました",
+            "success",
+          );
+          if (masterTextarea) masterTextarea.value = "";
+        } else if (
+          masterJson.mst_ships ||
+          masterJson.mst_slot_items ||
+          masterJson.ships ||
+          masterJson.equipments
+        ) {
+          cb.onLoadMasterData(masterJson);
+          setBadge("master", "読込済み", true);
+          setFieldMessage(
+            "master",
+            "マスターデータを読み込みました",
+            "success",
+          );
+          if (masterTextarea) masterTextarea.value = "";
+        } else {
+          setFieldMessage(
+            "master",
+            "api_start2/getData のレスポンスではありません",
+            "error",
+          );
+          hadError = true;
+        }
       }
-    }
 
-    // --- port ---
-    const portJson = tryParseJson(portTextarea, "port");
-    if (portJson) {
-      const kind = detectResponseKind(portJson);
-      if (kind === "port") {
-        // Normal port response — needs require_info too
+      // --- port ---
+      const portJson = tryParseJson(portTextarea, "port");
+      if (portJson) {
+        const kind = detectResponseKind(portJson);
+        if (kind === "port") {
+          // Normal port response — needs require_info too
+          const reqJson = tryParseJson(requireTextarea, "require");
+          if (reqJson) {
+            const reqKind = detectResponseKind(reqJson);
+            if (reqKind === "requireInfo") {
+              const portSnap = convertPortToSnapshot(portJson);
+              const reqSnap = convertRequireInfoToSnapshot(reqJson);
+              const snapshot = mergeSnapshots(portSnap, reqSnap);
+              cb.onApplySnapshot(snapshot);
+              setBadge(
+                "port",
+                `${portSnap.s3s.length}隻 / ${portSnap.d8k.length}艦隊`,
+                true,
+              );
+              setBadge("require", `${reqSnap.s8s.length}件`, true);
+              setFieldMessage("port", "編成に反映しました", "success");
+              setFieldMessage("require", "編成に反映しました", "success");
+              if (portTextarea) portTextarea.value = "";
+              if (requireTextarea) requireTextarea.value = "";
+            } else {
+              setFieldMessage(
+                "require",
+                "api_get_member/require_info のレスポンスではありません",
+                "error",
+              );
+              hadError = true;
+            }
+          } else if (!requireTextarea?.value.trim()) {
+            setFieldMessage(
+              "require",
+              "port と合わせて require_info も貼り付けてください",
+              "error",
+            );
+            hadError = true;
+          } else {
+            hadError = true; // parse error already set by tryParseJson
+          }
+        } else if (
+          portJson.fleet1 ||
+          portJson.fleet2 ||
+          portJson.fleet3 ||
+          portJson.fleet4 ||
+          portJson.airBases
+        ) {
+          cb.onApplyExportedFleet(portJson);
+          setBadge("port", "反映済み", true);
+          setFieldMessage(
+            "port",
+            "エクスポート済み編成を反映しました",
+            "success",
+          );
+          if (portTextarea) portTextarea.value = "";
+        } else if (portJson.s3s) {
+          cb.onApplySnapshot(portJson);
+          setBadge("port", "反映済み", true);
+          setFieldMessage("port", "スナップショットを反映しました", "success");
+          if (portTextarea) portTextarea.value = "";
+        } else {
+          setFieldMessage(
+            "port",
+            "api_port/port のレスポンスではありません",
+            "error",
+          );
+          hadError = true;
+        }
+      }
+
+      // --- require_info only (no port) ---
+      if (!portJson && requireTextarea?.value.trim()) {
         const reqJson = tryParseJson(requireTextarea, "require");
         if (reqJson) {
-          const reqKind = detectResponseKind(reqJson);
-          if (reqKind === "requireInfo") {
-            const portSnap = convertPortToSnapshot(portJson);
-            const reqSnap = convertRequireInfoToSnapshot(reqJson);
-            const snapshot = mergeSnapshots(portSnap, reqSnap);
-            cb.onApplySnapshot(snapshot);
-            setBadge("port", `${portSnap.s3s.length}隻 / ${portSnap.d8k.length}艦隊`, true);
-            setBadge("require", `${reqSnap.s8s.length}件`, true);
-            setFieldMessage("port", "編成に反映しました", "success");
-            setFieldMessage("require", "編成に反映しました", "success");
-            if (portTextarea) portTextarea.value = "";
-            if (requireTextarea) requireTextarea.value = "";
-          } else {
-            setFieldMessage("require", "api_get_member/require_info のレスポンスではありません", "error");
-            hadError = true;
-          }
-        } else if (!requireTextarea?.value.trim()) {
-          setFieldMessage("require", "port と合わせて require_info も貼り付けてください", "error");
+          setFieldMessage(
+            "require",
+            "require_info 単体では反映できません。port も貼り付けてください",
+            "error",
+          );
           hadError = true;
-        } else {
-          hadError = true; // parse error already set by tryParseJson
         }
-      } else if (portJson.fleet1 || portJson.fleet2 || portJson.fleet3 || portJson.fleet4 || portJson.airBases) {
-        cb.onApplyExportedFleet(portJson);
-        setBadge("port", "反映済み", true);
-        setFieldMessage("port", "エクスポート済み編成を反映しました", "success");
-        if (portTextarea) portTextarea.value = "";
-      } else if (portJson.s3s) {
-        cb.onApplySnapshot(portJson);
-        setBadge("port", "反映済み", true);
-        setFieldMessage("port", "スナップショットを反映しました", "success");
-        if (portTextarea) portTextarea.value = "";
-      } else {
-        setFieldMessage("port", "api_port/port のレスポンスではありません", "error");
-        hadError = true;
       }
-    }
 
-    // --- require_info only (no port) ---
-    if (!portJson && requireTextarea?.value.trim()) {
-      const reqJson = tryParseJson(requireTextarea, "require");
-      if (reqJson) {
-        setFieldMessage("require", "require_info 単体では反映できません。port も貼り付けてください", "error");
-        hadError = true;
+      if (!hadError && !portJson && !masterJson) {
+        setFieldMessage(
+          "port",
+          "いずれかのテキストエリアにデータを貼り付けてください",
+          "info",
+        );
       }
-    }
-
-    if (!hadError && !portJson && !masterJson) {
-      setFieldMessage("port", "いずれかのテキストエリアにデータを貼り付けてください", "info");
-    }
-  });
+    });
 
   // Reset
-  document.getElementById("btn-api-paste-reset")?.addEventListener("click", () => {
-    resetAll();
-  });
+  document
+    .getElementById("btn-api-paste-reset")
+    ?.addEventListener("click", () => {
+      resetAll();
+    });
 }
 
 /** Wire up all I/O-related event listeners. Call once at init time. */
 export function initIOEvents(_initialEntry?: ViewerEntry | null) {
-  const shareModal = document.getElementById("share-settings-modal") as HTMLDialogElement | null;
-  const shareConfirmBtn = document.getElementById("btn-share-confirm") as HTMLButtonElement | null;
+  const shareModal = document.getElementById(
+    "share-settings-modal",
+  ) as HTMLDialogElement | null;
+  const shareConfirmBtn = document.getElementById(
+    "btn-share-confirm",
+  ) as HTMLButtonElement | null;
 
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
@@ -902,6 +1107,34 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
     container.replaceChildren(p);
   };
 
+  type FleetListInlinePart =
+    | { kind: "text"; value: string }
+    | { kind: "link"; href: string; label: string };
+
+  const setFleetListInlineMessage = (
+    container: HTMLElement,
+    className: string,
+    parts: FleetListInlinePart[],
+  ) => {
+    const p = document.createElement("p");
+    p.className = className;
+
+    for (const part of parts) {
+      if (part.kind === "text") {
+        p.appendChild(document.createTextNode(part.value));
+        continue;
+      }
+
+      const link = document.createElement("a");
+      link.href = part.href;
+      link.className = "link link-primary";
+      link.textContent = part.label;
+      p.appendChild(link);
+    }
+
+    container.replaceChildren(p);
+  };
+
   const setFleetListLoading = (container: HTMLElement) => {
     const spinner = document.createElement("span");
     spinner.className = "loading loading-spinner loading-sm";
@@ -909,81 +1142,122 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   };
 
   // R2 fleet load
-  document.getElementById("btn-load-fleet")?.addEventListener("click", async () => {
-    const modal = document.getElementById("load-fleet-modal") as HTMLDialogElement;
-    modal.showModal();
+  document
+    .getElementById("btn-load-fleet")
+    ?.addEventListener("click", async () => {
+      const modal = document.getElementById(
+        "load-fleet-modal",
+      ) as HTMLDialogElement;
+      modal.showModal();
 
-    const listContainer = document.getElementById("fleet-list-container")!;
+      const listContainer = document.getElementById("fleet-list-container")!;
 
-    if (!_accessToken) {
-      setFleetListMessage(
-        listContainer,
-        "この機能を利用するには",
-        "text-base-content/60 text-sm",
-        "/auth/signin",
-        "ログイン",
-      );
-      listContainer.firstElementChild?.appendChild(document.createTextNode("が必要です"));
-      return;
-    }
-
-    setFleetListLoading(listContainer);
-
-    try {
-      const res = await fetch("/api/fleet/snapshots/list", { headers: authHeaders() });
-      if (res.status === 401 || res.status === 403) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        const msg = body.error ?? "認証エラー";
-        setFleetListMessage(listContainer, msg, "text-warning text-sm");
+      if (!_accessToken) {
+        setFleetListInlineMessage(
+          listContainer,
+          "text-base-content/60 text-sm",
+          [
+            {
+              kind: "text",
+              value: "この機能を利用するにはFUSOU-APPのスナップショット機能と",
+            },
+            {
+              kind: "link",
+              href: "/auth/local/signin",
+              label: "ローカルアプリ連携",
+            },
+            { kind: "text", value: "と" },
+            {
+              kind: "link",
+              href: "/auth/signin",
+              label: "Webサービス連携",
+            },
+            { kind: "text", value: "が必要です" },
+          ],
+        );
         return;
       }
-      if (!res.ok) {
-        setFleetListMessage(listContainer, "読込に失敗しました", "text-error text-sm");
-        return;
-      }
-      const data = (await res.json()) as { ok: boolean; tags: { tag: string; uploaded: string; size: number }[] };
-      if (!data.tags || data.tags.length === 0) {
-        setFleetListMessage(listContainer, "保存された艦隊データがありません", "text-base-content/40");
-        return;
-      }
 
-      listContainer.replaceChildren();
-      for (const entry of data.tags) {
-        const btn: HTMLButtonElement = document.createElement("button");
-        btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
-        const uploaded = entry.uploaded ? new Date(entry.uploaded).toLocaleString() : "";
+      setFleetListLoading(listContainer);
 
-        const tagSpan = document.createElement("span");
-        tagSpan.className = "flex-1 text-left";
-        tagSpan.textContent = entry.tag;
-
-        const uploadedSpan = document.createElement("span");
-        uploadedSpan.className = "text-xs text-base-content/40";
-        uploadedSpan.textContent = uploaded;
-
-        btn.appendChild(tagSpan);
-        btn.appendChild(uploadedSpan);
-        btn.addEventListener("click", async () => {
-          try {
-            const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`, { headers: authHeaders() });
-            if (snapRes.ok) {
-              const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
-              applyFleetSnapshot(result.snapshot);
-              finalizePlaygroundLoad(true, true);
-              modal.close();
-            } else {
-              alert("スナップショットの読込に失敗しました");
-            }
-          } catch {
-            alert("読込エラー");
-          }
+      try {
+        const res = await fetch("/api/fleet/snapshots/list", {
+          headers: authHeaders(),
         });
-        listContainer.appendChild(btn);
+        if (res.status === 401 || res.status === 403) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          const msg = body.error ?? "認証エラー";
+          setFleetListMessage(listContainer, msg, "text-warning text-sm");
+          return;
+        }
+        if (!res.ok) {
+          setFleetListMessage(
+            listContainer,
+            "読込に失敗しました",
+            "text-error text-sm",
+          );
+          return;
+        }
+        const data = (await res.json()) as {
+          ok: boolean;
+          tags: { tag: string; uploaded: string; size: number }[];
+        };
+        if (!data.tags || data.tags.length === 0) {
+          setFleetListMessage(
+            listContainer,
+            "保存された艦隊データがありません",
+            "text-base-content/40",
+          );
+          return;
+        }
+
+        listContainer.replaceChildren();
+        for (const entry of data.tags) {
+          const btn: HTMLButtonElement = document.createElement("button");
+          btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
+          const uploaded = entry.uploaded
+            ? new Date(entry.uploaded).toLocaleString()
+            : "";
+
+          const tagSpan = document.createElement("span");
+          tagSpan.className = "flex-1 text-left";
+          tagSpan.textContent = entry.tag;
+
+          const uploadedSpan = document.createElement("span");
+          uploadedSpan.className = "text-xs text-base-content/40";
+          uploadedSpan.textContent = uploaded;
+
+          btn.appendChild(tagSpan);
+          btn.appendChild(uploadedSpan);
+          btn.addEventListener("click", async () => {
+            try {
+              const snapRes = await fetch(
+                `/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`,
+                { headers: authHeaders() },
+              );
+              if (snapRes.ok) {
+                const result = (await snapRes.json()) as {
+                  ok: boolean;
+                  snapshot: Record<string, unknown>;
+                };
+                applyFleetSnapshot(result.snapshot);
+                finalizePlaygroundLoad(true, true);
+                modal.close();
+              } else {
+                alert("スナップショットの読込に失敗しました");
+              }
+            } catch {
+              alert("読込エラー");
+            }
+          });
+          listContainer.appendChild(btn);
+        }
+      } catch {
+        setFleetListMessage(listContainer, "読込エラー", "text-error text-sm");
       }
-    } catch {
-      setFleetListMessage(listContainer, "読込エラー", "text-error text-sm");
-    }
-  });
+    });
 
   initApiPasteDialog({
     onApplyExportedFleet(json) {
@@ -1002,7 +1276,9 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
   // Share (with URL shortening)
   document.getElementById("btn-share")?.addEventListener("click", () => {
     if (!shareModal) return;
-    const includeSnapshotDataEl = document.getElementById("share-include-snapshot") as HTMLInputElement | null;
+    const includeSnapshotDataEl = document.getElementById(
+      "share-include-snapshot",
+    ) as HTMLInputElement | null;
     const snapshotHintEl = document.getElementById("share-snapshot-hint");
     const hasSnapshot = hasSnapshotData();
     if (includeSnapshotDataEl) {
@@ -1024,7 +1300,7 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       ? buildSnapshotPayloadForShare()
       : undefined;
     const encoded = encodePayloadBase64(payload);
-    const longUrl = `${window.location.origin}/simulator?data=${encodeURIComponent(encoded)}`;
+    const longUrl = `${window.location.origin}/share/data?data=${encodeURIComponent(encoded)}`;
 
     let shortUrl = "";
     try {
@@ -1039,7 +1315,10 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       try {
         data = JSON.parse(responseText) as ShortenApiResponse;
       } catch {
-        console.warn("URL shortener response is not JSON:", responseText.slice(0, 300));
+        console.warn(
+          "URL shortener response is not JSON:",
+          responseText.slice(0, 300),
+        );
         alert("短縮URL応答の形式が不正です。時間をおいて再度お試しください。");
         return;
       }
@@ -1047,9 +1326,14 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       if (!res.ok || !data.ok) {
         console.warn("URL shortener normalized error:", res.status, data);
         const message = [data.error, data.detail]
-          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .filter(
+            (v): v is string => typeof v === "string" && v.trim().length > 0,
+          )
           .join("\n");
-        alert(message || "短縮URLの生成に失敗しました。設定または接続状態を確認してください。");
+        alert(
+          message ||
+            "短縮URLの生成に失敗しました。設定または接続状態を確認してください。",
+        );
         return;
       }
 
@@ -1061,7 +1345,9 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       }
     } catch (error) {
       console.warn("URL shortener request threw:", error);
-      alert("短縮URLの生成に失敗しました。ネットワーク状態を確認してください。");
+      alert(
+        "短縮URLの生成に失敗しました。ネットワーク状態を確認してください。",
+      );
       return;
     }
 
@@ -1074,27 +1360,36 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
 
     // Last-resort manual copy guidance.
     shareModal?.close();
-    window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", shortUrl);
+    window.prompt(
+      "自動コピーに失敗しました。以下を手動でコピーしてください:",
+      shortUrl,
+    );
   });
 
   // ── Workspace: open add modal ──
-  document.getElementById("btn-workspace-add")?.addEventListener("click", () => {
-    resetWorkspaceModal();
-    const modal = document.getElementById(
-      "workspace-add-modal",
-    ) as HTMLDialogElement | null;
-    modal?.showModal();
-  });
+  document
+    .getElementById("btn-workspace-add")
+    ?.addEventListener("click", () => {
+      resetWorkspaceModal();
+      const modal = document.getElementById(
+        "workspace-add-modal",
+      ) as HTMLDialogElement | null;
+      modal?.showModal();
+    });
 
   // ── Workspace: quick add current composition ──
-  document.getElementById("btn-workspace-add-current")?.addEventListener("click", () => {
-    const hasSnapshot = hasSnapshotData();
-    const entry = createOwnDeckFromCurrentState(
-      hasSnapshot ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
-      "",
-    );
-    activateWorkspaceEntry(entry);
-  });
+  document
+    .getElementById("btn-workspace-add-current")
+    ?.addEventListener("click", () => {
+      const hasSnapshot = hasSnapshotData();
+      const entry = createOwnDeckFromCurrentState(
+        hasSnapshot
+          ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}`
+          : "自分のデッキ",
+        "",
+      );
+      activateWorkspaceEntry(entry);
+    });
 
   // ── Workspace: confirm add ──
   document
@@ -1108,7 +1403,9 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
       const memoRaw = memoInput?.value.trim() ?? "";
       const memo = memoRaw.slice(0, WORKSPACE_MEMO_MAX_LENGTH);
       const shareUrl = shareInput?.value.trim() ?? "";
-      const editingEntry = editingEntryId ? getWorkspaceEntryById(editingEntryId) : null;
+      const editingEntry = editingEntryId
+        ? getWorkspaceEntryById(editingEntryId)
+        : null;
 
       if (editingEntry?.sourceType === "ownDeck") {
         if (editingEntry.locked) {
@@ -1118,7 +1415,8 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
         let payloadSource = editingEntry;
         if (getWorkspace().activeId === editingEntry.id) {
           saveCurrentStateToEntry(editingEntry);
-          payloadSource = getWorkspaceEntryById(editingEntry.id) ?? editingEntry;
+          payloadSource =
+            getWorkspaceEntryById(editingEntry.id) ?? editingEntry;
         }
 
         const updated = upsertEntry({
@@ -1161,24 +1459,24 @@ export function initIOEvents(_initialEntry?: ViewerEntry | null) {
           }
           const entry = editingEntryId
             ? upsertEntry({
-              id: editingEntryId,
-              name: label || resolved.sourceValue.slice(0, 40),
-              memo,
-              sourceType: resolved.sourceType,
-              sourceValue: resolved.sourceValue,
-              payloadKind: resolved.payloadKind,
-              payload: resolved.payload,
-              pinned: false,
-            })
+                id: editingEntryId,
+                name: label || resolved.sourceValue.slice(0, 40),
+                memo,
+                sourceType: resolved.sourceType,
+                sourceValue: resolved.sourceValue,
+                payloadKind: resolved.payloadKind,
+                payload: resolved.payload,
+                pinned: false,
+              })
             : addEntry({
-            name: label || resolved.sourceValue.slice(0, 40),
-            memo,
-            sourceType: resolved.sourceType,
-            sourceValue: resolved.sourceValue,
-            payloadKind: resolved.payloadKind,
-            payload: resolved.payload,
-            pinned: false,
-          });
+                name: label || resolved.sourceValue.slice(0, 40),
+                memo,
+                sourceType: resolved.sourceType,
+                sourceValue: resolved.sourceValue,
+                payloadKind: resolved.payloadKind,
+                payload: resolved.payload,
+                pinned: false,
+              });
           activateWorkspaceEntry(entry);
           modal?.close();
           resetWorkspaceModal();

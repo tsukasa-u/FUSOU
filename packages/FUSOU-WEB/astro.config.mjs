@@ -88,6 +88,9 @@ export default defineConfig({
     imageService: "cloudflare",
   }),
   vite: {
+    optimizeDeps: {
+      exclude: ["solid-chartjs"],
+    },
     ssr: {
       external: ["node:fs/promises", "node:path", "node:url", "node:crypto"],
     },
@@ -134,6 +137,9 @@ export default defineConfig({
       ),
       "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNING_SECRET,
+      ),
+      "process.env.QUEST_TREE_SIGNING_SECRET": JSON.stringify(
+        process.env.QUEST_TREE_SIGNING_SECRET,
       ),
       "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNED_URL_SECRET,

@@ -74,7 +74,9 @@ function getCandidateAlv(equip: MstSlotItemData): number {
 let _equipVirtuaDispose: (() => void) | null = null;
 const EquipVList = VList as unknown as Component<Record<string, unknown>>;
 let _equipModalVisibilityBound = false;
-let _equipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _equipVListHandle: {
+  scrollToIndex: (index: number, opts?: { align?: string }) => void;
+} | null = null;
 let _currentEquipRowIndex = -1;
 
 function syncEquipModalDisplay(modal: HTMLDialogElement): void {
@@ -83,8 +85,14 @@ function syncEquipModalDisplay(modal: HTMLDialogElement): void {
 
 function ensureEquipModalVisibilityBinding(modal: HTMLDialogElement): void {
   if (_equipModalVisibilityBound) return;
-  modal.addEventListener("close", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
-  modal.addEventListener("cancel", () => { cleanupEquipVS(); syncEquipModalDisplay(modal); });
+  modal.addEventListener("close", () => {
+    cleanupEquipVS();
+    syncEquipModalDisplay(modal);
+  });
+  modal.addEventListener("cancel", () => {
+    cleanupEquipVS();
+    syncEquipModalDisplay(modal);
+  });
   _equipModalVisibilityBound = true;
 }
 
@@ -144,7 +152,12 @@ function scheduleScrollToCurrentEquip(attempt = 0): void {
     return;
   }
   if (attempt >= 8) return;
-  window.setTimeout(() => { scheduleScrollToCurrentEquip(attempt + 1); }, attempt < 2 ? 0 : 16);
+  window.setTimeout(
+    () => {
+      scheduleScrollToCurrentEquip(attempt + 1);
+    },
+    attempt < 2 ? 0 : 16,
+  );
 }
 
 export function openEquipModal(
@@ -154,9 +167,7 @@ export function openEquipModal(
   if (!hasMasterData()) return;
   beginEquipModalSession(currentId, cb);
   if (currentId != null) {
-    setEquipModalSideFilter(
-      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally",
-    );
+    setEquipModalSideFilter(currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally");
   }
   const modal = document.getElementById("equip-select-modal");
   const search = document.getElementById("equip-modal-search");
@@ -185,9 +196,7 @@ export function openEquipModal(
 
   renderEquipGrid("", "", getEquipModalSideFilter());
   const autoShowEquip =
-    getEquipModalCurrentId() != null
-      ? findCurrentEquipInVS()
-      : null;
+    getEquipModalCurrentId() != null ? findCurrentEquipInVS() : null;
   if (autoShowEquip) {
     renderEquipDetail(autoShowEquip);
   } else {
@@ -198,8 +207,6 @@ export function openEquipModal(
   requestAnimationFrame(() => {
     if (autoShowEquip) {
       scheduleScrollToCurrentEquip();
-    } else {
-      search.focus();
     }
   });
 }
@@ -234,8 +241,7 @@ function populateEquipTypeFilter(
 
   for (const e of sourceItems) {
     const t = e.type?.[2];
-    if (t != null && !types.has(t))
-      types.set(t, getEquipTypeName(t));
+    if (t != null && !types.has(t)) types.set(t, getEquipTypeName(t));
   }
   for (const [id, name] of [...types.entries()].sort((a, b) => a[0] - b[0])) {
     const opt = document.createElement("option");
@@ -281,7 +287,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
   textDiv.appendChild(nameSpan);
 
   const metaRow = document.createElement("div");
-  metaRow.className = "grid grid-cols-[minmax(0,1fr)_2.1rem_2.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
+  metaRow.className =
+    "grid grid-cols-[minmax(0,1fr)_2.1rem_2.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
 
   const typeSpan = document.createElement("span");
   typeSpan.className = "truncate";
@@ -335,7 +342,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
     textDiv.appendChild(metaRow);
   } else {
     const typeLine = document.createElement("div");
-    typeLine.className = "text-[11px] text-base-content/40 leading-tight flex items-baseline gap-3 min-w-0";
+    typeLine.className =
+      "text-[11px] text-base-content/40 leading-tight flex items-baseline gap-3 min-w-0";
 
     const typeName = document.createElement("span");
     typeName.className = "truncate";
@@ -344,10 +352,12 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
 
     if (hasRequiredMeta) {
       const reqLine = document.createElement("span");
-      reqLine.className = "text-[10px] leading-tight text-warning/80 font-mono shrink-0";
+      reqLine.className =
+        "text-[10px] leading-tight text-warning/80 font-mono shrink-0";
       const reqParts: string[] = [];
       if (displayLv > 0) reqParts.push(`★${displayLv}+`);
-      if (displayAlv > 0) reqParts.push(`熟練${profSymbols[displayAlv] ?? ">>"}+`);
+      if (displayAlv > 0)
+        reqParts.push(`熟練${profSymbols[displayAlv] ?? ">>"}+`);
       reqLine.textContent = `必要最低 ${reqParts.join(" /")}`;
       typeLine.appendChild(reqLine);
     }
@@ -358,7 +368,8 @@ function createEquipItem(equip: MstSlotItemData): HTMLElement {
 
   // Key stat badges
   const badges = document.createElement("div");
-  badges.className = "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
+  badges.className =
+    "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
   const statPairs: [string, number][] = [];
   if (equip.houg) statPairs.push(["火", equip.houg]);
   if (equip.raig) statPairs.push(["雷", equip.raig]);
@@ -429,10 +440,7 @@ function renderEquipGrid(
 
   let items: MstSlotItemData[];
 
-  if (
-    getEquipModalSource() === "snapshot" &&
-    hasSnapshotSlotItems()
-  ) {
+  if (getEquipModalSource() === "snapshot" && hasSnapshotSlotItems()) {
     const variantMap = new Map<
       string,
       { slotitem_id: number; level: number; alv: number; count: number }
@@ -484,13 +492,14 @@ function renderEquipGrid(
   const equipTarget = getEquipModalTarget();
   const isExslot = equipTarget.slotIdx === -1;
   if (isExslot && !isAirBaseEquipTarget()) {
-    const filtered = filterForExslot(
-      equipTarget.shipId,
-      items,
-    );
+    const filtered = filterForExslot(equipTarget.shipId, items);
     if (filtered) items = filtered;
   } else {
-    const filtered = filterForNormalSlot(equipTarget.shipId, items);
+    const filtered = filterForNormalSlot(
+      equipTarget.shipId,
+      items,
+      equipTarget.slotIdx,
+    );
     if (filtered) items = filtered;
   }
 
@@ -587,13 +596,16 @@ function renderEquipGrid(
     () =>
       createComponent(EquipVList, {
         data: rows,
-        ref: (handle: unknown) => { _equipVListHandle = handle as typeof _equipVListHandle; },
+        ref: (handle: unknown) => {
+          _equipVListHandle = handle as typeof _equipVListHandle;
+        },
         style: {
           height: "100%",
         },
         class: "overflow-x-hidden",
         children: (row: EquipVRow) => {
-          if (row.kind === "header") return createGroupHeader(getEquipTypeName(row.typeId));
+          if (row.kind === "header")
+            return createGroupHeader(getEquipTypeName(row.typeId));
           const wrap = document.createElement("div");
           wrap.style.height = `${EQUIP_ROW_PITCH}px`;
           wrap.style.display = "flex";
@@ -616,9 +628,7 @@ function renderEquipCategoryNav(
     "equip-modal-grid",
     catOffsets,
     (c) => ({
-      text:
-        EQUIP_TYPE_SHORT[c.typeId] ??
-        getEquipTypeName(c.typeId),
+      text: EQUIP_TYPE_SHORT[c.typeId] ?? getEquipTypeName(c.typeId),
       title: getEquipTypeName(c.typeId),
     }),
   );
@@ -763,6 +773,7 @@ function renderEquipDetail(equip: MstSlotItemData) {
         raig: "雷装",
         tyku: "対空",
         souk: "装甲",
+        soku: "速力",
         kaih: "回避",
         tais: "対潜",
         saku: "索敵",
@@ -780,7 +791,9 @@ function renderEquipDetail(equip: MstSlotItemData) {
       const star = document.createElement("span");
       star.className = "text-warning";
       star.textContent = "★";
-      const titleText = document.createTextNode(`装備ボーナス${shipData ? ` (${shipData.name})` : ""}`);
+      const titleText = document.createTextNode(
+        `装備ボーナス${shipData ? ` (${shipData.name})` : ""}`,
+      );
       sectionTitle.appendChild(star);
       sectionTitle.appendChild(titleText);
       section.appendChild(sectionTitle);

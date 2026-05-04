@@ -361,7 +361,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
 
     return (
       <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? 0}+{f_crash2 ?? 0}/{e_crash1 ?? 0}+{e_crash2 ?? 0}
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"}/{e_crash1 ?? "?"}+{e_crash2 ?? "?"}
       </div>
     );
   };

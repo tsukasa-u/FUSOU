@@ -1,0 +1,33 @@
+---
+interface Props {
+  title: string;
+  subtitle?: string;
+  compact?: boolean;
+}
+
+const { title, subtitle = "", compact = false } = Astro.props as Props;
+---
+
+<div class="fusou-page-header">
+  <div>
+    <h1
+      class:list={[compact ? "fusou-page-title-compact" : "fusou-page-title"]}
+    >
+      {title}
+    </h1>
+    {
+      subtitle && (
+        <p
+          class:list={[
+            compact ? "fusou-page-subtitle-compact" : "fusou-page-subtitle",
+          ]}
+        >
+          {subtitle}
+        </p>
+      )
+    }
+  </div>
+  <div class="fusou-page-actions">
+    <slot name="actions" />
+  </div>
+</div>

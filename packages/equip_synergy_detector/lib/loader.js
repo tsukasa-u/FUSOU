@@ -10,19 +10,19 @@
  *   });
  */
 
-const path = require('path');
-const Module = require('module');
-const fs = require('fs');
+const path = require("path");
+const Module = require("module");
+const fs = require("fs");
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, "..");
 
 /**
  * Resolve the game script path.
  */
 function resolveScript(useMain) {
   return useMain
-    ? path.join(ROOT, 'main.js')
-    : path.join(ROOT, 'output', 'deobfuscated.js');
+    ? path.join(ROOT, "main.js")
+    : path.join(ROOT, "output", "deobfuscated.js");
 }
 
 /**
@@ -30,13 +30,28 @@ function resolveScript(useMain) {
  * Returns the path or null.
  */
 function findMasterData() {
-  const dir = path.join(ROOT, 'master_data');
+  const dir = path.join(ROOT, "master_data");
   if (!fs.existsSync(dir)) return null;
-  const files = fs.readdirSync(dir)
-    .filter(f => f.includes('api_start2'))
-    .sort()
-    .reverse(); // newest first
-  return files.length > 0 ? path.join(dir, files[0]) : null;
+  const files = fs
+    .readdirSync(dir)
+    .flatMap((name) => {
+      if (!name.includes("api_start2")) return [];
+      const fullPath = path.join(dir, name);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (!stat.isFile()) return [];
+        return [
+          {
+            fullPath,
+            mtimeMs: stat.mtimeMs,
+          },
+        ];
+      } catch {
+        return [];
+      }
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs); // newest first by modified time
+  return files.length > 0 ? files[0].fullPath : null;
 }
 
 /**
@@ -44,12 +59,15 @@ function findMasterData() {
  * Returns the parsed api_data object.
  */
 function parseMasterData(filePath) {
-  const raw = fs.readFileSync(filePath, 'utf-8');
+  const raw = fs.readFileSync(filePath, "utf-8");
   let jsonStr;
-  for (const line of raw.split('\n')) {
-    if (line.startsWith('svdata=')) { jsonStr = line.slice(7); break; }
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("svdata=")) {
+      jsonStr = line.slice(7);
+      break;
+    }
   }
-  if (!jsonStr) throw new Error('No svdata= line found in: ' + filePath);
+  if (!jsonStr) throw new Error("No svdata= line found in: " + filePath);
   return JSON.parse(jsonStr).api_data;
 }
 
@@ -60,20 +78,20 @@ function buildMstDict(mstSlotitems) {
   const dict = {};
   for (const si of mstSlotitems) {
     dict[si.api_id] = {
-      mstID:     si.api_id,
-      name:      si.api_name || '',
+      mstID: si.api_id,
+      name: si.api_name || "",
       equipType: (si.api_type && si.api_type[2]) || 0,
-      cardType:  (si.api_type && si.api_type[1]) || 0,
-      iconType:  (si.api_type && si.api_type[3]) || 0,
-      sakuteki:  si.api_saku || 0,
-      meichu:    si.api_houm || 0,
-      taiku:     si.api_tyku || 0,
-      karyoku:   si.api_houg || 0,
-      raisou:    si.api_raig || 0,
-      taisen:    si.api_tais || 0,
-      bakusou:   si.api_baku || 0,
-      soukou:    si.api_souk || 0,
-      kaihi:     si.api_houk || 0
+      cardType: (si.api_type && si.api_type[1]) || 0,
+      iconType: (si.api_type && si.api_type[3]) || 0,
+      sakuteki: si.api_saku || 0,
+      meichu: si.api_houm || 0,
+      taiku: si.api_tyku || 0,
+      karyoku: si.api_houg || 0,
+      raisou: si.api_raig || 0,
+      taisen: si.api_tais || 0,
+      bakusou: si.api_baku || 0,
+      soukou: si.api_souk || 0,
+      kaihi: si.api_houk || 0,
     };
   }
   return dict;
@@ -84,12 +102,25 @@ function buildMstDict(mstSlotitems) {
  */
 function createGetMst(mstDict) {
   return function (id) {
-    const numId = typeof id === 'string' ? parseInt(id, 10) : id;
-    return mstDict[numId] || {
-      mstID: numId, name: '', equipType: 0, cardType: 0, iconType: 0,
-      sakuteki: 0, meichu: 0, taiku: 0, karyoku: 0, raisou: 0,
-      taisen: 0, bakusou: 0, soukou: 0, kaihi: 0
-    };
+    const numId = typeof id === "string" ? parseInt(id, 10) : id;
+    return (
+      mstDict[numId] || {
+        mstID: numId,
+        name: "",
+        equipType: 0,
+        cardType: 0,
+        iconType: 0,
+        sakuteki: 0,
+        meichu: 0,
+        taiku: 0,
+        karyoku: 0,
+        raisou: 0,
+        taisen: 0,
+        bakusou: 0,
+        soukou: 0,
+        kaihi: 0,
+      }
+    );
   };
 }
 
@@ -97,22 +128,22 @@ function createGetMst(mstDict) {
  * Set up browser environment and global stubs.
  */
 function setupEnvironment() {
-  const { createBrowserEnv } = require('./stubs/browser-shim');
+  const { createBrowserEnv } = require("./stubs/browser-shim");
   const { dom, window, document } = createBrowserEnv();
 
-  globalThis.self      = window;
-  globalThis.window    = window;
-  globalThis.document  = document;
+  globalThis.self = window;
+  globalThis.window = window;
+  globalThis.document = document;
   globalThis.navigator = window.navigator;
 
-  const timers = require('timers');
-  globalThis.setTimeout    = timers.setTimeout;
-  globalThis.setInterval   = timers.setInterval;
-  globalThis.clearTimeout  = timers.clearTimeout;
+  const timers = require("timers");
+  globalThis.setTimeout = timers.setTimeout;
+  globalThis.setInterval = timers.setInterval;
+  globalThis.clearTimeout = timers.clearTimeout;
   globalThis.clearInterval = timers.clearInterval;
 
-  globalThis.PIXI      = require('./stubs/pixi-stub');
-  globalThis.createjs   = require('./stubs/createjs-stub');
+  globalThis.PIXI = require("./stubs/pixi-stub");
+  globalThis.createjs = require("./stubs/createjs-stub");
 
   return { dom, window, document };
 }
@@ -121,15 +152,15 @@ function setupEnvironment() {
  * Set up require interception for "window" and "axios".
  */
 function setupRequireIntercept(window) {
-  const axiosStubPath = require.resolve('./stubs/axios-stub');
-  const windowShimPath = path.join(__dirname, '_window-shim.js');
-  fs.writeFileSync(windowShimPath, 'module.exports = global.__kcs_window__;');
+  const axiosStubPath = require.resolve("./stubs/axios-stub");
+  const windowShimPath = path.join(__dirname, "_window-shim.js");
+  fs.writeFileSync(windowShimPath, "module.exports = global.__kcs_window__;");
   global.__kcs_window__ = window;
 
   const origRes = Module._resolveFilename;
   Module._resolveFilename = function (req, parent, isMain, opts) {
-    if (req === 'window') return windowShimPath;
-    if (req === 'axios') return axiosStubPath;
+    if (req === "window") return windowShimPath;
+    if (req === "axios") return axiosStubPath;
     return origRes.call(this, req, parent, isMain, opts);
   };
 }
@@ -149,7 +180,7 @@ function loadBundle(opts = {}) {
 
   const targetScript = resolveScript(useMain);
   if (!fs.existsSync(targetScript)) {
-    throw new Error('Target script not found: ' + targetScript);
+    throw new Error("Target script not found: " + targetScript);
   }
   log(`[loader] Using: ${path.relative(ROOT, targetScript)}`);
 
@@ -166,11 +197,19 @@ function loadBundle(opts = {}) {
   const origCompile = Module.prototype._compile;
   Module.prototype._compile = function (content, filename) {
     if (filename === targetScript) {
-      const match = content.match(/(\w+)(?:\.g|\['g'\])\s*=\s*\(?function\s*\(\)\s*\{[^}]*globalThis/);
+      const match = content.match(
+        /(\w+)(?:\.g|\['g'\])\s*=\s*\(?function\s*\(\)\s*\{[^}]*globalThis/,
+      );
       if (match) {
         const reqFn = match[1];
-        const cacheRe = new RegExp(`(?:var\\s+)?(\\w+)\\s*=\\s*\\{\\};\\s*function\\s+${reqFn}\\b`);
-        const cm = content.match(cacheRe) || content.match(new RegExp(`(\\w+)\\s*=\\s*\\{\\}\\s*;\\s*function\\s+${reqFn}\\b`));
+        const cacheRe = new RegExp(
+          `(?:var\\s+)?(\\w+)\\s*=\\s*\\{\\};\\s*function\\s+${reqFn}\\b`,
+        );
+        const cm =
+          content.match(cacheRe) ||
+          content.match(
+            new RegExp(`(\\w+)\\s*=\\s*\\{\\}\\s*;\\s*function\\s+${reqFn}\\b`),
+          );
 
         let inj = `global.__kcs_require = ${reqFn};\n`;
         if (cm) {
@@ -180,7 +219,8 @@ function loadBundle(opts = {}) {
             inj += `${cacheName}[18622] = { exports: { default: { model: { slot: { getMst: global.__kcs_getMst } } }, __esModule: true } };\n`;
           }
         }
-        content = content.slice(0, match.index) + inj + content.slice(match.index);
+        content =
+          content.slice(0, match.index) + inj + content.slice(match.index);
       }
       Module.prototype._compile = origCompile;
     }
@@ -188,17 +228,17 @@ function loadBundle(opts = {}) {
   };
 
   // Load the script
-  log('[loader] Loading game script ...');
+  log("[loader] Loading game script ...");
   const exports = require(targetScript);
 
   if (!global.__kcs_require) {
-    throw new Error('Failed to capture webpack require function');
+    throw new Error("Failed to capture webpack require function");
   }
 
   return {
     kcsRequire: global.__kcs_require,
     kcsCache: global.__kcs_cache || {},
-    exports
+    exports,
   };
 }
 

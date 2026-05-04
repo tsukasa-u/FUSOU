@@ -1,7 +1,7 @@
 {
   "extends": "./node_modules/astro/tsconfigs/base.json",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist", "src/server/durable-objects/**"],
+  "exclude": ["dist", "src/server/durable-objects/**", "playwright-report", "test-results"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
     "module": "es2020",

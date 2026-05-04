@@ -1,7 +1,9 @@
 ---
 import "@/assets/app.css";
 import "@/styles/global.css";
+import FocusBehavior from "@/components/FocusBehavior.astro";
 import Navigation from "@/components/Navigation.astro";
+// import TutorialModal from "@/components/TutorialModal.astro";
 import LeftMenu from "@/components/docs/LeftMenu.astro";
 import RightMenu from "@/components/docs/RightMenu.astro";
 import Breadcrumb from "@/components/docs/Breadcrumb.astro";
@@ -9,11 +11,30 @@ import DocumentInfo from "@/components/docs/DocumentInfo.astro";
 import { getEntry } from "astro:content";
 
 const { entry, Content, headings } = Astro.props;
+const sectionHeadings = headings.filter((heading: { depth: number }) => heading.depth >= 2);
+const plainBody = entry.body
+  .replace(/```[\s\S]*?```/g, " ")
+  .replace(/`[^`]*`/g, " ")
+  .replace(/<[^>]*>/g, " ")
+  .replace(/\[[^\]]*\]\([^)]*\)/g, " ")
+  .replace(/[^\p{L}\p{N}\s]/gu, " ");
+const estimatedReadMinutes = Math.max(1, Math.ceil(plainBody.trim().split(/\s+/).filter(Boolean).length / 220));
 const authors = await Promise.all(
   entry.data.contributors.map(async (contributor: string) => {
     return await getEntry("authors", contributor);
   })
 );
+
+// const tutorial = {
+//   id: `docs:${entry.slug}`,
+//   title: `ドキュメントの使い方: ${entry.data.title}`,
+//   summary: "目次とメニューを使って必要な情報へ素早く移動できます。",
+//   steps: [
+//     "左メニューからセクションを選択して記事を切り替えます。",
+//     "右側の目次で見出し単位にジャンプします。",
+//     "ページ下部の更新日・関連情報を確認して運用手順の差分を把握します。",
+//   ],
+// };
 ---
 
 <html>
@@ -68,6 +89,7 @@ const authors = await Promise.all(
     </script>
   </head>
   <body>
+    <FocusBehavior />
     <Navigation />
     <div class="h-16"></div>
     <div class="flex">
@@ -81,7 +103,43 @@ const authors = await Promise.all(
 
         <main class="py-4 px-2 sm:px-6 md:px-4 xl:px-12 col-span-24 md:col-span-16 xl:col-span-12 min-w-0">
           <Breadcrumb entry={entry} />
+          <header class="mb-5 rounded-xl border border-base-300/70 bg-base-100/90 p-4 sm:p-5">
+            <h1 class="text-2xl sm:text-3xl font-bold text-base-content tracking-tight">{entry.data.title}</h1>
+            {
+              entry.data.description && (
+                <p class="mt-2 text-sm sm:text-base text-base-content/75 max-w-[70ch]">{entry.data.description}</p>
+              )
+            }
+            <div class="mt-4 flex flex-wrap gap-2 text-xs sm:text-sm">
+              <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{estimatedReadMinutes} min read</span>
+              <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">{sectionHeadings.length} sections</span>
+              <span class="rounded-full border border-base-300 px-3 py-1 text-base-content/75">Updated {new Date(entry.data.date).toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              })}</span>
+            </div>
+          </header>
+          {
+            sectionHeadings.length > 0 && (
+              <details class="xl:hidden mb-4 rounded-xl border border-base-300/70 bg-base-100 p-3">
+                <summary class="cursor-pointer text-sm font-semibold text-base-content">On this page ({sectionHeadings.length})</summary>
+                <ul class="mt-3 space-y-1 text-sm text-base-content/80">
+                  {
+                    sectionHeadings.map((heading: { slug: string; text: string; depth: number }) => (
+                      <li class={heading.depth >= 3 ? "pl-3" : "pl-0"}>
+                        <a href={`#${heading.slug}`} class="link link-hover">{heading.text}</a>
+                      </li>
+                    ))
+                  }
+                </ul>
+              </details>
+            )
+          }
           <div class="markdown"><Content /></div>
+          <div class="mt-6 flex xl:hidden">
+            <a href="#" class="text-sm link link-hover">Back to top</a>
+          </div>
           <br />
           <DocumentInfo lastUpdated={entry.data.date} contributors={authors} />
           <br />
@@ -93,6 +151,7 @@ const authors = await Promise.all(
       </div>
       <div class="flex-1 min-w-0"></div>
     </div>
+    <!-- <TutorialModal guide={tutorial} /> -->
   </body>
 </html>
 

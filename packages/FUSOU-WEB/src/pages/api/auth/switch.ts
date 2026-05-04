@@ -53,7 +53,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     ? (storedProviderRefreshToken.json() as storedToken).data 
     : [];
 
-  // Validate index bounds
+  // Validate index bounds (provider tokens are optional and may be shorter)
   if (index < 0 || index >= accessTokenList.length || index >= refreshTokenList.length) {
     return new Response("Index out of bounds", { status: 400 });
   }
@@ -61,8 +61,8 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Get selected tokens
   const newAccessToken = accessTokenList[index];
   const newRefreshToken = refreshTokenList[index];
-  const newProviderToken = providerTokenList[index] || "";
-  const newProviderRefreshToken = providerRefreshTokenList[index] || "";
+  const newProviderToken = index < providerTokenList.length ? providerTokenList[index] : "";
+  const newProviderRefreshToken = index < providerRefreshTokenList.length ? providerRefreshTokenList[index] : "";
 
   // Update active cookies
   cookies.set("sb-access-token", newAccessToken, COOKIE_OPTIONS);

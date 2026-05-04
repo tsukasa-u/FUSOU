@@ -91,7 +91,14 @@ impl Storage for FileStorage {
                 return Err(AuthError::Other(e.to_string()));
             }
         }
-        fs::write(&self.path, s).await.map_err(|e| AuthError::Other(e.to_string()))
+        fs::write(&self.path, &s).await.map_err(|e| AuthError::Other(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| AuthError::Other(e.to_string()))?;
+        }
+        Ok(())
     }
 
     async fn clear(&self) -> Result<(), AuthError> {
@@ -146,7 +153,14 @@ impl MultiSessionStorage for MultiSessionFileStorage {
                 return Err(AuthError::Other(e.to_string()));
             }
         }
-        fs::write(&self.path, s).await.map_err(|e| AuthError::Other(e.to_string()))
+        fs::write(&self.path, &s).await.map_err(|e| AuthError::Other(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| AuthError::Other(e.to_string()))?;
+        }
+        Ok(())
     }
 
     async fn clear_multi_session(&self) -> Result<(), AuthError> {

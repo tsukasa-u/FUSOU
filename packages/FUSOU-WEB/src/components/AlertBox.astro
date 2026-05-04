@@ -1,9 +1,10 @@
 ---
 import InfoIcon from "./icons/InfoIcon.astro";
 import WarningIcon from "./icons/WarningIcon.astro";
+import CheckIcon from "./icons/CheckIcon.astro";
 
 interface Props {
-  type: "info" | "warning" | "error";
+  type: "info" | "success" | "warning" | "error";
   title: string;
   class?: string;
 }
@@ -15,6 +16,11 @@ const typeStyles = {
     alertClass: "alert-info",
     iconClass: "text-info",
     titleClass: "text-base-content",
+  },
+  success: {
+    alertClass: "alert-success",
+    iconClass: "text-success",
+    titleClass: "text-success",
   },
   warning: {
     alertClass: "alert-warning",
@@ -29,12 +35,11 @@ const typeStyles = {
 };
 
 const styles = typeStyles[type];
-const IconComponent = type === "info" ? InfoIcon : WarningIcon;
+const IconComponent =
+  type === "info" ? InfoIcon : type === "success" ? CheckIcon : WarningIcon;
 ---
 
-<div
-  class={`alert ${styles.alertClass} bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3 ${className}`}
->
+<div class={`alert ${styles.alertClass} flex items-start gap-3 ${className}`}>
   <IconComponent class={`w-6 h-6 shrink-0 ${styles.iconClass}`} />
   <div>
     <div class={`font-semibold ${styles.titleClass}`}>{title}</div>

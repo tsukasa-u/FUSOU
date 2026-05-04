@@ -90,7 +90,7 @@ tags: [formulas, morale, experience, repair, resource, expedition]
 
 ## 2. 経験値
 
-### 2-1. 出撃時の艦娘経験値
+### 2-1. 出撃時の艦経験値
 
 ```
 取得経験値 = floor(基本経験値 x MVP補正 x 旗艦補正 x 勝敗補正)
@@ -111,7 +111,7 @@ tags: [formulas, morale, experience, repair, resource, expedition]
 - 基本経験値はマップ・ノードごとに固定値が設定されている
 - **出典**: 全サイト一致
 
-### 2-2. 演習時の艦娘経験値
+### 2-2. 演習時の艦経験値
 
 3段階の計算処理:
 
@@ -201,7 +201,7 @@ Level >= 12: 基礎値 = Level x 5 + floor(sqrt(Level - 11)) x 10 + 50
 鋼材消費 = floor(基本燃料 x HP損失量 x 0.06)
 ```
 
-- **基本燃料**: 艦娘の最大燃料消費量（改造段階で変動）
+- **基本燃料**: 艦の最大燃料消費量（改造段階で変動）
 - **出典**: KCWIKI
 
 ### 3-3. 泊地修理（明石修理）

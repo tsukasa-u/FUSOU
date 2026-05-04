@@ -9,19 +9,23 @@
  * Default output: output/deobfuscated.js
  */
 
-const path = require('path');
-const fs = require('fs');
+const path = require("path");
+const fs = require("fs");
+const vm = require("node:vm");
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
 
 function getArg(name, fallback) {
   const idx = args.indexOf(name);
-  return (idx >= 0 && args[idx + 1]) ? args[idx + 1] : fallback;
+  return idx >= 0 && args[idx + 1] ? args[idx + 1] : fallback;
 }
 
-const inputPath = path.resolve(ROOT, getArg('--input', 'main.js'));
-const outputPath = path.resolve(ROOT, getArg('--output', 'output/deobfuscated.js'));
+const inputPath = path.resolve(ROOT, getArg("--input", "main.js"));
+const outputPath = path.resolve(
+  ROOT,
+  getArg("--output", "output/deobfuscated.js"),
+);
 
 if (!fs.existsSync(inputPath)) {
   console.error(`Error: input file not found: ${inputPath}`);
@@ -31,33 +35,49 @@ if (!fs.existsSync(inputPath)) {
 async function main() {
   let webcrack;
   try {
-    webcrack = (await import('webcrack')).default;
-  } catch {
-    console.error('Error: webcrack is not installed. Run: pnpm add -D webcrack');
+    const mod = await import("webcrack");
+    webcrack = mod.webcrack || mod.default;
+    if (typeof webcrack !== "function") {
+      throw new Error("webcrack export is not a function");
+    }
+  } catch (err) {
+    console.error(
+      `Error: failed to load webcrack (${err?.message || "unknown error"}). Run: pnpm add -D webcrack`,
+    );
     process.exit(1);
   }
 
   console.log(`[deobfuscate] Input:  ${path.relative(ROOT, inputPath)}`);
   console.log(`[deobfuscate] Output: ${path.relative(ROOT, outputPath)}`);
 
-  const code = fs.readFileSync(inputPath, 'utf-8');
-  console.log(`[deobfuscate] Input size: ${(Buffer.byteLength(code) / 1024 / 1024).toFixed(1)} MB`);
+  const code = fs.readFileSync(inputPath, "utf-8");
+  console.log(
+    `[deobfuscate] Input size: ${(Buffer.byteLength(code) / 1024 / 1024).toFixed(1)} MB`,
+  );
 
-  console.log('[deobfuscate] Running webcrack ...');
+  console.log("[deobfuscate] Running webcrack ...");
   const t0 = Date.now();
-  const result = await webcrack(code);
+  const result = await webcrack(code, {
+    // webcrack defaults to a Node sandbox implementation backed by isolated-vm.
+    // On some Windows setups the native isolated-vm binary is unavailable, so
+    // we provide a lightweight VM sandbox to keep deobfuscation functional.
+    sandbox: async (snippet) =>
+      vm.runInNewContext(snippet, {}, { timeout: 1000 }),
+  });
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`[deobfuscate] Done in ${elapsed}s`);
 
   const dir = path.dirname(outputPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(outputPath, result.code, 'utf-8');
+  fs.writeFileSync(outputPath, result.code, "utf-8");
 
   const outSize = (Buffer.byteLength(result.code) / 1024 / 1024).toFixed(1);
-  console.log(`[deobfuscate] Output size: ${outSize} MB → ${path.relative(ROOT, outputPath)}`);
+  console.log(
+    `[deobfuscate] Output size: ${outSize} MB → ${path.relative(ROOT, outputPath)}`,
+  );
 }
 
-main().catch(err => {
-  console.error('[deobfuscate] Error:', err.message);
+main().catch((err) => {
+  console.error("[deobfuscate] Error:", err.message);
   process.exit(1);
 });

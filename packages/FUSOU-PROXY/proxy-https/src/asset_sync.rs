@@ -8,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dashmap::DashSet;
 use fusou_auth::{AuthManager, FileStorage};
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
@@ -26,13 +25,17 @@ use tracing;
 use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
 
-use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
+use fusou_upload::{
+    LocalRequestSuppressionCache, PendingStore, UploadContext, UploadRequest, UploadResult,
+    UploadRetryService, Uploader,
+};
 use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
-// Phase 2: Changed from UnboundedSender to bounded mpsc::Sender with capacity 100
-static ASSET_SYNC_QUEUE: OnceLock<mpsc::Sender<PathBuf>> = OnceLock::new();
-static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
+// Keep asset notifications non-blocking and non-lossy.
+static ASSET_SYNC_QUEUE: OnceLock<mpsc::UnboundedSender<PathBuf>> = OnceLock::new();
+static ASSET_REQUEST_CACHE: Lazy<LocalRequestSuppressionCache> =
+    Lazy::new(|| LocalRequestSuppressionCache::new(Duration::from_secs(24 * 60 * 60)));
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPABASE_AUTH_FAILED: AtomicBool = AtomicBool::new(false);
@@ -42,15 +45,39 @@ static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::ne
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
-// Counter for monitoring dropped assets due to queue backpressure
+// Counter for monitoring dropped notifications when queue is closed.
 static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
+static BLOCKED_EXTENSIONS: OnceLock<Vec<String>> = OnceLock::new();
+const ASSET_REQUEST_CACHE_FILE: &str = "asset_request_suppression_cache.json";
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
-// Phase 2: Queue capacity limit for backpressure handling
-const ASSET_SYNC_QUEUE_CAPACITY: usize = 100;
+
+fn mask_sensitive(value: &str) -> String {
+    if cfg!(debug_assertions) {
+        return value.to_string();
+    }
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return "********".to_string();
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= 8 {
+        return "********".to_string();
+    }
+    let head: String = chars.iter().take(4).collect();
+    let tail: String = chars
+        .iter()
+        .rev()
+        .take(2)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{}****{}", head, tail)
+}
 
 #[derive(Debug, Clone)]
 struct ExistingKeysError {
@@ -89,17 +116,6 @@ struct PeriodCache {
     expires_at: Instant,
 }
 
-#[derive(Serialize)]
-struct UploadHandshakeRequest {
-    key: String,
-    relative_path: String,
-    file_size: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    finder_tag: Option<String>,
-    file_name: String,
-    content_type: String,
-}
-
 #[derive(Deserialize)]
 struct PeriodApiResponse {
     tag: Option<String>,
@@ -129,9 +145,9 @@ struct ExistingKeyItem {
     #[serde(default)]
     content_hash: Option<String>,
     #[serde(default)]
-    size: Option<u64>,
+    _size: Option<u64>,
     #[serde(default, rename = "uploadedAt")]
-    uploaded_at: Option<u64>,
+    _uploaded_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -155,10 +171,12 @@ pub struct AssetSyncInit {
     pub scan_interval: Duration,
     pub require_supabase_auth: bool,
     pub finder_tag: Option<String>,
+    pub dataset_id: Option<String>,
     pub period_endpoint: Option<String>,
     pub blocked_extensions: Vec<String>,
     pub existing_keys_endpoint: Option<String>,
     pub auth_backoff_secs: u64,
+    pub retry_interval_secs: u64,
 }
 
 impl AssetSyncInit {
@@ -178,6 +196,7 @@ impl AssetSyncInit {
         let blocked_extensions = config.get_skip_extensions();
         let existing_keys_endpoint = config.get_existing_keys_endpoint();
         let auth_backoff_secs = config.retry.get_auth_backoff_seconds();
+        let retry_interval_secs = config.retry.get_interval_seconds().max(1);
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -191,11 +210,13 @@ impl AssetSyncInit {
             key_prefix,
             scan_interval,
             require_supabase_auth: true,
+            dataset_id: finder_tag.clone(),
             finder_tag,
             period_endpoint,
             blocked_extensions,
             existing_keys_endpoint,
             auth_backoff_secs,
+            retry_interval_secs,
         })
     }
 }
@@ -233,20 +254,51 @@ pub fn start(
         ));
     }
 
+    if let Err(err) = ASSET_REQUEST_CACHE.enable_persistence(asset_request_cache_path(&init.save_root)) {
+        tracing::warn!(error = %err, "failed to enable persistent asset suppression cache");
+    }
+
     // Initialize PendingStore
     let pending_dir = init.save_root.join("pending");
     let pending_store = Arc::new(PendingStore::new(pending_dir));
     let _ = PENDING_STORE.set(pending_store.clone());
+    let retry_service = Arc::new(UploadRetryService::new(
+        pending_store.clone(),
+        auth_manager.clone(),
+        None,
+    ));
 
-    // Phase 2: Use bounded channel instead of unbounded for backpressure handling
-    let (tx, rx) = mpsc::channel(ASSET_SYNC_QUEUE_CAPACITY);
+    let _ = BLOCKED_EXTENSIONS.set(init.blocked_extensions.clone());
+
+    // Use unbounded channel: keep notify path lightweight and avoid queue-full drops.
+    let (tx, rx) = mpsc::unbounded_channel();
     let _ = ASSET_SYNC_QUEUE.set(tx);
 
     let settings = Arc::new(init);
     let worker_settings = settings.clone();
+    let retry_service_for_worker = retry_service.clone();
     let handle = tokio::spawn(async move {
-        if let Err(err) = run_worker(worker_settings, auth_manager, rx, pending_store).await {
+        if let Err(err) = run_worker(
+            worker_settings,
+            auth_manager,
+            rx,
+            pending_store,
+            retry_service_for_worker,
+        )
+        .await
+        {
             tracing::error!(error = %err, "asset sync worker stopped");
+        }
+    });
+
+    let retry_service_for_background = retry_service.clone();
+    let retry_interval_secs = settings.retry_interval_secs;
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(Duration::from_secs(retry_interval_secs));
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            retry_service_for_background.trigger_retry().await;
         }
     });
 
@@ -264,37 +316,35 @@ pub fn start(
     Ok(())
 }
 
-// Phase 2: Implement backpressure handling with try_send
 pub fn notify_new_asset(path: PathBuf) {
+    // Pre-filter blocked extensions before enqueuing to avoid filling the queue
+    // with files that would be discarded anyway in process_path
+    if let Some(blocked) = BLOCKED_EXTENSIONS.get() {
+        if has_blocked_extension(&path, blocked) {
+            tracing::debug!(path = ?path, "skipping blocked extension before queuing");
+            return;
+        }
+    }
+
     if let Some(queue) = ASSET_SYNC_QUEUE.get() {
-        match queue.try_send(path.clone()) {
+        match queue.send(path.clone()) {
             Ok(()) => {
                 tracing::debug!(path = ?path, "Asset queued for sync");
             }
-            Err(mpsc::error::TrySendError::Full(_)) => {
-                // Queue is full - backpressure activated
-                // Asset is dropped, HTTP handler continues without blocking
+            Err(e) => {
                 let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 tracing::warn!(
                     path = ?path,
                     dropped_count = dropped_count,
-                    capacity = ASSET_SYNC_QUEUE_CAPACITY,
-                    "asset sync queue full, dropping asset: backpressure activated"
+                    error = ?e,
+                    "asset sync queue closed; notification dropped"
                 );
-            }
-            Err(mpsc::error::TrySendError::Closed(_)) => {
-                // Worker is not running - skip silently
-                tracing::debug!(path = ?path, "asset sync worker not running, skipping notify");
             }
         }
     }
 }
 
-/// Returns the total count of assets dropped due to queue backpressure
-///
-/// This counter can be monitored to determine if ASSET_SYNC_QUEUE_CAPACITY
-/// needs to be adjusted. A high count indicates the sync worker is falling
-/// behind and the queue capacity should be increased.
+/// Returns the total count of asset notifications dropped because queue was closed.
 pub fn get_dropped_asset_count() -> u64 {
     DROPPED_ASSET_COUNT.load(Ordering::Relaxed)
 }
@@ -302,38 +352,102 @@ pub fn get_dropped_asset_count() -> u64 {
 async fn run_worker(
     settings: Arc<AssetSyncInit>,
     auth_manager: Arc<AuthManager<FileStorage>>,
-    mut rx: mpsc::Receiver<PathBuf>,
+    mut rx: mpsc::UnboundedReceiver<PathBuf>,
     pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
 ) -> Result<(), String> {
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
+
+    // Root-cause fix: when worker starts before gameplay events (Set::Basic),
+    // auth/session may still be absent. If dataset_id is already known from
+    // launch context, proactively establish anonymous session + dataset_token.
+    if let Some(dataset_id) = settings
+        .dataset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+    {
+        match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
+            Ok(token) => {
+                if let Err(e) = auth_manager.save_dataset_token(&token).await {
+                    tracing::warn!(
+                        dataset_id,
+                        error = %e,
+                        "asset sync startup auth bootstrap: token acquired but persistence failed"
+                    );
+                } else {
+                    tracing::info!(
+                        dataset_id,
+                        "asset sync startup auth bootstrap completed"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    dataset_id,
+                    error = %e,
+                    "asset sync startup auth bootstrap failed"
+                );
+            }
+        }
+    }
 
     if let Err(err) = maybe_refresh_period(&client, &settings).await {
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
-    // Load persistent cache from disk BEFORE checking if refresh is needed
-    load_persistent_cache(&settings.save_root);
+    // Load persistent cache from disk BEFORE checking if refresh is needed.
+    // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
+    {
+        let save_root = settings.save_root.clone();
+        tokio::task::spawn_blocking(move || load_persistent_cache(&save_root))
+            .await
+            .unwrap_or_else(|e| tracing::warn!("load_persistent_cache task panicked: {e:?}"));
+    }
 
     // Only attempt to refresh existing keys if authentication is ready
     if check_auth_ready(&settings, &auth_manager).await {
         if let Err(err) = maybe_refresh_existing_keys(&client, &settings, &auth_manager).await {
             tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
         }
+        retry_service.trigger_retry().await;
     }
 
-    loop {
-        if let Some(path) = rx.recv().await {
-            if check_auth_ready(&settings, &auth_manager).await {
-                tracing::info!(file = %path.display(), "received new asset notification, processing...");
-                if let Err(err) =
-                    process_path(&client, &settings, &path, &auth_manager, &pending_store).await
-                {
-                    tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
-                }
-            }
+    let mut dataset_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+        || settings
+            .dataset_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .is_some();
+
+    while let Some(path) = rx.recv().await {
+        let now_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+            || settings
+                .dataset_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+                .is_some();
+        if now_ready && !dataset_ready {
+            tracing::info!(
+                "dataset_id became available; triggering immediate pending upload retry"
+            );
+            retry_service.trigger_retry().await;
+        }
+        dataset_ready = now_ready;
+
+        tracing::info!(file = %path.display(), "received new asset notification, processing...");
+        if let Err(err) =
+            process_path(&client, &settings, &path, &auth_manager, &pending_store).await
+        {
+            tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
         }
     }
+
+    tracing::info!("asset sync worker: receiver channel closed; shutting down");
+    Ok(())
 }
 
 async fn check_auth_ready(
@@ -397,7 +511,7 @@ async fn process_path(
     auth_manager: &AuthManager<FileStorage>,
     pending_store: &PendingStore,
 ) -> Result<(), String> {
-    tracing::info!(file = %path.display(), "processing path");
+    tracing::info!(file = %path.display(), "processing path started");
     let relative = match path.strip_prefix(&settings.save_root) {
         Ok(rel) => rel,
         Err(_) => return Err("file is outside of configured save root".into()),
@@ -405,6 +519,7 @@ async fn process_path(
 
     if is_kcsapi(relative) {
         tracing::info!(file = %relative.display(), "skipping kcsapi file");
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
         return Ok(());
     }
 
@@ -413,6 +528,7 @@ async fn process_path(
             file = %relative.display(),
             "skipping because of blocked extension"
         );
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
         return Ok(());
     }
 
@@ -420,20 +536,6 @@ async fn process_path(
         Some(key) => key,
         None => return Err("unable to derive remote key".into()),
     };
-
-    tracing::info!(check_key = key, "checking if remote key exists");
-
-    if PROCESSED_KEYS.contains(&key) {
-        tracing::info!(key, "skipping because already processed in this session");
-        return Ok(());
-    }
-
-    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
-        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
-            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
-        }
-        return Err(err.to_string());
-    }
 
     let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
     if metadata.len() == 0 {
@@ -454,38 +556,69 @@ async fn process_path(
     .await
     .map_err(|e| format!("spawn_blocking hash computation failed: {}", e))?;
 
+    if ASSET_REQUEST_CACHE.should_skip(&key, &local_hash) {
+        tracing::info!(
+            key = %mask_sensitive(&key),
+            local_hash = %mask_sensitive(&local_hash),
+            "skipping because same content hash is cached locally"
+        );
+        tracing::info!(file = %path.display(), "processing path completed (skipped)");
+        return Ok(());
+    }
+
+    tracing::info!(check_key = %mask_sensitive(&key), "checking if remote key exists");
+
+    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
+        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
+            tracing::warn!(
+                key,
+                "Authentication failed while checking existing keys; proceeding without remote key cache"
+            );
+        } else {
+            tracing::warn!(
+                key,
+                error = %err,
+                "Failed to refresh existing keys cache; proceeding with upload path"
+            );
+        }
+    }
+
     // Check if remote has this key with a hash
     if let Some(remote_hash_opt) = remote_content_hash(&key) {
         if let Some(remote_hash) = remote_hash_opt {
             // Remote has hash - compare with local
             if remote_hash == local_hash {
-                PROCESSED_KEYS.insert(key.clone());
+                ASSET_REQUEST_CACHE.mark_processed(key.clone(), local_hash.clone());
                 tracing::info!(
-                    key,
-                    local_hash,
+                    key = %mask_sensitive(&key),
+                    local_hash = %mask_sensitive(&local_hash),
                     "skipping upload; remote content hash matches local"
                 );
                 return Ok(());
             } else {
                 // Hash differs - need to upload updated version
                 tracing::info!(
-                    key,
-                    local_hash,
-                    remote_hash,
+                    key = %mask_sensitive(&key),
+                    local_hash = %mask_sensitive(&local_hash),
+                    remote_hash = %mask_sensitive(&remote_hash),
                     "content changed, uploading updated version"
                 );
             }
         } else {
             // Remote key exists but no hash - upload to populate hash
             tracing::info!(
-                key,
-                local_hash,
+                key = %mask_sensitive(&key),
+                local_hash = %mask_sensitive(&local_hash),
                 "remote exists but hash unknown, uploading to update"
             );
         }
     } else {
         // Key doesn't exist remotely - upload
-        tracing::info!(key, local_hash, "new file, uploading");
+        tracing::info!(
+            key = %mask_sensitive(&key),
+            local_hash = %mask_sensitive(&local_hash),
+            "new file, uploading"
+        );
     }
 
     upload_via_api(
@@ -501,7 +634,8 @@ async fn process_path(
         Some(pending_store),
     )
     .await?;
-    PROCESSED_KEYS.insert(key);
+    ASSET_REQUEST_CACHE.mark_processed(key, local_hash);
+    tracing::info!(file = %path.display(), "processing path completed");
     Ok(())
 }
 
@@ -586,7 +720,10 @@ fn detect_mime_type(path: &Path) -> String {
     .to_string()
 }
 fn build_client() -> Result<Client, reqwest::Error> {
-    reqwest::Client::builder().build()
+    reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .build()
 }
 
 fn now_epoch_secs() -> u64 {
@@ -622,7 +759,68 @@ pub async fn upload_via_api(
     auth_manager: &AuthManager<FileStorage>,
     pending_store: Option<&PendingStore>,
 ) -> Result<(), String> {
-    tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
+    tracing::info!(
+        key = %mask_sensitive(key),
+        file = %path.display(),
+        size = file_size,
+        "asset upload event started"
+    );
+
+    let resolved_dataset_id = auth_manager
+        .resolve_dataset_id_for_upload(None)
+        .await
+        .or_else(|| settings.dataset_id.clone());
+
+    if resolved_dataset_id.as_deref() != settings.dataset_id.as_deref() {
+        tracing::info!(
+            configured = ?settings.dataset_id,
+            resolved = ?resolved_dataset_id,
+            "asset sync resolved updated dataset_id from auth state"
+        );
+    }
+
+    // If dataset_id is not available yet, defer as pending instead of classifying as upload failure.
+    if resolved_dataset_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .is_none()
+    {
+        let content_type = detect_mime_type(path);
+        let mut pending_headers = std::collections::HashMap::new();
+        pending_headers.insert("Origin".to_string(), settings.api_origin.clone());
+        pending_headers.insert("content-hash".to_string(), file_hash.to_string());
+
+        let context = UploadContext::Asset {
+            relative_path: relative.to_string_lossy().to_string(),
+            key: key.to_string(),
+            file_size,
+            dataset_id: None,
+            content_type: Some(content_type),
+        };
+
+        if let Some(store) = pending_store {
+            let context_json = serde_json::to_string(&context)
+                .map_err(|e| format!("failed to serialize pending context: {e}"))?;
+            store
+                .save_pending(
+                    &settings.api_endpoint,
+                    &pending_headers,
+                    &file_bytes,
+                    Some(context_json),
+                )
+                .map_err(|e| format!("failed to save pending upload: {e}"))?;
+
+            tracing::warn!(
+                key = %mask_sensitive(key),
+                "member_id_hash (dataset_id) not ready; queued asset upload as pending"
+            );
+            tracing::info!(key = %mask_sensitive(key), "asset upload event completed (queued pending)");
+            return Ok(());
+        }
+
+        return Err("dataset_id is not ready and pending store is unavailable".to_string());
+    }
 
     let filename = relative
         .file_name()
@@ -636,6 +834,7 @@ pub async fn upload_via_api(
         &relative.to_string_lossy(),
         file_size,
         Some(&filename),
+        resolved_dataset_id.as_deref(),
     );
 
     let mut headers = std::collections::HashMap::new();
@@ -653,20 +852,28 @@ pub async fn upload_via_api(
             relative_path: relative.to_string_lossy().to_string(),
             key: key.to_string(),
             file_size,
+            dataset_id: resolved_dataset_id,
             content_type: Some(content_type),
         },
     };
 
     match Uploader::upload(client, auth_manager, request, pending_store).await {
         Ok(UploadResult::Success) => {
-            tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
+            tracing::info!(
+                key = %mask_sensitive(key),
+                endpoint = %settings.api_endpoint,
+                "asset upload event completed (success)"
+            );
             register_remote_key(key, Some(file_hash));
             // Reset auth failure flag on successful upload
             SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
             Ok(())
         }
         Ok(UploadResult::Skipped) => {
-            tracing::info!(key, "asset already existed upstream (409)");
+            tracing::info!(
+                key = %mask_sensitive(key),
+                "asset upload event completed (already exists upstream)"
+            );
             register_remote_key(key, Some(file_hash));
             Ok(())
         }
@@ -675,13 +882,18 @@ pub async fn upload_via_api(
             // This is safer than pattern matching against fixed strings like "401" or "RequireReauth"
             // because it's explicitly set by UploadError::AuthenticationError variant
             if e.contains("Authentication error") {
-                tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
+                tracing::warn!(
+                    key = %mask_sensitive(key),
+                    error = %mask_sensitive(&e),
+                    "authentication failure detected; resetting auth cache"
+                );
                 SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
                 SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
                 LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
                 SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
                 SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
             }
+            tracing::info!(key = %mask_sensitive(key), "asset upload event completed (failed)");
             Err(e)
         }
     }
@@ -726,7 +938,7 @@ async fn maybe_refresh_period(client: &Client, settings: &AssetSyncInit) -> Resu
 fn should_refresh_period_cache() -> bool {
     match PERIOD_CACHE
         .read()
-        .expect("period cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
         Some(cache) => cache.expires_at <= Instant::now(),
@@ -740,7 +952,7 @@ fn cache_period_value(payload: PeriodApiResponse) {
     let tag = payload.tag.clone();
 
     {
-        let mut guard = PERIOD_CACHE.write().expect("period cache lock poisoned");
+        let mut guard = PERIOD_CACHE.write().unwrap_or_else(|e| e.into_inner());
         *guard = Some(PeriodCache { expires_at });
     }
 
@@ -773,7 +985,12 @@ fn duration_until(iso: &str) -> Option<Duration> {
 }
 
 fn apply_period_transition(new_tag: Option<String>) {
-    let mut guard = LAST_PERIOD_TAG.write().expect("period tag lock poisoned");
+    // Assets are content-addressed and cross-period: do NOT clear the suppression cache
+    // on period change. Use a fixed scope string so rotate_scope never triggers a clear,
+    // regardless of what scope was persisted to disk from a previous run.
+    ASSET_REQUEST_CACHE.rotate_scope(Some("asset:global"));
+
+    let mut guard = LAST_PERIOD_TAG.write().unwrap_or_else(|e| e.into_inner());
 
     let changed = match (&*guard, &new_tag) {
         (Some(prev), Some(curr)) => prev != curr,
@@ -783,11 +1000,10 @@ fn apply_period_transition(new_tag: Option<String>) {
     };
 
     if changed {
-        PROCESSED_KEYS.clear();
         let label = new_tag.as_deref().unwrap_or("<none>");
         tracing::info!(
             period_tag = label,
-            "asset sync period advanced; cleared processed asset cache"
+            "asset sync period advanced (asset suppression cache preserved across periods)"
         );
         *guard = new_tag;
     }
@@ -888,7 +1104,7 @@ async fn maybe_refresh_existing_keys(
     })?;
 
     let is_incremental = payload.incremental.unwrap_or(false);
-    cache_remote_keys(payload, is_incremental, &settings.save_root);
+    cache_remote_keys(payload, is_incremental, &settings.save_root).await;
     Ok(())
 }
 
@@ -906,7 +1122,7 @@ async fn wait_for_remote_cache_jitter() {
 fn remote_cache_is_fresh() -> bool {
     match EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
     {
         Some(cache) => cache.expires_at > Instant::now(),
@@ -914,7 +1130,7 @@ fn remote_cache_is_fresh() -> bool {
     }
 }
 
-fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
+async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
     let ttl = payload
         .cache_expires_at
         .as_deref()
@@ -945,7 +1161,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
         // Merge with existing cache
         let existing_guard = EXISTING_KEYS_CACHE
             .read()
-            .expect("existing keys cache lock poisoned");
+            .unwrap_or_else(|e| e.into_inner());
 
         let (mut merged_keys, mut merged_hashes, _old_ts) = match existing_guard.as_ref() {
             Some(cache) => (
@@ -969,7 +1185,6 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
             "incremental sync: merged {} new keys into cache",
             new_keys.len()
         );
-
         (merged_keys, merged_hashes, new_sync_ts)
     } else {
         // Full sync - replace entire cache
@@ -994,7 +1209,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
     {
         let mut guard = EXISTING_KEYS_CACHE
             .write()
-            .expect("existing keys cache lock poisoned");
+            .unwrap_or_else(|e| e.into_inner());
         *guard = Some(RemoteKeyCache {
             keys: final_keys.clone(),
             hashes: final_hashes.clone(),
@@ -1003,27 +1218,22 @@ fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_r
         });
     }
 
-    // Persist to disk for recovery after restart
-    save_persistent_cache(save_root, &final_keys, &final_hashes, final_sync_ts);
+    // Persist to disk for recovery after restart.
+    // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
+    let save_root_buf = save_root.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        save_persistent_cache(&save_root_buf, &final_keys, &final_hashes, final_sync_ts)
+    })
+    .await
+    .unwrap_or_else(|e| tracing::warn!("save_persistent_cache task panicked: {e:?}"));
 
     tracing::debug!(count = count, "existing remote asset key cache refreshed");
-}
-
-fn remote_key_exists(key: &str) -> bool {
-    match EXISTING_KEYS_CACHE
-        .read()
-        .expect("existing keys cache lock poisoned")
-        .as_ref()
-    {
-        Some(cache) => cache.keys.contains(key),
-        None => false,
-    }
 }
 
 fn register_remote_key(key: &str, hash: Option<&str>) {
     let mut guard = EXISTING_KEYS_CACHE
         .write()
-        .expect("existing keys cache lock poisoned");
+        .unwrap_or_else(|e| e.into_inner());
 
     match guard.as_mut() {
         Some(cache) => {
@@ -1060,14 +1270,30 @@ fn sha256_hex(bytes: &[u8]) -> String {
 fn remote_content_hash(key: &str) -> Option<Option<String>> {
     EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| cache.hashes.get(key).cloned())
 }
 
 // ==================== Persistent Cache Helpers ====================
 
-const PERSISTENT_CACHE_FILENAME: &str = ".asset_sync_cache.json";
+const PERSISTENT_CACHE_FILENAME: &str = "asset_sync_cache.json";
+
+fn asset_request_cache_path(save_root: &Path) -> PathBuf {
+    save_root
+        .join("cache")
+        .join("request_suppression")
+        .join("asset_sync")
+        .join(ASSET_REQUEST_CACHE_FILE)
+}
+
+fn persistent_remote_cache_path(save_root: &Path) -> PathBuf {
+    save_root
+        .join("cache")
+        .join("remote_keys")
+        .join("asset_sync")
+        .join(PERSISTENT_CACHE_FILENAME)
+}
 
 /// Parse ISO8601 datetime string to milliseconds since epoch
 fn parse_iso_to_millis(iso: &str) -> Option<u64> {
@@ -1080,14 +1306,14 @@ fn parse_iso_to_millis(iso: &str) -> Option<u64> {
 fn get_last_sync_timestamp() -> Option<u64> {
     EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| cache.last_sync_timestamp)
 }
 
 /// Load persistent cache from disk into memory
 fn load_persistent_cache(save_root: &Path) {
-    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+    let cache_path = persistent_remote_cache_path(save_root);
 
     if !cache_path.exists() {
         tracing::info!("No persistent asset cache found at {:?}; will perform full sync on first API call", cache_path);
@@ -1130,7 +1356,7 @@ fn load_persistent_cache(save_root: &Path) {
 
                     let mut guard = EXISTING_KEYS_CACHE
                         .write()
-                        .expect("existing keys cache lock poisoned");
+                        .unwrap_or_else(|e| e.into_inner());
 
                     // Only load if cache is empty (not already populated)
                     if guard.is_none() {
@@ -1166,12 +1392,18 @@ fn save_persistent_cache(
     hashes: &HashMap<String, Option<String>>,
     last_sync_ts: Option<u64>,
 ) {
-    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+    let cache_path = persistent_remote_cache_path(save_root);
+    if let Some(parent) = cache_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!("Failed to create persistent asset cache directory: {}", e);
+            return;
+        }
+    }
 
     // Get cache_expires_at from current in-memory cache
     let cache_expires_at = EXISTING_KEYS_CACHE
         .read()
-        .expect("existing keys cache lock poisoned")
+        .unwrap_or_else(|e| e.into_inner())
         .as_ref()
         .and_then(|cache| {
             // Only save expiry time if it's still in the future

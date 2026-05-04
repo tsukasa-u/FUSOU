@@ -6,6 +6,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
 
 import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
+import type { Quest, Quests } from "@ipc-bindings/quest";
 import {
   default_deck_ports,
   default_materials,
@@ -47,7 +48,7 @@ export const ShipsContext =
 
 export function ShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<Ships>(
-    JSON.parse(JSON.stringify(default_ships))
+    JSON.parse(JSON.stringify(default_ships)),
   );
   const setter = [data, setData];
 
@@ -69,7 +70,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
                   "ships",
                   Number(key1),
                   key2 as Part<Ship, keyof Ship>,
-                  value2
+                  value2,
                 );
               }
             });
@@ -104,7 +105,7 @@ export const MstShipsContext =
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstShips>(
-    JSON.parse(JSON.stringify(default_mst_ships))
+    JSON.parse(JSON.stringify(default_mst_ships)),
   );
   const setter = [data, setData];
 
@@ -142,7 +143,7 @@ export const SlotItemsContext =
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<SlotItems>(
-    JSON.parse(JSON.stringify(default_slotitems))
+    JSON.parse(JSON.stringify(default_slotitems)),
   );
   const setter = [data, setData];
 
@@ -180,7 +181,7 @@ export const MstSlotItemsContext =
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstSlotItems>(
-    JSON.parse(JSON.stringify(default_mst_slot_items))
+    JSON.parse(JSON.stringify(default_mst_slot_items)),
   );
   const setter = [data, setData];
 
@@ -192,7 +193,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -223,7 +224,7 @@ const MstEquipExslotShipsContext =
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstEquipExslotShips>(
-    JSON.parse(JSON.stringify(default_mst_equip_exslot_ships))
+    JSON.parse(JSON.stringify(default_mst_equip_exslot_ships)),
   );
   const setter = [data, setData];
 
@@ -236,7 +237,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-equip-exslot-ships");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -256,7 +257,7 @@ export function useMstEquipExslotShips() {
   const context = useContext(MstEquipExslotShipsContext);
   if (!context) {
     throw new Error(
-      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext"
+      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext",
     );
   }
   return context as [
@@ -274,7 +275,7 @@ export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
 }) {
   const [data, setData] = createStore<MstSlotItemEquipTypes>(
-    JSON.parse(JSON.stringify(default_mst_slotitem_equip_types))
+    JSON.parse(JSON.stringify(default_mst_slotitem_equip_types)),
   );
   const setter = [data, setData];
 
@@ -287,7 +288,7 @@ export function MstSlotItemEquipTypesProvider(props: {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-slot-item-equip-types");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -307,7 +308,7 @@ export function useMstSlotItemEquipTypes() {
   const context = useContext(MstSlotItemEquipTypesContext);
   if (!context) {
     throw new Error(
-      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext"
+      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
     );
   }
 
@@ -322,7 +323,7 @@ const MstEquipShipsContext =
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstEquipShips>(
-    JSON.parse(JSON.stringify(default_mst_equip_ships))
+    JSON.parse(JSON.stringify(default_mst_equip_ships)),
   );
   const setter = [data, setData];
 
@@ -334,7 +335,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -363,7 +364,7 @@ export const MstStypesContext =
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstStypes>(
-    JSON.parse(JSON.stringify(default_mst_stypes))
+    JSON.parse(JSON.stringify(default_mst_stypes)),
   );
   const setter = [data, setData];
 
@@ -401,7 +402,7 @@ const MstUseItemsContext =
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<MstUseItems>(
-    JSON.parse(JSON.stringify(default_mst_useitems))
+    JSON.parse(JSON.stringify(default_mst_useitems)),
   );
   const setter = [data, setData];
 
@@ -413,7 +414,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -453,7 +454,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-materials");
           setData(event.payload);
-        }
+        },
       );
       unlisten_data_add = await listen<Materials>(
         "add-kcs-materials",
@@ -464,7 +465,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
               setData(key as Part<Materials, keyof Materials>, value);
             }
           });
-        }
+        },
       );
     })();
 
@@ -489,12 +490,67 @@ export function useMaterials() {
   return context as [Materials, SetStoreFunction<Materials>];
 }
 
+export const QuestsContext =
+  createContext<(Quests | SetStoreFunction<Quests>)[]>();
+
+export function QuestsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<Quests>({
+    timestamp: null,
+    page_no: 1,
+    count: 0,
+    completed_kind: 0,
+    exec_count: 0,
+    exec_type: 0,
+    quests: {},
+    completed: {},
+  });
+  const setter = [data, setData];
+
+  createEffect(() => {
+    let unlisten_data: UnlistenFn;
+    (async () => {
+      unlisten_data = await listen<Quests>("set-kcs-quests", (event) => {
+        if (import.meta.env.DEV) console.log("set-kcs-quests");
+
+        const filteredQuests = Object.fromEntries(
+          Object.entries(event.payload.quests).filter(([, quest]) =>
+            Boolean(quest),
+          ),
+        ) as { [key in number]?: Quest };
+
+        setData({
+          ...event.payload,
+          quests: filteredQuests,
+        });
+      });
+    })();
+
+    onCleanup(() => {
+      if (unlisten_data) unlisten_data();
+    });
+  });
+
+  return (
+    <QuestsContext.Provider value={setter}>
+      {props.children}
+    </QuestsContext.Provider>
+  );
+}
+
+export function useQuests() {
+  const context = useContext(QuestsContext);
+  if (!context) {
+    throw new Error("useQuests: cannot find a QuestsContext");
+  }
+  return context as [Quests, SetStoreFunction<Quests>];
+}
+
 export const DeckPortsContext =
   createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<DeckPorts>(
-    JSON.parse(JSON.stringify(default_deck_ports))
+    JSON.parse(JSON.stringify(default_deck_ports)),
   );
   const setter = [data, setData];
 
@@ -532,7 +588,7 @@ export const DeckBattlesContext =
 
 export function DeckBattlesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<DeckPorts>(
-    JSON.parse(JSON.stringify(default_deck_ports))
+    JSON.parse(JSON.stringify(default_deck_ports)),
   );
   const setter = [data, setData];
 
@@ -545,7 +601,7 @@ export function DeckBattlesProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV) console.log("set-kcs-deck-battles");
           setData(event.payload);
           if (import.meta.env.DEV) console.log(event.payload);
-        }
+        },
       );
     })();
 
@@ -574,7 +630,7 @@ export const CellsContext =
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<Cells>(
-    JSON.parse(JSON.stringify(default_cells))
+    JSON.parse(JSON.stringify(default_cells)),
   );
   const setter = [data, setData];
 
@@ -588,7 +644,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-cells");
           setData(event.payload);
-        }
+        },
       );
       // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
@@ -601,26 +657,8 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         // eslint-disable-next-line solid/reactivity
         (event) => {
           if (import.meta.env.DEV) console.log("add-kcs-battle");
-          if (
-            Object.prototype.hasOwnProperty.call(
-              data.battles,
-              event.payload.cell_id
-            )
-          ) {
-            Object.entries(event.payload).forEach(([key, value]) => {
-              if (value !== null && typeof value === "object") {
-                setData(
-                  "battles",
-                  event.payload.cell_id,
-                  key as Part<Battle, keyof Battle>,
-                  value
-                );
-              }
-            });
-          } else {
-            setData("battles", event.payload.cell_id, event.payload);
-          }
-        }
+          setData("battles", event.payload.cell_id, event.payload);
+        },
       );
     })();
 
@@ -651,7 +689,7 @@ export const AirBasesPortsContext =
 
 export function AirBasesPortsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<AirBases>(
-    JSON.parse(JSON.stringify(default_air_bases))
+    JSON.parse(JSON.stringify(default_air_bases)),
   );
   const setter = [data, setData];
 
@@ -663,7 +701,7 @@ export function AirBasesPortsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-air-bases-ports");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -692,7 +730,7 @@ export const AirBasesBattlesContext =
 
 export function AirBasesBattlesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<AirBases>(
-    JSON.parse(JSON.stringify(default_air_bases))
+    JSON.parse(JSON.stringify(default_air_bases)),
   );
   const setter = [data, setData];
 
@@ -705,7 +743,7 @@ export function AirBasesBattlesProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV) console.log("set-kcs-air-bases-battles");
           setData(event.payload);
           if (import.meta.env.DEV) console.log(event.payload);
-        }
+        },
       );
     })();
 
@@ -751,7 +789,7 @@ export function DebugApiProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-debug-api-read-dir");
           setData(event.payload);
-        }
+        },
       );
     })();
 

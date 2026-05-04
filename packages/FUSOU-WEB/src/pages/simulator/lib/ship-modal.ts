@@ -39,6 +39,48 @@ import {
   hasSnapshotShips,
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
+import { cachedFetch } from "../../../utility/fetchCache";
+
+type ShipGrowthSummary = {
+  ok: boolean;
+  periods?: Array<{ period_tag: string; table_version: string }>;
+};
+
+type ShipGrowthCaps = {
+  master_id: number;
+  kaihi_max?: number;
+  taisen_max?: number;
+  sakuteki_max?: number;
+  kaih_max?: number;
+  tais_max?: number;
+  saku_max?: number;
+};
+
+type NormalizedShipGrowthCaps = {
+  master_id: number;
+  kaihi_max: number;
+  taisen_max: number;
+  sakuteki_max: number;
+};
+
+type ShipGrowthBoundRow = {
+  lv: number;
+  kaihi_naked: number;
+  taisen_naked: number;
+  sakuteki_naked: number;
+};
+
+type ShipGrowthBoundsResponse = {
+  caps?: ShipGrowthCaps[];
+  bounds?: ShipGrowthBoundRow[];
+  updated_at?: number;
+  updated_at_iso?: string | null;
+};
+
+type ShipGrowthCapLookup = {
+  cap: NormalizedShipGrowthCaps | null;
+  updatedAtIso: string | null;
+};
 
 type ShipVRow =
   | { kind: "header"; stype: number }
@@ -47,8 +89,157 @@ type ShipVRow =
 let _shipVirtuaDispose: (() => void) | null = null;
 const ShipVList = VList as unknown as Component<Record<string, unknown>>;
 let _shipModalVisibilityBound = false;
-let _shipVListHandle: { scrollToIndex: (index: number, opts?: { align?: string }) => void } | null = null;
+let _shipVListHandle: {
+  scrollToIndex: (index: number, opts?: { align?: string }) => void;
+} | null = null;
 let _currentShipRowIndex = -1;
+let _shipDetailRenderSeq = 0;
+let _shipGrowthPeriodPromise: Promise<{
+  period_tag: string;
+  table_version: string;
+} | null> | null = null;
+const _shipGrowthCapsCache = new Map<number, ShipGrowthCapLookup | null>();
+
+function normalizeShipGrowthCaps(
+  raw: ShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
+  if (!raw) return null;
+  return {
+    master_id: raw.master_id,
+    kaihi_max: Number(raw.kaihi_max ?? raw.kaih_max ?? 0),
+    taisen_max: Number(raw.taisen_max ?? raw.tais_max ?? 0),
+    sakuteki_max: Number(raw.sakuteki_max ?? raw.saku_max ?? 0),
+  };
+}
+
+function deriveShipGrowthCapsFromBounds(
+  masterId: number,
+  bounds: ShipGrowthBoundRow[],
+): NormalizedShipGrowthCaps | null {
+  if (!Array.isArray(bounds) || bounds.length === 0) return null;
+
+  const kaihiMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.kaihi_naked || 0)),
+  );
+  const taisenMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.taisen_naked || 0)),
+  );
+  const sakutekiMax = Math.max(
+    0,
+    ...bounds.map((row) => Number(row.sakuteki_naked || 0)),
+  );
+
+  return {
+    master_id: masterId,
+    kaihi_max: kaihiMax,
+    taisen_max: taisenMax,
+    sakuteki_max: sakutekiMax,
+  };
+}
+
+function mergeShipGrowthCaps(
+  primary: NormalizedShipGrowthCaps | null,
+  fallback: NormalizedShipGrowthCaps | null,
+): NormalizedShipGrowthCaps | null {
+  if (!primary && !fallback) return null;
+  if (!primary) return fallback;
+  if (!fallback) return primary;
+
+  return {
+    master_id: primary.master_id,
+    kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
+    taisen_max:
+      primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
+    sakuteki_max:
+      primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
+  };
+}
+
+function needsStatFallback(value: number[] | null | undefined): boolean {
+  if (!Array.isArray(value) || value.length === 0) return true;
+  return value.every((v) => !Number.isFinite(v) || v <= 0);
+}
+
+function statValueOrDash(value: number | null | undefined): string | number {
+  return value == null || value === 0 ? "-" : value;
+}
+
+function statValueWithFallback(
+  value: number[] | null | undefined,
+  fallbackMax: number | null | undefined,
+): string {
+  if (Array.isArray(value) && value.length > 0 && !needsStatFallback(value)) {
+    return String(value[0]);
+  }
+  if (typeof fallbackMax === "number" && fallbackMax > 0) {
+    return `- / ${fallbackMax}`;
+  }
+  return "-";
+}
+
+function getLatestShipGrowthPeriod(): Promise<{
+  period_tag: string;
+  table_version: string;
+} | null> {
+  if (_shipGrowthPeriodPromise) return _shipGrowthPeriodPromise;
+  _shipGrowthPeriodPromise = (async () => {
+    const res = await cachedFetch("/api/ship-growth/summary");
+    if (!res.ok) return null;
+    const json = (await res.json()) as ShipGrowthSummary;
+    const latest = json.periods?.[0];
+    return latest
+      ? { period_tag: latest.period_tag, table_version: latest.table_version }
+      : null;
+  })().catch(() => null);
+  return _shipGrowthPeriodPromise;
+}
+
+async function getShipGrowthCaps(
+  masterId: number,
+): Promise<ShipGrowthCapLookup | null> {
+  if (_shipGrowthCapsCache.has(masterId))
+    return _shipGrowthCapsCache.get(masterId) ?? null;
+
+  try {
+    const latest = await getLatestShipGrowthPeriod();
+    if (!latest) {
+      _shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+
+    const boundsRes = await cachedFetch(
+      `/api/ship-growth/bounds?period_tag=${encodeURIComponent(latest.period_tag)}&table_version=${encodeURIComponent(latest.table_version)}`,
+    );
+    if (!boundsRes.ok) {
+      _shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+
+    const boundsJson = (await boundsRes.json()) as ShipGrowthBoundsResponse;
+    const capFromCaps = normalizeShipGrowthCaps(
+      (boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null,
+    );
+    const capFromBounds = deriveShipGrowthCapsFromBounds(
+      masterId,
+      boundsJson.bounds ?? [],
+    );
+    const merged = mergeShipGrowthCaps(capFromCaps, capFromBounds);
+    const result: ShipGrowthCapLookup = {
+      cap: merged,
+      updatedAtIso:
+        typeof boundsJson.updated_at_iso === "string"
+          ? boundsJson.updated_at_iso
+          : null,
+    };
+    _shipGrowthCapsCache.set(masterId, result);
+    return result;
+  } catch {
+    _shipGrowthCapsCache.set(masterId, null);
+    return null;
+  }
+}
 
 function syncShipModalDisplay(modal: HTMLDialogElement): void {
   modal.style.display = modal.open ? "grid" : "none";
@@ -56,8 +247,14 @@ function syncShipModalDisplay(modal: HTMLDialogElement): void {
 
 function ensureShipModalVisibilityBinding(modal: HTMLDialogElement): void {
   if (_shipModalVisibilityBound) return;
-  modal.addEventListener("close", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
-  modal.addEventListener("cancel", () => { cleanupShipVS(); syncShipModalDisplay(modal); });
+  modal.addEventListener("close", () => {
+    cleanupShipVS();
+    syncShipModalDisplay(modal);
+  });
+  modal.addEventListener("cancel", () => {
+    cleanupShipVS();
+    syncShipModalDisplay(modal);
+  });
   _shipModalVisibilityBound = true;
 }
 
@@ -79,7 +276,8 @@ function filterShipsByCombinedRules(ships: MstShipData[]): MstShipData[] {
   if (combinedType === 0) return ships;
 
   const { fleetIndex, shipSlotIndex } = getShipModalTarget();
-  if ((fleetIndex !== 1 && fleetIndex !== 2) || shipSlotIndex == null) return ships;
+  if ((fleetIndex !== 1 && fleetIndex !== 2) || shipSlotIndex == null)
+    return ships;
 
   const { fleet1, fleet2 } = getFleetState();
   const currentId = getShipModalCurrentId();
@@ -118,7 +316,12 @@ function scheduleScrollToCurrentShip(attempt = 0): void {
     return;
   }
   if (attempt >= 8) return;
-  window.setTimeout(() => { scheduleScrollToCurrentShip(attempt + 1); }, attempt < 2 ? 0 : 16);
+  window.setTimeout(
+    () => {
+      scheduleScrollToCurrentShip(attempt + 1);
+    },
+    attempt < 2 ? 0 : 16,
+  );
 }
 
 export function openShipModal(
@@ -128,9 +331,7 @@ export function openShipModal(
   if (!hasMasterData()) return;
   beginShipModalSession(currentId, cb);
   if (currentId != null) {
-    setShipModalSideFilter(
-      currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally",
-    );
+    setShipModalSideFilter(currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally");
   }
   const modal = document.getElementById("ship-select-modal");
   const search = document.getElementById("ship-modal-search");
@@ -159,9 +360,7 @@ export function openShipModal(
 
   renderShipGrid("", "", getShipModalSideFilter());
   const autoShowShip =
-    getShipModalCurrentId() != null
-      ? findCurrentShipInVS()
-      : null;
+    getShipModalCurrentId() != null ? findCurrentShipInVS() : null;
   if (autoShowShip) {
     renderShipDetail(autoShowShip);
   } else {
@@ -172,8 +371,6 @@ export function openShipModal(
   requestAnimationFrame(() => {
     if (autoShowShip) {
       scheduleScrollToCurrentShip();
-    } else {
-      search.focus();
     }
   });
 }
@@ -251,10 +448,7 @@ function renderShipGrid(
 
   let ships: MstShipData[];
 
-  if (
-    getShipModalSource() === "snapshot" &&
-    hasSnapshotShips()
-  ) {
+  if (getShipModalSource() === "snapshot" && hasSnapshotShips()) {
     const variantMap = new Map<
       string,
       {
@@ -307,7 +501,7 @@ function renderShipGrid(
   if (ships.length === 0) {
     const empty = document.createElement("p");
     empty.className = "text-sm text-base-content/30 text-center py-12";
-    empty.textContent = "該当する艦娘が見つかりません";
+    empty.textContent = "該当する艦が見つかりません";
     grid.appendChild(empty);
     renderShipCategoryNav([]);
     return;
@@ -365,14 +559,18 @@ function renderShipGrid(
     () =>
       createComponent(ShipVList, {
         data: rows,
-        ref: (handle: unknown) => { _shipVListHandle = handle as typeof _shipVListHandle; },
+        ref: (handle: unknown) => {
+          _shipVListHandle = handle as typeof _shipVListHandle;
+        },
         style: {
           height: "100%",
         },
         class: "overflow-x-hidden",
         children: (row: ShipVRow) => {
           if (row.kind === "header") {
-            return createGroupHeader(STYPE_NAMES[row.stype] ?? `Type ${row.stype}`);
+            return createGroupHeader(
+              STYPE_NAMES[row.stype] ?? `Type ${row.stype}`,
+            );
           }
           const wrap = document.createElement("div");
           wrap.style.height = `${SHIP_ROW_PITCH}px`;
@@ -426,7 +624,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
     if (!parent) return;
     parent.replaceChildren();
     const fallback = document.createElement("div");
-    fallback.className = "w-full h-full flex items-center justify-center text-[9px] text-base-content/20 bg-base-200";
+    fallback.className =
+      "w-full h-full flex items-center justify-center text-[9px] text-base-content/20 bg-base-200";
     fallback.textContent = String(ship.id);
     parent.appendChild(fallback);
   };
@@ -442,7 +641,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
   textDiv.appendChild(nameDiv);
 
   const typeDiv = document.createElement("div");
-  typeDiv.className = "grid grid-cols-[minmax(0,1fr)_3.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
+  typeDiv.className =
+    "grid grid-cols-[minmax(0,1fr)_3.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight";
   const typeName = document.createElement("span");
   typeName.className = "truncate";
   const snLevel = (ship as MstShipData & { _snapshotLevel?: number })
@@ -465,8 +665,10 @@ function createShipItem(ship: MstShipData): HTMLElement {
 
   const countCol = document.createElement("span");
   countCol.className = "text-right text-base-content/60 font-mono";
-  countCol.textContent = snShipCount != null && snShipCount > 1 ? `×${snShipCount}` : "";
-  if (snShipCount != null && snShipCount > 1) countCol.classList.add("font-bold");
+  countCol.textContent =
+    snShipCount != null && snShipCount > 1 ? `×${snShipCount}` : "";
+  if (snShipCount != null && snShipCount > 1)
+    countCol.classList.add("font-bold");
   else countCol.classList.add("text-base-content/30");
   typeDiv.appendChild(countCol);
 
@@ -474,7 +676,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
   item.appendChild(textDiv);
 
   const badges = document.createElement("div");
-  badges.className = "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
+  badges.className =
+    "w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right";
   const statPairs: [string, number][] = [];
   if ((ship.houg?.[0] ?? 0) > 0) statPairs.push(["火", ship.houg?.[0] ?? 0]);
   if ((ship.raig?.[0] ?? 0) > 0) statPairs.push(["雷", ship.raig?.[0] ?? 0]);
@@ -482,7 +685,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
   if ((ship.tais?.[0] ?? 0) > 0) statPairs.push(["潜", ship.tais?.[0] ?? 0]);
   for (const [lbl, val] of statPairs.slice(0, 2)) {
     const badge = document.createElement("span");
-    badge.className = "text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success";
+    badge.className =
+      "text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success";
     badge.textContent = `${lbl}+${val}`;
     badges.appendChild(badge);
   }
@@ -504,7 +708,8 @@ function createShipItem(ship: MstShipData): HTMLElement {
   return item;
 }
 
-function renderShipDetail(ship: MstShipData) {
+async function renderShipDetail(ship: MstShipData) {
+  const renderSeq = ++_shipDetailRenderSeq;
   const panel = document.getElementById("ship-modal-detail");
   if (!(panel instanceof HTMLElement)) return;
   panel.replaceChildren();
@@ -520,7 +725,8 @@ function renderShipDetail(ship: MstShipData) {
     if (!parent) return;
     parent.replaceChildren();
     const fallback = document.createElement("div");
-    fallback.className = "w-full h-full flex items-center justify-center text-base-content/20 text-xs";
+    fallback.className =
+      "w-full h-full flex items-center justify-center text-base-content/20 text-xs";
     fallback.textContent = "No Image";
     parent.appendChild(fallback);
   };
@@ -540,21 +746,58 @@ function renderShipDetail(ship: MstShipData) {
   badgeDiv.appendChild(badge);
   panel.appendChild(badgeDiv);
 
+  const isMasterSource = getShipModalSource() === "master";
+  const shouldLookupFallback =
+    !isMasterSource &&
+    (needsStatFallback(ship.tais) ||
+      needsStatFallback(ship.kaih) ||
+      needsStatFallback(ship.saku));
+  const shipGrowthLookup = shouldLookupFallback
+    ? await getShipGrowthCaps(ship.id)
+    : null;
+  const shipGrowthCap = shipGrowthLookup?.cap ?? null;
+  if (renderSeq !== _shipDetailRenderSeq) return;
+
   const stats: [string, string | number][] = [
-    ["耐久", ship.taik?.[0] ?? "—"],
-    ["装甲", ship.souk?.[0] ?? "—"],
-    ["回避", ship.kaih?.[0] ?? "—"],
-    ["搭載", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).reduce((sum, slot) => sum + slot, 0) : "—"],
+    ["耐久", statValueOrDash(ship.taik?.[0])],
+    ["装甲", statValueOrDash(ship.souk?.[0])],
+    [
+      "回避",
+      isMasterSource
+        ? statValueOrDash(ship.kaih?.[0])
+        : statValueWithFallback(ship.kaih, shipGrowthCap?.kaihi_max),
+    ],
+    [
+      "搭載",
+      ship.maxeq
+        ? ship.maxeq
+            .slice(0, ship.slot_num)
+            .reduce((sum, slot) => sum + slot, 0)
+        : "-",
+    ],
     ["速力", SPEED_NAMES[ship.soku] ?? String(ship.soku)],
-    ["射程", ship.leng != null ? String(ship.leng) : "—"],
-    ["火力", ship.houg?.[0] ?? "—"],
-    ["雷装", ship.raig?.[0] ?? "—"],
-    ["対空", ship.tyku?.[0] ?? "—"],
-    ["対潜", ship.tais?.[0] ?? "—"],
-    ["索敵", ship.saku?.[0] ?? "—"],
-    ["運", ship.luck?.[0] ?? "—"],
+    ["射程", ship.leng != null ? String(ship.leng) : "-"],
+    ["火力", statValueOrDash(ship.houg?.[0])],
+    ["雷装", statValueOrDash(ship.raig?.[0])],
+    ["対空", statValueOrDash(ship.tyku?.[0])],
+    [
+      "対潜",
+      isMasterSource
+        ? statValueOrDash(ship.tais?.[0])
+        : statValueWithFallback(ship.tais, shipGrowthCap?.taisen_max),
+    ],
+    [
+      "索敵",
+      isMasterSource
+        ? statValueOrDash(ship.saku?.[0])
+        : statValueWithFallback(ship.saku, shipGrowthCap?.sakuteki_max),
+    ],
+    ["運", statValueOrDash(ship.luck?.[0])],
     ["スロット数", ship.slot_num],
-    ["搭載内訳", ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "—"],
+    [
+      "搭載内訳",
+      ship.maxeq ? ship.maxeq.slice(0, ship.slot_num).join(" / ") : "-",
+    ],
   ];
 
   const grid = document.createElement("div");
@@ -568,9 +811,18 @@ function renderShipDetail(ship: MstShipData) {
     const v = document.createElement("span");
     v.className = "font-mono text-base-content/80 font-medium";
     if (label === "射程") {
-      const rangeMap: Record<number, string> = { 0: "無", 1: "短", 2: "中", 3: "長", 4: "超長", 5: "超長+" };
+      const rangeMap: Record<number, string> = {
+        0: "無",
+        1: "短",
+        2: "中",
+        3: "長",
+        4: "超長",
+        5: "超長+",
+      };
       const numeric = typeof value === "number" ? value : Number(value);
-      v.textContent = Number.isFinite(numeric) ? (rangeMap[numeric] ?? String(value)) : String(value);
+      v.textContent = Number.isFinite(numeric)
+        ? (rangeMap[numeric] ?? String(value))
+        : String(value);
     } else {
       v.textContent = String(value);
     }
@@ -579,6 +831,14 @@ function renderShipDetail(ship: MstShipData) {
     grid.appendChild(row);
   }
   panel.appendChild(grid);
+
+  if (!isMasterSource && shouldLookupFallback && shipGrowthCap) {
+    const note = document.createElement("p");
+    note.className = "mt-2 text-xs text-base-content/60";
+    note.textContent =
+      "対潜/回避/索敵の欠損値は ship-growth データの上限値で補完表示しています。";
+    panel.appendChild(note);
+  }
 }
 
 function resetShipDetail() {
@@ -586,7 +846,7 @@ function resetShipDetail() {
   if (panel instanceof HTMLElement) {
     const message = document.createElement("p");
     message.className = "text-sm text-base-content/30 text-center pt-10";
-    message.appendChild(document.createTextNode("艦娘にカーソルを合わせると"));
+    message.appendChild(document.createTextNode("艦にカーソルを合わせると"));
     message.appendChild(document.createElement("br"));
     message.appendChild(document.createTextNode("詳細が表示されます"));
     panel.replaceChildren(message);

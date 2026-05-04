@@ -39,6 +39,16 @@ const posts = rawPosts
   })
   .filter(Boolean) as Posts;
 
+const postsWithSchema: Posts = [
+  {
+    slug: "schema/api-schema-explorer",
+    segments: ["schema", "api-schema-explorer"],
+    title: "API Schema Explorer",
+    url: "/docs/api-schema",
+  },
+  ...posts,
+];
+
 type MenuNode = {
   segment: string;
   title: string;
@@ -54,7 +64,7 @@ type MenuEntry = {
 
 const root = new Map<string, MenuNode>();
 
-for (const entry of posts) {
+for (const entry of postsWithSchema) {
   let current = root;
   entry.segments.forEach((segment, index) => {
     const isLeaf = index === entry.segments.length - 1;
@@ -84,6 +94,7 @@ const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
     }));
 
 const menuTree = mapToArray(root);
+const currentPath = Astro.url.pathname;
 
 const escapeHtml = (value: string) =>
   value
@@ -108,14 +119,19 @@ const renderMenuHtml = (nodes: MenuEntry[]): string =>
   nodes
     .map((node: MenuEntry) => {
       const safeUrl = sanitizeDocsUrl(node.url);
+      const isActive = safeUrl === currentPath;
       const children = node.children.length
         ? `<ul class="ml-3 pl-3 space-y-2">${renderMenuHtml(
             node.children
           )}</ul>`
         : "";
       const label = safeUrl
-        ? `<a href="${escapeHtml(safeUrl)}" class="text-sm font-medium text-base-content">${escapeHtml(node.title)}</a>`
-        : `<details open><summary class="text-sm font-semibold text-base-content/80">${escapeHtml(node.title)}</summary>${
+        ? `<a href="${escapeHtml(safeUrl)}" class="docs-left-link block rounded-lg px-2 py-1 text-sm font-medium transition-all ${
+            isActive
+              ? "bg-primary/15 text-primary"
+              : "text-base-content hover:bg-sky-500/10 hover:text-sky-500 hover:underline hover:translate-x-0.5"
+          }">${escapeHtml(node.title)}</a>`
+        : `<details open><summary class="text-sm font-semibold text-base-content/80 tracking-wide">${escapeHtml(node.title)}</summary>${
             children
           }</details>`;
       return `<li class="my-px">${label}</li>`;
@@ -127,9 +143,17 @@ const menuHtml = renderMenuHtml(menuTree);
 
 <div class="sticky top-20">
   <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
-    <h2 class="text-xl font-bold mb-4">Documentation</h2>
-    <nav>
-      <ul class="menu bg-base-100 rounded-box w-full" set:html={menuHtml} />
+    <h2 class="text-xl font-bold mb-1">Documentation</h2>
+    <p class="text-xs text-base-content/65 mb-3">Browse by section</p>
+    <nav aria-label="Documentation sections">
+      <ul class="menu bg-base-100 rounded-box w-full p-2" set:html={menuHtml} />
     </nav>
   </div>
 </div>
+
+<style>
+  .docs-left-link:hover {
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+  }
+</style>

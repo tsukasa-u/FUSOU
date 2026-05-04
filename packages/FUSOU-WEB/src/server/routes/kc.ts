@@ -35,7 +35,7 @@ app.get("/latest", async (c) => {
   }
 
   // Try KV cache first
-  const kv = envCtx.runtime.KV_CACHE;
+  const kv = envCtx.runtime.DATA_LOADER_CACHE_KV;
   let cachedTag: string | null = null;
   if (kv) {
     try {

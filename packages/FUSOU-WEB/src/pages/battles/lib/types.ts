@@ -36,14 +36,22 @@ export interface TimelineEvent {
   type: string;
   attackerSide: "friend" | "enemy";
   attackerIdx: number | null;
+  attackerGroup?: number[];
   defenderSide: "friend" | "enemy";
-  defenderIdx: number;
+  defenderIdx: number | null;
   damage: number;
   crit: boolean;
   sunk: boolean;
   slotItems: unknown[];
   fHps: number[];
   eHps: number[];
+  /**
+   * mst_ship ID of the attacker, used when the attacker is not in the main
+   * fleet arrays (friendly force ships, support ships, etc.).
+   */
+  attackerMstShipId?: number;
+  /** If true, this event is a phase separator (blank row between phases). */
+  separator?: boolean;
 }
 
 export interface TimelineStep {
