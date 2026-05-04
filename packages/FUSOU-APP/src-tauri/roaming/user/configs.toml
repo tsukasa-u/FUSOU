@@ -303,7 +303,7 @@ save_file_location = ""
     [app.soku_speed_sender]
     # Whether to enable speed observed data collection
     # default is false
-    enable = false
+    enable = true
 
     # Endpoint to ingest soku_speed observed data
     ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"
