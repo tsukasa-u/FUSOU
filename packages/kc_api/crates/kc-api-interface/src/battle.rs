@@ -556,7 +556,12 @@ pub struct OpeningAirAttack {
 pub struct AirDamage {
     pub plane_from: Option<Vec<i64>>,
     pub touch_plane: Option<i64>,
+    /// Total aircraft count entering stage1 (api_f/e_count). Used for proportional
+    /// sprite crash calculation. 0 when stage1 data is unavailable.
+    pub total_plane1: i64,
     pub loss_plane1: i64,
+    /// Total aircraft count entering stage2 (api_f/e_count). 0 when unavailable.
+    pub total_plane2: i64,
     pub loss_plane2: i64,
     pub damages: Option<Vec<f32>>,
     pub cl: Option<Vec<i64>>,
