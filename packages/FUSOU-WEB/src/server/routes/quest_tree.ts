@@ -182,7 +182,7 @@ function toInt(value: unknown): number | null {
 }
 
 function makeId(prefix: string): string {
-  const random = Math.random().toString(36).slice(2, 10);
+  const random = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   return `${prefix}-${Date.now()}-${random}`;
 }
 
