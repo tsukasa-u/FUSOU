@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::TS;
 
@@ -21,34 +22,39 @@ pub struct MstEquipExslotShips {
 }
 
 #[derive(
-    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
+    Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslotShip {
     pub slotitem_id: i32,
-    #[serde(serialize_with = "serialize_sorted_optional_string_i32_map")]
     pub ship_ids: Option<HashMap<String, i32>>,
-    #[serde(serialize_with = "serialize_sorted_optional_string_i32_map")]
     pub stypes: Option<HashMap<String, i32>>,
-    #[serde(serialize_with = "serialize_sorted_optional_string_i32_map")]
     pub ctypes: Option<HashMap<String, i32>>,
     pub req_level: i32,
 }
 
-fn serialize_sorted_optional_string_i32_map<S>(
+fn sorted_optional_string_i32_map(
     value: &Option<HashMap<String, i32>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    match value {
-        Some(map) => {
-            let ordered: std::collections::BTreeMap<&str, &i32> =
-                map.iter().map(|(k, v)| (k.as_str(), v)).collect();
-            ordered.serialize(serializer)
-        }
-        None => serializer.serialize_none(),
+) -> Option<std::collections::BTreeMap<&str, i32>> {
+    value.as_ref().map(|map| {
+        map.iter()
+            .map(|(k, v)| (k.as_str(), *v))
+            .collect::<std::collections::BTreeMap<&str, i32>>()
+    })
+}
+
+impl Serialize for MstEquipExslotShip {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("MstEquipExslotShip", 5)?;
+        state.serialize_field("slotitem_id", &self.slotitem_id)?;
+        state.serialize_field("ship_ids", &sorted_optional_string_i32_map(&self.ship_ids))?;
+        state.serialize_field("stypes", &sorted_optional_string_i32_map(&self.stypes))?;
+        state.serialize_field("ctypes", &sorted_optional_string_i32_map(&self.ctypes))?;
+        state.serialize_field("req_level", &self.req_level)?;
+        state.end()
     }
 }
 

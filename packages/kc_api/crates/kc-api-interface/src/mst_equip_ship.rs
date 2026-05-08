@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::TS;
 
@@ -31,27 +32,36 @@ pub struct MstEquipShip {
 }
 
 #[cfg(feature = "20250627")]
-#[derive(
-    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
-)]
+#[derive(Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShip {
     pub ship_id: i32,
-    #[serde(serialize_with = "serialize_sorted_string_option_vec_map")]
     pub equip_type: HashMap<String, Option<Vec<i32>>>,
 }
 
 #[cfg(feature = "20250627")]
-fn serialize_sorted_string_option_vec_map<S>(
+fn sorted_string_option_vec_map(
     value: &HashMap<String, Option<Vec<i32>>>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
+) -> std::collections::BTreeMap<&str, &Option<Vec<i32>>> {
     let ordered: std::collections::BTreeMap<&str, &Option<Vec<i32>>> =
         value.iter().map(|(k, v)| (k.as_str(), v)).collect();
-    ordered.serialize(serializer)
+    ordered
+}
+
+#[cfg(feature = "20250627")]
+impl Serialize for MstEquipShip {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("MstEquipShip", 2)?;
+        state.serialize_field("ship_id", &self.ship_id)?;
+        state.serialize_field(
+            "equip_type",
+            &sorted_string_option_vec_map(&self.equip_type),
+        )?;
+        state.end()
+    }
 }
 
 impl MstEquipShips {
