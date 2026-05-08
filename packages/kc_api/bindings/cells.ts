@@ -18,3 +18,4 @@ export type Eventmap = { max_maphp: number, now_maphp: number, dmg: number, gaug
 export type Happening = { count: number, mst_id: number, dentan: number, };
 
 export type Itemget = { usemst: number, id: number, getcount: number, icon_id: number, };
+

@@ -5,3 +5,4 @@ export type Quest = { no: number, category: number, quest_type: number, label_ty
 export type QuestCompletion = { no: number, state: number, progress_flag: number, c_flag: number, };
 
 export type Quests = { timestamp: number | null, page_no: number, count: number, completed_kind: number, exec_count: number, exec_type: number, quests: { [key in number]?: Quest }, completed: { [key in number]?: QuestCompletion }, };
+

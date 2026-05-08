@@ -1,15 +1,15 @@
 use chrono::Local;
+use rand::Rng;
 
 use crate::InterfaceWrapper;
 use kc_api_dto::common as kcapi_common;
 use kc_api_dto::common::custom_type::DuoType;
 use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::battle::{
-    AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleType,
-    CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,
-    FriendlySupportHourai, Hougeki, MidnightHougeki, NightSupportAttack,
-    OpeningAirAttack, OpeningRaigeki, OpeningTaisen, SupportAiratack,
-    SupportAttack, SupportHourai, BattleResult,
+    AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleResult,
+    BattleType, CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,
+    FriendlySupportHourai, Hougeki, MidnightHougeki, NightSupportAttack, OpeningAirAttack,
+    OpeningRaigeki, OpeningTaisen, SupportAiratack, SupportAttack, SupportHourai,
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 use kc_api_interface::deck_port::DeckPorts;
@@ -49,7 +49,11 @@ fn has_fractional_part(value: f32) -> bool {
 fn calc_opening_ydam_protect_flag(ydam_items: &Vec<Option<Vec<f32>>>) -> Vec<bool> {
     ydam_items
         .iter()
-        .map(|item| item.as_ref().and_then(|v| v.first().copied()).is_some_and(has_fractional_part))
+        .map(|item| {
+            item.as_ref()
+                .and_then(|v| v.first().copied())
+                .is_some_and(has_fractional_part)
+        })
         .collect()
 }
 
@@ -153,7 +157,11 @@ fn build_friend_ship_sprite_capacity(
                 mst_slot_ids.push(slot_item.slotitem_id);
             }
 
-            Some(count_ship_sprite_planes_from_mst_slot_ids(set, &mst_slot_ids, &mst_slots))
+            Some(count_ship_sprite_planes_from_mst_slot_ids(
+                set,
+                &mst_slot_ids,
+                &mst_slots,
+            ))
         })
         .collect::<Vec<_>>();
 
@@ -169,7 +177,11 @@ fn build_enemy_ship_sprite_capacity(
     Some(
         e_slots
             .iter()
-            .map(|slot_list| Some(count_ship_sprite_planes_from_mst_slot_ids(set, slot_list, &mst_slots)))
+            .map(|slot_list| {
+                Some(count_ship_sprite_planes_from_mst_slot_ids(
+                    set, slot_list, &mst_slots,
+                ))
+            })
             .collect(),
     )
 }
@@ -245,33 +257,82 @@ fn calc_sprite_crash_stage_counts(
     loss_stage2: i64,
     total_stage2: i64,
 ) -> (Option<i64>, Option<i64>) {
+    let mut rng = rand::thread_rng();
+    calc_sprite_crash_stage_counts_with_rng(
+        fly_count,
+        loss_stage1,
+        total_stage1,
+        loss_stage2,
+        total_stage2,
+        &mut rng,
+    )
+}
+
+fn calc_sprite_crash_stage_counts_with_rng<R: Rng + ?Sized>(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    total_stage1: i64,
+    loss_stage2: i64,
+    _total_stage2: i64,
+    rng: &mut R,
+) -> (Option<i64>, Option<i64>) {
     let Some(fly_count) = fly_count else {
         return (None, None);
     };
-    let fly_count = fly_count.max(0);
-    if fly_count == 0 {
+    let sprite_total = fly_count.max(0) as usize;
+    if sprite_total == 0 {
         return (Some(0), Some(0));
     }
 
-    // Proportional: of the fly_count sprite planes, how many were shot down?
-    // api_f_lostcount counts ALL aircraft (not just sprite types), so we use
-    // (loss / total) ratio applied to fly_count to get sprite-equivalent crashes.
-    let stage1 = if total_stage1 > 0 {
-        ((fly_count as f64 * loss_stage1.max(0) as f64 / total_stage1 as f64).round() as i64)
-            .min(fly_count)
-    } else {
-        0
-    };
-
-    let remaining = fly_count - stage1;
-    let stage2 = if total_stage2 > 0 && remaining > 0 {
-        ((remaining as f64 * loss_stage2.max(0) as f64 / total_stage2 as f64).round() as i64)
-            .min(remaining)
-    } else {
-        0
-    };
+    // main.js `_planeDamage` behavior:
+    // 1) budget = sprite_total * min(lostcount, count) / count
+    // 2) randomly pick each sprite at most once, reducing `power` (initially 1)
+    // 3) stage2 continues with stage1 `power` values (carry-over)
+    let count = total_stage1.max(0);
+    let mut powers = vec![1.0_f64; sprite_total];
+    let stage1 = apply_sprite_budget_damage(count, loss_stage1, &mut powers, rng);
+    let stage2 = apply_sprite_budget_damage(count, loss_stage2, &mut powers, rng);
 
     (Some(stage1), Some(stage2))
+}
+
+fn apply_sprite_budget_damage<R: Rng + ?Sized>(
+    count: i64,
+    lost_count: i64,
+    powers: &mut [f64],
+    rng: &mut R,
+) -> i64 {
+    if count <= 0 || lost_count <= 0 || powers.is_empty() {
+        return 0;
+    }
+
+    let ratio = (lost_count.min(count).max(0) as f64) / count as f64;
+    let mut budget = powers.len() as f64 * ratio;
+    if budget <= 0.0 {
+        return 0;
+    }
+
+    let mut candidates: Vec<usize> = (0..powers.len()).collect();
+    let mut crashed = 0_i64;
+
+    while !candidates.is_empty() && budget > 0.0 {
+        let candidate_index = rng.gen_range(0..candidates.len());
+        let sprite_index = candidates.swap_remove(candidate_index);
+        let power = powers[sprite_index];
+        if power > 0.0 {
+            let delta = budget.min(power);
+            budget -= delta;
+            let next_power = power - delta;
+            if next_power <= f64::EPSILON {
+                powers[sprite_index] = 0.0;
+                crashed += 1;
+            } else {
+                powers[sprite_index] = next_power;
+            }
+        }
+    }
+
+    crashed
 }
 
 fn calc_sprite_crash_total(
@@ -282,17 +343,23 @@ fn calc_sprite_crash_total(
     total_stage2: i64,
 ) -> Option<i64> {
     fly_count?;
-    let (stage1, stage2) =
-        calc_sprite_crash_stage_counts(fly_count, loss_stage1, total_stage1, loss_stage2, total_stage2);
+    let (stage1, stage2) = calc_sprite_crash_stage_counts(
+        fly_count,
+        loss_stage1,
+        total_stage1,
+        loss_stage2,
+        total_stage2,
+    );
     Some(stage1.unwrap_or(0) + stage2.unwrap_or(0))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_sprite_crash_stage_counts, calc_sprite_crash_total,
-        count_friend_sprite_fly_from_optional_airbase_squadrons,
+        calc_sprite_crash_stage_counts, calc_sprite_crash_stage_counts_with_rng,
+        calc_sprite_crash_total, count_friend_sprite_fly_from_optional_airbase_squadrons,
     };
+    use rand::SeedableRng;
 
     #[test]
     fn optional_airbase_squadrons_none_is_zero() {
@@ -306,19 +373,22 @@ mod tests {
 
     #[test]
     fn sprite_crash_proportional_basic() {
-        // fly_count=6, total=30, loss=10 → 6 * 10/30 = 2 crashes
-        let (s1, s2) = calc_sprite_crash_stage_counts(Some(6), 10, 30, 5, 20);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(1);
+        // main.js-equivalent budget flow with carry-over:
+        // stage1 budget=6*10/30=2.0 -> 2 crashes
+        // stage2 budget=6*5/30=1.0 -> 1 additional crash
+        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(6), 10, 30, 5, 20, &mut rng);
         assert_eq!(s1, Some(2));
-        assert_eq!(s2, Some(1)); // remaining=4, 4 * 5/20 = 1
+        assert_eq!(s2, Some(1));
     }
 
     #[test]
     fn sprite_crash_clamped_at_fly_count() {
-        // More losses than sprites → crash capped at fly_count
-        let (s1, s2) = calc_sprite_crash_stage_counts(Some(3), 50, 50, 50, 50);
+        let mut rng = rand::rngs::StdRng::seed_from_u64(2);
+        // More losses than total count => ratio clamped to 1.0
+        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(3), 50, 50, 50, 50, &mut rng);
         assert_eq!(s1, Some(3));
-        assert_eq!(s2, Some(0)); // remaining=0
-        assert_eq!(calc_sprite_crash_total(Some(3), 50, 50, 50, 50), Some(3));
+        assert_eq!(s2, Some(0));
     }
 
     #[test]
@@ -336,15 +406,37 @@ mod tests {
         assert_eq!(s1, Some(0));
         assert_eq!(s2, Some(0));
     }
+
+    #[test]
+    fn sprite_crash_stage2_uses_stage1_count_and_power_carryover() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(3);
+        // stage2 uses stage1 count (10), not stage2 count (2).
+        // budget1=4*2/10=0.8 -> no crash, one damaged sprite.
+        // budget2=4*4/10=1.6 -> with carry-over this yields 2 crashes for this RNG sequence.
+        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(4), 2, 10, 4, 2, &mut rng);
+        assert_eq!(s1, Some(0));
+        assert_eq!(s2, Some(2));
+    }
+
+    #[test]
+    fn sprite_crash_total_is_sum_of_stages() {
+        let total = calc_sprite_crash_total(Some(3), 50, 50, 50, 50);
+        assert_eq!(total, Some(3));
+    }
 }
 
 pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
     let f_air_war = build_friend_ship_sprite_capacity(battle.deck_id, SpritePlaneTypeSet::AirWar);
-    let e_air_war = build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirWar);
-    let f_air_war_jet = build_friend_ship_sprite_capacity(battle.deck_id, SpritePlaneTypeSet::AirWarJet);
-    let e_air_war_jet = build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirWarJet);
-    let e_air_unit = build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirUnit);
-    let e_air_unit_jet = build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirUnitJet);
+    let e_air_war =
+        build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirWar);
+    let f_air_war_jet =
+        build_friend_ship_sprite_capacity(battle.deck_id, SpritePlaneTypeSet::AirWarJet);
+    let e_air_war_jet =
+        build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirWarJet);
+    let e_air_unit =
+        build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirUnit);
+    let e_air_unit_jet =
+        build_enemy_ship_sprite_capacity(battle.e_slot.clone(), SpritePlaneTypeSet::AirUnitJet);
 
     if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
         for attack in opening_air_attack.iter_mut().flatten() {
@@ -372,8 +464,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
     }
 
     if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
-        carrier_base_assault.f_sprite_fly_count = count_sprite_fly_from_capacity(f_air_war_jet.as_ref());
-        carrier_base_assault.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_war_jet.as_ref());
+        carrier_base_assault.f_sprite_fly_count =
+            count_sprite_fly_from_capacity(f_air_war_jet.as_ref());
+        carrier_base_assault.e_sprite_fly_count =
+            count_sprite_fly_from_capacity(e_air_war_jet.as_ref());
         let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
             carrier_base_assault.f_sprite_fly_count,
             carrier_base_assault.f_damage.loss_plane1,
@@ -395,8 +489,11 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
     }
 
     if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
-        air_base_assault.f_sprite_fly_count = Some(count_friend_sprite_fly_from_airbase_squadrons(&air_base_assault.squadron_count));
-        air_base_assault.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_unit_jet.as_ref());
+        air_base_assault.f_sprite_fly_count = Some(count_friend_sprite_fly_from_airbase_squadrons(
+            &air_base_assault.squadron_count,
+        ));
+        air_base_assault.e_sprite_fly_count =
+            count_sprite_fly_from_capacity(e_air_unit_jet.as_ref());
         let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
             air_base_assault.f_sprite_fly_count,
             air_base_assault.f_damage.loss_plane1,
@@ -419,7 +516,9 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
 
     if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
         for attack in &mut air_base_air_attacks.attacks {
-            attack.f_sprite_fly_count = count_friend_sprite_fly_from_optional_airbase_squadrons(attack.squadron_count.as_ref());
+            attack.f_sprite_fly_count = count_friend_sprite_fly_from_optional_airbase_squadrons(
+                attack.squadron_count.as_ref(),
+            );
             attack.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_unit.as_ref());
             let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
                 attack.f_sprite_fly_count,
@@ -447,7 +546,8 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         .as_mut()
         .and_then(|attack| attack.support_airatack.as_mut())
     {
-        support_airattack.f_sprite_fly_count = count_support_friend_sprite_fly_from_ship_ids(&support_airattack.ship_id);
+        support_airattack.f_sprite_fly_count =
+            count_support_friend_sprite_fly_from_ship_ids(&support_airattack.ship_id);
         support_airattack.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_war.as_ref());
         support_airattack.f_sprite_crash_count = calc_sprite_crash_total(
             support_airattack.f_sprite_fly_count,
@@ -468,9 +568,18 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
 
 impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
     fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
-        let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
-        let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
-        let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
+        let landing_hp_now = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
+        let landing_hp_max = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
+        let landing_sub_value = battle_result
+            .clone()
+            .api_landing_hp
+            .and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
         Self(BattleResult {
             win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
@@ -493,21 +602,18 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
         let squadron_plane_src = air_base_air_attack.api_squadron_plane.clone();
         Self(AirBaseAirAttack {
             stage_flag: air_base_air_attack.api_stage_flag,
-            squadron_plane: squadron_plane_src
-                .clone()
-                .map(|squadron_planes| {
-                    squadron_planes
-                        .iter()
-                        .map(|squadron_plane| squadron_plane.api_mst_id)
-                        .collect()
-                }),
-            squadron_count: squadron_plane_src
-                .map(|squadron_planes| {
-                    squadron_planes
-                        .iter()
-                        .map(|squadron_plane| squadron_plane.api_count)
-                        .collect()
-                }),
+            squadron_plane: squadron_plane_src.clone().map(|squadron_planes| {
+                squadron_planes
+                    .iter()
+                    .map(|squadron_plane| squadron_plane.api_mst_id)
+                    .collect()
+            }),
+            squadron_count: squadron_plane_src.map(|squadron_planes| {
+                squadron_planes
+                    .iter()
+                    .map(|squadron_plane| squadron_plane.api_count)
+                    .collect()
+            }),
             base_id: air_base_air_attack.api_base_id,
             f_damage,
             e_damage,
@@ -660,18 +766,12 @@ pub fn calc_air_damage(
             touch_plane: stage1
                 .clone()
                 .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[0])),
-            total_plane1: stage1
-                .clone()
-                .map(|stage1| stage1.api_f_count)
-                .unwrap_or(0),
+            total_plane1: stage1.clone().map(|stage1| stage1.api_f_count).unwrap_or(0),
             loss_plane1: stage1
                 .clone()
                 .map(|stage1| stage1.api_f_lostcount)
                 .unwrap_or(0),
-            total_plane2: stage2
-                .clone()
-                .map(|stage2| stage2.api_f_count)
-                .unwrap_or(0),
+            total_plane2: stage2.clone().map(|stage2| stage2.api_f_count).unwrap_or(0),
             loss_plane2: stage2
                 .clone()
                 .map(|stage2| stage2.api_f_lostcount)
@@ -689,10 +789,7 @@ pub fn calc_air_damage(
             touch_plane: stage1
                 .clone()
                 .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[1])),
-            total_plane1: stage1
-                .clone()
-                .map(|stage1| stage1.api_e_count)
-                .unwrap_or(0),
+            total_plane1: stage1.clone().map(|stage1| stage1.api_e_count).unwrap_or(0),
             loss_plane1: stage1
                 .clone()
                 .map(|stage1| stage1.api_e_lostcount)
@@ -983,32 +1080,35 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                 .collect()
         });
 
-        let damages_raw: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| {
-            hougeki.api_df_list.clone().and_then(|df_list| {
-                hougeki.api_sp_list.clone().map(|api_sp_list| {
-                    api_damage
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
-                        .enumerate()
-                        .map(|(idx, damages)| match api_sp_list[idx] {
-                            0 | 1 => damages,
-                            n if n < 100 => {
-                                let df_0 = df_list[idx][0];
-                                if df_list[idx].iter().all(|x| *x == df_0) {
-                                    vec![damages.iter().fold(0_f32, |acc, y| acc + *y)]
-                                } else {
-                                    damages
+        let damages_raw: Option<Vec<Vec<f32>>> =
+            hougeki.api_damage.clone().and_then(|api_damage| {
+                hougeki.api_df_list.clone().and_then(|df_list| {
+                    hougeki.api_sp_list.clone().map(|api_sp_list| {
+                        api_damage
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
+                            .enumerate()
+                            .map(|(idx, damages)| match api_sp_list[idx] {
+                                0 | 1 => damages,
+                                n if n < 100 => {
+                                    let df_0 = df_list[idx][0];
+                                    if df_list[idx].iter().all(|x| *x == df_0) {
+                                        vec![damages.iter().fold(0_f32, |acc, y| acc + *y)]
+                                    } else {
+                                        damages
+                                    }
                                 }
-                            }
-                            _ => damages,
-                        })
-                        .collect()
+                                _ => damages,
+                            })
+                            .collect()
+                    })
                 })
-            })
-        });
+            });
 
-        let damages: Option<Vec<Vec<f32>>> = damages_raw.clone().map(|rows| rows.iter().map(calc_floor).collect());
+        let damages: Option<Vec<Vec<f32>>> = damages_raw
+            .clone()
+            .map(|rows| rows.iter().map(calc_floor).collect());
 
         let cl_list: Option<Vec<Vec<i64>>> = hougeki.api_cl_list.and_then(|api_cl_list| {
             damages.clone().and_then(|damages| {
@@ -1039,7 +1139,9 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
             })
         });
 
-        let protect_flag: Option<Vec<Vec<bool>>> = damages_raw.clone().map(|rows| rows.iter().map(calc_protect_flag).collect());
+        let protect_flag: Option<Vec<Vec<bool>>> = damages_raw
+            .clone()
+            .map(|rows| rows.iter().map(calc_protect_flag).collect());
 
         let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| {
             hougeki.api_sp_list.clone().map(|api_sp_list| {
@@ -1646,23 +1748,26 @@ pub fn calc_dmg(battle: &mut Battle) {
                     midnight_flag = true;
 
                     if let Some(hourai) = night_support_attack.hourai.as_mut() {
-                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                            hourai.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
-                        });
-
-                        hourai
-                            .damage
+                        midnight_e_nowhps
                             .iter()
                             .enumerate()
-                            .for_each(|(idx, &x)| {
-                                midnight_e_total_damages[idx] += x as i64;
+                            .for_each(|(idx, &e_nowhp)| {
+                                hourai.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
                             });
+
+                        hourai.damage.iter().enumerate().for_each(|(idx, &x)| {
+                            midnight_e_total_damages[idx] += x as i64;
+                        });
                     }
 
                     if let Some(airatack) = night_support_attack.airatack.as_mut() {
-                        midnight_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                            airatack.e_damage.now_hps[idx] = e_nowhp - midnight_e_total_damages[idx];
-                        });
+                        midnight_e_nowhps
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, &e_nowhp)| {
+                                airatack.e_damage.now_hps[idx] =
+                                    e_nowhp - midnight_e_total_damages[idx];
+                            });
 
                         if let Some(damages) = &airatack.e_damage.damages {
                             damages.iter().enumerate().for_each(|(idx, &x)| {
@@ -1739,7 +1844,6 @@ pub fn calc_dmg(battle: &mut Battle) {
 
 impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle_result: kcapi_main::api_req_sortie::battleresult::ApiData) -> Self {
-
         let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))

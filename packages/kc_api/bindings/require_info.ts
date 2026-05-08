@@ -7,3 +7,4 @@ export type SlotItems = { slot_items: { [key in number]?: SlotItem }, };
 export type UseItem = { id: number, count: number, };
 
 export type UseItems = { use_items: { [key in number]?: UseItem }, };
+

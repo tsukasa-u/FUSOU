@@ -8,12 +8,17 @@ export type AirBaseAssult = { squadron_plane: Array<number>, squadron_count: Arr
 
 export type AirDamage = { plane_from: Array<number> | null, touch_plane: number | null, 
 /**
- * Total aircraft count entering stage1 (api_f/e_count). Used for proportional
- * sprite crash calculation. 0 when stage1 data is unavailable.
+ * Raw stage1 aircraft count from the API (`api_stage1.api_f/e_count`).
+ * main.js sprite crash simulation uses this value as the shared `count`
+ * denominator for both stage1 and stage2 damage distribution.
+ * 0 when stage1 data is unavailable.
  */
 total_plane1: number, loss_plane1: number, 
 /**
- * Total aircraft count entering stage2 (api_f/e_count). 0 when unavailable.
+ * Raw stage2 aircraft count from the API (`api_stage2.api_f/e_count`).
+ * This is kept for inspection/debugging, but main.js sprite crash simulation
+ * does not use it as the stage2 denominator.
+ * 0 when unavailable.
  */
 total_plane2: number, loss_plane2: number, damages: Array<number> | null, cl: Array<number> | null, sp: Array<Array<number> | null> | null, rai_flag: Array<number | null> | null, bak_flag: Array<number | null> | null, protect_flag: Array<boolean> | null, now_hps: Array<number>, };
 
@@ -54,3 +59,4 @@ export type SupportAiratack = { deck_id: number, ship_id: Array<number>, f_damag
 export type SupportAttack = { support_hourai: SupportHourai | null, support_airatack: SupportAiratack | null, };
 
 export type SupportHourai = { cl_list: Array<number>, damage: Array<number>, deck_id: number, ship_id: Array<number>, protect_flag: Array<boolean>, now_hps: Array<number>, };
+

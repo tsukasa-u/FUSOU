@@ -23,3 +23,4 @@ export type Ships = { ships: { [key in number]?: Ship }, };
 export type SpEffectItem = { kind: number, raig: number | null, souk: number | null, houg: number | null, kaih: number | null, };
 
 export type SpEffectItems = { items: { [key in number]?: SpEffectItem }, };
+
