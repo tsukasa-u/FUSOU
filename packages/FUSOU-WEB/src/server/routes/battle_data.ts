@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
+import { validateCachedPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -390,13 +391,14 @@ app.post("/upload", async (c) => {
       if (!tableVersion) {
         return c.json({ error: "table_version is required" }, 400);
       }
-      if (!/^[\w\-]+$/.test(periodTag)) {
+      const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
+        fieldName: "kc_period_tag",
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+      if (!periodTagValidation.ok) {
         return c.json(
-          {
-            error:
-              "kc_period_tag must contain only alphanumeric characters and hyphens",
-          },
-          400,
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
       }
       if (declaredSize <= 0) {

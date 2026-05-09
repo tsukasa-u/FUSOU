@@ -19,6 +19,10 @@ import {
   loadOrRefreshCanonicalSnapshot,
   saveCanonicalSnapshotToKv,
 } from "../utils/snapshot-cache";
+import {
+  isValidPeriodTagDate,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -429,8 +433,19 @@ async function loadSynergyDataSet(
   ) as {
     effects?: Record<string, unknown>;
     cross_effects?: Record<string, unknown>;
-    effect_rules?: Array<{ ships: number[]; b: Record<string, number>; l?: Record<string, number>; c2?: Record<string, number>; c3?: Record<string, number>; items: number[] }>;
-    cross_rules?: Array<{ ships: number[]; synergy: Record<string, number>; pairs: Array<[number, number]> }>;
+    effect_rules?: Array<{
+      ships: number[];
+      b: Record<string, number>;
+      l?: Record<string, number>;
+      c2?: Record<string, number>;
+      c3?: Record<string, number>;
+      items: number[];
+    }>;
+    cross_rules?: Array<{
+      ships: number[];
+      synergy: Record<string, number>;
+      pairs: Array<[number, number]>;
+    }>;
   };
 
   const singleByItem = new Map<number, SynergySingleRule[]>();
@@ -440,18 +455,34 @@ async function loadSynergyDataSet(
   if (parsed.effect_rules && Array.isArray(parsed.effect_rules)) {
     for (const rule of parsed.effect_rules) {
       if (!rule || !Array.isArray(rule.items)) continue;
-      const synRule: SynergySingleRule = { ships: rule.ships ?? [], b: rule.b ?? {}, l: rule.l, c2: rule.c2, c3: rule.c3 };
+      const synRule: SynergySingleRule = {
+        ships: rule.ships ?? [],
+        b: rule.b ?? {},
+        l: rule.l,
+        c2: rule.c2,
+        c3: rule.c3,
+      };
       for (const itemId of rule.items) {
-        if (!Number.isInteger(itemId) || itemId <= 0) { droppedSingleCount++; continue; }
+        if (!Number.isInteger(itemId) || itemId <= 0) {
+          droppedSingleCount++;
+          continue;
+        }
         let list = singleByItem.get(itemId);
-        if (!list) { list = []; singleByItem.set(itemId, list); }
+        if (!list) {
+          list = [];
+          singleByItem.set(itemId, list);
+        }
         list.push(synRule);
       }
     }
   } else {
     for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
       const itemId = Number(itemKey);
-      if (!Number.isInteger(itemId) || itemId <= 0 || !Array.isArray(rawRules)) {
+      if (
+        !Number.isInteger(itemId) ||
+        itemId <= 0 ||
+        !Array.isArray(rawRules)
+      ) {
         droppedSingleCount += 1;
         continue;
       }
@@ -476,11 +507,17 @@ async function loadSynergyDataSet(
   if (parsed.cross_rules && Array.isArray(parsed.cross_rules)) {
     for (const rule of parsed.cross_rules) {
       if (!rule || !Array.isArray(rule.pairs)) continue;
-      const synRule: SynergyCrossRule = { ships: rule.ships ?? [], synergy: rule.synergy ?? {} };
+      const synRule: SynergyCrossRule = {
+        ships: rule.ships ?? [],
+        synergy: rule.synergy ?? {},
+      };
       for (const [a, b] of rule.pairs) {
         const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
         let list = crossByPair.get(key);
-        if (!list) { list = []; crossByPair.set(key, list); }
+        if (!list) {
+          list = [];
+          crossByPair.set(key, list);
+        }
         list.push(synRule);
       }
     }
@@ -673,7 +710,7 @@ function validateIngestBody(
   if (eventType !== "snapshot")
     return { ok: false, error: 'event_type must be "snapshot"' };
 
-  if (!body.period_tag || !/^\d{4}-\d{2}-\d{2}$/.test(body.period_tag)) {
+  if (!body.period_tag || !isValidPeriodTagDate(body.period_tag)) {
     return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
   }
 
@@ -2726,6 +2763,17 @@ app.post("/ingest", async (c) => {
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      String(handshakeBody?.period_tag ?? "").trim(),
+      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
 
     // Require dataset_token to prove ownership of dataset_id.
     const datasetToken = resolveDatasetToken(
@@ -2864,6 +2912,17 @@ app.post("/ingest", async (c) => {
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
+  const periodTagValidation = await validateCachedPeriodTag(
+    c,
+    body.period_tag,
+    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+  );
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
 
   // Verify claims match payload
   if (

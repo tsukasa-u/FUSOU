@@ -17,6 +17,7 @@ import {
   invalidateCanonicalSnapshots,
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
+import { validateCachedPeriodTag } from "../utils/period-tags";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -980,6 +981,17 @@ app.post("/ingest", async (c) => {
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      validated.periodTag,
+      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
 
     // Require dataset_token to prove ownership of dataset_id
     const datasetToken = resolveDatasetToken(
@@ -1115,6 +1127,17 @@ app.post("/ingest", async (c) => {
   }
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
+  const periodTagValidation = await validateCachedPeriodTag(
+    c,
+    verified.periodTag,
+    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+  );
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
 
   if (
     verified.datasetId !== String(tokenPayload.dataset_id) ||

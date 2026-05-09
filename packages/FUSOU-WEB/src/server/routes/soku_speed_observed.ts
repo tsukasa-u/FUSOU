@@ -12,6 +12,10 @@ import {
   validateTokenPayload,
   verifySignedToken,
 } from "../utils";
+import {
+  isValidPeriodTagDate,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
 const app = new Hono<{ Bindings: Bindings }>();
 interface SlotEntry {
   slotitem_id: number;
@@ -72,10 +76,7 @@ function validateSokuSpeedIngestBody(
   if (eventType !== "snapshot") {
     return { ok: false, error: 'event_type must be "snapshot"' };
   }
-  if (
-    !body.period_tag ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(String(body.period_tag))
-  ) {
+  if (!body.period_tag || !isValidPeriodTagDate(String(body.period_tag))) {
     return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
   }
   if (!body.table_version) {
@@ -197,6 +198,19 @@ app.post("/ingest", async (c) => {
     const validated = validateSokuSpeedIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const bodyPeriodTag = String(handshakeBody?.period_tag ?? "").trim();
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      bodyPeriodTag,
+      {
+        cacheKV: c.env.DATA_LOADER_CACHE_KV,
+      },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
     const bodyTableVersion = String(handshakeBody?.table_version ?? "").trim();
     const latestMaster = await resolveLatestMasterPeriod(masterDb);
     if (!latestMaster) {
@@ -337,6 +351,15 @@ app.post("/ingest", async (c) => {
     period_tag: string;
     table_version: string;
   };
+  const periodTagValidation = await validateCachedPeriodTag(c, period_tag, {
+    cacheKV: c.env.DATA_LOADER_CACHE_KV,
+  });
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
   const latestMaster = await resolveLatestMasterPeriod(masterDb);
   if (!latestMaster) {
     return c.json({ error: "No completed master data period found" }, 503);

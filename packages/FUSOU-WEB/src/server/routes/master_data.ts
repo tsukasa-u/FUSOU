@@ -8,6 +8,7 @@ import {
   extractBearer,
   timingSafeEqual,
 } from "../utils";
+import { validateCachedPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -134,36 +135,14 @@ app.post("/upload", async (c) => {
           ? body.table_offsets.trim()
           : "";
 
-      // Validate period_tag
-      const MAX_PERIOD_TAG_LENGTH = 64;
-      if (!periodTag || periodTag.length === 0) {
-        return c.json({ error: "kc_period_tag is required" }, 400);
-      }
-      if (periodTag.length > MAX_PERIOD_TAG_LENGTH) {
+      const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
+        fieldName: "kc_period_tag",
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+      if (!periodTagValidation.ok) {
         return c.json(
-          {
-            error: `kc_period_tag must be 1-${MAX_PERIOD_TAG_LENGTH} characters`,
-          },
-          400,
-        );
-      }
-      if (!/^[a-zA-Z0-9_\-]+$/.test(periodTag)) {
-        return c.json(
-          {
-            error:
-              "kc_period_tag must contain only ASCII alphanumeric characters, underscores, and hyphens",
-          },
-          400,
-        );
-      }
-      if (
-        periodTag.startsWith(".") ||
-        periodTag.startsWith("/") ||
-        periodTag.includes("..")
-      ) {
-        return c.json(
-          { error: "kc_period_tag cannot start with . or / or contain .." },
-          400,
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
       }
 

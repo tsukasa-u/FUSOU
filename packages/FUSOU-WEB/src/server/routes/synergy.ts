@@ -6,12 +6,15 @@ import type {
 } from "../types/synergy";
 import {
   validateSHA256,
-  validatePeriodTag,
   validateGeneratorVersion,
   getSynergyManifestR2Keys,
 } from "../types/synergy";
 import type { Bindings } from "../types";
 import { createEnvContext, verifyAdminToken } from "../utils";
+import {
+  isValidPeriodTagDate,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -66,7 +69,7 @@ app.get("/synergy-manifest", async (c) => {
     return c.json({ error: "period_tag query parameter is required" }, 400);
   }
 
-  if (!validatePeriodTag(periodTag)) {
+  if (!isValidPeriodTagDate(periodTag)) {
     return c.json(
       { error: "Invalid period_tag format (expected YYYY-MM-DD)" },
       400,
@@ -132,7 +135,7 @@ app.get("/synergy-manifest", async (c) => {
  */
 app.get("/synergy-data", async (c) => {
   const periodTagQuery = c.req.query("period_tag");
-  if (periodTagQuery && !validatePeriodTag(periodTagQuery)) {
+  if (periodTagQuery && !isValidPeriodTagDate(periodTagQuery)) {
     return c.json(
       { error: "Invalid period_tag format (expected YYYY-MM-DD)" },
       400,
@@ -371,8 +374,18 @@ app.post("/synergy-manifest", async (c) => {
   }
 
   // Validation
-  if (!body.period_tag || !validatePeriodTag(body.period_tag)) {
-    return c.json({ error: "Invalid period_tag (expected YYYY-MM-DD)" }, 400);
+  const periodTagValidation = await validateCachedPeriodTag(
+    c,
+    body.period_tag,
+    {
+      cacheKV: c.env.DATA_LOADER_CACHE_KV,
+    },
+  );
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
   }
 
   if (!body.sp_effect_sha256 || !validateSHA256(body.sp_effect_sha256)) {
@@ -551,7 +564,7 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
   const periodTag = c.req.param("periodTag");
   const periodRevisionStr = c.req.param("periodRevision");
 
-  if (!periodTag || !validatePeriodTag(periodTag)) {
+  if (!periodTag || !isValidPeriodTagDate(periodTag)) {
     return c.json({ error: "Invalid period_tag" }, 400);
   }
 
@@ -680,7 +693,7 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
 app.get("/synergy-manifest/validate", async (c) => {
   const periodTag = c.req.query("period_tag");
 
-  if (!periodTag || !validatePeriodTag(periodTag)) {
+  if (!periodTag || !isValidPeriodTagDate(periodTag)) {
     return c.json(
       { error: "Invalid or missing period_tag (expected YYYY-MM-DD)" },
       400,
