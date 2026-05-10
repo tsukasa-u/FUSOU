@@ -263,8 +263,7 @@ fn calc_sprite_crash_stage_counts(
     };
 
     let stage1 = loss_stage1.max(0).min(fly_count);
-    let remaining = fly_count.saturating_sub(stage1);
-    let stage2 = loss_stage2.max(0).min(remaining);
+    let stage2 = loss_stage2.max(0).min(fly_count);
     (Some(stage1), Some(stage2))
 }
 
@@ -299,8 +298,8 @@ mod tests {
     fn sprite_crash_counts_are_clamped_by_fly_count() {
         let (s1, s2) = calc_sprite_crash_stage_counts(Some(3), 10, 10);
         assert_eq!(s1, Some(3));
-        assert_eq!(s2, Some(0));
-        assert_eq!(calc_sprite_crash_total(Some(3), 10, 10), Some(3));
+        assert_eq!(s2, Some(3));
+        assert_eq!(calc_sprite_crash_total(Some(3), 10, 10), Some(6));
     }
 
     #[test]
