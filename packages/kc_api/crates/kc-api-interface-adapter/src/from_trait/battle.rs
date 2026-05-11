@@ -123,7 +123,7 @@ fn build_friend_ship_sprite_capacity(
     let deck = decks.deck_ports.get(&deck_id)?;
 
     let mut ship_ids = deck.ship.clone().unwrap_or_default();
-    if decks.combined_flag.is_some() && deck_id == 1 {
+    if should_include_friend_escort(decks.combined_flag, deck_id) {
         if let Some(escort) = decks.deck_ports.get(&2).and_then(|d| d.ship.clone()) {
             ship_ids.extend(escort);
         }
@@ -166,6 +166,10 @@ fn build_friend_ship_sprite_capacity(
         .collect::<Vec<_>>();
 
     Some(capacities)
+}
+
+fn should_include_friend_escort(combined_flag: Option<i64>, deck_id: i64) -> bool {
+    deck_id == 1 && combined_flag.is_some_and(|flag| flag > 0)
 }
 
 fn build_enemy_ship_sprite_capacity(
@@ -373,7 +377,7 @@ mod tests {
     use super::{
         calc_sprite_crash_stage_counts, calc_sprite_crash_stage_counts_with_rng,
         calc_sprite_crash_total, count_friend_sprite_fly_from_optional_airbase_squadrons,
-        count_sprite_fly_from_capacity,
+        count_sprite_fly_from_capacity, parse_plane_from_side, should_include_friend_escort,
     };
     use rand::SeedableRng;
 
@@ -459,6 +463,53 @@ mod tests {
             count_sprite_fly_from_capacity(Some(&capacity), None),
             Some(6)
         );
+    }
+
+    #[test]
+    fn fly_count_zero_when_plane_from_ships_have_no_aircraft() {
+        // Ship at index 0 has no qualifying equipment.
+        // Game creates 0 sprites → crash count must also be 0.
+        let capacity: Vec<Option<i64>> = vec![Some(0), Some(2), Some(1)];
+        assert_eq!(count_sprite_fly_from_capacity(Some(&capacity), Some(&[0])), Some(0));
+    }
+
+    #[test]
+    fn fly_count_some_empty_when_plane_from_sub_array_is_null() {
+        // plane_from exists but the friend sub-array is null → game uses [] → 0 sprites.
+        // Represented as Some([]) after the fix in calc_air_damage (tested via
+        // count_sprite_fly_from_capacity with an empty slice).
+        let capacity: Vec<Option<i64>> = vec![Some(2), Some(3)];
+        assert_eq!(count_sprite_fly_from_capacity(Some(&capacity), Some(&[])), Some(0));
+    }
+
+    #[test]
+    fn should_include_friend_escort_requires_positive_combined_flag() {
+        assert!(!should_include_friend_escort(None, 1));
+        assert!(!should_include_friend_escort(Some(0), 1));
+        assert!(should_include_friend_escort(Some(1), 1));
+    }
+
+    #[test]
+    fn should_include_friend_escort_only_for_first_deck() {
+        assert!(!should_include_friend_escort(Some(1), 2));
+    }
+
+    #[test]
+    fn parse_plane_from_side_none_when_plane_from_absent() {
+        assert_eq!(parse_plane_from_side(None, 0), None);
+    }
+
+    #[test]
+    fn parse_plane_from_side_some_empty_when_side_missing() {
+        let plane_from = vec![Some(vec![1, 3])];
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![]));
+    }
+
+    #[test]
+    fn parse_plane_from_side_converts_to_zero_based() {
+        let plane_from = vec![Some(vec![1, 3]), Some(vec![2])];
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 2]));
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![1]));
     }
 }
 
@@ -799,16 +850,11 @@ pub fn calc_air_damage(
         .clone()
         .and_then(|stage3_combined| stage3_combined.api_ebak_flag);
 
-    let f_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| {
-        plane_from[0]
-            .clone()
-            .map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
-    });
-    let e_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| {
-        plane_from[1]
-            .clone()
-            .map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
-    });
+    // api_plane_from layout: [friend_indices, enemy_indices]
+    // Each sub-array may be null (= side did not participate → 0 sprites, shown as Some([])).
+    // When api_plane_from is absent entirely, keep None so fly_count falls back to all ships.
+    let f_plane_from: Option<Vec<i64>> = parse_plane_from_side(plane_from.as_ref(), 0);
+    let e_plane_from: Option<Vec<i64>> = parse_plane_from_side(plane_from.as_ref(), 1);
 
     // let f_now_hps = vec![0; f_damages.clone().and_then(|f_damages| Some(f_damages.len())).unwrap_or(12)];
     // let e_now_hps = vec![0; e_damages.clone().and_then(|e_damages| Some(e_damages.len())).unwrap_or(12)];
@@ -866,6 +912,16 @@ pub fn calc_air_damage(
             now_hps: e_now_hps,
         },
     )
+}
+
+fn parse_plane_from_side(plane_from: Option<&Vec<Option<Vec<i64>>>>, side_idx: usize) -> Option<Vec<i64>> {
+    let plane_from = plane_from?;
+    let indices = plane_from
+        .get(side_idx)
+        .and_then(|entry| entry.as_ref())
+        .cloned()
+        .unwrap_or_default();
+    Some(indices.into_iter().map(|x| x - 1).collect())
 }
 
 impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<OpeningAirAttack> {

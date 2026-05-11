@@ -14,6 +14,13 @@ use kc_api_interface::battle::{
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 
+fn merge_optional_vec<T>(mut base: Vec<T>, extra: Option<Vec<T>>) -> Vec<T> {
+    if let Some(extra) = extra {
+        base.extend(extra);
+    }
+    base
+}
+
 impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for InterfaceWrapper<BattleResult> {
     fn from(battle_result: kcapi_main::api_req_combined_battle::battleresult::ApiData) -> Self {
         let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
@@ -687,6 +694,29 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(airbattle.api_escape_idx, airbattle.api_escape_idx_combined);
 
+        let e_combined_flag: i64 = if airbattle.api_ship_ke_combined.is_some()
+            || airbattle.api_ship_lv_combined.is_some()
+            || airbattle.api_e_param_combined.is_some()
+            || airbattle.api_e_slot_combined.is_some()
+            || airbattle.api_e_maxhps_combined.is_some()
+            || airbattle.api_e_nowhps_combined.is_some()
+        {
+            1
+        } else {
+            0
+        };
+        let enemy_ship_id: Vec<i64> =
+            merge_optional_vec(airbattle.api_ship_ke, airbattle.api_ship_ke_combined);
+        let e_lv: Vec<i64> = merge_optional_vec(airbattle.api_ship_lv, airbattle.api_ship_lv_combined);
+        let e_params: Vec<Vec<i64>> =
+            merge_optional_vec(airbattle.api_e_param, airbattle.api_e_param_combined);
+        let e_slot: Vec<Vec<i64>> =
+            merge_optional_vec(airbattle.api_e_slot, airbattle.api_e_slot_combined);
+        let e_hp_max: Vec<i64> =
+            merge_optional_vec(airbattle.api_e_maxhps, airbattle.api_e_maxhps_combined);
+        let e_nowhps: Vec<i64> =
+            merge_optional_vec(airbattle.api_e_nowhps, airbattle.api_e_nowhps_combined);
+
         let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
@@ -694,13 +724,13 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             cell_id: cell_no,
             deck_id: Some(airbattle.api_deck_id),
             formation: Some(airbattle.api_formation),
-            enemy_ship_id: Some(airbattle.api_ship_ke),
-            e_lv: Some(airbattle.api_ship_lv),
-            e_params: Some(airbattle.api_e_param),
+            enemy_ship_id: Some(enemy_ship_id),
+            e_lv: Some(e_lv),
+            e_params: Some(e_params),
             f_params: Some([airbattle.api_f_param, airbattle.api_f_param_combined].concat()),
-            e_slot: Some(airbattle.api_e_slot),
-            e_hp_max: Some(airbattle.api_e_maxhps),
-            e_combined_flag: Some(0),
+            e_slot: Some(e_slot),
+            e_hp_max: Some(e_hp_max),
+            e_combined_flag: Some(e_combined_flag),
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
@@ -726,7 +756,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([airbattle.api_f_nowhps, airbattle.api_f_nowhps_combined].concat()),
-            e_nowhps: Some(airbattle.api_e_nowhps),
+            e_nowhps: Some(e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
             battle_result: None,
@@ -880,5 +910,22 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
         apply_sprite_metrics(&mut ret);
         calc_dmg(&mut ret);
         Self(ret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_optional_vec;
+
+    #[test]
+    fn merge_optional_vec_keeps_base_when_extra_none() {
+        let merged = merge_optional_vec(vec![1, 2, 3], None);
+        assert_eq!(merged, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn merge_optional_vec_appends_when_extra_present() {
+        let merged = merge_optional_vec(vec![1, 2, 3], Some(vec![4, 5]));
+        assert_eq!(merged, vec![1, 2, 3, 4, 5]);
     }
 }
