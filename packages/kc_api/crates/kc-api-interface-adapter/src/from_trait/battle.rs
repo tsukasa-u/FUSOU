@@ -858,7 +858,7 @@ pub fn calc_air_damage(
         .and_then(|stage3_combined| stage3_combined.api_ebak_flag);
 
     // api_plane_from layout: [friend_indices, enemy_indices]
-    // Captured values are already zero-based.
+    // Raw indices are 1-based in the API, so normalize them to zero-based here.
     // Each sub-array may be null (= side did not participate → 0 sprites, shown as Some([])).
     // When api_plane_from is absent entirely, keep None so fly_count falls back to all ships.
     let f_plane_from: Option<Vec<i64>> = parse_plane_from_side(plane_from.as_ref(), 0);
