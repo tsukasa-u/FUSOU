@@ -172,6 +172,19 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     const f_crash2 = airattack()?.f_sprite_crash_count_stage2;
     const e_crash1 = airattack()?.e_sprite_crash_count_stage1;
     const e_crash2 = airattack()?.e_sprite_crash_count_stage2;
+    const f_damage1 = airattack()?.f_sprite_damage_count_stage1;
+    const f_damage2 = airattack()?.f_sprite_damage_count_stage2;
+    const e_damage1 = airattack()?.e_sprite_damage_count_stage1;
+    const e_damage2 = airattack()?.e_sprite_damage_count_stage2;
+    const sum_or_unknown = (
+      values: Array<number | null | undefined>
+    ): number | "?" => {
+      const known = values.filter((v): v is number => v != null);
+      if (known.length === 0) return "?";
+      return known.reduce((acc, v) => acc + v, 0);
+    };
+    const f_non_normal = sum_or_unknown([f_crash1, f_crash2, f_damage1, f_damage2]);
+    const e_non_normal = sum_or_unknown([e_crash1, e_crash2, e_damage1, e_damage2]);
 
     return (
       <>
@@ -183,7 +196,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             f_crash1 != null ||
             f_crash2 != null ||
             e_crash1 != null ||
-            e_crash2 != null
+            e_crash2 != null ||
+            f_damage1 != null ||
+            f_damage2 != null ||
+            e_damage1 != null ||
+            e_damage2 != null
           }
           fallback={<span class="pl-1 text-gray-500">_</span>}
         >
@@ -192,6 +209,12 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
           </span>
           <span class="pl-2">
             Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"} / {e_crash1 ?? "?"}+{e_crash2 ?? "?"}
+          </span>
+          <span class="pl-2">
+            Damage: {f_damage1 ?? "?"}+{f_damage2 ?? "?"} / {e_damage1 ?? "?"}+{e_damage2 ?? "?"}
+          </span>
+          <span class="pl-2">
+            Non-Normal: {f_non_normal} / {e_non_normal}
           </span>
         </Show>
       </>
