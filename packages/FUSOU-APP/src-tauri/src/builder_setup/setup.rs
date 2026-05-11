@@ -775,7 +775,12 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
     configure_channel_transport();
-    setup_discord()?;
+    if configs::get_user_configs_for_app()
+        .discord
+        .get_enable_discord_integration()
+    {
+        setup_discord()?;
+    }
     notify_startup(app);
     
     let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
@@ -813,6 +818,8 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             request_shutdown(response_parse_channel_master_clone),
             request_shutdown(scheduler_integrate_channel_master_clone),
         );
+
+        discord::close();
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.cleanup_before_exit();
