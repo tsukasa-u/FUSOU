@@ -15,7 +15,7 @@
     "deploy": "pnpm run build && echo '_worker.js' > dist/.assetsignore && wrangler deploy",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
-    "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts",
+    "test:battle-data": "vitest run --passWithNoTests src/server/routes/__tests__/battle_data.integration.test.ts",
     "e2e:simulator": "playwright test -c playwright.config.ts e2e/simulator.spec.ts",
     "e2e:simulator:smoke": "playwright test -c playwright.config.ts e2e/simulator.smoke.spec.ts",
     "e2e:simulator:headed": "playwright test -c playwright.config.ts e2e/simulator.spec.ts --headed",
@@ -92,6 +92,7 @@
     "playwright": "^1.57.0",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
+    "vitest": "^4.1.2",
     "wrangler": "^4.78.0"
   }
 }
