@@ -508,8 +508,15 @@ mod tests {
     #[test]
     fn parse_plane_from_side_converts_to_zero_based() {
         let plane_from = vec![Some(vec![1, 3]), Some(vec![2])];
-        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 2]));
-        assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![1]));
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![1, 3]));
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![2]));
+    }
+
+    #[test]
+    fn parse_plane_from_side_preserves_actual_zero_based_data() {
+        let plane_from = vec![Some(vec![0, 1]), Some(vec![2])];
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 1]));
+        assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![2]));
     }
 }
 
@@ -851,6 +858,7 @@ pub fn calc_air_damage(
         .and_then(|stage3_combined| stage3_combined.api_ebak_flag);
 
     // api_plane_from layout: [friend_indices, enemy_indices]
+    // Captured values are already zero-based.
     // Each sub-array may be null (= side did not participate → 0 sprites, shown as Some([])).
     // When api_plane_from is absent entirely, keep None so fly_count falls back to all ships.
     let f_plane_from: Option<Vec<i64>> = parse_plane_from_side(plane_from.as_ref(), 0);
@@ -921,7 +929,7 @@ fn parse_plane_from_side(plane_from: Option<&Vec<Option<Vec<i64>>>>, side_idx: u
         .and_then(|entry| entry.as_ref())
         .cloned()
         .unwrap_or_default();
-    Some(indices.into_iter().map(|x| x - 1).collect())
+    Some(indices)
 }
 
 impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<OpeningAirAttack> {
