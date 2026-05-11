@@ -13,7 +13,6 @@ use kc_api_interface::battle::{
 };
 use kc_api_interface::cells::KCS_CELLS_INDEX;
 use kc_api_interface::deck_port::DeckPorts;
-use kc_api_interface::mst_ship::MstShips;
 use kc_api_interface::mst_slot_item::MstSlotItems;
 use kc_api_interface::ship::Ships;
 use kc_api_interface::slot_item::SlotItems;
@@ -73,8 +72,6 @@ const SPRITE_PLANE_TYPES_AIR_UNIT: [i32; 19] = [
     6, 7, 8, 9, 10, 11, 25, 26, 41, 45, 47, 48, 49, 53, 56, 57, 58, 59, 91,
 ];
 const SPRITE_PLANE_TYPES_AIR_UNIT_JET: [i32; 5] = [56, 57, 58, 59, 91];
-const SUPPORT_FRIEND_SPRITE_SHIP_TYPES: [i32; 9] = [6, 7, 10, 11, 15, 16, 17, 18, 22];
-
 fn sprite_plane_types(set: SpritePlaneTypeSet) -> &'static [i32] {
     match set {
         SpritePlaneTypeSet::AirWar => &SPRITE_PLANE_TYPES_AIR_WAR,
@@ -216,7 +213,8 @@ fn count_sprite_fly_from_capacity(
 
 fn count_support_friend_sprite_fly_from_ship_ids(ship_ids: &[i64]) -> Option<i64> {
     let ships = Ships::load();
-    let mst_ships = MstShips::load();
+    let slot_items = SlotItems::load();
+    let mst_slots = MstSlotItems::load();
     let mut count = 0;
 
     for ship_id in ship_ids {
@@ -226,13 +224,28 @@ fn count_support_friend_sprite_fly_from_ship_ids(ship_ids: &[i64]) -> Option<i64
         let Some(ship) = ships.ships.get(ship_id) else {
             continue;
         };
-        let Some(mst_ship_id) = ship.ship_id else {
+        let Some(slot_instance_ids) = ship.slot.as_ref() else {
             continue;
         };
-        let Some(mst_ship) = mst_ships.mst_ships.get(&(mst_ship_id as i32)) else {
-            continue;
-        };
-        if SUPPORT_FRIEND_SPRITE_SHIP_TYPES.contains(&mst_ship.stype) {
+
+        let mut mst_slot_ids = Vec::with_capacity(slot_instance_ids.len());
+        for slot_instance_id in slot_instance_ids {
+            if *slot_instance_id <= 0 {
+                continue;
+            }
+            let Some(slot_item) = slot_items.slot_items.get(slot_instance_id) else {
+                continue;
+            };
+            mst_slot_ids.push(slot_item.slotitem_id);
+        }
+
+        let ship_sprite_planes = count_ship_sprite_planes_from_mst_slot_ids(
+            SpritePlaneTypeSet::AirWar,
+            &mst_slot_ids,
+            &mst_slots,
+        );
+        if ship_sprite_planes > 0 {
+            // Support-air motion count is ship-based: one motion per attacking ship.
             count += 1;
         }
     }
