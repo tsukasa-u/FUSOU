@@ -720,6 +720,14 @@ pub struct OpeningAirAttack {
     pub e_sprite_crash_stage1_count: Option<i32>,
     #[cfg(feature = "schema_v0_5")]
     pub e_sprite_crash_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage2_count: Option<i32>,
 }
 
 impl OpeningAirAttack {
@@ -785,6 +793,22 @@ impl OpeningAirAttack {
             e_sprite_crash_stage1_count: data.e_sprite_crash_count_stage1.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_count_stage2.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage1_count: data
+                .f_sprite_damage_count_stage1
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage2_count: data
+                .f_sprite_damage_count_stage2
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage1_count: data
+                .e_sprite_damage_count_stage1
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage2_count: data
+                .e_sprite_damage_count_stage2
+                .map(|value| value as i32),
         };
 
         table.opening_airattack.push(new_data);
@@ -902,6 +926,14 @@ pub struct AirBaseAirAttack {
     pub e_sprite_crash_stage1_count: Option<i32>,
     #[cfg(feature = "schema_v0_5")]
     pub e_sprite_crash_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage2_count: Option<i32>,
 }
 
 impl AirBaseAirAttack {
@@ -979,6 +1011,22 @@ impl AirBaseAirAttack {
             e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage1_count: data
+                .f_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage2_count: data
+                .f_sprite_damage_stage2_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage1_count: data
+                .e_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage2_count: data
+                .e_sprite_damage_stage2_count
+                .map(|value| value as i32),
         };
 
         table.airbase_airattack.push(new_data);
@@ -1033,6 +1081,14 @@ pub struct AirBaseAssult {
     pub e_sprite_crash_stage1_count: Option<i32>,
     #[cfg(feature = "schema_v0_5")]
     pub e_sprite_crash_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage2_count: Option<i32>,
 }
 
 impl AirBaseAssult {
@@ -1093,6 +1149,22 @@ impl AirBaseAssult {
             e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage1_count: data
+                .f_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage2_count: data
+                .f_sprite_damage_stage2_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage1_count: data
+                .e_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage2_count: data
+                .e_sprite_damage_stage2_count
+                .map(|value| value as i32),
         };
 
         table.airbase_assult.push(new_data);
@@ -1146,6 +1218,14 @@ pub struct CarrierBaseAssault {
     pub e_sprite_crash_stage1_count: Option<i32>,
     #[cfg(feature = "schema_v0_5")]
     pub e_sprite_crash_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_stage2_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage1_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_stage2_count: Option<i32>,
 }
 
 impl CarrierBaseAssault {
@@ -1201,6 +1281,22 @@ impl CarrierBaseAssault {
             e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage1_count: data
+                .f_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_stage2_count: data
+                .f_sprite_damage_stage2_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage1_count: data
+                .e_sprite_damage_stage1_count
+                .map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_stage2_count: data
+                .e_sprite_damage_stage2_count
+                .map(|value| value as i32),
         };
 
         table.carrierbase_assault.push(new_data);
@@ -1408,6 +1504,10 @@ pub struct SupportAirattack {
     pub f_sprite_crash_count: Option<i32>,
     #[cfg(feature = "schema_v0_5")]
     pub e_sprite_crash_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub f_sprite_damage_count: Option<i32>,
+    #[cfg(feature = "schema_v0_5")]
+    pub e_sprite_damage_count: Option<i32>,
 }
 
 impl SupportAirattack {
@@ -1469,6 +1569,10 @@ impl SupportAirattack {
             f_sprite_crash_count: data.f_sprite_crash_count.map(|value| value as i32),
             #[cfg(feature = "schema_v0_5")]
             e_sprite_crash_count: data.e_sprite_crash_count.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            f_sprite_damage_count: data.f_sprite_damage_count.map(|value| value as i32),
+            #[cfg(feature = "schema_v0_5")]
+            e_sprite_damage_count: data.e_sprite_damage_count.map(|value| value as i32),
         })
     }
 
@@ -1502,6 +1606,8 @@ impl SupportAirattack {
             e_sprite_fly_count: data.e_sprite_fly_count,
             f_sprite_crash_count: data.f_sprite_crash_count,
             e_sprite_crash_count: data.e_sprite_crash_count,
+            f_sprite_damage_count: data.f_sprite_damage_count,
+            e_sprite_damage_count: data.e_sprite_damage_count,
         };
         let _ = ts;
         let new_data = Self::build_record(uuid, support_airatack, env_uuid)?;

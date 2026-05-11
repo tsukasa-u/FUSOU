@@ -282,6 +282,7 @@ fn count_friend_sprite_fly_from_optional_airbase_squadrons(
     Some(count_friend_sprite_fly_from_airbase_squadrons(&resolved))
 }
 
+#[cfg(test)]
 fn calc_sprite_crash_stage_counts(
     fly_count: Option<i64>,
     loss_stage1: i64,
@@ -289,8 +290,25 @@ fn calc_sprite_crash_stage_counts(
     loss_stage2: i64,
     total_stage2: i64,
 ) -> (Option<i64>, Option<i64>) {
+    let (crash_stage1, crash_stage2, _, _) = calc_sprite_motion_stage_counts(
+        fly_count,
+        loss_stage1,
+        total_stage1,
+        loss_stage2,
+        total_stage2,
+    );
+    (crash_stage1, crash_stage2)
+}
+
+fn calc_sprite_motion_stage_counts(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    total_stage1: i64,
+    loss_stage2: i64,
+    total_stage2: i64,
+) -> (Option<i64>, Option<i64>, Option<i64>, Option<i64>) {
     let mut rng = rand::thread_rng();
-    calc_sprite_crash_stage_counts_with_rng(
+    calc_sprite_motion_stage_counts_with_rng(
         fly_count,
         loss_stage1,
         total_stage1,
@@ -300,20 +318,20 @@ fn calc_sprite_crash_stage_counts(
     )
 }
 
-fn calc_sprite_crash_stage_counts_with_rng<R: Rng + ?Sized>(
+fn calc_sprite_motion_stage_counts_with_rng<R: Rng + ?Sized>(
     fly_count: Option<i64>,
     loss_stage1: i64,
     total_stage1: i64,
     loss_stage2: i64,
     _total_stage2: i64,
     rng: &mut R,
-) -> (Option<i64>, Option<i64>) {
+) -> (Option<i64>, Option<i64>, Option<i64>, Option<i64>) {
     let Some(fly_count) = fly_count else {
-        return (None, None);
+        return (None, None, None, None);
     };
     let sprite_total = fly_count.max(0) as usize;
     if sprite_total == 0 {
-        return (Some(0), Some(0));
+        return (Some(0), Some(0), Some(0), Some(0));
     }
 
     // main.js `_planeDamage` behavior:
@@ -325,7 +343,39 @@ fn calc_sprite_crash_stage_counts_with_rng<R: Rng + ?Sized>(
     let stage1 = apply_sprite_budget_damage(count, loss_stage1, &mut powers, rng);
     let stage2 = apply_sprite_budget_damage(count, loss_stage2, &mut powers, rng);
 
-    (Some(stage1), Some(stage2))
+    (
+        Some(stage1.crashed),
+        Some(stage2.crashed),
+        Some(stage1.damaged),
+        Some(stage2.damaged),
+    )
+}
+
+fn calc_sprite_motion_total(
+    fly_count: Option<i64>,
+    loss_stage1: i64,
+    total_stage1: i64,
+    loss_stage2: i64,
+    total_stage2: i64,
+) -> Option<(i64, i64)> {
+    fly_count?;
+    let (crash_stage1, crash_stage2, damage_stage1, damage_stage2) = calc_sprite_motion_stage_counts(
+        fly_count,
+        loss_stage1,
+        total_stage1,
+        loss_stage2,
+        total_stage2,
+    );
+    Some((
+        crash_stage1.unwrap_or(0) + crash_stage2.unwrap_or(0),
+        damage_stage1.unwrap_or(0) + damage_stage2.unwrap_or(0),
+    ))
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct SpriteMotionCount {
+    crashed: i64,
+    damaged: i64,
 }
 
 fn apply_sprite_budget_damage<R: Rng + ?Sized>(
@@ -333,19 +383,19 @@ fn apply_sprite_budget_damage<R: Rng + ?Sized>(
     lost_count: i64,
     powers: &mut [f64],
     rng: &mut R,
-) -> i64 {
+) -> SpriteMotionCount {
     if count <= 0 || lost_count <= 0 || powers.is_empty() {
-        return 0;
+        return SpriteMotionCount::default();
     }
 
     let ratio = (lost_count.min(count).max(0) as f64) / count as f64;
     let mut budget = powers.len() as f64 * ratio;
     if budget <= 0.0 {
-        return 0;
+        return SpriteMotionCount::default();
     }
 
     let mut candidates: Vec<usize> = (0..powers.len()).collect();
-    let mut crashed = 0_i64;
+    let mut motion = SpriteMotionCount::default();
 
     while !candidates.is_empty() && budget > 0.0 {
         let candidate_index = rng.gen_range(0..candidates.len());
@@ -357,16 +407,18 @@ fn apply_sprite_budget_damage<R: Rng + ?Sized>(
             let next_power = power - delta;
             if next_power <= f64::EPSILON {
                 powers[sprite_index] = 0.0;
-                crashed += 1;
+                motion.crashed += 1;
             } else {
                 powers[sprite_index] = next_power;
+                motion.damaged += 1;
             }
         }
     }
 
-    crashed
+    motion
 }
 
+#[cfg(test)]
 fn calc_sprite_crash_total(
     fly_count: Option<i64>,
     loss_stage1: i64,
@@ -388,7 +440,7 @@ fn calc_sprite_crash_total(
 #[cfg(test)]
 mod tests {
     use super::{
-        calc_sprite_crash_stage_counts, calc_sprite_crash_stage_counts_with_rng,
+        calc_sprite_crash_stage_counts, calc_sprite_motion_stage_counts_with_rng,
         calc_sprite_crash_total, count_friend_sprite_fly_from_optional_airbase_squadrons,
         count_sprite_fly_from_capacity, parse_plane_from_side, should_include_friend_escort,
     };
@@ -410,7 +462,7 @@ mod tests {
         // main.js-equivalent budget flow with carry-over:
         // stage1 budget=6*10/30=2.0 -> 2 crashes
         // stage2 budget=6*5/30=1.0 -> 1 additional crash
-        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(6), 10, 30, 5, 20, &mut rng);
+        let (s1, s2, _, _) = calc_sprite_motion_stage_counts_with_rng(Some(6), 10, 30, 5, 20, &mut rng);
         assert_eq!(s1, Some(2));
         assert_eq!(s2, Some(1));
     }
@@ -419,7 +471,7 @@ mod tests {
     fn sprite_crash_clamped_at_fly_count() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(2);
         // More losses than total count => ratio clamped to 1.0
-        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(3), 50, 50, 50, 50, &mut rng);
+        let (s1, s2, _, _) = calc_sprite_motion_stage_counts_with_rng(Some(3), 50, 50, 50, 50, &mut rng);
         assert_eq!(s1, Some(3));
         assert_eq!(s2, Some(0));
     }
@@ -446,7 +498,7 @@ mod tests {
         // stage2 uses stage1 count (10), not stage2 count (2).
         // budget1=4*2/10=0.8 -> no crash, one damaged sprite.
         // budget2=4*4/10=1.6 -> with carry-over this yields 2 crashes for this RNG sequence.
-        let (s1, s2) = calc_sprite_crash_stage_counts_with_rng(Some(4), 2, 10, 4, 2, &mut rng);
+        let (s1, s2, _, _) = calc_sprite_motion_stage_counts_with_rng(Some(4), 2, 10, 4, 2, &mut rng);
         assert_eq!(s1, Some(0));
         assert_eq!(s2, Some(2));
     }
@@ -455,6 +507,15 @@ mod tests {
     fn sprite_crash_total_is_sum_of_stages() {
         let total = calc_sprite_crash_total(Some(3), 50, 50, 50, 50);
         assert_eq!(total, Some(3));
+    }
+
+    #[test]
+    fn sprite_damage_counts_partial_hits() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(9);
+        let (_, _, d1, d2) =
+            calc_sprite_motion_stage_counts_with_rng(Some(6), 2, 30, 2, 30, &mut rng);
+        assert_eq!(d1, Some(1));
+        assert_eq!(d2, Some(1));
     }
 
     #[test]
@@ -556,14 +617,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 e_air_war.as_ref(),
                 attack.e_damage.plane_from.as_deref(),
             );
-            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            let (f_stage1, f_stage2, f_damage_stage1, f_damage_stage2) =
+                calc_sprite_motion_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
                 attack.f_damage.total_plane1,
                 attack.f_damage.loss_plane2,
                 attack.f_damage.total_plane2,
             );
-            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            let (e_stage1, e_stage2, e_damage_stage1, e_damage_stage2) =
+                calc_sprite_motion_stage_counts(
                 attack.e_sprite_fly_count,
                 attack.e_damage.loss_plane1,
                 attack.e_damage.total_plane1,
@@ -574,6 +637,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             attack.f_sprite_crash_count_stage2 = f_stage2;
             attack.e_sprite_crash_count_stage1 = e_stage1;
             attack.e_sprite_crash_count_stage2 = e_stage2;
+            attack.f_sprite_damage_count_stage1 = f_damage_stage1;
+            attack.f_sprite_damage_count_stage2 = f_damage_stage2;
+            attack.e_sprite_damage_count_stage1 = e_damage_stage1;
+            attack.e_sprite_damage_count_stage2 = e_damage_stage2;
         }
     }
 
@@ -586,14 +653,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             e_air_war_jet.as_ref(),
             carrier_base_assault.e_damage.plane_from.as_deref(),
         );
-        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+        let (f_stage1, f_stage2, f_damage_stage1, f_damage_stage2) =
+            calc_sprite_motion_stage_counts(
             carrier_base_assault.f_sprite_fly_count,
             carrier_base_assault.f_damage.loss_plane1,
             carrier_base_assault.f_damage.total_plane1,
             carrier_base_assault.f_damage.loss_plane2,
             carrier_base_assault.f_damage.total_plane2,
         );
-        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+        let (e_stage1, e_stage2, e_damage_stage1, e_damage_stage2) =
+            calc_sprite_motion_stage_counts(
             carrier_base_assault.e_sprite_fly_count,
             carrier_base_assault.e_damage.loss_plane1,
             carrier_base_assault.e_damage.total_plane1,
@@ -604,6 +673,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         carrier_base_assault.f_sprite_crash_stage2_count = f_stage2;
         carrier_base_assault.e_sprite_crash_stage1_count = e_stage1;
         carrier_base_assault.e_sprite_crash_stage2_count = e_stage2;
+        carrier_base_assault.f_sprite_damage_stage1_count = f_damage_stage1;
+        carrier_base_assault.f_sprite_damage_stage2_count = f_damage_stage2;
+        carrier_base_assault.e_sprite_damage_stage1_count = e_damage_stage1;
+        carrier_base_assault.e_sprite_damage_stage2_count = e_damage_stage2;
     }
 
     if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
@@ -614,14 +687,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             e_air_unit_jet.as_ref(),
             air_base_assault.e_damage.plane_from.as_deref(),
         );
-        let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+        let (f_stage1, f_stage2, f_damage_stage1, f_damage_stage2) =
+            calc_sprite_motion_stage_counts(
             air_base_assault.f_sprite_fly_count,
             air_base_assault.f_damage.loss_plane1,
             air_base_assault.f_damage.total_plane1,
             air_base_assault.f_damage.loss_plane2,
             air_base_assault.f_damage.total_plane2,
         );
-        let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+        let (e_stage1, e_stage2, e_damage_stage1, e_damage_stage2) =
+            calc_sprite_motion_stage_counts(
             air_base_assault.e_sprite_fly_count,
             air_base_assault.e_damage.loss_plane1,
             air_base_assault.e_damage.total_plane1,
@@ -632,6 +707,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         air_base_assault.f_sprite_crash_stage2_count = f_stage2;
         air_base_assault.e_sprite_crash_stage1_count = e_stage1;
         air_base_assault.e_sprite_crash_stage2_count = e_stage2;
+        air_base_assault.f_sprite_damage_stage1_count = f_damage_stage1;
+        air_base_assault.f_sprite_damage_stage2_count = f_damage_stage2;
+        air_base_assault.e_sprite_damage_stage1_count = e_damage_stage1;
+        air_base_assault.e_sprite_damage_stage2_count = e_damage_stage2;
     }
 
     if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
@@ -643,14 +722,16 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
                 e_air_unit.as_ref(),
                 attack.e_damage.plane_from.as_deref(),
             );
-            let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
+            let (f_stage1, f_stage2, f_damage_stage1, f_damage_stage2) =
+                calc_sprite_motion_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
                 attack.f_damage.total_plane1,
                 attack.f_damage.loss_plane2,
                 attack.f_damage.total_plane2,
             );
-            let (e_stage1, e_stage2) = calc_sprite_crash_stage_counts(
+            let (e_stage1, e_stage2, e_damage_stage1, e_damage_stage2) =
+                calc_sprite_motion_stage_counts(
                 attack.e_sprite_fly_count,
                 attack.e_damage.loss_plane1,
                 attack.e_damage.total_plane1,
@@ -661,6 +742,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             attack.f_sprite_crash_stage2_count = f_stage2;
             attack.e_sprite_crash_stage1_count = e_stage1;
             attack.e_sprite_crash_stage2_count = e_stage2;
+            attack.f_sprite_damage_stage1_count = f_damage_stage1;
+            attack.f_sprite_damage_stage2_count = f_damage_stage2;
+            attack.e_sprite_damage_stage1_count = e_damage_stage1;
+            attack.e_sprite_damage_stage2_count = e_damage_stage2;
         }
     }
 
@@ -675,20 +760,24 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             e_air_war.as_ref(),
             support_airattack.e_damage.plane_from.as_deref(),
         );
-        support_airattack.f_sprite_crash_count = calc_sprite_crash_total(
+        let f_motion = calc_sprite_motion_total(
             support_airattack.f_sprite_fly_count,
             support_airattack.f_damage.loss_plane1,
             support_airattack.f_damage.total_plane1,
             support_airattack.f_damage.loss_plane2,
             support_airattack.f_damage.total_plane2,
         );
-        support_airattack.e_sprite_crash_count = calc_sprite_crash_total(
+        let e_motion = calc_sprite_motion_total(
             support_airattack.e_sprite_fly_count,
             support_airattack.e_damage.loss_plane1,
             support_airattack.e_damage.total_plane1,
             support_airattack.e_damage.loss_plane2,
             support_airattack.e_damage.total_plane2,
         );
+        support_airattack.f_sprite_crash_count = f_motion.map(|(crash, _)| crash);
+        support_airattack.e_sprite_crash_count = e_motion.map(|(crash, _)| crash);
+        support_airattack.f_sprite_damage_count = f_motion.map(|(_, damage)| damage);
+        support_airattack.e_sprite_damage_count = e_motion.map(|(_, damage)| damage);
     }
 }
 
@@ -749,6 +838,10 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
             f_sprite_crash_stage2_count: None,
             e_sprite_crash_stage1_count: None,
             e_sprite_crash_stage2_count: None,
+            f_sprite_damage_stage1_count: None,
+            f_sprite_damage_stage2_count: None,
+            e_sprite_damage_stage1_count: None,
+            e_sprite_damage_stage2_count: None,
         })
     }
 }
@@ -978,6 +1071,10 @@ impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<OpeningAirAtt
             f_sprite_crash_count_stage2: None,
             e_sprite_crash_count_stage1: None,
             e_sprite_crash_count_stage2: None,
+            f_sprite_damage_count_stage1: None,
+            f_sprite_damage_count_stage2: None,
+            e_sprite_damage_count_stage1: None,
+            e_sprite_damage_count_stage2: None,
         })
     }
 }
@@ -1380,6 +1477,8 @@ impl From<kcapi_common::common_air::ApiSupportAiratack> for InterfaceWrapper<Sup
             e_sprite_fly_count: None,
             f_sprite_crash_count: None,
             e_sprite_crash_count: None,
+            f_sprite_damage_count: None,
+            e_sprite_damage_count: None,
         })
     }
 }
@@ -1412,6 +1511,10 @@ impl From<kcapi_common::common_air::ApiAirBaseInjection> for InterfaceWrapper<Ai
             f_sprite_crash_stage2_count: None,
             e_sprite_crash_stage1_count: None,
             e_sprite_crash_stage2_count: None,
+            f_sprite_damage_stage1_count: None,
+            f_sprite_damage_stage2_count: None,
+            e_sprite_damage_stage1_count: None,
+            e_sprite_damage_stage2_count: None,
         })
     }
 }
@@ -1434,6 +1537,10 @@ impl From<kcapi_common::common_air::ApiKouku> for InterfaceWrapper<CarrierBaseAs
             f_sprite_crash_stage2_count: None,
             e_sprite_crash_stage1_count: None,
             e_sprite_crash_stage2_count: None,
+            f_sprite_damage_stage1_count: None,
+            f_sprite_damage_stage2_count: None,
+            e_sprite_damage_stage1_count: None,
+            e_sprite_damage_stage2_count: None,
         })
     }
 }
@@ -1511,7 +1618,9 @@ pub fn calc_dmg(battle: &mut Battle) {
         .map(|friendly_force_attack| friendly_force_attack.fleet_info.now_hps.clone())
         .unwrap_or(vec![0; 6]);
 
-    let battle_order: Vec<BattleType> = battle.battle_order.clone().unwrap();
+    let Some(battle_order) = battle.battle_order.clone() else {
+        return;
+    };
 
     battle_order
         .iter()
@@ -2148,16 +2257,14 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
         let midnight_hougeki: Option<MidnightHougeki> =
             Some(InterfaceWrapper::from(battle.api_hougeki).unwrap());
         let friendly_force_attack: Option<FriendlyForceAttack> =
-            if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() {
-                Some(
-                    InterfaceWrapper::from_api_data(
-                        battle.api_friendly_info.unwrap(),
-                        battle.api_friendly_battle.unwrap(),
-                    )
-                    .unwrap(),
-                )
-            } else {
-                None
+            match (
+                battle.api_friendly_info.clone(),
+                battle.api_friendly_battle.clone(),
+            ) {
+                (Some(info), Some(friendly_battle)) => {
+                    Some(InterfaceWrapper::from_api_data(info, friendly_battle).unwrap())
+                }
+                _ => None,
             };
 
         let cell_no = KCS_CELLS_INDEX

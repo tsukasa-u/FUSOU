@@ -504,6 +504,10 @@ pub struct CarrierBaseAssault {
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -519,6 +523,10 @@ pub struct AirBaseAssult {
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -542,6 +550,10 @@ pub struct AirBaseAirAttack {
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -557,6 +569,10 @@ pub struct OpeningAirAttack {
     pub f_sprite_crash_count_stage2: Option<i64>,
     pub e_sprite_crash_count_stage1: Option<i64>,
     pub e_sprite_crash_count_stage2: Option<i64>,
+    pub f_sprite_damage_count_stage1: Option<i64>,
+    pub f_sprite_damage_count_stage2: Option<i64>,
+    pub e_sprite_damage_count_stage1: Option<i64>,
+    pub e_sprite_damage_count_stage2: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -707,6 +723,8 @@ pub struct SupportAiratack {
     pub e_sprite_fly_count: Option<i64>,
     pub f_sprite_crash_count: Option<i64>,
     pub e_sprite_crash_count: Option<i64>,
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
