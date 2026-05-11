@@ -186,13 +186,28 @@ fn build_enemy_ship_sprite_capacity(
     )
 }
 
-/// Counts fly sprites by summing the sprite capacity of all ships that have qualifying
-/// aircraft, regardless of whether they attacked in stage3. Using `plane_from` (stage3
-/// participants) would under-count when some ships had all planes destroyed before stage3,
-/// and would return `None` when no ships reached stage3 at all.
-fn count_sprite_fly_from_capacity(capacity: Option<&SpriteCapacity>) -> Option<i64> {
+/// Counts fly sprites for ships listed in `plane_from`, matching main.js `_createPlanes`
+/// which builds sprites only for stage3 participants.
+/// When `plane_from` is `None` (stage3 data absent), falls back to summing all ships.
+/// When `plane_from` is `Some([])` (no stage3 participation), returns `Some(0)`.
+fn count_sprite_fly_from_capacity(
+    capacity: Option<&SpriteCapacity>,
+    plane_from: Option<&[i64]>,
+) -> Option<i64> {
     let capacity = capacity?;
-    Some(capacity.iter().filter_map(|&c| c).sum())
+    let total: i64 = match plane_from {
+        Some(indices) => indices
+            .iter()
+            .filter_map(|&idx| {
+                if idx < 0 {
+                    return None;
+                }
+                capacity.get(idx as usize).and_then(|&c| c)
+            })
+            .sum(),
+        None => capacity.iter().filter_map(|&c| c).sum(),
+    };
+    Some(total)
 }
 
 fn count_support_friend_sprite_fly_from_ship_ids(ship_ids: &[i64]) -> Option<i64> {
@@ -358,6 +373,7 @@ mod tests {
     use super::{
         calc_sprite_crash_stage_counts, calc_sprite_crash_stage_counts_with_rng,
         calc_sprite_crash_total, count_friend_sprite_fly_from_optional_airbase_squadrons,
+        count_sprite_fly_from_capacity,
     };
     use rand::SeedableRng;
 
@@ -423,6 +439,27 @@ mod tests {
         let total = calc_sprite_crash_total(Some(3), 50, 50, 50, 50);
         assert_eq!(total, Some(3));
     }
+
+    #[test]
+    fn fly_count_filtered_by_plane_from() {
+        // capacity: ship0=3, ship1=2, ship2=1
+        let capacity: Vec<Option<i64>> = vec![Some(3), Some(2), Some(1)];
+        // Only ships 0 and 2 attacked in stage3
+        assert_eq!(
+            count_sprite_fly_from_capacity(Some(&capacity), Some(&[0, 2])),
+            Some(4)
+        );
+        // No stage3 participation → 0 sprites, matching game (empty planes_f)
+        assert_eq!(
+            count_sprite_fly_from_capacity(Some(&capacity), Some(&[])),
+            Some(0)
+        );
+        // No plane_from data → fall back to all ships
+        assert_eq!(
+            count_sprite_fly_from_capacity(Some(&capacity), None),
+            Some(6)
+        );
+    }
 }
 
 pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
@@ -440,8 +477,14 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
 
     if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
         for attack in opening_air_attack.iter_mut().flatten() {
-            attack.f_sprite_fly_count = count_sprite_fly_from_capacity(f_air_war.as_ref());
-            attack.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_war.as_ref());
+            attack.f_sprite_fly_count = count_sprite_fly_from_capacity(
+                f_air_war.as_ref(),
+                attack.f_damage.plane_from.as_deref(),
+            );
+            attack.e_sprite_fly_count = count_sprite_fly_from_capacity(
+                e_air_war.as_ref(),
+                attack.e_damage.plane_from.as_deref(),
+            );
             let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
@@ -464,10 +507,14 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
     }
 
     if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
-        carrier_base_assault.f_sprite_fly_count =
-            count_sprite_fly_from_capacity(f_air_war_jet.as_ref());
-        carrier_base_assault.e_sprite_fly_count =
-            count_sprite_fly_from_capacity(e_air_war_jet.as_ref());
+        carrier_base_assault.f_sprite_fly_count = count_sprite_fly_from_capacity(
+            f_air_war_jet.as_ref(),
+            carrier_base_assault.f_damage.plane_from.as_deref(),
+        );
+        carrier_base_assault.e_sprite_fly_count = count_sprite_fly_from_capacity(
+            e_air_war_jet.as_ref(),
+            carrier_base_assault.e_damage.plane_from.as_deref(),
+        );
         let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
             carrier_base_assault.f_sprite_fly_count,
             carrier_base_assault.f_damage.loss_plane1,
@@ -492,8 +539,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
         air_base_assault.f_sprite_fly_count = Some(count_friend_sprite_fly_from_airbase_squadrons(
             &air_base_assault.squadron_count,
         ));
-        air_base_assault.e_sprite_fly_count =
-            count_sprite_fly_from_capacity(e_air_unit_jet.as_ref());
+        air_base_assault.e_sprite_fly_count = count_sprite_fly_from_capacity(
+            e_air_unit_jet.as_ref(),
+            air_base_assault.e_damage.plane_from.as_deref(),
+        );
         let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
             air_base_assault.f_sprite_fly_count,
             air_base_assault.f_damage.loss_plane1,
@@ -519,7 +568,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
             attack.f_sprite_fly_count = count_friend_sprite_fly_from_optional_airbase_squadrons(
                 attack.squadron_count.as_ref(),
             );
-            attack.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_unit.as_ref());
+            attack.e_sprite_fly_count = count_sprite_fly_from_capacity(
+                e_air_unit.as_ref(),
+                attack.e_damage.plane_from.as_deref(),
+            );
             let (f_stage1, f_stage2) = calc_sprite_crash_stage_counts(
                 attack.f_sprite_fly_count,
                 attack.f_damage.loss_plane1,
@@ -548,7 +600,10 @@ pub(super) fn apply_sprite_metrics(battle: &mut Battle) {
     {
         support_airattack.f_sprite_fly_count =
             count_support_friend_sprite_fly_from_ship_ids(&support_airattack.ship_id);
-        support_airattack.e_sprite_fly_count = count_sprite_fly_from_capacity(e_air_war.as_ref());
+        support_airattack.e_sprite_fly_count = count_sprite_fly_from_capacity(
+            e_air_war.as_ref(),
+            support_airattack.e_damage.plane_from.as_deref(),
+        );
         support_airattack.f_sprite_crash_count = calc_sprite_crash_total(
             support_airattack.f_sprite_fly_count,
             support_airattack.f_damage.loss_plane1,
