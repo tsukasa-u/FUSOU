@@ -337,14 +337,8 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     const e_crash = support_airatack.e_sprite_crash_count;
     const f_damage = support_airatack.f_sprite_damage_count;
     const e_damage = support_airatack.e_sprite_damage_count;
-
-    const sum_or_unknown = (a: number | null, b: number | null) => {
-      if (a == null && b == null) return "?";
-      return (a ?? 0) + (b ?? 0);
-    };
-
-    const f_non_normal = sum_or_unknown(f_crash, f_damage);
-    const e_non_normal = sum_or_unknown(e_crash, e_damage);
+    const f_non_normal = support_airatack.f_sprite_non_normal_count ?? "?";
+    const e_non_normal = support_airatack.e_sprite_non_normal_count ?? "?";
 
     return (
       <div class="pl-2 text-xs font-mono">
@@ -352,7 +346,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         <div>Fly: {f_fly ?? "?"} / {e_fly ?? "?"}</div>
         <div>Crash: {f_crash ?? "?"} / {e_crash ?? "?"}</div>
         <div>Damage: {f_damage ?? "?"} / {e_damage ?? "?"}</div>
-        <div>Non-Normal (Crash+Damage): {f_non_normal} / {e_non_normal}</div>
+        <div>Non-Normal (Unique): {f_non_normal} / {e_non_normal}</div>
         <div>
           Loss Plane (S1+S2):
           {" "}
