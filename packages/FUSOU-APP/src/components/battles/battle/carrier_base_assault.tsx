@@ -352,6 +352,14 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     const carrier_base_assault = props.battle_selected()?.carrier_base_assault;
     if (!carrier_base_assault) return null;
 
+    const sum_or_unknown = (
+      a: number | null | undefined,
+      b: number | null | undefined
+    ): number | "?" => {
+      if (a == null && b == null) return "?";
+      return (a ?? 0) + (b ?? 0);
+    };
+
     const f_fly = carrier_base_assault.f_sprite_fly_count;
     const e_fly = carrier_base_assault.e_sprite_fly_count;
     const f_crash1 = carrier_base_assault.f_sprite_crash_stage1_count;
@@ -362,12 +370,16 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     const f_damage2 = carrier_base_assault.f_sprite_damage_stage2_count;
     const e_damage1 = carrier_base_assault.e_sprite_damage_stage1_count;
     const e_damage2 = carrier_base_assault.e_sprite_damage_stage2_count;
+    const f_crash = sum_or_unknown(f_crash1, f_crash2);
+    const e_crash = sum_or_unknown(e_crash1, e_crash2);
+    const f_damage = sum_or_unknown(f_damage1, f_damage2);
+    const e_damage = sum_or_unknown(e_damage1, e_damage2);
     const f_non_normal = carrier_base_assault.f_sprite_non_normal_count ?? "?";
     const e_non_normal = carrier_base_assault.e_sprite_non_normal_count ?? "?";
 
     return (
       <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"}/{e_crash1 ?? "?"}+{e_crash2 ?? "?"}, Damage: {f_damage1 ?? "?"}+{f_damage2 ?? "?"}/{e_damage1 ?? "?"}+{e_damage2 ?? "?"}, Non-Normal: {f_non_normal}/{e_non_normal}
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash}/{e_crash}, Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
       </div>
     );
   };

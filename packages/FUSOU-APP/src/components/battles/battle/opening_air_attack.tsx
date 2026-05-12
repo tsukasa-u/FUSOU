@@ -166,6 +166,14 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = () => {
+    const sum_or_unknown = (
+      a: number | null | undefined,
+      b: number | null | undefined
+    ): number | "?" => {
+      if (a == null && b == null) return "?";
+      return (a ?? 0) + (b ?? 0);
+    };
+
     const f_fly = airattack()?.f_sprite_fly_count;
     const e_fly = airattack()?.e_sprite_fly_count;
     const f_crash1 = airattack()?.f_sprite_crash_count_stage1;
@@ -176,6 +184,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     const f_damage2 = airattack()?.f_sprite_damage_count_stage2;
     const e_damage1 = airattack()?.e_sprite_damage_count_stage1;
     const e_damage2 = airattack()?.e_sprite_damage_count_stage2;
+    const f_crash = sum_or_unknown(f_crash1, f_crash2);
+    const e_crash = sum_or_unknown(e_crash1, e_crash2);
+    const f_damage = sum_or_unknown(f_damage1, f_damage2);
+    const e_damage = sum_or_unknown(e_damage1, e_damage2);
     const f_non_normal = airattack()?.f_sprite_non_normal_count ?? "?";
     const e_non_normal = airattack()?.e_sprite_non_normal_count ?? "?";
 
@@ -201,10 +213,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             Fly: {f_fly ?? "?"}/{e_fly ?? "?"}
           </span>
           <span class="pl-2">
-            Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"} / {e_crash1 ?? "?"}+{e_crash2 ?? "?"}
+            Crash: {f_crash} / {e_crash}
           </span>
           <span class="pl-2">
-            Damage: {f_damage1 ?? "?"}+{f_damage2 ?? "?"} / {e_damage1 ?? "?"}+{e_damage2 ?? "?"}
+            Damage: {f_damage} / {e_damage}
           </span>
           <span class="pl-2">
             Non-Normal: {f_non_normal} / {e_non_normal}
