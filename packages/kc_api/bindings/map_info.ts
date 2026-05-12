@@ -5,4 +5,3 @@ export type AirBase = { rid: number, action_kind: number, area_id: number, name:
 export type AirBases = { bases: { [key in string]?: AirBase }, };
 
 export type PlaneInfo = { cond: number | null, state: number, max_count: number | null, count: number | null, slotid: number, squadron_id: number, };
-

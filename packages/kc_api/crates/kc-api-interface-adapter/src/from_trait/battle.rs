@@ -603,6 +603,60 @@ mod tests {
         assert_eq!(parse_plane_from_side(Some(&plane_from), 0), Some(vec![0, 1]));
         assert_eq!(parse_plane_from_side(Some(&plane_from), 1), Some(vec![]));
     }
+
+    // Conservation law: unique_non_normal must always be <= fly_count.
+    // A sprite damaged in stage1 and then crashed in stage2 must NOT be double-counted.
+    #[test]
+    fn non_normal_count_never_exceeds_fly_count() {
+        // Try a variety of seeds and parameter combinations to detect any conservation violation.
+        for seed in 0..200u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            // fly=2, heavy losses in both stages -> total crash+damage can exceed 2
+            let (c1, c2, d1, d2, nn) =
+                calc_sprite_motion_stage_counts_with_rng(Some(2), 10, 10, 10, 10, &mut rng);
+            let fly = 2i64;
+            let non_normal = nn.unwrap_or(0);
+            let sum_stages = c1.unwrap_or(0) + c2.unwrap_or(0) + d1.unwrap_or(0) + d2.unwrap_or(0);
+            assert!(
+                non_normal <= fly,
+                "seed={seed}: non_normal={non_normal} > fly={fly} (stage_sum={sum_stages})"
+            );
+        }
+    }
+
+    #[test]
+    fn damaged_in_stage1_then_crashed_in_stage2_counted_once() {
+        // fly=1, stage1 partial hit (budget=0.5), stage2 finishes it off (budget=0.5).
+        // Both stages process the same sprite -> stage sums can be 2, but non_normal must be 1.
+        for seed in 0..100u64 {
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            let (c1, c2, d1, d2, nn) =
+                calc_sprite_motion_stage_counts_with_rng(Some(1), 5, 10, 5, 10, &mut rng);
+            let non_normal = nn.unwrap_or(0);
+            assert!(
+                non_normal <= 1,
+                "seed={seed}: non_normal={non_normal} > fly=1 (c1={c1:?} c2={c2:?} d1={d1:?} d2={d2:?})"
+            );
+        }
+    }
+
+    #[test]
+    fn non_normal_count_zero_when_no_losses() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        // loss1=0, loss2=0 -> no sprites touched -> non_normal=0
+        let (_, _, _, _, nn) =
+            calc_sprite_motion_stage_counts_with_rng(Some(6), 0, 30, 0, 30, &mut rng);
+        assert_eq!(nn, Some(0));
+    }
+
+    #[test]
+    fn non_normal_count_equals_fly_when_all_losses() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        // All planes lost in stage1 -> non_normal = fly_count
+        let (_, _, _, _, nn) =
+            calc_sprite_motion_stage_counts_with_rng(Some(4), 30, 30, 0, 30, &mut rng);
+        assert_eq!(nn, Some(4));
+    }
 }
 
 pub(super) fn apply_sprite_metrics(battle: &mut Battle) {

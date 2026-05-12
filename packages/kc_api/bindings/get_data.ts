@@ -51,4 +51,3 @@ export type MstStypes = { mst_stypes: { [key in number]?: MstStype }, };
 export type MstUseItem = { id: number, name: string, };
 
 export type MstUseItems = { mst_use_items: { [key in number]?: MstUseItem }, };
-
