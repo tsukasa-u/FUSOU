@@ -8,7 +8,7 @@ import {
   extractBearer,
   timingSafeEqual,
 } from "../utils";
-import { validateCachedPeriodTag } from "../utils/period-tags";
+import { validateCachedPeriodTag, listAllowedPeriodTags } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -986,6 +986,36 @@ app.get("/json", async (c) => {
       period_revision,
       r2_key: r2Key,
     } = record;
+
+    // Validate period_tag against Supabase allowed period tags
+    try {
+      const allowedPeriodTags = await listAllowedPeriodTags(c, {
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+
+      if (!allowedPeriodTags.includes(period_tag)) {
+        console.warn(
+          `[master-data] period_tag "${period_tag}" is not in allowed list, returning empty`,
+        );
+        return c.json(
+          {
+            table_name: tableName,
+            table_version: null,
+            period_tag: null,
+            count: 0,
+            records: [],
+          },
+          200,
+          { ...CORS_HEADERS },
+        );
+      }
+    } catch (validationError) {
+      console.error(
+        `[master-data] Failed to validate period_tag: ${String(validationError)}`,
+      );
+      // If validation fails, still try to serve (non-blocking validation)
+      // but log the issue for monitoring
+    }
 
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);

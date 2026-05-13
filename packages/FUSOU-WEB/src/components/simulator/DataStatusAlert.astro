@@ -10,6 +10,8 @@
  *   - #data-status-text         main text content (e.g. "マスターデータ読込済み — …")
  *   - #data-status-master-meta  sub-line: master data period/revision (hidden when unavailable)
  *   - #data-status-synergy-meta sub-line: equipment synergy data period/version (hidden when unavailable)
+ *   - #data-status-details      detailed table load results (collapsible)
+ *   - #data-status-details-toggle button to toggle details visibility
  */
 
 interface Props {
@@ -19,12 +21,15 @@ interface Props {
   initialText?: string;
   /** If true the element starts hidden until JS reveals it. */
   startHidden?: boolean;
+  /** If true, show details toggle button. */
+  showDetailsToggle?: boolean;
 }
 
 const {
   mb = "mb-4",
   initialText = "マスターデータを読込中...",
   startHidden = false,
+  showDetailsToggle = true,
 } = Astro.props;
 ---
 
@@ -95,11 +100,27 @@ const {
     ></path>
   </svg>
 
-  <span class="flex flex-col leading-tight gap-0.5">
-    <span id="data-status-text" class="text-sm">{initialText}</span>
+  <span class="flex flex-col leading-tight gap-0.5 flex-1">
+    <span class="flex items-center justify-between gap-2">
+      <span id="data-status-text" class="text-sm">{initialText}</span>
+      {showDetailsToggle && (
+        <button
+          id="data-status-details-toggle"
+          class="btn btn-xs btn-ghost"
+          title="詳細ロード結果を表示/非表示"
+          style="min-height: auto; padding: 0.25rem 0.5rem; display: none;"
+        >
+          詳細
+        </button>
+      )}
+    </span>
     <span id="data-status-master-meta" class="text-[11px] opacity-70 hidden"
     ></span>
     <span id="data-status-synergy-meta" class="text-[11px] opacity-70 hidden"
     ></span>
+    <div
+      id="data-status-details"
+      class="text-[11px] mt-2 flex flex-col gap-1 hidden"
+    ></div>
   </span>
 </div>

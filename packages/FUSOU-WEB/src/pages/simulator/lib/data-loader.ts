@@ -245,6 +245,8 @@ export function updateDataStatus() {
   const textEl = document.getElementById("data-status-text");
   const masterMetaEl = document.getElementById("data-status-master-meta");
   const synergyMetaEl = document.getElementById("data-status-synergy-meta");
+  const detailsEl = document.getElementById("data-status-details");
+  const detailsToggleEl = document.getElementById("data-status-details-toggle");
   const counts = getMasterDataCounts();
   const shipCount = counts.ships;
   const equipCount = counts.equips;
@@ -302,6 +304,45 @@ export function updateDataStatus() {
       synergyMetaEl.classList.add("hidden");
       synergyMetaEl.textContent = "";
     }
+  }
+
+  // Render detailed load results
+  if (detailsEl) {
+    const results = getDataLoadResults();
+    if (results.length > 0) {
+      detailsEl.innerHTML = results
+        .map((result) => {
+          const icon =
+            result.status === "success"
+              ? '<span class="text-success">✓</span>'
+              : result.status === "failed"
+                ? '<span class="text-error">✗</span>'
+                : '<span class="text-info">⋯</span>';
+          const label = result.recordCount != null ? `${result.name} (${result.recordCount})` : result.name;
+          return `<div class="flex items-center gap-1">${icon} <span class="truncate">${label}</span></div>`;
+        })
+        .join("");
+      detailsEl.classList.add("hidden");
+    }
+  }
+
+  // Toggle button visibility
+  if (detailsToggleEl) {
+    const hasFailed =
+      _dataLoadResults.some((r) => r.status === "failed") ||
+      shipCount === 0;
+    if (hasFailed) {
+      detailsToggleEl.style.display = "inline-block";
+    } else {
+      detailsToggleEl.style.display = "none";
+    }
+
+    // Add toggle handler
+    detailsToggleEl.onclick = () => {
+      if (detailsEl) {
+        detailsEl.classList.toggle("hidden");
+      }
+    };
   }
 
   if (shipCount > 0 && equipCount > 0) {
@@ -449,13 +490,27 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   if (typeof json !== "object" || json === null) return;
   const obj = json as Record<string, unknown>;
 
+  // Track load results for JSON import
+  _dataLoadResults = [
+    { name: "mst_ship", status: "pending" },
+    { name: "mst_slotitem", status: "pending" },
+    { name: "mst_slotitem_equiptype", status: "pending" },
+    { name: "mst_stype", status: "pending" },
+    { name: "mst_equip_exslot", status: "pending" },
+    { name: "mst_equip_ship", status: "pending" },
+    { name: "mst_equip_exslot_ship", status: "pending" },
+    { name: "mst_equip_limit_exslot", status: "pending" },
+  ];
+
   beginBulkLoad();
   try {
+    let shipCount = 0;
     if (obj.mst_ships && typeof obj.mst_ships === "object") {
       if (Array.isArray(obj.mst_ships)) {
         for (const v of obj.mst_ships) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             setMasterShip(normalizeMstShip(v as MstShipData));
+            shipCount++;
           }
         }
       } else {
@@ -466,17 +521,26 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
             setMasterShip(
               normalizeMstShip({ ...(v as MstShipData), id: Number(k) }),
             );
+            shipCount++;
           }
         }
       }
     }
+    const shipResult = _dataLoadResults.find((r) => r.name === "mst_ship");
+    if (shipResult) {
+      shipResult.status = shipCount > 0 ? "success" : "failed";
+      shipResult.recordCount = shipCount;
+      shipResult.loadedAt = Date.now();
+    }
 
+    let equipCount = 0;
     if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
       if (Array.isArray(obj.mst_slot_items)) {
         for (const v of obj.mst_slot_items) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             const item = normalizeMstSlotItem(v as MstSlotItemData);
             setMasterSlotItem(item);
+            equipCount++;
           }
         }
       } else {
@@ -488,9 +552,16 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
               ...normalizeMstSlotItem(v as MstSlotItemData),
               id: Number(k),
             });
+            equipCount++;
           }
         }
       }
+    }
+    const equipResult = _dataLoadResults.find((r) => r.name === "mst_slotitem");
+    if (equipResult) {
+      equipResult.status = equipCount > 0 ? "success" : "failed";
+      equipResult.recordCount = equipCount;
+      equipResult.loadedAt = Date.now();
     }
 
     // Optional: equipment type master for category display
@@ -540,6 +611,17 @@ let _masterDataPeriodTag: string | null = null;
 let _masterDataPeriodRevision: number | null = null;
 let _masterDataTableVersion: string | null = null;
 
+// ── Data load result tracking ──
+interface DataLoadResult {
+  name: string;
+  status: "pending" | "success" | "failed";
+  recordCount?: number;
+  error?: string;
+  loadedAt?: number;
+}
+
+let _dataLoadResults: DataLoadResult[] = [];
+
 export function getLoadedMasterDataMeta(): {
   period_tag: string | null;
   period_revision: number | null;
@@ -550,6 +632,10 @@ export function getLoadedMasterDataMeta(): {
     period_revision: _masterDataPeriodRevision,
     table_version: _masterDataTableVersion,
   };
+}
+
+export function getDataLoadResults(): DataLoadResult[] {
+  return [..._dataLoadResults];
 }
 
 async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
@@ -582,6 +668,25 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
 }
 
 export async function loadMasterData(renderAll: () => void) {
+  // Initialize load result tracking
+  _dataLoadResults = [
+    { name: "mst_ship", status: "pending" },
+    { name: "mst_slotitem", status: "pending" },
+    { name: "ship-banner-map", status: "pending" },
+    { name: "ship-card-map", status: "pending" },
+    { name: "ship-icon-map", status: "pending" },
+    { name: "equip-image-map", status: "pending" },
+    { name: "weapon-icon-frames", status: "pending" },
+    { name: "ship-type-icon-frames", status: "pending" },
+    { name: "mst_slotitem_equiptype", status: "pending" },
+    { name: "mst_stype", status: "pending" },
+    { name: "mst_equip_exslot", status: "pending" },
+    { name: "mst_equip_ship", status: "pending" },
+    { name: "mst_equip_exslot_ship", status: "pending" },
+    { name: "mst_equip_limit_exslot", status: "pending" },
+    { name: "synergy-data", status: "pending" },
+  ];
+
   beginBulkLoad();
   try {
     const synergyBundle = await fetchSynergyDataWithMeta();
@@ -668,6 +773,39 @@ export async function loadMasterData(renderAll: () => void) {
         "mst_equip_limit_exslot",
       ),
     ]);
+
+    // Record load results for each table
+    const updateLoadResult = (name: string, data: any) => {
+      const result = _dataLoadResults.find((r) => r.name === name);
+      if (result) {
+        if (data && data.records && Array.isArray(data.records)) {
+          result.status = "success";
+          result.recordCount = data.records.length;
+        } else if (data) {
+          result.status = "success";
+          result.recordCount = 0;
+        } else {
+          result.status = "failed";
+        }
+        result.loadedAt = Date.now();
+      }
+    };
+
+    updateLoadResult("mst_ship", shipData);
+    updateLoadResult("mst_slotitem", equipData);
+    updateLoadResult("ship-banner-map", bannerMapData);
+    updateLoadResult("ship-card-map", cardMapData);
+    updateLoadResult("ship-icon-map", shipIconMapData);
+    updateLoadResult("equip-image-map", equipImageData);
+    updateLoadResult("weapon-icon-frames", iconFrameData);
+    updateLoadResult("ship-type-icon-frames", shipTypeIconFrameData);
+    updateLoadResult("mst_slotitem_equiptype", equipTypeData);
+    updateLoadResult("mst_stype", stypeData);
+    updateLoadResult("mst_equip_exslot", equipExslotData);
+    updateLoadResult("mst_equip_ship", equipShipData);
+    updateLoadResult("mst_equip_exslot_ship", equipExslotShipData);
+    updateLoadResult("mst_equip_limit_exslot", equipLimitExslotData);
+    updateLoadResult("synergy-data", synergyBundle.data);
 
     if (shipData?.records) {
       for (const s of shipData.records) {
