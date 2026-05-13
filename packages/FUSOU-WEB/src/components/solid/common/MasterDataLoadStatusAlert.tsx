@@ -35,14 +35,22 @@ export function MasterDataLoadStatusAlert(props: {
 
   const titleText = createMemo(() => {
     const { success, failed, pending, total } = summary();
-    return (
-      props.title ??
-      `マスターデータ読込: 成功 ${success} / 失敗 ${failed} / 待機 ${pending} (全${total})`
-    );
+    if (props.title) return props.title;
+    if (failed > 0)
+      return `マスターデータ読込エラー — ${failed}件失敗 / ${total}件中`;
+    if (pending > 0)
+      return `マスターデータ読込中... (${total - pending}/${total})`;
+    return `マスターデータ読込済み (${success}件)`;
+  });
+
+  // Show only while loading or when there are failures; hide on complete success.
+  const shouldShow = createMemo(() => {
+    const { failed, pending } = summary();
+    return failed > 0 || pending > 0;
   });
 
   return (
-    <Show when={(props.items?.length ?? 0) > 0}>
+    <Show when={(props.items?.length ?? 0) > 0 && shouldShow()}>
       <div class={`alert alert-${alertType()} text-sm ${props.class ?? ""}`.trim()}>
         <div class="flex flex-col gap-2 w-full">
           <div class="flex items-center justify-between gap-2">

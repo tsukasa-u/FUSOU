@@ -310,6 +310,8 @@ export function updateDataStatus() {
   if (detailsEl) {
     const results = getDataLoadResults();
     if (results.length > 0) {
+      // Preserve open/closed state across updates
+      const wasOpen = !detailsEl.classList.contains("hidden");
       detailsEl.innerHTML = results
         .map((result) => {
           const icon =
@@ -318,11 +320,17 @@ export function updateDataStatus() {
               : result.status === "failed"
                 ? '<span class="text-error">✗</span>'
                 : '<span class="text-info">⋯</span>';
-          const label = result.recordCount != null ? `${result.name} (${result.recordCount})` : result.name;
+          // Only show record count when meaningful (> 0)
+          const label =
+            result.recordCount != null && result.recordCount > 0
+              ? `${result.name} (${result.recordCount})`
+              : result.name;
           return `<div class="flex items-center gap-1">${icon} <span class="truncate">${label}</span></div>`;
         })
         .join("");
-      detailsEl.classList.add("hidden");
+      if (!wasOpen) {
+        detailsEl.classList.add("hidden");
+      }
     }
   }
 
@@ -783,7 +791,7 @@ export async function loadMasterData(renderAll: () => void) {
           result.recordCount = data.records.length;
         } else if (data) {
           result.status = "success";
-          result.recordCount = 0;
+          // Non-records data (assets, synergy): omit recordCount so display shows name only
         } else {
           result.status = "failed";
         }

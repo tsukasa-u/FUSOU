@@ -442,15 +442,16 @@ export default function BattleDetailPanel(props: {
             : null,
         );
       } else if (!preloadedBattle) {
+        // Battle not found — hide master data status (it was never loaded, irrelevant here)
+        setMasterDataStatus([]);
         if (disposed) return;
         setError("指定された戦闘データが見つかりませんでした");
       }
     } catch (e) {
       console.error("Failed to load battle detail:", e);
-      setMasterDataStatus([
-        { name: "mst_ship", status: "failed", detail: "取得失敗" },
-        { name: "mst_slotitem", status: "failed", detail: "取得失敗" },
-      ]);
+      // Do NOT mark master data as failed here — the error is from battle loading,
+      // not from master data loading (getMstShipById/getMstSlotItemById never throw).
+      // Leave the status as-is; the error message below informs the user.
       if (disposed) return;
       setError("戦闘データ読込中にエラーが発生しました");
     } finally {

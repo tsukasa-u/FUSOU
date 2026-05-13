@@ -1223,6 +1223,15 @@ export default function BattleMapFlowPanel() {
       }
     } catch (e) {
       if (isAbortError(e)) return;
+      // Mark any master-data items that never completed (still "pending") as failed,
+      // so the alert doesn't stay frozen in "loading" state after a network error.
+      setMasterDataStatus((prev) =>
+        prev.map((item) =>
+          item.status === "pending"
+            ? { ...item, status: "failed" as const, detail: "読込失敗" }
+            : item,
+        ),
+      );
       setError("読込に失敗しました。しばらくしてから再試行してください。");
       setBattleRecords([]);
       setCellRecords([]);
