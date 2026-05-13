@@ -1020,6 +1020,20 @@ export default function BattleMapFlowPanel() {
       if (!battleRes.ok) {
         setError("戦闘データの取得に失敗しました。");
         setBattleRecords([]);
+        // mstShipRes and mstSlotItemRes were received from Promise.all before this check.
+        // Reflect their real status so the alert doesn't stay frozen at "loading".
+        setMasterDataStatus([
+          {
+            name: "mst_ship",
+            status: mstShipRes.ok ? "success" : "failed",
+            detail: mstShipRes.ok ? undefined : `HTTP ${mstShipRes.status}`,
+          },
+          {
+            name: "mst_slotitem",
+            status: mstSlotItemRes.ok ? "success" : "failed",
+            detail: mstSlotItemRes.ok ? undefined : `HTTP ${mstSlotItemRes.status}`,
+          },
+        ]);
         return;
       }
 
