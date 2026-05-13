@@ -243,6 +243,16 @@ export default function BattlesListPanel() {
         };
         setError(payload.message || "戦闘データの取得に失敗しました。");
         setAllBattles([]);
+        // Update master data status with actual mstShipResponse result (already received)
+        setMasterDataStatus([
+          {
+            name: "mst_ship",
+            status: mstShipResponse.ok ? "success" : "failed",
+            detail: mstShipResponse.ok
+              ? undefined
+              : `HTTP ${mstShipResponse.status}`,
+          },
+        ]);
         return;
       }
 
@@ -476,6 +486,14 @@ export default function BattlesListPanel() {
     } catch (e) {
       setError(`読込エラー: ${String(e)}`);
       setAllBattles([]);
+      // Network error before setMasterDataStatus was reached — mark pending items as failed
+      setMasterDataStatus((prev) =>
+        prev.map((item) =>
+          item.status === "pending"
+            ? { ...item, status: "failed" as const, detail: "読込失敗" }
+            : item,
+        ),
+      );
     } finally {
       setLoading(false);
     }

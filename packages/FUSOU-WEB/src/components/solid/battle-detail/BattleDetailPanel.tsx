@@ -449,9 +449,9 @@ export default function BattleDetailPanel(props: {
       }
     } catch (e) {
       console.error("Failed to load battle detail:", e);
-      // Do NOT mark master data as failed here — the error is from battle loading,
-      // not from master data loading (getMstShipById/getMstSlotItemById never throw).
-      // Leave the status as-is; the error message below informs the user.
+      // Battle loading failed — hide the master data alert since it's irrelevant
+      // when there is no battle to display names for.
+      setMasterDataStatus([]);
       if (disposed) return;
       setError("戦闘データ読込中にエラーが発生しました");
     } finally {
