@@ -500,16 +500,25 @@ pub struct CarrierBaseAssault {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
     pub f_sprite_damage_stage1_count: Option<i64>,
     pub f_sprite_damage_stage2_count: Option<i64>,
     pub e_sprite_damage_stage1_count: Option<i64>,
     pub e_sprite_damage_stage2_count: Option<i64>,
-    pub f_sprite_non_normal_count: Option<i64>,
-    pub e_sprite_non_normal_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -521,16 +530,25 @@ pub struct AirBaseAssult {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
     pub f_sprite_damage_stage1_count: Option<i64>,
     pub f_sprite_damage_stage2_count: Option<i64>,
     pub e_sprite_damage_stage1_count: Option<i64>,
     pub e_sprite_damage_stage2_count: Option<i64>,
-    pub f_sprite_non_normal_count: Option<i64>,
-    pub e_sprite_non_normal_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -550,16 +568,25 @@ pub struct AirBaseAirAttack {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
     pub f_sprite_damage_stage1_count: Option<i64>,
     pub f_sprite_damage_stage2_count: Option<i64>,
     pub e_sprite_damage_stage1_count: Option<i64>,
     pub e_sprite_damage_stage2_count: Option<i64>,
-    pub f_sprite_non_normal_count: Option<i64>,
-    pub e_sprite_non_normal_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -571,16 +598,25 @@ pub struct OpeningAirAttack {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage-specific crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_count_stage1: Option<i64>,
     pub f_sprite_crash_count_stage2: Option<i64>,
     pub e_sprite_crash_count_stage1: Option<i64>,
     pub e_sprite_crash_count_stage2: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
     pub f_sprite_damage_count_stage1: Option<i64>,
     pub f_sprite_damage_count_stage2: Option<i64>,
     pub e_sprite_damage_count_stage1: Option<i64>,
     pub e_sprite_damage_count_stage2: Option<i64>,
-    pub f_sprite_non_normal_count: Option<i64>,
-    pub e_sprite_non_normal_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
