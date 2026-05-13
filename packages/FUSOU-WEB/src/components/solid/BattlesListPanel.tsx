@@ -2,6 +2,10 @@
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utility/fetchCache";
+import {
+  MasterDataLoadStatusAlert,
+  type MasterDataLoadStatusItem,
+} from "./common/MasterDataLoadStatusAlert";
 
 type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 
@@ -138,6 +142,11 @@ export default function BattlesListPanel() {
   const [masterShipNameById, setMasterShipNameById] = createSignal<
     Map<number, string>
   >(new Map());
+  const [masterDataStatus, setMasterDataStatus] = createSignal<
+    MasterDataLoadStatusItem[]
+  >([
+    { name: "mst_ship", status: "pending" },
+  ]);
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -199,6 +208,9 @@ export default function BattlesListPanel() {
   async function loadBattles() {
     setLoading(true);
     setError(null);
+    setMasterDataStatus([
+      { name: "mst_ship", status: "pending" },
+    ]);
     try {
       const [
         response,
@@ -250,8 +262,22 @@ export default function BattlesListPanel() {
         ? ((await enemyShipResponse.json()) as { records?: EnemyShipRecord[] })
         : { records: [] };
       const mstShipPayload = mstShipResponse.ok
-        ? ((await mstShipResponse.json()) as { records?: MstShipRecord[] })
+        ? ((await mstShipResponse.json()) as {
+            records?: MstShipRecord[];
+            period_tag?: string;
+            period_revision?: number;
+          })
         : { records: [] };
+      setMasterDataStatus([
+        {
+          name: "mst_ship",
+          status: mstShipResponse.ok ? "success" : "failed",
+          detail:
+            mstShipResponse.ok
+              ? `${(mstShipPayload.records || []).length}件${mstShipPayload.period_tag ? ` / ${mstShipPayload.period_tag} rev${mstShipPayload.period_revision ?? "?"}` : ""}`
+              : `HTTP ${mstShipResponse.status}`,
+        },
+      ]);
       const battleResultByUuid = new Map<
         string,
         { win_rank: WinRank; drop_ship_id: number | null }
@@ -471,6 +497,8 @@ export default function BattlesListPanel() {
 
   return (
     <>
+      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-4" />
+
       <div class="card bg-base-100 shadow-sm mb-6">
         <div class="card-body p-4">
           <div class="flex flex-wrap gap-4 items-end">

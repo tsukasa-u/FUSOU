@@ -24,6 +24,10 @@ import { buildShareGrowthUrl, copyTextWithFallback } from "@/utility/share-url";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
 import { AlertMessage } from "./common/AlertMessage";
 import { ShareUrlButton } from "./common/ShareUrlButton";
+import {
+  MasterDataLoadStatusAlert,
+  type MasterDataLoadStatusItem,
+} from "./common/MasterDataLoadStatusAlert";
 
 Chart.register(...registerables);
 
@@ -483,6 +487,11 @@ export default function ShipGrowthPanel() {
   const [loadingPeriods, setLoadingPeriods] = createSignal(true);
   const [loadingShips, setLoadingShips] = createSignal(true);
   const [loadingData, setLoadingData] = createSignal(false);
+  const [masterDataStatus, setMasterDataStatus] = createSignal<
+    MasterDataLoadStatusItem[]
+  >([
+    { name: "mst_ship", status: "pending" },
+  ]);
   const [error, setError] = createSignal<string | null>(null);
   const [expCanvas, setExpCanvas] = createSignal<HTMLCanvasElement | null>(
     null,
@@ -611,12 +620,17 @@ export default function ShipGrowthPanel() {
   async function fetchShipMasters() {
     setLoadingShips(true);
     setError(null);
+    setMasterDataStatus([
+      { name: "mst_ship", status: "pending" },
+    ]);
     try {
       const res = await cachedFetch(
         "/api/master-data/json?table_name=mst_ship",
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as {
+        period_tag?: string;
+        period_revision?: number;
         records?: Array<{ id?: number; name?: string; stype?: number }>;
       };
       const rows = (json.records ?? [])
@@ -635,7 +649,21 @@ export default function ShipGrowthPanel() {
         .sort((a, b) => a.id - b.id);
 
       setShipMasterRows(rows);
+      setMasterDataStatus([
+        {
+          name: "mst_ship",
+          status: "success",
+          detail: `${rows.length}件${json.period_tag ? ` / ${json.period_tag} rev${json.period_revision ?? "?"}` : ""}`,
+        },
+      ]);
     } catch (e) {
+      setMasterDataStatus([
+        {
+          name: "mst_ship",
+          status: "failed",
+          detail: e instanceof Error ? e.message : String(e),
+        },
+      ]);
       setError(
         `艦マスタの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
       );
@@ -1028,6 +1056,8 @@ export default function ShipGrowthPanel() {
 
   return (
     <div class="space-y-6">
+      <MasterDataLoadStatusAlert items={masterDataStatus()} />
+
       {/* Controls */}
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body">

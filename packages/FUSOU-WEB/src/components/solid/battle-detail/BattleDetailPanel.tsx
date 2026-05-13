@@ -42,6 +42,10 @@ import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
 import { ShareUrlButton } from "../common/ShareUrlButton";
+import {
+  MasterDataLoadStatusAlert,
+  type MasterDataLoadStatusItem,
+} from "../common/MasterDataLoadStatusAlert";
 
 type DropShipInfo = {
   shipId: number;
@@ -83,6 +87,12 @@ export default function BattleDetailPanel(props: {
 
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+  const [masterDataStatus, setMasterDataStatus] = createSignal<
+    MasterDataLoadStatusItem[]
+  >([
+    { name: "mst_ship", status: "pending" },
+    { name: "mst_slotitem", status: "pending" },
+  ]);
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
   const [showPhaseSeparators, setShowPhaseSeparators] = createSignal(false);
   const [urlStateReady, setUrlStateReady] = createSignal(false);
@@ -264,6 +274,10 @@ export default function BattleDetailPanel(props: {
   }
 
   async function loadBattle(): Promise<void> {
+    setMasterDataStatus([
+      { name: "mst_ship", status: "pending" },
+      { name: "mst_slotitem", status: "pending" },
+    ]);
     let preloadedBattle: Record<string, unknown> | null = null;
 
     // Try to load from sessionStorage first (quick preview)
@@ -393,6 +407,18 @@ export default function BattleDetailPanel(props: {
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
         const resolvedMstShip = await getMstShipById();
+        setMasterDataStatus([
+          {
+            name: "mst_slotitem",
+            status: resolvedMst.size > 0 ? "success" : "failed",
+            detail: `${resolvedMst.size}件`,
+          },
+          {
+            name: "mst_ship",
+            status: resolvedMstShip.size > 0 ? "success" : "failed",
+            detail: `${resolvedMstShip.size}件`,
+          },
+        ]);
         const resolvedCellLabel = await resolveBattleCellLabel(merged);
 
         const dropShipId = Number(resolvedBattleResult?.drop_ship_id ?? 0) || 0;
@@ -421,6 +447,10 @@ export default function BattleDetailPanel(props: {
       }
     } catch (e) {
       console.error("Failed to load battle detail:", e);
+      setMasterDataStatus([
+        { name: "mst_ship", status: "failed", detail: "取得失敗" },
+        { name: "mst_slotitem", status: "failed", detail: "取得失敗" },
+      ]);
       if (disposed) return;
       setError("戦闘データ読込中にエラーが発生しました");
     } finally {
@@ -456,6 +486,8 @@ export default function BattleDetailPanel(props: {
 
   return (
     <div class="max-w-[1440px] mx-auto px-4 py-8">
+      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-4" />
+
       {/* Back link */}
       <div class="mb-4">
         <a href="/battles" class="btn btn-ghost btn-sm gap-1">

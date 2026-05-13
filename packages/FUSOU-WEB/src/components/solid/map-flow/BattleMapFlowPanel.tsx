@@ -77,6 +77,10 @@ import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
 import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
 import { AlertMessage } from "../common/AlertMessage";
+import {
+  MasterDataLoadStatusAlert,
+  type MasterDataLoadStatusItem,
+} from "../common/MasterDataLoadStatusAlert";
 
 export default function BattleMapFlowPanel() {
   // ── UI control signals ──────────────────────────────────────────────────────
@@ -87,6 +91,12 @@ export default function BattleMapFlowPanel() {
   const [partialLoadWarnings, setPartialLoadWarnings] = createSignal<string[]>(
     [],
   );
+  const [masterDataStatus, setMasterDataStatus] = createSignal<
+    MasterDataLoadStatusItem[]
+  >([
+    { name: "mst_ship", status: "pending" },
+    { name: "mst_slotitem", status: "pending" },
+  ]);
   const [selectedSortieId, setSelectedSortieId] = createSignal("");
   const [selectedCellFilter, setSelectedCellFilter] =
     createSignal<SelectedCellFilter | null>(null);
@@ -937,6 +947,10 @@ export default function BattleMapFlowPanel() {
     setLoading(true);
     setError(null);
     setPartialLoadWarnings([]);
+    setMasterDataStatus([
+      { name: "mst_ship", status: "pending" },
+      { name: "mst_slotitem", status: "pending" },
+    ]);
     try {
       const parseOptionalJson = async <T,>(
         response: Response,
@@ -1036,6 +1050,22 @@ export default function BattleMapFlowPanel() {
       const mstSlotItemPayload = await parseOptionalJson<{
         records?: MstSlotItemRecord[];
       }>(mstSlotItemRes, { records: [] }, "装備マスタ", optionalWarnings);
+      setMasterDataStatus([
+        {
+          name: "mst_ship",
+          status: mstShipRes.ok ? "success" : "failed",
+          detail: mstShipRes.ok
+            ? `${(mstPayload.records || []).length}件`
+            : `HTTP ${mstShipRes.status}`,
+        },
+        {
+          name: "mst_slotitem",
+          status: mstSlotItemRes.ok ? "success" : "failed",
+          detail: mstSlotItemRes.ok
+            ? `${(mstSlotItemPayload.records || []).length}件`
+            : `HTTP ${mstSlotItemRes.status}`,
+        },
+      ]);
       const battleResultPayload = await parseOptionalJson<{
         records?: BattleResultRecord[];
       }>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
@@ -1273,6 +1303,8 @@ export default function BattleMapFlowPanel() {
 
   return (
     <>
+      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-4" />
+
       {/* Filter / load controls */}
       <div class="card bg-base-100 shadow-sm mb-6">
         <div class="card-body p-4">
