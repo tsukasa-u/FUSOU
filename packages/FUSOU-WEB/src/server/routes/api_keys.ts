@@ -79,7 +79,8 @@ async function verifyAccessToken(
 
     const user = (await response.json()) as { id: string; email: string };
     return user;
-  } catch {
+  } catch (err) {
+    console.warn('[api_keys] verifyAccessToken failed:', err);
     return null;
   }
 }
@@ -298,6 +299,16 @@ app.delete("/:id", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
+    // Verify the key exists and belongs to this user before deleting
+    const existing = await supabaseRestRequest<{ id: string }[]>(
+      config,
+      "api_keys",
+      { query: `?id=eq.${keyId}&user_id=eq.${user.id}&select=id` },
+    );
+    if (!existing || existing.length === 0) {
+      return jsonResponse({ error: "Not found" }, 404);
+    }
+
     // Delete only if it belongs to the user
     await supabaseRestRequest(config, "api_keys", {
       method: "DELETE",
@@ -342,6 +353,16 @@ app.patch("/:id", async (c) => {
 
     if (Object.keys(updateData).length === 0) {
       return jsonResponse({ error: "No fields to update" }, 400);
+    }
+
+    // Verify the key exists and belongs to this user before updating
+    const existing = await supabaseRestRequest<{ id: string }[]>(
+      config,
+      "api_keys",
+      { query: `?id=eq.${keyId}&user_id=eq.${user.id}&select=id` },
+    );
+    if (!existing || existing.length === 0) {
+      return jsonResponse({ error: "Not found" }, 404);
     }
 
     await supabaseRestRequest(config, "api_keys", {
@@ -419,6 +440,16 @@ app.delete("/devices/:id", async (c) => {
     const user = await verifyAccessToken(config, accessToken);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
+    }
+
+    // Verify the device exists and belongs to this user before revoking
+    const existing = await supabaseRestRequest<{ id: string }[]>(
+      config,
+      "trusted_devices",
+      { query: `?id=eq.${deviceId}&user_id=eq.${user.id}&select=id` },
+    );
+    if (!existing || existing.length === 0) {
+      return jsonResponse({ error: "Not found" }, 404);
     }
 
     await supabaseRestRequest(config, "trusted_devices", {

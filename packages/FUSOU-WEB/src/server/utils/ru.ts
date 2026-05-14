@@ -42,8 +42,8 @@ export async function checkAndDeductRU(
     lastRefill = data.lastRefill;
   }
   
-  // Refill
-  const elapsedSeconds = (now - lastRefill) / 1000;
+  // Refill — guard against negative elapsed time from clock skew or corrupted KV data
+  const elapsedSeconds = Math.max(0, (now - lastRefill) / 1000);
   const newTokens = elapsedSeconds * DEFAULT_REFILL_RATE;
   tokens = Math.min(DEFAULT_MAX_RU, tokens + newTokens);
   
