@@ -1,5 +1,12 @@
 /** @jsxImportSource solid-js */
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+} from "solid-js";
 import { cachedFetch } from "@/utility/fetchCache";
 
 type BattleRecord = {
@@ -120,6 +127,8 @@ function buildLinePath(
 
 export default function BattleStatsPanel() {
   const [periodTag, setPeriodTag] = createSignal("latest");
+  const [tableVersion, setTableVersion] = createSignal("");
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [stats, setStats] = createSignal<StatsState>(emptyStats());
@@ -146,7 +155,7 @@ export default function BattleStatsPanel() {
   );
 
   function normalizeEpochMs(value: number | null | undefined): number | null {
-    if (!value || !Number.isFinite(value)) return null;
+    if (value === null || value === undefined || !Number.isFinite(value)) return null;
     return value < 1_000_000_000_000 ? value * 1000 : value;
   }
 
@@ -169,12 +178,16 @@ export default function BattleStatsPanel() {
     setLoading(true);
     setError(null);
     try {
+      const requestedTableVersion = tableVersion().trim();
+      const tableVersionQuery = requestedTableVersion
+        ? `&table_version=${encodeURIComponent(requestedTableVersion)}`
+        : "";
       const [res, battleResultRes] = await Promise.all([
         cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=20&limit_records=8000`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
       ]);
       if (!res.ok) {
@@ -221,7 +234,7 @@ export default function BattleStatsPanel() {
           JSON.stringify({ uuid: fillTargets }),
         );
         const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
         if (batchRes.ok) {
           const body = (await batchRes.json().catch(() => ({}))) as {
@@ -309,7 +322,34 @@ export default function BattleStatsPanel() {
   }
 
   onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const requestedPeriodTag = params.get("period_tag")?.trim();
+    if (requestedPeriodTag) {
+      setPeriodTag(requestedPeriodTag);
+    }
+    const requestedTableVersion = params.get("table_version")?.trim();
+    if (requestedTableVersion) {
+      setTableVersion(requestedTableVersion);
+    }
+    setUrlStateReady(true);
     void loadStats();
+  });
+
+  createEffect(() => {
+    if (!urlStateReady()) return;
+    const url = new URL(window.location.href);
+    if (periodTag()) {
+      url.searchParams.set("period_tag", periodTag());
+    } else {
+      url.searchParams.delete("period_tag");
+    }
+    const requestedTableVersion = tableVersion().trim();
+    if (requestedTableVersion) {
+      url.searchParams.set("table_version", requestedTableVersion);
+    } else {
+      url.searchParams.delete("table_version");
+    }
+    window.history.replaceState({}, "", url.toString());
   });
 
   return (
@@ -349,6 +389,19 @@ export default function BattleStatsPanel() {
                 <option value="latest">最新</option>
                 <option value="all">全期間</option>
               </select>
+            </div>
+            <div class="form-control">
+              <label class="label">
+                <span class="label-text">テーブルバージョン</span>
+              </label>
+              <input
+                id="battle-stats-filter-table-version"
+                class="input input-bordered input-sm"
+                type="text"
+                placeholder="例: 0.5"
+                value={tableVersion()}
+                onInput={(e) => setTableVersion(e.currentTarget.value)}
+              />
             </div>
             <button
               id="battle-stats-aggregate-btn"

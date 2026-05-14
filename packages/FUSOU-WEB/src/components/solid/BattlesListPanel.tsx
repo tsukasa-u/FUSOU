@@ -1,5 +1,12 @@
 /** @jsxImportSource solid-js */
-import { For, Show, createMemo, createSignal, onMount } from "solid-js";
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onMount,
+} from "solid-js";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utility/fetchCache";
 import {
@@ -55,6 +62,11 @@ type MstShipRecord = {
   name: string;
 };
 
+type PeriodSummary = {
+  period_tag: string;
+  table_version: string | null;
+};
+
 const WIN_RANK_BADGES: Record<string, string> = {
   S: "badge-success",
   A: "badge-info",
@@ -93,7 +105,7 @@ function formatTimestamp(ts: number | null): string {
 }
 
 function normalizeEpochMs(value: number | null | undefined): number | null {
-  if (!value || !Number.isFinite(value)) return null;
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
   return value < 1_000_000_000_000 ? value * 1000 : value;
 }
 
@@ -125,13 +137,23 @@ function mapLabelOf(b: BattleRecord): string {
   return b.maparea_id && b.mapinfo_no ? `${b.maparea_id}-${b.mapinfo_no}` : "-";
 }
 
+function periodLabel(period: PeriodSummary): string {
+  if (period.period_tag === "latest") return "最新期間";
+  if (period.period_tag === "all") return "全期間";
+  if (!period.table_version) return period.period_tag;
+  return `${period.period_tag} (v${period.table_version})`;
+}
+
 export default function BattlesListPanel() {
   const [loading, setLoading] = createSignal(false);
+  const [loadingPeriods, setLoadingPeriods] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [periodTag, setPeriodTag] = createSignal("latest");
+  const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
+  const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
   const [currentPage, setCurrentPage] = createSignal(0);
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
   const [allBattles, setAllBattles] = createSignal<BattleRecord[]>([]);
   const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<
     Map<string, string>
@@ -205,13 +227,80 @@ export default function BattlesListPanel() {
       .slice(0, 25);
   });
 
-  async function loadBattles() {
+  const selectedPeriod = createMemo(
+    () => periods()[selectedPeriodIdx()] ?? null,
+  );
+
+  async function fetchPeriodSummary(): Promise<PeriodSummary[]> {
+    setLoadingPeriods(true);
+    try {
+      const response = await cachedFetch("/api/battle-data/global/summary?table=battle");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        periods?: Array<{ period_tag?: string; table_version?: string }>;
+      };
+      const rowsFromSummary = (payload.periods || [])
+        .map((row) => ({
+          period_tag: String(row.period_tag ?? "").trim(),
+          table_version: String(row.table_version ?? "").trim() || null,
+        }))
+        .filter((row) => row.period_tag.length > 0 && !!row.table_version);
+      const rows: PeriodSummary[] = [
+        { period_tag: "latest", table_version: null },
+        { period_tag: "all", table_version: null },
+        ...rowsFromSummary,
+      ];
+      setPeriods(rows);
+      return rows;
+    } finally {
+      setLoadingPeriods(false);
+    }
+  }
+
+  function resolveInitialPeriodIndex(
+    rows: PeriodSummary[],
+    rawPeriodTag: string | null,
+    rawTableVersion: string | null,
+  ): number {
+    if (rows.length === 0) return 0;
+    const periodTag = rawPeriodTag?.trim() || null;
+    const tableVersion = rawTableVersion?.trim() || null;
+    if (!periodTag) {
+      return rows.findIndex((row) => row.period_tag === "latest") >= 0
+        ? rows.findIndex((row) => row.period_tag === "latest")
+        : 0;
+    }
+
+    const exactIdx = rows.findIndex(
+      (row) =>
+        row.period_tag === periodTag &&
+        (!tableVersion || row.table_version === tableVersion),
+    );
+    if (exactIdx >= 0) return exactIdx;
+
+    const periodOnlyIdx = rows.findIndex((row) => row.period_tag === periodTag);
+    return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
+  }
+
+  async function loadBattles(periodOverride?: PeriodSummary | null) {
+    const requestedPeriod = periodOverride ?? selectedPeriod();
+    if (!requestedPeriod) {
+      setError("利用可能な期間データがありません。");
+      setAllBattles([]);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setMasterDataStatus([
       { name: "mst_ship", status: "pending" },
     ]);
     try {
+      const tableVersionQuery = requestedPeriod.table_version
+        ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
+        : "";
       const [
         response,
         cellsResponse,
@@ -221,19 +310,19 @@ export default function BattlesListPanel() {
         mstShipResponse,
       ] = await Promise.all([
         cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=5000`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=8000`,
+          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(periodTag())}&limit_blocks=12&limit_records=20000`,
+          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
         ),
         cachedFetch(`/api/master-data/json?table_name=mst_ship`),
       ]);
@@ -316,7 +405,7 @@ export default function BattlesListPanel() {
           JSON.stringify({ uuid: fillTargets }),
         );
         const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
         );
         if (batchRes.ok) {
           const body = (await batchRes.json().catch(() => ({}))) as {
@@ -506,11 +595,60 @@ export default function BattlesListPanel() {
       // Ignore storage errors and keep navigation.
     }
     const detailId = battle.uuid || battle.env_uuid || String(fallbackIndex);
-    window.location.href = `/battles/${encodeURIComponent(detailId)}`;
+    const detailUrl = new URL(
+      `/battles/${encodeURIComponent(detailId)}`,
+      window.location.origin,
+    );
+    const period = selectedPeriod();
+    if (period) {
+      detailUrl.searchParams.set("period_tag", period.period_tag);
+      if (period.table_version) {
+        detailUrl.searchParams.set("table_version", period.table_version);
+      } else {
+        detailUrl.searchParams.delete("table_version");
+      }
+    }
+    window.location.href = detailUrl.toString();
   }
 
   onMount(() => {
-    void loadBattles();
+    void (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const initialPeriodTag = params.get("period_tag");
+      const initialTableVersion = params.get("table_version");
+      try {
+        const rows = await fetchPeriodSummary();
+        if (rows.length > 0) {
+          const idx = resolveInitialPeriodIndex(
+            rows,
+            initialPeriodTag,
+            initialTableVersion,
+          );
+          setSelectedPeriodIdx(idx);
+          setUrlStateReady(true);
+          await loadBattles(rows[idx] ?? rows[0]);
+          return;
+        }
+        setError("利用可能な期間データがありません。");
+      } catch (e) {
+        setError(`期間データの取得に失敗しました: ${String(e)}`);
+      }
+      setUrlStateReady(true);
+    })();
+  });
+
+  createEffect(() => {
+    if (!urlStateReady()) return;
+    const period = selectedPeriod();
+    if (!period) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("period_tag", period.period_tag);
+    if (period.table_version) {
+      url.searchParams.set("table_version", period.table_version);
+    } else {
+      url.searchParams.delete("table_version");
+    }
+    window.history.replaceState({}, "", url.toString());
   });
 
   return (
@@ -524,15 +662,26 @@ export default function BattlesListPanel() {
               <label class="label">
                 <span class="label-text">期間</span>
               </label>
-              <select
-                id="battles-filter-period"
-                class="select select-bordered select-sm"
-                value={periodTag()}
-                onInput={(e) => setPeriodTag(e.currentTarget.value)}
+              <Show
+                when={!loadingPeriods()}
+                fallback={<span class="loading loading-spinner loading-sm" />}
               >
-                <option value="latest">最新</option>
-                <option value="all">全期間</option>
-              </select>
+                <select
+                  id="battles-filter-period"
+                  class="select select-bordered select-sm"
+                  value={selectedPeriodIdx()}
+                  onChange={(e) =>
+                    setSelectedPeriodIdx(Number.parseInt(e.currentTarget.value, 10))
+                  }
+                  disabled={periods().length === 0}
+                >
+                  <For each={periods()}>
+                    {(period, idx) => (
+                      <option value={idx()}>{periodLabel(period)}</option>
+                    )}
+                  </For>
+                </select>
+              </Show>
             </div>
             <div class="form-control">
               <label class="label">
@@ -578,7 +727,7 @@ export default function BattlesListPanel() {
               id="battles-load-btn"
               class="btn btn-primary btn-sm"
               onClick={() => void loadBattles()}
-              disabled={loading()}
+              disabled={loading() || loadingPeriods() || periods().length === 0}
             >
               {loading() ? "読込中..." : "読込"}
             </button>
@@ -681,7 +830,25 @@ export default function BattlesListPanel() {
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
                         const detailId =
                           b.uuid || b.env_uuid || String(fallbackIdx);
-                        const detailHref = `/battles/${encodeURIComponent(detailId)}`;
+                        const detailHref = () => {
+                          const period = selectedPeriod();
+                          const url = new URL(
+                            `/battles/${encodeURIComponent(detailId)}`,
+                            window.location.origin,
+                          );
+                          if (period) {
+                            url.searchParams.set("period_tag", period.period_tag);
+                            if (period.table_version) {
+                              url.searchParams.set(
+                                "table_version",
+                                period.table_version,
+                              );
+                            } else {
+                              url.searchParams.delete("table_version");
+                            }
+                          }
+                          return `${url.pathname}${url.search}`;
+                        };
                         return (
                           <tr
                             class="hover cursor-pointer"
@@ -737,7 +904,7 @@ export default function BattlesListPanel() {
                             <td>
                               <a
                                 id="battles-detail-link"
-                                href={detailHref}
+                                href={detailHref()}
                                 class="btn btn-ghost btn-xs"
                                 onClick={(e) => {
                                   e.stopPropagation();

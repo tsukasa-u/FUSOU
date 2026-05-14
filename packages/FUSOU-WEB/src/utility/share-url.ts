@@ -10,6 +10,8 @@ export type ShareGrowthSelection = {
 
 export type ShareBattleSelection = {
   battleId: string;
+  periodTag?: string;
+  tableVersion?: string;
   view?: "phase" | "timeline";
   separators?: boolean;
 };
@@ -40,6 +42,12 @@ export function buildShareBattleUrl(
 ): string {
   const shareUrl = new URL("/share/battle", origin);
   shareUrl.searchParams.set("id", selection.battleId);
+  if (selection.periodTag) {
+    shareUrl.searchParams.set("period_tag", selection.periodTag);
+  }
+  if (selection.tableVersion) {
+    shareUrl.searchParams.set("table_version", selection.tableVersion);
+  }
   if (selection.view) {
     shareUrl.searchParams.set("view", selection.view);
   }

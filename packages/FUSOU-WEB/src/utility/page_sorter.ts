@@ -19,5 +19,5 @@ export const compareSegments = (a: any, b: any) => {
   const aOrder = segmentOrder[a.segment] ?? 0xff;
   const bOrder = segmentOrder[b.segment] ?? 0xff;
   if (aOrder !== bOrder) return aOrder - bOrder;
-  return a.segment.localeCompare(b.segment);
+  return (a.segment ?? "").localeCompare(b.segment ?? "");
 };

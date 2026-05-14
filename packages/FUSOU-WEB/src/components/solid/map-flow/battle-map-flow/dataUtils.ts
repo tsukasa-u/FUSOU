@@ -24,7 +24,7 @@ export function mapKeyOf(rec: { maparea_id?: number | null; mapinfo_no?: number 
 }
 
 export function normalizeEpochMs(value: number | null | undefined): number | null {
-  if (!value || !Number.isFinite(value)) return null;
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
   return value < 1_000_000_000_000 ? value * 1000 : value;
 }
 

@@ -33,7 +33,7 @@ Chart.register(...registerables);
 
 // ── Types ──────────────────────────────────────────────────────────
 
-type PeriodSource = "live" | "cumulative" | "all";
+type PeriodSource = "live" | "latest" | "cumulative" | "all";
 
 type PeriodSummary = {
   period_tag: string;
@@ -41,11 +41,22 @@ type PeriodSummary = {
   source?: PeriodSource;
 };
 
-const CUMULATIVE_PERIOD_TAG = "__cumulative__";
+const LATEST_PERIOD_TAG = "latest";
+const LATEST_TABLE_VERSION = "__latest__";
+
+const CUMULATIVE_PERIOD_TAG = "all";
 const CUMULATIVE_TABLE_VERSION = "__archive__";
 
 const ALL_PERIODS_PERIOD_TAG = "__all-periods__";
 const ALL_PERIODS_TABLE_VERSION = "__all__";
+
+function isLatestPeriod(p: PeriodSummary | null | undefined): boolean {
+  return (
+    !!p &&
+    p.period_tag === LATEST_PERIOD_TAG &&
+    p.table_version === LATEST_TABLE_VERSION
+  );
+}
 
 function isCumulativePeriod(p: PeriodSummary | null | undefined): boolean {
   return (
@@ -64,7 +75,8 @@ function isAllPeriodsPeriod(p: PeriodSummary | null | undefined): boolean {
 }
 
 function periodLabel(p: PeriodSummary): string {
-  if (isCumulativePeriod(p)) return "累積（過去アーカイブ統合）";
+  if (isLatestPeriod(p)) return "最新期間";
+  if (isCumulativePeriod(p)) return "全期間";
   if (isAllPeriodsPeriod(p)) return "全期間比較";
   return `${p.period_tag} (v${p.table_version})`;
 }
@@ -186,6 +198,93 @@ function parsePositiveInt(raw: string | null): number | null {
   const value = Number(raw);
   if (!Number.isInteger(value) || value <= 0) return null;
   return value;
+}
+
+function mergeBoundsByMax(
+  archiveRows: BoundRow[],
+  liveRows: BoundRow[],
+  liveSourcePeriod: string,
+): BoundRow[] {
+  const merged = new Map<string, BoundRow>();
+
+  for (const row of archiveRows) {
+    merged.set(`${row.master_id}:${row.lv}`, { ...row });
+  }
+
+  for (const liveRow of liveRows) {
+    const key = `${liveRow.master_id}:${liveRow.lv}`;
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, {
+        ...liveRow,
+        kaihi_source_period: liveRow.kaihi_source_period ?? liveSourcePeriod,
+        taisen_source_period:
+          liveRow.taisen_source_period ?? liveSourcePeriod,
+        sakuteki_source_period:
+          liveRow.sakuteki_source_period ?? liveSourcePeriod,
+      });
+      continue;
+    }
+
+    const next = { ...existing };
+    // Use the smaller (more precise) naked value. 0 means no reliable
+    // observation (clamped from negative), so only update when the incoming
+    // value is positive and smaller than the current best estimate.
+    if (
+      liveRow.kaihi_naked > 0 &&
+      (existing.kaihi_naked === 0 || liveRow.kaihi_naked < existing.kaihi_naked)
+    ) {
+      next.kaihi_naked = liveRow.kaihi_naked;
+      next.kaihi_source_period =
+        liveRow.kaihi_source_period ?? liveSourcePeriod;
+    }
+    if (
+      liveRow.taisen_naked > 0 &&
+      (existing.taisen_naked === 0 || liveRow.taisen_naked < existing.taisen_naked)
+    ) {
+      next.taisen_naked = liveRow.taisen_naked;
+      next.taisen_source_period =
+        liveRow.taisen_source_period ?? liveSourcePeriod;
+    }
+    if (
+      liveRow.sakuteki_naked > 0 &&
+      (existing.sakuteki_naked === 0 || liveRow.sakuteki_naked < existing.sakuteki_naked)
+    ) {
+      next.sakuteki_naked = liveRow.sakuteki_naked;
+      next.sakuteki_source_period =
+        liveRow.sakuteki_source_period ?? liveSourcePeriod;
+    }
+    merged.set(key, next);
+  }
+
+  return [...merged.values()].sort(
+    (a, b) => a.master_id - b.master_id || a.lv - b.lv,
+  );
+}
+
+function mergeCapsByMax(archiveCaps: CapRow[], liveCaps: CapRow[]): CapRow[] {
+  const merged = new Map<number, CapRow>();
+
+  for (const row of archiveCaps) {
+    merged.set(row.master_id, { ...row });
+  }
+
+  for (const liveRow of liveCaps) {
+    const existing = merged.get(liveRow.master_id);
+    if (!existing) {
+      merged.set(liveRow.master_id, { ...liveRow });
+      continue;
+    }
+
+    merged.set(liveRow.master_id, {
+      master_id: liveRow.master_id,
+      kaihi_max: Math.max(existing.kaihi_max, liveRow.kaihi_max),
+      taisen_max: Math.max(existing.taisen_max, liveRow.taisen_max),
+      sakuteki_max: Math.max(existing.sakuteki_max, liveRow.sakuteki_max),
+    });
+  }
+
+  return [...merged.values()].sort((a, b) => a.master_id - b.master_id);
 }
 
 // Data point type for bounds chart — includes optional source period used by
@@ -594,13 +693,25 @@ export default function ShipGrowthPanel() {
         table_version: p.table_version,
         source: "live",
       }));
-      const merged: PeriodSummary[] = [...base];
-      if (json.cumulative_available) {
+      const merged: PeriodSummary[] = [];
+
+      if (base.length > 0) {
         merged.push({
-          period_tag: CUMULATIVE_PERIOD_TAG,
-          table_version: CUMULATIVE_TABLE_VERSION,
-          source: "cumulative",
+          period_tag: LATEST_PERIOD_TAG,
+          table_version: LATEST_TABLE_VERSION,
+          source: "latest",
         });
+      }
+
+      merged.push({
+        period_tag: CUMULATIVE_PERIOD_TAG,
+        table_version: CUMULATIVE_TABLE_VERSION,
+        source: "cumulative",
+      });
+
+      merged.push(...base);
+
+      if (json.cumulative_available || base.length > 1) {
         merged.push({
           period_tag: ALL_PERIODS_PERIOD_TAG,
           table_version: ALL_PERIODS_TABLE_VERSION,
@@ -703,16 +814,23 @@ export default function ShipGrowthPanel() {
     setLoadingData(true);
     setError(null);
     try {
+      const latest = isLatestPeriod(period);
       const cumulative = isCumulativePeriod(period);
       const allPeriods = isAllPeriodsPeriod(period);
+      const firstLivePeriod = periods().find((p) => p.source === "live") ?? null;
+      const resolvedLivePeriod = latest ? firstLivePeriod : period;
+
+      if (latest && !resolvedLivePeriod) {
+        throw new Error("最新期間の実データが見つかりません。");
+      }
 
       // Exp curve: not stored in archives. For cumulative/all-periods
       // selection fall back to whatever live period exists (best-effort) so
       // the chart still shows a reference exp curve. If no live period exists,
       // skip.
-      let expPeriod: PeriodSummary | null = period;
+      let expPeriod: PeriodSummary | null = resolvedLivePeriod;
       if (cumulative || allPeriods) {
-        expPeriod = periods().find((p) => p.source === "live") ?? null;
+        expPeriod = firstLivePeriod;
       }
       if (expPeriod) {
         const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(expPeriod.period_tag)}&table_version=${encodeURIComponent(expPeriod.table_version)}`;
@@ -735,7 +853,7 @@ export default function ShipGrowthPanel() {
         // All-periods mode: fetch per-period breakdown from archives, then
         // also fetch the current live period's bounds to append (newest).
         // Exp, all-periods, and live bounds are all fetched in parallel.
-        const livePeriodForBounds = periods().find((p) => p.source === "live");
+        const livePeriodForBounds = firstLivePeriod;
         const [apRes, liveRes] = await Promise.all([
           cachedFetch("/api/ship-growth/all-periods"),
           livePeriodForBounds
@@ -794,11 +912,60 @@ export default function ShipGrowthPanel() {
         return;
       }
 
+      if (cumulative) {
+        const [cumulativeRes, liveRes] = await Promise.all([
+          cachedFetch("/api/ship-growth/cumulative"),
+          firstLivePeriod
+            ? cachedFetch(
+                `/api/ship-growth/bounds?period_tag=${encodeURIComponent(firstLivePeriod.period_tag)}&table_version=${encodeURIComponent(firstLivePeriod.table_version)}`,
+              )
+            : Promise.resolve(null),
+        ]);
+        if (!cumulativeRes.ok) {
+          throw new Error(`cumulative HTTP ${cumulativeRes.status}`);
+        }
+
+        const cumulativeJson = (await cumulativeRes.json()) as {
+          ok: boolean;
+          bounds?: unknown;
+          caps?: unknown;
+        };
+        let mergedBounds = normalizeBoundRows(cumulativeJson.bounds);
+        let mergedCaps = normalizeCapRows(cumulativeJson.caps);
+
+        if (liveRes?.ok && firstLivePeriod) {
+          const liveJson = (await liveRes.json()) as {
+            ok: boolean;
+            bounds?: unknown;
+            caps?: unknown;
+          };
+          const liveBounds = normalizeBoundRows(liveJson.bounds);
+          const liveCaps = normalizeCapRows(liveJson.caps);
+          const liveSourcePeriod = `${firstLivePeriod.period_tag}/${firstLivePeriod.table_version}`;
+          mergedBounds = mergeBoundsByMax(
+            mergedBounds,
+            liveBounds,
+            liveSourcePeriod,
+          );
+          mergedCaps = mergeCapsByMax(mergedCaps, liveCaps);
+        }
+
+        if (!isCurrentFetch()) return;
+        batch(() => {
+          setAllBoundRows(mergedBounds);
+          setAllCapRows(mergedCaps);
+          setAllPeriodsEntries([]);
+        });
+        applySelectedShipBounds(selectedMasterId());
+        return;
+      }
+
       // Bounds/caps: route to /cumulative for cumulative selection,
       // /bounds for live periods.
-      const boundsUrl = cumulative
-        ? "/api/ship-growth/cumulative"
-        : `/api/ship-growth/bounds?period_tag=${encodeURIComponent(period.period_tag)}&table_version=${encodeURIComponent(period.table_version)}`;
+      if (!resolvedLivePeriod) {
+        throw new Error("期間データの解決に失敗しました。");
+      }
+      const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(resolvedLivePeriod.period_tag)}&table_version=${encodeURIComponent(resolvedLivePeriod.table_version)}`;
       const boundsRes = await cachedFetch(boundsUrl);
       if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
       const boundsJson = (await boundsRes.json()) as {
@@ -870,10 +1037,16 @@ export default function ShipGrowthPanel() {
     const exact = rows.findIndex(
       (p) =>
         p.period_tag === periodTag &&
-        (!tableVersion || p.table_version === tableVersion),
+        (periodTag === LATEST_PERIOD_TAG ||
+          periodTag === CUMULATIVE_PERIOD_TAG ||
+          !tableVersion ||
+          p.table_version === tableVersion),
     );
     if (exact >= 0) {
       setSelectedPeriodIdx(exact);
+    } else {
+      const periodOnly = rows.findIndex((p) => p.period_tag === periodTag);
+      if (periodOnly >= 0) setSelectedPeriodIdx(periodOnly);
     }
 
     setInitialPeriodTag(null);
@@ -915,15 +1088,20 @@ export default function ShipGrowthPanel() {
     if (!period) return;
 
     const url = new URL(window.location.href);
-    if (isCumulativePeriod(period)) {
-      url.searchParams.set("cumulative", "1");
-      url.searchParams.delete("all_periods");
-      url.searchParams.delete("period_tag");
-      url.searchParams.delete("table_version");
-    } else if (isAllPeriodsPeriod(period)) {
+    if (isAllPeriodsPeriod(period)) {
       url.searchParams.set("all_periods", "1");
       url.searchParams.delete("cumulative");
       url.searchParams.delete("period_tag");
+      url.searchParams.delete("table_version");
+    } else if (isCumulativePeriod(period)) {
+      url.searchParams.delete("cumulative");
+      url.searchParams.delete("all_periods");
+      url.searchParams.set("period_tag", CUMULATIVE_PERIOD_TAG);
+      url.searchParams.delete("table_version");
+    } else if (isLatestPeriod(period)) {
+      url.searchParams.delete("cumulative");
+      url.searchParams.delete("all_periods");
+      url.searchParams.set("period_tag", LATEST_PERIOD_TAG);
       url.searchParams.delete("table_version");
     } else {
       url.searchParams.delete("cumulative");
@@ -946,14 +1124,19 @@ export default function ShipGrowthPanel() {
     const period = selectedPeriod();
     const masterId = selectedMasterId();
     if (!period || masterId == null) return null;
+    const sharePeriod = isLatestPeriod(period)
+      ? periods().find((p) => p.source === "live") ?? null
+      : period;
+    if (!sharePeriod) return null;
     // Cumulative and all-periods are synthetic local-only selections; share
     // URLs must point to a real period.
-    if (isCumulativePeriod(period)) return null;
-    if (isAllPeriodsPeriod(period)) return null;
+    if (isCumulativePeriod(sharePeriod)) return null;
+    if (isAllPeriodsPeriod(sharePeriod)) return null;
+    if (isLatestPeriod(sharePeriod)) return null;
 
     return buildShareGrowthUrl(window.location.origin, {
-      periodTag: period.period_tag,
-      tableVersion: period.table_version,
+      periodTag: sharePeriod.period_tag,
+      tableVersion: sharePeriod.table_version,
       masterId,
     });
   }
