@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
-import { validateCachedPeriodTag } from "../utils/period-tags";
+import {
+  getAllowedPeriodTagSet,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
@@ -101,6 +104,48 @@ const PUBLIC_RECORD_TABLES = new Set([
 ]);
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
+
+async function resolveAllowedPeriodTagsForRecords(
+  c: { env: Bindings },
+  indexDb: D1Database,
+  table: string,
+  cacheKV?: KVNamespace,
+): Promise<Set<string>> {
+  try {
+    return await getAllowedPeriodTagSet(c, cacheKV);
+  } catch (error) {
+    console.warn(
+      "[battle-data] allow-list fetch failed; falling back to local period tags:",
+      error,
+    );
+  }
+
+  const fallbackRows = (await indexDb
+    .prepare(
+      "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC LIMIT 200",
+    )
+    .bind(table)
+    .all()) as { results?: Array<{ period_tag?: string | null }> };
+
+  const fallbackSet = new Set<string>();
+  for (const row of fallbackRows.results || []) {
+    const periodTag = row?.period_tag;
+    if (typeof periodTag !== "string" || !periodTag) continue;
+    const validation = await validateCachedPeriodTag(c, periodTag, {
+      fieldName: "period_tag",
+      cacheKV,
+    });
+    if (validation.ok) {
+      fallbackSet.add(periodTag);
+    }
+  }
+
+  if (fallbackSet.size > 0) {
+    return fallbackSet;
+  }
+
+  throw new Error(`Failed to resolve allowed period tags for table ${table}`);
+}
 
 function parsePositiveInt(
   value: string | undefined,
@@ -785,10 +830,12 @@ app.get("/chunks", async (c) => {
   const table = c.req.query("table");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
+  const rawLimit = parseInt(c.req.query("limit") || "1000", 10);
+  const limit = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 1000, 10000);
   const MAX_OFFSET = 100000;
+  const rawOffset = parseInt(c.req.query("offset") || "0", 10);
   const offset = Math.min(
-    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0),
     MAX_OFFSET,
   );
 
@@ -822,11 +869,11 @@ app.get("/chunks", async (c) => {
     // Convert ISO8601 to epoch millis if provided
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) {
+    if (fromMs !== undefined && !Number.isNaN(fromMs)) {
       sql += ` AND bi.start_timestamp >= ?`;
       params.push(fromMs);
     }
-    if (toMs && !Number.isNaN(toMs)) {
+    if (toMs !== undefined && !Number.isNaN(toMs)) {
       sql += ` AND bi.end_timestamp <= ?`;
       params.push(toMs);
     }
@@ -961,10 +1008,12 @@ app.get("/global/chunks", async (c) => {
   const table = c.req.query("table");
   const from = c.req.query("from");
   const to = c.req.query("to");
-  const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
+  const rawLimit = parseInt(c.req.query("limit") || "1000", 10);
+  const limit = Math.min(Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : 1000, 10000);
   const MAX_GLOBAL_OFFSET = 100000;
+  const rawOffset = parseInt(c.req.query("offset") || "0", 10);
   const offset = Math.min(
-    Math.max(0, parseInt(c.req.query("offset") || "0", 10)),
+    Math.max(0, Number.isFinite(rawOffset) ? rawOffset : 0),
     MAX_GLOBAL_OFFSET,
   );
 
@@ -997,11 +1046,11 @@ app.get("/global/chunks", async (c) => {
 
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) {
+    if (fromMs !== undefined && !Number.isNaN(fromMs)) {
       sql += ` AND bi.start_timestamp >= ?`;
       params.push(fromMs);
     }
-    if (toMs && !Number.isNaN(toMs)) {
+    if (toMs !== undefined && !Number.isNaN(toMs)) {
       sql += ` AND bi.end_timestamp <= ?`;
       params.push(toMs);
     }
@@ -1038,12 +1087,83 @@ app.get("/global/chunks", async (c) => {
 });
 
 /**
+ * GET /global/summary - Available period_tag/table_version combinations
+ * Query params:
+ *   - table: target table name (default: battle)
+ */
+app.get("/global/summary", async (c) => {
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  if (!indexDb) {
+    return c.json({ error: "D1 database not configured" }, 500);
+  }
+
+  const table = (c.req.query("table") || "battle").trim();
+  if (!PUBLIC_RECORD_TABLES.has(table)) {
+    return c.json(
+      {
+        error: "INVALID_TABLE",
+        message: `table must be one of: ${Array.from(PUBLIC_RECORD_TABLES).join(", ")}`,
+      },
+      400,
+    );
+  }
+
+  try {
+    const allowedPeriodTagSet = await resolveAllowedPeriodTagsForRecords(
+      c,
+      indexDb,
+      table,
+      env.runtime.DATA_LOADER_CACHE_KV,
+    );
+
+    const summaryRows = (await indexDb
+      .prepare(
+        "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC, table_version DESC LIMIT 500",
+      )
+      .bind(table)
+      .all()) as {
+      results?: Array<{ period_tag?: string | null; table_version?: string | null }>;
+    };
+
+    const seen = new Set<string>();
+    const periods: Array<{ period_tag: string; table_version: string }> = [];
+    for (const row of summaryRows.results || []) {
+      const periodTag = row?.period_tag;
+      const tableVersion = row?.table_version;
+      if (typeof periodTag !== "string" || !periodTag) continue;
+      if (typeof tableVersion !== "string" || !tableVersion) continue;
+      if (!allowedPeriodTagSet.has(periodTag)) continue;
+      const key = `${periodTag}\u0000${tableVersion}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      periods.push({ period_tag: periodTag, table_version: tableVersion });
+    }
+
+    c.res.headers.set(
+      "Cache-Control",
+      "public, max-age=300, stale-while-revalidate=1800",
+    );
+    return c.json({
+      ok: true,
+      table,
+      periods,
+      latest: periods[0] ?? null,
+    });
+  } catch (err) {
+    console.error("[battle_data] Failed to query global summary:", err);
+    return c.json({ error: "Failed to retrieve global summary" }, 500);
+  }
+});
+
+/**
  * GET /global/records - Decode recent battle-related records for web UI analysis pages
  * Query params:
  *   - table: battle | cells | enemy_deck | enemy_ship
  *   - period_tag: latest | all | specific tag
+ *   - table_version: optional table version filter
  *   - dataset_id: optional dataset filter
- *   - limit_blocks: max archived blocks to decode (default 10; when filter_json is set, default 120)
+ *   - limit_blocks: max archived blocks to decode (default 40; when filter_json is set, default 200)
  *   - limit_records: max records in response (default 3000, max 20000)
  */
 app.get("/global/records", async (c) => {
@@ -1060,6 +1180,7 @@ app.get("/global/records", async (c) => {
 
   const table = (c.req.query("table") || "battle").trim();
   const periodTagParam = (c.req.query("period_tag") || "latest").trim();
+  const tableVersionParam = (c.req.query("table_version") || "").trim();
   const datasetId = c.req.query("dataset_id")?.trim();
   const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
     .trim()
@@ -1071,8 +1192,8 @@ app.get("/global/records", async (c) => {
   const hasFilter = Boolean(filterJsonRaw);
   const limitBlocks = parsePositiveInt(
     c.req.query("limit_blocks"),
-    hasFilter ? 120 : 10,
-    hasFilter ? 400 : 40,
+    hasFilter ? 200 : 40,
+    hasFilter ? 600 : 400,
   );
   const limitRecords = parsePositiveInt(
     c.req.query("limit_records"),
@@ -1116,6 +1237,22 @@ app.get("/global/records", async (c) => {
     );
   }
 
+  if (periodTagParam !== "latest" && periodTagParam !== "all") {
+    const periodTagValidation = await validateCachedPeriodTag(c, periodTagParam, {
+      fieldName: "period_tag",
+      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+    });
+    if (!periodTagValidation.ok) {
+      return c.json(
+        {
+          error: "INVALID_PERIOD_TAG",
+          message: periodTagValidation.error,
+        },
+        periodTagValidation.status,
+      );
+    }
+  }
+
   const cache = (globalThis as { caches?: { default?: Cache } }).caches
     ?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
@@ -1129,15 +1266,32 @@ app.get("/global/records", async (c) => {
   }
 
   try {
+    const allowedPeriodTagSet = await resolveAllowedPeriodTagsForRecords(
+      c,
+      indexDb,
+      table,
+      env.runtime.DATA_LOADER_CACHE_KV,
+    );
+
     let resolvedPeriodTag: string | null = null;
     if (periodTagParam === "latest") {
-      const latest = (await indexDb
-        .prepare(
-          "SELECT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC, start_timestamp DESC LIMIT 1",
-        )
-        .bind(table)
-        .first()) as { period_tag?: string } | null;
-      resolvedPeriodTag = latest?.period_tag ?? null;
+      let latestPeriodSql =
+        "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ?";
+      const latestPeriodParams: unknown[] = [table];
+      if (tableVersionParam) {
+        latestPeriodSql += " AND table_version = ?";
+        latestPeriodParams.push(tableVersionParam);
+      }
+      latestPeriodSql += " ORDER BY period_tag DESC LIMIT 200";
+      const latestRows = (await indexDb
+        .prepare(latestPeriodSql)
+        .bind(...latestPeriodParams)
+        .all()) as { results?: Array<{ period_tag?: string | null }> };
+      const latestAllowed = (latestRows.results || []).find((row) => {
+        const tag = row?.period_tag ?? null;
+        return typeof tag === "string" && allowedPeriodTagSet.has(tag);
+      });
+      resolvedPeriodTag = latestAllowed?.period_tag ?? null;
     } else if (periodTagParam !== "all") {
       resolvedPeriodTag = periodTagParam;
     }
@@ -1148,9 +1302,37 @@ app.get("/global/records", async (c) => {
                WHERE bi.table_name = ?`;
     const params: unknown[] = [table];
 
+    if (tableVersionParam) {
+      sql += " AND bi.table_version = ?";
+      params.push(tableVersionParam);
+    }
+
     if (resolvedPeriodTag) {
       sql += " AND bi.period_tag = ?";
       params.push(resolvedPeriodTag);
+    } else {
+      const allowedTags = [...allowedPeriodTagSet];
+      if (allowedTags.length === 0) {
+        const payload = {
+          success: true,
+          table,
+          period_tag: periodTagParam,
+          table_version: tableVersionParam || null,
+          count: 0,
+          records: [],
+          source_blocks: 0,
+        };
+        const response = c.json(payload);
+        response.headers.set("Cache-Control", cacheControl);
+        response.headers.set("X-FUSOU-Cache", "MISS");
+        if (cache) {
+          await putCacheSafely(c, cache, cacheKey, response);
+        }
+        return response;
+      }
+      const placeholders = allowedTags.map(() => "?").join(", ");
+      sql += ` AND bi.period_tag IN (${placeholders})`;
+      params.push(...allowedTags);
     }
     if (datasetId) {
       sql += " AND bi.dataset_id = ?";
@@ -1199,6 +1381,7 @@ app.get("/global/records", async (c) => {
         success: true,
         table,
         period_tag: resolvedPeriodTag || periodTagParam,
+        table_version: tableVersionParam || null,
         count: 0,
         records: [],
         source_blocks: 0,
@@ -1254,6 +1437,7 @@ app.get("/global/records", async (c) => {
       success: true,
       table,
       period_tag: resolvedPeriodTag || periodTagParam,
+      table_version: tableVersionParam || null,
       count: decodedRecords.length,
       records: decodedRecords,
       source_blocks: rows.length,
@@ -1347,6 +1531,15 @@ app.get("/global/latest", async (c) => {
  */
 app.get("/dev/local-records", async (c) => {
   const env = createEnvContext(c);
+  // Guard: when ADMIN_TOKEN is configured (i.e. production), require it.
+  // In local dev (no ADMIN_TOKEN set) the endpoint is open for easier iteration.
+  const adminTokenEnv = getEnv(env, "ADMIN_TOKEN");
+  if (adminTokenEnv) {
+    const provided = c.req.header("X-Admin-Token") ?? "";
+    if (!timingSafeEqual(provided, adminTokenEnv)) {
+      return c.json({ error: "Unauthorized" }, 401);
+    }
+  }
   const indexDb = env.runtime.BATTLE_INDEX_DB;
 
   if (!indexDb) {
