@@ -46,7 +46,18 @@ async function requestShortener(
     };
   }
 
-  const text = await response.text();
+  let text: string;
+  try {
+    text = await response.text();
+  } catch (error) {
+    return {
+      source: "service-binding",
+      ok: false,
+      error: "Failed to read shortener response body",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+
   if (response.ok && text.trim() === "Hello world") {
     return {
       source: "service-binding",

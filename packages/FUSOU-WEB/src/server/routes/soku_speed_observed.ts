@@ -514,6 +514,36 @@ app.get("/speed-upgrade", async (c) => {
       .all();
     rows = (result.results ?? []) as ObsRow[];
   } catch (err) {
+    const message = [
+      String(err),
+      typeof err === "object" && err !== null && "message" in err
+        ? String((err as { message?: unknown }).message)
+        : "",
+      typeof err === "object" &&
+      err !== null &&
+      "cause" in err &&
+      typeof (err as { cause?: unknown }).cause === "object" &&
+      (err as { cause?: unknown }).cause !== null &&
+      "message" in ((err as { cause?: { message?: unknown } }).cause ?? {})
+        ? String((err as { cause?: { message?: unknown } }).cause?.message)
+        : "",
+    ]
+      .join(" | ")
+      .toLowerCase();
+
+    if (message.includes("no such table: soku_speed_observations")) {
+      const empty = c.json({
+        ok: true,
+        period_tag: periodTag,
+        table_version: tableVersion,
+        data: {},
+      });
+      empty.headers.set(
+        "Cache-Control",
+        "public, max-age=60, stale-while-revalidate=300",
+      );
+      return empty;
+    }
     console.error(
       "[soku-speed] Failed to query speed-upgrade observations:",
       err,

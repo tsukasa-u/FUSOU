@@ -906,6 +906,7 @@ app.get("/json", async (c) => {
   }
 
   const tableName = c.req.query("table_name");
+  const requestedPeriodTag = c.req.query("period_tag")?.trim();
   const requestedVersion = c.req.query("table_version");
   const requestedRecordIdRaw = c.req.query("record_id");
   const requestedRecordId = parsePositiveRecordId(requestedRecordIdRaw);
@@ -933,6 +934,16 @@ app.get("/json", async (c) => {
     );
   }
 
+  if (requestedPeriodTag) {
+    const periodTagValidation = await validateCachedPeriodTag(c, requestedPeriodTag, {
+      fieldName: "period_tag",
+      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+    });
+    if (!periodTagValidation.ok) {
+      return c.json({ error: periodTagValidation.error }, periodTagValidation.status);
+    }
+  }
+
   if (requestedRecordIdRaw && requestedRecordId == null) {
     return c.json(
       {
@@ -943,22 +954,50 @@ app.get("/json", async (c) => {
   }
 
   try {
-    let sql = `
+    const baseSql = `
       SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
       FROM master_data_tables t
       JOIN master_data_index i ON i.id = t.master_data_id
       WHERE i.upload_status = 'completed' AND t.table_name = ?
     `;
     const params: unknown[] = [tableName];
+    if (requestedPeriodTag) {
+      params.push(requestedPeriodTag);
+    }
     if (requestedVersion) {
-      sql += " AND i.table_version = ?";
       params.push(requestedVersion);
     }
-    sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
 
-    const record = (await db
-      .prepare(sql)
-      .bind(...params)
+    const whereWithFilters = `${baseSql}${requestedPeriodTag ? " AND i.period_tag = ?" : ""}${requestedVersion ? " AND i.table_version = ?" : ""}`;
+
+    let effectiveSql = whereWithFilters;
+    let effectiveParams = [...params];
+
+    if (!requestedPeriodTag) {
+      const allowedPeriodTags = await listAllowedPeriodTags(c, {
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+      if (allowedPeriodTags.length === 0) {
+        return c.json(
+          {
+            table_name: tableName,
+            table_version: null,
+            period_tag: null,
+            count: 0,
+            records: [],
+          },
+          200,
+          { ...CORS_HEADERS },
+        );
+      }
+      const placeholders = allowedPeriodTags.map(() => "?").join(", ");
+      effectiveSql += ` AND i.period_tag IN (${placeholders})`;
+      effectiveParams.push(...allowedPeriodTags);
+    }
+
+    let record = (await db
+      .prepare(`${effectiveSql} ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1`)
+      .bind(...effectiveParams)
       .first()) as {
       period_tag: string;
       table_version: string;
@@ -986,36 +1025,6 @@ app.get("/json", async (c) => {
       period_revision,
       r2_key: r2Key,
     } = record;
-
-    // Validate period_tag against Supabase allowed period tags
-    try {
-      const allowedPeriodTags = await listAllowedPeriodTags(c, {
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
-      });
-
-      if (!allowedPeriodTags.includes(period_tag)) {
-        console.warn(
-          `[master-data] period_tag "${period_tag}" is not in allowed list, returning empty`,
-        );
-        return c.json(
-          {
-            table_name: tableName,
-            table_version: null,
-            period_tag: null,
-            count: 0,
-            records: [],
-          },
-          200,
-          { ...CORS_HEADERS },
-        );
-      }
-    } catch (validationError) {
-      console.error(
-        `[master-data] Failed to validate period_tag: ${String(validationError)}`,
-      );
-      // If validation fails, still try to serve (non-blocking validation)
-      // but log the issue for monitoring
-    }
 
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);

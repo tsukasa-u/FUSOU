@@ -856,6 +856,18 @@ app.get("/download", async (c) => {
         );
       }
 
+      // Ownership check: verify this block belongs to the authenticated user
+      const userDatasetId = await resolveMemberIdHashForUser(
+        getSupabaseRestConfig(c),
+        apiKeyData.user_id,
+      );
+      if (!userDatasetId || blockInfo.dataset_id !== userDatasetId) {
+        return jsonResponse(
+          { error: "FORBIDDEN", message: "Access to this block is not authorized" },
+          403,
+        );
+      }
+
       // Extract Avro header and data block
       // Note: start_byte is the accurate position where the dataset's data block starts
       // (after the Avro OCF header). This is correctly set by mergeAvroOCFWithBoundaries

@@ -2135,6 +2135,42 @@ app.get("/exp", async (c) => {
     response.headers.set("X-FUSOU-Cache", cacheStatus);
     return response;
   } catch (err) {
+    const message = String(err);
+    if (message.includes("no such column: updated_at")) {
+      // Local legacy D1 schema compatibility: serve full snapshot without delta columns.
+      try {
+        const legacyRows = ((
+          await db
+            .prepare(
+              `SELECT lv, exp_current FROM ship_level_exp_pairs
+               WHERE period_tag = ? AND table_version = ?
+               ORDER BY lv ASC`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? []) as Array<{
+          lv: number;
+          exp_current: number;
+        }>;
+
+        const response = c.json({
+          ok: true,
+          period_tag: periodTag,
+          table_version: tableVersion,
+          exp: legacyRows,
+          updated_at: 0,
+          updated_at_iso: null,
+        });
+        response.headers.set(
+          "Cache-Control",
+          "public, max-age=60, stale-while-revalidate=300",
+        );
+        response.headers.set("X-FUSOU-Cache", "legacy-schema-fallback");
+        return response;
+      } catch (fallbackErr) {
+        console.error("[ship-growth] Legacy exp fallback failed:", fallbackErr);
+      }
+    }
     console.error("[ship-growth] Failed to query exp:", err);
     return c.json({ error: "Failed to retrieve exp data" }, 500);
   }
@@ -2358,6 +2394,70 @@ app.get("/bounds", async (c) => {
     response.headers.set("X-FUSOU-Cache", cacheStatus);
     return response;
   } catch (err) {
+    const message = String(err);
+    if (message.includes("no such column: updated_at")) {
+      // Local legacy D1 schema compatibility: serve full data without delta columns.
+      try {
+        const BOUNDS_PAGE = 5000;
+        let legacyBounds: Array<BoundsRow> = [];
+        for (let offset = 0; ; offset += BOUNDS_PAGE) {
+          const page = ((
+            await db
+              .prepare(
+                `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
+                 FROM ship_growth_bounds
+                 WHERE period_tag = ? AND table_version = ?
+                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`,
+              )
+              .bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
+              .all()
+          ).results ?? []) as Array<BoundsRow>;
+          legacyBounds = legacyBounds.concat(page);
+          if (page.length < BOUNDS_PAGE) break;
+        }
+
+        const legacyCaps = ((
+          await db
+            .prepare(
+              `SELECT master_id, kaihi_max, taisen_max, sakuteki_max
+               FROM ship_growth_caps
+               WHERE period_tag = ? AND table_version = ?`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? []) as Array<CapsRow>;
+
+        const responseBounds =
+          masterId === null
+            ? legacyBounds
+            : legacyBounds.filter((row) => row.master_id === masterId);
+        const responseCaps =
+          masterId === null
+            ? legacyCaps
+            : legacyCaps.filter((row) => row.master_id === masterId);
+
+        const response = c.json({
+          ok: true,
+          period_tag: periodTag,
+          table_version: tableVersion,
+          bounds: responseBounds,
+          caps: responseCaps,
+          updated_at: 0,
+          updated_at_iso: null,
+        });
+        response.headers.set(
+          "Cache-Control",
+          "public, max-age=60, stale-while-revalidate=300",
+        );
+        response.headers.set("X-FUSOU-Cache", "legacy-schema-fallback");
+        return response;
+      } catch (fallbackErr) {
+        console.error(
+          "[ship-growth] Legacy bounds fallback failed:",
+          fallbackErr,
+        );
+      }
+    }
     console.error("[ship-growth] Failed to query bounds:", err);
     return c.json({ error: "Failed to retrieve bounds data" }, 500);
   }
@@ -2805,8 +2905,15 @@ app.post("/ingest", async (c) => {
     if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
     const declaredSize = Number(handshakeBody?.file_size ?? 0);
+    const MAX_INGEST_BYTES = 10 * 1024 * 1024; // 10 MB
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
+    }
+    if (declaredSize > MAX_INGEST_BYTES) {
+      return c.json(
+        { error: `file_size exceeds maximum allowed size (${MAX_INGEST_BYTES} bytes)` },
+        400,
+      );
     }
 
     // Calculate token expiry based on file size to accommodate slow/large uploads.

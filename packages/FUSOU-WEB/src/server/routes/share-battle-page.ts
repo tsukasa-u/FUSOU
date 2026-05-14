@@ -20,11 +20,19 @@ export async function handleShareBattleRequest(
   const view = requestUrl.searchParams.get("view");
   const normalizedView = view === "timeline" || view === "phase" ? view : null;
   const separators = requestUrl.searchParams.get("separators") === "1";
+  const periodTag = requestUrl.searchParams.get("period_tag")?.trim();
+  const tableVersion = requestUrl.searchParams.get("table_version")?.trim();
 
   const targetUrl = new URL(
     `/battles/${encodeURIComponent(battleId)}`,
     requestUrl.origin,
   );
+  if (periodTag) {
+    targetUrl.searchParams.set("period_tag", periodTag);
+  }
+  if (tableVersion) {
+    targetUrl.searchParams.set("table_version", tableVersion);
+  }
   if (normalizedView) {
     targetUrl.searchParams.set("view", normalizedView);
   }

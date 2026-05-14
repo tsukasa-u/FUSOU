@@ -46,6 +46,13 @@ function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
   const s = v as Record<string, unknown>;
   return (
     Array.isArray(s.periods) &&
+    s.periods.every(
+      (p) =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as Record<string, unknown>).period_tag === "string" &&
+        typeof (p as Record<string, unknown>).table_version === "string",
+    ) &&
     typeof s.refreshed_at === "number" &&
     typeof s.db_synced_at === "number"
   );

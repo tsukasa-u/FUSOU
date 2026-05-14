@@ -340,6 +340,16 @@ app.get("/synergy-data", async (c) => {
       },
     });
   } catch (error) {
+    const msg = String(error);
+    if (envCtx.isDev && msg.includes("no such table: synergy_manifest")) {
+      return c.json(EMPTY_SYNERGY_DATA, 200, {
+        "Cache-Control": "public, max-age=300",
+        "X-FUSOU-Synergy-Source": "dev-fallback",
+        "X-FUSOU-Synergy-Period-Tag": "local-dev",
+        "X-FUSOU-Synergy-Period-Revision": "0",
+        "X-FUSOU-Synergy-Completed-At": "unknown",
+      });
+    }
     console.error("Error fetching synergy data:", error);
     return c.json({ error: "Internal server error" }, 500);
   }
