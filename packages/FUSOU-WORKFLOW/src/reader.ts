@@ -632,7 +632,8 @@ export async function handleRead(
     );
   } catch (err) {
     console.error("Read error:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
+    const message = err instanceof Error ? err.message : String(err);
+    return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
