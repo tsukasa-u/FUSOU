@@ -82,9 +82,24 @@ import {
   type MasterDataLoadStatusItem,
 } from "../common/MasterDataLoadStatusAlert";
 
+type PeriodSummary = {
+  period_tag: string;
+  table_version: string | null;
+};
+
+function periodLabel(period: PeriodSummary): string {
+  if (period.period_tag === "latest") return "最新期間";
+  if (period.period_tag === "all") return "全期間";
+  if (!period.table_version) return period.period_tag;
+  return `${period.period_tag} (v${period.table_version})`;
+}
+
 export default function BattleMapFlowPanel() {
   // ── UI control signals ──────────────────────────────────────────────────────
-  const [periodTag, setPeriodTag] = createSignal("latest");
+  const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
+  const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
+  const [loadingPeriods, setLoadingPeriods] = createSignal(false);
+  const [urlStateReady, setUrlStateReady] = createSignal(false);
   const [mapFilter, setMapFilter] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
@@ -341,6 +356,10 @@ export default function BattleMapFlowPanel() {
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   });
+
+  const selectedPeriod = createMemo(
+    () => periods()[selectedPeriodIdx()] ?? null,
+  );
 
   createEffect(() => {
     const maps = mapOptions();
@@ -937,12 +956,76 @@ export default function BattleMapFlowPanel() {
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
-  async function loadData() {
+  async function fetchPeriodSummary(): Promise<PeriodSummary[]> {
+    setLoadingPeriods(true);
+    try {
+      const response = await cachedFetch("/api/battle-data/global/summary?table=battle");
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        periods?: Array<{ period_tag?: string; table_version?: string }>;
+      };
+      const rowsFromSummary = (payload.periods || [])
+        .map((row) => ({
+          period_tag: String(row.period_tag ?? "").trim(),
+          table_version: String(row.table_version ?? "").trim() || null,
+        }))
+        .filter((row) => row.period_tag.length > 0 && !!row.table_version);
+      const rows: PeriodSummary[] = [
+        { period_tag: "latest", table_version: null },
+        { period_tag: "all", table_version: null },
+        ...rowsFromSummary,
+      ];
+      setPeriods(rows);
+      return rows;
+    } finally {
+      setLoadingPeriods(false);
+    }
+  }
+
+  function resolveInitialPeriodIndex(
+    rows: PeriodSummary[],
+    rawPeriodTag: string | null,
+    rawTableVersion: string | null,
+  ): number {
+    if (rows.length === 0) return 0;
+    const periodTag = rawPeriodTag?.trim() || null;
+    const tableVersion = rawTableVersion?.trim() || null;
+    if (!periodTag) {
+      return rows.findIndex((row) => row.period_tag === "latest") >= 0
+        ? rows.findIndex((row) => row.period_tag === "latest")
+        : 0;
+    }
+
+    const exactIdx = rows.findIndex(
+      (row) =>
+        row.period_tag === periodTag &&
+        (!tableVersion || row.table_version === tableVersion),
+    );
+    if (exactIdx >= 0) return exactIdx;
+
+    const periodOnlyIdx = rows.findIndex((row) => row.period_tag === periodTag);
+    return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
+  }
+
+  async function loadData(periodOverride?: PeriodSummary | null) {
+    const requestedPeriod = periodOverride ?? selectedPeriod();
+    if (!requestedPeriod) {
+      setError("利用可能な期間データがありません。");
+      setBattleRecords([]);
+      setCellRecords([]);
+      return;
+    }
+
     loadDataAbortController?.abort();
     const abortController = new AbortController();
     loadDataAbortController = abortController;
     const signal = abortController.signal;
-    const requestedPeriodTag = periodTag();
+    const requestedPeriodTag = requestedPeriod.period_tag;
+    const tableVersionQuery = requestedPeriod.table_version
+      ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
+      : "";
 
     setLoading(true);
     setError(null);
@@ -985,23 +1068,23 @@ export default function BattleMapFlowPanel() {
         weaponIconFramesRes,
       ] = await Promise.all([
         cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000&include_sortie_key=1`,
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000&include_sortie_key=1`,
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`,
+          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=8000`,
+          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=20000`,
+          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=40000`,
+          `/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=40000`,
           { signal },
         ),
         cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
@@ -1009,7 +1092,7 @@ export default function BattleMapFlowPanel() {
           signal,
         }),
         cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}&limit_blocks=20&limit_records=12000`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
           { signal },
         ),
         cachedFetch(`/api/asset-sync/weapon-icon-frames?v=2`, { signal }),
@@ -1147,7 +1230,7 @@ export default function BattleMapFlowPanel() {
           JSON.stringify({ uuid: fillTargets }),
         );
         const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
           { signal },
         );
         if (batchRes.ok) {
@@ -1259,6 +1342,10 @@ export default function BattleMapFlowPanel() {
   // ── Lifecycle ───────────────────────────────────────────────────────────────
 
   onMount(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initialPeriodTag = params.get("period_tag");
+    const initialTableVersion = params.get("table_version");
+
     const detectTheme = (): BattleMapTheme => {
       const rootTheme = document.documentElement
         .getAttribute("data-theme")
@@ -1307,7 +1394,40 @@ export default function BattleMapFlowPanel() {
       mediaQuery.removeEventListener("change", onMediaQueryChange);
     });
 
-    void loadData();
+    void (async () => {
+      try {
+        const rows = await fetchPeriodSummary();
+        if (rows.length > 0) {
+          const idx = resolveInitialPeriodIndex(
+            rows,
+            initialPeriodTag,
+            initialTableVersion,
+          );
+          setSelectedPeriodIdx(idx);
+          setUrlStateReady(true);
+          await loadData(rows[idx] ?? rows[0]);
+          return;
+        }
+        setError("利用可能な期間データがありません。");
+      } catch (e) {
+        setError(`期間データの取得に失敗しました: ${String(e)}`);
+      }
+      setUrlStateReady(true);
+    })();
+  });
+
+  createEffect(() => {
+    if (!urlStateReady()) return;
+    const period = selectedPeriod();
+    if (!period) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("period_tag", period.period_tag);
+    if (period.table_version) {
+      url.searchParams.set("table_version", period.table_version);
+    } else {
+      url.searchParams.delete("table_version");
+    }
+    window.history.replaceState({}, "", url.toString());
   });
 
   // Persist display settings whenever they change.
@@ -1352,21 +1472,32 @@ export default function BattleMapFlowPanel() {
               <label class="label">
                 <span class="label-text">期間</span>
               </label>
-              <select
-                id="map-flow-filter-period"
-                class="select select-bordered select-sm"
-                value={periodTag()}
-                onInput={(e) => setPeriodTag(e.currentTarget.value)}
+              <Show
+                when={!loadingPeriods()}
+                fallback={<span class="loading loading-spinner loading-sm" />}
               >
-                <option value="latest">最新</option>
-                <option value="all">全期間</option>
-              </select>
+                <select
+                  id="map-flow-filter-period"
+                  class="select select-bordered select-sm"
+                  value={selectedPeriodIdx()}
+                  onChange={(e) =>
+                    setSelectedPeriodIdx(Number.parseInt(e.currentTarget.value, 10))
+                  }
+                  disabled={periods().length === 0}
+                >
+                  <For each={periods()}>
+                    {(period, idx) => (
+                      <option value={idx()}>{periodLabel(period)}</option>
+                    )}
+                  </For>
+                </select>
+              </Show>
             </div>
             <button
               id="map-flow-load-btn"
               class="btn btn-primary btn-sm"
               onClick={() => void loadData()}
-              disabled={loading()}
+              disabled={loading() || loadingPeriods() || periods().length === 0}
             >
               {loading() ? "読込中..." : "読込"}
             </button>

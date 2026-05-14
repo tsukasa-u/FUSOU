@@ -650,7 +650,21 @@ export default function BattleTimelineView(props: {
                       (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
                     )
                   : [];
-                const atkLabel =
+                const atkGroupNames = createMemo(() =>
+                  (ev.type === "air" || ev.type === "raigeki") &&
+                  atkGroup.length > 0
+                    ? atkGroup
+                        .map((v) =>
+                          shipNameFromIndex(
+                            ev.attackerSide,
+                            Number(v),
+                            props.fleets,
+                          ),
+                        )
+                        .filter((name) => name && name !== "-")
+                    : [],
+                );
+                const atkLabel = createMemo(() =>
                   atkIdx !== null
                     ? `${atkIdx + 1}番`
                     : ev.type === "air" || ev.type === "raigeki"
@@ -659,7 +673,8 @@ export default function BattleTimelineView(props: {
                         : ev.type === "air"
                           ? "航空"
                           : "雷撃"
-                      : "?";
+                      : "?",
+                );
                 const defLabel = `${defIdx + 1}番`;
                 const atkShort = createMemo(() => {
                   if (atkIdx !== null) {
@@ -681,15 +696,17 @@ export default function BattleTimelineView(props: {
                     (ev.type === "air" || ev.type === "raigeki") &&
                     atkGroup.length > 0
                   ) {
-                    return atkGroup
-                      .map((v) =>
-                        shipNameFromIndex(
-                          ev.attackerSide,
-                          Number(v),
-                          props.fleets,
-                        ),
-                      )
-                      .join(" / ");
+                    return atkGroupNames().length > 0
+                      ? atkGroupNames().join(" / ")
+                      : atkGroup
+                          .map((v) =>
+                            shipNameFromIndex(
+                              ev.attackerSide,
+                              Number(v),
+                              props.fleets,
+                            ),
+                          )
+                          .join(" / ");
                   }
                   return "-";
                 });
@@ -734,7 +751,7 @@ export default function BattleTimelineView(props: {
                         class="shrink-0 font-bold text-[10px] tabular-nums"
                         style={{ color: atkColor }}
                       >
-                        {atkLabel}
+                        {atkLabel()}
                       </span>
                       <span
                         class="min-w-0 max-w-28 shrink text-[9px] opacity-55 truncate whitespace-nowrap"

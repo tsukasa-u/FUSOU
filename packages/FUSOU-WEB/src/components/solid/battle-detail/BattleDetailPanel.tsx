@@ -96,15 +96,35 @@ export default function BattleDetailPanel(props: {
   const [viewMode, setViewMode] = createSignal<"phase" | "timeline">("phase");
   const [showPhaseSeparators, setShowPhaseSeparators] = createSignal(false);
   const [urlStateReady, setUrlStateReady] = createSignal(false);
+  const [requestedPeriodTag, setRequestedPeriodTag] =
+    createSignal<string>("latest");
+  const [requestedTableVersion, setRequestedTableVersion] =
+    createSignal<string>("");
   let displaySettingsModalRef!: HTMLDialogElement;
 
   function buildCurrentShareUrl(): string {
+    const tableVersion = requestedTableVersion().trim();
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
+      periodTag: requestedPeriodTag(),
+      tableVersion: tableVersion || undefined,
       view: viewMode(),
       separators: viewMode() === "timeline" && showPhaseSeparators(),
     });
   }
+
+  const backToListHref = createMemo(() => {
+    const params = new URLSearchParams();
+    if (requestedPeriodTag()) {
+      params.set("period_tag", requestedPeriodTag());
+    }
+    const tableVersion = requestedTableVersion().trim();
+    if (tableVersion) {
+      params.set("table_version", tableVersion);
+    }
+    const query = params.toString();
+    return query ? `/battles?${query}` : "/battles";
+  });
 
   async function issueShareUrl(): Promise<void> {
     const shareUrl = buildCurrentShareUrl();
@@ -264,7 +284,15 @@ export default function BattleDetailPanel(props: {
   }
 
   async function fetchCellMapLabel(uuid: string): Promise<string | null> {
-    const records = await fetchRecordsByField("cells", "battles", uuid, 50);
+    const tableVersion = requestedTableVersion().trim();
+    const queryOptions = tableVersion ? { tableVersion } : undefined;
+    const records = await fetchRecordsByField(
+      "cells",
+      "battles",
+      uuid,
+      50,
+      queryOptions,
+    );
     const first = records.find(
       (cell) =>
         Number(cell?.maparea_id ?? 0) > 0 && Number(cell?.mapinfo_no ?? 0) > 0,
@@ -311,24 +339,31 @@ export default function BattleDetailPanel(props: {
       const idText = props.battleId;
       const fallbackIdx = Number.parseInt(idText, 10);
       const isLikelyUuid = idText.includes("-");
+      const requestedPeriod = requestedPeriodTag();
+      const tableVersion = requestedTableVersion().trim();
+      const queryOptions = tableVersion ? { tableVersion } : undefined;
+      const tableVersionQuery = tableVersion
+        ? `&table_version=${encodeURIComponent(tableVersion)}`
+        : "";
 
       let matched: Record<string, unknown> | null = null;
 
       if (isLikelyUuid) {
-        const latestCandidates = await fetchBattleRecordsByUuid(
+        const primaryCandidates = await fetchBattleRecordsByUuid(
           idText,
-          "latest",
+          requestedPeriod,
+          queryOptions,
         );
-        const allCandidates =
-          latestCandidates.length > 0
-            ? latestCandidates
-            : await fetchBattleRecordsByUuid(idText, "all");
-        matched = chooseBattleCandidate(allCandidates, preloadedBattle);
+        const fallbackCandidates =
+          primaryCandidates.length > 0 || requestedPeriod === "all"
+            ? primaryCandidates
+            : await fetchBattleRecordsByUuid(idText, "all", queryOptions);
+        matched = chooseBattleCandidate(fallbackCandidates, preloadedBattle);
       }
 
       if (!matched && Number.isFinite(fallbackIdx) && fallbackIdx >= 0) {
         const battleRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=all&limit_blocks=120&limit_records=20000`,
+          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriod)}${tableVersionQuery}&limit_blocks=120&limit_records=20000`,
         );
         if (battleRes.ok) {
           const payload = (await battleRes.json()) as {
@@ -336,6 +371,16 @@ export default function BattleDetailPanel(props: {
           };
           const records = payload.records ?? [];
           matched = records[fallbackIdx] ?? null;
+        } else if (requestedPeriod !== "all") {
+          const fallbackRes = await cachedFetch(
+            `/api/battle-data/global/records?table=battle&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=20000`,
+          );
+          if (fallbackRes.ok) {
+            const fallbackPayload = (await fallbackRes.json()) as {
+              records?: Array<Record<string, unknown>>;
+            };
+            matched = fallbackPayload.records?.[fallbackIdx] ?? null;
+          }
         } else {
           // Local dev fallback for numeric detail IDs.
           const localByIndex = await fetchRecordsByField(
@@ -343,6 +388,7 @@ export default function BattleDetailPanel(props: {
             "index",
             fallbackIdx,
             1,
+            queryOptions,
           );
           if (localByIndex.length > 0) {
             matched = localByIndex[0];
@@ -357,7 +403,7 @@ export default function BattleDetailPanel(props: {
       if (matched) {
         const resolvedBattleResultPromise =
           typeof matched.battle_result === "string"
-            ? fetchBattleResultByUuid(matched.battle_result)
+            ? fetchBattleResultByUuid(matched.battle_result, queryOptions)
             : Promise.resolve(
                 resolveBattleResult(matched.battle_result, new Map()),
               );
@@ -372,12 +418,12 @@ export default function BattleDetailPanel(props: {
           resolvedClosingRaigeki,
         ] = await Promise.all([
           resolvedBattleResultPromise,
-          resolveMidnightHougeki(matched.midnight_hougeki),
-          resolveOpeningTaisen(matched.opening_taisen),
-          resolveHougeki(matched.hougeki),
-          resolveOpeningAirAttack(matched.opening_air_attack),
-          resolveOpeningRaigeki(matched.opening_raigeki),
-          resolveClosingRaigeki(matched.closing_raigeki),
+          resolveMidnightHougeki(matched.midnight_hougeki, queryOptions),
+          resolveOpeningTaisen(matched.opening_taisen, queryOptions),
+          resolveHougeki(matched.hougeki, queryOptions),
+          resolveOpeningAirAttack(matched.opening_air_attack, queryOptions),
+          resolveOpeningRaigeki(matched.opening_raigeki, queryOptions),
+          resolveClosingRaigeki(matched.closing_raigeki, queryOptions),
         ]);
 
         const merged = {
@@ -401,8 +447,8 @@ export default function BattleDetailPanel(props: {
 
         await getWeaponIconFrames();
         const [friendlyShips, enemyShips] = await Promise.all([
-          resolveFriendlyFleet(merged),
-          resolveEnemyFleet(merged),
+          resolveFriendlyFleet(merged, queryOptions),
+          resolveEnemyFleet(merged, queryOptions),
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
@@ -462,6 +508,14 @@ export default function BattleDetailPanel(props: {
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
+    const periodTag = params.get("period_tag")?.trim();
+    if (periodTag) {
+      setRequestedPeriodTag(periodTag);
+    }
+    const tableVersion = params.get("table_version")?.trim();
+    if (tableVersion) {
+      setRequestedTableVersion(tableVersion);
+    }
     const initialView = parseViewMode(params.get("view"));
     if (initialView) {
       setViewMode(initialView);
@@ -491,7 +545,7 @@ export default function BattleDetailPanel(props: {
 
       {/* Back link */}
       <div class="mb-4">
-        <a href="/battles" class="btn btn-ghost btn-sm gap-1">
+        <a href={backToListHref()} class="btn btn-ghost btn-sm gap-1">
           ← 戦闘一覧に戻る
         </a>
       </div>
