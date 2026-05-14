@@ -7,6 +7,18 @@ let mstSlotItemByIdCache: Map<number, Record<string, unknown>> | null = null;
 let weaponIconFramesCache: Record<number, WeaponIconFrame> | null = null;
 let weaponIconMetaCache = { width: 0, height: 0 };
 
+type BattleDataQueryOptions = {
+  tableVersion?: string;
+};
+
+function buildTableVersionQuery(options?: BattleDataQueryOptions): string {
+  const raw = options?.tableVersion;
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return `&table_version=${encodeURIComponent(trimmed)}`;
+}
+
 async function fetchJson(url: string): Promise<unknown> {
   const response = await cachedFetch(url);
   if (!response.ok) return null;
@@ -32,12 +44,14 @@ async function fetchDevLocalRecords(
 
 export async function fetchBattleResultByUuid(
   uuid: string,
+  options?: BattleDataQueryOptions,
 ): Promise<{ win_rank: string; drop_ship_id: unknown } | null> {
   if (!uuid) return null;
   try {
     const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
+    const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=battle_result&period_tag=all&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const item = (payload?.records || []).find(
       (r) => r?.uuid === uuid && r?.win_rank,
@@ -55,15 +69,17 @@ export async function fetchBattleResultByUuid(
 export async function fetchRecordsByUuid(
   table: string,
   uuid: string,
+  options?: BattleDataQueryOptions,
 ): Promise<Array<Record<string, unknown>>> {
   if (!table || !uuid) return [];
   const candidateFields = ["uuid", "battle_id", "id"];
+  const tableVersionQuery = buildTableVersionQuery(options);
 
   for (const field of candidateFields) {
     try {
       const filterJson = encodeURIComponent(JSON.stringify({ [field]: uuid }));
       const payload = (await fetchJson(
-        `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=200&filter_json=${filterJson}`,
+        `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=200&filter_json=${filterJson}`,
       )) as { records?: Array<Record<string, unknown>> } | null;
       const records = payload?.records || [];
       if (records.length > 0) {
@@ -95,17 +111,19 @@ export async function fetchRecordsByUuid(
 export async function fetchRecordsByUuids(
   table: string,
   uuids: string[],
+  options?: BattleDataQueryOptions,
 ): Promise<Map<string, Array<Record<string, unknown>>>> {
   const unique = [...new Set(uuids.filter(Boolean))];
   if (!table || unique.length === 0) return new Map();
   if (unique.length === 1) {
-    const rows = await fetchRecordsByUuid(table, unique[0]);
+    const rows = await fetchRecordsByUuid(table, unique[0], options);
     return new Map([[unique[0], rows]]);
   }
   try {
     const filterJson = encodeURIComponent(JSON.stringify({ uuid: unique }));
+    const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=${unique.length * 50}&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${unique.length * 50}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const result = new Map<string, Array<Record<string, unknown>>>();
     for (const id of unique) result.set(id, []);
@@ -118,7 +136,7 @@ export async function fetchRecordsByUuids(
     for (const id of unique) {
       if ((result.get(id)?.length || 0) > 0) continue;
       try {
-        const rows = await fetchRecordsByUuid(table, id);
+        const rows = await fetchRecordsByUuid(table, id, options);
         if (rows.length > 0) result.set(id, rows);
       } catch {
         // Keep empty for unresolved id.
@@ -130,7 +148,7 @@ export async function fetchRecordsByUuids(
     const fallback = new Map<string, Array<Record<string, unknown>>>();
     for (const id of unique) {
       try {
-        fallback.set(id, await fetchRecordsByUuid(table, id));
+        fallback.set(id, await fetchRecordsByUuid(table, id, options));
       } catch {
         fallback.set(id, []);
       }
@@ -144,12 +162,14 @@ export async function fetchRecordsByField(
   field: string,
   value: unknown,
   limitRecords = 200,
+  options?: BattleDataQueryOptions,
 ): Promise<Array<Record<string, unknown>>> {
   if (!table || !field || value == null) return [];
   try {
     const filterJson = encodeURIComponent(JSON.stringify({ [field]: value }));
+    const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all&limit_blocks=120&limit_records=${limitRecords}&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${limitRecords}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     let records = payload?.records || [];
     const localFallbackFields = new Set([
@@ -173,6 +193,24 @@ export async function fetchRecordsByField(
   }
 }
 
+export async function fetchRecentRecords(
+  table: string,
+  periodTag = "latest",
+  limitRecords = 200,
+  options?: BattleDataQueryOptions,
+): Promise<Array<Record<string, unknown>>> {
+  if (!table) return [];
+  try {
+    const tableVersionQuery = buildTableVersionQuery(options);
+    const payload = (await fetchJson(
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=120&limit_records=${limitRecords}`,
+    )) as { records?: Array<Record<string, unknown>> } | null;
+    return payload?.records || [];
+  } catch {
+    return [];
+  }
+}
+
 export async function getMstShipById(): Promise<
   Map<number, Record<string, unknown>>
 > {
@@ -181,13 +219,16 @@ export async function getMstShipById(): Promise<
     const payload = (await fetchJson(
       `/api/master-data/json?table_name=mst_ship`,
     )) as { records?: Array<Record<string, unknown>> } | null;
-    mstShipByIdCache = new Map(
+    const resolved = new Map(
       (payload?.records || []).map((row) => [Number(row.id), row]),
     );
+    if (resolved.size > 0) {
+      mstShipByIdCache = resolved;
+    }
+    return resolved;
   } catch {
-    mstShipByIdCache = new Map();
+    return new Map();
   }
-  return mstShipByIdCache;
 }
 
 export async function getMstSlotItemById(): Promise<
@@ -198,13 +239,16 @@ export async function getMstSlotItemById(): Promise<
     const payload = (await fetchJson(
       `/api/master-data/json?table_name=mst_slotitem`,
     )) as { records?: Array<Record<string, unknown>> } | null;
-    mstSlotItemByIdCache = new Map(
+    const resolved = new Map(
       (payload?.records || []).map((row) => [Number(row.id), row]),
     );
+    if (resolved.size > 0) {
+      mstSlotItemByIdCache = resolved;
+    }
+    return resolved;
   } catch {
-    mstSlotItemByIdCache = new Map();
+    return new Map();
   }
-  return mstSlotItemByIdCache;
 }
 
 export async function getWeaponIconFrames(): Promise<{
@@ -259,10 +303,12 @@ export function getWeaponIconCaches(): {
 export async function fetchBattleRecordsByUuid(
   uuid: string,
   periodTag = "latest",
+  options?: BattleDataQueryOptions,
 ): Promise<Array<Record<string, unknown>>> {
   const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
+  const tableVersionQuery = buildTableVersionQuery(options);
   const payload = (await fetchJson(
-    `/api/battle-data/global/records?table=battle&period_tag=${periodTag}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+    `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
   )) as { records?: Array<Record<string, unknown>> } | null;
   const records = payload?.records || [];
   let filtered = records.filter((r) => String(r?.uuid || "") === uuid);
@@ -282,60 +328,91 @@ export async function fetchBattleRecordsByUuid(
   return filtered;
 }
 
-export async function resolveMidnightHougeki(raw: unknown): Promise<unknown> {
+export async function resolveMidnightHougeki(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const listRows = await fetchRecordsByUuid("midnight_hougeki_list", raw);
+  const listRows = await fetchRecordsByUuid(
+    "midnight_hougeki_list",
+    raw,
+    options,
+  );
   const detailUuid = (listRows[0] as Record<string, unknown>)?.midnight_hougeki;
   if (!detailUuid || typeof detailUuid !== "string") return raw;
-  const detailRows = await fetchRecordsByUuid("midnight_hougeki", detailUuid);
+  const detailRows = await fetchRecordsByUuid(
+    "midnight_hougeki",
+    detailUuid,
+    options,
+  );
   return detailRows.length ? detailRows : raw;
 }
 
-export async function resolveOpeningTaisen(raw: unknown): Promise<unknown> {
+export async function resolveOpeningTaisen(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const listRows = await fetchRecordsByUuid("opening_taisen_list", raw);
+  const listRows = await fetchRecordsByUuid("opening_taisen_list", raw, options);
   const detailUuid = (listRows?.[0] as Record<string, unknown>)?.opening_taisen;
   const rows = detailUuid
-    ? await fetchRecordsByUuid("opening_taisen", String(detailUuid))
-    : await fetchRecordsByUuid("opening_taisen", raw);
+    ? await fetchRecordsByUuid("opening_taisen", String(detailUuid), options)
+    : await fetchRecordsByUuid("opening_taisen", raw, options);
   return rows.length ? rows : raw;
 }
 
-export async function resolveHougeki(raw: unknown): Promise<unknown> {
+export async function resolveHougeki(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const listRows = await fetchRecordsByUuid("hougeki_list", raw);
+  const listRows = await fetchRecordsByUuid("hougeki_list", raw, options);
   const detailUuid = (listRows?.[0] as Record<string, unknown>)?.hougeki;
   const rows = detailUuid
-    ? await fetchRecordsByUuid("hougeki", String(detailUuid))
-    : await fetchRecordsByUuid("hougeki", raw);
+    ? await fetchRecordsByUuid("hougeki", String(detailUuid), options)
+    : await fetchRecordsByUuid("hougeki", raw, options);
   return rows.length ? rows : raw;
 }
 
-export async function resolveOpeningAirAttack(raw: unknown): Promise<unknown> {
+export async function resolveOpeningAirAttack(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const listRows = await fetchRecordsByUuid("opening_airattack_list", raw);
+  const listRows = await fetchRecordsByUuid(
+    "opening_airattack_list",
+    raw,
+    options,
+  );
   const detailUuid = (listRows?.[0] as Record<string, unknown>)
     ?.opening_air_attack;
   const rows = detailUuid
-    ? await fetchRecordsByUuid("opening_airattack", String(detailUuid))
-    : await fetchRecordsByUuid("opening_airattack", raw);
+    ? await fetchRecordsByUuid("opening_airattack", String(detailUuid), options)
+    : await fetchRecordsByUuid("opening_airattack", raw, options);
   return rows.length ? rows : raw;
 }
 
-export async function resolveOpeningRaigeki(raw: unknown): Promise<unknown> {
+export async function resolveOpeningRaigeki(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const rows = await fetchRecordsByUuid("opening_raigeki", raw);
+  const rows = await fetchRecordsByUuid("opening_raigeki", raw, options);
   return rows.length ? rows[0] : raw;
 }
 
-export async function resolveClosingRaigeki(raw: unknown): Promise<unknown> {
+export async function resolveClosingRaigeki(
+  raw: unknown,
+  options?: BattleDataQueryOptions,
+): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
-  const rows = await fetchRecordsByUuid("closing_raigeki", raw);
+  const rows = await fetchRecordsByUuid("closing_raigeki", raw, options);
   return rows.length ? rows[0] : raw;
 }
 
 export async function resolveFriendlyFleet(
   battle: Record<string, unknown>,
+  options?: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
   const envUuid = battle?.env_uuid;
   if (!envUuid) return [];
@@ -345,6 +422,7 @@ export async function resolveFriendlyFleet(
     "env_uuid",
     envUuid,
     200,
+    options,
   );
   const hpSnapshot = (battle.f_nowhps ??
     battle.midnight_f_nowhps ??
@@ -359,7 +437,11 @@ export async function resolveFriendlyFleet(
   }
 
   // Batch-fetch all ship groups in one request
-  const ownShipsByGroup = await fetchRecordsByUuids("own_ship", allGroupIds);
+  const ownShipsByGroup = await fetchRecordsByUuids(
+    "own_ship",
+    allGroupIds,
+    options,
+  );
 
   let bestGroupId: string | null = null;
   let bestScore = Number.MAX_SAFE_INTEGER;
@@ -386,6 +468,7 @@ export async function resolveFriendlyFleet(
       "env_uuid",
       envUuid,
       2000,
+      options,
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of ownShipRows) {
@@ -409,6 +492,38 @@ export async function resolveFriendlyFleet(
     }
     if (inferredBest.length > 0) {
       selectedShips = inferredBest;
+    }
+  }
+
+  if (!selectedShips.length) {
+    const nearbyOwnShipRows = await fetchRecentRecords(
+      "own_ship",
+      "latest",
+      2000,
+      options,
+    );
+    const byGroup = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of nearbyOwnShipRows) {
+      const groupId = String(row.uuid ?? "");
+      if (!groupId) continue;
+      if (!byGroup.has(groupId)) byGroup.set(groupId, []);
+      byGroup.get(groupId)!.push(row);
+    }
+
+    let inferredNearest: Array<Record<string, unknown>> = [];
+    let inferredNearestScore = Number.MAX_SAFE_INTEGER;
+    for (const rows of byGroup.values()) {
+      const score = hpScoreForDeck(
+        rows as Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
+        hpSnapshot,
+      );
+      if (score < inferredNearestScore) {
+        inferredNearestScore = score;
+        inferredNearest = rows;
+      }
+    }
+    if (inferredNearest.length > 0) {
+      selectedShips = inferredNearest;
     }
   }
 
@@ -443,13 +558,118 @@ export async function resolveFriendlyFleet(
   const slotUuids = sortedShips
     .map((s) => (typeof s.slot === "string" ? s.slot : ""))
     .filter(Boolean);
-  const slotRowsByUuid = await fetchRecordsByUuids("own_slotitem", slotUuids);
+  const slotRowsByUuid = await fetchRecordsByUuids(
+    "own_slotitem",
+    slotUuids,
+    options,
+  );
+
+  const slotRowsByEnvUuid = new Map<string, Array<Record<string, unknown>>>();
+  const friendlyEnvUuid =
+    String(sortedShips[0]?.env_uuid ?? battle?.env_uuid ?? "") || "";
+  if (friendlyEnvUuid) {
+    const envSlotRows = await fetchRecordsByField(
+      "own_slotitem",
+      "env_uuid",
+      friendlyEnvUuid,
+      4000,
+      options,
+    );
+    for (const row of envSlotRows) {
+      const groupId = String(row.uuid ?? "");
+      if (!groupId) continue;
+      if (!slotRowsByEnvUuid.has(groupId)) slotRowsByEnvUuid.set(groupId, []);
+      slotRowsByEnvUuid.get(groupId)!.push(row);
+    }
+  }
+
+  // Last-resort fallback: direct per-slot fetch when both batch and env lookups
+  // missed rows for known slot UUIDs.
+  const slotRowsByDirectUuid = new Map<string, Array<Record<string, unknown>>>();
+  const unresolvedSlotUuids = [...new Set(slotUuids)].filter((slotUuid) => {
+    if (!slotUuid) return false;
+    return (
+      (slotRowsByUuid.get(slotUuid)?.length || 0) === 0 &&
+      (slotRowsByEnvUuid.get(slotUuid)?.length || 0) === 0
+    );
+  });
+  for (const slotUuid of unresolvedSlotUuids) {
+    try {
+      const rows = await fetchRecordsByField(
+        "own_slotitem",
+        "uuid",
+        slotUuid,
+        64,
+        options,
+      );
+      if (rows.length > 0) {
+        slotRowsByDirectUuid.set(slotUuid, rows);
+      }
+    } catch {
+      // Keep unresolved when direct lookup fails.
+    }
+  }
+
+  const envShipCandidatesByIndexShip = new Map<
+    string,
+    Array<Record<string, unknown>>
+  >();
+  if (friendlyEnvUuid) {
+    try {
+      const envOwnShipRows = await fetchRecordsByField(
+        "own_ship",
+        "env_uuid",
+        friendlyEnvUuid,
+        2000,
+        options,
+      );
+      for (const row of envOwnShipRows) {
+        const key = `${Number(row.index ?? -1)}|${Number(row.ship_id ?? 0)}`;
+        if (!envShipCandidatesByIndexShip.has(key)) {
+          envShipCandidatesByIndexShip.set(key, []);
+        }
+        envShipCandidatesByIndexShip.get(key)!.push(row);
+      }
+    } catch {
+      // Keep empty map when candidate lookup fails.
+    }
+  }
 
   return sortedShips.map((ship) => {
     const shipId = Number(ship.ship_id ?? 0) || null;
     const mstShip = shipId ? mstShipById.get(shipId) : null;
     const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
-    const slotRows = slotGroupId ? slotRowsByUuid.get(slotGroupId) || [] : [];
+    let slotRows = slotGroupId
+      ? (slotRowsByUuid.get(slotGroupId) ||
+        slotRowsByEnvUuid.get(slotGroupId) ||
+        slotRowsByDirectUuid.get(slotGroupId) ||
+        [])
+      : [];
+
+    if (slotRows.length === 0) {
+      const candidateKey = `${Number(ship.index ?? -1)}|${Number(ship.ship_id ?? 0)}`;
+      const slotCandidates = envShipCandidatesByIndexShip.get(candidateKey) || [];
+      const sortedCandidates = [...slotCandidates].sort((a, b) => {
+        const da = Math.abs(Number(a.nowhp ?? 0) - Number(ship.nowhp ?? 0));
+        const db = Math.abs(Number(b.nowhp ?? 0) - Number(ship.nowhp ?? 0));
+        return da - db;
+      });
+      for (const candidate of sortedCandidates) {
+        const candidateSlot =
+          typeof candidate.slot === "string" ? candidate.slot : "";
+        if (!candidateSlot) continue;
+        const candidateRows =
+          slotRowsByUuid.get(candidateSlot) ||
+          slotRowsByEnvUuid.get(candidateSlot) ||
+          slotRowsByDirectUuid.get(candidateSlot) ||
+          [];
+        if (candidateRows.length > 0) {
+          slotRows = candidateRows;
+          break;
+        }
+      }
+    }
+
     const equips = slotRows
       .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
       .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
@@ -497,6 +717,7 @@ export async function resolveFriendlyFleet(
 
 export async function resolveEnemyFleet(
   battle: Record<string, unknown>,
+  options?: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
   const fallbackEnemyByHp = (): ShipInfo[] => {
     const hps = Array.isArray(battle?.e_nowhps)
@@ -531,6 +752,7 @@ export async function resolveEnemyFleet(
       "env_uuid",
       envUuid,
       2000,
+      options,
     );
     if (rows.length === 0) return [];
 
@@ -594,7 +816,7 @@ export async function resolveEnemyFleet(
     return inferred.length > 0 ? inferred : fallbackEnemyByHp();
   }
 
-  const deckRows = await fetchRecordsByUuid("enemy_deck", String(deckId));
+  const deckRows = await fetchRecordsByUuid("enemy_deck", String(deckId), options);
   const deck = deckRows[0] || null;
   if (!deck) {
     const inferred = await inferEnemyByEnv();
@@ -606,7 +828,11 @@ export async function resolveEnemyFleet(
 
   // Batch-fetch all enemy ship groups in one request
   const groupIds = toGroupIds(deck.ship_ids);
-  const shipsByGroup = await fetchRecordsByUuids("enemy_ship", groupIds);
+  const shipsByGroup = await fetchRecordsByUuids(
+    "enemy_ship",
+    groupIds,
+    options,
+  );
 
   // Collect all ships and their slot UUIDs
   const allShips: Array<Record<string, unknown>> = [];
@@ -621,7 +847,11 @@ export async function resolveEnemyFleet(
   const slotUuids = allShips
     .map((s) => (typeof s.slot === "string" ? s.slot : ""))
     .filter(Boolean);
-  const slotRowsByUuid = await fetchRecordsByUuids("enemy_slotitem", slotUuids);
+  const slotRowsByUuid = await fetchRecordsByUuids(
+    "enemy_slotitem",
+    slotUuids,
+    options,
+  );
 
   const ships: ShipInfo[] = [];
   for (const ship of allShips) {

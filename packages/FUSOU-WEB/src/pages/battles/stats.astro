@@ -6,6 +6,18 @@ import PageShell from "@/components/ui/PageShell.astro";
 import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
+
+const periodTag = Astro.url.searchParams.get("period_tag")?.trim();
+const tableVersion = Astro.url.searchParams.get("table_version")?.trim();
+const sharedParams = new URLSearchParams();
+if (periodTag) {
+  sharedParams.set("period_tag", periodTag);
+}
+if (tableVersion) {
+  sharedParams.set("table_version", tableVersion);
+}
+const sharedQuery = sharedParams.toString();
+const battlesHref = sharedQuery ? `/battles?${sharedQuery}` : "/battles";
 ---
 
 <PageLayout
@@ -53,7 +65,7 @@ export const prerender = false;
       subtitle="戦闘データの統計情報を可視化"
     >
       <Fragment slot="actions">
-        <a id="stats-back-link" href="/battles" class="fusou-btn-ghost"
+        <a id="stats-back-link" href={battlesHref} class="fusou-btn-ghost"
           >← 戦闘一覧</a
         >
       </Fragment>

@@ -272,11 +272,21 @@ export function buildTimelineEvents(
 
     // Support both flat array format (ClosingRaigeki: f_rai/e_rai) and nested format (OpeningRaigeki: frai_list_items/erai_list_items).
     // Opening uses per-attacker slots (Array<Array<number>|null>), so preserve slot index instead of flattening.
-    let fRai = Array.isArray(d.frai) ? (d.frai as unknown[]) : [];
+    const fRaiFromSnake = !Array.isArray(d.frai) && Array.isArray(d.f_rai);
+    let fRai = Array.isArray(d.frai)
+      ? (d.frai as unknown[])
+      : Array.isArray(d.f_rai)
+        ? (d.f_rai as unknown[])
+        : [];
     if (fRai.length === 0 && Array.isArray(d.frai_list_items)) {
       fRai = d.frai_list_items as unknown[];
     }
-    let eRai = Array.isArray(d.erai) ? (d.erai as unknown[]) : [];
+    const eRaiFromSnake = !Array.isArray(d.erai) && Array.isArray(d.e_rai);
+    let eRai = Array.isArray(d.erai)
+      ? (d.erai as unknown[])
+      : Array.isArray(d.e_rai)
+        ? (d.e_rai as unknown[])
+        : [];
     if (eRai.length === 0 && Array.isArray(d.erai_list_items)) {
       eRai = d.erai_list_items as unknown[];
     }
@@ -301,12 +311,48 @@ export function buildTimelineEvents(
     function parseRaiTargets(
       raiRows: unknown[],
       defenderLimit: number,
+      preferZeroBased: boolean,
     ): Map<number, number[]> {
       const defToAtk = new Map<number, number[]>();
+      const toNumericTarget = (raw: unknown): number | null => {
+        if (raw == null) return null;
+        if (typeof raw === "string" && raw.trim() === "") return null;
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return null;
+        return Math.trunc(n);
+      };
+      const numericTargets: number[] = [];
+      for (const row of raiRows) {
+        if (Array.isArray(row)) {
+          for (const target of row as unknown[]) {
+            const n = toNumericTarget(target);
+            if (n != null) numericTargets.push(n);
+          }
+        } else {
+          const n = toNumericTarget(row);
+          if (n != null) numericTargets.push(n);
+        }
+      }
+
+      const hasNegative = numericTargets.some((v) => v < 0);
+      const hasZero = numericTargets.some((v) => v === 0);
+      const maxTarget = numericTargets.length
+        ? Math.max(...numericTargets)
+        : Number.NEGATIVE_INFINITY;
+      const zeroBased = preferZeroBased
+        ? maxTarget < defenderLimit
+        : hasNegative || hasZero
+          ? true
+          : maxTarget >= defenderLimit
+            ? false
+            : false;
+
       const addTarget = (atkIdx: number, rawTarget: unknown): void => {
-        const target = Number(rawTarget);
-        if (!Number.isFinite(target) || target <= 0) return;
-        const defIdx = Math.trunc(target) - 1;
+        const normalizedTarget = toNumericTarget(rawTarget);
+        if (normalizedTarget == null) return;
+        if (zeroBased && normalizedTarget < 0) return;
+        if (!zeroBased && normalizedTarget <= 0) return;
+        const defIdx = zeroBased ? normalizedTarget : normalizedTarget - 1;
         if (defIdx < 0 || defIdx >= defenderLimit) return;
         if (!defToAtk.has(defIdx)) defToAtk.set(defIdx, []);
         defToAtk.get(defIdx)!.push(atkIdx);
@@ -325,7 +371,7 @@ export function buildTimelineEvents(
 
     if (fRai.length > 0 || eRai.length > 0) {
       // Friend fleet → enemy: one event per targeted enemy slot
-      const fDefToAtk = parseRaiTargets(fRai, eNow.length);
+      const fDefToAtk = parseRaiTargets(fRai, eNow.length, fRaiFromSnake);
       for (const [defIdx, atkList] of fDefToAtk) {
         const dmg = Number(eDam[defIdx] ?? 0) || 0;
         const beforeHp = Number(eNow[defIdx] ?? 0) || 0;
@@ -348,7 +394,7 @@ export function buildTimelineEvents(
       }
 
       // Enemy fleet → friend: one event per targeted friend slot
-      const eDefToAtk = parseRaiTargets(eRai, fNow.length);
+      const eDefToAtk = parseRaiTargets(eRai, fNow.length, eRaiFromSnake);
       for (const [defIdx, atkList] of eDefToAtk) {
         const dmg = Number(fDam[defIdx] ?? 0) || 0;
         const beforeHp = Number(fNow[defIdx] ?? 0) || 0;

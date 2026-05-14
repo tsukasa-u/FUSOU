@@ -6,6 +6,23 @@ import PageShell from "@/components/ui/PageShell.astro";
 import PageHeader from "@/components/ui/PageHeader.astro";
 
 export const prerender = false;
+
+const periodTag = Astro.url.searchParams.get("period_tag")?.trim();
+const tableVersion = Astro.url.searchParams.get("table_version")?.trim();
+const sharedParams = new URLSearchParams();
+if (periodTag) {
+  sharedParams.set("period_tag", periodTag);
+}
+if (tableVersion) {
+  sharedParams.set("table_version", tableVersion);
+}
+const sharedQuery = sharedParams.toString();
+const mapFlowHref = sharedQuery
+  ? `/battles/map-flow?${sharedQuery}`
+  : "/battles/map-flow";
+const statsHref = sharedQuery
+  ? `/battles/stats?${sharedQuery}`
+  : "/battles/stats";
 ---
 
 <PageLayout
@@ -72,12 +89,12 @@ export const prerender = false;
       <Fragment slot="actions">
         <a
           id="battles-map-flow-link"
-          href="/battles/map-flow"
+          href={mapFlowHref}
           class="fusou-btn-secondary">マップ進行</a
         >
         <a
           id="battles-stats-link"
-          href="/battles/stats"
+          href={statsHref}
           class="fusou-btn-secondary">統計</a
         >
       </Fragment>
