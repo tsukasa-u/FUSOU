@@ -166,28 +166,12 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = () => {
-    const sum_or_unknown = (
-      a: number | null | undefined,
-      b: number | null | undefined
-    ): number | "?" => {
-      if (a == null && b == null) return "?";
-      return (a ?? 0) + (b ?? 0);
-    };
-
     const f_fly = airattack()?.f_sprite_fly_count;
     const e_fly = airattack()?.e_sprite_fly_count;
-    const f_crash1 = airattack()?.f_sprite_crash_count_stage1;
-    const f_crash2 = airattack()?.f_sprite_crash_count_stage2;
-    const e_crash1 = airattack()?.e_sprite_crash_count_stage1;
-    const e_crash2 = airattack()?.e_sprite_crash_count_stage2;
-    const f_damage1 = airattack()?.f_sprite_damage_count_stage1;
-    const f_damage2 = airattack()?.f_sprite_damage_count_stage2;
-    const e_damage1 = airattack()?.e_sprite_damage_count_stage1;
-    const e_damage2 = airattack()?.e_sprite_damage_count_stage2;
-    const f_crash = sum_or_unknown(f_crash1, f_crash2);
-    const e_crash = sum_or_unknown(e_crash1, e_crash2);
-    const f_damage = sum_or_unknown(f_damage1, f_damage2);
-    const e_damage = sum_or_unknown(e_damage1, e_damage2);
+    const f_crash = airattack()?.f_sprite_crash_count ?? "?";
+    const e_crash = airattack()?.e_sprite_crash_count ?? "?";
+    const f_damage = airattack()?.f_sprite_damage_count ?? "?";
+    const e_damage = airattack()?.e_sprite_damage_count ?? "?";
     const f_non_normal = airattack()?.f_sprite_non_normal_count ?? "?";
     const e_non_normal = airattack()?.e_sprite_non_normal_count ?? "?";
 
@@ -198,14 +182,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
           when={
             f_fly != null ||
             e_fly != null ||
-            f_crash1 != null ||
-            f_crash2 != null ||
-            e_crash1 != null ||
-            e_crash2 != null ||
-            f_damage1 != null ||
-            f_damage2 != null ||
-            e_damage1 != null ||
-            e_damage2 != null
+            airattack()?.f_sprite_crash_count != null ||
+            airattack()?.e_sprite_crash_count != null ||
+            airattack()?.f_sprite_damage_count != null ||
+            airattack()?.e_sprite_damage_count != null
           }
           fallback={<span class="pl-1 text-gray-500">_</span>}
         >

@@ -192,28 +192,12 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = (attack: AirBaseAirAttack) => {
-    const sum_or_unknown = (
-      a: number | null | undefined,
-      b: number | null | undefined
-    ): number | "?" => {
-      if (a == null && b == null) return "?";
-      return (a ?? 0) + (b ?? 0);
-    };
-
     const f_fly = attack.f_sprite_fly_count;
     const e_fly = attack.e_sprite_fly_count;
-    const f_crash1 = attack.f_sprite_crash_stage1_count;
-    const f_crash2 = attack.f_sprite_crash_stage2_count;
-    const e_crash1 = attack.e_sprite_crash_stage1_count;
-    const e_crash2 = attack.e_sprite_crash_stage2_count;
-    const f_damage1 = attack.f_sprite_damage_stage1_count;
-    const f_damage2 = attack.f_sprite_damage_stage2_count;
-    const e_damage1 = attack.e_sprite_damage_stage1_count;
-    const e_damage2 = attack.e_sprite_damage_stage2_count;
-    const f_crash = sum_or_unknown(f_crash1, f_crash2);
-    const e_crash = sum_or_unknown(e_crash1, e_crash2);
-    const f_damage = sum_or_unknown(f_damage1, f_damage2);
-    const e_damage = sum_or_unknown(e_damage1, e_damage2);
+    const f_crash = attack.f_sprite_crash_count ?? "?";
+    const e_crash = attack.e_sprite_crash_count ?? "?";
+    const f_damage = attack.f_sprite_damage_count ?? "?";
+    const e_damage = attack.e_sprite_damage_count ?? "?";
     const f_non_normal = attack.f_sprite_non_normal_count ?? "?";
     const e_non_normal = attack.e_sprite_non_normal_count ?? "?";
 
