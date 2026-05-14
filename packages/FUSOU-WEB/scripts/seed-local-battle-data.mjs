@@ -50,6 +50,7 @@ const SUPPORTED_TABLES = [
   "opening_taisen_list",
 ];
 const DEFAULT_TABLES = [...SUPPORTED_TABLES];
+const PERIOD_TAG_FETCH_LIMIT = 400;
 
 function run(cmd) {
   return execSync(cmd, {
@@ -67,16 +68,28 @@ function runQuiet(cmd) {
   }
 }
 
-function runWithRetry(cmd, attempts = 3) {
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function shouldRetryCommand(error) {
+  const text = String(error?.stderr || error?.stdout || error?.message || "");
+  return /SQLITE_BUSY|database is locked|Too many requests/i.test(text);
+}
+
+function runWithRetry(cmd, attempts = 3, retryDelayMs = 250) {
   let lastError = null;
   for (let i = 1; i <= attempts; i++) {
     try {
       return run(cmd);
     } catch (e) {
       lastError = e;
-      if (i < attempts) {
+      if (i < attempts && shouldRetryCommand(e)) {
         process.stdout.write(`retry ${i}/${attempts - 1} ... `);
+        sleepMs(retryDelayMs * i);
+        continue;
       }
+      throw e;
     }
   }
   throw lastError;
@@ -92,6 +105,59 @@ function normalizeSql(sql) {
 
 function quoteForCommand(sql) {
   return normalizeSql(sql).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function isValidPeriodTagDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  return parsed.toISOString().slice(0, 10) === value;
+}
+
+function toTokyoPeriodTag(rawTag) {
+  if (!rawTag) return null;
+  const parsed = new Date(rawTag);
+  if (!Number.isFinite(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("sv-SE", {
+    timeZone: "Asia/Tokyo",
+  });
+}
+
+async function fetchAllowedPeriodTagSetFromSupabase() {
+  const url =
+    process.env.PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const key =
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.SUPABASE_KEY ||
+    "";
+
+  if (!url || !key) {
+    throw new Error(
+      "Missing PUBLIC_SUPABASE_URL/SUPABASE_URL and/or SUPABASE_SECRET_KEY",
+    );
+  }
+
+  const nowIso = new Date(Date.now() - 5000).toISOString();
+  const endpoint = `${url.replace(/\/$/, "")}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=${PERIOD_TAG_FETCH_LIMIT}`;
+  const response = await fetch(endpoint, {
+    headers: {
+      apikey: key,
+      Authorization: `Bearer ${key}`,
+      Accept: "application/json",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch allowed period tags: ${response.status}`);
+  }
+
+  const rows = await response.json();
+  const tags = (Array.isArray(rows) ? rows : [])
+    .map((row) => toTokyoPeriodTag(row?.tag))
+    .filter((tag) => typeof tag === "string" && isValidPeriodTagDate(tag));
+
+  return new Set(tags);
 }
 
 function parseArgs() {
@@ -177,8 +243,10 @@ function parseArgs() {
 
 function d1Query(dbName, sql, remote = false) {
   const remoteFlag = remote ? "--remote" : "";
-  const out = run(
+  const out = runWithRetry(
     `npx wrangler d1 execute ${dbName} ${remoteFlag} --command "${quoteForCommand(sql)}" --json`,
+    6,
+    400,
   );
   const parsed = JSON.parse(out);
   return parsed?.[0]?.results || [];
@@ -214,18 +282,28 @@ CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
 `;
-  runQuiet(
+  runWithRetry(
     `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
+    6,
+    400,
   );
 }
 
-function getRemoteRows({ db, period, tables, limit, targetTimestamp }) {
+function getRemoteRows({ db, period, tables, limit, targetTimestamp }, allowedPeriodTagSet) {
+  const allowedTags = [...allowedPeriodTagSet]
+    .filter((tag) => isValidPeriodTagDate(tag))
+    .sort((a, b) => b.localeCompare(a));
+  if (allowedTags.length === 0) {
+    return [];
+  }
+
+  const allowedTagSql = allowedTags.map((tag) => `'${esc(tag)}'`).join(",");
   const tableListSql = tables.map((t) => `'${esc(t)}'`).join(",");
 
   let periodCondition = "";
   if (period === "latest") {
     periodCondition =
-      "AND bi.period_tag = (SELECT MAX(b2.period_tag) FROM block_indexes b2 WHERE b2.table_name = bi.table_name)";
+      `AND bi.period_tag = (SELECT MAX(b2.period_tag) FROM block_indexes b2 WHERE b2.table_name = bi.table_name AND b2.period_tag IN (${allowedTagSql}))`;
   } else if (period !== "all") {
     periodCondition = `AND bi.period_tag = '${esc(period)}'`;
   }
@@ -254,12 +332,55 @@ SELECT
 FROM block_indexes bi
 JOIN archived_files af ON af.id = bi.file_id
 WHERE bi.table_name IN (${tableListSql})
+AND bi.period_tag IN (${allowedTagSql})
 ${periodCondition}
 ${timestampCondition}
 ORDER BY bi.start_timestamp DESC
 LIMIT ${limit};`;
 
-  return d1Query(db, sql, true);
+  const rows = d1Query(db, sql, true);
+  if (
+    rows.length > 0 ||
+    !(Number.isFinite(targetTimestamp) && targetTimestamp > 0)
+  ) {
+    return rows;
+  }
+
+  const nearestSql = `
+WITH ranked AS (
+  SELECT
+    bi.dataset_id,
+    bi.table_name,
+    bi.start_byte,
+    bi.length,
+    bi.record_count,
+    bi.start_timestamp,
+    bi.end_timestamp,
+    bi.table_version,
+    bi.period_tag,
+    af.file_path,
+    af.file_size,
+    af.compression_codec,
+    af.created_at,
+    af.last_modified_at,
+    ROW_NUMBER() OVER (
+      PARTITION BY bi.table_name
+      ORDER BY MIN(ABS(bi.start_timestamp - ${targetTimestamp}), ABS(bi.end_timestamp - ${targetTimestamp})) ASC,
+               bi.start_timestamp DESC
+    ) AS rn
+  FROM block_indexes bi
+  JOIN archived_files af ON af.id = bi.file_id
+  WHERE bi.table_name IN (${tableListSql})
+    AND bi.period_tag IN (${allowedTagSql})
+    ${periodCondition}
+)
+SELECT dataset_id, table_name, start_byte, length, record_count, start_timestamp, end_timestamp, table_version, period_tag, file_path, file_size, compression_codec, created_at, last_modified_at
+FROM ranked
+WHERE rn = 1
+ORDER BY start_timestamp DESC
+LIMIT ${limit};`;
+
+  return d1Query(db, nearestSql, true);
 }
 
 function seedR2Files(bucket, rows) {
@@ -302,14 +423,33 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
   const targetRows = rows.filter((row) => uploadedPaths.has(row.file_path));
   const tableListSql = tables.map((t) => `'${esc(t)}'`).join(",");
 
-  if (period === "all" || period === "latest") {
-    runQuiet(
+  if (period === "all") {
+    runWithRetry(
       `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql});"`,
+      6,
+      400,
     );
   } else {
-    runQuiet(
-      `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name IN (${tableListSql}) AND period_tag='${esc(period)}';"`,
-    );
+    const periodTagsByTable = new Map();
+    for (const row of targetRows) {
+      const tableName = String(row.table_name || "").trim();
+      const periodTag = String(row.period_tag || "").trim();
+      if (!tableName || !periodTag) continue;
+      if (!periodTagsByTable.has(tableName)) {
+        periodTagsByTable.set(tableName, new Set());
+      }
+      periodTagsByTable.get(tableName).add(periodTag);
+    }
+
+    for (const [tableName, tags] of periodTagsByTable.entries()) {
+      if (!tags.size) continue;
+      const tagSql = [...tags].map((tag) => `'${esc(tag)}'`).join(",");
+      runWithRetry(
+        `npx wrangler d1 execute ${db} --command "DELETE FROM block_indexes WHERE table_name='${esc(tableName)}' AND period_tag IN (${tagSql});"`,
+        6,
+        400,
+      );
+    }
   }
 
   const uniqueFiles = new Map();
@@ -318,11 +458,10 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
   }
 
   for (const row of uniqueFiles.values()) {
-    runQuiet(
-      `npx wrangler d1 execute ${db} --command "DELETE FROM archived_files WHERE file_path='${esc(row.file_path)}';"`,
-    );
-    run(
-      `npx wrangler d1 execute ${db} --command "INSERT INTO archived_files (file_path, file_size, compression_codec, created_at, last_modified_at, table_version) VALUES ('${esc(row.file_path)}', ${Number(row.file_size || 0)}, '${esc(row.compression_codec || "none")}', ${Number(row.created_at || Date.now())}, ${Number(row.last_modified_at || Date.now())}, '${esc(row.table_version || "v1")}');"`,
+    runWithRetry(
+      `npx wrangler d1 execute ${db} --command "INSERT INTO archived_files (file_path, file_size, compression_codec, created_at, last_modified_at, table_version) VALUES ('${esc(row.file_path)}', ${Number(row.file_size || 0)}, '${esc(row.compression_codec || "none")}', ${Number(row.created_at || Date.now())}, ${Number(row.last_modified_at || Date.now())}, '${esc(row.table_version || "v1")}') ON CONFLICT(file_path) DO UPDATE SET file_size=excluded.file_size, compression_codec=excluded.compression_codec, created_at=excluded.created_at, last_modified_at=excluded.last_modified_at, table_version=excluded.table_version;"`,
+      6,
+      400,
     );
   }
 
@@ -336,8 +475,10 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
     const fileId = Number(fileRows?.[0]?.id || 0);
     if (!fileId) continue;
 
-    run(
+    runWithRetry(
       `npx wrangler d1 execute ${db} --command "INSERT INTO block_indexes (dataset_id, table_name, file_id, start_byte, length, record_count, start_timestamp, end_timestamp, table_version, period_tag) VALUES ('${esc(row.dataset_id)}', '${esc(row.table_name)}', ${fileId}, ${Number(row.start_byte || 0)}, ${Number(row.length || 0)}, ${Number(row.record_count || 0)}, ${Number(row.start_timestamp || 0)}, ${Number(row.end_timestamp || 0)}, '${esc(row.table_version || "v1")}', '${esc(row.period_tag || "unknown")}');"`,
+      6,
+      400,
     );
     inserted++;
   }
@@ -347,6 +488,7 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
 
 async function main() {
   const opts = parseArgs();
+  const allowedPeriodTagSet = await fetchAllowedPeriodTagSetFromSupabase();
 
   console.log("=== Local Battle Data Seeder ===");
   console.log(`Bucket: ${opts.bucket}`);
@@ -354,13 +496,24 @@ async function main() {
   console.log(`Period: ${opts.period}`);
   console.log(`Tables: ${opts.tables.join(", ")}`);
   console.log(`Limit: ${opts.limit}`);
+  console.log(`Allowed period tags: ${allowedPeriodTagSet.size}`);
   if (opts.targetTimestamp) {
     console.log(`Target timestamp: ${opts.targetTimestamp}`);
   }
   console.log();
 
+  if (
+    opts.period !== "all" &&
+    opts.period !== "latest" &&
+    !allowedPeriodTagSet.has(opts.period)
+  ) {
+    throw new Error(
+      `period '${opts.period}' is not in Supabase period-tag allow-list`,
+    );
+  }
+
   console.log("[1/4] Fetching remote block metadata from D1...");
-  const rows = getRemoteRows(opts);
+  const rows = getRemoteRows(opts, allowedPeriodTagSet);
   if (!rows.length) {
     console.log("No matching remote rows found. Nothing to seed.");
     return;
