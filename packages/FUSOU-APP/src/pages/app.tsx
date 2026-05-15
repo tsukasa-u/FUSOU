@@ -45,9 +45,7 @@ function App() {
   return (
     <>
       <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100">
-        {/* outer clips the scrollbar; inner scrolls horizontally */}
-        <div class="w-full overflow-hidden" style={{ height: "33px" }}>
-        <div class="w-full overflow-x-auto overflow-y-hidden pb-4" style={{ "box-sizing": "content-box" }} data-tab-scroll-container>
+        <div class="w-full overflow-x-auto overflow-y-hidden scrollbar-hidden" data-tab-scroll-container>
         <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap min-w-max w-max">
           <button
             role="tab"
@@ -105,7 +103,6 @@ function App() {
           >
             Policy
           </button>
-        </div>
         </div>
         </div>
       </div>

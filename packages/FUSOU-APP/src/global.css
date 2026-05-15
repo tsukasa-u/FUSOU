@@ -75,3 +75,12 @@
   --depth: 0;
   --noise: 0;
 }
+
+/* Hide scrollbar visually while keeping scroll interaction */
+.scrollbar-hidden {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
