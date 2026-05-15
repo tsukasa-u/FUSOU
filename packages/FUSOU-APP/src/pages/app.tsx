@@ -50,7 +50,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Fleet Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M3 18h8l-1-2H4l-1 2zM13 18h8l-1-2h-6l-1 2zM6 16v-4h2v4M16 16v-6h2v6M2 21h20" />
+        <path d="M3 10.5L12 4l9 6.5M5 9.5V20h5v-6h4v6h5V9.5" />
       </svg>
     ),
   },
@@ -59,7 +59,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Ship Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M3 19h18l-2-4H5l-2 4zM9 15V8h6v7M12 5v3" />
+        <path d="M4 16h16l-2.5 3h-11L4 16zM10 16V9h4v7M12 6v3M2 21h20" />
       </svg>
     ),
   },
@@ -68,7 +68,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Equip Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M14 4l6 6-2 2-6-6 2-2zM2 22l7-7 3 3-7 7H2v-3zM13 11l-2 2" />
+        <path d="M3 18h8M7 18v-4h4v4M11 14l8-3M18 9l2 1-1 2-2-1M13 8l3-3 1 1-3 3" />
       </svg>
     ),
   },
@@ -77,7 +77,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Quest Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M7 3h10l2 2v16H5V3h2zM10 9h6M10 13h6M10 17h4M7.5 9l1 1 1.5-2M7.5 13l1 1 1.5-2" />
+        <path d="M4 6h16v12H4zM8 4v2M16 4v2M7 9h4v3H7zM13 9h4M13 12h4M7 15h10" />
       </svg>
     ),
   },
@@ -198,6 +198,15 @@ function App() {
                         : "flex-none w-7 min-w-7 px-0 gap-0"
                       : "flex-none px-2 sm:px-3 gap-1"
                   } ${isActive ? "tab-active px-3! mx-1!" : ""}`}
+                  style={
+                    isActive
+                      ? {
+                          width: "112px",
+                          minWidth: "112px",
+                          maxWidth: "112px",
+                        }
+                      : undefined
+                  }
                   onClick={() => setActiveTab(tab.key)}
                   title={tab.label}
                 >
