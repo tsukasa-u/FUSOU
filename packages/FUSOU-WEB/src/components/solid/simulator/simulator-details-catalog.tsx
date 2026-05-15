@@ -961,7 +961,7 @@ function ShipDetailPanel(props: {
     return (
       (needsStatFallback(props.ship.tais) && cap.taisen_max > 0) ||
       (needsStatFallback(props.ship.kaih) && cap.kaihi_max > 0) ||
-      (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
+        (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
     );
   });
 
