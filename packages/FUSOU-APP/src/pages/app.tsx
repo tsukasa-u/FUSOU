@@ -24,13 +24,7 @@ import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
 import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { PolicyPanelComponent } from "../components/policy/policy_panel.tsx";
-import {
-  Show,
-  createEffect,
-  createSignal,
-  onCleanup,
-  onMount,
-} from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { location_route } from "../utility/location";
 import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
 
@@ -44,141 +38,169 @@ type AppTabKey =
   | "logs"
   | "policy";
 
+type TabDefinition = {
+  key: AppTabKey;
+  label: string;
+  icon: () => JSX.Element;
+};
+
+const TAB_DEFINITIONS: TabDefinition[] = [
+  {
+    key: "fleet",
+    label: "Fleet Info",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M3 6h18M7 12h10M10 18h4" />
+      </svg>
+    ),
+  },
+  {
+    key: "ship",
+    label: "Ship Info",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M3 19h18l-2-4H5l-2 4zM8 15V7h8v8" />
+      </svg>
+    ),
+  },
+  {
+    key: "equip",
+    label: "Equip Info",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M14 4l6 6-8 8-6-6 8-8zM7 14l-3 6 6-3" />
+      </svg>
+    ),
+  },
+  {
+    key: "quest",
+    label: "Quest Info",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M9 11l3 3L22 4M2 12l5 5" />
+      </svg>
+    ),
+  },
+  {
+    key: "data_collection",
+    label: "Data Collection",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5" />
+      </svg>
+    ),
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+        <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 .6 1.65 1.65 0 00-.33 1V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-.33-1 1.65 1.65 0 00-1-.6 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-.6-1 1.65 1.65 0 00-1-.33H3a2 2 0 010-4h.09a1.65 1.65 0 001-.33 1.65 1.65 0 00.6-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-.6 1.65 1.65 0 00.33-1V3a2 2 0 014 0v.09a1.65 1.65 0 00.33 1 1.65 1.65 0 001 .6 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.27.3.47.66.6 1 .13.34.2.7.2 1.09s-.07.75-.2 1.09c-.13.34-.33.7-.6 1z" />
+      </svg>
+    ),
+  },
+  {
+    key: "logs",
+    label: "Logs",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M4 6h16M4 12h16M4 18h10" />
+      </svg>
+    ),
+  },
+  {
+    key: "policy",
+    label: "Policy",
+    icon: () => (
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7l8-4z" />
+      </svg>
+    ),
+  },
+];
+
 function App() {
   createEffect(location_route);
   const [activeTab, setActiveTab] = createSignal<AppTabKey>("fleet");
-  const [canScrollLeft, setCanScrollLeft] = createSignal(false);
-  const [canScrollRight, setCanScrollRight] = createSignal(false);
-  let tabScrollContainer: HTMLDivElement | undefined;
+  const [compactTabs, setCompactTabs] = createSignal(false);
+  let tabContainer: HTMLDivElement | undefined;
+  let tabMeasureList: HTMLDivElement | undefined;
 
-  const updateTabScrollState = () => {
-    if (!tabScrollContainer) return;
-    const epsilon = 2;
-    const maxLeft =
-      tabScrollContainer.scrollWidth - tabScrollContainer.clientWidth - epsilon;
-    setCanScrollLeft(tabScrollContainer.scrollLeft > epsilon);
-    setCanScrollRight(tabScrollContainer.scrollLeft < maxLeft);
-  };
-
-  const scrollTabsBy = (deltaX: number) => {
-    if (!tabScrollContainer) return;
-    tabScrollContainer.scrollBy({ left: deltaX, behavior: "smooth" });
+  const updateCompactTabs = () => {
+    if (!tabContainer || !tabMeasureList) return;
+    const needsCompact = tabMeasureList.scrollWidth > tabContainer.clientWidth;
+    setCompactTabs(needsCompact);
   };
 
   onMount(() => {
-    const onScrollOrResize = () => updateTabScrollState();
-    window.addEventListener("resize", onScrollOrResize);
-    tabScrollContainer?.addEventListener("scroll", onScrollOrResize, {
-      passive: true,
-    });
+    const onResize = () => updateCompactTabs();
+    const resizeObserver = new ResizeObserver(onResize);
+    if (tabContainer) {
+      resizeObserver.observe(tabContainer);
+    }
+    window.addEventListener("resize", onResize);
 
-    requestAnimationFrame(updateTabScrollState);
+    requestAnimationFrame(updateCompactTabs);
 
     onCleanup(() => {
-      window.removeEventListener("resize", onScrollOrResize);
-      tabScrollContainer?.removeEventListener("scroll", onScrollOrResize);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", onResize);
     });
   });
 
   createEffect(() => {
     activeTab();
-    requestAnimationFrame(updateTabScrollState);
+    requestAnimationFrame(updateCompactTabs);
   });
 
   return (
     <>
       <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100">
-        <div class="flex items-center gap-1 px-1 py-0.5">
-          <Show when={canScrollLeft() || canScrollRight()}>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs"
-              onClick={() => scrollTabsBy(-180)}
-              disabled={!canScrollLeft()}
-              aria-label="Scroll tabs left"
-            >
-              &lt;
-            </button>
-          </Show>
-
+        <div
+          class="relative w-full"
+          ref={(el) => {
+            tabContainer = el;
+          }}
+        >
           <div
-            ref={(el) => {
-              tabScrollContainer = el;
-            }}
-            class="w-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden"
-            data-tab-scroll-container
+            class="pointer-events-none absolute left-0 top-0 h-0 overflow-hidden opacity-0"
+            aria-hidden="true"
           >
-        <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap min-w-max w-max">
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "fleet" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("fleet")}
-          >
-            Fleet Info
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "ship" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("ship")}
-          >
-            Ship Info
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "equip" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("equip")}
-          >
-            Equip Info
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "quest" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("quest")}
-          >
-            Quest Info
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "data_collection" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("data_collection")}
-          >
-            Data Collection
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "settings" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("settings")}
-          >
-            Settings
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "logs" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("logs")}
-          >
-            Logs
-          </button>
-          <button
-            role="tab"
-            class={`tab px-3 ${activeTab() === "policy" ? "tab-active" : ""}`}
-            onClick={() => setActiveTab("policy")}
-          >
-            Policy
-          </button>
-        </div>
-        </div>
-
-          <Show when={canScrollLeft() || canScrollRight()}>
-            <button
-              type="button"
-              class="btn btn-ghost btn-xs"
-              onClick={() => scrollTabsBy(180)}
-              disabled={!canScrollRight()}
-              aria-label="Scroll tabs right"
+            <div
+              ref={(el) => {
+                tabMeasureList = el;
+              }}
+              class="tabs tabs-border tabs-sm whitespace-nowrap min-w-max w-max"
             >
-              &gt;
-            </button>
-          </Show>
+              {TAB_DEFINITIONS.map((tab) => (
+                <button type="button" class="tab px-3">
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div
+            role="tablist"
+            class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap w-full overflow-hidden"
+          >
+            {TAB_DEFINITIONS.map((tab) => {
+              const isActive = activeTab() === tab.key;
+              return (
+                <button
+                  role="tab"
+                  class={`tab px-2 sm:px-3 flex-1 min-w-0 gap-1 ${isActive ? "tab-active" : ""}`}
+                  onClick={() => setActiveTab(tab.key)}
+                  title={tab.label}
+                >
+                  {tab.icon()}
+                  {(!compactTabs() || isActive) && (
+                    <span class="truncate">{tab.label}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
