@@ -86,12 +86,86 @@ impl UploadRetryService {
         self.auth_manager.clone()
     }
 
+    pub fn is_running(&self) -> bool {
+        self.is_running.load(Ordering::Acquire)
+    }
+
     pub async fn trigger_retry(&self) {
         self.trigger_retry_internal(false).await;
     }
 
     pub async fn trigger_retry_force(&self) {
         self.trigger_retry_internal(true).await;
+    }
+
+    pub async fn retry_pending_item_now(&self, id: &str) -> Result<(), String> {
+        if self
+            .is_running
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err("retry process already running".to_string());
+        }
+
+        let _running_guard = RunningFlagGuard {
+            is_running: self.is_running.clone(),
+        };
+
+        let configs = get_user_configs();
+        let retry_config = &configs.app.asset_sync.retry;
+
+        self.store.cleanup_expired(retry_config.get_ttl_seconds());
+
+        let mut meta = self
+            .store
+            .list_pending()
+            .into_iter()
+            .find(|pending| pending.id == id)
+            .ok_or_else(|| format!("pending item not found: {id}"))?;
+
+        if meta.attempt_count >= retry_config.get_max_attempts() {
+            let _ = self.store.delete_pending(&meta.id);
+            return Err(format!(
+                "max attempts ({}) reached; pending item removed",
+                retry_config.get_max_attempts()
+            ));
+        }
+
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("failed to build retry client: {e}"))?;
+
+        let retry_result = Self::retry_one(
+            &self.store,
+            &mut meta,
+            &client,
+            &self.auth_manager,
+            self.custom_handler.as_deref(),
+        )
+        .await
+        .map_err(|e| e.to_string());
+
+        match retry_result {
+            Ok(()) => {
+                self.store
+                    .delete_pending(&meta.id)
+                    .map_err(|e| format!("failed to remove succeeded pending item: {e}"))?;
+                Ok(())
+            }
+            Err(message) => {
+                if Self::is_auth_related_error(&message) {
+                    return Err(message);
+                }
+
+                meta.increment_attempt(Self::now_epoch_seconds());
+                self.store
+                    .update_meta(&meta)
+                    .map_err(|e| format!("failed to update pending retry metadata: {e}"))?;
+                Err(message)
+            }
+        }
     }
 
     async fn trigger_retry_internal(&self, force: bool) {

@@ -187,6 +187,8 @@ pub async fn run() {
             cmd::tauri_cmd::force_local_sign_out,
             cmd::tauri_cmd::perform_snapshot_sync,
             cmd::tauri_cmd::retry_pending_uploads_now,
+            cmd::tauri_cmd::retry_pending_upload_item_now,
+            cmd::tauri_cmd::delete_pending_upload_item,
             cmd::tauri_cmd::get_pending_upload_retry_status,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_quest_tree_suppression_status,

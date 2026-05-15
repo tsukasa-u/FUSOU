@@ -1,5 +1,6 @@
 import { DecksComponent } from "./../components/deck_port/decks.tsx";
 import { SettingsComponent } from "../components/settings/settings.tsx";
+import { DataCollectionStatusComponent } from "../components/settings/data_collection_status.tsx";
 
 import { MaterialsComponent } from "./../components/materials/materials.tsx";
 import { QuestsComponent } from "./../components/quests/quests.tsx";
@@ -32,7 +33,7 @@ function App() {
 
   return (
     <>
-      <div class="bg-base-100 fixed w-dvw h-[33px] border-b-1 border-base-300 z-99" />
+      <div class="bg-base-100 fixed w-dvw h-[33px] border-b border-base-300 z-99" />
       <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100">
         <input
           type="radio"
@@ -164,6 +165,24 @@ function App() {
               <QuestsComponent />
             </QuestsProvider>
           </ul>
+        </div>
+
+        <input
+          type="radio"
+          name="tabs_fleet"
+          role="tab"
+          class="tab [&::after]:w-18 bg-base-100"
+          aria-label="Data Collection"
+          style={{
+            position: "sticky",
+            top: "0px",
+            left: "0px",
+            "z-index": "100",
+            "border-radius": 0,
+          }}
+        />
+        <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
+          <DataCollectionStatusComponent />
         </div>
 
         <input

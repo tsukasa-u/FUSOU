@@ -369,6 +369,49 @@ pub async fn retry_pending_uploads_now(
     Ok("Pending upload retry triggered".to_string())
 }
 
+#[tauri::command(rename_all = "snake_case")]
+pub async fn retry_pending_upload_item_now(
+    id: String,
+    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
+) -> Result<String, String> {
+    let trimmed_id = id.trim();
+    if trimmed_id.is_empty() {
+        return Err("id is required".to_string());
+    }
+
+    retry_service.retry_pending_item_now(trimmed_id).await?;
+    Ok(format!("Pending upload retry triggered for {trimmed_id}"))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn delete_pending_upload_item(
+    id: String,
+    pending_store: tauri::State<'_, Arc<PendingStore>>,
+    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
+) -> Result<String, String> {
+    let trimmed_id = id.trim();
+    if trimmed_id.is_empty() {
+        return Err("id is required".to_string());
+    }
+
+    if retry_service.is_running() {
+        return Err("retry process is running; wait until it finishes".to_string());
+    }
+
+    let exists = pending_store
+        .list_pending()
+        .into_iter()
+        .any(|item| item.id == trimmed_id);
+    if !exists {
+        return Err(format!("pending item not found: {trimmed_id}"));
+    }
+
+    pending_store
+        .delete_pending(trimmed_id)
+        .map_err(|e| format!("failed to delete pending item: {e}"))?;
+    Ok(format!("Pending upload deleted: {trimmed_id}"))
+}
+
 #[derive(Debug, Serialize)]
 pub struct PendingRetryItemStatus {
     pub id: String,
