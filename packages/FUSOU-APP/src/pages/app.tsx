@@ -59,7 +59,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Ship Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M4 16h16l-2.5 3h-11L4 16zM10 16V9h4v7M12 6v3M2 21h20" />
+        <path d="M3 16h18l-3 3H6l-3-3zM9 16V8h6v8M12 5v3M2 21h20" />
       </svg>
     ),
   },
@@ -68,7 +68,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Equip Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M3 18h8M7 18v-4h4v4M11 14l8-3M18 9l2 1-1 2-2-1M13 8l3-3 1 1-3 3" />
+        <path d="M3 19h8M7 19v-5h4v5M11 14l8-3M18 9l2 1-1 2-2-1M12 7l4-4M16 3l2 2" />
       </svg>
     ),
   },
@@ -201,9 +201,9 @@ function App() {
                   style={
                     isActive
                       ? {
-                          width: "112px",
-                          minWidth: "112px",
-                          maxWidth: "112px",
+                          width: "136px",
+                          minWidth: "136px",
+                          maxWidth: "136px",
                         }
                       : undefined
                   }
@@ -214,7 +214,7 @@ function App() {
                     {tab.icon()}
                   </span>
                   {(!compact || isActive) && (
-                    <span class="truncate">{tab.label}</span>
+                    <span class="truncate whitespace-nowrap">{tab.label}</span>
                   )}
                 </button>
               );
