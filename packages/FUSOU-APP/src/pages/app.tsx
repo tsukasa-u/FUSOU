@@ -24,28 +24,94 @@ import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
 import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { PolicyPanelComponent } from "../components/policy/policy_panel.tsx";
-import { createEffect } from "solid-js";
+import { createEffect, createSignal } from "solid-js";
 import { location_route } from "../utility/location";
 import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
 
+type AppTabKey =
+  | "fleet"
+  | "ship"
+  | "equip"
+  | "quest"
+  | "data_collection"
+  | "settings"
+  | "logs"
+  | "policy";
+
 function App() {
   createEffect(location_route);
+  const [activeTab, setActiveTab] = createSignal<AppTabKey>("fleet");
 
   return (
     <>
-      <div
-        role="tablist"
-        class="tabs tabs-border tabs-sm bg-base-100 grid grid-flow-col auto-cols-max overflow-x-auto"
-      >
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Fleet Info"
-          checked={true}
-        />
-        <div role="tabpanel" class="tab-content col-span-full p-0 h-full">
+      <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100">
+        {/* outer clips the scrollbar; inner scrolls horizontally */}
+        <div class="w-full overflow-hidden" style={{ height: "33px" }}>
+        <div class="w-full overflow-x-auto overflow-y-hidden pb-4" style={{ "box-sizing": "content-box" }} data-tab-scroll-container>
+        <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap min-w-max w-max">
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "fleet" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("fleet")}
+          >
+            Fleet Info
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "ship" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("ship")}
+          >
+            Ship Info
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "equip" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("equip")}
+          >
+            Equip Info
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "quest" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("quest")}
+          >
+            Quest Info
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "data_collection" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("data_collection")}
+          >
+            Data Collection
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "settings" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("settings")}
+          >
+            Settings
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "logs" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("logs")}
+          >
+            Logs
+          </button>
+          <button
+            role="tab"
+            class={`tab px-3 ${activeTab() === "policy" ? "tab-active" : ""}`}
+            onClick={() => setActiveTab("policy")}
+          >
+            Policy
+          </button>
+        </div>
+        </div>
+        </div>
+      </div>
+
+      <div class={activeTab() === "fleet" ? "block" : "hidden"}>
+        <div class="p-0 h-full">
           <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
             <MaterialsProvider>
               <MaterialsComponent />
@@ -87,15 +153,10 @@ function App() {
             <div class="min-h-min min-w-min" />
           </ul>
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Ship Info"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "ship" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <MstSlotItemsProvider>
             <SlotItemsProvider>
               <ShipsProvider>
@@ -108,15 +169,10 @@ function App() {
             </SlotItemsProvider>
           </MstSlotItemsProvider>
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Equip Info"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "equip" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <MstSlotItemsProvider>
             <SlotItemsProvider>
               <MstSlotItemEquipTypesProvider>
@@ -125,63 +181,38 @@ function App() {
             </SlotItemsProvider>
           </MstSlotItemsProvider>
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Quest Info"
-        />
-        <div role="tabpanel" class="tab-content col-span-full p-0 h-full">
+      <div class={activeTab() === "quest" ? "block" : "hidden"}>
+        <div class="p-0 h-full">
           <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
             <QuestsProvider>
               <QuestsComponent />
             </QuestsProvider>
           </ul>
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Data Collection"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "data_collection" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <DataCollectionStatusComponent />
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Settings"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "settings" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <SettingsComponent />
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Logs"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "logs" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <LogViewerComponent />
         </div>
+      </div>
 
-        <input
-          type="radio"
-          name="tabs_fleet"
-          role="tab"
-          class="tab whitespace-nowrap bg-base-100 px-3"
-          aria-label="Policy"
-        />
-        <div role="tabpanel" class="tab-content col-span-full pt-0 pb-0 pl-0 bg-base-100">
+      <div class={activeTab() === "policy" ? "block" : "hidden"}>
+        <div class="pt-0 pb-0 pl-0 bg-base-100">
           <PolicyPanelComponent />
         </div>
       </div>
