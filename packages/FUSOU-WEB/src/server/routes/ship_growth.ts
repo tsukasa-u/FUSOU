@@ -38,9 +38,11 @@ interface ShipEntry {
   kaihi_observed: number;
   taisen_observed: number;
   sakuteki_observed: number;
+  lucky_observed: number;
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked: number;
   kaihi_max: number;
   taisen_max: number;
   sakuteki_max: number;
@@ -71,12 +73,14 @@ interface MasterSlotStats {
   houk: number;
   tais: number;
   saku: number;
+  luck: number;
 }
 
 interface DerivedNakedStats {
   kaihi: number;
   taisen: number;
   sakuteki: number;
+  lucky: number;
 }
 
 interface DeriveResult {
@@ -96,6 +100,7 @@ interface AggregatedBoundRow {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked: number;
 }
 
 interface AggregatedCapRow {
@@ -114,6 +119,7 @@ interface ShipGrowthArchiveBoundRow {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked: number;
 }
 
 interface ShipGrowthArchiveCapRow {
@@ -146,6 +152,7 @@ interface SynergyStatTotals {
   kaihi: number;
   taisen: number;
   sakuteki: number;
+  lucky: number;
 }
 
 interface SynergySingleRule {
@@ -231,6 +238,7 @@ function parseMasterSlotStatsMap(
     const houkRaw = row.houk;
     const taisRaw = row.tais;
     const sakuRaw = row.saku;
+    const luckRaw = row.luck;
 
     const houk =
       typeof houkRaw === "number" && Number.isFinite(houkRaw)
@@ -244,8 +252,12 @@ function parseMasterSlotStatsMap(
       typeof sakuRaw === "number" && Number.isFinite(sakuRaw)
         ? Math.trunc(sakuRaw)
         : 0;
+    const luck =
+      typeof luckRaw === "number" && Number.isFinite(luckRaw)
+        ? Math.trunc(luckRaw)
+        : 0;
 
-    statsMap.set(id, { houk, tais, saku });
+    statsMap.set(id, { houk, tais, saku, luck });
   }
   return statsMap;
 }
@@ -321,7 +333,7 @@ function toInt(value: unknown): number {
 }
 
 function emptyTotals(): SynergyStatTotals {
-  return { kaihi: 0, taisen: 0, sakuteki: 0 };
+  return { kaihi: 0, taisen: 0, sakuteki: 0, lucky: 0 };
 }
 
 function addTotals(
@@ -332,6 +344,7 @@ function addTotals(
     kaihi: a.kaihi + b.kaihi,
     taisen: a.taisen + b.taisen,
     sakuteki: a.sakuteki + b.sakuteki,
+    lucky: a.lucky + b.lucky,
   };
 }
 
@@ -340,6 +353,7 @@ function scaleTotals(value: SynergyStatTotals, n: number): SynergyStatTotals {
     kaihi: value.kaihi * n,
     taisen: value.taisen * n,
     sakuteki: value.sakuteki * n,
+    lucky: value.lucky * n,
   };
 }
 
@@ -350,7 +364,8 @@ function toShipTotals(
   const kaihi = toInt(raw.kaih) + toInt(raw.houk) + toInt(raw.kaihi);
   const taisen = toInt(raw.tais) + toInt(raw.taisen);
   const sakuteki = toInt(raw.saku) + toInt(raw.sakuteki);
-  return { kaihi, taisen, sakuteki };
+  const lucky = toInt(raw.luck) + toInt(raw.luk) + toInt(raw.lucky);
+  return { kaihi, taisen, sakuteki, lucky };
 }
 
 function hasShipRule(
@@ -372,13 +387,19 @@ function pickSingleSynergyTotals(
 
   if (count === 2) {
     const c2 = toShipTotals(rule.c2);
-    return c2.kaihi !== 0 || c2.taisen !== 0 || c2.sakuteki !== 0
+    return c2.kaihi !== 0 ||
+      c2.taisen !== 0 ||
+      c2.sakuteki !== 0 ||
+      c2.lucky !== 0
       ? c2
       : scaleTotals(base, 2);
   }
 
   const c3 = toShipTotals(rule.c3);
-  return c3.kaihi !== 0 || c3.taisen !== 0 || c3.sakuteki !== 0
+  return c3.kaihi !== 0 ||
+    c3.taisen !== 0 ||
+    c3.sakuteki !== 0 ||
+    c3.lucky !== 0
     ? c3
     : scaleTotals(base, count);
 }
@@ -565,6 +586,7 @@ function deriveServerNakedStats(
   let slotKaihi = 0;
   let slotTaisen = 0;
   let slotSakuteki = 0;
+  let slotLucky = 0;
   for (const slot of allSlots) {
     if (!Number.isInteger(slot.slotitem_id) || slot.slotitem_id <= 0) continue;
     const stats = slotStatsMap.get(slot.slotitem_id);
@@ -575,6 +597,7 @@ function deriveServerNakedStats(
     slotKaihi += stats.houk;
     slotTaisen += stats.tais;
     slotSakuteki += stats.saku;
+    slotLucky += stats.luck;
   }
 
   const spEffectItems = parseSpEffectItems(ship.sp_effect_items_json).map(
@@ -638,16 +661,22 @@ function deriveServerNakedStats(
     ship.taisen_observed - slotTaisen - totalSynergyTotals.taisen;
   const sakutekiRaw =
     ship.sakuteki_observed - slotSakuteki - totalSynergyTotals.sakuteki;
+  // sp_effect_items has no luck field in KanColle's data, so spEffectLucky is
+  // structurally 0. We still subtract slot+synergy luck to obtain the naked
+  // value (= ship's intrinsic 運 stat at this level).
+  const luckyRaw =
+    ship.lucky_observed - slotLucky - totalSynergyTotals.lucky;
 
   const kaihi = Math.max(0, kaihiRaw);
   const taisen = Math.max(0, taisenRaw);
   const sakuteki = Math.max(0, sakutekiRaw);
+  const lucky = Math.max(0, luckyRaw);
 
   // Log if negative result is clamped to zero—indicates possible data quality issue upstream.
-  if (kaihiRaw < 0 || taisenRaw < 0 || sakutekiRaw < 0) {
+  if (kaihiRaw < 0 || taisenRaw < 0 || sakutekiRaw < 0 || luckyRaw < 0) {
     console.warn(
       `[ship-growth] Derived stat clamped to zero for ship ${ship.master_id} lv${ship.lv}: ` +
-        `kaihi=${kaihiRaw} taisen=${taisenRaw} sakuteki=${sakutekiRaw}`,
+        `kaihi=${kaihiRaw} taisen=${taisenRaw} sakuteki=${sakutekiRaw} lucky=${luckyRaw}`,
     );
   }
 
@@ -657,11 +686,13 @@ function deriveServerNakedStats(
         kaihi: slotKaihi,
         taisen: slotTaisen,
         sakuteki: slotSakuteki,
+        lucky: slotLucky,
       },
       spEffect: {
         kaihi: spEffectKaihi,
         taisen: 0,
         sakuteki: 0,
+        lucky: 0,
       },
       synergy: {
         single: singleSynergyTotals,
@@ -673,7 +704,7 @@ function deriveServerNakedStats(
   };
 
   return {
-    stats: { kaihi, taisen, sakuteki },
+    stats: { kaihi, taisen, sakuteki, lucky },
     missingSlotItemIds,
     breakdown,
   };
@@ -742,6 +773,7 @@ function validateIngestBody(
       !isValidInt(ship.kaihi_observed) ||
       !isValidInt(ship.taisen_observed) ||
       !isValidInt(ship.sakuteki_observed) ||
+      !isValidInt(ship.lucky_observed) ||
       !isValidInt(ship.kaihi_max) ||
       !isValidInt(ship.taisen_max) ||
       !isValidInt(ship.sakuteki_max)
@@ -843,6 +875,7 @@ function buildAggregatedShipGrowthRows(
           kaihi_naked: derived.stats.kaihi,
           taisen_naked: derived.stats.taisen,
           sakuteki_naked: derived.stats.sakuteki,
+          lucky_naked: derived.stats.lucky,
         });
       } else {
         // Zero-guard: 0 means the derivation was clamped from a negative value
@@ -866,6 +899,12 @@ function buildAggregatedShipGrowthRows(
             existingBound.sakuteki_naked > 0
               ? Math.min(existingBound.sakuteki_naked, derived.stats.sakuteki)
               : derived.stats.sakuteki;
+        }
+        if (derived.stats.lucky > 0) {
+          existingBound.lucky_naked =
+            existingBound.lucky_naked > 0
+              ? Math.min(existingBound.lucky_naked, derived.stats.lucky)
+              : derived.stats.lucky;
         }
       }
     }
@@ -955,7 +994,7 @@ async function collectShipGrowthHistoryForArchive(
 }> {
   const oldBoundsResult = await db
     .prepare(
-      `SELECT rowid AS row_id, period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
+      `SELECT rowid AS row_id, period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked
        FROM ship_growth_bounds
        WHERE (period_tag <> ? OR table_version <> ?)`,
     )
@@ -1060,7 +1099,7 @@ const ARCHIVE_LIST_PAGE_LIMIT = 1000;
 // 1,000,000 objects. Well above any plausible ingest rate.
 const ARCHIVE_LIST_MAX_PAGES = 1000;
 const CUMULATIVE_KV_KEY = "sg:cumulative:archive:v1";
-const CUMULATIVE_SCHEMA_VERSION = 2;
+const CUMULATIVE_SCHEMA_VERSION = 4;
 
 interface CumulativeBoundsRow {
   master_id: number;
@@ -1068,11 +1107,13 @@ interface CumulativeBoundsRow {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
+  lucky_naked: number;
   // Source period ("period_tag/table_version") that contributed the winning
   // (minimum) naked value for each stat. Populated during archive merging.
   kaihi_source_period?: string;
   taisen_source_period?: string;
   sakuteki_source_period?: string;
+  lucky_source_period?: string;
 }
 
 interface CumulativeCapsRow {
@@ -1152,6 +1193,13 @@ function mergeBoundsRow(
   ) {
     existing.sakuteki_naked = row.sakuteki_naked;
     existing.sakuteki_source_period = row.sakuteki_source_period;
+  }
+  if (
+    row.lucky_naked > 0 &&
+    (existing.lucky_naked === 0 || row.lucky_naked < existing.lucky_naked)
+  ) {
+    existing.lucky_naked = row.lucky_naked;
+    existing.lucky_source_period = row.lucky_source_period;
   }
 }
 
@@ -1259,9 +1307,11 @@ async function fetchAndMergeArchiveObject(
       kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
       taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
       sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
+      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
       kaihi_source_period: sourcePeriod,
       taisen_source_period: sourcePeriod,
       sakuteki_source_period: sourcePeriod,
+      lucky_source_period: sourcePeriod,
     });
   }
 
@@ -1630,13 +1680,14 @@ async function processShipGrowthIngest(
     stmts.push(
       db
         .prepare(
-          `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO ship_growth_bounds (period_tag, table_version, master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(period_tag, table_version, master_id, lv) DO UPDATE SET
              kaihi_naked = CASE WHEN excluded.kaihi_naked > 0 AND (kaihi_naked = 0 OR excluded.kaihi_naked < kaihi_naked) THEN excluded.kaihi_naked ELSE kaihi_naked END,
              taisen_naked = CASE WHEN excluded.taisen_naked > 0 AND (taisen_naked = 0 OR excluded.taisen_naked < taisen_naked) THEN excluded.taisen_naked ELSE taisen_naked END,
              sakuteki_naked = CASE WHEN excluded.sakuteki_naked > 0 AND (sakuteki_naked = 0 OR excluded.sakuteki_naked < sakuteki_naked) THEN excluded.sakuteki_naked ELSE sakuteki_naked END,
-             updated_at = CASE WHEN (excluded.kaihi_naked > 0 AND (kaihi_naked = 0 OR excluded.kaihi_naked < kaihi_naked)) OR (excluded.taisen_naked > 0 AND (taisen_naked = 0 OR excluded.taisen_naked < taisen_naked)) OR (excluded.sakuteki_naked > 0 AND (sakuteki_naked = 0 OR excluded.sakuteki_naked < sakuteki_naked)) THEN excluded.updated_at ELSE updated_at END`,
+             lucky_naked = CASE WHEN excluded.lucky_naked > 0 AND (lucky_naked = 0 OR excluded.lucky_naked < lucky_naked) THEN excluded.lucky_naked ELSE lucky_naked END,
+             updated_at = CASE WHEN (excluded.kaihi_naked > 0 AND (kaihi_naked = 0 OR excluded.kaihi_naked < kaihi_naked)) OR (excluded.taisen_naked > 0 AND (taisen_naked = 0 OR excluded.taisen_naked < taisen_naked)) OR (excluded.sakuteki_naked > 0 AND (sakuteki_naked = 0 OR excluded.sakuteki_naked < sakuteki_naked)) OR (excluded.lucky_naked > 0 AND (lucky_naked = 0 OR excluded.lucky_naked < lucky_naked)) THEN excluded.updated_at ELSE updated_at END`,
         )
         .bind(
           period_tag,
@@ -1646,6 +1697,7 @@ async function processShipGrowthIngest(
           row.kaihi_naked,
           row.taisen_naked,
           row.sakuteki_naked,
+          row.lucky_naked,
           nowSec,
         ),
     );
@@ -1769,12 +1821,14 @@ interface ExpKvSnapshot {
 interface BoundsKvSnapshot {
   period_tag: string;
   table_version: string;
+  schema_version: 3;
   bounds: Array<{
     master_id: number;
     lv: number;
     kaihi_naked: number;
     taisen_naked: number;
     sakuteki_naked: number;
+    lucky_naked: number;
   }>;
   caps: Array<{
     master_id: number;
@@ -1801,6 +1855,9 @@ function isExpKvSnapshot(v: unknown): v is ExpKvSnapshot {
 function isBoundsKvSnapshot(v: unknown): v is BoundsKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
+  // schema_version === 3 indicates the snapshot includes the lucky_naked field.
+  // Older snapshots are treated as invalid so the cache rebuilds.
+  if (s.schema_version !== 3) return false;
   return (
     typeof s.period_tag === "string" &&
     typeof s.table_version === "string" &&
@@ -2208,6 +2265,7 @@ app.get("/bounds", async (c) => {
     kaihi_naked: number;
     taisen_naked: number;
     sakuteki_naked: number;
+    lucky_naked: number;
   };
   type CapsRow = {
     master_id: number;
@@ -2230,7 +2288,7 @@ app.get("/bounds", async (c) => {
         const deltaBounds = ((
           await db
             .prepare(
-              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
+              `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at
                FROM ship_growth_bounds
                WHERE period_tag = ? AND table_version = ? AND updated_at > ?
                ORDER BY master_id ASC, lv ASC`,
@@ -2260,6 +2318,7 @@ app.get("/bounds", async (c) => {
             kaihi_naked: r.kaihi_naked,
             taisen_naked: r.taisen_naked,
             sakuteki_naked: r.sakuteki_naked,
+            lucky_naked: r.lucky_naked,
           });
         }
 
@@ -2287,6 +2346,7 @@ app.get("/bounds", async (c) => {
           snapshot: {
             period_tag: periodTag,
             table_version: tableVersion,
+            schema_version: 3,
             bounds: Array.from(boundsMap.values()).sort(
               (a, b) => a.master_id - b.master_id || a.lv - b.lv,
             ),
@@ -2312,7 +2372,7 @@ app.get("/bounds", async (c) => {
           const page = ((
             await db
               .prepare(
-                `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, updated_at
+                `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at
                  FROM ship_growth_bounds
                  WHERE period_tag = ? AND table_version = ?
                  ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`,
@@ -2347,12 +2407,14 @@ app.get("/bounds", async (c) => {
         return {
           period_tag: periodTag,
           table_version: tableVersion,
+          schema_version: 3,
           bounds: boundsRows.map((r) => ({
             master_id: r.master_id,
             lv: r.lv,
             kaihi_naked: r.kaihi_naked,
             taisen_naked: r.taisen_naked,
             sakuteki_naked: r.sakuteki_naked,
+            lucky_naked: r.lucky_naked,
           })),
           caps: capsRows.map((r) => ({
             master_id: r.master_id,
@@ -2395,8 +2457,8 @@ app.get("/bounds", async (c) => {
     return response;
   } catch (err) {
     const message = String(err);
-    if (message.includes("no such column: updated_at")) {
-      // Local legacy D1 schema compatibility: serve full data without delta columns.
+    if (message.includes("no such column: updated_at") || message.includes("no such column: lucky_naked")) {
+      // Local legacy D1 schema compatibility: serve full data without delta/new luck columns.
       try {
         const BOUNDS_PAGE = 5000;
         let legacyBounds: Array<BoundsRow> = [];
@@ -2411,8 +2473,10 @@ app.get("/bounds", async (c) => {
               )
               .bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
               .all()
-          ).results ?? []) as Array<BoundsRow>;
-          legacyBounds = legacyBounds.concat(page);
+          ).results ?? []) as Array<Omit<BoundsRow, "lucky_naked">>;
+          legacyBounds = legacyBounds.concat(
+            page.map((r) => ({ ...r, lucky_naked: 0 })),
+          );
           if (page.length < BOUNDS_PAGE) break;
         }
 
@@ -2511,7 +2575,7 @@ app.get("/cumulative", async (c) => {
 // ── All-periods snapshot (per-period breakdown from archive objects) ──────────
 
 const ALL_PERIODS_KV_KEY = "sg:all-periods:archive:v1";
-const ALL_PERIODS_SCHEMA_VERSION = 1;
+const ALL_PERIODS_SCHEMA_VERSION = 3;
 
 /**
  * One entry per (period_tag, table_version) observed across all archive
@@ -2527,6 +2591,7 @@ interface AllPeriodsEntry {
     kaihi_naked: number;
     taisen_naked: number;
     sakuteki_naked: number;
+    lucky_naked: number;
   }>;
   caps: Array<{
     master_id: number;
@@ -2614,6 +2679,7 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
       kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
       taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
       sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
+      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
     });
   }
 
