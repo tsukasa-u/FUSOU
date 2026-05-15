@@ -340,7 +340,7 @@ export function DataCollectionStatusComponent() {
 
   return (
     <>
-      <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Data Collection</h1>
+      <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Uploads</h1>
       <div class="mx-6">
         <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 

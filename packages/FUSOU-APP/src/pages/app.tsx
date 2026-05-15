@@ -50,7 +50,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Fleet Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M3 6h18M7 12h10M10 18h4" />
+        <path d="M5 7a3 3 0 106 0 3 3 0 00-6 0zM13 9a3 3 0 106 0 3 3 0 00-6 0zM2 20a5 5 0 0110 0M12 20a5 5 0 0110 0" />
       </svg>
     ),
   },
@@ -68,7 +68,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Equip Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M14 4l6 6-8 8-6-6 8-8zM7 14l-3 6 6-3" />
+        <path d="M21 3l-6 6M17 3l4 4M14 10l-9 9M3 21l4-1-3-3-1 4z" />
       </svg>
     ),
   },
@@ -77,16 +77,16 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Quest Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M9 11l3 3L22 4M2 12l5 5" />
+        <path d="M8 4h8l1 2h3v14H4V6h3l1-2zM8 13l2.5 2.5L15.5 10.5" />
       </svg>
     ),
   },
   {
     key: "data_collection",
-    label: "Data Collection",
+    label: "Uploads",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5" />
+        <path d="M12 3C7.6 3 4 4.3 4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6c0-1.7-3.6-3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3M4 6c0 1.7 3.6 3 8 3s8-1.3 8-3M12 9v6M9.5 12.5L12 15l2.5-2.5" />
       </svg>
     ),
   },
@@ -105,7 +105,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Logs",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M4 6h16M4 12h16M4 18h10" />
+        <path d="M6 3h9l3 3v15H6V3zM9 10h6M9 14h6M9 18h4" />
       </svg>
     ),
   },
@@ -114,7 +114,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Policy",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7l8-4z" />
+        <path d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7l8-4zM9.5 12.5l2 2 3.5-3.5" />
       </svg>
     ),
   },
@@ -174,15 +174,16 @@ function App() {
               class="tabs tabs-border tabs-sm whitespace-nowrap min-w-max w-max"
             >
               {TAB_DEFINITIONS.map((tab) => (
-                <button type="button" class="tab px-3">
-                  {tab.label}
+                <button type="button" class="tab flex-none px-2 sm:px-3 gap-1">
+                  <span class="h-4 w-4">{tab.icon()}</span>
+                  <span>{tab.label}</span>
                 </button>
               ))}
             </div>
           </div>
           <div
             role="tablist"
-            class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap w-full overflow-hidden"
+            class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap overflow-hidden"
           >
             {TAB_DEFINITIONS.map((tab) => {
               const isActive = activeTab() === tab.key;
@@ -193,9 +194,9 @@ function App() {
                   class={`tab min-w-0 ${
                     compact
                       ? isActive
-                        ? "flex-1 px-2 sm:px-2.5 gap-1"
-                        : "flex-none w-8 min-w-8 px-0 gap-0"
-                      : "flex-1 px-2 sm:px-3 gap-1"
+                        ? "flex-none px-2 sm:px-2.5 gap-1"
+                        : "flex-none w-7 min-w-7 px-0 gap-0"
+                      : "flex-none px-2 sm:px-3 gap-1"
                   } ${isActive ? "tab-active" : ""}`}
                   onClick={() => setActiveTab(tab.key)}
                   title={tab.label}
