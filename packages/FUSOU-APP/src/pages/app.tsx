@@ -24,7 +24,13 @@ import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
 import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { PolicyPanelComponent } from "../components/policy/policy_panel.tsx";
-import { createEffect, createSignal } from "solid-js";
+import {
+  Show,
+  createEffect,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { location_route } from "../utility/location";
 import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
 
@@ -41,11 +47,67 @@ type AppTabKey =
 function App() {
   createEffect(location_route);
   const [activeTab, setActiveTab] = createSignal<AppTabKey>("fleet");
+  const [canScrollLeft, setCanScrollLeft] = createSignal(false);
+  const [canScrollRight, setCanScrollRight] = createSignal(false);
+  let tabScrollContainer: HTMLDivElement | undefined;
+
+  const updateTabScrollState = () => {
+    if (!tabScrollContainer) return;
+    const epsilon = 2;
+    const maxLeft =
+      tabScrollContainer.scrollWidth - tabScrollContainer.clientWidth - epsilon;
+    setCanScrollLeft(tabScrollContainer.scrollLeft > epsilon);
+    setCanScrollRight(tabScrollContainer.scrollLeft < maxLeft);
+  };
+
+  const scrollTabsBy = (deltaX: number) => {
+    if (!tabScrollContainer) return;
+    tabScrollContainer.scrollBy({ left: deltaX, behavior: "smooth" });
+  };
+
+  onMount(() => {
+    const onScrollOrResize = () => updateTabScrollState();
+    window.addEventListener("resize", onScrollOrResize);
+    tabScrollContainer?.addEventListener("scroll", onScrollOrResize, {
+      passive: true,
+    });
+
+    requestAnimationFrame(updateTabScrollState);
+
+    onCleanup(() => {
+      window.removeEventListener("resize", onScrollOrResize);
+      tabScrollContainer?.removeEventListener("scroll", onScrollOrResize);
+    });
+  });
+
+  createEffect(() => {
+    activeTab();
+    requestAnimationFrame(updateTabScrollState);
+  });
 
   return (
     <>
       <div class="sticky top-0 z-100 border-b border-base-300 bg-base-100">
-        <div class="w-full overflow-x-auto overflow-y-hidden scrollbar-hidden" data-tab-scroll-container>
+        <div class="flex items-center gap-1 px-1 py-0.5">
+          <Show when={canScrollLeft() || canScrollRight()}>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              onClick={() => scrollTabsBy(-180)}
+              disabled={!canScrollLeft()}
+              aria-label="Scroll tabs left"
+            >
+              &lt;
+            </button>
+          </Show>
+
+          <div
+            ref={(el) => {
+              tabScrollContainer = el;
+            }}
+            class="w-full min-w-0 flex-1 overflow-x-auto overflow-y-hidden scrollbar-hidden"
+            data-tab-scroll-container
+          >
         <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100 whitespace-nowrap min-w-max w-max">
           <button
             role="tab"
@@ -104,6 +166,19 @@ function App() {
             Policy
           </button>
         </div>
+        </div>
+
+          <Show when={canScrollLeft() || canScrollRight()}>
+            <button
+              type="button"
+              class="btn btn-ghost btn-xs"
+              onClick={() => scrollTabsBy(180)}
+              disabled={!canScrollRight()}
+              aria-label="Scroll tabs right"
+            >
+              &gt;
+            </button>
+          </Show>
         </div>
       </div>
 
