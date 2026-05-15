@@ -50,7 +50,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Fleet Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M5 7a3 3 0 106 0 3 3 0 00-6 0zM13 9a3 3 0 106 0 3 3 0 00-6 0zM2 20a5 5 0 0110 0M12 20a5 5 0 0110 0" />
+        <path d="M3 18h8l-1-2H4l-1 2zM13 18h8l-1-2h-6l-1 2zM6 16v-4h2v4M16 16v-6h2v6M2 21h20" />
       </svg>
     ),
   },
@@ -59,7 +59,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Ship Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M3 19h18l-2-4H5l-2 4zM8 15V7h8v8" />
+        <path d="M3 19h18l-2-4H5l-2 4zM9 15V8h6v7M12 5v3" />
       </svg>
     ),
   },
@@ -68,7 +68,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Equip Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M21 3l-6 6M17 3l4 4M14 10l-9 9M3 21l4-1-3-3-1 4z" />
+        <path d="M14 4l6 6-2 2-6-6 2-2zM2 22l7-7 3 3-7 7H2v-3zM13 11l-2 2" />
       </svg>
     ),
   },
@@ -77,7 +77,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     label: "Quest Info",
     icon: () => (
       <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-        <path d="M8 4h8l1 2h3v14H4V6h3l1-2zM8 13l2.5 2.5L15.5 10.5" />
+        <path d="M7 3h10l2 2v16H5V3h2zM10 9h6M10 13h6M10 17h4M7.5 9l1 1 1.5-2M7.5 13l1 1 1.5-2" />
       </svg>
     ),
   },
@@ -194,10 +194,10 @@ function App() {
                   class={`tab min-w-0 ${
                     compact
                       ? isActive
-                        ? "flex-none px-2 sm:px-2.5 gap-1"
+                        ? "flex-none gap-1.5"
                         : "flex-none w-7 min-w-7 px-0 gap-0"
                       : "flex-none px-2 sm:px-3 gap-1"
-                  } ${isActive ? "tab-active" : ""}`}
+                  } ${isActive ? "tab-active px-3! mx-1!" : ""}`}
                   onClick={() => setActiveTab(tab.key)}
                   title={tab.label}
                 >
