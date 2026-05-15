@@ -49,7 +49,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "fleet",
     label: "Fleet Info",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M3 6h18M7 12h10M10 18h4" />
       </svg>
     ),
@@ -58,7 +58,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "ship",
     label: "Ship Info",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M3 19h18l-2-4H5l-2 4zM8 15V7h8v8" />
       </svg>
     ),
@@ -67,7 +67,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "equip",
     label: "Equip Info",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M14 4l6 6-8 8-6-6 8-8zM7 14l-3 6 6-3" />
       </svg>
     ),
@@ -76,7 +76,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "quest",
     label: "Quest Info",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M9 11l3 3L22 4M2 12l5 5" />
       </svg>
     ),
@@ -85,7 +85,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "data_collection",
     label: "Data Collection",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M4 4h16v16H4zM8 8h8M8 12h8M8 16h5" />
       </svg>
     ),
@@ -94,7 +94,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "settings",
     label: "Settings",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
         <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06A1.65 1.65 0 0015 19.4a1.65 1.65 0 00-1 .6 1.65 1.65 0 00-.33 1V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-.33-1 1.65 1.65 0 00-1-.6 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-.6-1 1.65 1.65 0 00-1-.33H3a2 2 0 010-4h.09a1.65 1.65 0 001-.33 1.65 1.65 0 00.6-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-.6 1.65 1.65 0 00.33-1V3a2 2 0 014 0v.09a1.65 1.65 0 00.33 1 1.65 1.65 0 001 .6 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9c.27.3.47.66.6 1 .13.34.2.7.2 1.09s-.07.75-.2 1.09c-.13.34-.33.7-.6 1z" />
       </svg>
@@ -104,7 +104,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "logs",
     label: "Logs",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M4 6h16M4 12h16M4 18h10" />
       </svg>
     ),
@@ -113,7 +113,7 @@ const TAB_DEFINITIONS: TabDefinition[] = [
     key: "policy",
     label: "Policy",
     icon: () => (
-      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <svg class="h-full w-full" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M12 3l8 4v6c0 5-3.5 7.5-8 8-4.5-.5-8-3-8-8V7l8-4z" />
       </svg>
     ),
@@ -186,15 +186,24 @@ function App() {
           >
             {TAB_DEFINITIONS.map((tab) => {
               const isActive = activeTab() === tab.key;
+              const compact = compactTabs();
               return (
                 <button
                   role="tab"
-                  class={`tab px-2 sm:px-3 flex-1 min-w-0 gap-1 ${isActive ? "tab-active" : ""}`}
+                  class={`tab min-w-0 ${
+                    compact
+                      ? isActive
+                        ? "flex-1 px-2 sm:px-2.5 gap-1"
+                        : "flex-none w-8 min-w-8 px-0 gap-0"
+                      : "flex-1 px-2 sm:px-3 gap-1"
+                  } ${isActive ? "tab-active" : ""}`}
                   onClick={() => setActiveTab(tab.key)}
                   title={tab.label}
                 >
-                  {tab.icon()}
-                  {(!compactTabs() || isActive) && (
+                  <span class={compact && !isActive ? "h-3.5 w-3.5" : "h-4 w-4"}>
+                    {tab.icon()}
+                  </span>
+                  {(!compact || isActive) && (
                     <span class="truncate">{tab.label}</span>
                   )}
                 </button>
