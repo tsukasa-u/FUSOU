@@ -1,10 +1,10 @@
 #[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
-use tauri::{Manager, Url};
 use fusou_auth::{AuthManager, FileStorage};
-use std::sync::{Arc, Mutex};
 use kc_api::interface::deck_port::Basic;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
+use tauri::{Manager, Url};
 use uuid::Uuid;
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
@@ -50,18 +50,27 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
     };
 
     if let Err(e) = singleton_window.show() {
-        tracing::warn!("failed to show main window in single instance handler: {}", e);
+        tracing::warn!(
+            "failed to show main window in single instance handler: {}",
+            e
+        );
     }
 
     if singleton_window.is_minimized().unwrap_or(false) {
         if let Err(e) = singleton_window.unminimize() {
-            tracing::warn!("failed to unminimize main window in single instance handler: {}", e);
+            tracing::warn!(
+                "failed to unminimize main window in single instance handler: {}",
+                e
+            );
         }
     }
 
     if !singleton_window.is_focused().unwrap_or(false) {
         if let Err(e) = singleton_window.set_focus() {
-            tracing::warn!("failed to focus main window in single instance handler: {}", e);
+            tracing::warn!(
+                "failed to focus main window in single instance handler: {}",
+                e
+            );
         }
     }
 
@@ -94,9 +103,11 @@ fn handle_member_id_request(url: &Url) {
     if member_id_hash.is_empty() {
         tracing::warn!("member_id_hash not available; user should launch the game first");
         // Construct error response
-        let error_url = format!("{}{}error=member_id_not_available", 
-            return_url, 
-            if return_url.contains('?') { "&" } else { "?" });
+        let error_url = format!(
+            "{}{}error=member_id_not_available",
+            return_url,
+            if return_url.contains('?') { "&" } else { "?" }
+        );
         // Open in browser window, which will update the existing page via JavaScript
         let _ = webbrowser::open(&error_url);
         return;
@@ -111,20 +122,22 @@ fn handle_member_id_request(url: &Url) {
     // Construct return URL with member_id_hash
     // The WEB page will receive this via URLSearchParams and process it with JavaScript
     let separator = if return_url.contains('?') { "&" } else { "?" };
-    let callback_url = format!("{}{}member_id_hash={}", return_url, separator, member_id_hash);
-
+    let callback_url = format!(
+        "{}{}member_id_hash={}",
+        return_url, separator, member_id_hash
+    );
 
     tracing::info!("Sending member_id_hash to browser (hash redacted)");
-    
+
     // This will cause the browser to navigate, updating the existing page
     // The WEB page JavaScript will read the parameter and continue the flow
     let _ = webbrowser::open(&callback_url);
 }
 
 /// Handle fusou://sync?token=xxx&return_url=yyy
-/// 
+///
 /// Realtime-based member_id_hash sync handler
-/// 
+///
 /// Flow:
 /// 1. WEB generates passphrase token and launches fusou://sync?token=xxx
 /// 2. APP reaches here
@@ -155,9 +168,7 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         match handle_realtime_sync_async(&token, &app_instance_id).await {
             Ok(_) => {
-                tracing::info!(
-                    "[Realtime Sync] Successfully synced"
-                );
+                tracing::info!("[Realtime Sync] Successfully synced");
             }
             Err(e) => {
                 tracing::error!("[Realtime Sync] Failed to sync: {}", e);
@@ -171,30 +182,11 @@ async fn handle_realtime_sync_async(
     token: &str,
     app_instance_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash from game data or cache
-    use crate::auth::member_id_cache::MemberIdCache;
-    
-    // Try cache first
-    let member_id_hash = MemberIdCache::load()
-        .map(|cache| cache.member_id_hash)
-        .unwrap_or_else(|| {
-            // Fall back to loading from game data
-            let basic = Basic::load();
-            basic.member_id
-        });
-
-    if member_id_hash.is_empty() {
-        return Err(
-            "member_id_hash not available; user should launch the game first".into()
-        );
-    }
+    // 1. Load member_id_hash: game data first (authoritative), cache as fallback
+    let member_id_hash = crate::auth::auth_server::get_member_id_hash_with_cache()
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
     tracing::info!("[Realtime Sync] Loaded member_id_hash");
-
-    // Save to cache for future use
-    if let Err(e) = MemberIdCache::save(&member_id_hash) {
-        tracing::warn!("[Realtime Sync] Failed to cache member_id_hash: {}", e);
-    }
 
     // 2. Get Supabase configuration (with clear error messages)
     // Try compile-time embedded values first (set via option_env! during build with dotenvx),
@@ -204,7 +196,7 @@ async fn handle_realtime_sync_async(
         .or_else(|| std::env::var("SUPABASE_URL").ok())
         .or_else(|| std::env::var("PUBLIC_SUPABASE_URL").ok())
         .ok_or("Environment variable SUPABASE_URL or PUBLIC_SUPABASE_URL is not set (compile-time or runtime)")?;
-    
+
     // Support multiple variable names for API key (ANON_KEY for legacy, PUBLISHABLE_KEY for new)
     let supabase_anon_key = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
         .map(|s| s.to_string())
@@ -240,7 +232,7 @@ async fn handle_realtime_sync_async(
             }
             Err(e) => {
                 last_error = Some(e.clone());
-                
+
                 if attempt < max_retries - 1 {
                     // Exponential backoff: 100ms, 200ms, 400ms
                     let backoff_ms = 100 * (1 << attempt);
@@ -262,7 +254,9 @@ async fn handle_realtime_sync_async(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "Unknown error".to_string()).into())
+    Err(last_error
+        .unwrap_or_else(|| "Unknown error".to_string())
+        .into())
 }
 
 fn is_allowed_return_url(return_url: &str) -> bool {
@@ -324,13 +318,13 @@ async fn send_supabase_update(
         .map_err(|e| format!("Network error: {}", e))?;
 
     let status = response.status();
-    
+
     if status.is_success() {
         return Ok(());
     }
 
     let error_body = response.text().await.unwrap_or_default();
-    
+
     // Detailed error message per HTTP status code
     let error_msg = match status.as_u16() {
         400 => format!("Bad request (invalid token or data format): {}", error_body),
@@ -348,7 +342,7 @@ async fn send_supabase_update(
 }
 
 /// Get or create APP instance ID
-/// 
+///
 /// Generates a machine-specific ID to prevent conflicts when multiple APPs are running
 /// Saves to file so the same ID is used on the same machine
 fn get_or_create_app_instance_id() -> String {

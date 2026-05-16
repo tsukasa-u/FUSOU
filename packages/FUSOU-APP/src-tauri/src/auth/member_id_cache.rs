@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use crate::util::get_ROAMING_DIR;
 
 /// Local cache for member_id_hash to avoid requiring game launch every time
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -12,24 +13,22 @@ pub struct MemberIdCache {
 }
 
 impl MemberIdCache {
-    /// Get the cache file path (using app data directory)
+    /// Get the cache file path (using app data directory configured by Tauri)
     fn get_cache_path() -> PathBuf {
-        let app_data_dir = dirs::data_local_dir()
-            .expect("Failed to get local data directory")
-            .join("FUSOU");
-        
+        let app_data_dir = get_ROAMING_DIR();
+
         // Ensure directory exists
         if !app_data_dir.exists() {
             let _ = fs::create_dir_all(&app_data_dir);
         }
-        
+
         app_data_dir.join(".member_id_cache.json")
     }
 
     /// Load cached member_id_hash from disk
     pub fn load() -> Option<Self> {
         let cache_path = Self::get_cache_path();
-        
+
         if !cache_path.exists() {
             tracing::debug!("No member_id_hash cache found");
             return None;
