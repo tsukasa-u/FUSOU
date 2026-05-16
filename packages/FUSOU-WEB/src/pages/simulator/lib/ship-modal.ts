@@ -130,7 +130,6 @@ function deriveShipGrowthCapsFromBounds(
     0,
     ...bounds.map((row) => Number(row.sakuteki_naked || 0)),
   );
-
   return {
     master_id: masterId,
     kaihi_max: kaihiMax,

@@ -99,6 +99,7 @@ impl TraitForConvert for port::Res {
                 let kaihi_observed = s.api_kaihi.first().copied().unwrap_or(0);
                 let taisen_observed = s.api_taisen.first().copied().unwrap_or(0);
                 let sakuteki_observed = s.api_sakuteki.first().copied().unwrap_or(0);
+                let lucky_observed = s.api_lucky.first().copied().unwrap_or(0);
 
                 Some(ShipGrowthEntry {
                     master_id: s.api_ship_id,
@@ -113,10 +114,12 @@ impl TraitForConvert for port::Res {
                     kaihi_observed,
                     taisen_observed,
                     sakuteki_observed,
+                    lucky_observed,
                     // Do not normalize on client: server-side normalization handles game-update drift.
                     kaihi_naked: kaihi_observed,
                     taisen_naked: taisen_observed,
                     sakuteki_naked: sakuteki_observed,
+                    lucky_naked: lucky_observed,
                     kaihi_max: s.api_kaihi.get(1).copied().unwrap_or(0),
                     taisen_max: s.api_taisen.get(1).copied().unwrap_or(0),
                     sakuteki_max: s.api_sakuteki.get(1).copied().unwrap_or(0),

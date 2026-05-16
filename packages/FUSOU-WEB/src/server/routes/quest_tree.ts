@@ -5,6 +5,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -185,18 +186,6 @@ function toInt(value: unknown): number | null {
 function makeId(prefix: string): string {
   const random = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   return `${prefix}-${Date.now()}-${random}`;
-}
-
-function parseStrictBoolean(
-  value: string | undefined,
-  envKey: string,
-): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(
-    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
-  );
 }
 
 function isQuestTreeCollectionEnabled(
