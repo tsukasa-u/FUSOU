@@ -343,21 +343,13 @@ async fn send_supabase_update(
 
 /// Get or create APP instance ID
 ///
-/// Generates a machine-specific ID to prevent conflicts when multiple APPs are running
-/// Saves to file so the same ID is used on the same machine
+/// Generates a machine-specific ID to prevent conflicts when multiple APPs are running.
+/// Persists the ID under the Tauri-managed app data directory (`ROAMING_DIR`) so the
+/// same ID is reused on the same machine. Avoid raw `APPDATA`/`HOME` lookups, which
+/// would create files outside the app's data directory.
 fn get_or_create_app_instance_id() -> String {
-    let instance_id_path = if let Ok(roaming_dir) = std::env::var("APPDATA") {
-        std::path::PathBuf::from(&roaming_dir)
-            .join("FUSOU")
-            .join("app_instance_id.txt")
-    } else if let Ok(home_dir) = std::env::var("HOME") {
-        std::path::PathBuf::from(&home_dir)
-            .join(".fusou")
-            .join("app_instance_id.txt")
-    } else {
-        // Fallback: use session-specific ID
-        return Uuid::new_v4().to_string();
-    };
+    let app_data_dir = crate::util::get_ROAMING_DIR();
+    let instance_id_path = app_data_dir.join("app_instance_id.txt");
 
     // Read ID from file
     if let Ok(content) = std::fs::read_to_string(&instance_id_path) {
@@ -369,8 +361,23 @@ fn get_or_create_app_instance_id() -> String {
 
     // Create new ID if file doesn't exist or is empty
     let instance_id = Uuid::new_v4().to_string();
-    let _ = std::fs::create_dir_all(instance_id_path.parent().unwrap());
-    let _ = std::fs::write(&instance_id_path, &instance_id);
+    if let Some(parent) = instance_id_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(
+                "Failed to create app data directory for app_instance_id at {:?}: {}",
+                parent,
+                e
+            );
+            return instance_id;
+        }
+    }
+    if let Err(e) = std::fs::write(&instance_id_path, &instance_id) {
+        tracing::warn!(
+            "Failed to persist app_instance_id at {:?}: {}",
+            instance_id_path,
+            e
+        );
+    }
 
     instance_id
 }

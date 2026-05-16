@@ -14,12 +14,7 @@ use rand::{thread_rng, Rng};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::{
-    fs,
-    sync::mpsc,
-    task::JoinHandle,
-    time,
-};
+use tokio::{fs, sync::mpsc, task::JoinHandle, time};
 use tracing;
 
 use chrono::{DateTime, Utc};
@@ -165,6 +160,7 @@ struct ExistingKeysResponse {
 #[derive(Debug, Clone)]
 pub struct AssetSyncInit {
     pub save_root: PathBuf,
+    pub cache_root: PathBuf,
     pub api_endpoint: String,
     pub api_origin: String,
     pub key_prefix: Option<String>,
@@ -183,10 +179,14 @@ impl AssetSyncInit {
     pub fn from_configs(
         config: &ConfigsAppAssetSync,
         save_root: String,
+        cache_root: String,
         finder_tag: Option<String>,
     ) -> Result<Self, String> {
         if save_root.trim().is_empty() {
             return Err("asset sync save path is empty".to_string());
+        }
+        if cache_root.trim().is_empty() {
+            return Err("asset sync cache path is empty".to_string());
         }
         let api_endpoint = normalize_string(config.get_asset_sync_api_endpoint())
             .ok_or_else(|| "asset_sync.asset_sync_api_endpoint is empty".to_string())?;
@@ -205,6 +205,7 @@ impl AssetSyncInit {
 
         Ok(Self {
             save_root: PathBuf::from(save_root),
+            cache_root: PathBuf::from(cache_root),
             api_endpoint,
             api_origin,
             key_prefix,
@@ -254,7 +255,9 @@ pub fn start(
         ));
     }
 
-    if let Err(err) = ASSET_REQUEST_CACHE.enable_persistence(asset_request_cache_path(&init.save_root)) {
+    if let Err(err) =
+        ASSET_REQUEST_CACHE.enable_persistence(asset_request_cache_path(&init.cache_root))
+    {
         tracing::warn!(error = %err, "failed to enable persistent asset suppression cache");
     }
 
@@ -308,6 +311,7 @@ pub fn start(
 
     tracing::info!(
         root = %settings.save_root.display(),
+        cache_root = %settings.cache_root.display(),
         endpoint = %settings.api_endpoint,
         interval_secs = settings.scan_interval.as_secs(),
         "asset sync worker started"
@@ -368,7 +372,10 @@ async fn run_worker(
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
+        match auth_manager
+            .ensure_dataset_token_valid(dataset_id, None)
+            .await
+        {
             Ok(token) => {
                 if let Err(e) = auth_manager.save_dataset_token(&token).await {
                     tracing::warn!(
@@ -377,10 +384,7 @@ async fn run_worker(
                         "asset sync startup auth bootstrap: token acquired but persistence failed"
                     );
                 } else {
-                    tracing::info!(
-                        dataset_id,
-                        "asset sync startup auth bootstrap completed"
-                    );
+                    tracing::info!(dataset_id, "asset sync startup auth bootstrap completed");
                 }
             }
             Err(e) => {
@@ -400,8 +404,8 @@ async fn run_worker(
     // Load persistent cache from disk BEFORE checking if refresh is needed.
     // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
     {
-        let save_root = settings.save_root.clone();
-        tokio::task::spawn_blocking(move || load_persistent_cache(&save_root))
+        let cache_root = settings.cache_root.clone();
+        tokio::task::spawn_blocking(move || load_persistent_cache(&cache_root))
             .await
             .unwrap_or_else(|e| tracing::warn!("load_persistent_cache task panicked: {e:?}"));
     }
@@ -414,7 +418,10 @@ async fn run_worker(
         retry_service.trigger_retry().await;
     }
 
-    let mut dataset_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+    let mut dataset_ready = auth_manager
+        .resolve_dataset_id_for_upload(None)
+        .await
+        .is_some()
         || settings
             .dataset_id
             .as_deref()
@@ -423,7 +430,10 @@ async fn run_worker(
             .is_some();
 
     while let Some(path) = rx.recv().await {
-        let now_ready = auth_manager.resolve_dataset_id_for_upload(None).await.is_some()
+        let now_ready = auth_manager
+            .resolve_dataset_id_for_upload(None)
+            .await
+            .is_some()
             || settings
                 .dataset_id
                 .as_deref()
@@ -547,7 +557,7 @@ async fn process_path(
     let bytes = fs::read(path)
         .await
         .map_err(|err| format!("failed to read file for upload: {err}"))?;
-    
+
     // Phase 4: CPU-bound SHA256 hashing using spawn_blocking for large files
     let local_hash = tokio::task::spawn_blocking({
         let bytes = bytes.clone();
@@ -974,13 +984,13 @@ fn parse_cache_ttl(payload: &PeriodApiResponse) -> Duration {
 fn duration_until(iso: &str) -> Option<Duration> {
     let expiry = DateTime::parse_from_rfc3339(iso).ok()?.with_timezone(&Utc);
     let diff = expiry.signed_duration_since(Utc::now());
-    
+
     // If the expiry time is in the past, return None instead of negative duration
     // This prevents errors when converting to std::time::Duration
     if diff.num_seconds() <= 0 {
         return None;
     }
-    
+
     diff.to_std().ok()
 }
 
@@ -1104,7 +1114,7 @@ async fn maybe_refresh_existing_keys(
     })?;
 
     let is_incremental = payload.incremental.unwrap_or(false);
-    cache_remote_keys(payload, is_incremental, &settings.save_root).await;
+    cache_remote_keys(payload, is_incremental, &settings.cache_root).await;
     Ok(())
 }
 
@@ -1130,7 +1140,7 @@ fn remote_cache_is_fresh() -> bool {
     }
 }
 
-async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
+async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, cache_root: &Path) {
     let ttl = payload
         .cache_expires_at
         .as_deref()
@@ -1220,9 +1230,9 @@ async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, 
 
     // Persist to disk for recovery after restart.
     // Use spawn_blocking to avoid blocking the async executor on std::fs I/O.
-    let save_root_buf = save_root.to_path_buf();
+    let cache_root_buf = cache_root.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        save_persistent_cache(&save_root_buf, &final_keys, &final_hashes, final_sync_ts)
+        save_persistent_cache(&cache_root_buf, &final_keys, &final_hashes, final_sync_ts)
     })
     .await
     .unwrap_or_else(|e| tracing::warn!("save_persistent_cache task panicked: {e:?}"));
@@ -1239,7 +1249,9 @@ fn register_remote_key(key: &str, hash: Option<&str>) {
         Some(cache) => {
             cache.keys.insert(key.to_string());
             // Always update hash, don't use or_insert which preserves existing values
-            cache.hashes.insert(key.to_string(), hash.map(|s| s.to_string()));
+            cache
+                .hashes
+                .insert(key.to_string(), hash.map(|s| s.to_string()));
             if cache.expires_at <= Instant::now() {
                 cache.expires_at =
                     Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS);
@@ -1316,7 +1328,10 @@ fn load_persistent_cache(save_root: &Path) {
     let cache_path = persistent_remote_cache_path(save_root);
 
     if !cache_path.exists() {
-        tracing::info!("No persistent asset cache found at {:?}; will perform full sync on first API call", cache_path);
+        tracing::info!(
+            "No persistent asset cache found at {:?}; will perform full sync on first API call",
+            cache_path
+        );
         return;
     }
 
@@ -1330,9 +1345,7 @@ fn load_persistent_cache(save_root: &Path) {
                     // Parse cache expiration time from ISO8601
                     let (expires_at, cache_status) = match persisted.cache_expires_at.as_deref() {
                         Some(iso) => match duration_until(iso) {
-                            Some(duration) => {
-                                (Instant::now() + duration, "valid")
-                            }
+                            Some(duration) => (Instant::now() + duration, "valid"),
                             None => {
                                 // Expiry time is in the past
                                 (Instant::now(), "expired (past timestamp)")
@@ -1368,9 +1381,13 @@ fn load_persistent_cache(save_root: &Path) {
                         });
 
                         if is_expired {
-                            tracing::info!("Persistent cache has expired; incremental sync will be triggered");
+                            tracing::info!(
+                                "Persistent cache has expired; incremental sync will be triggered"
+                            );
                         } else {
-                            tracing::info!("Persistent cache is still valid; API call will be skipped");
+                            tracing::info!(
+                                "Persistent cache is still valid; API call will be skipped"
+                            );
                         }
                     }
                 }

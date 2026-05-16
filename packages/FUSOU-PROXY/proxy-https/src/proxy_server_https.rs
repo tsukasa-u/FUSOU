@@ -21,9 +21,9 @@ use crate::{asset_sync, bidirectional_channel};
 
 use configs;
 
-use tracing_unwrap::ResultExt;
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::Arc;
+use tracing_unwrap::ResultExt;
 
 pub static CA_CERT_NAME: &str = "fusou_ca_cert";
 pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
@@ -213,7 +213,9 @@ fn log_response(
                 let content_encodings_clone = content_encodings.clone();
                 match tokio::task::spawn_blocking(move || {
                     decode_response_body(body_clone, &content_encodings_clone, true)
-                }).await {
+                })
+                .await
+                {
                     Ok(buf) => buf,
                     Err(e) => {
                         tracing::error!("spawn_blocking decompression failed: {}", e);
@@ -265,7 +267,10 @@ fn log_response(
                     let metadata_buffer = metadata_string.as_bytes();
                     let combined_buffer = [metadata_buffer, buffer_for_text.as_slice()].concat();
                     // Phase 3: Use async file I/O (non-blocking)
-                    if let Err(e) = tokio::fs::write(path_log.join(Path::new(&time_formated)), combined_buffer).await {
+                    if let Err(e) =
+                        tokio::fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
+                            .await
+                    {
                         tracing::error!("Failed to write kcsapi file: {}", e);
                     }
                 } else {
@@ -290,14 +295,16 @@ fn log_response(
                         let content_encodings_clone = content_encodings.clone();
                         let json_buffer = match tokio::task::spawn_blocking(move || {
                             decode_response_body(body_clone, &content_encodings_clone, true)
-                        }).await {
+                        })
+                        .await
+                        {
                             Ok(buf) => buf,
                             Err(e) => {
                                 tracing::error!("spawn_blocking JSON decompression failed: {}", e);
                                 body.clone()
                             }
                         };
-                        
+
                         // Phase 3: Use async file I/O (non-blocking)
                         if let Err(e) = tokio::fs::write(&file_log_path, json_buffer).await {
                             tracing::error!("Failed to write json file: {}", e);
@@ -307,10 +314,15 @@ fn log_response(
                         let content_encodings_clone = content_encodings.clone();
                         let js_buffer = match tokio::task::spawn_blocking(move || {
                             decode_response_body(body_clone, &content_encodings_clone, true)
-                        }).await {
+                        })
+                        .await
+                        {
                             Ok(buf) => buf,
                             Err(e) => {
-                                tracing::error!("spawn_blocking main.js decompression failed: {}", e);
+                                tracing::error!(
+                                    "spawn_blocking main.js decompression failed: {}",
+                                    e
+                                );
                                 body.clone()
                             }
                         };
@@ -612,11 +624,13 @@ pub fn setup_default_crypto_provider() {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn serve_proxy(
     port: u16,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     log_save_path: String,
+    asset_sync_save_path: String,
     ca_save_path: String,
     file_prefix: String,
     _auth_manager: Arc<AuthManager<FileStorage>>,
@@ -719,13 +733,15 @@ pub fn serve_proxy(
     if _app_configs.asset_sync.get_enable() {
         let auth_manager_clone = _auth_manager.clone();
         let save_path_clone = save_path.clone();
+        let asset_sync_save_path_clone = asset_sync_save_path.clone();
         let file_prefix_clone = file_prefix.clone();
         let app_configs_clone = _app_configs.clone();
-        
+
         tokio::spawn(async move {
             match asset_sync::AssetSyncInit::from_configs(
                 &app_configs_clone.asset_sync,
                 save_path_clone,
+                asset_sync_save_path_clone,
                 if file_prefix_clone.trim().is_empty() {
                     None
                 } else {
@@ -811,7 +827,9 @@ mod tests {
 
     fn gzip_compress(input: &[u8]) -> Vec<u8> {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder.write_all(input).expect("failed to write gzip input");
+        encoder
+            .write_all(input)
+            .expect("failed to write gzip input");
         encoder.finish().expect("failed to finish gzip")
     }
 
@@ -819,7 +837,9 @@ mod tests {
         let mut out = Vec::new();
         {
             let mut writer = brotli::CompressorWriter::new(&mut out, 4096, 5, 22);
-            writer.write_all(input).expect("failed to write brotli input");
+            writer
+                .write_all(input)
+                .expect("failed to write brotli input");
         }
         out
     }

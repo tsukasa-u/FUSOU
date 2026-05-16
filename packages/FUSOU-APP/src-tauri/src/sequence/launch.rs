@@ -72,6 +72,13 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to convert str")
                             .to_string();
 
+                        let asset_sync_save_path = get_ROAMING_DIR()
+                            .join("asset_sync")
+                            .join(&period_tag)
+                            .to_str()
+                            .expect_or_log("failed to convert str")
+                            .to_string();
+
                         let ca_path = get_ROAMING_DIR()
                             .join("./ca")
                             .as_path()
@@ -81,6 +88,7 @@ pub async fn launch_with_options(
                         // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect_or_log("failed to resolve app_local_data_dir").as_path().to_str().expect_or_log("failed to convert str").to_string();
 
                         tracing::info!("save address: {save_path}");
+                        tracing::info!("asset sync save address: {asset_sync_save_path}");
                         tracing::info!("ca path: {ca_path}");
                         tracing::info!("pac path: {pac_path}");
 
@@ -89,6 +97,7 @@ pub async fn launch_with_options(
                         let addr = wrap_proxy::serve_proxy(
                             server_address.to_string(),
                             save_path,
+                            asset_sync_save_path,
                             pac_path,
                             ca_path,
                             window.app_handle(),
