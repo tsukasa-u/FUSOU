@@ -4,6 +4,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -16,6 +17,9 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+
+const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
+
 const app = new Hono<{ Bindings: Bindings }>();
 interface SlotEntry {
   slotitem_id: number;
@@ -177,10 +181,32 @@ app.post("/ingest", async (c) => {
   const masterDb = c.env.MASTER_DATA_INDEX_DB;
   if (!masterDb)
     return c.json({ error: "MASTER_DATA_INDEX_DB not configured" }, 503);
+  // kill switch
   const env = createEnvContext(c);
-  const signingSecret = getEnv(env, "SHIP_GROWTH_SIGNING_SECRET");
+  let collectionEnabled = false;
+  try {
+    collectionEnabled = parseStrictBoolean(
+      getEnv(env, SOKU_SPEED_COLLECTION_SWITCH_ENV),
+      SOKU_SPEED_COLLECTION_SWITCH_ENV,
+    );
+  } catch (err) {
+    return c.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : `${SOKU_SPEED_COLLECTION_SWITCH_ENV} is invalid`,
+      },
+      500,
+    );
+  }
+  if (!collectionEnabled) {
+    return c.json({ error: "Soku speed collection is disabled" }, 503);
+  }
+
+  const signingSecret = getEnv(env, "SOKU_SPEED_SIGNING_SECRET");
   if (!signingSecret) {
-    return c.json({ error: "SHIP_GROWTH_SIGNING_SECRET is required" }, 500);
+    return c.json({ error: "SOKU_SPEED_SIGNING_SECRET is required" }, 500);
   }
   const uploadToken = c.req.header("X-Upload-Token");
   if (!uploadToken) {

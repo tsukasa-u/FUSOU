@@ -74,6 +74,22 @@ export function hasEnv(ctx: EnvContext, key: string): boolean {
   return getEnv(ctx, key) !== undefined;
 }
 
+/**
+ * 環境変数の strict boolean パース
+ * "true"/"1" → true, "false"/"0" → false, それ以外 → Error
+ */
+export function parseStrictBoolean(
+  value: string | undefined,
+  envKey: string,
+): boolean {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "true" || normalized === "1") return true;
+  if (normalized === "false" || normalized === "0") return false;
+  throw new Error(
+    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
+  );
+}
+
 // ========================
 // 署名付きトークン（JWT）
 // ========================

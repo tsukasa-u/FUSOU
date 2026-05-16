@@ -6,6 +6,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -23,6 +24,8 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+
+const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -2904,7 +2907,29 @@ app.post("/ingest", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
   if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
+  // kill switch
   const env = createEnvContext(c);
+  let collectionEnabled = false;
+  try {
+    collectionEnabled = parseStrictBoolean(
+      getEnv(env, SHIP_GROWTH_COLLECTION_SWITCH_ENV),
+      SHIP_GROWTH_COLLECTION_SWITCH_ENV,
+    );
+  } catch (err) {
+    return c.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : `${SHIP_GROWTH_COLLECTION_SWITCH_ENV} is invalid`,
+      },
+      500,
+    );
+  }
+  if (!collectionEnabled) {
+    return c.json({ error: "Ship growth collection is disabled" }, 503);
+  }
+
   const signingSecret = getEnv(env, "SHIP_GROWTH_SIGNING_SECRET");
   if (!signingSecret) {
     return c.json({ error: "SHIP_GROWTH_SIGNING_SECRET is required" }, 500);

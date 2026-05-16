@@ -4,6 +4,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -68,18 +69,6 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function parseStrictBoolean(
-  value: string | undefined,
-  envKey: string,
-): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(
-    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
-  );
 }
 
 function isValidInt(v: unknown): v is number {
