@@ -315,6 +315,54 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ]
       }
@@ -599,6 +647,54 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ]
       }
@@ -840,6 +936,22 @@
           },
           {
             "name": "support_airattack",
+            "type": "uuid?",
+            "isUuid": true,
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "night_support_hourai",
+            "type": "uuid?",
+            "isUuid": true,
+            "isKey": false,
+            "isFk": true,
+            "isEnvRef": false
+          },
+          {
+            "name": "night_support_airattack",
             "type": "uuid?",
             "isUuid": true,
             "isKey": false,
@@ -1236,6 +1348,54 @@
           },
           {
             "name": "e_sprite_crash_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_non_normal_count",
             "type": "int?",
             "isUuid": false,
             "isKey": false,
@@ -3856,6 +4016,54 @@
             "isKey": false,
             "isFk": false,
             "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage1_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_stage2_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
           }
         ]
       }
@@ -4785,6 +4993,38 @@
           },
           {
             "name": "e_sprite_crash_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_damage_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_damage_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "f_sprite_non_normal_count",
+            "type": "int?",
+            "isUuid": false,
+            "isKey": false,
+            "isFk": false,
+            "isEnvRef": false
+          },
+          {
+            "name": "e_sprite_non_normal_count",
             "type": "int?",
             "isUuid": false,
             "isKey": false,

@@ -46,7 +46,13 @@
           "f_sprite_crash_stage1_count",
           "f_sprite_crash_stage2_count",
           "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
+          "e_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "f_sprite_non_normal_count",
+          "e_sprite_non_normal_count"
         ],
         "removedFields": [],
         "changedFields": []
@@ -59,7 +65,13 @@
           "f_sprite_crash_stage1_count",
           "f_sprite_crash_stage2_count",
           "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
+          "e_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "f_sprite_non_normal_count",
+          "e_sprite_non_normal_count"
         ],
         "removedFields": [],
         "changedFields": []
@@ -67,6 +79,8 @@
       "battle": {
         "status": "changed",
         "addedFields": [
+          "night_support_hourai",
+          "night_support_airattack",
           "battle_result"
         ],
         "removedFields": [
@@ -82,7 +96,13 @@
           "f_sprite_crash_stage1_count",
           "f_sprite_crash_stage2_count",
           "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
+          "e_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "f_sprite_non_normal_count",
+          "e_sprite_non_normal_count"
         ],
         "removedFields": [],
         "changedFields": []
@@ -124,7 +144,13 @@
           "f_sprite_crash_stage1_count",
           "f_sprite_crash_stage2_count",
           "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
+          "e_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "f_sprite_non_normal_count",
+          "e_sprite_non_normal_count"
         ],
         "removedFields": [],
         "changedFields": []
@@ -161,7 +187,11 @@
           "f_sprite_fly_count",
           "e_sprite_fly_count",
           "f_sprite_crash_count",
-          "e_sprite_crash_count"
+          "e_sprite_crash_count",
+          "f_sprite_damage_count",
+          "e_sprite_damage_count",
+          "f_sprite_non_normal_count",
+          "e_sprite_non_normal_count"
         ],
         "removedFields": [],
         "changedFields": []
