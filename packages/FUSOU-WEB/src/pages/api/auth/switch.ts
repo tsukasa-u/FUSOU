@@ -8,6 +8,18 @@ import { env as cfEnv } from "cloudflare:workers";
 
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
+function readStoredTokenList(cookie: { json: () => unknown } | undefined): string[] {
+  if (!cookie) return [];
+  try {
+    const parsed = cookie.json() as { data?: unknown };
+    return Array.isArray(parsed.data)
+      ? parsed.data.filter((value): value is string => typeof value === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const envCtx = createEnvContext({ env: cfEnv as any });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
@@ -41,16 +53,15 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     return new Response("No stored sessions found", { status: 400 });
   }
 
-  type storedToken = { data: string[] };
-  const accessTokenList = (storedAccessToken.json() as storedToken).data;
-  const refreshTokenList = (storedRefreshToken.json() as storedToken).data;
+  const accessTokenList = readStoredTokenList(storedAccessToken);
+  const refreshTokenList = readStoredTokenList(storedRefreshToken);
   
   // Optional provider tokens
   const providerTokenList = storedProviderToken 
-    ? (storedProviderToken.json() as storedToken).data 
+    ? readStoredTokenList(storedProviderToken)
     : [];
   const providerRefreshTokenList = storedProviderRefreshToken 
-    ? (storedProviderRefreshToken.json() as storedToken).data 
+    ? readStoredTokenList(storedProviderRefreshToken)
     : [];
 
   // Validate index bounds (provider tokens are optional and may be shorter)

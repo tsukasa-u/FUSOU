@@ -61,7 +61,9 @@ app.post("/check-hash", async (c) => {
       );
     }
 
-    if (!/^[a-f0-9]{64}$/i.test(member_id_hash)) {
+    const normalizedMemberIdHash = member_id_hash.trim().toLowerCase();
+
+    if (!/^[a-f0-9]{64}$/.test(normalizedMemberIdHash)) {
       return jsonResponse(
         {
           error: "INVALID_FORMAT",
@@ -100,7 +102,7 @@ app.post("/check-hash", async (c) => {
       await supabaseAdmin
         .from("user_member_map")
         .select("user_id")
-        .eq("member_id_hash", member_id_hash)
+        .eq("member_id_hash", normalizedMemberIdHash)
         .maybeSingle();
 
     if (canonicalLinkError) {

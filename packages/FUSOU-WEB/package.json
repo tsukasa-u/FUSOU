@@ -37,7 +37,10 @@
     "sync:banners": "node scripts/sync-remote-d1-banners.mjs",
     "upload:synergy": "node scripts/upload-synergy.mjs",
     "upload:synergy:dry": "node scripts/upload-synergy.mjs --dry-run",
-    "upload:synergy:prod": "node scripts/upload-synergy.mjs --env production"
+    "upload:synergy:prod": "node scripts/upload-synergy.mjs --env production",
+    "audit:anon-sync-v1": "node scripts/audit-anon-sync-v1-usage.mjs",
+    "audit:anon-sync-v1:json": "node scripts/audit-anon-sync-v1-usage.mjs --json",
+    "manage-anon-sync-vault": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-anon-sync-vault.js"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.5",

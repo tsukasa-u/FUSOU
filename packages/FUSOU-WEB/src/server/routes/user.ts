@@ -49,9 +49,21 @@ app.post("/member-map/upsert", async (c) => {
  * - 500: Server error
  */
 app.get("/member-map", async (c) => {
-  // Extract and validate JWT
   const authHeader = c.req.header("Authorization");
-  const accessToken = extractBearer(authHeader);
+  const cookieHeader = c.req.header("Cookie");
+  const cookieMatch = cookieHeader?.match(
+    /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
+  );
+  const cookieToken = cookieMatch
+    ? (() => {
+        try {
+          return decodeURIComponent(cookieMatch[1]);
+        } catch {
+          return cookieMatch[1];
+        }
+      })()
+    : null;
+  const accessToken = extractBearer(authHeader) ?? cookieToken;
 
   if (!accessToken) {
     return c.json({ error: "Missing Authorization bearer token" }, 401);

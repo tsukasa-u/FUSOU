@@ -239,7 +239,8 @@ export function injectEnv(_locals?: unknown): Bindings {
     SHIP_GROWTH_SIGNING_SECRET: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
     REMODEL_DATA_SIGNING_SECRET: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
-    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
+    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
+    CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
@@ -425,7 +426,10 @@ export async function validateJWT(token: string): Promise<{
 }
 
 function isValidMemberIdHash(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim());
+  return (
+    typeof value === "string" &&
+    /^[a-f0-9]{64}$/.test(value.trim().toLowerCase())
+  );
 }
 
 export function extractMemberIdHashFromJwtPayload(
@@ -439,7 +443,7 @@ export function extractMemberIdHashFromJwtPayload(
 
   for (const candidate of candidates) {
     if (isValidMemberIdHash(candidate)) {
-      return candidate.trim();
+      return candidate.trim().toLowerCase();
     }
   }
 
@@ -479,7 +483,7 @@ export async function resolveLinkedMemberIdHashForUser(options: {
 
   if (isValidMemberIdHash(canonicalMapping?.member_id_hash)) {
     return {
-      memberIdHash: canonicalMapping.member_id_hash.trim(),
+      memberIdHash: canonicalMapping.member_id_hash.trim().toLowerCase(),
       source: "canonical_owner",
     };
   }

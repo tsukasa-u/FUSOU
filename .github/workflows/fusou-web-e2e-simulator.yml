@@ -49,6 +49,9 @@ jobs:
       - name: Run DOM security check
         run: pnpm --dir packages/FUSOU-WEB run check:security:dom
 
+      - name: Audit legacy anonymous-sync v1 usage
+        run: pnpm --dir packages/FUSOU-WEB run audit:anon-sync-v1
+
       - name: Run Astro check
         run: pnpm --dir packages/FUSOU-WEB exec astro check
 

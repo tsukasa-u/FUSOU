@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import {
@@ -11,6 +11,30 @@ import {
 import type { Bindings } from "../types";
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+function isLegacyAnonymousSyncV1Enabled(): boolean {
+  // Keep legacy implementation in source for emergency rollback,
+  // but disable access in normal operation.
+  return false;
+}
+
+function rejectLegacyAnonymousSyncV1(c: Context<{ Bindings: Bindings }>) {
+  c.header("Deprecation", "true");
+  c.header("Sunset", "Thu, 31 Dec 2026 23:59:59 GMT");
+  return c.json(
+    {
+      error: "legacy anonymous-sync v1 is deprecated and disabled",
+      code: "legacy_anonymous_sync_v1_disabled",
+      replacement: {
+        register: "/api/auth/anonymous-sync/v2/register",
+        challenge: "/api/auth/anonymous-sync/v2/challenge",
+        refresh: "/api/auth/anonymous-sync/v2/refresh",
+        revoke: "/api/auth/anonymous-sync/v2/revoke",
+      },
+    },
+    410,
+  );
+}
 
 /**
  * GET /anonymous-sync/diagnostics
@@ -96,6 +120,10 @@ app.get("/anonymous-sync/diagnostics", async (c) => {
  * - Maintains a canonical dataset owner in user_member_map while allowing per-device sessions
  */
 app.post("/anonymous-sync", async (c) => {
+  if (!isLegacyAnonymousSyncV1Enabled()) {
+    return rejectLegacyAnonymousSyncV1(c);
+  }
+
   try {
     const body = await c.req.json();
     const { member_id_hash } = body;
