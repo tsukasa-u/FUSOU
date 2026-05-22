@@ -31,7 +31,7 @@ const createCookieStorage = (cookies: CookieStore) => {
 
 export const createSupabaseServerClient = (
   cookies: CookieStore,
-  runtimeEnv?: Record<string, any>
+  runtimeEnv?: Record<string, any>,
 ) => {
   // Create env context from runtime env or use buildtime env
   const envCtx: EnvContext = runtimeEnv

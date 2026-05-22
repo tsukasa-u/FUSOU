@@ -2,27 +2,41 @@ import { createClient } from "@supabase/supabase-js";
 
 function printUsage() {
   console.log("Usage:");
-  console.log(
-    "  pnpm run manage-anon-sync-vault -- <command> [options]",
-  );
+  console.log("  pnpm run manage-anon-sync-vault -- <command> [options]");
   console.log("");
   console.log("Commands:");
   console.log("  status");
-  console.log("  bootstrap-pepper   --initial-version v<N> [--secret-env ENV] [--description TEXT] [--confirm] [--json]");
-  console.log("  bootstrap-recovery --initial-version v<N> [--secret-env ENV] [--description TEXT] [--confirm] [--json]");
-  console.log("  rotate-pepper      --target-version v<N>  [--secret-env ENV] [--description TEXT] [--confirm] [--json]");
-  console.log("  rotate-recovery    --target-version v<N>  [--secret-env ENV] [--description TEXT] [--confirm] [--json]");
-  console.log("  finalize-pepper    --keep-version v<N>    [--retire-others] [--confirm] [--json]");
-  console.log("  finalize-recovery  --keep-version v<N>    [--retire-others] [--confirm] [--json]");
+  console.log(
+    "  bootstrap-pepper   --initial-version v<N> [--secret-env ENV] [--description TEXT] [--confirm] [--json]",
+  );
+  console.log(
+    "  bootstrap-recovery --initial-version v<N> [--secret-env ENV] [--description TEXT] [--confirm] [--json]",
+  );
+  console.log(
+    "  rotate-pepper      --target-version v<N>  [--secret-env ENV] [--description TEXT] [--confirm] [--json]",
+  );
+  console.log(
+    "  rotate-recovery    --target-version v<N>  [--secret-env ENV] [--description TEXT] [--confirm] [--json]",
+  );
+  console.log(
+    "  finalize-pepper    --keep-version v<N>    [--retire-others] [--confirm] [--json]",
+  );
+  console.log(
+    "  finalize-recovery  --keep-version v<N>    [--retire-others] [--confirm] [--json]",
+  );
   console.log("");
   console.log("Auth (env fallback):");
   console.log("  --supabase-url or SUPABASE_URL / PUBLIC_SUPABASE_URL");
-  console.log("  service role key: SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY");
+  console.log(
+    "  service role key: SUPABASE_SECRET_KEY / SUPABASE_SERVICE_ROLE_KEY",
+  );
   console.log("");
   console.log("Safety:");
   console.log("  default: dry-run (no write)");
   console.log("  --confirm: apply changes");
-  console.log("  secret env (default or --secret-env) must exist in env (fail-fast if unset)");
+  console.log(
+    "  secret env (default or --secret-env) must exist in env (fail-fast if unset)",
+  );
   console.log("  --secret / --service-role-key are intentionally disabled");
 }
 
@@ -76,22 +90,25 @@ function resolveAuth(parsed) {
     process.env.SUPABASE_URL ||
     process.env.PUBLIC_SUPABASE_URL;
   const serviceRoleKey =
-    process.env.SUPABASE_SECRET_KEY ||
-    process.env.SUPABASE_SERVICE_ROLE_KEY;
+    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   const errors = [];
   if (
     Object.prototype.hasOwnProperty.call(parsed.values, "service-role-key") ||
     parsed.flags.has("service-role-key")
   ) {
-    errors.push("--service-role-key is disabled for safety. Use SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY.");
+    errors.push(
+      "--service-role-key is disabled for safety. Use SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY.",
+    );
   }
   if (!supabaseUrl) {
-    errors.push("Supabase URL is missing (--supabase-url or SUPABASE_URL/PUBLIC_SUPABASE_URL).",
+    errors.push(
+      "Supabase URL is missing (--supabase-url or SUPABASE_URL/PUBLIC_SUPABASE_URL).",
     );
   }
   if (!serviceRoleKey) {
-    errors.push("Service role key is missing (SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY).",
+    errors.push(
+      "Service role key is missing (SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY).",
     );
   }
 
@@ -136,7 +153,10 @@ async function loadRuntime(client, tableName) {
 
 async function runStatus(client, asJson) {
   const pepperRuntime = await loadRuntime(client, "anon_sync_pepper_runtime");
-  const recoveryRuntime = await loadRuntime(client, "anon_sync_recovery_runtime");
+  const recoveryRuntime = await loadRuntime(
+    client,
+    "anon_sync_recovery_runtime",
+  );
 
   const pepperVersions = await client
     .from("anon_sync_pepper_versions")
@@ -153,13 +173,19 @@ async function runStatus(client, asJson) {
       runtime: pepperRuntime.error ? null : pepperRuntime.data,
       runtime_error: pepperRuntime.error ? pepperRuntime.error.message : null,
       versions: pepperVersions.error ? [] : (pepperVersions.data ?? []),
-      versions_error: pepperVersions.error ? pepperVersions.error.message : null,
+      versions_error: pepperVersions.error
+        ? pepperVersions.error.message
+        : null,
     },
     recovery: {
       runtime: recoveryRuntime.error ? null : recoveryRuntime.data,
-      runtime_error: recoveryRuntime.error ? recoveryRuntime.error.message : null,
+      runtime_error: recoveryRuntime.error
+        ? recoveryRuntime.error.message
+        : null,
       versions: recoveryVersions.error ? [] : (recoveryVersions.data ?? []),
-      versions_error: recoveryVersions.error ? recoveryVersions.error.message : null,
+      versions_error: recoveryVersions.error
+        ? recoveryVersions.error.message
+        : null,
     },
   };
 
@@ -209,7 +235,9 @@ async function runStatus(client, asJson) {
   }
 
   if (payload.recovery.versions_error) {
-    console.log(`- recovery versions error: ${payload.recovery.versions_error}`);
+    console.log(
+      `- recovery versions error: ${payload.recovery.versions_error}`,
+    );
   } else {
     console.log(`- recovery versions: ${payload.recovery.versions.length}`);
   }
@@ -239,9 +267,10 @@ async function runBootstrap(options) {
 
   const secret = resolveSecret({
     parsed,
-    defaultEnv: command === "bootstrap-pepper"
-      ? "ANON_SYNC_PEPPER_SECRET"
-      : "ANON_SYNC_RECOVERY_SECRET",
+    defaultEnv:
+      command === "bootstrap-pepper"
+        ? "ANON_SYNC_PEPPER_SECRET"
+        : "ANON_SYNC_RECOVERY_SECRET",
   });
 
   const errors = [];
@@ -258,7 +287,9 @@ async function runBootstrap(options) {
     errors.push(`required secret env ${secret.secretEnvName} is not set.`);
   }
   if (secret.secret.length < 32) {
-    errors.push(`secret must be at least 32 chars (env ${secret.secretEnvName}).`);
+    errors.push(
+      `secret must be at least 32 chars (env ${secret.secretEnvName}).`,
+    );
   }
   if (errors.length > 0) {
     printInvalidArgs(errors);
@@ -286,14 +317,17 @@ async function runBootstrap(options) {
 
   if (!confirm) {
     if (!asJson) {
-      console.log("[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.");
+      console.log(
+        "[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.",
+      );
     }
     process.exit(0);
   }
 
-  const rpcName = command === "bootstrap-pepper"
-    ? "ensure_anon_sync_pepper_runtime"
-    : "ensure_anon_sync_recovery_runtime";
+  const rpcName =
+    command === "bootstrap-pepper"
+      ? "ensure_anon_sync_pepper_runtime"
+      : "ensure_anon_sync_recovery_runtime";
 
   const versionArg = { p_initial_version: initialVersion };
   const { data, error } = await client.rpc(rpcName, {
@@ -306,7 +340,9 @@ async function runBootstrap(options) {
     console.error("[anon-sync-vault] RPC failed:");
     console.error(error.message);
     if (typeof error.message === "string" && error.message.includes(rpcName)) {
-      console.error("[anon-sync-vault] Hint: apply 20260521010000_anon_sync_vault_ops_rpc.sql first.");
+      console.error(
+        "[anon-sync-vault] Hint: apply 20260521010000_anon_sync_vault_ops_rpc.sql first.",
+      );
     }
     process.exit(1);
   }
@@ -328,14 +364,16 @@ async function runRotate(options) {
 
   const secret = resolveSecret({
     parsed,
-    defaultEnv: command === "rotate-pepper"
-      ? "ANON_SYNC_PEPPER_SECRET"
-      : "ANON_SYNC_RECOVERY_SECRET",
+    defaultEnv:
+      command === "rotate-pepper"
+        ? "ANON_SYNC_PEPPER_SECRET"
+        : "ANON_SYNC_RECOVERY_SECRET",
   });
 
-  const runtimeTable = command === "rotate-pepper"
-    ? "anon_sync_pepper_runtime"
-    : "anon_sync_recovery_runtime";
+  const runtimeTable =
+    command === "rotate-pepper"
+      ? "anon_sync_pepper_runtime"
+      : "anon_sync_recovery_runtime";
   const runtime = await loadRuntime(client, runtimeTable);
 
   const errors = [];
@@ -352,12 +390,17 @@ async function runRotate(options) {
     errors.push(`required secret env ${secret.secretEnvName} is not set.`);
   }
   if (secret.secret.length < 32) {
-    errors.push(`secret must be at least 32 chars (env ${secret.secretEnvName}).`);
+    errors.push(
+      `secret must be at least 32 chars (env ${secret.secretEnvName}).`,
+    );
   }
   if (runtime.error) {
     errors.push(`${runtimeTable} read failed: ${runtime.error.message}`);
   }
-  if (!runtime.error && (!runtime.data || typeof runtime.data.current_version !== "string")) {
+  if (
+    !runtime.error &&
+    (!runtime.data || typeof runtime.data.current_version !== "string")
+  ) {
     errors.push(`${runtimeTable} singleton row is missing or invalid.`);
   }
 
@@ -368,11 +411,15 @@ async function runRotate(options) {
 
   const runtimeAccept = ensureStringArray(runtime.data.accept_versions);
   if (runtime.data.current_version === targetVersion) {
-    console.error(`[anon-sync-vault] Refusing to rotate: target version ${targetVersion} is already current.`);
+    console.error(
+      `[anon-sync-vault] Refusing to rotate: target version ${targetVersion} is already current.`,
+    );
     process.exit(1);
   }
   if (runtimeAccept.includes(targetVersion)) {
-    console.error(`[anon-sync-vault] Refusing to rotate: target version ${targetVersion} is already in accept_versions.`);
+    console.error(
+      `[anon-sync-vault] Refusing to rotate: target version ${targetVersion} is already in accept_versions.`,
+    );
     process.exit(1);
   }
 
@@ -397,7 +444,9 @@ async function runRotate(options) {
     console.log(`- command: ${plan.command}`);
     console.log(`- current_version: ${plan.current_version}`);
     console.log(`- target_version: ${plan.target_version}`);
-    console.log(`- planned_accept_versions: ${plan.planned_accept_versions.join(", ")}`);
+    console.log(
+      `- planned_accept_versions: ${plan.planned_accept_versions.join(", ")}`,
+    );
     console.log(`- planned_version_epoch: ${plan.planned_version_epoch}`);
     console.log(`- secret_length: ${plan.secret_length}`);
     console.log(`- secret_source: ${plan.secret_source}`);
@@ -406,14 +455,17 @@ async function runRotate(options) {
 
   if (!confirm) {
     if (!asJson) {
-      console.log("[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.");
+      console.log(
+        "[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.",
+      );
     }
     process.exit(0);
   }
 
-  const rpcName = command === "rotate-pepper"
-    ? "rotate_anon_sync_pepper"
-    : "rotate_anon_sync_recovery_key";
+  const rpcName =
+    command === "rotate-pepper"
+      ? "rotate_anon_sync_pepper"
+      : "rotate_anon_sync_recovery_key";
 
   const { data, error } = await client.rpc(rpcName, {
     p_target_version: targetVersion,
@@ -440,20 +492,22 @@ async function runFinalize(options) {
   const keepVersion = ensureVersion(parsed.values["keep-version"]);
   const retireOthers = parsed.flags.has("retire-others");
 
-  const runtimeTable = command === "finalize-pepper"
-    ? "anon_sync_pepper_runtime"
-    : "anon_sync_recovery_runtime";
-  const versionsTable = command === "finalize-pepper"
-    ? "anon_sync_pepper_versions"
-    : "anon_sync_recovery_versions";
+  const runtimeTable =
+    command === "finalize-pepper"
+      ? "anon_sync_pepper_runtime"
+      : "anon_sync_recovery_runtime";
+  const versionsTable =
+    command === "finalize-pepper"
+      ? "anon_sync_pepper_versions"
+      : "anon_sync_recovery_versions";
 
   const runtime = await loadRuntime(client, runtimeTable);
   const keepVersionQuery = keepVersion
     ? await client
-      .from(versionsTable)
-      .select("version, retired_at")
-      .eq("version", keepVersion)
-      .maybeSingle()
+        .from(versionsTable)
+        .select("version, retired_at")
+        .eq("version", keepVersion)
+        .maybeSingle()
     : { data: null, error: null };
 
   const errors = [];
@@ -463,21 +517,30 @@ async function runFinalize(options) {
   if (runtime.error) {
     errors.push(`${runtimeTable} read failed: ${runtime.error.message}`);
   }
-  if (!runtime.error && (!runtime.data || typeof runtime.data.current_version !== "string")) {
+  if (
+    !runtime.error &&
+    (!runtime.data || typeof runtime.data.current_version !== "string")
+  ) {
     errors.push(`${runtimeTable} singleton row is missing or invalid.`);
   }
   if (keepVersionQuery.error) {
-    errors.push(`${versionsTable} read failed: ${keepVersionQuery.error.message}`);
+    errors.push(
+      `${versionsTable} read failed: ${keepVersionQuery.error.message}`,
+    );
   }
   if (!keepVersionQuery.error && !keepVersionQuery.data && keepVersion) {
-    errors.push(`--keep-version ${keepVersion} is not found in ${versionsTable}.`);
+    errors.push(
+      `--keep-version ${keepVersion} is not found in ${versionsTable}.`,
+    );
   }
   if (
     !keepVersionQuery.error &&
     keepVersionQuery.data &&
     keepVersionQuery.data.retired_at
   ) {
-    errors.push(`--keep-version ${keepVersion} is already retired in ${versionsTable}.`);
+    errors.push(
+      `--keep-version ${keepVersion} is already retired in ${versionsTable}.`,
+    );
   }
   if (errors.length > 0) {
     printInvalidArgs(errors);
@@ -500,7 +563,9 @@ async function runFinalize(options) {
     console.log("[anon-sync-vault] Preflight:");
     console.log(`- command: ${plan.command}`);
     console.log(`- current_version: ${plan.current_version}`);
-    console.log(`- current_accept_versions: ${plan.current_accept_versions.join(", ")}`);
+    console.log(
+      `- current_accept_versions: ${plan.current_accept_versions.join(", ")}`,
+    );
     console.log(`- keep_version: ${plan.keep_version}`);
     console.log(`- retire_others: ${plan.retire_others}`);
     console.log(`- mode: ${plan.mode}`);
@@ -508,14 +573,17 @@ async function runFinalize(options) {
 
   if (!confirm) {
     if (!asJson) {
-      console.log("[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.");
+      console.log(
+        "[anon-sync-vault] Dry-run only. Re-run with --confirm to apply.",
+      );
     }
     process.exit(0);
   }
 
-  const rpcName = command === "finalize-pepper"
-    ? "finalize_anon_sync_pepper_accept"
-    : "finalize_anon_sync_recovery_accept";
+  const rpcName =
+    command === "finalize-pepper"
+      ? "finalize_anon_sync_pepper_accept"
+      : "finalize_anon_sync_recovery_accept";
 
   const { data, error } = await client.rpc(rpcName, {
     p_keep_version: keepVersion,

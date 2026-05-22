@@ -166,7 +166,9 @@ function parseBundlePayload(raw: unknown): PepperBundle | null {
       console.error("[pepper] RPC entries element is not an object");
       return null;
     }
-    const version = normalizeVersionString((item as { version?: unknown }).version);
+    const version = normalizeVersionString(
+      (item as { version?: unknown }).version,
+    );
     if (!version) {
       console.error("[pepper] RPC entries.version invalid");
       return null;
@@ -390,9 +392,8 @@ export async function computePid(
   pepperSecret: string,
   apiMemberId: string | number,
 ): Promise<string> {
-  const id = typeof apiMemberId === "number"
-    ? String(apiMemberId)
-    : apiMemberId.trim();
+  const id =
+    typeof apiMemberId === "number" ? String(apiMemberId) : apiMemberId.trim();
   if (id.length === 0) {
     throw new Error("computePid: api_member_id must be non-empty");
   }

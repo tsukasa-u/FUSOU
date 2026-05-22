@@ -362,19 +362,19 @@ pnpm --dir packages/FUSOU-APP run tauri build
 
 ## 9. 変更種別ごとの実行セット（最短版）
 
-| 変更種別 | 実行コマンド |
-| --- | --- |
-| WEB 本番反映 | `pnpm --dir packages/FUSOU-WEB run deploy` |
-| WEB ローカル実データ（最小） | `pnpm --dir packages/FUSOU-WEB run seed:master-data` |
-| WEB ローカル実データ（フル） | `seed:master-data:all`, `seed:assets`, `seed:fleet-data -- --all`, `seed:battle-data`, `seed:ship-growth-data` |
-| WEB シナジー period 更新 | `cd packages/equip_synergy_detector && pnpm scan:upload -- --period-tag <YYYY-MM-DD>` |
-| Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts` |
-| schema/fingerprint 連動変更 | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas` |
-| 匿名同期ローテーション | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
-| Workflow 本番反映 | `pnpm --dir packages/FUSOU-WORKFLOW run test && pnpm --dir packages/FUSOU-WORKFLOW run deploy` |
-| Workflow スキーマ反映あり | `pnpm --dir packages/FUSOU-WORKFLOW run schema:remote && pnpm --dir packages/FUSOU-WORKFLOW run deploy` |
-| APP タグ付き公開リリース | `GitHub Actions: publish_and_create_version_tag を workflow_dispatch` |
-| fusou-datasets PyPI 公開（対象時のみ） | `GitHub Actions: Publish fusou-datasets to PyPI を workflow_dispatch` |
+| 変更種別                                 | 実行コマンド                                                                                                                                                                                                                                                                                                |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WEB 本番反映                             | `pnpm --dir packages/FUSOU-WEB run deploy`                                                                                                                                                                                                                                                                  |
+| WEB ローカル実データ（最小）             | `pnpm --dir packages/FUSOU-WEB run seed:master-data`                                                                                                                                                                                                                                                        |
+| WEB ローカル実データ（フル）             | `seed:master-data:all`, `seed:assets`, `seed:fleet-data -- --all`, `seed:battle-data`, `seed:ship-growth-data`                                                                                                                                                                                              |
+| WEB シナジー period 更新                 | `cd packages/equip_synergy_detector && pnpm scan:upload -- --period-tag <YYYY-MM-DD>`                                                                                                                                                                                                                       |
+| Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts`                                                                                                                                                                                                                                                                      |
+| schema/fingerprint 連動変更              | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas`                                                                                                                                                                                                                                                   |
+| 匿名同期ローテーション                   | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
+| Workflow 本番反映                        | `pnpm --dir packages/FUSOU-WORKFLOW run test && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                              |
+| Workflow スキーマ反映あり                | `pnpm --dir packages/FUSOU-WORKFLOW run schema:remote && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                     |
+| APP タグ付き公開リリース                 | `GitHub Actions: publish_and_create_version_tag を workflow_dispatch`                                                                                                                                                                                                                                       |
+| fusou-datasets PyPI 公開（対象時のみ）   | `GitHub Actions: Publish fusou-datasets to PyPI を workflow_dispatch`                                                                                                                                                                                                                                       |
 
 ---
 
@@ -398,12 +398,12 @@ pnpm --dir packages/FUSOU-APP run tauri build
 
 対象フラグと ingest エンドポイント対応:
 
-| フラグ | 対応 ingest | 停止時の想定 |
-| --- | --- | --- |
-| `QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED` | `/api/quest-tree/ingest` | 503 (`Quest tree collection is disabled`) |
-| `REMODEL_DATA_COLLECTION_ENABLED` | `/api/remodel-data/ingest` | 503 (`Remodel data collection is disabled`) |
-| `SHIP_GROWTH_COLLECTION_ENABLED` | `/api/ship-growth/ingest` | 503 (`Ship growth collection is disabled`) |
-| `SOKU_SPEED_COLLECTION_ENABLED` | `/api/soku-speed-observed/ingest` | 503 (`Soku speed collection is disabled`) |
+| フラグ                                       | 対応 ingest                       | 停止時の想定                                |
+| -------------------------------------------- | --------------------------------- | ------------------------------------------- |
+| `QUEST_TREE_EXPERIMENTAL_COLLECTION_ENABLED` | `/api/quest-tree/ingest`          | 503 (`Quest tree collection is disabled`)   |
+| `REMODEL_DATA_COLLECTION_ENABLED`            | `/api/remodel-data/ingest`        | 503 (`Remodel data collection is disabled`) |
+| `SHIP_GROWTH_COLLECTION_ENABLED`             | `/api/ship-growth/ingest`         | 503 (`Ship growth collection is disabled`)  |
+| `SOKU_SPEED_COLLECTION_ENABLED`              | `/api/soku-speed-observed/ingest` | 503 (`Soku speed collection is disabled`)   |
 
 反映経路は 2 通りある。緊急停止は (A) を推奨。
 

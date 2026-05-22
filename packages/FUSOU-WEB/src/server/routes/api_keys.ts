@@ -64,9 +64,9 @@ type AuthResult =
   | { token: string; fromCookie: true }
   | { token: string; fromCookie: false };
 
-function extractAccessToken(
-  c: { req: { header: (name: string) => string | undefined } },
-): AuthResult | null {
+function extractAccessToken(c: {
+  req: { header: (name: string) => string | undefined };
+}): AuthResult | null {
   const authHeader = c.req.header("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
     return { token: authHeader.slice(7).trim(), fromCookie: false };
@@ -134,7 +134,7 @@ async function verifyAccessToken(
     const user = (await response.json()) as { id: string; email: string };
     return user;
   } catch (err) {
-    console.warn('[api_keys] verifyAccessToken failed:', err);
+    console.warn("[api_keys] verifyAccessToken failed:", err);
     return null;
   }
 }

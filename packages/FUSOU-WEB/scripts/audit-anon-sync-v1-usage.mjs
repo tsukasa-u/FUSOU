@@ -22,7 +22,15 @@ const scanRoots = [
   join(repoRoot, "packages", "kc_api", "crates"),
 ];
 
-const includeExt = new Set([".ts", ".tsx", ".js", ".mjs", ".rs", ".astro", ".sql"]);
+const includeExt = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".mjs",
+  ".rs",
+  ".astro",
+  ".sql",
+]);
 const ignorePathPart = [
   "node_modules",
   "target",
@@ -183,7 +191,10 @@ function main() {
     const payload = {
       summary,
       actionable: actionable.map((f) => ({ rel: f.rel, hits: f.hits })),
-      informational: informational.map((f) => ({ rel: f.rel, hitCount: f.hits.length })),
+      informational: informational.map((f) => ({
+        rel: f.rel,
+        hitCount: f.hits.length,
+      })),
       allowListed: allHits
         .filter((f) => f.allowListed)
         .map((f) => ({ rel: f.rel, hitCount: f.hits.length })),
@@ -195,7 +206,9 @@ function main() {
   console.log("=== v1 Anonymous-Sync Usage Audit ===");
   console.log(`Scanned files: ${summary.scannedFiles}`);
   console.log(`Files with hits: ${summary.filesWithHits}`);
-  console.log(`Allowlisted files with hits: ${summary.allowListedFilesWithHits}`);
+  console.log(
+    `Allowlisted files with hits: ${summary.allowListedFilesWithHits}`,
+  );
   console.log(`Actionable files: ${summary.actionableFiles}`);
   console.log(`Informational files: ${summary.informationalFiles}`);
 
@@ -214,7 +227,9 @@ function main() {
   }
 
   if (informational.length > 0) {
-    console.log("\nInformational hits (non-blocking terminology/compat notes):");
+    console.log(
+      "\nInformational hits (non-blocking terminology/compat notes):",
+    );
     for (const file of informational.slice(0, 20)) {
       console.log(`- ${file.rel}: ${file.hits.length}`);
     }

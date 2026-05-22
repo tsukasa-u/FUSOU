@@ -1,12 +1,12 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
-use tracing;
 use crate::types::{DatasetToken, DatasetTokenStore, Session};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde::Deserialize;
+use tracing;
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
@@ -131,7 +131,10 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    async fn persist_dataset_token_store(&self, store: &DatasetTokenStore) -> Result<(), AuthError> {
+    async fn persist_dataset_token_store(
+        &self,
+        store: &DatasetTokenStore,
+    ) -> Result<(), AuthError> {
         let path = self
             .dataset_token_path
             .lock()
@@ -173,8 +176,9 @@ impl<S: Storage> AuthManager<S> {
         let api_key = if let Some(v) = SUPABASE_PUBLISHABLE_KEY_EMBED {
             v.to_string()
         } else {
-            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY").map_err(|_| {
+                AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string())
+            })?
         };
 
         let config = AuthConfig {
@@ -203,10 +207,16 @@ impl<S: Storage> AuthManager<S> {
             tracing::debug!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
                 exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::debug!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
+                tracing::debug!(
+                    "get_access_token: using cached token (valid for {} more seconds)",
+                    seconds_until_expiry
+                );
                 return Ok(session.access_token);
             } else {
-                tracing::debug!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
+                tracing::debug!(
+                    "get_access_token: token expiring soon (within {} seconds), will refresh",
+                    self.config.refresh_margin_secs
+                );
             }
         } else {
             tracing::debug!("get_access_token: no expires_at in session, will refresh");
@@ -289,10 +299,16 @@ impl<S: Storage> AuthManager<S> {
             tracing::warn!(status = %status, body = %masked_body, "supabase refresh request failed");
 
             // If the refresh token is invalid/expired/already used, clear and signal re-auth.
-            if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
-                tracing::warn!("refresh token invalid/expired; clearing session and requesting re-login");
+            if status == reqwest::StatusCode::BAD_REQUEST
+                || status == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::warn!(
+                    "refresh token invalid/expired; clearing session and requesting re-login"
+                );
                 let _ = self.storage.clear().await;
-                return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
+                return Err(AuthError::RequireReauth(
+                    "refresh token invalid or already used; please sign in again".to_string(),
+                ));
             }
 
             return Err(AuthError::RefreshFailed(format!("status {}", status)));
@@ -301,7 +317,10 @@ impl<S: Storage> AuthManager<S> {
         let body: serde_json::Value = resp.json().await?;
 
         // extract tokens and expiry
-        let access_token = body["access_token"].as_str().unwrap_or_default().to_string();
+        let access_token = body["access_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let refresh_token = body
             .get("refresh_token")
             .and_then(|v| v.as_str())
@@ -323,10 +342,9 @@ impl<S: Storage> AuthManager<S> {
         let expires_in = body.get("expires_in").and_then(|v| v.as_i64());
 
         // If expires_in is missing, fall back to a conservative default to avoid hammering refresh.
-        let expires_at: Option<DateTime<Utc>> = Some(Utc::now()
-            + Duration::seconds(
-                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS),
-            ));
+        let expires_at: Option<DateTime<Utc>> = Some(
+            Utc::now() + Duration::seconds(expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS)),
+        );
 
         let session = Session {
             access_token: access_token.clone(),
@@ -343,7 +361,10 @@ impl<S: Storage> AuthManager<S> {
     }
 
     /// Attach bearer to the request builder after ensuring a valid token.
-    pub async fn attach_bearer(&self, mut req: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder, AuthError> {
+    pub async fn attach_bearer(
+        &self,
+        mut req: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, AuthError> {
         let token = self.get_access_token().await?;
         req = req.bearer_auth(token);
         Ok(req)
@@ -353,7 +374,10 @@ impl<S: Storage> AuthManager<S> {
     ///
     /// `make_request` is a closure that receives a `&reqwest::Client` and returns a `RequestBuilder`.
     /// This allows the function to rebuild the request for a retry after refresh.
-    pub async fn request_with_refresh<F>(&self, make_request: F) -> Result<reqwest::Response, AuthError>
+    pub async fn request_with_refresh<F>(
+        &self,
+        make_request: F,
+    ) -> Result<reqwest::Response, AuthError>
     where
         F: Fn(&Client) -> reqwest::RequestBuilder,
     {
@@ -467,8 +491,10 @@ impl<S: Storage> AuthManager<S> {
         let url = configs::get_user_configs_for_app()
             .auth
             .get_anonymous_sync_endpoint()
-            .ok_or_else(|| AuthError::Other("anonymous_sync_endpoint not configured".to_string()))?;
-        
+            .ok_or_else(|| {
+                AuthError::Other("anonymous_sync_endpoint not configured".to_string())
+            })?;
+
         let body = serde_json::json!({
             "member_id_hash": member_id_hash
         });
@@ -479,23 +505,14 @@ impl<S: Storage> AuthManager<S> {
             .header("apikey", &self.config.api_key);
 
         let resp = match self.get_access_token().await {
-            Ok(access_token) => {
-                resp
-                    .bearer_auth(access_token)
-                    .json(&body)
-                    .send()
-                    .await?
-            }
+            Ok(access_token) => resp.bearer_auth(access_token).json(&body).send().await?,
             Err(_) => {
                 // If no existing session but we have a previous mapping on disk, use that
                 // to retrieve dataset_token without generating a new anonymous user_id
                 if has_existing_mapping {
                     tracing::info!("no local access token, but existing mapping found on disk for this device (multi-device scenario)");
                 }
-                resp
-                    .json(&body)
-                    .send()
-                    .await?
+                resp.json(&body).send().await?
             }
         };
 
@@ -524,7 +541,10 @@ impl<S: Storage> AuthManager<S> {
         let response_data: AnonymousSyncResponse = resp.json().await?;
 
         // セッションの決定
-        let session = if let (Some(at), Some(rt)) = (response_data.access_token.clone(), response_data.refresh_token.clone()) {
+        let session = if let (Some(at), Some(rt)) = (
+            response_data.access_token.clone(),
+            response_data.refresh_token.clone(),
+        ) {
             // 新しい匿名セッションが取得できた場合
             let expires_at = Utc::now() + Duration::seconds(DEFAULT_ACCESS_TOKEN_TTL_SECS);
             Some(Session {
@@ -547,7 +567,11 @@ impl<S: Storage> AuthManager<S> {
         };
 
         tracing::info!(
-            session_tokens = if session.is_some() { "present" } else { "absent" },
+            session_tokens = if session.is_some() {
+                "present"
+            } else {
+                "absent"
+            },
             "anonymous-sync completed"
         );
 
@@ -593,7 +617,9 @@ impl<S: Storage> AuthManager<S> {
 
         if needs_refresh {
             tracing::info!("dataset_token refresh started");
-            let (session_opt, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
+            let (session_opt, dataset_token_str) = self
+                .get_or_refresh_anonymous_session(member_id_hash)
+                .await?;
 
             // 新しいセッションが返された場合はストレージに保存（マルチデバイスで
             // セッションが無い端末でもアップロード時にセッションを自動取得できるようにする）
@@ -602,12 +628,12 @@ impl<S: Storage> AuthManager<S> {
                     tracing::warn!("ensure_dataset_token_valid: failed to save session: {}", e);
                 }
             }
-            
+
             // 7日後に有効期限切れ
             let expires_at = Utc::now() + Duration::days(7);
 
             tracing::info!("dataset_token refresh completed");
-            
+
             Ok(crate::types::DatasetToken {
                 token: dataset_token_str,
                 expires_at,
@@ -824,9 +850,7 @@ impl<S: Storage> AuthManager<S> {
             .auth
             .get_anonymous_sync_v2_register_endpoint()
             .ok_or_else(|| {
-                AuthError::Other(
-                    "anonymous_sync_v2_register_endpoint not configured".to_string(),
-                )
+                AuthError::Other("anonymous_sync_v2_register_endpoint not configured".to_string())
             })?;
 
         let body = serde_json::json!({
@@ -879,17 +903,12 @@ impl<S: Storage> AuthManager<S> {
     /// /v2/challenge を呼んで nonce を取得する。
     /// nonce はサーバー側 HMAC で 5 分単位のバケットに紐づき、refresh / revoke の
     /// メッセージ署名にそのまま使う。
-    async fn fetch_challenge_v2(
-        &self,
-        device_id: &str,
-    ) -> Result<ChallengeV2Response, AuthError> {
+    async fn fetch_challenge_v2(&self, device_id: &str) -> Result<ChallengeV2Response, AuthError> {
         let base = configs::get_user_configs_for_app()
             .auth
             .get_anonymous_sync_v2_challenge_endpoint()
             .ok_or_else(|| {
-                AuthError::Other(
-                    "anonymous_sync_v2_challenge_endpoint not configured".to_string(),
-                )
+                AuthError::Other("anonymous_sync_v2_challenge_endpoint not configured".to_string())
             })?;
 
         let resp = self
@@ -943,9 +962,7 @@ impl<S: Storage> AuthManager<S> {
             .auth
             .get_anonymous_sync_v2_refresh_endpoint()
             .ok_or_else(|| {
-                AuthError::Other(
-                    "anonymous_sync_v2_refresh_endpoint not configured".to_string(),
-                )
+                AuthError::Other("anonymous_sync_v2_refresh_endpoint not configured".to_string())
             })?;
 
         let body = serde_json::json!({
@@ -1024,9 +1041,7 @@ impl<S: Storage> AuthManager<S> {
             .auth
             .get_anonymous_sync_v2_revoke_endpoint()
             .ok_or_else(|| {
-                AuthError::Other(
-                    "anonymous_sync_v2_revoke_endpoint not configured".to_string(),
-                )
+                AuthError::Other("anonymous_sync_v2_revoke_endpoint not configured".to_string())
             })?;
 
         let body = serde_json::json!({

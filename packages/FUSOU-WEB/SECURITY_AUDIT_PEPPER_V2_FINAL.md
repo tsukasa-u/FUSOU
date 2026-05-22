@@ -1,6 +1,7 @@
 <!-- markdownlint-disable -->
 
 # Security Audit Report: Anonymous Sync V2 Pepper Implementation
+
 **Date**: 2026-05-20  
 **Scope**: FUSOU-WEB implementation of Vault-based pepper rotation  
 **Auditor**: GitHub Copilot  
@@ -17,6 +18,7 @@ A thorough security audit of the Anonymous Sync V2 Pepper implementation (Vault-
 ## Audit Scope
 
 ### Files Audited
+
 1. `packages/FUSOU-WEB/supabase/migrations/20260520000000_anon_sync_pepper_vault_runtime.sql` — SQL tables, triggers, RPC
 2. `packages/FUSOU-WEB/src/server/utils/pepper.ts` — Pepper resolution, cache, crypto helpers
 3. `packages/FUSOU-WEB/src/server/types.ts` — Cloudflare Bindings definitions
@@ -24,6 +26,7 @@ A thorough security audit of the Anonymous Sync V2 Pepper implementation (Vault-
 5. Documentation: Runbook and Release Checklist
 
 ### Audit Depth
+
 - Line-by-line code inspection
 - Security flow analysis (nonce validation, Vault access ordering, error handling)
 - Type safety verification
@@ -42,13 +45,14 @@ A thorough security audit of the Anonymous Sync V2 Pepper implementation (Vault-
 **CWE**: CWE-200 (Exposure of Sensitive Information to an Unauthorized Actor)
 
 #### Issue
+
 The `POST /anonymous-sync/v2/register` endpoint returned the full `pid` (pepper-based hash, which is the canonical user identifier) to the client in the response JSON:
 
 ```typescript
 // BEFORE (VULNERABLE)
 return c.json({
   device_id: deviceId,
-  pid,  // <-- CRITICAL: Exposes canonical user identifier
+  pid, // <-- CRITICAL: Exposes canonical user identifier
   dataset_token: token,
   dataset_token_expires_at: expiresAt,
   salt_version: config.pepperConfig.current.version,
@@ -56,6 +60,7 @@ return c.json({
 ```
 
 #### Why It's Critical
+
 - The `pid = HMAC-SHA256(pepper_current, api_member_id)` is the **canonical user identifier** in the anonymous sync system
 - Exposing it allows attackers to:
   - Link device registrations across time (deanonymization)
@@ -63,6 +68,7 @@ return c.json({
   - Correlate with other leaked user data
 
 #### Fix Applied
+
 ```typescript
 // AFTER (SECURE)
 return c.json({
@@ -75,6 +81,7 @@ return c.json({
 ```
 
 **Changes Made**:
+
 - Removed `pid` field from register response object
 - Kept `pid` in server-side logs (masked with `maskPid()`)
 - Clients now receive only: device_id, dataset_token, expiration, salt_version
@@ -89,14 +96,16 @@ return c.json({
 **CWE**: CWE-200, CWE-524 (Use of Cache Containing Sensitive Information)
 
 #### Issue
+
 The `POST /anonymous-sync/v2/refresh` endpoint exposed the full `pid` in two places:
 
 **1. Type Definition** (lines 540–547):
+
 ```typescript
 type RefreshCachedResult = {
   status: "ok";
   device_id: string;
-  pid: string;  // <-- CRITICAL: Included in type
+  pid: string; // <-- CRITICAL: Included in type
   dataset_token: string;
   dataset_token_expires_at: number;
   salt_version: string;
@@ -104,11 +113,12 @@ type RefreshCachedResult = {
 ```
 
 **2. Response Construction** (lines 771–777):
+
 ```typescript
 const result: RefreshCachedResult = {
   status: "ok",
   device_id: deviceId,
-  pid: pidNew,  // <-- CRITICAL: Exposed in JSON response
+  pid: pidNew, // <-- CRITICAL: Exposed in JSON response
   dataset_token: token,
   dataset_token_expires_at: expiresAt,
   salt_version: config.pepperConfig.current.version,
@@ -116,15 +126,17 @@ const result: RefreshCachedResult = {
 ```
 
 **3. Cached in KV** (lines 779–782):
+
 ```typescript
 if (kv) {
   await kv.put(cacheKey, JSON.stringify(result), {
-    expirationTtl: REFRESH_RESULT_TTL_SECONDS,  // 300 seconds
+    expirationTtl: REFRESH_RESULT_TTL_SECONDS, // 300 seconds
   });
 }
 ```
 
 #### Why It's Critical
+
 - Same issue as Bug #1: exposes canonical user identifier
 - **Additionally**: The PID was cached in Cloudflare Workers KV for 300 seconds
 - An attacker who intercepts a refresh response can:
@@ -133,7 +145,9 @@ if (kv) {
   - Access cached pid even if endpoint is later fixed
 
 #### Fix Applied
+
 1. **Type Definition Updated** (lines 540–547):
+
 ```typescript
 type RefreshCachedResult = {
   status: "ok";
@@ -146,6 +160,7 @@ type RefreshCachedResult = {
 ```
 
 2. **Response Construction Updated** (lines 771–777):
+
 ```typescript
 const result: RefreshCachedResult = {
   status: "ok",
@@ -158,6 +173,7 @@ const result: RefreshCachedResult = {
 ```
 
 **Changes Made**:
+
 - Removed `pid` from RefreshCachedResult type
 - Removed `pid` from refresh result object
 - KV cache (300s TTL) now stores only: status, device_id, dataset_token, expires_at, salt_version
@@ -173,6 +189,7 @@ const result: RefreshCachedResult = {
 **CWE**: CWE-613 (Insufficient Session Expiration), CWE-613 (Improper Authentication)
 
 #### Issue
+
 The refresh handler checked the idempotent cache **before validating the nonce**:
 
 ```typescript
@@ -186,7 +203,7 @@ const cacheKey = `refresh-result:${deviceId}:${nonce}`;
 if (kv) {
   const cached = await kv.get(cacheKey, { type: "json" });
   if (cached && typeof cached === "object") {
-    return c.json(cached as RefreshCachedResult);  // Returns before nonce check!
+    return c.json(cached as RefreshCachedResult); // Returns before nonce check!
   }
 }
 
@@ -202,7 +219,9 @@ if (!nonceValid) {
 ```
 
 #### Why It's Critical
+
 An attacker who:
+
 1. Captures a valid refresh request (with valid device_id + nonce + sig)
 2. Waits for the response to be cached (300s TTL)
 3. Can replay the **nonce** (not the signature) within 5–10 minutes and:
@@ -210,11 +229,13 @@ An attacker who:
    - Even if the nonce has expired (> 5-10 min), the old cached response may still be valid
 
 This breaks the **stateless nonce** security model:
+
 - Nonces are supposed to be time-limited (5-minute bucket window)
 - Caching should only happen **after** validation passes
 - By caching first, we create a new long-lived state (300s) that bypasses the nonce expiration
 
 #### Attack Scenario
+
 ```
 Time 0:   Attacker captures device_id=abc-123, nonce=xyz, sig=qqq
 Time 1:   Attacker replays request with same (device_id, nonce)
@@ -225,6 +246,7 @@ Time 1+:  If nonce is still in KV cache (< 300s), attacker gets token WITHOUT:
 ```
 
 #### Fix Applied
+
 Reorder the operations to validate **before** caching:
 
 ```typescript
@@ -268,12 +290,14 @@ const pepperResolved = await resolvePepperBundle({ ... });
 ```
 
 **Changes Made**:
+
 - Moved nonce validation check to **first position** (after config resolution)
 - Moved one-time nonce marking (`challenge-used` KV key) to **immediately after validation**
 - Moved idempotent cache lookup to **after one-time marking** (when security gates have passed)
 - Vault RPC now happens **after all authentication gates**
 
 **Operational Impact**:
+
 - DoS protection preserved: invalid/expired nonces now fail fast without hitting Vault
 - Idempotency still works: legitimate retries return cached token
 - Replay protection: old nonces bypass the cache check due to one-time marking
@@ -283,8 +307,10 @@ const pepperResolved = await resolvePepperBundle({ ... });
 ## Verified Secure (Secondary Findings)
 
 ### ✅ Finding #1: SQL Constraints & Triggers
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - `validate_anon_sync_pepper_runtime()` trigger enforces:
   - `current_version` ∈ `accept_versions`
   - No duplicates in `accept_versions`
@@ -293,8 +319,10 @@ const pepperResolved = await resolvePepperBundle({ ... });
 - **Verdict**: Fail-safe SQL layer prevents operational errors
 
 ### ✅ Finding #2: Pepper Bundle Parsing & Validation
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence** (`pepper.ts`):
+
 - `parseBundlePayload()` validates:
   - Version format: `^v[0-9]+$` (regex)
   - No duplicates in entries
@@ -306,24 +334,30 @@ const pepperResolved = await resolvePepperBundle({ ... });
 - **Verdict**: Comprehensive validation, no secret leakage
 
 ### ✅ Finding #3: Register Handler Attestation
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - Attestation verified before any DB operations
 - Device public key base64 validation (32 bytes)
 - Signature verification using Ed25519 (`verifyDeviceSig`)
 - **Verdict**: Authentication happens at appropriate layer
 
 ### ✅ Finding #4: Challenge Handler
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - Returns only: `nonce`, `expires_at`, `window_seconds`
 - No secrets, no PID, no version_epoch
 - No Vault dependency
 - **Verdict**: Clean, minimal response
 
 ### ✅ Finding #5: Revoke Handler
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - Returns 204 (No Content) — no body exposed
 - Nonce validation + one-time marking in place
 - Device ownership verified (canonical_user_id check)
@@ -331,24 +365,30 @@ const pepperResolved = await resolvePepperBundle({ ... });
 - **Verdict**: No PID leakage, correct HTTP semantics
 
 ### ✅ Finding #6: Error Path Handling
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - Database errors logged with error object, but not returned to client
 - Generic "Database error" or "Internal server error" responses
 - No exception stack traces exposed
 - **Verdict**: Fail-secure error handling
 
 ### ✅ Finding #7: Logging Masking
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - `maskPid()` function: masks first 8 hex chars, appends `...`
 - Used consistently in all console.log statements
 - Example: `pid=ffffffff...`
 - **Verdict**: No PID leakage in logs
 
 ### ✅ Finding #8: No Direct Environment Variable Reads
+
 **Status**: CORRECTLY IMPLEMENTED  
 **Evidence**:
+
 - `createEnvContext()` + `getEnv()` pattern used throughout
 - No direct `process.env` reads in app code
 - Types.ts cleaned: removed `PEPPER_*` environment variables
@@ -359,6 +399,7 @@ const pepperResolved = await resolvePepperBundle({ ... });
 ## Type Safety Verification
 
 ### Compilation Result
+
 ```
 ✅ pnpm run astro check
 
@@ -369,6 +410,7 @@ Result:         SUCCESS
 ```
 
 ### Type Changes Made
+
 1. Removed `pid: string` from `RefreshCachedResult` type
 2. Both `register` and `refresh` responses now correctly exclude PID
 3. No type inference breakage; all downstream code compiles
@@ -395,10 +437,13 @@ Result:         SUCCESS
 ## Verification Recommendations (Pre-Deployment)
 
 ### Recommended Tests
+
 1. **E2E Smoke Test** (existing in CI):
+
    ```bash
    pnpm run e2e:simulator:smoke
    ```
+
    Verify register/challenge/refresh/revoke endpoints respond with correct format
 
 2. **Manual Refresh Idempotency Test**:
@@ -413,29 +458,32 @@ Result:         SUCCESS
    - Verify only: status, device_id, dataset_token, dataset_token_expires_at, salt_version
 
 ### Deployment Checklist
+
 - [ ] Run `pnpm run astro check` (done: 0 errors ✅)
 - [ ] Run `pnpm run e2e:simulator:smoke` (recommended: before production deployment)
 - [ ] Verify `PEPPER_*` environment variables removed from Cloudflare dashboard
 - [ ] Confirm Vault secrets are initialized (`vault.create_secret` step in RUNBOOK)
 - [ ] Confirm `anon_sync_pepper_runtime` table is initialized with bootstrap row
-- [ ] Confirm `SUPABASE_SECRET_KEY` (service_role) is set in Cloudflare (not PEPPER_* keys)
+- [ ] Confirm `SUPABASE_SECRET_KEY` (service*role) is set in Cloudflare (not PEPPER*\* keys)
 
 ---
 
 ## Summary & Sign-Off
 
-| Category | Result |
-|----------|--------|
-| **Critical Bugs Found** | 3 |
-| **Critical Bugs Fixed** | 3 ✅ |
-| **Type Check** | 0 errors, 0 warnings ✅ |
-| **Secondary Findings** | 8 (all verified secure) ✅ |
-| **Information Disclosure Risk** | RESOLVED ✅ |
-| **Replay Attack Risk** | RESOLVED ✅ |
-| **Production Readiness** | **READY** ✅ |
+| Category                        | Result                     |
+| ------------------------------- | -------------------------- |
+| **Critical Bugs Found**         | 3                          |
+| **Critical Bugs Fixed**         | 3 ✅                       |
+| **Type Check**                  | 0 errors, 0 warnings ✅    |
+| **Secondary Findings**          | 8 (all verified secure) ✅ |
+| **Information Disclosure Risk** | RESOLVED ✅                |
+| **Replay Attack Risk**          | RESOLVED ✅                |
+| **Production Readiness**        | **READY** ✅               |
 
 ### Audit Conclusion
+
 ✅ **The Anonymous Sync V2 Pepper implementation is now production-ready.** All critical bugs have been identified, documented, and fixed. The codebase exhibits strong security posture with proper:
+
 - Information disclosure prevention
 - Replay attack mitigation
 - Fail-safe SQL constraints
@@ -443,6 +491,7 @@ Result:         SUCCESS
 - Consistent secret masking in logs
 
 **Recommended Next Steps**:
+
 1. Deploy fixes to FUSOU-WEB (this changeset)
 2. Run e2e smoke tests in staging
 3. Verify Vault initialization per RUNBOOK §4.1

@@ -40,14 +40,14 @@ function providerInitial(provider?: string): string {
 }
 
 try {
-    const memberMapResponse = await fetch(
-      new URL("/api/user/member-map", Astro.url.origin),
-      {
-        headers: {
-          Cookie: Astro.request.headers.get("cookie") ?? "",
-        },
+  const memberMapResponse = await fetch(
+    new URL("/api/user/member-map", Astro.url.origin),
+    {
+      headers: {
+        Cookie: Astro.request.headers.get("cookie") ?? "",
       },
-    );
+    },
+  );
 
   const memberMapData = (await memberMapResponse.json()) as {
     ok?: boolean;
@@ -120,7 +120,9 @@ if (!user) {
         </div>
 
         <!-- Account Info Section -->
-        <div class="mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300">
+        <div
+          class="mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
+        >
           <div class="flex items-center gap-3">
             <span
               class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
@@ -499,9 +501,10 @@ if (!user) {
   async function fetchUsage() {
     try {
       const response = await fetch(`${API_BASE}/usage`);
-      const data = /** @type {{ success?: boolean; usage?: { remaining: number } }} */ (
-        await response.json()
-      );
+      const data =
+        /** @type {{ success?: boolean; usage?: { remaining: number } }} */ (
+          await response.json()
+        );
       if (data.success && data.usage) {
         const { remaining } = data.usage;
         const progress = /** @type {HTMLProgressElement} */ (
@@ -641,9 +644,10 @@ if (!user) {
         },
         body: JSON.stringify({}),
       });
-      const data = /** @type {{ success?: boolean; api_key?: { key: string }; message?: string; error?: string }} */ (
-        await response.json()
-      );
+      const data =
+        /** @type {{ success?: boolean; api_key?: { key: string }; message?: string; error?: string }} */ (
+          await response.json()
+        );
       if (data.success) {
         // Show the new key
         const display = byId("new-key-display");

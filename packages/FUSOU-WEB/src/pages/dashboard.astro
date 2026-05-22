@@ -27,12 +27,16 @@ let storedProviderRefreshToken = cookies.get(
   "stored-sb-provider-refresh-token",
 );
 
-function readStoredTokenList(cookie: { json: () => unknown } | undefined): string[] {
+function readStoredTokenList(
+  cookie: { json: () => unknown } | undefined,
+): string[] {
   if (!cookie) return [];
   try {
     const parsed = cookie.json() as { data?: unknown };
     return Array.isArray(parsed.data)
-      ? parsed.data.filter((value): value is string => typeof value === "string")
+      ? parsed.data.filter(
+          (value): value is string => typeof value === "string",
+        )
       : [];
   } catch {
     return [];
@@ -74,7 +78,9 @@ if (
 let accessTokenList = readStoredTokenList(storedAccessToken);
 const refreshTokenList = readStoredTokenList(storedRefreshToken);
 const providerTokenList = readStoredTokenList(storedProviderToken);
-const providerRefreshTokenList = readStoredTokenList(storedProviderRefreshToken);
+const providerRefreshTokenList = readStoredTokenList(
+  storedProviderRefreshToken,
+);
 
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
@@ -225,7 +231,9 @@ cookies.set(
     <div class="flex justify-center flex-1 items-start pt-20 sm:pt-24 pb-8">
       <div class="w-full max-w-md">
         <div class="mb-6 text-center space-y-2">
-          <h1 class="text-3xl font-bold tracking-tight">Account is authorized</h1>
+          <h1 class="text-3xl font-bold tracking-tight">
+            Account is authorized
+          </h1>
           <p class="text-sm text-base-content/60">
             いま認証されているアカウントの切り替えと追加を行います。
           </p>
@@ -324,7 +332,9 @@ cookies.set(
             </div>
           </div>
 
-          <div class="mt-6 mb-3 text-center text-sm font-medium text-base-content/60">
+          <div
+            class="mt-6 mb-3 text-center text-sm font-medium text-base-content/60"
+          >
             管理
           </div>
           <div class="space-y-3">

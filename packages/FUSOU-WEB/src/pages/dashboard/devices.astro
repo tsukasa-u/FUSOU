@@ -86,7 +86,9 @@ function providerInitial(provider?: string): string {
               {providerInitial(user.app_metadata.provider)}
             </span>
             <div>
-              <div class="font-bold text-sm">{user.user_metadata?.name || "User"}</div>
+              <div class="font-bold text-sm">
+                {user.user_metadata?.name || "User"}
+              </div>
               <div class="text-xs opacity-60 font-mono">{user.email}</div>
             </div>
           </div>
@@ -103,7 +105,8 @@ function providerInitial(provider?: string): string {
         <div class="mb-6">
           <h2 class="text-lg font-semibold mb-3">Anonymous Sync Devices</h2>
           <p class="text-sm text-base-content/60 mb-3">
-            active 端末は失効できます。失効すると次回同期時に再登録が必要になります。
+            active
+            端末は失効できます。失効すると次回同期時に再登録が必要になります。
           </p>
 
           <div id="anon-devices-list" class="space-y-2">
@@ -237,12 +240,15 @@ function providerInitial(provider?: string): string {
 
       if (active) {
         const deviceId = String(device.device_id ?? "");
-        const button = createDangerButton("Revoke Anonymous Sync Device", () => {
-          showRevokeModal(
-            "この端末を失効します。次回同期時に再登録が必要になります。よろしいですか？",
-            () => revokeAnonymousDevice(deviceId),
-          );
-        });
+        const button = createDangerButton(
+          "Revoke Anonymous Sync Device",
+          () => {
+            showRevokeModal(
+              "この端末を失効します。次回同期時に再登録が必要になります。よろしいですか？",
+              () => revokeAnonymousDevice(deviceId),
+            );
+          },
+        );
         row.appendChild(button);
       }
 

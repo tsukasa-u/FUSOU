@@ -31,11 +31,7 @@
 import { Hono } from "hono";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
-import {
-  createEnvContext,
-  getEnv,
-  resolveSupabaseConfig,
-} from "../utils";
+import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
 import {
   CHALLENGE_BUCKET_SECONDS,
   computePid,
@@ -120,7 +116,9 @@ function normalizePubkey(value: unknown): {
   return { raw: bytes, base64: encodeBytesToBase64(bytes) };
 }
 
-function extractAccessToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
+function extractAccessToken(c: {
+  req: { header: (name: string) => string | undefined };
+}): string | null {
   const authHeader = c.req.header("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7).trim();
@@ -345,10 +343,7 @@ async function consumeDeviceNonce(options: {
   deviceId: string;
   nonce: string;
   context: "refresh" | "revoke";
-}): Promise<
-  | { ok: true }
-  | { ok: false; status: 401 | 500; error: string }
-> {
+}): Promise<{ ok: true } | { ok: false; status: 401 | 500; error: string }> {
   const nowMs = Date.now();
   const nonceInsert = await options.supabaseAdmin
     .from("anon_sync_nonce_consumptions")
@@ -446,7 +441,9 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
     if (!apiMemberId) {
       return c.json(
-        { error: "api_member_id must be a positive integer (string or number)" },
+        {
+          error: "api_member_id must be a positive integer (string or number)",
+        },
         400,
       );
     }
@@ -466,7 +463,10 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
-      console.error("[anonymous-sync-v2/register] config invalid:", base.reason);
+      console.error(
+        "[anonymous-sync-v2/register] config invalid:",
+        base.reason,
+      );
       return c.json({ error: "Server configuration error" }, 500);
     }
 
@@ -539,7 +539,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       }
     }
     const ridCurrent = recoveryConfig
-      ? ridByVersion.get(recoveryConfig.current.version) ?? null
+      ? (ridByVersion.get(recoveryConfig.current.version) ?? null)
       : null;
     if (recoveryConfig && !ridCurrent) {
       console.error(
@@ -647,8 +647,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     };
 
     let anchor: AnchorRow | null = null;
-    let resolvedRecoveryVersion: string | null = recoveryConfig?.current.version ??
-      null;
+    let resolvedRecoveryVersion: string | null =
+      recoveryConfig?.current.version ?? null;
     if (recoveryConfig && acceptedRids.length > 0) {
       const { data: anchorRows, error: anchorError } = await supabaseAdmin
         .from("user_identity_anchor")
@@ -678,7 +678,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
         if (anchor) {
           const matchedRecoveryVersion = recoveryConfig.accept.find(
-            (entry) => ridByVersion.get(entry.version) === anchor!.recovery_id_hash,
+            (entry) =>
+              ridByVersion.get(entry.version) === anchor!.recovery_id_hash,
           )?.version;
           resolvedRecoveryVersion =
             matchedRecoveryVersion ??
@@ -691,7 +692,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     let pid = mapping?.member_id_hash ?? pidCurrent;
     const matchedVersion = mapping
       ? config.pepperConfig.accept.find(
-          (entry) => pidByVersion.get(entry.version) === mapping!.member_id_hash,
+          (entry) =>
+            pidByVersion.get(entry.version) === mapping!.member_id_hash,
         )?.version
       : null;
     const resolvedSaltVersion =
@@ -702,11 +704,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     let canonicalUserId: string | null =
       mapping?.user_id ?? anchor?.canonical_user_id ?? null;
 
-    if (
-      mapping &&
-      anchor &&
-      mapping.user_id !== anchor.canonical_user_id
-    ) {
+    if (mapping && anchor && mapping.user_id !== anchor.canonical_user_id) {
       console.warn(
         "[anonymous-sync-v2/register] mapping and anchor resolved different users; preferring mapping",
         {
@@ -784,19 +782,22 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       } else {
         const { error: insertError } = await supabaseAdmin
           .from("user_member_map")
-          .upsert({
-            user_id: newUserId,
-            member_id_hash: pidCurrent,
-            salt_version: config.pepperConfig.current.version,
-            hash_algorithm: "hmac-sha256",
-            ...(recoveryConfig && ridCurrent
-              ? {
-                  recovery_id_hash: ridCurrent,
-                  recovery_version:
-                    resolvedRecoveryVersion ?? recoveryConfig.current.version,
-                }
-              : {}),
-          }, { onConflict: "user_id" });
+          .upsert(
+            {
+              user_id: newUserId,
+              member_id_hash: pidCurrent,
+              salt_version: config.pepperConfig.current.version,
+              hash_algorithm: "hmac-sha256",
+              ...(recoveryConfig && ridCurrent
+                ? {
+                    recovery_id_hash: ridCurrent,
+                    recovery_version:
+                      resolvedRecoveryVersion ?? recoveryConfig.current.version,
+                  }
+                : {}),
+            },
+            { onConflict: "user_id" },
+          );
         if (insertError) {
           // 23505 = unique_violation. 並行 register でレース敗北したケースを救う。
           if ((insertError as any).code === "23505") {
@@ -846,9 +847,10 @@ app.post("/anonymous-sync/v2/register", async (c) => {
             member_id_hash: pidCurrent,
             salt_version: config.pepperConfig.current.version,
             recovery_id_hash: recoveryConfig && ridCurrent ? ridCurrent : null,
-            recovery_version: recoveryConfig && ridCurrent
-              ? (resolvedRecoveryVersion ?? recoveryConfig.current.version)
-              : null,
+            recovery_version:
+              recoveryConfig && ridCurrent
+                ? (resolvedRecoveryVersion ?? recoveryConfig.current.version)
+                : null,
           };
         }
       }
@@ -861,19 +863,22 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     if (canonicalUserId && !mapping) {
       const { error: ensureUpsertError } = await supabaseAdmin
         .from("user_member_map")
-        .upsert({
-          user_id: canonicalUserId,
-          member_id_hash: pidCurrent,
-          salt_version: config.pepperConfig.current.version,
-          hash_algorithm: "hmac-sha256",
-          ...(recoveryConfig && ridCurrent
-            ? {
-                recovery_id_hash: ridCurrent,
-                recovery_version:
-                  resolvedRecoveryVersion ?? recoveryConfig.current.version,
-              }
-            : {}),
-        }, { onConflict: "user_id" });
+        .upsert(
+          {
+            user_id: canonicalUserId,
+            member_id_hash: pidCurrent,
+            salt_version: config.pepperConfig.current.version,
+            hash_algorithm: "hmac-sha256",
+            ...(recoveryConfig && ridCurrent
+              ? {
+                  recovery_id_hash: ridCurrent,
+                  recovery_version:
+                    resolvedRecoveryVersion ?? recoveryConfig.current.version,
+                }
+              : {}),
+          },
+          { onConflict: "user_id" },
+        );
 
       if (ensureUpsertError) {
         if ((ensureUpsertError as any).code === "23505") {
@@ -1040,7 +1045,10 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           );
           return c.json({ error: "Failed to register device" }, 500);
         }
-      } else if (!inserted || typeof (inserted as { device_id?: unknown }).device_id !== "string") {
+      } else if (
+        !inserted ||
+        typeof (inserted as { device_id?: unknown }).device_id !== "string"
+      ) {
         console.error(
           "[anonymous-sync-v2/register] user_devices INSERT missing row",
         );
@@ -1088,10 +1096,7 @@ app.get("/anonymous-sync/v2/devices", async (c) => {
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
-      console.error(
-        "[anonymous-sync-v2/devices] config invalid:",
-        base.reason,
-      );
+      console.error("[anonymous-sync-v2/devices] config invalid:", base.reason);
       return c.json({ error: "Server configuration error" }, 500);
     }
 
@@ -1115,7 +1120,9 @@ app.get("/anonymous-sync/v2/devices", async (c) => {
 
     let query = supabaseAdmin
       .from("user_devices")
-      .select("device_id, pid, created_at, last_seen_at, revoked_at, revoked_reason")
+      .select(
+        "device_id, pid, created_at, last_seen_at, revoked_at, revoked_reason",
+      )
       .eq("canonical_user_id", user.id)
       .order("created_at", { ascending: false });
 
@@ -1224,7 +1231,9 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
     if (!apiMemberId) {
       return c.json(
-        { error: "api_member_id must be a positive integer (string or number)" },
+        {
+          error: "api_member_id must be a positive integer (string or number)",
+        },
         400,
       );
     }
@@ -1244,10 +1253,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
-      console.error(
-        "[anonymous-sync-v2/refresh] config invalid:",
-        base.reason,
-      );
+      console.error("[anonymous-sync-v2/refresh] config invalid:", base.reason);
       return c.json({ error: "Server configuration error" }, 500);
     }
 
@@ -1527,7 +1533,8 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
       // rotations 履歴へ追記 (canonical user 削除に追従させないため CASCADE しない)
       // recovery fallback で復元した場合も監査上の連続性を保つため履歴を残す。
-      const saltVersionFrom = detected?.entry.version ?? recoveryDetectedVersion;
+      const saltVersionFrom =
+        detected?.entry.version ?? recoveryDetectedVersion;
       if (saltVersionFrom) {
         const { error: rotInsertErr } = await supabaseAdmin
           .from("member_id_hash_rotations")
@@ -1676,10 +1683,7 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
-      console.error(
-        "[anonymous-sync-v2/revoke] config invalid:",
-        base.reason,
-      );
+      console.error("[anonymous-sync-v2/revoke] config invalid:", base.reason);
       return c.json({ error: "Server configuration error" }, 500);
     }
 
@@ -1862,7 +1866,10 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
       .maybeSingle<{ canonical_user_id: string; revoked_at: string | null }>();
 
     if (targetErr) {
-      console.error("[anonymous-sync-v2/devices/:id] lookup failed:", targetErr);
+      console.error(
+        "[anonymous-sync-v2/devices/:id] lookup failed:",
+        targetErr,
+      );
       return c.json({ error: "Database error" }, 500);
     }
     if (!target || target.canonical_user_id !== user.id) {
@@ -1898,4 +1905,3 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
 });
 
 export default app;
-
