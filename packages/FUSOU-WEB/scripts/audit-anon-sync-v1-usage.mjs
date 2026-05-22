@@ -2,7 +2,8 @@
 /**
  * audit-anon-sync-v1-usage.mjs
  *
- * Audits legacy v1 anonymous-sync references that must be removed in P7.
+ * Audits legacy v1 anonymous-sync references that must not exist
+ * in the current v2-fixed codebase.
  * This script is read-only and does not modify files.
  *
  * Usage:
@@ -18,7 +19,13 @@ const repoRoot = resolve(process.cwd(), "../..");
 const scanRoots = [
   join(repoRoot, "packages", "FUSOU-WEB", "src"),
   join(repoRoot, "packages", "FUSOU-APP", "src-tauri", "src"),
+  join(repoRoot, "packages", "FUSOU-PROXY", "proxy-https", "src"),
+  join(repoRoot, "packages", "fusou-upload", "src"),
   join(repoRoot, "packages", "fusou-auth", "src"),
+  join(repoRoot, "packages", "configs", "src"),
+  join(repoRoot, "packages", "FUSOU-APP", "src-tauri"),
+  join(repoRoot, "packages", "fusou-auth"),
+  join(repoRoot, "packages", "configs"),
   join(repoRoot, "packages", "kc_api", "crates"),
 ];
 
@@ -30,6 +37,7 @@ const includeExt = new Set([
   ".rs",
   ".astro",
   ".sql",
+  ".toml",
 ]);
 const ignorePathPart = [
   "node_modules",
@@ -44,7 +52,7 @@ const ignorePathPart = [
 const checks = [
   {
     id: "v1-route-path",
-    pattern: /\/anonymous-sync(?=\/(?!v2)|$|[?#"'])/g,
+    pattern: /(?<=["'])\/anonymous-sync(?=\/(?!v2)|$|[?#"'])/g,
     description: "Legacy v1 endpoint path",
     severity: "critical",
   },
@@ -61,6 +69,18 @@ const checks = [
     severity: "critical",
   },
   {
+    id: "legacy-feature-flag",
+    pattern: /legacy-anonymous-sync-v1/g,
+    description: "Legacy anonymous-sync feature flag",
+    severity: "critical",
+  },
+  {
+    id: "legacy-config-endpoint",
+    pattern: /\banonymous_sync_endpoint\b/g,
+    description: "Legacy anonymous-sync v1 endpoint config key",
+    severity: "critical",
+  },
+  {
     id: "legacy-member-id-hash-name",
     pattern: /member_id_hash/g,
     description: "Legacy naming; confirm context is still needed",
@@ -70,25 +90,6 @@ const checks = [
 
 const allowByPath = [
   /packages\\FUSOU-WEB\\src\\server\\routes\\anonymous-sync\.ts$/,
-  /packages\\fusou-auth\\src\\manager\.rs$/,
-  /packages\\FUSOU-WEB\\src\\server\\routes\\anonymous-sync-v2\.ts$/,
-  /packages\\FUSOU-WEB\\src\\pages\\auth\\local\\signin\.astro$/,
-  /packages\\FUSOU-WEB\\src\\pages\\api\\local_auth\\signin\.ts$/,
-  /packages\\FUSOU-WEB\\src\\pages\\api\\local_auth\\callback\.ts$/,
-  /packages\\FUSOU-WEB\\src\\pages\\auth\\local\\callback\.astro$/,
-  /packages\\FUSOU-WEB\\src\\pages\\account\\conflict\.astro$/,
-  /packages\\FUSOU-WEB\\src\\server\\utils\.ts$/,
-  /packages\\FUSOU-WEB\\src\\server\\routes\\member-lookup\.ts$/,
-  /packages\\FUSOU-WEB\\src\\server\\routes\\user\.ts$/,
-  /packages\\FUSOU-WEB\\src\\server\\routes\\fleet\.ts$/,
-  /packages\\FUSOU-WEB\\src\\server\\routes\\data_loader\.ts$/,
-  /packages\\FUSOU-WEB\\src\\server\\utils\\supabase-rest\.ts$/,
-  /packages\\FUSOU-WEB\\src\\lib\\realtime-sync\.ts$/,
-  /packages\\FUSOU-WEB\\src\\components\\solid\\MemberIdSyncButton\.tsx$/,
-  /packages\\FUSOU-APP\\src-tauri\\src\\auth\\member_id_cache\.rs$/,
-  /packages\\FUSOU-APP\\src-tauri\\src\\auth\\auth_server\.rs$/,
-  /packages\\FUSOU-APP\\src-tauri\\src\\builder_setup\\single_instance\.rs$/,
-  /packages\\FUSOU-WEB\\src\\server\\app\.ts$/,
 ];
 
 function shouldIgnore(path) {
@@ -149,7 +150,7 @@ function findHits(path) {
 function main() {
   const jsonMode = process.argv.includes("--json");
 
-  const files = scanRoots.flatMap((d) => walk(d));
+  const files = [...new Set(scanRoots.flatMap((d) => walk(d)))];
   const allHits = [];
 
   for (const file of files) {
@@ -172,6 +173,8 @@ function main() {
     }))
     .filter((f) => f.hits.length > 0);
 
+  const allowListed = allHits.filter((f) => f.allowListed);
+
   const informational = allHits
     .map((f) => ({
       ...f,
@@ -182,7 +185,7 @@ function main() {
   const summary = {
     scannedFiles: files.length,
     filesWithHits: allHits.length,
-    allowListedFilesWithHits: allHits.length - actionable.length,
+    allowListedFilesWithHits: allowListed.length,
     actionableFiles: actionable.length,
     informationalFiles: informational.length,
   };
@@ -195,9 +198,10 @@ function main() {
         rel: f.rel,
         hitCount: f.hits.length,
       })),
-      allowListed: allHits
-        .filter((f) => f.allowListed)
-        .map((f) => ({ rel: f.rel, hitCount: f.hits.length })),
+      allowListed: allowListed.map((f) => ({
+        rel: f.rel,
+        hitCount: f.hits.length,
+      })),
     };
     console.log(JSON.stringify(payload, null, 2));
     process.exit(actionable.length === 0 ? 0 : 2);
@@ -213,7 +217,7 @@ function main() {
   console.log(`Informational files: ${summary.informationalFiles}`);
 
   if (actionable.length > 0) {
-    console.log("\nActionable hits (needs cleanup before P7):");
+    console.log("\nActionable hits (must be cleaned in v2-fixed mode):");
     for (const file of actionable) {
       console.log(`\n- ${file.rel}`);
       for (const hit of file.hits.slice(0, 10)) {
@@ -235,7 +239,7 @@ function main() {
     }
   }
 
-  console.log("\nNo actionable v1 references found outside allowlist.");
+  console.log("\nNo actionable legacy v1 references found outside allowlist.");
 }
 
 main();
