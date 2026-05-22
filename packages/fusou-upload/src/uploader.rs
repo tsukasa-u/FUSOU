@@ -111,7 +111,14 @@ impl Uploader {
             return "********".to_string();
         }
         let head: String = chars.iter().take(3).collect();
-        let tail: String = chars.iter().rev().take(2).collect::<Vec<_>>().into_iter().rev().collect();
+        let tail: String = chars
+            .iter()
+            .rev()
+            .take(2)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
         format!("{}****{}", head, tail)
     }
 
@@ -303,8 +310,8 @@ impl Uploader {
         }
 
         // Add X-Dataset-Token header if available.
-        // If no local token exists, attempt on-demand refresh via ensure_dataset_token_valid
-        // so that a freshly-started device can upload without waiting for background auth.
+        // Uploader path is intentionally read-only for auth state in v2 mode.
+        // It does not perform v1 anonymous-sync bootstrap or token refresh itself.
         let dataset_token_opt = if let Some(dataset_id) = Self::extract_dataset_id(&handshake_body)
         {
             let loaded = auth_manager
@@ -315,40 +322,33 @@ impl Uploader {
 
             match loaded {
                 Some(token) => {
-                    // Check expiry (1-day margin) and refresh if needed
+                    // Check expiry and only use non-expired local token.
+                    // Refresh is handled by the dedicated auth bootstrap pipeline.
+                    let now = chrono::Utc::now();
                     let one_day = chrono::Duration::days(1);
-                    if token.expires_at <= chrono::Utc::now() + one_day {
-                        tracing::info!("dataset_token expiring soon, refreshing before upload");
-                        match auth_manager.ensure_dataset_token_valid(dataset_id, Some(&token)).await {
-                            Ok(refreshed) => {
-                                let _ = auth_manager.save_dataset_token(&refreshed).await;
-                                Some(refreshed)
-                            }
-                            Err(e) => {
-                                tracing::warn!("failed to refresh dataset_token, using existing: {}", e);
-                                Some(token)
-                            }
-                        }
+                    if token.expires_at <= now {
+                        tracing::warn!(
+                            dataset_id = %Self::mask_identifier(dataset_id),
+                            "dataset_token is expired; skipping token header and waiting for auth bootstrap"
+                        );
+                        None
+                    } else if token.expires_at <= now + one_day {
+                        tracing::info!(
+                            dataset_id = %Self::mask_identifier(dataset_id),
+                            "dataset_token expiring soon; uploader will use existing token without inline refresh"
+                        );
+                        Some(token)
                     } else {
                         Some(token)
                     }
                 }
                 None => {
-                    // No token on disk/cache — try to obtain one on-demand
+                    // No token on disk/cache. Keep uploader auth side-effect free in v2 mode.
                     tracing::info!(
-                        "no dataset_token found for {}, attempting on-demand fetch",
+                        "no dataset_token found for {}; waiting for auth bootstrap",
                         Self::mask_identifier(dataset_id)
                     );
-                    match auth_manager.ensure_dataset_token_valid(dataset_id, None).await {
-                        Ok(fresh) => {
-                            let _ = auth_manager.save_dataset_token(&fresh).await;
-                            Some(fresh)
-                        }
-                        Err(e) => {
-                            tracing::warn!("on-demand dataset_token fetch failed: {}", e);
-                            None
-                        }
-                    }
+                    None
                 }
             }
         } else {

@@ -279,10 +279,6 @@ save_file_location = ""
     # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
     member_map_endpoint = "https://fusou.dev/api/user/member-map/upsert"
 
-    # Legacy v1 endpoint for anonymous authentication sync (deprecated)
-    # Used only when Rust feature `legacy-anonymous-sync-v1` is enabled.
-    anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
-
     # v2 anonymous-sync endpoints (pepper + Ed25519 device key)
     # Standard path for current builds.
     # On first launch, the client calls register to obtain device_id.

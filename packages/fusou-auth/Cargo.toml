@@ -24,4 +24,3 @@ base64 = "0.22"
 
 [features]
 default = []
-legacy-anonymous-sync-v1 = ["configs/legacy-anonymous-sync-v1"]

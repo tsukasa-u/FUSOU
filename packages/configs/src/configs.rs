@@ -764,8 +764,6 @@ pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
     member_map_endpoint: Option<String>,
-    #[cfg(feature = "legacy-anonymous-sync-v1")]
-    anonymous_sync_endpoint: Option<String>,
     anonymous_sync_v2_register_endpoint: Option<String>,
     anonymous_sync_v2_challenge_endpoint: Option<String>,
     anonymous_sync_v2_refresh_endpoint: Option<String>,
@@ -799,26 +797,6 @@ impl ConfigsAppAuth {
                 .member_map_endpoint
                 .as_ref()
                 .map(|s| s.trim().to_string()),
-        }
-    }
-
-    pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
-        #[cfg(feature = "legacy-anonymous-sync-v1")]
-        {
-            match &self.anonymous_sync_endpoint {
-                Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-                _ => get_default_configs()
-                    .app
-                    .auth
-                    .anonymous_sync_endpoint
-                    .as_ref()
-                    .map(|s| s.trim().to_string()),
-            }
-        }
-
-        #[cfg(not(feature = "legacy-anonymous-sync-v1"))]
-        {
-            None
         }
     }
 
@@ -1601,8 +1579,6 @@ mod tests {
             deny_auth: None,
             auth_page_url: None,
             member_map_endpoint: None,
-            #[cfg(feature = "legacy-anonymous-sync-v1")]
-            anonymous_sync_endpoint: None,
             anonymous_sync_v2_register_endpoint: None,
             anonymous_sync_v2_challenge_endpoint: None,
             anonymous_sync_v2_refresh_endpoint: None,

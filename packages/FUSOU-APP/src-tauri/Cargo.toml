@@ -75,7 +75,6 @@ default = []
 grpc-channel = ["proxy-https/grpc"]
 # Google Drive cloud storage integration (deprecated, will be removed in future version)
 gdrive = ["dep:google-drive3", "configs/gdrive"]
-legacy-anonymous-sync-v1 = ["fusou-auth/legacy-anonymous-sync-v1", "configs/legacy-anonymous-sync-v1"]
 
 [lib]
 name = "app_lib"
