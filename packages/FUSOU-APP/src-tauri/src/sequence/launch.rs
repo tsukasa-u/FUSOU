@@ -92,7 +92,14 @@ pub async fn launch_with_options(
                         tracing::info!("ca path: {ca_path}");
                         tracing::info!("pac path: {pac_path}");
 
-                        let file_prefix = util::get_user_member_id().await;
+                        let file_prefix = {
+                            let manager = auth_manager.lock().unwrap().clone();
+                            if let Some(dataset_id) = manager.resolve_dataset_id_for_upload(None).await {
+                                dataset_id
+                            } else {
+                                util::get_local_fallback_id().await
+                            }
+                        };
 
                         let addr = wrap_proxy::serve_proxy(
                             server_address.to_string(),

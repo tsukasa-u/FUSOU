@@ -443,6 +443,7 @@ impl<S: Storage> AuthManager<S> {
     /// Multi-device注意：既存のセッションがある場合は、新しい anonymous user_id を生成するのではなく
     /// 既存セッションを再利用します。これにより、複数端末で同じ user_id が維持され、
     /// dataset_token の帰属（user_id）が一貫性を保ちます。
+    #[cfg(feature = "legacy-anonymous-sync-v1")]
     pub async fn get_or_refresh_anonymous_session(
         &self,
         member_id_hash: &str,
@@ -553,10 +554,23 @@ impl<S: Storage> AuthManager<S> {
         Ok((session, response_data.dataset_token))
     }
 
+    #[cfg(not(feature = "legacy-anonymous-sync-v1"))]
+    pub async fn get_or_refresh_anonymous_session(
+        &self,
+        member_id_hash: &str,
+    ) -> Result<(Option<Session>, String), AuthError> {
+        let _ = member_id_hash;
+        Err(AuthError::Other(
+            "legacy anonymous-sync v1 is disabled by feature (enable `legacy-anonymous-sync-v1` to allow it)"
+                .to_string(),
+        ))
+    }
+
     /// dataset_tokenの有効期限をチェックし、必要なら更新
     /// 有効期限が1日以内の場合、自動更新する
     ///
     /// 新しいセッションが返された場合は自動的にストレージに保存する。
+    #[cfg(feature = "legacy-anonymous-sync-v1")]
     pub async fn ensure_dataset_token_valid(
         &self,
         member_id_hash: &str,
@@ -606,6 +620,20 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
+    #[cfg(not(feature = "legacy-anonymous-sync-v1"))]
+    pub async fn ensure_dataset_token_valid(
+        &self,
+        member_id_hash: &str,
+        current_token: Option<&crate::types::DatasetToken>,
+    ) -> Result<crate::types::DatasetToken, AuthError> {
+        let _ = member_id_hash;
+        let _ = current_token;
+        Err(AuthError::Other(
+            "legacy anonymous-sync v1 is disabled by feature (enable `legacy-anonymous-sync-v1` to allow it)"
+                .to_string(),
+        ))
+    }
+
     /// dataset_tokenを dataset_id 単位で保存する。
     pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
         let Some(dataset_id) = token.dataset_id.clone() else {
@@ -618,6 +646,20 @@ impl<S: Storage> AuthManager<S> {
 
         if let Err(e) = self.persist_dataset_token_store(&cache).await {
             tracing::warn!("Failed to persist dataset_token store: {}", e);
+        }
+
+        Ok(())
+    }
+
+    /// dataset_token ストアを全削除する。
+    ///
+    /// member_id 切替時など、旧 dataset_id のトークンを再利用したくない場面で使う。
+    pub async fn clear_dataset_tokens(&self) -> Result<(), AuthError> {
+        let mut cache = self.dataset_token_cache.lock().await;
+        cache.tokens.clear();
+
+        if let Err(e) = self.persist_dataset_token_store(&cache).await {
+            tracing::warn!("Failed to persist cleared dataset_token store: {}", e);
         }
 
         Ok(())
@@ -709,4 +751,362 @@ impl<S: Storage> AuthManager<S> {
 
         None
     }
+}
+
+// ============================================================
+// v2 anonymous-sync (pepper + Ed25519 device key)
+// ============================================================
+//
+// 旧 /anonymous-sync (v1) は salt をクライアントに埋め込んで member_id_hash を
+// 計算する設計だったが、salt 流出で任意の api_member_id から dataset_token を
+// 取得できる弱点があった。v2 では以下のように責務を再配置する:
+//   - サーバーは pepper (Wrangler secret) を保持し pid = HMAC(pepper, api_member_id) を
+//     内部で計算する。クライアントは生 api_member_id だけを TLS で送る。
+//   - クライアントは Ed25519 keypair を端末で生成・保管し、その公開鍵を register で
+//     登録する。以降の refresh/revoke は challenge nonce への署名で本人性を担保する。
+//
+// v1 と並走するため、本セクションのメソッドは新規追加のみで既存メソッドには
+// 触れない。クライアント側の切替は呼び出し元 (Tauri 層) で feature flag を見て
+// `ensure_dataset_token_valid` (v1) か `ensure_dataset_token_v2` (v2) を選ぶ想定。
+
+use crate::device_key::DeviceKey;
+
+/// /v2/register のレスポンス
+#[derive(Debug, Deserialize)]
+struct RegisterV2Response {
+    device_id: String,
+    pid: String,
+    dataset_token: String,
+}
+
+/// /v2/challenge のレスポンス
+#[derive(Debug, Deserialize)]
+struct ChallengeV2Response {
+    nonce: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    expires_at: Option<i64>,
+}
+
+/// /v2/refresh のレスポンス
+#[derive(Debug, Deserialize)]
+struct RefreshV2Response {
+    dataset_token: String,
+    pid: String,
+    /// 現行 pepper のバージョンタグ ("v1", "v2" ...)。
+    /// 直前の refresh と比較してローテーション検知に使う想定だが、
+    /// クライアントは旧値を保持していないので情報用ログ出力のみ。
+    #[serde(default)]
+    #[allow(dead_code)]
+    salt_version: Option<String>,
+}
+
+impl<S: Storage> AuthManager<S> {
+    /// /v2/register を呼んで device_id を取得し、dataset_token を返す。
+    /// 成功時は device_key.set_device_id() で確定値を書き戻す。
+    ///
+    /// 失敗時は device_key 側に値を書き込まないので、再試行できる。
+    pub async fn register_device_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        // attestation = Ed25519(secret, "register|" + api_member_id)
+        // サーバーは受け取った device_pub で同じメッセージを検証し、
+        // 公開鍵が秘密鍵と整合していることを確認する。
+        let attestation_message = format!("register|{}", api_member_id);
+        let attestation_b64 = device_key.sign_b64(attestation_message.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_register_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other(
+                    "anonymous_sync_v2_register_endpoint not configured".to_string(),
+                )
+            })?;
+
+        let body = serde_json::json!({
+            "api_member_id": api_member_id,
+            "device_pub": device_key.public_key_b64(),
+            "attestation": attestation_b64,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 register failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 register failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: RegisterV2Response = resp.json().await?;
+
+        // device_id を端末に確定書き込み。これ以降の refresh はこの値を使う。
+        device_key.set_device_id(parsed.device_id.clone()).await?;
+
+        tracing::info!(
+            device_id = %parsed.device_id,
+            "anonymous-sync v2 register completed"
+        );
+
+        Ok(DatasetToken {
+            token: parsed.dataset_token,
+            // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
+            // クライアント側は 1 日前に refresh するので大きな問題にはならない。
+            expires_at: Utc::now() + Duration::days(7),
+            dataset_id: Some(parsed.pid),
+        })
+    }
+
+    /// /v2/challenge を呼んで nonce を取得する。
+    /// nonce はサーバー側 HMAC で 5 分単位のバケットに紐づき、refresh / revoke の
+    /// メッセージ署名にそのまま使う。
+    async fn fetch_challenge_v2(
+        &self,
+        device_id: &str,
+    ) -> Result<ChallengeV2Response, AuthError> {
+        let base = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_challenge_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other(
+                    "anonymous_sync_v2_challenge_endpoint not configured".to_string(),
+                )
+            })?;
+
+        let resp = self
+            .client
+            .get(&base)
+            .query(&[("device_id", device_id)])
+            .header("apikey", &self.config.api_key)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 challenge failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 challenge failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: ChallengeV2Response = resp.json().await?;
+        Ok(parsed)
+    }
+
+    /// /v2/refresh を呼んで dataset_token を再発行する。
+    /// device_key.device_id() が確定済みであることが前提。未登録なら
+    /// 呼び出し元で先に register_device_v2 を呼ぶ。
+    pub async fn refresh_dataset_token_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &DeviceKey,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        let device_id = device_key.device_id().ok_or_else(|| {
+            AuthError::Other(
+                "refresh_dataset_token_v2 called before device is registered".to_string(),
+            )
+        })?;
+
+        let challenge = self.fetch_challenge_v2(device_id).await?;
+        // refresh メッセージ = nonce そのもの。サーバーは保存済み公開鍵で署名を検証する。
+        let sig_b64 = device_key.sign_b64(challenge.nonce.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_refresh_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other(
+                    "anonymous_sync_v2_refresh_endpoint not configured".to_string(),
+                )
+            })?;
+
+        let body = serde_json::json!({
+            "device_id": device_id,
+            "api_member_id": api_member_id,
+            "nonce": challenge.nonce,
+            "sig": sig_b64,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 refresh failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 refresh failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: RefreshV2Response = resp.json().await?;
+
+        if let Some(version) = parsed.salt_version.as_deref() {
+            tracing::debug!(
+                device_id = %device_id,
+                salt_version = %version,
+                "anonymous-sync v2 refresh: dataset_token issued"
+            );
+        }
+
+        Ok(DatasetToken {
+            token: parsed.dataset_token,
+            expires_at: Utc::now() + Duration::days(7),
+            dataset_id: Some(parsed.pid),
+        })
+    }
+
+    /// 別の自端末から target_device_id を失効させる。
+    /// 端末紛失時の自己復旧用エンドポイント。サーバーは「同じ canonical_user_id 配下に
+    /// 属する別の有効な device からの操作」だけを受理する。
+    pub async fn revoke_device_v2(
+        &self,
+        target_device_id: &str,
+        device_key: &DeviceKey,
+        reason: Option<&str>,
+    ) -> Result<(), AuthError> {
+        let device_id = device_key.device_id().ok_or_else(|| {
+            AuthError::Other("revoke_device_v2 called before device is registered".to_string())
+        })?;
+        if target_device_id.trim().is_empty() {
+            return Err(AuthError::Other(
+                "revoke_device_v2: target_device_id must be non-empty".to_string(),
+            ));
+        }
+
+        let challenge = self.fetch_challenge_v2(device_id).await?;
+        // revoke メッセージ = "revoke|" + from_device_id + "|" + target_device_id + "|" + nonce
+        let message = format!(
+            "revoke|{}|{}|{}",
+            device_id, target_device_id, challenge.nonce
+        );
+        let sig_b64 = device_key.sign_b64(message.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_revoke_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other(
+                    "anonymous_sync_v2_revoke_endpoint not configured".to_string(),
+                )
+            })?;
+
+        let body = serde_json::json!({
+            "device_id": device_id,
+            "target_device_id": target_device_id,
+            "nonce": challenge.nonce,
+            "sig": sig_b64,
+            "reason": reason,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 revoke failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 revoke failed: status {}",
+                status
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// v2 のメイン入口。
+    /// - device_key.device_id() が未確定なら register、確定済みなら challenge + refresh。
+    /// - 既存 dataset_token が有効期限 1 日以上残っていればそのまま返す (v1 と同方針)。
+    pub async fn ensure_dataset_token_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+        current_token: Option<&DatasetToken>,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        let needs_refresh = match current_token {
+            Some(token) => token.expires_at <= Utc::now() + Duration::days(1),
+            None => true,
+        };
+        if !needs_refresh {
+            return Ok(current_token
+                .expect("current_token is Some when needs_refresh is false")
+                .clone());
+        }
+
+        if device_key.device_id().is_none() {
+            tracing::info!("anonymous-sync v2: device not registered, calling /v2/register");
+            self.register_device_v2(api_member_id, device_key).await
+        } else {
+            tracing::info!("anonymous-sync v2: device already registered, calling /v2/refresh");
+            self.refresh_dataset_token_v2(api_member_id, device_key)
+                .await
+        }
+    }
+}
+
+/// api_member_id を厳格検証する。KC は 10 桁前後の整数を返すため、
+/// サーバー側バリデーション (`/^[0-9]{1,16}$/`) と同じ条件をクライアントでも適用する。
+fn validate_api_member_id(value: &str) -> Result<(), AuthError> {
+    if value.is_empty() {
+        return Err(AuthError::Other(
+            "api_member_id must be non-empty".to_string(),
+        ));
+    }
+    if value.len() > 16 || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(AuthError::Other(
+            "api_member_id must be 1..=16 ASCII digits".to_string(),
+        ));
+    }
+    Ok(())
 }

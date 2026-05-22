@@ -472,7 +472,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn sprite_crash_none_when_fly_unknown() {
         let (s1, s2) = calc_sprite_crash_stage_counts(None, 10, 30, 5, 20);
         assert_eq!(s1, None);
