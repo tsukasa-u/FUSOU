@@ -67,13 +67,19 @@ async function mockSimulatorData(page: Page): Promise<void> {
     });
   });
 
-  await page.route("**/api/asset-sync/ship-banner-map", async (route: Route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ base_url: "https://example.invalid", banners: {} }),
-    });
-  });
+  await page.route(
+    "**/api/asset-sync/ship-banner-map",
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          base_url: "https://example.invalid",
+          banners: {},
+        }),
+      });
+    },
+  );
 
   await page.route("**/api/asset-sync/ship-card-map", async (route: Route) => {
     await route.fulfill({
@@ -83,29 +89,51 @@ async function mockSimulatorData(page: Page): Promise<void> {
     });
   });
 
-  await page.route("**/api/asset-sync/equip-image-map", async (route: Route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        base_url: "https://example.invalid",
-        card: {},
-        item_up: {},
-      }),
-    });
-  });
+  await page.route(
+    "**/api/asset-sync/equip-image-map",
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          base_url: "https://example.invalid",
+          card: {},
+          item_up: {},
+        }),
+      });
+    },
+  );
 
-  await page.route("**/api/asset-sync/weapon-icon-frames", async (route: Route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ frames: {}, meta: { size: { w: 0, h: 0 } } }),
-    });
-  });
+  await page.route(
+    "**/api/asset-sync/weapon-icon-frames",
+    async (route: Route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ frames: {}, meta: { size: { w: 0, h: 0 } } }),
+      });
+    },
+  );
 
   await page.route("**/api/asset-sync/weapon-icons", async (route: Route) => {
     await route.fulfill({ status: 404, body: "" });
   });
+}
+
+async function waitForMasterDataReady(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const text =
+          (await page.locator("#data-status-text").textContent()) ?? "";
+        return text.includes("マスターデータ読込済み");
+      },
+      {
+        timeout: 30000,
+        message: "master data status should eventually become loaded",
+      },
+    )
+    .toBe(true);
 }
 
 test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
@@ -122,7 +150,9 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     }
   });
 
-  test("loads simulator shell and critical controls with mocked data", async ({ page }) => {
+  test("loads simulator shell and critical controls with mocked data", async ({
+    page,
+  }) => {
     await expect(
       page.getByRole("heading", { name: "編成シミュレータ", exact: true }),
     ).toBeVisible();
@@ -130,18 +160,17 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await expect(page.locator("#btn-display-settings")).toBeVisible();
     await expect(page.locator("#btn-share")).toBeVisible();
     await expect(page.locator("#btn-import")).toBeVisible();
-
-    await expect(page.locator("#data-status-text")).toContainText("マスターデータ読込済み");
+    await waitForMasterDataReady(page);
   });
 
   test("opens ship selection modal from first fleet slot", async ({ page }) => {
-    await expect(page.locator("#data-status-text")).toContainText(
-      "マスターデータ読込済み",
-    );
+    await waitForMasterDataReady(page);
 
-    const emptySlot = page.locator("#fleet-1-slots div.cursor-pointer", {
-      hasText: "艦を配置",
-    }).first();
+    const emptySlot = page
+      .locator("#fleet-1-slots div.cursor-pointer", {
+        hasText: "艦を配置",
+      })
+      .first();
 
     await expect(emptySlot).toBeVisible();
     await emptySlot.click({ force: true });
