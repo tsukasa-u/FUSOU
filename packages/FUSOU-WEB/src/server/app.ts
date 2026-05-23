@@ -205,14 +205,14 @@ app.route("/fleet", fleetApp); // fleetApp declares /snapshot, etc.
 app.route("/kc-period", kcApp); // kcApp declares /latest, etc.
 app.route("/compaction", compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route("/battle-data", battleDataApp); // battleDataApp declares /upload, /health
-app.route("/user", userApp); // userApp declares /member-map/upsert, /member-map
+app.route("/user", userApp); // userApp declares /member-map
 app.route("/admin", adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 app.route("/data-loader", dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 app.route("/master-data", masterDataApp); // masterDataApp declares /upload (Stage 1), /download-master (Stage 2+3)
 app.route("/master-data", synergyApp); // synergyApp declares /synergy-manifest, /synergy-manifest/*
 app.route("/ship-growth", shipGrowthApp); // shipGrowthApp declares /ingest
 app.route("/api-keys", apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
-app.route("/member-lookup", memberLookupApp); // memberLookupApp declares /check-hash, /verify-ownership
+app.route("/member-lookup", memberLookupApp); // memberLookupApp declares /check-hash
 app.route("/auth", anonymousSyncApp); // anonymousSyncApp declares legacy /anonymous-sync (deprecated and access denied)
 app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares /anonymous-sync/v2/{register,challenge,refresh,revoke}
 app.route("/shorten", shortenerApp); // shortener app declares POST /

@@ -31,8 +31,8 @@ try {
 }
 
 let memberMap: {
-  member_id_hash?: string;
-  user_id?: string;
+  linked?: boolean;
+  member_id_hash_masked?: string;
   source?: string;
 } | null = null;
 function providerInitial(provider?: string): string {
@@ -51,18 +51,15 @@ try {
 
   const memberMapData = (await memberMapResponse.json()) as {
     ok?: boolean;
+    linked?: boolean;
     map?: {
-      member_id_hash?: string;
-      user_id?: string;
+      linked?: boolean;
+      member_id_hash_masked?: string;
       source?: string;
     } | null;
     error?: string;
   };
-  if (
-    memberMapResponse.ok &&
-    memberMapData?.ok &&
-    memberMapData?.map?.member_id_hash
-  ) {
+  if (memberMapResponse.ok && memberMapData?.ok && memberMapData?.map?.linked) {
     memberMap = memberMapData.map;
   } else if (!memberMapResponse.ok) {
     console.error("Member ID Check Failed:", memberMapData);
@@ -207,7 +204,7 @@ if (!user) {
                 You must link your KanColle game account to create API keys.
               </p>
               <a
-                href="/account/conflict"
+                href="/auth/local/signin"
                 class="btn btn-sm btn-warning btn-outline"
               >
                 Link Account →

@@ -18,15 +18,9 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         };
 
         // Check if this is a Realtime-based member_id_hash sync request
-        // fusou://sync?token=xxx&return_url=yyy
+        // fusou://sync?token=xxx
         if url.scheme() == "fusou" && url.host_str() == Some("sync") {
             handle_realtime_member_id_sync(&url, app);
-            return;
-        }
-
-        // Check if this is a request for member_id_hash (legacy, for backward compatibility)
-        if url.scheme() == "fusou" && url.host_str() == Some("request-member-id") {
-            handle_member_id_request(&url, app);
             return;
         }
 
@@ -74,65 +68,7 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
     tracing::debug!("single instance arg: {:?}", argv.get(1));
 }
 
-/// Handle fusou://request-member-id?return_url=xxx
-/// This allows WEB page to request member_id_hash from the app via hidden iframe
-fn handle_member_id_request(url: &Url, app: &tauri::AppHandle) {
-    // Get return_url from query parameters
-    let return_url = url
-        .query_pairs()
-        .find(|(key, _)| key == "return_url")
-        .map(|(_, value)| value.to_string());
-
-    let Some(return_url) = return_url else {
-        tracing::warn!("request-member-id called without return_url parameter");
-        return;
-    };
-
-    if !is_allowed_return_url(&return_url) {
-        tracing::warn!("request-member-id called with untrusted return_url");
-        return;
-    }
-
-    // Resolve asynchronously so we can prefer AuthManager dataset_id (pid) without blocking.
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let member_id_hash = match resolve_member_id_hash_for_sync(&app_handle).await {
-            Ok(hash) => hash,
-            Err(e) => {
-                tracing::warn!("request-member-id could not resolve member_id_hash: {}", e);
-                let error_url = format!(
-                    "{}{}error=member_id_not_available",
-                    return_url,
-                    if return_url.contains('?') { "&" } else { "?" }
-                );
-                let _ = webbrowser::open(&error_url);
-                return;
-            }
-        };
-
-        // Save to cache for future use.
-        use crate::auth::member_id_cache::MemberIdCache;
-        if let Err(e) = MemberIdCache::save(&member_id_hash) {
-            tracing::warn!("Failed to cache member_id_hash: {}", e);
-        }
-
-        // Construct return URL with member_id_hash.
-        // The WEB page will receive this via URLSearchParams and process it with JavaScript.
-        let separator = if return_url.contains('?') { "&" } else { "?" };
-        let callback_url = format!(
-            "{}{}member_id_hash={}",
-            return_url, separator, member_id_hash
-        );
-
-        tracing::info!("Sending member_id_hash to browser (hash redacted)");
-
-        // This will cause the browser to navigate, updating the existing page.
-        // The WEB page JavaScript will read the parameter and continue the flow.
-        let _ = webbrowser::open(&callback_url);
-    });
-}
-
-/// Handle fusou://sync?token=xxx&return_url=yyy
+/// Handle fusou://sync?token=xxx
 ///
 /// Realtime-based member_id_hash sync handler
 ///
@@ -260,23 +196,6 @@ async fn handle_realtime_sync_async(
         .into())
 }
 
-fn is_allowed_return_url(return_url: &str) -> bool {
-    let return_parsed = match Url::parse(return_url) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-
-    let auth_page_url = configs::get_user_configs_for_app().auth.get_auth_page_url();
-    let auth_page_parsed = match Url::parse(auth_page_url.as_str()) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
-
-    return_parsed.scheme() == auth_page_parsed.scheme()
-        && return_parsed.host_str() == auth_page_parsed.host_str()
-        && return_parsed.port_or_known_default() == auth_page_parsed.port_or_known_default()
-}
-
 fn normalize_member_id_hash(value: &str) -> Option<String> {
     let normalized = value.trim().to_ascii_lowercase();
     if normalized.len() == 64
@@ -341,9 +260,7 @@ async fn send_supabase_update(
     });
 
     tracing::debug!(
-        "[Realtime Sync] Sending PATCH to {} with body: {}",
-        update_url,
-        update_body
+        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/member_id_hash redacted)"
     );
 
     let response = client

@@ -141,7 +141,7 @@ export async function syncMemberIdHashWithApp(
       };
     }
 
-    console.debug("[Realtime Sync v2] Sync record created with token:", syncToken);
+    console.debug("[Realtime Sync v2] Sync record created");
 
     // 2. Realtime channel subscription
     channel = getSupabase().channel(channelName, {
@@ -172,18 +172,13 @@ export async function syncMemberIdHashWithApp(
           filter: `token=eq.${syncToken}`,
         },
         (payload) => {
-          console.debug("[Realtime Sync v2] UPDATE received:", payload.new);
+          console.debug("[Realtime Sync v2] UPDATE received");
 
           const data = payload.new;
 
           // セキュリティ: token マッチング確認
           if (data.token !== syncToken) {
-            console.error(
-              "[Realtime Sync v2] Token mismatch! Expected:",
-              syncToken,
-              "Got:",
-              data.token
-            );
+            console.error("[Realtime Sync v2] Token mismatch");
             return;
           }
 
@@ -198,10 +193,7 @@ export async function syncMemberIdHashWithApp(
 
             resolved = true;
 
-            console.log(
-              "[Realtime Sync v2] Sync successful:",
-              data.member_id_hash.substring(0, 10) + "..."
-            );
+            console.log("[Realtime Sync v2] Sync successful");
 
             cleanup("sync_success").catch(console.error);
 
@@ -219,9 +211,7 @@ export async function syncMemberIdHashWithApp(
 
         if (status === "SUBSCRIBED") {
           // Launch Tauri app after successful channel subscription
-          const fusouUrl = `fusou://sync?token=${encodeURIComponent(
-            syncToken
-          )}&return_url=${encodeURIComponent(window.location.href)}`;
+          const fusouUrl = `fusou://sync?token=${encodeURIComponent(syncToken)}`;
 
           console.debug("[Realtime Sync v2] Launching Tauri app");
 

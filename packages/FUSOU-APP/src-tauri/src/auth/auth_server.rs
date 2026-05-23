@@ -26,42 +26,6 @@ pub fn open_auth_page() -> Result<(), String> {
     return result;
 }
 
-/// Open auth page with member_id_hash parameter for conflict detection
-pub fn open_auth_page_with_member_id(member_id_hash: &str) -> Result<(), String> {
-    if configs::get_user_configs_for_app().auth.get_deny_auth() {
-        return Err("User authentication is denied".into());
-    }
-
-    let normalized_member_id_hash = normalize_member_id_hash(member_id_hash)
-        .ok_or_else(|| "member_id_hash must be a 64-character hex string".to_string())?;
-
-    let mut auth_page_url = configs::get_user_configs_for_app().auth.get_auth_page_url();
-
-    // Append member_id_hash as query parameter
-    // Use simple URL encoding for hexadecimal string (no special chars expected)
-    if auth_page_url.contains('?') {
-        auth_page_url.push_str(&format!(
-            "&member_id_hash={}&app_origin=tauri",
-            normalized_member_id_hash
-        ));
-    } else {
-        auth_page_url.push_str(&format!(
-            "?member_id_hash={}&app_origin=tauri",
-            normalized_member_id_hash
-        ));
-    }
-
-    tracing::info!("Opening auth page with member_id_hash parameter");
-
-    // Save to cache for future use
-    if let Err(e) = MemberIdCache::save(&normalized_member_id_hash) {
-        tracing::warn!("Failed to cache member_id_hash: {}", e);
-    }
-
-    let result = webbrowser::open(&auth_page_url).map_err(|e| e.to_string());
-    return result;
-}
-
 /// Get member_id_hash from game or cache, with priority given to live game data.
 /// Game data is the authoritative source; cache is used as fallback when the game is not running.
 pub fn get_member_id_hash_with_cache() -> Result<String, String> {
@@ -77,11 +41,7 @@ pub fn get_member_id_hash_with_cache() -> Result<String, String> {
             if let Some(cached) = MemberIdCache::load() {
                 if let Some(cached_hash) = normalize_member_id_hash(&cached.member_id_hash) {
                     if cached_hash != game_member_id_hash {
-                        tracing::warn!(
-                            "member_id_hash changed! Old: {}..., New: {}...",
-                            &cached_hash[..cached_hash.len().min(10)],
-                            &game_member_id_hash[..game_member_id_hash.len().min(10)]
-                        );
+                        tracing::warn!("member_id_hash changed; updating cached value");
                         tracing::warn!(
                             "Game account may have changed - clearing old cache and using new value"
                         );
@@ -128,11 +88,4 @@ pub fn get_member_id_hash_with_cache() -> Result<String, String> {
         "member_id_hash not available; launch the game with legacy hash support or complete anonymous v2 auth first"
             .into(),
     )
-}
-
-/// Open auth page, automatically reading current `member_id_hash` from game or cache.
-/// Prefer this helper to ensure the auth page always receives context.
-pub fn open_auth_page_with_current_member_id() -> Result<(), String> {
-    let member_id_hash = get_member_id_hash_with_cache()?;
-    open_auth_page_with_member_id(&member_id_hash)
 }

@@ -12,31 +12,19 @@ import {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+function maskMemberIdHash(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length <= 10) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 6)}...${normalized.slice(-4)}`;
+}
+
 // OPTIONS（CORS）
 app.options(
   "*",
   (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
 );
-
-/**
- * POST /user/member-map/upsert
- *
- * DEPRECATED: Social authentication is no longer supported.
- * This endpoint is disabled to maintain anonymous-only architecture.
- *
- * All users are authenticated via anonymous sessions.
- * Member ID linkage is maintained only in user_member_map (canonical owner).
- */
-app.post("/member-map/upsert", async (c) => {
-  return c.json(
-    {
-      error: "FEATURE_DISABLED",
-      message:
-        "Social authentication is no longer supported. Please use anonymous sign-in.",
-    },
-    410, // 410 Gone
-  );
-});
 
 /**
  * GET /user/member-map
@@ -93,13 +81,16 @@ app.get("/member-map", async (c) => {
       userId: currentUserId,
       jwtPayload: supabaseUser.payload,
     });
+    const memberIdHash = resolved.memberIdHash;
+    const linked = Boolean(memberIdHash);
 
     return c.json({
       ok: true,
-      map: resolved.memberIdHash
+      linked,
+      map: memberIdHash
         ? {
-            member_id_hash: resolved.memberIdHash,
-            user_id: currentUserId,
+            linked: true,
+            member_id_hash_masked: maskMemberIdHash(memberIdHash),
             source: resolved.source,
           }
         : null,

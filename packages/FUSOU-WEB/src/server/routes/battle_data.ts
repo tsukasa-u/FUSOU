@@ -803,7 +803,6 @@ app.post("/upload", async (c) => {
       return {
         response: {
           ok: true,
-          dataset_id: datasetId,
           table,
           period_tag: periodTag,
         },
@@ -847,7 +846,6 @@ app.get("/chunks", async (c) => {
     const tableVersion = c.req.query("table_version");
     let sql = `SELECT 
            bi.id AS id,
-           bi.dataset_id,
            bi.table_name AS table_name,
            bi.length AS size,
            bi.table_version,
@@ -892,7 +890,6 @@ app.get("/chunks", async (c) => {
     const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
-      dataset_id: r.dataset_id,
       table: r.table_name,
       table_version: r.table_version,
       size: r.size,
@@ -907,7 +904,6 @@ app.get("/chunks", async (c) => {
     return c.json({
       chunks,
       count: chunks.length,
-      dataset_id: datasetId,
       table,
     });
   } catch (err) {
@@ -941,7 +937,6 @@ app.get("/latest", async (c) => {
     const tableVersion = c.req.query("table_version");
     let latestSql = `SELECT 
          bi.id,
-         bi.dataset_id,
          bi.table_name AS table_name,
          bi.length AS size,
          bi.table_version,
@@ -969,7 +964,6 @@ app.get("/latest", async (c) => {
     const latest = {
       id: row.id,
       file_path: row.file_path,
-      dataset_id: row.dataset_id,
       table: row.table_name,
       table_version: row.table_version,
       size: row.size,
@@ -1025,7 +1019,6 @@ app.get("/global/chunks", async (c) => {
     const tableVersion = c.req.query("table_version");
     let sql = `SELECT 
            bi.id,
-           bi.dataset_id,
            bi.table_name AS table_name,
            bi.length AS size,
            bi.table_version,
@@ -1068,7 +1061,6 @@ app.get("/global/chunks", async (c) => {
     const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
-      dataset_id: r.dataset_id,
       table: r.table_name,
       table_version: r.table_version,
       size: r.size,
@@ -1479,7 +1471,6 @@ app.get("/global/latest", async (c) => {
     const tableVersion = c.req.query("table_version");
     let globalLatestSql = `SELECT 
          bi.id,
-         bi.dataset_id,
          bi.table_name AS table_name,
          bi.length AS size,
          bi.table_version,
@@ -1506,7 +1497,6 @@ app.get("/global/latest", async (c) => {
     const latest = {
       id: row.id,
       file_path: row.file_path,
-      dataset_id: row.dataset_id,
       table: row.table_name,
       table_version: row.table_version,
       size: row.size,
