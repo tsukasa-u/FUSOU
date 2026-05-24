@@ -198,12 +198,7 @@ async fn handle_realtime_sync_async(
 
 fn normalize_member_id_hash(value: &str) -> Option<String> {
     let normalized = value.trim().to_ascii_lowercase();
-    if normalized.len() == 64
-        && normalized
-            .as_bytes()
-            .iter()
-            .all(|b| b.is_ascii_hexdigit())
-    {
+    if normalized.len() == 64 && normalized.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
         Some(normalized)
     } else {
         None

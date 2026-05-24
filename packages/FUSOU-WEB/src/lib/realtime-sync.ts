@@ -9,7 +9,11 @@
  * - RLS token verification
  */
 
-import { createClient, RealtimeChannel, SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient,
+  RealtimeChannel,
+  SupabaseClient,
+} from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
 import { getRequiredClientEnv } from "@/utility/clientEnv";
 
@@ -20,10 +24,10 @@ function getSupabase(): SupabaseClient {
   if (_supabase) {
     return _supabase;
   }
-  
+
   const supabaseUrl = getRequiredClientEnv("PUBLIC_SUPABASE_URL");
   const supabaseKey = getRequiredClientEnv("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
-  
+
   _supabase = createClient(supabaseUrl, supabaseKey);
   return _supabase;
 }
@@ -88,7 +92,7 @@ const activeSessions = new Map<string, ActiveSyncSession>();
  * @returns Sync result
  */
 export async function syncMemberIdHashWithApp(
-  timeoutMs: number = 5000
+  timeoutMs: number = 5000,
 ): Promise<MemberIdSyncResult> {
   const syncToken = uuidv4();
   const channelName = `member-id-sync-${syncToken}`;
@@ -131,7 +135,7 @@ export async function syncMemberIdHashWithApp(
     if (insertError) {
       console.error(
         "[Realtime Sync v2] Failed to create sync record:",
-        insertError
+        insertError,
       );
       return {
         success: false,
@@ -186,7 +190,7 @@ export async function syncMemberIdHashWithApp(
           if (data.member_id_hash && data.synced_at) {
             if (resolved) {
               console.warn(
-                "[Realtime Sync v2] Already resolved, ignoring duplicate"
+                "[Realtime Sync v2] Already resolved, ignoring duplicate",
               );
               return;
             }
@@ -202,7 +206,7 @@ export async function syncMemberIdHashWithApp(
               memberIdHash: data.member_id_hash,
             });
           }
-        }
+        },
       );
 
       // Start channel subscription
@@ -262,8 +266,7 @@ export async function syncMemberIdHashWithApp(
     resolved = true;
     await cleanup("exception");
 
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[Realtime Sync v2] Unexpected error:", errorMessage);
 
     return {
@@ -281,7 +284,7 @@ export async function syncMemberIdHashWithApp(
  */
 export async function cleanupAllRealtimeSessions(): Promise<void> {
   console.log(
-    `[Realtime Sync v2] Cleaning up ${activeSessions.size} session(s)`
+    `[Realtime Sync v2] Cleaning up ${activeSessions.size} session(s)`,
   );
 
   for (const [token, session] of activeSessions.entries()) {
@@ -299,7 +302,7 @@ export async function cleanupAllRealtimeSessions(): Promise<void> {
         console.error(
           "[Realtime Sync v2] Cleanup error for token",
           token.substring(0, 8),
-          error
+          error,
         );
       }
     }

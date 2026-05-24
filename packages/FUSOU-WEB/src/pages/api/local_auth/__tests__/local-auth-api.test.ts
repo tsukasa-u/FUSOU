@@ -159,7 +159,9 @@ describe("local_auth API handlers", () => {
     const res = await signInPost({ request, cookies, redirect } as any);
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("https://example.com/oauth/google");
+    expect(res.headers.get("location")).toBe(
+      "https://example.com/oauth/google",
+    );
     expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
     expect(cookies.set).toHaveBeenCalledWith(
       "sb-local-provider",
@@ -227,7 +229,9 @@ describe("local_auth API handlers", () => {
     } as any);
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("location")).toBe("https://fusou.dev/auth/local/signin");
+    expect(res.headers.get("location")).toBe(
+      "https://fusou.dev/auth/local/signin",
+    );
   });
 
   it("GET /api/local_auth/app-redirect rejects invalid redirect target", async () => {
