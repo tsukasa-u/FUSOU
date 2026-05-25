@@ -89,8 +89,12 @@ const checks = [
 ];
 
 const allowByPath = [
-  /packages\\FUSOU-WEB\\src\\server\\routes\\anonymous-sync\.ts$/,
+  /packages\/FUSOU-WEB\/src\/server\/routes\/anonymous-sync\.ts$/,
 ];
+
+function normalizePathForMatch(path) {
+  return path.replaceAll("\\", "/");
+}
 
 function shouldIgnore(path) {
   return ignorePathPart.some((part) => path.includes(part));
@@ -120,7 +124,8 @@ function lineNumberFromIndex(text, index) {
 }
 
 function isAllowListed(absPath) {
-  return allowByPath.some((re) => re.test(absPath));
+  const normalizedPath = normalizePathForMatch(absPath);
+  return allowByPath.some((re) => re.test(normalizedPath));
 }
 
 function findHits(path) {
