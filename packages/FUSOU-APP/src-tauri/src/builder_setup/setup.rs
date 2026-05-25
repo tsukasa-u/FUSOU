@@ -3,10 +3,12 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
 };
-use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
@@ -19,12 +21,18 @@ use crate::{
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    }, notify, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth}, window::{app, external}
+    },
+    cmd::{native_cmd, tauri_cmd},
+    integration::discord,
+    notify, scheduler,
+    storage::integrate,
+    util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth},
+    window::{app, external},
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
-use fusou_upload::{PendingStore, UploadRetryService};
 use fusou_auth::{AuthManager, FileStorage};
+use fusou_upload::{PendingStore, UploadRetryService};
 use std::sync::Arc;
 
 #[cfg(any(not(dev), check_release))]
@@ -158,12 +166,9 @@ fn setup_tray(
     let launch_at_startup = if autostart_allowed {
         let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
         Some(
-            CheckMenuItemBuilder::with_id(
-                "toggle-autostart".to_string(),
-                "Launch at Startup",
-            )
-            .checked(autostart_enabled)
-            .build(app)?,
+            CheckMenuItemBuilder::with_id("toggle-autostart".to_string(), "Launch at Startup")
+                .checked(autostart_enabled)
+                .build(app)?,
         )
     } else {
         None
@@ -186,8 +191,7 @@ fn setup_tray(
 
     #[cfg(dev)]
     let open_auth_page_menu =
-        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page")
-            .build(app)?;
+        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page").build(app)?;
 
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
@@ -196,9 +200,7 @@ fn setup_tray(
         .item(&delete_registry);
 
     #[cfg(dev)]
-    let danger_ope_sub_menu = danger_ope_sub_menu
-        .separator()
-        .item(&open_debug_window);
+    let danger_ope_sub_menu = danger_ope_sub_menu.separator().item(&open_debug_window);
 
     let danger_ope_sub_menu = danger_ope_sub_menu.build()?;
 
@@ -458,15 +460,29 @@ fn setup_tray(
                         let auth_manager_clone = auth_manager.inner().clone();
 
                         tauri::async_runtime::spawn(async move {
-                            if !manager.is_authenticated().await {
-                                tracing::warn!("Snapshot sync requires authentication; trying background anonymous auth instead of opening browser.");
+                            let mut has_dataset_token =
+                                manager.resolve_dataset_id_for_upload(None).await.is_some();
+
+                            if !has_dataset_token {
+                                tracing::warn!("Snapshot sync requires dataset token; trying background anonymous auth instead of opening browser.");
                                 try_anonymous_auth(&app_handle_clone).await;
 
-                                if !manager.is_authenticated().await {
+                                let refreshed_manager = {
+                                    auth_manager_clone
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .clone()
+                                };
+                                has_dataset_token = refreshed_manager
+                                    .resolve_dataset_id_for_upload(None)
+                                    .await
+                                    .is_some();
+
+                                if !has_dataset_token {
                                     notify::show(
                                         &app_handle_clone,
                                         "Snapshot Sync Skipped",
-                                        "Session not available. Background anonymous sign-in did not succeed."
+                                        "Dataset token not available. Background anonymous sign-in did not succeed."
                                     );
                                     return;
                                 }
@@ -782,7 +798,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         setup_discord()?;
     }
     notify_startup(app);
-    
+
     let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
     let retry_service = app.state::<Arc<UploadRetryService>>().inner().clone();
     scheduler::integrate_file::start_scheduler(pending_store, retry_service);
