@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -51,6 +52,32 @@ function runInherit(command, args, options = {}) {
   }
 }
 
+function canRun(command, args = []) {
+  const result = spawnSync(command, args, {
+    stdio: "ignore",
+    shell: false,
+  });
+  return !result.error && result.status === 0;
+}
+
+function resolveCargoCommand() {
+  const homeCandidate = resolve(
+    homedir(),
+    ".cargo",
+    "bin",
+    process.platform === "win32" ? "cargo.exe" : "cargo",
+  );
+
+  const candidates = ["cargo", homeCandidate];
+  for (const candidate of candidates) {
+    if (canRun(candidate, ["--version"])) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function detectVersions() {
   const cargoTomlPath = resolve(KC_API_DB_CRATE, "Cargo.toml");
   if (!existsSync(cargoTomlPath)) {
@@ -73,7 +100,7 @@ function detectVersions() {
   return versions;
 }
 
-function generateSchema(version, binName, outputPath) {
+function generateSchema(cargoCommand, version, binName, outputPath) {
   const args = [
     "run",
     "--bin",
@@ -82,7 +109,7 @@ function generateSchema(version, binName, outputPath) {
     "--features",
     `schema_${version},full`,
   ];
-  const result = runCapture("cargo", args, { cwd: KC_API_DB_CRATE });
+  const result = runCapture(cargoCommand, args, { cwd: KC_API_DB_CRATE });
 
   if (result.error || result.status !== 0) {
     if (existsSync(outputPath)) {
@@ -124,10 +151,14 @@ function generateFingerprints(schemaFiles) {
 }
 
 function main() {
-  const cargoCheck = runCapture("cargo", ["--version"]);
-  if (cargoCheck.error || cargoCheck.status !== 0) {
-    fail("cargo is required but was not found in PATH");
+  const cargoCommand = resolveCargoCommand();
+  if (!cargoCommand) {
+    fail(
+      "cargo is required but was not found. Run 'pnpm run setup:rust-env' first.",
+    );
   }
+
+  console.log(`Using cargo: ${cargoCommand}`);
 
   mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -144,7 +175,12 @@ function main() {
     );
 
     console.log(`Generating schema_${version}.json...`);
-    const schemaOk = generateSchema(version, "print_schema", schemaPath);
+    const schemaOk = generateSchema(
+      cargoCommand,
+      version,
+      "print_schema",
+      schemaPath,
+    );
     if (schemaOk) {
       generatedSchemaFiles.push(schemaPath);
       console.log(`  OK ${schemaPath}`);
@@ -154,6 +190,7 @@ function main() {
 
     console.log(`Generating master_schema_${version}.json...`);
     const masterOk = generateSchema(
+      cargoCommand,
       version,
       "print_master_schema",
       masterSchemaPath,
@@ -173,7 +210,7 @@ function main() {
 
   // Ensure these tests still run in the same workflow step as before.
   runInherit(
-    "cargo",
+    cargoCommand,
     [
       "test",
       "--manifest-path",
@@ -188,7 +225,7 @@ function main() {
   );
 
   runInherit(
-    "cargo",
+    cargoCommand,
     [
       "test",
       "--manifest-path",

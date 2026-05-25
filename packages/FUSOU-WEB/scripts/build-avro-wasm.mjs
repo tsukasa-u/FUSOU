@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
@@ -34,6 +35,24 @@ function canRun(command, args = []) {
   return !result.error && result.status === 0;
 }
 
+function resolveCargoCommand() {
+  const homeCandidate = resolve(
+    homedir(),
+    ".cargo",
+    "bin",
+    process.platform === "win32" ? "cargo.exe" : "cargo",
+  );
+
+  const candidates = ["cargo", homeCandidate];
+  for (const candidate of candidates) {
+    if (canRun(candidate, ["--version"])) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function detectVersions() {
   const cargoTomlPath = resolve(AVRO_WASM_DIR, "Cargo.toml");
   if (!existsSync(cargoTomlPath)) {
@@ -58,6 +77,12 @@ function detectVersions() {
 
 function resolveWasmPackCommand() {
   const binName = process.platform === "win32" ? "wasm-pack.cmd" : "wasm-pack";
+  const homeCandidate = resolve(
+    homedir(),
+    ".cargo",
+    "bin",
+    process.platform === "win32" ? "wasm-pack.exe" : "wasm-pack",
+  );
   const localCandidate = resolve(AVRO_WASM_DIR, "node_modules/.bin", binName);
   const workspaceCandidate = resolve(
     AVRO_WASM_DIR,
@@ -65,35 +90,32 @@ function resolveWasmPackCommand() {
     binName,
   );
 
-  const candidates = [localCandidate, workspaceCandidate, "wasm-pack"];
+  const candidates = [
+    "wasm-pack",
+    homeCandidate,
+    localCandidate,
+    workspaceCandidate,
+  ];
   for (const candidate of candidates) {
     if (typeof candidate === "string" && canRun(candidate, ["--version"])) {
       return candidate;
     }
   }
 
-  console.log("wasm-pack not found. Installing via cargo...");
-  run("cargo", ["install", "wasm-pack", "--locked", "--force"]);
-
-  if (canRun("wasm-pack", ["--version"])) {
-    return "wasm-pack";
-  }
-  if (canRun(localCandidate, ["--version"])) {
-    return localCandidate;
-  }
-  if (canRun(workspaceCandidate, ["--version"])) {
-    return workspaceCandidate;
-  }
-
-  fail("wasm-pack installation failed or wasm-pack is not executable");
+  return null;
 }
 
 function main() {
   const requestedVersion = process.argv[2] || "all";
 
-  if (!canRun("cargo", ["--version"])) {
-    fail("cargo is required but was not found in PATH");
+  const cargoCommand = resolveCargoCommand();
+  if (!cargoCommand) {
+    fail(
+      "cargo is required but was not found. Run 'pnpm run setup:rust-env' first.",
+    );
   }
+
+  console.log(`Using cargo: ${cargoCommand}`);
 
   const versions = detectVersions();
   console.log(`Detected schema versions: ${versions.join(" ")}`);
@@ -109,6 +131,12 @@ function main() {
   }
 
   const wasmPack = resolveWasmPackCommand();
+  if (!wasmPack) {
+    fail(
+      "wasm-pack is required but was not found. Run 'pnpm run setup:rust-env' first.",
+    );
+  }
+
   console.log(`Building avro-wasm with features: ${feature}`);
 
   run(
