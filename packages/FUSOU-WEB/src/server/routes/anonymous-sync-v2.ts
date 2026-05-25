@@ -338,6 +338,27 @@ function isSchemaObjectMissingError(error: unknown): boolean {
   return /does not exist/i.test(message);
 }
 
+export function isSupabaseUserNotFoundError(error: unknown): boolean {
+  const err = error as {
+    status?: unknown;
+    code?: unknown;
+    message?: unknown;
+  } | null;
+
+  if (typeof err?.status === "number" && err.status === 404) {
+    return true;
+  }
+
+  const code = typeof err?.code === "string" ? err.code.toLowerCase() : "";
+  if (code === "user_not_found" || code === "not_found") {
+    return true;
+  }
+
+  const message =
+    typeof err?.message === "string" ? err.message.toLowerCase() : "";
+  return message.includes("user") && message.includes("not found");
+}
+
 async function consumeDeviceNonce(options: {
   supabaseAdmin: any;
   deviceId: string;
@@ -703,6 +724,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     let canonicalUserId: string | null =
       mapping?.user_id ?? anchor?.canonical_user_id ?? null;
+    let missingCanonicalUserIdForRelink: string | null = null;
 
     if (mapping && anchor && mapping.user_id !== anchor.canonical_user_id) {
       console.warn(
@@ -715,28 +737,55 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       );
     }
 
-    // canonical user が削除されていれば新規化する (recreated 相当)
+    // canonical user が削除されていれば新規化する (recreated 相当)。
+    // getUserById の一時障害ではデータ破壊を避けるため再生成せず、そのまま継続する。
     if (canonicalUserId) {
       try {
         const { data: existingUser, error: existingUserError } =
           await supabaseAdmin.auth.admin.getUserById(canonicalUserId);
-        if (existingUserError || !existingUser?.user) {
+        if (existingUserError) {
+          if (!isSupabaseUserNotFoundError(existingUserError)) {
+            console.warn(
+              "[anonymous-sync-v2/register] getUserById failed with transient error; keeping canonical mapping",
+              {
+                pid: maskPid(pid),
+                canonical_user_id: canonicalUserId,
+                error: existingUserError,
+              },
+            );
+          } else {
+            missingCanonicalUserIdForRelink = canonicalUserId;
+            console.warn(
+              "[anonymous-sync-v2/register] mapped user missing, will recreate",
+              {
+                pid: maskPid(pid),
+                missing_user_id: canonicalUserId,
+                error: existingUserError?.message,
+              },
+            );
+            canonicalUserId = null;
+          }
+        } else if (!existingUser?.user) {
+          missingCanonicalUserIdForRelink = canonicalUserId;
           console.warn(
             "[anonymous-sync-v2/register] mapped user missing, will recreate",
             {
               pid: maskPid(pid),
               missing_user_id: canonicalUserId,
-              error: existingUserError?.message,
+              error: "user_not_found",
             },
           );
           canonicalUserId = null;
         }
       } catch (err) {
         console.warn(
-          "[anonymous-sync-v2/register] getUserById failed; will recreate",
-          err,
+          "[anonymous-sync-v2/register] getUserById threw; keeping canonical mapping",
+          {
+            pid: maskPid(pid),
+            canonical_user_id: canonicalUserId,
+            error: err,
+          },
         );
-        canonicalUserId = null;
       }
     }
 
@@ -932,6 +981,48 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         "[anonymous-sync-v2/register] canonical user resolution failed",
       );
       return c.json({ error: "Failed to create mapping" }, 500);
+    }
+
+    if (
+      missingCanonicalUserIdForRelink &&
+      missingCanonicalUserIdForRelink !== canonicalUserId &&
+      acceptedPids.length > 0
+    ) {
+      const acceptedPidFilter = acceptedPids.join(",");
+      const { error: relinkError } = await supabaseAdmin
+        .from("member_id_hash_rotations")
+        .update({ canonical_user_id: canonicalUserId })
+        .eq("canonical_user_id", missingCanonicalUserIdForRelink)
+        .or(
+          `pid_from.in.(${acceptedPidFilter}),pid_to.in.(${acceptedPidFilter})`,
+        );
+
+      if (relinkError) {
+        if (isSchemaObjectMissingError(relinkError)) {
+          console.warn(
+            "[anonymous-sync-v2/register] member_id_hash_rotations unavailable; skipping continuity relink",
+          );
+        } else {
+          console.warn(
+            "[anonymous-sync-v2/register] member_id_hash_rotations continuity relink failed",
+            {
+              old_canonical_user_id: missingCanonicalUserIdForRelink,
+              new_canonical_user_id: canonicalUserId,
+              code: (relinkError as { code?: unknown }).code,
+              message: (relinkError as { message?: unknown }).message,
+            },
+          );
+        }
+      } else {
+        console.log(
+          "[anonymous-sync-v2/register] relinked member_id_hash_rotations to recreated canonical user",
+          {
+            old_canonical_user_id: missingCanonicalUserIdForRelink,
+            new_canonical_user_id: canonicalUserId,
+            accepted_pid_count: acceptedPids.length,
+          },
+        );
+      }
     }
 
     if (recoveryConfig && ridCurrent) {
