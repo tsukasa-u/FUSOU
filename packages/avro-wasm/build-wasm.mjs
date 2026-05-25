@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -106,6 +106,27 @@ function resolveWasmPackCommand() {
   return null;
 }
 
+function buildWasmPackEnv(cargoCommand) {
+  const env = {
+    ...process.env,
+    CARGO: cargoCommand,
+  };
+
+  if (/[\\/]/.test(cargoCommand)) {
+    const cargoBinDir = dirname(cargoCommand);
+    const currentPath = process.env.PATH ?? "";
+    const pathEntries = currentPath.split(delimiter).filter(Boolean);
+
+    if (!pathEntries.includes(cargoBinDir)) {
+      env.PATH = currentPath
+        ? `${cargoBinDir}${delimiter}${currentPath}`
+        : cargoBinDir;
+    }
+  }
+
+  return env;
+}
+
 function main() {
   const requestedVersion = process.argv[2] || "all";
 
@@ -151,7 +172,10 @@ function main() {
       "--features",
       feature,
     ],
-    { cwd: AVRO_WASM_DIR },
+    {
+      cwd: AVRO_WASM_DIR,
+      env: buildWasmPackEnv(cargoCommand),
+    },
   );
 
   const outputJs = resolve(AVRO_WASM_DIR, "pkg/avro_wasm.js");
