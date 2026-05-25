@@ -42,6 +42,7 @@
     "upload:synergy:prod": "node scripts/upload-synergy.mjs --env production",
     "audit:anon-sync-v1": "node scripts/audit-anon-sync-v1-usage.mjs",
     "audit:anon-sync-v1:json": "node scripts/audit-anon-sync-v1-usage.mjs --json",
+    "check:cloudflare:required-secrets": "node scripts/check-cloudflare-required-secrets.mjs",
     "manage-anon-sync-vault": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-anon-sync-vault.js"
   },
   "dependencies": {
