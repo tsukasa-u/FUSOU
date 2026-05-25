@@ -239,7 +239,8 @@ export function injectEnv(_locals?: unknown): Bindings {
     SHIP_GROWTH_SIGNING_SECRET: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
     REMODEL_DATA_SIGNING_SECRET: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
-    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
+    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
+    CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
@@ -425,7 +426,10 @@ export async function validateJWT(token: string): Promise<{
 }
 
 function isValidMemberIdHash(value: unknown): value is string {
-  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value.trim());
+  return (
+    typeof value === "string" &&
+    /^[a-f0-9]{64}$/.test(value.trim().toLowerCase())
+  );
 }
 
 export function extractMemberIdHashFromJwtPayload(
@@ -439,7 +443,7 @@ export function extractMemberIdHashFromJwtPayload(
 
   for (const candidate of candidates) {
     if (isValidMemberIdHash(candidate)) {
-      return candidate.trim();
+      return candidate.trim().toLowerCase();
     }
   }
 
@@ -457,15 +461,14 @@ export async function resolveLinkedMemberIdHashForUser(options: {
   const { supabaseAdmin, userId, jwtPayload } = options;
 
   const fromJwtMetadata = extractMemberIdHashFromJwtPayload(jwtPayload);
-  if (fromJwtMetadata) {
-    return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
-  }
-
   if (!userId) {
+    if (fromJwtMetadata) {
+      return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
+    }
     return { memberIdHash: null, source: null };
   }
 
-  // Anonymous-only mode: lookup member ID in canonical owner mapping only
+  // Canonical owner mapping is the source of truth for user->dataset binding.
   const { data: canonicalMapping, error: canonicalMappingError } =
     await supabaseAdmin
       .from("user_member_map")
@@ -477,11 +480,38 @@ export async function resolveLinkedMemberIdHashForUser(options: {
     throw canonicalMappingError;
   }
 
-  if (isValidMemberIdHash(canonicalMapping?.member_id_hash)) {
-    return {
-      memberIdHash: canonicalMapping.member_id_hash.trim(),
-      source: "canonical_owner",
-    };
+  const fromCanonicalOwner = isValidMemberIdHash(
+    canonicalMapping?.member_id_hash,
+  )
+    ? canonicalMapping.member_id_hash.trim().toLowerCase()
+    : null;
+
+  if (fromJwtMetadata) {
+    if (!fromCanonicalOwner) {
+      console.warn(
+        "resolveLinkedMemberIdHashForUser: ignoring unverified JWT member_id_hash (no canonical mapping)",
+        {
+          user_id: userId,
+        },
+      );
+      return { memberIdHash: null, source: null };
+    }
+
+    if (fromJwtMetadata !== fromCanonicalOwner) {
+      console.warn(
+        "resolveLinkedMemberIdHashForUser: JWT member_id_hash mismatch; falling back to canonical mapping",
+        {
+          user_id: userId,
+        },
+      );
+      return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
+    }
+
+    return { memberIdHash: fromCanonicalOwner, source: "jwt_metadata" };
+  }
+
+  if (fromCanonicalOwner) {
+    return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
   }
 
   return { memberIdHash: null, source: null };

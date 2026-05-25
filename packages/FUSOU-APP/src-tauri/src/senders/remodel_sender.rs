@@ -111,9 +111,10 @@ impl RemodelSender {
     async fn resolve_dataset_id(&self) -> Option<String> {
         let mut attempts = 0;
         while attempts < 15 {
-            let dataset_id = crate::util::get_user_member_id().await;
-            if !dataset_id.trim().is_empty() {
-                return Some(dataset_id);
+            if let Some(dataset_id) = self.auth_manager.resolve_dataset_id_for_upload(None).await {
+                if !dataset_id.trim().is_empty() {
+                    return Some(dataset_id);
+                }
             }
             attempts += 1;
             tokio::time::sleep(Duration::from_millis(200)).await;

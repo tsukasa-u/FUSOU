@@ -11,6 +11,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stableStringify, sortNodeFieldsInPlace } from "./lib/stable-json.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const STRUCT_DOT_DIR = resolve(
@@ -207,7 +208,7 @@ function processEndpoints() {
     console.warn(`DOT directory not found: ${STRUCT_DOT_DIR}`);
     writeFileSync(
       resolve(OUTPUT_DIR, "endpoints_by_group.json"),
-      JSON.stringify({ groups: {} }, null, 2),
+      stableStringify({ groups: {} }),
     );
     return;
   }
@@ -262,6 +263,12 @@ function processEndpoints() {
   // Read feature variants and annotate endpoints
   const featureVariants = readFeatureVariants();
   annotateWithFeatureVariants(allEndpoints, featureVariants);
+  for (const endpoint of allEndpoints) {
+    sortNodeFieldsInPlace(endpoint.nodes);
+  }
+
+  const allFeatures = [...(featureVariants.all_features ?? [])].sort();
+  const activeFeatures = [...(featureVariants.active_features ?? [])].sort();
 
   const sortedGroups = Object.fromEntries(
     Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)),
@@ -272,14 +279,14 @@ function processEndpoints() {
     totalEndpoints: allEndpoints.length,
     totalGroups: Object.keys(sortedGroups).length,
     featureVariants: {
-      allFeatures: featureVariants.all_features,
-      activeFeatures: featureVariants.active_features,
+      allFeatures,
+      activeFeatures,
       fieldDiffs: featureVariants.field_diffs,
     },
   };
 
   const outputPath = resolve(OUTPUT_DIR, "endpoints_by_group.json");
-  writeFileSync(outputPath, JSON.stringify(output, null, 2));
+  writeFileSync(outputPath, stableStringify(output));
 
   let totalFields = 0;
   for (const ep of allEndpoints) {
@@ -300,7 +307,7 @@ function processDatabaseDot() {
     console.warn(`Database DOT not found: ${dotPath}`);
     writeFileSync(
       resolve(OUTPUT_DIR, "database_dot.json"),
-      JSON.stringify({ nodes: [], edges: [] }, null, 2),
+      stableStringify({ nodes: [], edges: [] }),
     );
     return;
   }
@@ -327,9 +334,10 @@ function processDatabaseDot() {
 
   parsed.nodes.sort((a, b) => a.id.localeCompare(b.id));
   parsed.edges.sort((a, b) => a.id.localeCompare(b.id));
+  sortNodeFieldsInPlace(parsed.nodes);
 
   const outputPath = resolve(OUTPUT_DIR, "database_dot.json");
-  writeFileSync(outputPath, JSON.stringify(parsed, null, 2));
+  writeFileSync(outputPath, stableStringify(parsed));
   console.log(
     `✓ database DOT: ${parsed.nodes.length} tables, ${parsed.edges.length} edges → ${outputPath}`,
   );

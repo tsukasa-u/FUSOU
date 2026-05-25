@@ -1,7 +1,4 @@
-#[cfg(feature = "gdrive")]
-use crate::storage::providers::gdrive;
 use fusou_auth::{AuthManager, FileStorage};
-use kc_api::interface::deck_port::Basic;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Url};
@@ -21,15 +18,9 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         };
 
         // Check if this is a Realtime-based member_id_hash sync request
-        // fusou://sync?token=xxx&return_url=yyy
+        // fusou://sync?token=xxx
         if url.scheme() == "fusou" && url.host_str() == Some("sync") {
             handle_realtime_member_id_sync(&url, app);
-            return;
-        }
-
-        // Check if this is a request for member_id_hash (legacy, for backward compatibility)
-        if url.scheme() == "fusou" && url.host_str() == Some("request-member-id") {
-            handle_member_id_request(&url);
             return;
         }
 
@@ -77,64 +68,7 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
     tracing::debug!("single instance arg: {:?}", argv.get(1));
 }
 
-/// Handle fusou://request-member-id?return_url=xxx
-/// This allows WEB page to request member_id_hash from the app via hidden iframe
-fn handle_member_id_request(url: &Url) {
-    // Get return_url from query parameters
-    let return_url = url
-        .query_pairs()
-        .find(|(key, _)| key == "return_url")
-        .map(|(_, value)| value.to_string());
-
-    let Some(return_url) = return_url else {
-        tracing::warn!("request-member-id called without return_url parameter");
-        return;
-    };
-
-    if !is_allowed_return_url(&return_url) {
-        tracing::warn!("request-member-id called with untrusted return_url");
-        return;
-    }
-
-    // Get member_id_hash from game data
-    let basic = Basic::load();
-    let member_id_hash = basic.member_id;
-
-    if member_id_hash.is_empty() {
-        tracing::warn!("member_id_hash not available; user should launch the game first");
-        // Construct error response
-        let error_url = format!(
-            "{}{}error=member_id_not_available",
-            return_url,
-            if return_url.contains('?') { "&" } else { "?" }
-        );
-        // Open in browser window, which will update the existing page via JavaScript
-        let _ = webbrowser::open(&error_url);
-        return;
-    }
-
-    // Save to cache for future use
-    use crate::auth::member_id_cache::MemberIdCache;
-    if let Err(e) = MemberIdCache::save(&member_id_hash) {
-        tracing::warn!("Failed to cache member_id_hash: {}", e);
-    }
-
-    // Construct return URL with member_id_hash
-    // The WEB page will receive this via URLSearchParams and process it with JavaScript
-    let separator = if return_url.contains('?') { "&" } else { "?" };
-    let callback_url = format!(
-        "{}{}member_id_hash={}",
-        return_url, separator, member_id_hash
-    );
-
-    tracing::info!("Sending member_id_hash to browser (hash redacted)");
-
-    // This will cause the browser to navigate, updating the existing page
-    // The WEB page JavaScript will read the parameter and continue the flow
-    let _ = webbrowser::open(&callback_url);
-}
-
-/// Handle fusou://sync?token=xxx&return_url=yyy
+/// Handle fusou://sync?token=xxx
 ///
 /// Realtime-based member_id_hash sync handler
 ///
@@ -163,10 +97,11 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
 
     // 2. Generate APP instance ID (for handling multiple APP instances on same machine)
     let app_instance_id = get_or_create_app_instance_id();
+    let app_handle = app.clone();
 
     // 3. Execute Supabase update in async task
     tauri::async_runtime::spawn(async move {
-        match handle_realtime_sync_async(&token, &app_instance_id).await {
+        match handle_realtime_sync_async(&token, &app_instance_id, &app_handle).await {
             Ok(_) => {
                 tracing::info!("[Realtime Sync] Successfully synced");
             }
@@ -181,9 +116,11 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
 async fn handle_realtime_sync_async(
     token: &str,
     app_instance_id: &str,
+    app: &tauri::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash: game data first (authoritative), cache as fallback
-    let member_id_hash = crate::auth::auth_server::get_member_id_hash_with_cache()
+    // 1. Load member_id_hash: prefer AuthManager dataset_id (v2), then legacy fallback.
+    let member_id_hash = resolve_member_id_hash_for_sync(app)
+        .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
     tracing::info!("[Realtime Sync] Loaded member_id_hash");
@@ -259,21 +196,38 @@ async fn handle_realtime_sync_async(
         .into())
 }
 
-fn is_allowed_return_url(return_url: &str) -> bool {
-    let return_parsed = match Url::parse(return_url) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
+fn normalize_member_id_hash(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.len() == 64 && normalized.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
+        Some(normalized)
+    } else {
+        None
+    }
+}
 
-    let auth_page_url = configs::get_user_configs_for_app().auth.get_auth_page_url();
-    let auth_page_parsed = match Url::parse(auth_page_url.as_str()) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
+async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(auth_manager_state) = app.try_state::<Arc<Mutex<AuthManager<FileStorage>>>>() {
+        // Clone to avoid holding the lock across await.
+        let auth_manager_clone = {
+            let manager = auth_manager_state
+                .lock()
+                .map_err(|_| "failed to lock AuthManager state".to_string())?;
+            manager.clone()
+        };
 
-    return_parsed.scheme() == auth_page_parsed.scheme()
-        && return_parsed.host_str() == auth_page_parsed.host_str()
-        && return_parsed.port_or_known_default() == auth_page_parsed.port_or_known_default()
+        if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
+            if let Some(normalized) = normalize_member_id_hash(&dataset_id) {
+                tracing::info!("[Realtime Sync] Using AuthManager dataset_id as member_id_hash");
+                return Ok(normalized);
+            }
+
+            tracing::warn!(
+                "[Realtime Sync] AuthManager dataset_id has invalid hash format; falling back to legacy source"
+            );
+        }
+    }
+
+    crate::auth::auth_server::get_member_id_hash_with_cache()
 }
 
 /// Send PATCH request to Supabase
@@ -301,9 +255,7 @@ async fn send_supabase_update(
     });
 
     tracing::debug!(
-        "[Realtime Sync] Sending PATCH to {} with body: {}",
-        update_url,
-        update_body
+        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/member_id_hash redacted)"
     );
 
     let response = client

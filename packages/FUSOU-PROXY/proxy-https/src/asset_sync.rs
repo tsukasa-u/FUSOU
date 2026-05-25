@@ -363,38 +363,18 @@ async fn run_worker(
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
 
-    // Root-cause fix: when worker starts before gameplay events (Set::Basic),
-    // auth/session may still be absent. If dataset_id is already known from
-    // launch context, proactively establish anonymous session + dataset_token.
+    // In v2 mode, uploader/worker must not invoke legacy anonymous-sync v1 bootstrap.
+    // Auth/session bootstrap is handled by the app-level v2 pipeline.
     if let Some(dataset_id) = settings
         .dataset_id
         .as_deref()
         .map(str::trim)
         .filter(|v| !v.is_empty())
     {
-        match auth_manager
-            .ensure_dataset_token_valid(dataset_id, None)
-            .await
-        {
-            Ok(token) => {
-                if let Err(e) = auth_manager.save_dataset_token(&token).await {
-                    tracing::warn!(
-                        dataset_id,
-                        error = %e,
-                        "asset sync startup auth bootstrap: token acquired but persistence failed"
-                    );
-                } else {
-                    tracing::info!(dataset_id, "asset sync startup auth bootstrap completed");
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    dataset_id,
-                    error = %e,
-                    "asset sync startup auth bootstrap failed"
-                );
-            }
-        }
+        tracing::info!(
+            dataset_id,
+            "asset sync startup auth bootstrap skipped (v1 path removed; awaiting v2 bootstrap)"
+        );
     }
 
     if let Err(err) = maybe_refresh_period(&client, &settings).await {

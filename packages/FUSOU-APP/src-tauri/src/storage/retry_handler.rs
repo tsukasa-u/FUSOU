@@ -225,16 +225,10 @@ impl AppUploadRetryHandler {
         let dataset_id = if !from_context.is_empty() {
             from_context
         } else {
-            let from_member_id = crate::util::get_user_member_id().await;
-            let trimmed = from_member_id.trim();
-            if !trimmed.is_empty() {
-                trimmed.to_string()
-            } else {
-                self.auth_manager
-                    .resolve_dataset_id_for_upload(None)
-                    .await
-                    .ok_or("dataset_id not ready for master_data_bulk retry (auth unresolved)")?
-            }
+            self.auth_manager
+                .resolve_dataset_id_for_upload(None)
+                .await
+                .ok_or("dataset_id not ready for master_data_bulk retry (auth unresolved)")?
         };
 
         if dataset_id.trim().is_empty() {

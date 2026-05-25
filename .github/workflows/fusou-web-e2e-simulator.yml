@@ -43,11 +43,29 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
+
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
 
       - name: Run DOM security check
         run: pnpm --dir packages/FUSOU-WEB run check:security:dom
+
+      - name: Audit legacy anonymous-sync v1 usage
+        run: pnpm --dir packages/FUSOU-WEB run audit:anon-sync-v1
+
+      - name: Verify required Cloudflare Worker secrets
+        if: secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != ''
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --dir packages/FUSOU-WEB run check:cloudflare:required-secrets
+
+      - name: Skip Cloudflare secret verification (credentials unavailable)
+        if: secrets.CLOUDFLARE_API_TOKEN == '' || secrets.CLOUDFLARE_ACCOUNT_ID == ''
+        run: |
+          echo "Skipping Cloudflare secret registration check: CLOUDFLARE_API_TOKEN/CLOUDFLARE_ACCOUNT_ID not available in this run."
 
       - name: Run Astro check
         run: pnpm --dir packages/FUSOU-WEB exec astro check
@@ -77,6 +95,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
@@ -123,6 +144,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build

@@ -76,8 +76,14 @@ pub async fn perform_snapshot_sync_app(
         "Prepared snapshot data"
     );
 
+    let manager = auth_manager.lock().unwrap().clone();
+
     // Build handshake request body via common helper (include dataset_id)
-    let dataset_id = crate::util::get_user_member_id().await;
+    let Some(dataset_id) = manager.resolve_dataset_id_for_upload(None).await else {
+        let msg = "dataset_id is not ready (no valid dataset_token)".to_string();
+        tracing::warn!("{}", msg);
+        return Err(msg);
+    };
     let handshake_body = fusou_upload::Uploader::build_snapshot_handshake("latest", &dataset_id);
 
     let mut headers = std::collections::HashMap::new();
@@ -94,7 +100,6 @@ pub async fn perform_snapshot_sync_app(
     };
 
     let client = Client::new();
-    let manager = auth_manager.lock().unwrap().clone();
     let pending_store = app.try_state::<Arc<PendingStore>>();
 
     tracing::info!(endpoint = %snapshot_url, "Starting snapshot upload via Uploader");

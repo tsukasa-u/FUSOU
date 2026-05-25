@@ -6,7 +6,7 @@ use kc_api::{
 use crate::{
     auth::supabase,
     storage::service::{acquire_port_table_guard, StorageService},
-    util::get_user_member_id,
+    util::get_local_fallback_id,
 };
 
 use fusou_upload::{PendingStore, UploadRetryService};
@@ -68,13 +68,22 @@ pub fn submit_port_table() {
             cells.event_map.is_some()
         );
         tokio::task::spawn(async move {
-            let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+            let Some(storage_service) = StorageService::get_instance(pending_store, retry_service.clone()).await else {
                 return;
             };
 
             let _guard = acquire_port_table_guard().await;
 
-            let user_env = get_user_member_id().await;
+            let user_env = retry_service
+                .auth_manager()
+                .resolve_dataset_id_for_upload(None)
+                .await
+                .unwrap_or_default();
+            let user_env = if user_env.trim().is_empty() {
+                get_local_fallback_id().await
+            } else {
+                user_env
+            };
             let timestamp = chrono::Utc::now().timestamp();
             let port_table = PortTable::new(cells, user_env, timestamp);
 

@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stableStringify, sortNodeFieldsInPlace } from "./lib/stable-json.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMAS_DIR = resolve(__dirname, "../../kc_api/generated-schemas");
@@ -313,7 +314,7 @@ function buildMasterDataNodesFromAvro(version) {
   const masterPath = resolve(SCHEMAS_DIR, `master_schema_${version}.json`);
   if (!existsSync(masterPath)) {
     throw new Error(
-      `Required master schema file not found: ${masterPath}. Run kc_api/scripts/generate-schemas.sh first.`,
+      `Required master schema file not found: ${masterPath}. Run kc_api/scripts/generate-schemas.mjs first.`,
     );
   }
 
@@ -374,6 +375,7 @@ function buildMasterDataNodesFromAvro(version) {
   }
 
   const deduped = [...dedup.values()].sort((a, b) => a.id.localeCompare(b.id));
+  sortNodeFieldsInPlace(deduped);
   if (deduped.length === 0) {
     throw new Error(`No master schemas found in: ${masterPath}`);
   }
@@ -449,7 +451,9 @@ function mergeMasterDataGraph(result, masterNodes) {
   }
 
   result.nodes = mergedNodes.sort((a, b) => a.id.localeCompare(b.id));
-  result.edges = [...edgeById.values()].sort((a, b) => a.id.localeCompare(b.id));
+  result.edges = [...edgeById.values()].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
   result.tableCount = result.nodes.length;
   result.masterTableCount = masterNodes.length;
 }
@@ -500,6 +504,7 @@ function convertVersion(version) {
 
   nodes.sort((a, b) => a.id.localeCompare(b.id));
   edges.sort((a, b) => a.id.localeCompare(b.id));
+  sortNodeFieldsInPlace(nodes);
 
   return {
     version: tableVersion,
@@ -560,6 +565,10 @@ function computeVersionDiff(older, newer) {
     const changedFields = [...newerFieldNames]
       .filter((n) => olderFieldNames.has(n))
       .filter((n) => olderFieldMap.get(n).type !== newerFieldMap.get(n).type);
+
+    addedFields.sort((a, b) => a.localeCompare(b));
+    removedFields.sort((a, b) => a.localeCompare(b));
+    changedFields.sort((a, b) => a.localeCompare(b));
 
     if (addedFields.length || removedFields.length || changedFields.length) {
       diff[id] = {
@@ -713,9 +722,10 @@ for (const version of VERSIONS) {
     }
 
     mergeMasterDataGraph(result, masterNodes);
+    sortNodeFieldsInPlace(result.nodes);
 
     const outputPath = resolve(OUTPUT_DIR, `db_${version}.json`);
-    writeFileSync(outputPath, JSON.stringify(result, null, 2));
+    writeFileSync(outputPath, stableStringify(result));
     allVersions[version] = {
       tableCount: result.tableCount,
       version: result.version,
@@ -741,16 +751,12 @@ for (let i = 1; i < VERSIONS.length; i++) {
 const majorVersions = computeMajorVersions(VERSIONS);
 writeFileSync(
   resolve(OUTPUT_DIR, "db_versions.json"),
-  JSON.stringify(
-    {
-      versions: allVersions,
-      sortedVersions: [...VERSIONS],
-      majorVersions,
-      diffs,
-    },
-    null,
-    2,
-  ),
+  stableStringify({
+    versions: allVersions,
+    sortedVersions: [...VERSIONS],
+    majorVersions,
+    diffs,
+  }),
 );
 console.log(
   `✓ db_versions.json written (majors: ${Object.keys(majorVersions).join(", ")})`,

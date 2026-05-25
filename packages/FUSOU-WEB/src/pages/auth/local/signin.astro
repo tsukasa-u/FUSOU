@@ -322,13 +322,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               name="app_origin"
               value={Astro.url.searchParams.get("app_origin") ?? ""}
             />
-            <input
-              type="hidden"
-              name="member_id_hash"
-              value={import.meta.env.DEV
-                ? (Astro.url.searchParams.get("member_id_hash") ?? "")
-                : ""}
-            />
             <button
               id="local-signin-google-btn"
               type="submit"
@@ -444,7 +437,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
     const steps = ["1", "2", "3"];
     let currentStep = "1";
-    let memberIdHashSynced = false;
 
     // Helper function to mask member_id_hash
     function maskMemberIdHash(hash: string) {
@@ -462,10 +454,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
       const memberIdHash = urlParams.get("member_id_hash");
 
       if (memberIdHash) {
-        console.log("[signin] Found member_id_hash in URL");
-        memberIdHashSynced = true;
-        sessionStorage.setItem("memberIdHash", memberIdHash);
-
         // Remove member_id_hash from the URL immediately to prevent it from
         // appearing in browser history or being logged by analytics/proxies.
         const cleanParams = new URLSearchParams(window.location.search);
@@ -737,13 +725,9 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
           setButtonLoading(syncButton);
 
           try {
-            console.log("[signin] Starting member ID sync...");
             const result = await syncMemberIdHashWithApp(10000);
 
             if (result.success && result.memberIdHash) {
-              console.log("[signin] Sync successful:", result.memberIdHash);
-              memberIdHashSynced = true;
-
               syncSuccess?.classList.remove("hidden");
               syncButton.classList.remove("btn-primary");
               syncButton.classList.add("btn-success");
@@ -751,8 +735,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               if (syncButton instanceof HTMLButtonElement) {
                 syncButton.disabled = true;
               }
-
-              sessionStorage.setItem("memberIdHash", result.memberIdHash);
 
               // Display masked member_id_hash
               const memberIdDisplay =
@@ -767,7 +749,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
                 nextStep();
               }, 2000);
             } else {
-              memberIdHashSynced = false;
               const msg =
                 result.error || "Failed to sync with game. Please try again.";
               if (errorMessage) errorMessage.textContent = msg;
@@ -779,7 +760,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
               syncButton.disabled = false;
             }
           } catch (err) {
-            memberIdHashSynced = false;
             const msg =
               err instanceof Error
                 ? err.message
@@ -799,7 +779,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
       const skipStep1 = document.getElementById("skip_step_1");
       if (skipStep1) {
         skipStep1.addEventListener("click", () => {
-          memberIdHashSynced = true;
           nextStep();
         });
       }
@@ -825,27 +804,6 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
       if (!hasUrlMemberIdHash) {
         window.showStep("1");
-      }
-
-      // Populate the hidden form input from sessionStorage just before OAuth submit.
-      // This ensures the member_id_hash obtained via Realtime sync (or URL in dev mode)
-      // is passed to signin.ts even though the server-rendered hidden input starts empty.
-      const googleSigninForm = document
-        .getElementById("local-signin-google-btn")
-        ?.closest("form");
-      if (googleSigninForm) {
-        googleSigninForm.addEventListener("submit", () => {
-          const stored = sessionStorage.getItem("memberIdHash");
-          if (stored) {
-            const hiddenInput =
-              googleSigninForm.querySelector<HTMLInputElement>(
-                'input[name="member_id_hash"]',
-              );
-            if (hiddenInput) {
-              hiddenInput.value = stored;
-            }
-          }
-        });
       }
     });
   </script>

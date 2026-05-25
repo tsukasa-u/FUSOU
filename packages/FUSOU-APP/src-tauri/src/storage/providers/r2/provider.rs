@@ -183,12 +183,6 @@ impl R2StorageProvider {
     }
 
     async fn resolve_dataset_id_for_cloud_upload(&self) -> Option<String> {
-        let member_id_hash = crate::util::get_user_member_id().await;
-        let trimmed = member_id_hash.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-
         self.auth_manager.resolve_dataset_id_for_upload(None).await
     }
 

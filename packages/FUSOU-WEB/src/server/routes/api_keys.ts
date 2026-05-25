@@ -7,7 +7,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext } from "../utils";
+import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
 import {
   type SupabaseRestConfig,
@@ -60,6 +60,60 @@ function maskApiKey(key: string): string {
   return `${key.slice(0, 8)}...${key.slice(-4)}`;
 }
 
+type AuthResult =
+  | { token: string; fromCookie: true }
+  | { token: string; fromCookie: false };
+
+function extractAccessToken(c: {
+  req: { header: (name: string) => string | undefined };
+}): AuthResult | null {
+  const authHeader = c.req.header("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    return { token: authHeader.slice(7).trim(), fromCookie: false };
+  }
+
+  const cookieHeader = c.req.header("Cookie");
+  if (!cookieHeader) return null;
+
+  const match = cookieHeader.match(
+    /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
+  );
+  if (!match) return null;
+
+  try {
+    return { token: decodeURIComponent(match[1]), fromCookie: true };
+  } catch {
+    return { token: match[1], fromCookie: true };
+  }
+}
+
+function assertCsrfSafe(
+  c: { req: { header: (name: string) => string | undefined }; env: Bindings },
+  auth: AuthResult,
+): boolean {
+  if (!auth.fromCookie) return true;
+
+  const env = createEnvContext(c);
+  const siteUrl = getEnv(env, "PUBLIC_SITE_URL")?.trim();
+  if (!siteUrl) return false;
+
+  let allowedOrigin: string;
+  try {
+    allowedOrigin = new URL(siteUrl).origin;
+  } catch {
+    return false;
+  }
+
+  const requestOrigin = c.req.header("Origin");
+  if (!requestOrigin) return false;
+
+  try {
+    return new URL(requestOrigin).origin === allowedOrigin;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Verify Supabase access token and get user info
  */
@@ -80,7 +134,7 @@ async function verifyAccessToken(
     const user = (await response.json()) as { id: string; email: string };
     return user;
   } catch (err) {
-    console.warn('[api_keys] verifyAccessToken failed:', err);
+    console.warn("[api_keys] verifyAccessToken failed:", err);
     return null;
   }
 }
@@ -99,16 +153,14 @@ app.options(
  * GET /api-keys/usage - Get current usage status for the authenticated user
  */
 app.get("/usage", async (c) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -141,16 +193,14 @@ app.get("/usage", async (c) => {
  * GET /api-keys - List user's API keys
  */
 app.get("/", async (c) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -188,16 +238,17 @@ app.get("/", async (c) => {
  * POST /api-keys - Create a new API key
  */
 app.post("/", async (c) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
+  if (!assertCsrfSafe(c, auth)) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -285,16 +336,17 @@ app.post("/", async (c) => {
  */
 app.delete("/:id", async (c) => {
   const keyId = c.req.param("id");
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
+  if (!assertCsrfSafe(c, auth)) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -327,12 +379,13 @@ app.delete("/:id", async (c) => {
  */
 app.patch("/:id", async (c) => {
   const keyId = c.req.param("id");
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
+  if (!assertCsrfSafe(c, auth)) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
   const config = getSupabaseRestConfig(c);
 
   let body: { is_active?: boolean } = {};
@@ -343,7 +396,7 @@ app.patch("/:id", async (c) => {
   }
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -382,16 +435,14 @@ app.patch("/:id", async (c) => {
  * GET /api-keys/devices - List trusted devices
  */
 app.get("/devices", async (c) => {
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
@@ -428,16 +479,17 @@ app.get("/devices", async (c) => {
  */
 app.delete("/devices/:id", async (c) => {
   const deviceId = c.req.param("id");
-  const authHeader = c.req.header("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
+  const auth = extractAccessToken(c);
+  if (!auth) {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
-
-  const accessToken = authHeader.slice(7);
+  if (!assertCsrfSafe(c, auth)) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
   const config = getSupabaseRestConfig(c);
 
   try {
-    const user = await verifyAccessToken(config, accessToken);
+    const user = await verifyAccessToken(config, auth.token);
     if (!user) {
       return jsonResponse({ error: "Invalid token" }, 401);
     }

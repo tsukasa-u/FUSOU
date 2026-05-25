@@ -27,6 +27,22 @@ let storedProviderRefreshToken = cookies.get(
   "stored-sb-provider-refresh-token",
 );
 
+function readStoredTokenList(
+  cookie: { json: () => unknown } | undefined,
+): string[] {
+  if (!cookie) return [];
+  try {
+    const parsed = cookie.json() as { data?: unknown };
+    return Array.isArray(parsed.data)
+      ? parsed.data.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 if (
   !storedAccessToken ||
   !storedRefreshToken ||
@@ -59,13 +75,12 @@ if (
   storedProviderRefreshToken = cookies.get("stored-sb-provider-refresh-token");
 }
 
-type storedToken = { data: string[] };
-let accessTokenList = (storedAccessToken?.json() as storedToken).data;
-const refreshTokenList = (storedRefreshToken?.json() as storedToken).data;
-const providerTokenList = (storedProviderToken?.json() as storedToken).data;
-const providerRefreshTokenList = (
-  storedProviderRefreshToken?.json() as storedToken
-).data;
+let accessTokenList = readStoredTokenList(storedAccessToken);
+const refreshTokenList = readStoredTokenList(storedRefreshToken);
+const providerTokenList = readStoredTokenList(storedProviderToken);
+const providerRefreshTokenList = readStoredTokenList(
+  storedProviderRefreshToken,
+);
 
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
@@ -104,19 +119,20 @@ let validSessionList: AuthResponse[] = [];
 const tokenListLength = accessTokenList.length;
 for (let i = 0; i < tokenListLength; i++) {
   try {
-    const session = await supabase.auth.setSession({
+    let session = await supabase.auth.setSession({
       refresh_token: refreshTokenList[i],
       access_token: accessTokenList[i],
     });
     if (session.error) {
       try {
-        const session = await supabase.auth.refreshSession({
+        const refreshedSession = await supabase.auth.refreshSession({
           refresh_token: refreshTokenList[i],
         });
-        if (session.error) continue;
-        currentSession = session;
-        accessTokenList[i] = session.data.session?.access_token!;
-        continue;
+        if (refreshedSession.error || !refreshedSession.data.session) continue;
+        session = refreshedSession;
+        currentSession = refreshedSession;
+        accessTokenList[i] = refreshedSession.data.session.access_token;
+        refreshTokenList[i] = refreshedSession.data.session.refresh_token;
       } catch (error) {
         continue;
       }
@@ -212,102 +228,140 @@ cookies.set(
   }}
 >
   <div class="min-h-screen flex flex-col">
-    <div class="flex justify-center flex-1 items-center">
+    <div class="flex justify-center flex-1 items-start pt-20 sm:pt-24 pb-8">
       <div class="w-full max-w-md">
+        <div class="mb-6 text-center space-y-2">
+          <h1 class="text-3xl font-bold tracking-tight">
+            Account is authorized
+          </h1>
+          <p class="text-sm text-base-content/60">
+            いま認証されているアカウントの切り替えと追加を行います。
+          </p>
+        </div>
+
         <div class="bg-base-100 rounded-md p-6">
-          <h1 class="text-2xl text-center py-2">Account is authorized</h1>
-          <ul class="list bg-base-100 rounded-box">
-            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
-              Your accounts
-            </li>
-            {
-              validSessionList.map((session, idx) => {
-                const isCurrent =
-                  session?.data.session?.user?.email ===
-                  currentSession?.data.user?.email;
-                return (
-                  <li class="list-row flex items-center justify-between gap-4 p-4 border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors">
-                    <div class="flex items-center gap-4">
-                      <span
-                        class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
-                        title={
-                          session?.data.session?.user.app_metadata.provider ||
-                          "provider"
-                        }
-                      >
-                        {providerInitial(
-                          session?.data.session?.user.app_metadata.provider,
-                        )}
-                      </span>
-                      <div>
+          <div class="space-y-4">
+            <ul class="list bg-base-100 rounded-box border border-base-200">
+              <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
+                Your accounts
+              </li>
+              {
+                validSessionList.map((session, idx) => {
+                  const isCurrent =
+                    session?.data.session?.user?.email ===
+                    currentSession?.data.user?.email;
+                  return (
+                    <li class="list-row flex items-center justify-between gap-4 p-4 border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors">
+                      <div class="flex items-center gap-4">
+                        <span
+                          class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
+                          title={
+                            session?.data.session?.user.app_metadata.provider ||
+                            "provider"
+                          }
+                        >
+                          {providerInitial(
+                            session?.data.session?.user.app_metadata.provider,
+                          )}
+                        </span>
                         <div>
-                          {session?.data.session?.user.user_metadata.name}
-                        </div>
-                        <div class="text-xs font-semibold opacity-60">
-                          {session?.data.user?.email}
+                          <div>
+                            {session?.data.session?.user.user_metadata.name}
+                          </div>
+                          <div class="text-xs font-semibold opacity-60">
+                            {session?.data.user?.email}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div class="w-24 flex justify-end">
-                      {isCurrent ? (
-                        <div class="h-8 flex items-center">
-                          <span class="badge bg-success-content text-success border border-success font-semibold h-8 w-20">
-                            Active
-                          </span>
-                        </div>
-                      ) : (
-                        <form action="/api/auth/switch" method="POST">
-                          <input type="hidden" name="index" value={idx} />
-                          <button
-                            type="submit"
-                            class="btn btn-sm btn-ghost border border-base-300 w-20 btn-switch-account"
-                          >
-                            Switch
-                          </button>
-                        </form>
-                      )}
-                    </div>
-                  </li>
-                );
-              })
-            }
-          </ul>
+                      <div class="w-24 flex justify-end">
+                        {isCurrent ? (
+                          <div class="h-8 flex items-center text-xs text-base-content/60">
+                            現在使用中
+                          </div>
+                        ) : (
+                          <form action="/api/auth/switch" method="POST">
+                            <input type="hidden" name="index" value={idx} />
+                            <button
+                              type="submit"
+                              class="btn btn-sm btn-ghost border border-base-300 w-20 btn-switch-account"
+                            >
+                              Switch
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })
+              }
+            </ul>
 
-          <div class="h-6"></div>
+            <div class="space-y-2">
+              <div class="text-center text-lg">Add another account</div>
+              <form action="/api/auth/signin" method="post">
+                <button
+                  id="dashboard-signin-google-btn"
+                  class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
+                  value="google"
+                  name="provider"
+                  type="submit"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    class="size-6"
+                    viewBox="0 0 24 24"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"
+                    ></path>
+                  </svg>
+                  <div class="w-36 text-start">Sign in with Google</div>
+                </button>
+              </form>
 
-          <div class="text-center text-lg">Add another account</div>
-          <div class="h-1"></div>
-          <form action="/api/auth/signin" method="post">
-            <button
-              id="dashboard-signin-google-btn"
-              class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
-              value="google"
-              name="provider"
-              type="submit"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="size-6"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-                aria-hidden="true"
+              <form action="/api/auth/signout" method="post">
+                <div class="divider">OR</div>
+                <button
+                  id="dashboard-signout-btn"
+                  class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
+                  type="submit">Sign out</button
+                >
+              </form>
+            </div>
+          </div>
+
+          <div
+            class="mt-6 mb-3 text-center text-sm font-medium text-base-content/60"
+          >
+            管理
+          </div>
+          <div class="space-y-3">
+            <p class="text-center text-sm text-base-content/60">
+              端末の失効や APIキーの確認はここから開きます。
+            </p>
+            <div class="grid gap-3">
+              <a
+                href="/dashboard/devices"
+                class="rounded-lg border border-base-300 bg-base-100 p-4 transition-colors hover:bg-base-200/70"
               >
-                <path
-                  d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"
-                ></path>
-              </svg>
-              <div class="w-36 text-start">Sign in with Google</div>
-            </button>
-          </form>
-
-          <form action="/api/auth/signout" method="post">
-            <div class="divider">OR</div>
-            <button
-              id="dashboard-signout-btn"
-              class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
-              type="submit">Sign out</button
-            >
-          </form>
+                <div class="font-semibold">端末管理</div>
+                <div class="text-sm text-base-content/60 mt-1">
+                  連携済み端末の確認と失効
+                </div>
+              </a>
+              <a
+                href="/dashboard/api-keys"
+                class="rounded-lg border border-base-300 bg-base-100 p-4 transition-colors hover:bg-base-200/70"
+              >
+                <div class="font-semibold">APIキー管理</div>
+                <div class="text-sm text-base-content/60 mt-1">
+                  fusou-datasets の APIキーを管理します
+                </div>
+              </a>
+            </div>
+          </div>
         </div>
       </div>
     </div>

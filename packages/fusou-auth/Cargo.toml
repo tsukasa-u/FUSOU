@@ -1,6 +1,6 @@
 [package]
 name = "fusou-auth"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
@@ -15,6 +15,12 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] 
 log = "0.4"
 tracing = "0.1"
 configs = { path = "../configs" }
+# v2 anonymous-sync (pepper + Ed25519 device key) で利用する。
+# ed25519-dalek は OS RNG で keypair を生成し、Ed25519 raw 32B 公開鍵 / 64B 署名を扱う。
+# 端末固有秘密鍵はローカルファイルに保存するため、決定的シリアライズ用にも使う。
+ed25519-dalek = { version = "2.1", features = ["std", "rand_core"] }
+rand = "0.8"
+base64 = "0.22"
 
 [features]
 default = []

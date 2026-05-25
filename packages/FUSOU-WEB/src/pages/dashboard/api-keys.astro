@@ -16,8 +16,6 @@ if (!accessToken || !refreshToken) {
   return Astro.redirect("/auth/signin");
 }
 
-// Initialize access token with cookie value
-let safeAccessToken = accessToken?.value;
 let user: User | null = null;
 try {
   const session = await supabase.auth.setSession({
@@ -27,18 +25,14 @@ try {
   if (session.error) {
     return Astro.redirect("/auth/signin");
   }
-  // Update token if refreshed
-  if (session.data.session?.access_token) {
-    safeAccessToken = session.data.session.access_token;
-  }
   user = session.data.user;
 } catch (_error) {
   return Astro.redirect("/auth/signin");
 }
 
 let memberMap: {
-  member_id_hash?: string;
-  user_id?: string;
+  linked?: boolean;
+  member_id_hash_masked?: string;
   source?: string;
 } | null = null;
 function providerInitial(provider?: string): string {
@@ -50,25 +44,22 @@ try {
     new URL("/api/user/member-map", Astro.url.origin),
     {
       headers: {
-        Authorization: `Bearer ${safeAccessToken}`,
+        Cookie: Astro.request.headers.get("cookie") ?? "",
       },
     },
   );
 
   const memberMapData = (await memberMapResponse.json()) as {
     ok?: boolean;
+    linked?: boolean;
     map?: {
-      member_id_hash?: string;
-      user_id?: string;
+      linked?: boolean;
+      member_id_hash_masked?: string;
       source?: string;
     } | null;
     error?: string;
   };
-  if (
-    memberMapResponse.ok &&
-    memberMapData?.ok &&
-    memberMapData?.map?.member_id_hash
-  ) {
+  if (memberMapResponse.ok && memberMapData?.ok && memberMapData?.map?.linked) {
     memberMap = memberMapData.map;
   } else if (!memberMapResponse.ok) {
     console.error("Member ID Check Failed:", memberMapData);
@@ -114,19 +105,20 @@ if (!user) {
   }}
 >
   <div class="min-h-screen flex flex-col">
-    <div class="flex justify-center flex-1 py-8">
+    <div class="flex justify-center flex-1 pt-20 sm:pt-24 pb-8">
       <div class="w-full max-w-2xl px-4">
-        <div class="bg-base-100 rounded-md p-6">
-          <div class="h-32"></div>
-          <h1 class="text-2xl font-bold text-center py-2">
+        <div class="bg-base-100 rounded-md px-6 py-4">
+          <h1 class="text-2xl font-bold text-center py-1">
             API Key Management
           </h1>
-          Manage your API keys for fusou-datasets
+          <p class="text-center text-sm text-base-content/70">
+            Manage your API keys for fusou-datasets
+          </p>
         </div>
 
         <!-- Account Info Section -->
         <div
-          class="mb-6 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
+          class="mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
         >
           <div class="flex items-center gap-3">
             <span
@@ -188,7 +180,7 @@ if (!user) {
         <!-- Unverified Warning -->
         {
           !memberMap && (
-            <div class="mb-6 p-4 bg-warning/10 border border-warning rounded-md">
+            <div class="mb-5 p-4 bg-warning/10 border border-warning rounded-md">
               <div class="flex items-center gap-2 mb-2">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -212,7 +204,7 @@ if (!user) {
                 You must link your KanColle game account to create API keys.
               </p>
               <a
-                href="/account/conflict"
+                href="/auth/local/signin"
                 class="btn btn-sm btn-warning btn-outline"
               >
                 Link Account →
@@ -222,7 +214,7 @@ if (!user) {
         }
 
         <!-- Usage Status Section (New) -->
-        <div class="mb-8 p-4 bg-base-200/50 rounded-lg border border-base-300">
+        <div class="mb-6 p-4 bg-base-200/50 rounded-lg border border-base-300">
           <div class="flex justify-between items-center mb-2">
             <h2
               class="text-sm font-semibold uppercase tracking-wider text-base-content/70"
@@ -244,7 +236,7 @@ if (!user) {
         </div>
 
         <!-- API Keys Section -->
-        <div class="mb-8">
+        <div class="mb-6">
           <div class="flex justify-between items-center mb-4">
             <h2 class="text-lg font-semibold">Your API Keys</h2>
             <button
@@ -341,7 +333,7 @@ if (!user) {
         <div class="divider"></div>
 
         <!-- Trusted Devices Section -->
-        <div class="mb-8">
+        <div class="mb-6">
           <h2 class="text-lg font-semibold mb-4">Trusted Devices</h2>
           <p class="text-sm text-base-content/60 mb-4">
             Devices that have been verified for API access
@@ -352,7 +344,7 @@ if (!user) {
           </div>
         </div>
 
-        <div class="divider"></div>
+        <div class="divider my-5"></div>
 
         <!-- Back to Dashboard -->
         <div class="text-center">
@@ -392,26 +384,32 @@ if (!user) {
   </form>
 </dialog>
 
-<script
-  define:vars={{
-    accessToken: safeAccessToken,
-  }}
->
+<script>
+  // @ts-nocheck
   const API_BASE = "/api/api-keys";
 
+  function byId(id) {
+    const element = document.getElementById(id);
+    if (!element) {
+      throw new Error(`Missing expected element: ${id}`);
+    }
+    return element;
+  }
+
   // Modal state
+  /** @type {null | (() => void | Promise<void>)} */
   let pendingDeleteAction = null;
 
   // Modal helper
   function showDeleteModal(message, onConfirm) {
-    const modal = document.getElementById("delete-modal");
-    document.getElementById("delete-modal-message").textContent = message;
+    const modal = /** @type {HTMLDialogElement} */ (byId("delete-modal"));
+    byId("delete-modal-message").textContent = message;
     pendingDeleteAction = onConfirm;
     modal.showModal();
   }
 
   function hideNewKeyDisplay() {
-    document.getElementById("new-key-display").classList.add("hidden");
+    byId("new-key-display").classList.add("hidden");
   }
 
   function setContainerMessage(
@@ -419,7 +417,7 @@ if (!user) {
     message,
     className = "text-center py-4 text-base-content/60",
   ) {
-    const container = document.getElementById(containerId);
+    const container = byId(containerId);
     const div = document.createElement("div");
     div.className = className;
     div.textContent = message;
@@ -451,12 +449,10 @@ if (!user) {
 
   async function fetchApiKeys() {
     try {
-      const response = await fetch(API_BASE, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      const data = await response.json();
+      const response = await fetch(API_BASE);
+      const data = /** @type {{ success?: boolean; api_keys?: any[] }} */ (
+        await response.json()
+      );
       if (data.success) {
         renderApiKeys(data.api_keys);
       } else {
@@ -477,12 +473,10 @@ if (!user) {
 
   async function fetchDevices() {
     try {
-      const response = await fetch(`${API_BASE}/devices`, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      const data = await response.json();
+      const response = await fetch(`${API_BASE}/devices`);
+      const data = /** @type {{ success?: boolean; devices?: any[] }} */ (
+        await response.json()
+      );
       if (data.success) {
         renderDevices(data.devices);
       } else {
@@ -503,14 +497,17 @@ if (!user) {
 
   async function fetchUsage() {
     try {
-      const response = await fetch(`${API_BASE}/usage`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const data = await response.json();
+      const response = await fetch(`${API_BASE}/usage`);
+      const data =
+        /** @type {{ success?: boolean; usage?: { remaining: number } }} */ (
+          await response.json()
+        );
       if (data.success && data.usage) {
         const { remaining } = data.usage;
-        const progress = document.getElementById("ru-progress");
-        const text = document.getElementById("ru-status-text");
+        const progress = /** @type {HTMLProgressElement} */ (
+          byId("ru-progress")
+        );
+        const text = byId("ru-status-text");
 
         progress.value = remaining;
         text.textContent = `${remaining} / 1000`;
@@ -524,13 +521,16 @@ if (!user) {
       }
     } catch (e) {
       console.error("Failed to fetch RU usage", e);
-      document.getElementById("ru-status-text").textContent = "Error";
-      document.getElementById("ru-status-text").classList.add("text-error");
+      byId("ru-status-text").textContent = "Error";
+      byId("ru-status-text").classList.add("text-error");
     }
   }
 
+  /**
+   * @param {Array<{ id: string; key_masked: string; is_active: boolean; created_at: string }>} keys
+   */
   function renderApiKeys(keys) {
-    const container = document.getElementById("api-keys-list");
+    const container = byId("api-keys-list");
     if (keys.length === 0) {
       setContainerMessage(
         "api-keys-list",
@@ -578,8 +578,11 @@ if (!user) {
     });
   }
 
+  /**
+   * @param {Array<{ id: string; client_id_masked: string; device_name: string; created_at: string; last_used_at: string | null }>} devices
+   */
   function renderDevices(devices) {
-    const container = document.getElementById("devices-list");
+    const container = byId("devices-list");
     if (devices.length === 0) {
       setContainerMessage("devices-list", "No trusted devices yet.");
       return;
@@ -634,46 +637,46 @@ if (!user) {
       const response = await fetch(API_BASE, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({}),
       });
-      const data = await response.json();
+      const data =
+        /** @type {{ success?: boolean; api_key?: { key: string }; message?: string; error?: string }} */ (
+          await response.json()
+        );
       if (data.success) {
         // Show the new key
-        const display = document.getElementById("new-key-display");
-        const keyValue = document.getElementById("new-key-value");
+        const display = byId("new-key-display");
+        const keyValue = byId("new-key-value");
         keyValue.textContent = data.api_key.key;
         display.classList.remove("hidden");
-        document.getElementById("api-key-error").classList.add("hidden");
+        byId("api-key-error").classList.add("hidden");
 
         // Refresh the list
         await fetchApiKeys();
       } else {
         // Show error
-        const errorDiv = document.getElementById("api-key-error");
+        const errorDiv = byId("api-key-error");
         errorDiv.textContent =
           data.message || data.error || "Failed to create key";
         errorDiv.classList.remove("hidden");
       }
     } catch (error) {
       console.error("Failed to create API key", error);
-      const errorDiv = document.getElementById("api-key-error");
+      const errorDiv = byId("api-key-error");
       errorDiv.textContent = "Network error or server unavailable";
       errorDiv.classList.remove("hidden");
     }
   }
 
+  /** @param {string} keyId */
   async function deleteApiKey(keyId) {
     try {
       const response = await fetch(`${API_BASE}/${keyId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
       });
-      const data = await response.json();
+      const data = /** @type {{ success?: boolean }} */ (await response.json());
       if (data.success) {
         hideNewKeyDisplay();
         await fetchApiKeys();
@@ -683,15 +686,13 @@ if (!user) {
     }
   }
 
+  /** @param {string} deviceId */
   async function revokeDevice(deviceId) {
     try {
       const response = await fetch(`${API_BASE}/devices/${deviceId}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
       });
-      const data = await response.json();
+      const data = /** @type {{ success?: boolean }} */ (await response.json());
       if (data.success) {
         await fetchDevices();
       }
@@ -700,6 +701,7 @@ if (!user) {
     }
   }
 
+  /** @param {string | null | undefined} dateStr */
   function formatDate(dateStr) {
     if (!dateStr) return "N/A";
     const date = new Date(dateStr);
@@ -717,15 +719,13 @@ if (!user) {
     fetchUsage();
 
     // Create key button
-    document
-      .getElementById("create-key-btn")
-      .addEventListener("click", createApiKey);
+    byId("create-key-btn").addEventListener("click", createApiKey);
 
     // Copy key button - switch to check icon on success
-    document.getElementById("copy-key-btn").addEventListener("click", () => {
-      const key = document.getElementById("new-key-value").textContent;
-      const copyIcon = document.getElementById("copy-icon");
-      const checkIcon = document.getElementById("check-icon");
+    byId("copy-key-btn").addEventListener("click", () => {
+      const key = byId("new-key-value").textContent;
+      const copyIcon = byId("copy-icon");
+      const checkIcon = byId("check-icon");
 
       navigator.clipboard.writeText(key).then(() => {
         // Switch icons
@@ -741,21 +741,17 @@ if (!user) {
     });
 
     // Modal handlers
-    document
-      .getElementById("delete-modal-cancel")
-      .addEventListener("click", () => {
-        document.getElementById("delete-modal").close();
-        pendingDeleteAction = null;
-      });
+    byId("delete-modal-cancel").addEventListener("click", () => {
+      /** @type {HTMLDialogElement} */ (byId("delete-modal")).close();
+      pendingDeleteAction = null;
+    });
 
-    document
-      .getElementById("delete-modal-confirm")
-      .addEventListener("click", async () => {
-        document.getElementById("delete-modal").close();
-        if (pendingDeleteAction) {
-          await pendingDeleteAction();
-          pendingDeleteAction = null;
-        }
-      });
+    byId("delete-modal-confirm").addEventListener("click", async () => {
+      /** @type {HTMLDialogElement} */ (byId("delete-modal")).close();
+      if (pendingDeleteAction) {
+        await pendingDeleteAction();
+        pendingDeleteAction = null;
+      }
+    });
   });
 </script>

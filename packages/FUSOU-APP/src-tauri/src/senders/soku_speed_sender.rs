@@ -77,14 +77,7 @@ impl SokuSpeedSender {
                 let mut slots: Vec<serde_json::Value> = e
                     .slots
                     .iter()
-                    .map(|s| {
-                        serde_json::json!([
-                            s.slotitem_id,
-                            s.locked,
-                            s.level,
-                            s.alv,
-                        ])
-                    })
+                    .map(|s| serde_json::json!([s.slotitem_id, s.locked, s.level, s.alv,]))
                     .collect();
                 // Keep deterministic order even if upstream slot ordering changes.
                 slots.sort_unstable_by_key(|v| v.to_string());
@@ -94,13 +87,7 @@ impl SokuSpeedSender {
                     .as_ref()
                     .map(|s| serde_json::json!([s.slotitem_id, s.locked, s.level, s.alv]));
 
-                serde_json::json!([
-                    e.master_id,
-                    e.lv,
-                    e.soku_observed,
-                    slots,
-                    exslot,
-                ])
+                serde_json::json!([e.master_id, e.lv, e.soku_observed, slots, exslot,])
             })
             .collect();
         canonical_entries.sort_unstable_by_key(|v| v.to_string());
@@ -120,9 +107,10 @@ impl SokuSpeedSender {
     async fn resolve_dataset_id(&self) -> Option<String> {
         let mut attempts = 0;
         while attempts < 15 {
-            let dataset_id = crate::util::get_user_member_id().await;
-            if !dataset_id.trim().is_empty() {
-                return Some(dataset_id);
+            if let Some(dataset_id) = self.auth_manager.resolve_dataset_id_for_upload(None).await {
+                if !dataset_id.trim().is_empty() {
+                    return Some(dataset_id);
+                }
             }
             attempts += 1;
             tokio::time::sleep(Duration::from_millis(200)).await;
@@ -144,10 +132,7 @@ impl SokuSpeedSender {
             kc_api::database::DATABASE_TABLE_VERSION
         )));
 
-        if self
-            .cache
-            .should_skip(Self::payload_key(), &payload_hash)
-        {
+        if self.cache.should_skip(Self::payload_key(), &payload_hash) {
             tracing::debug!("soku_speed_sender: suppression cache hit, skipping upload");
             return Ok(false);
         }
@@ -214,8 +199,7 @@ impl SokuSpeedSender {
         .await
         {
             Ok(_) => {
-                self.cache
-                    .mark_processed(Self::payload_key(), payload_hash);
+                self.cache.mark_processed(Self::payload_key(), payload_hash);
                 Ok(true)
             }
             Err(e) => {

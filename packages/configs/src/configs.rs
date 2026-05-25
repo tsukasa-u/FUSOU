@@ -634,8 +634,6 @@ impl ConfigsAppAssetSync {
         }
     }
 
-    // member_map_endpoint moved to app.auth
-
     // Backward-compatible wrappers for older getter names
     pub fn get_asset_sync_api_endpoint(&self) -> Option<String> {
         self.get_asset_upload_endpoint()
@@ -763,8 +761,10 @@ impl ConfigsAppAssetSync {
 pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
-    member_map_endpoint: Option<String>,
-    anonymous_sync_endpoint: Option<String>,
+    anonymous_sync_v2_register_endpoint: Option<String>,
+    anonymous_sync_v2_challenge_endpoint: Option<String>,
+    anonymous_sync_v2_refresh_endpoint: Option<String>,
+    anonymous_sync_v2_revoke_endpoint: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -785,25 +785,52 @@ impl ConfigsAppAuth {
         }
     }
 
-    pub fn get_member_map_endpoint(&self) -> Option<String> {
-        match &self.member_map_endpoint {
+    /// v2 anonymous-sync の各エンドポイント URL を返す。
+    /// 未設定の場合は configs.toml のデフォルト値にフォールバックし、
+    /// それも未設定なら `None` を返す (=> 呼び出し側でエラー扱いとする)。
+    pub fn get_anonymous_sync_v2_register_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_v2_register_endpoint {
             Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => get_default_configs()
                 .app
                 .auth
-                .member_map_endpoint
+                .anonymous_sync_v2_register_endpoint
                 .as_ref()
                 .map(|s| s.trim().to_string()),
         }
     }
 
-    pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
-        match &self.anonymous_sync_endpoint {
+    pub fn get_anonymous_sync_v2_challenge_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_v2_challenge_endpoint {
             Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => get_default_configs()
                 .app
                 .auth
-                .anonymous_sync_endpoint
+                .anonymous_sync_v2_challenge_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
+        }
+    }
+
+    pub fn get_anonymous_sync_v2_refresh_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_v2_refresh_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .anonymous_sync_v2_refresh_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
+        }
+    }
+
+    pub fn get_anonymous_sync_v2_revoke_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_v2_revoke_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .anonymous_sync_v2_revoke_endpoint
                 .as_ref()
                 .map(|s| s.trim().to_string()),
         }
@@ -1536,8 +1563,10 @@ mod tests {
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
             auth_page_url: None,
-            member_map_endpoint: None,
-            anonymous_sync_endpoint: None,
+            anonymous_sync_v2_register_endpoint: None,
+            anonymous_sync_v2_challenge_endpoint: None,
+            anonymous_sync_v2_refresh_endpoint: None,
+            anonymous_sync_v2_revoke_endpoint: None,
         };
 
         assert_eq!(

@@ -264,7 +264,11 @@ impl ShipGrowthSender {
     async fn resolve_dataset_id(&self) -> Option<String> {
         let mut attempts = 0;
         while attempts < 15 {
-            let dataset_id = crate::util::get_user_member_id().await;
+            let dataset_id = self
+                .auth_manager
+                .resolve_dataset_id_for_upload(None)
+                .await
+                .unwrap_or_default();
             tracing::debug!(
                 attempts,
                 empty = dataset_id.trim().is_empty(),

@@ -1,12 +1,12 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
-use tracing;
 use crate::types::{DatasetToken, DatasetTokenStore, Session};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
+use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde::Deserialize;
+use tracing;
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
@@ -131,7 +131,10 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    async fn persist_dataset_token_store(&self, store: &DatasetTokenStore) -> Result<(), AuthError> {
+    async fn persist_dataset_token_store(
+        &self,
+        store: &DatasetTokenStore,
+    ) -> Result<(), AuthError> {
         let path = self
             .dataset_token_path
             .lock()
@@ -173,8 +176,9 @@ impl<S: Storage> AuthManager<S> {
         let api_key = if let Some(v) = SUPABASE_PUBLISHABLE_KEY_EMBED {
             v.to_string()
         } else {
-            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
-                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY").map_err(|_| {
+                AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string())
+            })?
         };
 
         let config = AuthConfig {
@@ -203,10 +207,16 @@ impl<S: Storage> AuthManager<S> {
             tracing::debug!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
                 exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
-                tracing::debug!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
+                tracing::debug!(
+                    "get_access_token: using cached token (valid for {} more seconds)",
+                    seconds_until_expiry
+                );
                 return Ok(session.access_token);
             } else {
-                tracing::debug!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
+                tracing::debug!(
+                    "get_access_token: token expiring soon (within {} seconds), will refresh",
+                    self.config.refresh_margin_secs
+                );
             }
         } else {
             tracing::debug!("get_access_token: no expires_at in session, will refresh");
@@ -289,10 +299,16 @@ impl<S: Storage> AuthManager<S> {
             tracing::warn!(status = %status, body = %masked_body, "supabase refresh request failed");
 
             // If the refresh token is invalid/expired/already used, clear and signal re-auth.
-            if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
-                tracing::warn!("refresh token invalid/expired; clearing session and requesting re-login");
+            if status == reqwest::StatusCode::BAD_REQUEST
+                || status == reqwest::StatusCode::UNAUTHORIZED
+            {
+                tracing::warn!(
+                    "refresh token invalid/expired; clearing session and requesting re-login"
+                );
                 let _ = self.storage.clear().await;
-                return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
+                return Err(AuthError::RequireReauth(
+                    "refresh token invalid or already used; please sign in again".to_string(),
+                ));
             }
 
             return Err(AuthError::RefreshFailed(format!("status {}", status)));
@@ -301,7 +317,10 @@ impl<S: Storage> AuthManager<S> {
         let body: serde_json::Value = resp.json().await?;
 
         // extract tokens and expiry
-        let access_token = body["access_token"].as_str().unwrap_or_default().to_string();
+        let access_token = body["access_token"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
         let refresh_token = body
             .get("refresh_token")
             .and_then(|v| v.as_str())
@@ -323,10 +342,9 @@ impl<S: Storage> AuthManager<S> {
         let expires_in = body.get("expires_in").and_then(|v| v.as_i64());
 
         // If expires_in is missing, fall back to a conservative default to avoid hammering refresh.
-        let expires_at: Option<DateTime<Utc>> = Some(Utc::now()
-            + Duration::seconds(
-                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS),
-            ));
+        let expires_at: Option<DateTime<Utc>> = Some(
+            Utc::now() + Duration::seconds(expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS)),
+        );
 
         let session = Session {
             access_token: access_token.clone(),
@@ -343,7 +361,10 @@ impl<S: Storage> AuthManager<S> {
     }
 
     /// Attach bearer to the request builder after ensuring a valid token.
-    pub async fn attach_bearer(&self, mut req: reqwest::RequestBuilder) -> Result<reqwest::RequestBuilder, AuthError> {
+    pub async fn attach_bearer(
+        &self,
+        mut req: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, AuthError> {
         let token = self.get_access_token().await?;
         req = req.bearer_auth(token);
         Ok(req)
@@ -353,7 +374,10 @@ impl<S: Storage> AuthManager<S> {
     ///
     /// `make_request` is a closure that receives a `&reqwest::Client` and returns a `RequestBuilder`.
     /// This allows the function to rebuild the request for a retry after refresh.
-    pub async fn request_with_refresh<F>(&self, make_request: F) -> Result<reqwest::Response, AuthError>
+    pub async fn request_with_refresh<F>(
+        &self,
+        make_request: F,
+    ) -> Result<reqwest::Response, AuthError>
     where
         F: Fn(&Client) -> reqwest::RequestBuilder,
     {
@@ -437,175 +461,6 @@ impl<S: Storage> AuthManager<S> {
 
 // MultiSession管理のための拡張メソッド
 impl<S: Storage> AuthManager<S> {
-    /// 匿名認証セッションとdataset_tokenを取得・更新する
-    /// member_id_hash: ユーザー識別用のハッシュ（Set::Basicで取得）
-    ///
-    /// Multi-device注意：既存のセッションがある場合は、新しい anonymous user_id を生成するのではなく
-    /// 既存セッションを再利用します。これにより、複数端末で同じ user_id が維持され、
-    /// dataset_token の帰属（user_id）が一貫性を保ちます。
-    pub async fn get_or_refresh_anonymous_session(
-        &self,
-        member_id_hash: &str,
-    ) -> Result<(Option<Session>, String), AuthError> {
-        let member_id_hash = member_id_hash.trim();
-        tracing::info!("anonymous-sync started");
-        if member_id_hash.is_empty() {
-            return Err(AuthError::Other(
-                "member_id_hash is not ready for anonymous-sync".to_string(),
-            ));
-        }
-
-        // Load existing dataset_token if available (multi-device consistency check)
-        let existing_store = self.read_dataset_token_store_from_disk().await.ok();
-        let has_existing_mapping = existing_store
-            .as_ref()
-            .map(|store| !store.tokens.is_empty())
-            .unwrap_or(false);
-
-        // configs.toml から anonymous_sync_endpoint を取得
-        let url = configs::get_user_configs_for_app()
-            .auth
-            .get_anonymous_sync_endpoint()
-            .ok_or_else(|| AuthError::Other("anonymous_sync_endpoint not configured".to_string()))?;
-        
-        let body = serde_json::json!({
-            "member_id_hash": member_id_hash
-        });
-
-        let resp = self
-            .client
-            .post(&url)
-            .header("apikey", &self.config.api_key);
-
-        let resp = match self.get_access_token().await {
-            Ok(access_token) => {
-                resp
-                    .bearer_auth(access_token)
-                    .json(&body)
-                    .send()
-                    .await?
-            }
-            Err(_) => {
-                // If no existing session but we have a previous mapping on disk, use that
-                // to retrieve dataset_token without generating a new anonymous user_id
-                if has_existing_mapping {
-                    tracing::info!("no local access token, but existing mapping found on disk for this device (multi-device scenario)");
-                }
-                resp
-                    .json(&body)
-                    .send()
-                    .await?
-            }
-        };
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            let masked_body = masked_error_payload(&text);
-            tracing::warn!(
-                status = %status,
-                body = %masked_body,
-                "anonymous-sync request failed"
-            );
-            return Err(AuthError::RefreshFailed(format!(
-                "anonymous-sync failed: status {}",
-                status
-            )));
-        }
-
-        #[derive(Deserialize)]
-        struct AnonymousSyncResponse {
-            access_token: Option<String>,
-            refresh_token: Option<String>,
-            dataset_token: String,
-        }
-
-        let response_data: AnonymousSyncResponse = resp.json().await?;
-
-        // セッションの決定
-        let session = if let (Some(at), Some(rt)) = (response_data.access_token.clone(), response_data.refresh_token.clone()) {
-            // 新しい匿名セッションが取得できた場合
-            let expires_at = Utc::now() + Duration::seconds(DEFAULT_ACCESS_TOKEN_TTL_SECS);
-            Some(Session {
-                access_token: at,
-                refresh_token: rt,
-                expires_at: Some(expires_at),
-                token_type: Some("bearer".to_string()),
-            })
-        } else {
-            // Fallback: 既存セッションを再利用（既存デバイスで dataset_token のみ更新した場合など）
-            match self.storage.load_session().await? {
-                Some(current) => Some(current),
-                None => {
-                    tracing::info!(
-                        "anonymous-sync returned dataset_token without session tokens and no local session exists"
-                    );
-                    None
-                }
-            }
-        };
-
-        tracing::info!(
-            session_tokens = if session.is_some() { "present" } else { "absent" },
-            "anonymous-sync completed"
-        );
-
-        Ok((session, response_data.dataset_token))
-    }
-
-    /// dataset_tokenの有効期限をチェックし、必要なら更新
-    /// 有効期限が1日以内の場合、自動更新する
-    ///
-    /// 新しいセッションが返された場合は自動的にストレージに保存する。
-    pub async fn ensure_dataset_token_valid(
-        &self,
-        member_id_hash: &str,
-        current_token: Option<&crate::types::DatasetToken>,
-    ) -> Result<crate::types::DatasetToken, AuthError> {
-        let member_id_hash = member_id_hash.trim();
-        if member_id_hash.is_empty() {
-            return Err(AuthError::Other(
-                "dataset_id is not ready for dataset_token refresh".to_string(),
-            ));
-        }
-
-        // 現在のトークンが有効かチェック（期限1日前を基準）
-        let needs_refresh = if let Some(token) = current_token {
-            let one_day = Duration::days(1);
-            token.expires_at <= Utc::now() + one_day
-        } else {
-            true
-        };
-
-        if needs_refresh {
-            tracing::info!("dataset_token refresh started");
-            let (session_opt, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
-
-            // 新しいセッションが返された場合はストレージに保存（マルチデバイスで
-            // セッションが無い端末でもアップロード時にセッションを自動取得できるようにする）
-            if let Some(session) = session_opt {
-                if let Err(e) = self.storage.save_session(&session).await {
-                    tracing::warn!("ensure_dataset_token_valid: failed to save session: {}", e);
-                }
-            }
-            
-            // 7日後に有効期限切れ
-            let expires_at = Utc::now() + Duration::days(7);
-
-            tracing::info!("dataset_token refresh completed");
-            
-            Ok(crate::types::DatasetToken {
-                token: dataset_token_str,
-                expires_at,
-                dataset_id: Some(member_id_hash.to_string()),
-            })
-        } else {
-            tracing::info!("dataset_token still valid; refresh skipped");
-            // 既存のトークンを返す
-            Ok(current_token.unwrap().clone())
-        }
-    }
-
     /// dataset_tokenを dataset_id 単位で保存する。
     pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
         let Some(dataset_id) = token.dataset_id.clone() else {
@@ -618,6 +473,20 @@ impl<S: Storage> AuthManager<S> {
 
         if let Err(e) = self.persist_dataset_token_store(&cache).await {
             tracing::warn!("Failed to persist dataset_token store: {}", e);
+        }
+
+        Ok(())
+    }
+
+    /// dataset_token ストアを全削除する。
+    ///
+    /// member_id 切替時など、旧 dataset_id のトークンを再利用したくない場面で使う。
+    pub async fn clear_dataset_tokens(&self) -> Result<(), AuthError> {
+        let mut cache = self.dataset_token_cache.lock().await;
+        cache.tokens.clear();
+
+        if let Err(e) = self.persist_dataset_token_store(&cache).await {
+            tracing::warn!("Failed to persist cleared dataset_token store: {}", e);
         }
 
         Ok(())
@@ -709,4 +578,349 @@ impl<S: Storage> AuthManager<S> {
 
         None
     }
+}
+
+// ============================================================
+// v2 anonymous-sync (pepper + Ed25519 device key)
+// ============================================================
+//
+// 旧 /anonymous-sync (v1) は salt をクライアントに埋め込んで member_id_hash を
+// 計算する設計だったが、salt 流出で任意の api_member_id から dataset_token を
+// 取得できる弱点があった。v2 では以下のように責務を再配置する:
+//   - サーバーは pepper (Wrangler secret) を保持し pid = HMAC(pepper, api_member_id) を
+//     内部で計算する。クライアントは生 api_member_id だけを TLS で送る。
+//   - クライアントは Ed25519 keypair を端末で生成・保管し、その公開鍵を register で
+//     登録する。以降の refresh/revoke は challenge nonce への署名で本人性を担保する。
+//
+// 現在は v2 固定運用。クライアント側は `ensure_dataset_token_v2` を利用する。
+
+use crate::device_key::DeviceKey;
+
+/// /v2/register のレスポンス
+#[derive(Debug, Deserialize)]
+struct RegisterV2Response {
+    device_id: String,
+    pid: String,
+    dataset_token: String,
+}
+
+/// /v2/challenge のレスポンス
+#[derive(Debug, Deserialize)]
+struct ChallengeV2Response {
+    nonce: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    expires_at: Option<i64>,
+}
+
+/// /v2/refresh のレスポンス
+#[derive(Debug, Deserialize)]
+struct RefreshV2Response {
+    dataset_token: String,
+    pid: String,
+    /// 現行 pepper のバージョンタグ ("v1", "v2" ...)。
+    /// 直前の refresh と比較してローテーション検知に使う想定だが、
+    /// クライアントは旧値を保持していないので情報用ログ出力のみ。
+    #[serde(default)]
+    #[allow(dead_code)]
+    salt_version: Option<String>,
+}
+
+impl<S: Storage> AuthManager<S> {
+    /// /v2/register を呼んで device_id を取得し、dataset_token を返す。
+    /// 成功時は device_key.set_device_id() で確定値を書き戻す。
+    ///
+    /// 失敗時は device_key 側に値を書き込まないので、再試行できる。
+    pub async fn register_device_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        // attestation = Ed25519(secret, "register|" + api_member_id)
+        // サーバーは受け取った device_pub で同じメッセージを検証し、
+        // 公開鍵が秘密鍵と整合していることを確認する。
+        let attestation_message = format!("register|{}", api_member_id);
+        let attestation_b64 = device_key.sign_b64(attestation_message.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_register_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other("anonymous_sync_v2_register_endpoint not configured".to_string())
+            })?;
+
+        let body = serde_json::json!({
+            "api_member_id": api_member_id,
+            "device_pub": device_key.public_key_b64(),
+            "attestation": attestation_b64,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 register failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 register failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: RegisterV2Response = resp.json().await?;
+
+        // device_id を端末に確定書き込み。これ以降の refresh はこの値を使う。
+        device_key.set_device_id(parsed.device_id.clone()).await?;
+
+        tracing::info!(
+            device_id = %parsed.device_id,
+            "anonymous-sync v2 register completed"
+        );
+
+        Ok(DatasetToken {
+            token: parsed.dataset_token,
+            // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
+            // クライアント側は 1 日前に refresh するので大きな問題にはならない。
+            expires_at: Utc::now() + Duration::days(7),
+            dataset_id: Some(parsed.pid),
+        })
+    }
+
+    /// /v2/challenge を呼んで nonce を取得する。
+    /// nonce はサーバー側 HMAC で 5 分単位のバケットに紐づき、refresh / revoke の
+    /// メッセージ署名にそのまま使う。
+    async fn fetch_challenge_v2(&self, device_id: &str) -> Result<ChallengeV2Response, AuthError> {
+        let base = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_challenge_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other("anonymous_sync_v2_challenge_endpoint not configured".to_string())
+            })?;
+
+        let resp = self
+            .client
+            .get(&base)
+            .query(&[("device_id", device_id)])
+            .header("apikey", &self.config.api_key)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 challenge failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 challenge failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: ChallengeV2Response = resp.json().await?;
+        Ok(parsed)
+    }
+
+    /// /v2/refresh を呼んで dataset_token を再発行する。
+    /// device_key.device_id() が確定済みであることが前提。未登録なら
+    /// 呼び出し元で先に register_device_v2 を呼ぶ。
+    pub async fn refresh_dataset_token_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &DeviceKey,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        let device_id = device_key.device_id().ok_or_else(|| {
+            AuthError::Other(
+                "refresh_dataset_token_v2 called before device is registered".to_string(),
+            )
+        })?;
+
+        let challenge = self.fetch_challenge_v2(device_id).await?;
+        // refresh メッセージ = nonce そのもの。サーバーは保存済み公開鍵で署名を検証する。
+        let sig_b64 = device_key.sign_b64(challenge.nonce.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_refresh_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other("anonymous_sync_v2_refresh_endpoint not configured".to_string())
+            })?;
+
+        let body = serde_json::json!({
+            "device_id": device_id,
+            "api_member_id": api_member_id,
+            "nonce": challenge.nonce,
+            "sig": sig_b64,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 refresh failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 refresh failed: status {}",
+                status
+            )));
+        }
+
+        let parsed: RefreshV2Response = resp.json().await?;
+
+        if let Some(version) = parsed.salt_version.as_deref() {
+            tracing::debug!(
+                device_id = %device_id,
+                salt_version = %version,
+                "anonymous-sync v2 refresh: dataset_token issued"
+            );
+        }
+
+        Ok(DatasetToken {
+            token: parsed.dataset_token,
+            expires_at: Utc::now() + Duration::days(7),
+            dataset_id: Some(parsed.pid),
+        })
+    }
+
+    /// 別の自端末から target_device_id を失効させる。
+    /// 端末紛失時の自己復旧用エンドポイント。サーバーは「同じ canonical_user_id 配下に
+    /// 属する別の有効な device からの操作」だけを受理する。
+    pub async fn revoke_device_v2(
+        &self,
+        target_device_id: &str,
+        device_key: &DeviceKey,
+        reason: Option<&str>,
+    ) -> Result<(), AuthError> {
+        let device_id = device_key.device_id().ok_or_else(|| {
+            AuthError::Other("revoke_device_v2 called before device is registered".to_string())
+        })?;
+        if target_device_id.trim().is_empty() {
+            return Err(AuthError::Other(
+                "revoke_device_v2: target_device_id must be non-empty".to_string(),
+            ));
+        }
+
+        let challenge = self.fetch_challenge_v2(device_id).await?;
+        // revoke メッセージ = "revoke|" + from_device_id + "|" + target_device_id + "|" + nonce
+        let message = format!(
+            "revoke|{}|{}|{}",
+            device_id, target_device_id, challenge.nonce
+        );
+        let sig_b64 = device_key.sign_b64(message.as_bytes());
+
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_v2_revoke_endpoint()
+            .ok_or_else(|| {
+                AuthError::Other("anonymous_sync_v2_revoke_endpoint not configured".to_string())
+            })?;
+
+        let body = serde_json::json!({
+            "device_id": device_id,
+            "target_device_id": target_device_id,
+            "nonce": challenge.nonce,
+            "sig": sig_b64,
+            "reason": reason,
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                body = %masked_error_payload(&text),
+                "anonymous-sync v2 revoke failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync v2 revoke failed: status {}",
+                status
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// v2 のメイン入口。
+    /// - device_key.device_id() が未確定なら register、確定済みなら challenge + refresh。
+    /// - 既存 dataset_token が有効期限 1 日以上残っていればそのまま返す (v1 と同方針)。
+    pub async fn ensure_dataset_token_v2(
+        &self,
+        api_member_id: &str,
+        device_key: &mut DeviceKey,
+        current_token: Option<&DatasetToken>,
+    ) -> Result<DatasetToken, AuthError> {
+        let api_member_id = api_member_id.trim();
+        validate_api_member_id(api_member_id)?;
+
+        let needs_refresh = match current_token {
+            Some(token) => token.expires_at <= Utc::now() + Duration::days(1),
+            None => true,
+        };
+        if !needs_refresh {
+            return Ok(current_token
+                .expect("current_token is Some when needs_refresh is false")
+                .clone());
+        }
+
+        if device_key.device_id().is_none() {
+            tracing::info!("anonymous-sync v2: device not registered, calling /v2/register");
+            self.register_device_v2(api_member_id, device_key).await
+        } else {
+            tracing::info!("anonymous-sync v2: device already registered, calling /v2/refresh");
+            self.refresh_dataset_token_v2(api_member_id, device_key)
+                .await
+        }
+    }
+}
+
+/// api_member_id を厳格検証する。KC は 10 桁前後の整数を返すため、
+/// サーバー側バリデーション (`/^[0-9]{1,16}$/`) と同じ条件をクライアントでも適用する。
+fn validate_api_member_id(value: &str) -> Result<(), AuthError> {
+    if value.is_empty() {
+        return Err(AuthError::Other(
+            "api_member_id must be non-empty".to_string(),
+        ));
+    }
+    if value.len() > 16 || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(AuthError::Other(
+            "api_member_id must be 1..=16 ASCII digits".to_string(),
+        ));
+    }
+    Ok(())
 }
