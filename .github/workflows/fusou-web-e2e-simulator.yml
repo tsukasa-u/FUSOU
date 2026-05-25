@@ -43,6 +43,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
+
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
 
@@ -80,6 +83,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
@@ -126,6 +132,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Setup Rust environment for wasm build
+        run: pnpm --dir packages/FUSOU-WEB run setup:rust-env
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
