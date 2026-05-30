@@ -6,9 +6,9 @@ use google_drive3::{
     hyper_rustls, hyper_util, yup_oauth2, yup_oauth2::authenticator::Authenticator, DriveHub,
 };
 use once_cell::sync::Lazy;
-use proxy_https::proxy_server_https::setup_default_crypto_provider;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use tokio::sync::OnceCell;
 
 pub type DriveClient =
@@ -37,6 +37,18 @@ pub static CLOUD_PROVIDER_TOKENS: Lazy<Mutex<HashMap<String, UserAccessTokenInfo
 pub static USER_GOOGLE_AUTH: OnceCell<
     Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
 > = OnceCell::const_new();
+
+static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
+
+fn setup_default_crypto_provider() {
+    CRYPTO_PROVIDER_LOCK.get_or_init(|| {
+        // Another crate in the same process may initialize rustls first.
+        // Treat that case as success to keep initialization order-independent.
+        if let Err(err) = rustls::crypto::ring::default_provider().install_default() {
+            tracing::debug!(error = ?err, "rustls crypto provider already initialized");
+        }
+    });
+}
 
 /// Set refresh token for a specific provider (google, dropbox, icloud, etc.)
 #[deprecated(
@@ -68,7 +80,7 @@ pub fn set_refresh_token(refresh_token: String, provider_name: String) -> Result
     // Only initialize Google Drive client if provider is google
     if provider_name.to_lowercase() == "google" {
         tokio::task::spawn(async move {
-            proxy_https::proxy_server_https::setup_default_crypto_provider();
+            setup_default_crypto_provider();
             let hub = create_client().await;
             if hub.is_none() {
                 let _ = runtime_hooks::launch_auth_page();

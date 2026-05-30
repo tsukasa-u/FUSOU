@@ -18,7 +18,6 @@ use std::sync::Arc;
 
 use cap_std::fs::Dir;
 
-#[cfg(any(not(dev), check_release))]
 use crate::constants::STORAGE_SUB_DIR_NAME;
 
 // ---------------------------------------------------------------------------
@@ -76,25 +75,66 @@ pub fn resolve_root_from_config() -> PathBuf {
 }
 
 fn default_root_directory() -> PathBuf {
-    #[cfg(dev)]
-    {
+    if cfg!(debug_assertions) {
+        // Preserve the same dev default used before storage crate extraction.
+        // Original location: packages/FUSOU-APP/src-tauri + "../../FUSOU-DATABASE".
+        // Extracted location: packages/fusou-storage + "../FUSOU-APP/FUSOU-DATABASE".
         return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../FUSOU-DATABASE");
+            .join("../FUSOU-APP/FUSOU-DATABASE");
     }
 
-    #[cfg(any(not(dev), check_release))]
-    {
-        if let Some(doc_dir) = dirs::document_dir() {
-            doc_dir
-                .join("fusou")
-                .join(STORAGE_SUB_DIR_NAME)
-        } else if let Ok(current_dir) = std::env::current_dir() {
-            current_dir
-                .join("fusou")
-                .join(STORAGE_SUB_DIR_NAME)
-        } else {
-            PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME)
-        }
+    release_default_root_directory(dirs::document_dir(), std::env::current_dir().ok())
+}
+
+fn release_default_root_directory(
+    document_dir: Option<PathBuf>,
+    current_dir: Option<PathBuf>,
+) -> PathBuf {
+    if let Some(doc_dir) = document_dir {
+        doc_dir.join("fusou").join(STORAGE_SUB_DIR_NAME)
+    } else if let Some(cwd) = current_dir {
+        cwd.join("fusou").join(STORAGE_SUB_DIR_NAME)
+    } else {
+        PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dev_default_matches_pre_extraction_target_path() {
+        let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../FUSOU-APP/FUSOU-DATABASE");
+
+        assert_eq!(default_root_directory(), expected);
+    }
+
+    #[test]
+    fn release_default_prefers_document_dir() {
+        let doc = PathBuf::from("doc-root");
+        let cwd = PathBuf::from("cwd-root");
+
+        let actual = release_default_root_directory(Some(doc.clone()), Some(cwd));
+
+        assert_eq!(actual, doc.join("fusou").join(STORAGE_SUB_DIR_NAME));
+    }
+
+    #[test]
+    fn release_default_uses_current_dir_when_document_dir_missing() {
+        let cwd = PathBuf::from("cwd-root");
+
+        let actual = release_default_root_directory(None, Some(cwd.clone()));
+
+        assert_eq!(actual, cwd.join("fusou").join(STORAGE_SUB_DIR_NAME));
+    }
+
+    #[test]
+    fn release_default_uses_relative_fallback_when_no_base_dirs_available() {
+        let actual = release_default_root_directory(None, None);
+
+        assert_eq!(actual, PathBuf::from("fusou").join(STORAGE_SUB_DIR_NAME));
     }
 }
 

@@ -561,12 +561,12 @@ async fn process_path(
     if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
         if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
             tracing::warn!(
-                key,
+                key = %mask_sensitive(&key),
                 "Authentication failed while checking existing keys; proceeding without remote key cache"
             );
         } else {
             tracing::warn!(
-                key,
+                key = %mask_sensitive(&key),
                 error = %err,
                 "Failed to refresh existing keys cache; proceeding with upload path"
             );
@@ -1034,16 +1034,6 @@ async fn maybe_refresh_existing_keys(
         ))
     })?;
 
-    let token_preview = if access_token.len() > 20 {
-        format!(
-            "{}...{}",
-            &access_token[..10],
-            &access_token[access_token.len() - 10..]
-        )
-    } else {
-        "<short-token>".to_string()
-    };
-
     // Get last sync timestamp for incremental sync
     let last_sync_ts = get_last_sync_timestamp();
     let url = if let Some(ts) = last_sync_ts {
@@ -1058,9 +1048,9 @@ async fn maybe_refresh_existing_keys(
     };
 
     tracing::info!(
-        "maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}",
-        token_preview,
-        url
+        endpoint = %url,
+        token_len = access_token.len(),
+        "maybe_refresh_existing_keys: got access token and calling API"
     );
 
     let response = client

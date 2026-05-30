@@ -10,15 +10,18 @@ use crate::{
 };
 
 use fusou_upload::{PendingStore, UploadRetryService};
-use std::sync::Arc;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 type StorageDeps = (Arc<PendingStore>, Arc<UploadRetryService>);
 
 static STORAGE_DEPS: Lazy<Mutex<Option<StorageDeps>>> = Lazy::new(|| Mutex::new(None));
 
-pub async fn initialize_storage_deps(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) {
+pub async fn initialize_storage_deps(
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
+) {
     let mut deps = STORAGE_DEPS.lock().await;
     *deps = Some((pending_store, retry_service));
 }
@@ -35,7 +38,9 @@ pub fn submit_get_data_table() {
             return;
         };
 
-        let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+        let Some(storage_service) =
+            StorageService::get_instance(pending_store, retry_service).await
+        else {
             return;
         };
 
@@ -78,7 +83,9 @@ pub fn submit_port_table() {
                 return;
             };
 
-            let Some(storage_service) = StorageService::get_instance(pending_store, retry_service.clone()).await else {
+            let Some(storage_service) =
+                StorageService::get_instance(pending_store, retry_service.clone()).await
+            else {
                 return;
             };
 

@@ -17,11 +17,12 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-use crate::{asset_sync, bidirectional_channel};
+use crate::bidirectional_channel;
 
 use configs;
 
 use fusou_auth::{AuthManager, FileStorage};
+use fusou_storage::asset_sync;
 use std::sync::Arc;
 use tracing_unwrap::ResultExt;
 
@@ -618,9 +619,11 @@ static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
 
 pub fn setup_default_crypto_provider() {
     CRYPTO_PROVIDER_LOCK.get_or_init(|| {
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .expect_or_log("Failed to install rustls crypto provider")
+        // Another crate in the same process may initialize rustls first.
+        // Treat that case as success to keep initialization order-independent.
+        if let Err(err) = rustls::crypto::ring::default_provider().install_default() {
+            tracing::debug!(error = ?err, "rustls crypto provider already initialized");
+        }
     });
 }
 

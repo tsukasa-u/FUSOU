@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::future::join_all;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
@@ -9,10 +8,7 @@ use crate::cloud_provider_trait::CloudStorageProvider;
 #[cfg(feature = "gdrive")]
 use crate::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
 use crate::common::{
-    get_all_get_data_tables,
-    get_all_port_tables,
-    generate_port_table_filename,
-    master_folder,
+    generate_port_table_filename, get_all_get_data_tables, get_all_port_tables, master_folder,
     transaction_root,
 };
 #[cfg(feature = "gdrive")]
@@ -77,7 +73,9 @@ impl CloudTableStorageProvider {
             .create_folder(remote_path)
             .await
             .map(|_| ())
-            .map_err(|e| StorageError::Operation(format!("failed to create folder {remote_path}: {e}")))
+            .map_err(|e| {
+                StorageError::Operation(format!("failed to create folder {remote_path}: {e}"))
+            })
     }
 
     async fn upload_bytes(&self, remote_path: &str, bytes: &[u8]) -> Result<(), StorageError> {
@@ -225,11 +223,12 @@ impl CloudTableStorageProvider {
         let mut temp_path = std::env::temp_dir();
         temp_path.push(format!("fusou-download-{}", Uuid::new_v4()));
 
-        self
-            .cloud
+        self.cloud
             .download_file(remote_path, temp_path.as_path())
             .await
-            .map_err(|e| StorageError::Operation(format!("download failed for {remote_path}: {e}")))?;
+            .map_err(|e| {
+                StorageError::Operation(format!("download failed for {remote_path}: {e}"))
+            })?;
 
         let bytes = tokio::fs::read(&temp_path)
             .await
@@ -265,13 +264,13 @@ impl CloudTableStorageProvider {
             return Err(StorageError::Operation("No tables to upload".to_string()));
         }
 
-        // Build upload tasks for parallel execution
-        let mut tasks = Vec::new();
+        // Build upload tasks for parallel execution.
+        let mut join_set = tokio::task::JoinSet::new();
         for (table_name, avro_data) in tables {
             let file_path = format!("{}/{}.avro", base_path, table_name);
             let self_clone = self.clone();
             let table_name_clone = table_name.clone();
-            let task = async move {
+            join_set.spawn(async move {
                 // Check if file already exists to avoid duplicates
                 if let Ok(true) = self_clone.cloud.file_exists(&file_path).await {
                     tracing::info!(
@@ -305,13 +304,24 @@ impl CloudTableStorageProvider {
                         Err(e)
                     }
                 }
-            };
-            tasks.push(task);
+            });
         }
 
-        // Execute all uploads in parallel
-        let results = join_all(tasks).await;
-        let success_count = results.iter().filter(|r| r.is_ok()).count();
+        // Execute all uploads in parallel and count successful table uploads.
+        let mut success_count = 0_usize;
+        while let Some(join_result) = join_set.join_next().await {
+            match join_result {
+                Ok(Ok(())) => {
+                    success_count += 1;
+                }
+                Ok(Err(_)) => {
+                    // Per-table upload errors are logged in each task.
+                }
+                Err(err) => {
+                    tracing::error!(error = %err, "cloud upload task join error");
+                }
+            }
+        }
 
         Ok(success_count)
     }
@@ -325,7 +335,9 @@ impl StorageProvider for CloudTableStorageProvider {
     #[cfg(feature = "gdrive")]
     fn supports_integration(&self) -> bool {
         // CloudTable integrates only when feature is enabled and user config allows cloud sync
-        configs::get_user_configs_for_app().database.get_allow_data_to_cloud()
+        configs::get_user_configs_for_app()
+            .database
+            .get_allow_data_to_cloud()
     }
 
     #[cfg(not(feature = "gdrive"))]
@@ -352,7 +364,10 @@ impl StorageProvider for CloudTableStorageProvider {
             }
 
             if tables.is_empty() {
-                tracing::debug!("No get_data_table content to upload for period {}", period_tag);
+                tracing::debug!(
+                    "No get_data_table content to upload for period {}",
+                    period_tag
+                );
                 return Ok(());
             }
 
@@ -369,7 +384,11 @@ impl StorageProvider for CloudTableStorageProvider {
                     Ok(())
                 }
                 Err(e) => {
-                    tracing::error!("Failed to upload get_data_table for period {}: {}", period_tag, e);
+                    tracing::error!(
+                        "Failed to upload get_data_table for period {}: {}",
+                        period_tag,
+                        e
+                    );
                     Err(e)
                 }
             }
@@ -421,7 +440,11 @@ impl StorageProvider for CloudTableStorageProvider {
             }
 
             if uploaded == 0 {
-                tracing::warn!("No non-empty port_table content found for map {}-{}", maparea_id, mapinfo_no);
+                tracing::warn!(
+                    "No non-empty port_table content found for map {}-{}",
+                    maparea_id,
+                    mapinfo_no
+                );
             }
 
             Ok(())
@@ -433,8 +456,8 @@ impl StorageProvider for CloudTableStorageProvider {
         period_tag: &'a str,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            use kc_api::database::table::PORT_TABLE_NAMES;
             use crate::common::integrate_by_table_name;
+            use kc_api::database::table::PORT_TABLE_NAMES;
             let batch_size = self.batch_size;
 
             tracing::info!(
@@ -444,7 +467,7 @@ impl StorageProvider for CloudTableStorageProvider {
             );
 
             let txn_root = transaction_root(period_tag);
-            
+
             // List all map directories (e.g., "1-5", "2-3") in transaction root
             let map_folders = match self.cloud.list_folders(&txn_root).await {
                 Ok(folders) => folders,
@@ -456,12 +479,13 @@ impl StorageProvider for CloudTableStorageProvider {
 
             for map_folder in map_folders {
                 let map_path = format!("{}/{}", txn_root, map_folder);
-                let (maparea_id, mapinfo_no) = crate::common::parse_map_ids(&map_folder).unwrap_or((0, 0));
-                
+                let (maparea_id, mapinfo_no) =
+                    crate::common::parse_map_ids(&map_folder).unwrap_or((0, 0));
+
                 // Process each table type
                 for table_name in PORT_TABLE_NAMES.iter() {
                     let table_path = format!("{}/{}", map_path, table_name);
-                    
+
                     // List all .avro files in this table directory
                     let files = match self.cloud.list_files(&table_path).await {
                         Ok(files) => files,
@@ -479,10 +503,8 @@ impl StorageProvider for CloudTableStorageProvider {
                     );
 
                     // Filter .avro files
-                    let avro_files: Vec<_> = files
-                        .into_iter()
-                        .filter(|f| f.ends_with(".avro"))
-                        .collect();
+                    let avro_files: Vec<_> =
+                        files.into_iter().filter(|f| f.ends_with(".avro")).collect();
 
                     // Need at least 2 files to integrate
                     if avro_files.len() < 2 {
@@ -490,10 +512,8 @@ impl StorageProvider for CloudTableStorageProvider {
                     }
 
                     // Limit files per integration batch
-                    let files_to_process: Vec<_> = avro_files
-                        .into_iter()
-                        .take(batch_size as usize)
-                        .collect();
+                    let files_to_process: Vec<_> =
+                        avro_files.into_iter().take(batch_size as usize).collect();
 
                     if files_to_process.len() < 2 {
                         continue;
@@ -535,7 +555,10 @@ impl StorageProvider for CloudTableStorageProvider {
                             let integrated_path = format!("{}/{}", table_path, integrated_filename);
 
                             // Upload integrated file
-                            match self.upload_bytes(&integrated_path, &integrated_content).await {
+                            match self
+                                .upload_bytes(&integrated_path, &integrated_content)
+                                .await
+                            {
                                 Ok(_) => {
                                     tracing::info!(
                                         "Uploaded integrated file: {} ({} bytes)",
@@ -559,7 +582,10 @@ impl StorageProvider for CloudTableStorageProvider {
                             }
                         }
                         Ok(_) => {
-                            tracing::warn!("Integration resulted in empty content for {}", table_name);
+                            tracing::warn!(
+                                "Integration resulted in empty content for {}",
+                                table_name
+                            );
                         }
                         Err(e) => {
                             tracing::error!("Failed to integrate table {}: {}", table_name, e);
