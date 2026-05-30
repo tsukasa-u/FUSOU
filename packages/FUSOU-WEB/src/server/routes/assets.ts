@@ -26,13 +26,11 @@ import {
 import { handleTwoStageUpload } from "../utils/upload";
 
 const app = new Hono<{ Bindings: Bindings }>();
-const BROTLI_DECOMPRESSION_FORMAT = "brotli" as unknown as CompressionFormat;
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
-  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-  0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
-  0, 0, 0, 11, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0, 5,
-  0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
-  96, 130,
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0,
+  0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84, 120,
+  156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68,
+  174, 66, 96, 130,
 ]);
 
 // OPTIONS（CORS）
@@ -971,17 +969,13 @@ app.get("/ship-type-icon-frames", async (c) => {
     }
 
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
-    let decodedJson: string;
-    const isBrotli =
-      atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
-    if (isBrotli) {
-      const ds = new DecompressionStream(BROTLI_DECOMPRESSION_FORMAT);
-      const decompressed = new Response(
-        new Blob([atlasRaw]).stream().pipeThrough(ds),
-      );
-      decodedJson = await decompressed.text();
-    } else {
-      decodedJson = new TextDecoder().decode(atlasRaw);
+    let decodedJson = new TextDecoder().decode(atlasRaw);
+    try {
+      JSON.parse(decodedJson);
+    } catch {
+      const decompressed = await brotliDecompressAsync(atlasRaw);
+      decodedJson = decompressed.toString("utf8");
+      JSON.parse(decodedJson);
     }
 
     return new Response(decodedJson, {
