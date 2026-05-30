@@ -15,35 +15,12 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import {
+  SynergyPayloadValidationError,
+  validateSynergyPayload,
+} from "../utils/synergy-payload";
 
 const app = new Hono<{ Bindings: Bindings }>();
-
-async function decompressBytes(
-  body: Uint8Array,
-  format: "gzip" | "br",
-): Promise<Uint8Array> {
-  const ds = new DecompressionStream(format as CompressionFormat);
-  const ab = new Uint8Array(body).buffer;
-  const stream = new Blob([ab]).stream().pipeThrough(ds);
-  const out = await new Response(stream).arrayBuffer();
-  return new Uint8Array(out);
-}
-
-async function decodeSynergyPayload(body: Uint8Array): Promise<Uint8Array> {
-  if (body.length >= 2 && body[0] === 0x1f && body[1] === 0x8b) {
-    return await decompressBytes(body, "gzip");
-  }
-  // Brotli stream magic heuristic (RFC7932): first byte is often 0x8b/0x8f/0x93 etc.
-  // We avoid strict magic and try decode only when payload is not plain JSON.
-  if (body.length > 0 && body[0] !== 0x7b && body[0] !== 0x5b) {
-    try {
-      return await decompressBytes(body, "br");
-    } catch {
-      // not brotli; fall through as-is
-    }
-  }
-  return body;
-}
 
 const EMPTY_SYNERGY_DATA = {
   effect_rules: [],
@@ -54,6 +31,14 @@ const EMPTY_SYNERGY_DATA = {
     generator_version: "unknown",
     generated_at: "1970-01-01T00:00:00.000Z",
   },
+};
+
+type CompletedSynergyManifestRow = {
+  period_tag: string;
+  period_revision: number;
+  content_hash: string;
+  sp_effect_sha256: string;
+  completed_at?: number | null;
 };
 
 /**
@@ -187,7 +172,7 @@ app.get("/synergy-data", async (c) => {
     }
 
     let sql = `
-      SELECT period_tag, period_revision, content_hash, completed_at
+      SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
       FROM synergy_manifest
       WHERE upload_status = 'completed'
     `;
@@ -203,28 +188,18 @@ app.get("/synergy-data", async (c) => {
     let manifest = (await db
       .prepare(sql)
       .bind(...params)
-      .first()) as {
-      period_tag: string;
-      period_revision: number;
-      content_hash: string;
-      completed_at?: number | null;
-    } | null;
+      .first()) as CompletedSynergyManifestRow | null;
 
     if (!manifest && !periodTagQuery) {
       manifest = (await db
         .prepare(
-          `SELECT period_tag, period_revision, content_hash, completed_at
+          `SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
            FROM synergy_manifest
            WHERE upload_status = 'completed'
            ORDER BY completed_at DESC, period_revision DESC
            LIMIT 1`,
         )
-        .first()) as {
-        period_tag: string;
-        period_revision: number;
-        content_hash: string;
-        completed_at?: number | null;
-      } | null;
+        .first()) as CompletedSynergyManifestRow | null;
     }
 
     if (!manifest) {
@@ -247,50 +222,115 @@ app.get("/synergy-data", async (c) => {
       );
     }
 
-    let r2Keys = getSynergyManifestR2Keys(
-      manifest.period_tag,
-      manifest.period_revision,
-      manifest.content_hash,
-    );
-    let object = await bucket.get(r2Keys.sp_effect_json);
+    const loadValidatedPayload = async (
+      candidate: CompletedSynergyManifestRow,
+    ): Promise<{
+      manifest: CompletedSynergyManifestRow;
+      jsonText: string;
+    } | null> => {
+      const keys = getSynergyManifestR2Keys(
+        candidate.period_tag,
+        candidate.period_revision,
+        candidate.content_hash,
+      );
+      const object = await bucket.get(keys.sp_effect_json);
+      if (!object) {
+        return null;
+      }
 
-    // When period is not specified, avoid sticking to a manifest row whose object is missing.
-    // Pick the latest completed manifest that actually exists in R2.
-    if (!object && !periodTagQuery) {
+      const raw = new Uint8Array(await object.arrayBuffer());
+      const validated = await validateSynergyPayload(
+        raw,
+        candidate.sp_effect_sha256,
+      );
+      const jsonText = new TextDecoder().decode(validated.decoded);
+      return { manifest: candidate, jsonText };
+    };
+
+    let resolved: {
+      manifest: CompletedSynergyManifestRow;
+      jsonText: string;
+    } | null = null;
+    let lastPayloadError: unknown = null;
+
+    try {
+      resolved = await loadValidatedPayload(manifest);
+    } catch (error) {
+      lastPayloadError = error;
+    }
+
+    // When period is not specified, avoid sticking to a manifest row with missing/corrupt payload.
+    if (!resolved && !periodTagQuery) {
       const candidates = (await db
         .prepare(
-          `SELECT period_tag, period_revision, content_hash, completed_at
+          `SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
            FROM synergy_manifest
            WHERE upload_status = 'completed'
            ORDER BY completed_at DESC, period_revision DESC
            LIMIT 20`,
         )
         .all()) as {
-        results?: Array<{
-          period_tag: string;
-          period_revision: number;
-          content_hash: string;
-          completed_at?: number | null;
-        }>;
+        results?: CompletedSynergyManifestRow[];
       };
 
       for (const candidate of candidates.results ?? []) {
-        const candidateKeys = getSynergyManifestR2Keys(
-          candidate.period_tag,
-          candidate.period_revision,
-          candidate.content_hash,
-        );
-        const candidateObject = await bucket.get(candidateKeys.sp_effect_json);
-        if (!candidateObject) continue;
-        manifest = candidate;
-        r2Keys = candidateKeys;
-        object = candidateObject;
-        break;
+        try {
+          const candidatePayload = await loadValidatedPayload(candidate);
+          if (!candidatePayload) continue;
+          resolved = candidatePayload;
+          break;
+        } catch (error) {
+          lastPayloadError = error;
+        }
       }
     }
 
-    // Conditional request support: return 304 when client already has this content hash.
+    if (!resolved) {
+      if (envCtx.isDev && !periodTagQuery) {
+        return c.json(EMPTY_SYNERGY_DATA, 200, {
+          "Cache-Control": "public, max-age=300",
+          "X-FUSOU-Synergy-Source": "dev-fallback",
+          "X-FUSOU-Synergy-Period-Tag": "local-dev",
+          "X-FUSOU-Synergy-Period-Revision": "0",
+          "X-FUSOU-Synergy-Completed-At": "unknown",
+        });
+      }
+
+      if (
+        periodTagQuery &&
+        lastPayloadError instanceof SynergyPayloadValidationError
+      ) {
+        return c.json(
+          {
+            error: "Synergy payload validation failed",
+            issue: lastPayloadError.issue,
+            detail: lastPayloadError.detail ?? lastPayloadError.message,
+          },
+          422,
+        );
+      }
+
+      if (lastPayloadError) {
+        console.error(
+          "Error loading synergy payload from R2:",
+          lastPayloadError,
+        );
+        return c.json(
+          {
+            error: "Failed to load synergy payload from R2",
+            detail: String(lastPayloadError),
+          },
+          500,
+        );
+      }
+
+      return c.json({ error: "No valid completed synergy payload found" }, 404);
+    }
+
+    manifest = resolved.manifest;
     const etag = `"${manifest.content_hash}"`;
+
+    // Conditional request support: return 304 when client already has this content hash.
     const ifNoneMatch = c.req.header("If-None-Match");
     if (ifNoneMatch) {
       const tags = ifNoneMatch
@@ -308,25 +348,7 @@ app.get("/synergy-data", async (c) => {
       }
     }
 
-    if (!object) {
-      // Fallback: return empty synergy data for local dev
-      return c.json(EMPTY_SYNERGY_DATA, 200, {
-        ETag: etag,
-        "Cache-Control": "public, max-age=300",
-        "X-FUSOU-Synergy-Source": "dev-fallback",
-        "X-FUSOU-Synergy-Period-Tag": manifest.period_tag,
-        "X-FUSOU-Synergy-Period-Revision": manifest.period_revision.toString(),
-        "X-FUSOU-Synergy-Completed-At":
-          manifest.completed_at?.toString() || "unknown",
-      });
-    }
-
-    const raw = new Uint8Array(await object.arrayBuffer());
-    const decoded = await decodeSynergyPayload(raw);
-
-    const jsonText = new TextDecoder().decode(decoded);
-
-    return new Response(jsonText, {
+    return new Response(resolved.jsonText, {
       status: 200,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
@@ -560,7 +582,8 @@ app.post("/synergy-manifest", async (c) => {
  *
  * Mark manifest as completed after files uploaded to R2.
  * Security: requires X-ADMIN-TOKEN header.
- * Verifies that the sp_effect_item.json actually exists in R2 before marking completed.
+ * Verifies that the sp_effect_item.json exists in R2, can be decoded as JSON,
+ * and matches sp_effect_sha256 before marking completed.
  */
 app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
   const adminCheck = verifyAdminToken(
@@ -590,9 +613,22 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
   const bucket = c.env.MASTER_DATA_BUCKET;
 
   try {
+    const markFailed = async (id: number): Promise<void> => {
+      await db
+        .prepare(
+          `
+          UPDATE synergy_manifest
+          SET upload_status = 'failed'
+          WHERE id = ? AND upload_status = 'pending'
+        `,
+        )
+        .bind(id)
+        .run();
+    };
+
     // First, look up the pending manifest to get content_hash for R2 verification
     const lookupStmt = db.prepare(`
-      SELECT id, content_hash FROM synergy_manifest
+      SELECT id, content_hash, sp_effect_sha256 FROM synergy_manifest
       WHERE period_tag = ? AND period_revision = ? AND upload_status = 'pending'
     `);
 
@@ -601,9 +637,15 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
       .first()) as {
       id?: number;
       content_hash?: string;
+      sp_effect_sha256?: string;
     } | null;
 
-    if (!pending || !pending.id || !pending.content_hash) {
+    if (
+      !pending ||
+      !pending.id ||
+      !pending.content_hash ||
+      !pending.sp_effect_sha256
+    ) {
       return c.json(
         {
           error: `No pending manifest found for period_tag=${periodTag}, period_revision=${periodRevision}`,
@@ -618,16 +660,11 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
       periodRevision,
       pending.content_hash,
     );
-    const r2Head = await bucket.head(r2Keys.sp_effect_json);
+    const object = await bucket.get(r2Keys.sp_effect_json);
 
-    if (!r2Head) {
+    if (!object) {
       // File not found in R2 — mark as failed
-      const failStmt = db.prepare(`
-        UPDATE synergy_manifest
-        SET upload_status = 'failed'
-        WHERE id = ?
-      `);
-      await failStmt.bind(pending.id).run();
+      await markFailed(pending.id);
 
       return c.json(
         {
@@ -637,6 +674,74 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
         },
         422,
       );
+    }
+
+    let raw: Uint8Array;
+    try {
+      raw = new Uint8Array(await object.arrayBuffer());
+    } catch (error) {
+      return c.json(
+        {
+          error: "Failed to read sp_effect_item payload from R2",
+          detail: String(error),
+          expected_r2_key: r2Keys.sp_effect_json,
+        },
+        500,
+      );
+    }
+
+    try {
+      await validateSynergyPayload(raw, pending.sp_effect_sha256);
+    } catch (error) {
+      if (error instanceof SynergyPayloadValidationError) {
+        await markFailed(pending.id);
+        if (error.issue === "decode") {
+          return c.json(
+            {
+              error: "Failed to decode sp_effect_item payload",
+              detail: error.detail ?? error.message,
+              expected_r2_key: r2Keys.sp_effect_json,
+              upload_status: "failed",
+            },
+            422,
+          );
+        }
+
+        if (error.issue === "invalid_json") {
+          return c.json(
+            {
+              error: "sp_effect_item.json is not valid JSON",
+              detail: error.detail ?? error.message,
+              expected_r2_key: r2Keys.sp_effect_json,
+              upload_status: "failed",
+            },
+            422,
+          );
+        }
+
+        if (error.issue === "root_not_object") {
+          return c.json(
+            {
+              error: "sp_effect_item.json root must be a JSON object",
+              expected_r2_key: r2Keys.sp_effect_json,
+              upload_status: "failed",
+            },
+            422,
+          );
+        }
+
+        return c.json(
+          {
+            error: "sp_effect_item hash mismatch",
+            expected_sp_effect_sha256: error.expectedSha256,
+            actual_sp_effect_sha256: error.actualSha256,
+            expected_r2_key: r2Keys.sp_effect_json,
+            upload_status: "failed",
+          },
+          422,
+        );
+      }
+      throw error;
     }
 
     // R2 object confirmed — mark as completed
