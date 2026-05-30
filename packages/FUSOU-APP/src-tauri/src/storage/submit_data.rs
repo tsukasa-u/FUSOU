@@ -14,7 +14,9 @@ use std::sync::Arc;
 use once_cell::sync::Lazy;
 use tokio::sync::Mutex;
 
-static STORAGE_DEPS: Lazy<Mutex<Option<(Arc<PendingStore>, Arc<UploadRetryService>)>>> = Lazy::new(|| Mutex::new(None));
+type StorageDeps = (Arc<PendingStore>, Arc<UploadRetryService>);
+
+static STORAGE_DEPS: Lazy<Mutex<Option<StorageDeps>>> = Lazy::new(|| Mutex::new(None));
 
 pub async fn initialize_storage_deps(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) {
     let mut deps = STORAGE_DEPS.lock().await;
@@ -22,13 +24,17 @@ pub async fn initialize_storage_deps(pending_store: Arc<PendingStore>, retry_ser
 }
 
 pub fn submit_get_data_table() {
-    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
-    let Some((pending_store, retry_service)) = deps_opt else {
-        tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
-        return;
-    };
-
     tokio::task::spawn(async move {
+        let deps_opt = {
+            let deps = STORAGE_DEPS.lock().await;
+            deps.clone()
+        };
+
+        let Some((pending_store, retry_service)) = deps_opt else {
+            tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
+            return;
+        };
+
         let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
             return;
         };
@@ -49,12 +55,6 @@ pub fn submit_get_data_table() {
 }
 
 pub fn submit_port_table() {
-    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
-    let Some((pending_store, retry_service)) = deps_opt else {
-        tracing::warn!("Storage dependencies not initialized for submit_port_table");
-        return;
-    };
-
     if !Cells::reset_flag() {
         let cells = Cells::load();
         let maparea_id = cells.maparea_id;
@@ -68,6 +68,16 @@ pub fn submit_port_table() {
             cells.event_map.is_some()
         );
         tokio::task::spawn(async move {
+            let deps_opt = {
+                let deps = STORAGE_DEPS.lock().await;
+                deps.clone()
+            };
+
+            let Some((pending_store, retry_service)) = deps_opt else {
+                tracing::warn!("Storage dependencies not initialized for submit_port_table");
+                return;
+            };
+
             let Some(storage_service) = StorageService::get_instance(pending_store, retry_service.clone()).await else {
                 return;
             };

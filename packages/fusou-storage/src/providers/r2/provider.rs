@@ -2,8 +2,8 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use kc_api::database::DATABASE_TABLE_VERSION;
 use std::sync::Arc;
 
-use crate::storage::common::get_all_port_tables;
-use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
+use crate::common::get_all_port_tables;
+use crate::service::{StorageError, StorageFuture, StorageProvider};
 
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{
@@ -183,6 +183,12 @@ impl R2StorageProvider {
     }
 
     async fn resolve_dataset_id_for_cloud_upload(&self) -> Option<String> {
+        if let Some(member_id_hash) = crate::runtime_hooks::resolve_dataset_id().await {
+            let trimmed = member_id_hash.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
         self.auth_manager.resolve_dataset_id_for_upload(None).await
     }
 

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use cap_std::fs::Dir;
 
 #[cfg(any(not(dev), check_release))]
-use crate::storage::constants::STORAGE_SUB_DIR_NAME;
+use crate::constants::STORAGE_SUB_DIR_NAME;
 
 // ---------------------------------------------------------------------------
 // Error type

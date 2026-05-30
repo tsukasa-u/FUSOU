@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::storage::constants::{
+use crate::constants::{
     MASTER_DATA_FOLDER_NAME,
     PERIOD_ROOT_FOLDER_NAME,
     TRANSACTION_DATA_FOLDER_NAME,

@@ -1,18 +1,21 @@
+use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
-use std::future::Future;
 
 use google_drive3::{hyper_rustls, hyper_util, DriveHub};
 
-use crate::storage::cloud_provider_trait::CloudStorageProvider;
-use crate::storage::constants::{GOOGLE_DRIVE_ROOT_FOLDER_ID};
+use crate::cloud_provider_trait::CloudStorageProvider;
+use crate::constants::GOOGLE_DRIVE_ROOT_FOLDER_ID;
 
 use super::api::{check_folder, check_or_create_folder, delete_file_raw, get_file_content};
-use super::client::{create_auth, DriveClient, set_refresh_token};
+use super::client::{create_auth, set_refresh_token, DriveClient};
 
 /// Minimal Google Drive adapter that satisfies CloudStorageProvider.
 /// DEPRECATED: Google Drive support is deprecated since 0.2.0. Use anonymous authentication instead.
-#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
+#[deprecated(
+    since = "0.4.0",
+    note = "Google Drive support is deprecated. Use anonymous authentication instead."
+)]
 #[derive(Default, Clone)]
 pub struct GoogleDriveCloudStorageProvider;
 
@@ -27,22 +30,24 @@ impl GoogleDriveCloudStorageProvider {
             .filter(|p| !p.is_empty())
             .map(|p| p.to_string())
             .collect();
-        let file_name = parts.pop().ok_or_else(|| "remote_path is empty".to_string())?;
+        let file_name = parts
+            .pop()
+            .ok_or_else(|| "remote_path is empty".to_string())?;
         Ok((parts, file_name))
     }
 
     async fn build_client(&self) -> Result<DriveClient, Box<dyn std::error::Error>> {
-        let auth = create_auth().await.ok_or_else(|| "google auth not initialized".to_string())?;
+        let auth = create_auth()
+            .await
+            .ok_or_else(|| "google auth not initialized".to_string())?;
 
-        let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
-            .build(
-                hyper_rustls::HttpsConnectorBuilder::new()
-                    .with_native_roots()
-                    .unwrap()
-                    .https_or_http()
-                    .enable_http1()
-                    .build(),
-            );
+        let https_builder = hyper_rustls::HttpsConnectorBuilder::new()
+            .with_native_roots()
+            .map_err(|e| format!("failed to load native root certificates: {e}"))?;
+
+        let client =
+            hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                .build(https_builder.https_or_http().enable_http1().build());
 
         Ok(DriveHub::new(client, auth))
     }
@@ -104,8 +109,9 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
         refresh_token: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>> {
         Box::pin(async move {
-            set_refresh_token(refresh_token, "google".to_string())
-                .map_err(|_| -> Box<dyn std::error::Error> { "failed to store refresh token".into() })?;
+            set_refresh_token(refresh_token, "google".to_string()).map_err(
+                |_| -> Box<dyn std::error::Error> { "failed to store refresh token".into() },
+            )?;
             // Attempt to build client to validate token
             self.build_client().await.map(|_| ())
         })
@@ -171,7 +177,8 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
     fn list_files(
         &self,
         remote_path: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>
+    {
         let remote_path_owned = remote_path.to_string();
         Box::pin(async move {
             let mut hub = self.build_client().await?;
@@ -180,7 +187,11 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
             let folders: Vec<String> = if trimmed.is_empty() {
                 Vec::new()
             } else {
-                trimmed.split('/').filter(|p| !p.is_empty()).map(|p| p.to_string()).collect()
+                trimmed
+                    .split('/')
+                    .filter(|p| !p.is_empty())
+                    .map(|p| p.to_string())
+                    .collect()
             };
 
             let folder_id = match self.resolve_folder(&mut hub, &folders, false).await? {
@@ -190,7 +201,7 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
 
             let query = format!(
                 "mimeType!='application/vnd.google-apps.folder' and {trash_filter} and '{folder_id}' in parents",
-                trash_filter = crate::storage::constants::GOOGLE_DRIVE_TRASHED_FILTER
+                trash_filter = crate::constants::GOOGLE_DRIVE_TRASHED_FILTER
             );
 
             let result = hub
@@ -218,7 +229,8 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
     fn list_folders(
         &self,
         remote_path: &str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>
+    {
         let remote_path_owned = remote_path.to_string();
         Box::pin(async move {
             let mut hub = self.build_client().await?;
@@ -227,7 +239,11 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
             let folders: Vec<String> = if trimmed.is_empty() {
                 Vec::new()
             } else {
-                trimmed.split('/').filter(|p| !p.is_empty()).map(|p| p.to_string()).collect()
+                trimmed
+                    .split('/')
+                    .filter(|p| !p.is_empty())
+                    .map(|p| p.to_string())
+                    .collect()
             };
 
             let folder_id = match self.resolve_folder(&mut hub, &folders, false).await? {
@@ -237,7 +253,7 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
 
             let query = format!(
                 "mimeType='application/vnd.google-apps.folder' and {trash_filter} and '{folder_id}' in parents",
-                trash_filter = crate::storage::constants::GOOGLE_DRIVE_TRASHED_FILTER
+                trash_filter = crate::constants::GOOGLE_DRIVE_TRASHED_FILTER
             );
 
             let result = hub
@@ -274,9 +290,9 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
                 .await?
                 .ok_or_else(|| "file not found".to_string())?;
 
-            delete_file_raw(&mut hub, file_id)
-                .await
-                .map_err(|e| -> Box<dyn std::error::Error> { format!("failed to delete: {e:?}").into() })?;
+            delete_file_raw(&mut hub, file_id).await.map_err(
+                |e| -> Box<dyn std::error::Error> { format!("failed to delete: {e:?}").into() },
+            )?;
             Ok(())
         })
     }

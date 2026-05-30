@@ -13,6 +13,7 @@ use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel
 use crate::builder_setup::logger::MessageVisitor;
 #[cfg(feature = "gdrive")]
 use crate::storage::providers::gdrive;
+use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -135,16 +136,25 @@ pub async fn close_splashscreen(window: tauri::Window) {
 #[cfg(feature = "gdrive")]
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
-    let split_token: Vec<String> = token.split("&").map(|s| s.to_string()).collect();
-    #[allow(clippy::get_first)]
-    let refresh_token = split_token.get(0);
-    let token_type = split_token.get(1);
-    if refresh_token.is_none() || token_type.is_none() {
+    let mut parts = token
+        .split('&')
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+
+    let Some(refresh_token) = parts.next().map(str::to_string) else {
         return Err(());
-    }
-    let refresh_token = refresh_token.unwrap();
-    let token_type = token_type.unwrap();
-    return gdrive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
+    };
+
+    // Backward compatibility:
+    // - old format: refresh_token&token_type
+    // - extended format: refresh_token&token_type&provider
+    // - provider is optional and defaults to google
+    let provider = parts
+        .filter_map(CloudProviderFactory::canonicalize_provider_name)
+        .last()
+        .unwrap_or(GOOGLE_PROVIDER_KEY);
+
+    gdrive::set_refresh_token(refresh_token, provider.to_string())
 }
 
 use fusou_auth::{AuthManager, FileStorage};
@@ -235,11 +245,7 @@ pub async fn get_access_token(
 pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), String> {
     use crate::json_parser::{emit_data, struct_selector_response, struct_selector_resquest};
 
-    let file = fs::read_to_string(path);
-    if let Err(e) = file {
-        return Err(e.to_string());
-    }
-    let content = file.unwrap();
+    let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
 
     let path_string = path.to_string();
     let path_split_slash: Vec<&str> = path_string.split("/").collect();
@@ -356,7 +362,7 @@ pub async fn perform_snapshot_sync(
 ) -> Result<serde_json::Value, String> {
     
     crate::storage::snapshot::perform_snapshot_sync_app(
-        &_window.app_handle(),
+        _window.app_handle(),
         auth_manager.inner().clone(),
     ).await
 }
@@ -644,11 +650,11 @@ pub fn get_all_logs() -> Vec<MessageVisitor> {
     crate::builder_setup::logger::get_all_logs_internal()
 }
 
-/// Get user's Google Drive refresh token from Supabase (provider_tokens table).
+/// Get user's provider refresh token from Supabase (provider_tokens table).
 /// Uses RLS (Row Level Security) via Authorization header for user identification.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_user_tokens(
-    _user_id: String,
+    _provider_hint: String,
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<Option<String>, String> {
     let manager = {
@@ -656,8 +662,11 @@ pub async fn get_user_tokens(
         guard.clone()
     };
 
+    let provider = CloudProviderFactory::canonicalize_provider_name(&_provider_hint)
+        .unwrap_or(GOOGLE_PROVIDER_KEY);
+
     manager
-        .fetch_provider_token("google")
+        .fetch_provider_token(provider)
         .await
         .map_err(|e| format!("Failed to fetch provider token: {}", e))
 }

@@ -2,7 +2,7 @@
 // DEPRECATED: Google Drive authentication is deprecated since 0.4.0. Use anonymous authentication instead.
 
 use super::client::DriveClient;
-use crate::storage::constants::{
+use crate::constants::{
     GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_TRASHED_FILTER,
 };
 use http_body_util::BodyExt;
@@ -94,7 +94,11 @@ pub async fn check_folder(
                 if files.is_empty() {
                     return None;
                 }
-                return Some(files[0].id.clone().unwrap());
+                if let Some(id) = files.first().and_then(|f| f.id.clone()) {
+                    return Some(id);
+                }
+                tracing::warn!("google drive check_folder found entry without file id");
+                return None;
             }
             Err(e) => {
                 let msg = format!("{e:?}");
@@ -153,7 +157,11 @@ pub async fn check_file(
                 if files.is_empty() {
                     return None;
                 }
-                return Some(files[0].id.clone().unwrap());
+                if let Some(id) = files.first().and_then(|f| f.id.clone()) {
+                    return Some(id);
+                }
+                tracing::warn!("google drive check_file found entry without file id");
+                return None;
             }
             Err(e) => {
                 let msg = format!("{e:?}");
@@ -203,10 +211,17 @@ pub async fn create_file_raw(
 
     let mut last_err: google_drive3::Error = google_drive3::Error::MissingAPIKey; // Dummy init
     for attempt in 0..5u32 {
+        let parsed_mime = match mime_type.parse() {
+            Ok(m) => m,
+            Err(e) => {
+                tracing::error!("invalid mime type '{}': {}", mime_type, e);
+                return Err(google_drive3::Error::MissingAPIKey);
+            }
+        };
         let create_result = hub
             .files()
             .create(req.clone())
-            .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
+            .upload(std::io::Cursor::new(content), parsed_mime)
             .await;
         match create_result {
             Ok(result) => return Ok(result.1.id.unwrap_or_default()),
@@ -256,10 +271,17 @@ pub async fn create_or_replace_file_raw(
         };
         let mut last_err: google_drive3::Error = google_drive3::Error::MissingAPIKey;
         for attempt in 0..5u32 {
+            let parsed_mime = match mime_type.parse() {
+                Ok(m) => m,
+                Err(e) => {
+                    tracing::error!("invalid mime type '{}': {}", mime_type, e);
+                    return Err(google_drive3::Error::MissingAPIKey);
+                }
+            };
             let update_result = hub
                 .files()
                 .update(req.clone(), &existing_id)
-                .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
+                .upload(std::io::Cursor::new(content), parsed_mime)
                 .await;
             match update_result {
                 Ok(_) => return Ok(existing_id),

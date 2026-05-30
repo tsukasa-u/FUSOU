@@ -2,13 +2,19 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::storage::providers::{LocalFileSystemProvider, R2StorageProvider};
+use crate::providers::{LocalFileSystemProvider, R2StorageProvider};
 #[cfg(feature = "gdrive")]
-use crate::storage::providers::CloudTableStorageProvider;
+use crate::providers::CloudTableStorageProvider;
+#[cfg(feature = "gdrive")]
+use crate::{
+    cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY},
+    constants::GOOGLE_DRIVE_PROVIDER_NAME,
+};
 use fusou_upload::{PendingStore, UploadRetryService};
 
 // Global singleton for StorageService to avoid repeated initialization
-static STORAGE_SERVICE_INSTANCE: OnceCell<Option<StorageService>> = OnceCell::const_new();
+static STORAGE_SERVICE_INSTANCE: OnceCell<StorageService> = OnceCell::const_new();
+static STORAGE_SERVICE_INIT_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -84,18 +90,39 @@ pub struct StorageService {
 }
 
 impl StorageService {
+    #[cfg(feature = "gdrive")]
+    fn provider_display_name(provider_key: &str) -> &'static str {
+        match provider_key {
+            GOOGLE_PROVIDER_KEY => GOOGLE_DRIVE_PROVIDER_NAME,
+            _ => "cloud",
+        }
+    }
+
     /// Get or initialize the singleton StorageService instance.
     /// This ensures initialization happens only once, avoiding redundant logs and provider creation.
     pub async fn get_instance(
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>
     ) -> Option<&'static StorageService> {
-        STORAGE_SERVICE_INSTANCE
-            .get_or_init(|| async {
-                Self::initialize(pending_store, retry_service)
-            })
+        if let Some(instance) = STORAGE_SERVICE_INSTANCE.get() {
+            return Some(instance);
+        }
+
+        let _guard = STORAGE_SERVICE_INIT_LOCK
+            .get_or_init(|| async { Mutex::new(()) })
             .await
-            .as_ref()
+            .lock()
+            .await;
+
+        if let Some(instance) = STORAGE_SERVICE_INSTANCE.get() {
+            return Some(instance);
+        }
+
+        let service = Self::initialize(pending_store, retry_service)?;
+        match STORAGE_SERVICE_INSTANCE.set(service) {
+            Ok(()) => STORAGE_SERVICE_INSTANCE.get(),
+            Err(_) => STORAGE_SERVICE_INSTANCE.get(),
+        }
     }
 
     /// Internal initialization - called only once by get_instance
@@ -116,13 +143,21 @@ impl StorageService {
         if database_config.get_allow_data_to_cloud() {
             #[cfg(feature = "gdrive")]
             {
-                tracing::debug!("Attempting to initialize Google Drive storage provider");
-                match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
-                    Ok(provider) => {
-                        tracing::info!("Google Drive storage provider initialized");
-                        providers.push(Arc::new(provider));
-                    },
-                    Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
+                for provider_key in CloudProviderFactory::supported_providers() {
+                    tracing::debug!(provider_key, "Attempting to initialize cloud storage provider");
+                    let provider_name = Self::provider_display_name(provider_key);
+                    match CloudTableStorageProvider::try_new_cloud_provider(
+                        provider_key,
+                        provider_name,
+                        pending_store.clone(),
+                        retry_service.clone(),
+                    ) {
+                        Ok(provider) => {
+                            tracing::info!(provider_key, "Cloud storage provider initialized");
+                            providers.push(Arc::new(provider));
+                        }
+                        Err(err) => tracing::error!(provider_key, "Failed to initialize cloud storage provider: {err}"),
+                    }
                 }
             }
         }

@@ -4,7 +4,7 @@ use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
 use uuid::Uuid;
 
-use crate::storage::constants::{AVRO_FILE_EXTENSION, PORT_TABLE_FILE_NAME_SEPARATOR};
+use crate::constants::{AVRO_FILE_EXTENSION, PORT_TABLE_FILE_NAME_SEPARATOR};
 
 /// Generate a timestamped filename for port table data
 /// Format: {timestamp}_{uuid}.avro

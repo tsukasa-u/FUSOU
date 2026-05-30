@@ -5,10 +5,10 @@ use futures::future::join_all;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
-use crate::storage::cloud_provider_trait::CloudStorageProvider;
+use crate::cloud_provider_trait::CloudStorageProvider;
 #[cfg(feature = "gdrive")]
-use crate::storage::cloud_provider_trait::CloudProviderFactory;
-use crate::storage::common::{
+use crate::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
+use crate::common::{
     get_all_get_data_tables,
     get_all_port_tables,
     generate_port_table_filename,
@@ -16,8 +16,8 @@ use crate::storage::common::{
     transaction_root,
 };
 #[cfg(feature = "gdrive")]
-use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
-use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
+use crate::constants::GOOGLE_DRIVE_PROVIDER_NAME;
+use crate::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryService};
 
 /// StorageProvider implementation backed by a CloudStorageProvider.
@@ -25,6 +25,7 @@ use fusou_upload::{PendingSaveOutcome, PendingStore, UploadContext, UploadRetryS
 #[derive(Clone)]
 pub struct CloudTableStorageProvider {
     provider_name: &'static str,
+    provider_key: &'static str,
     cloud: Arc<dyn CloudStorageProvider>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
@@ -37,14 +38,33 @@ impl CloudTableStorageProvider {
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>,
     ) -> Result<Self, String> {
-        // Google is the only concrete cloud target today; factory keeps tokens set at startup.
-        let cloud = CloudProviderFactory::create("google")?;
-        let batch_size = configs::get_user_configs_for_app()
-            .database
-            .google_drive
-            .get_page_size();
+        Self::try_new_cloud_provider(
+            GOOGLE_PROVIDER_KEY,
+            GOOGLE_DRIVE_PROVIDER_NAME,
+            pending_store,
+            retry_service,
+        )
+    }
+
+    #[cfg(feature = "gdrive")]
+    pub fn try_new_cloud_provider(
+        provider_key: &'static str,
+        provider_name: &'static str,
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>,
+    ) -> Result<Self, String> {
+        let cloud = CloudProviderFactory::create(provider_key)?;
+        let batch_size = if provider_key == GOOGLE_PROVIDER_KEY {
+            configs::get_user_configs_for_app()
+                .database
+                .google_drive
+                .get_page_size()
+        } else {
+            100
+        };
         Ok(Self {
-            provider_name: GOOGLE_DRIVE_PROVIDER_NAME,
+            provider_name,
+            provider_key,
             cloud: Arc::from(cloud),
             pending_store,
             retry_service,
@@ -102,6 +122,7 @@ impl CloudTableStorageProvider {
                     let pending_save = self.pending_store.clone();
                     let retry = self.retry_service.clone();
                     let provider = self.provider_name.to_string();
+                    let provider_key = self.provider_key.to_string();
                     let path = remote_path.to_string();
                     let data = bytes.to_vec();
                     let hash = data_hash.clone();
@@ -110,6 +131,7 @@ impl CloudTableStorageProvider {
                         headers.insert("remote-path".to_string(), path.clone());
                         headers.insert("content-hash".to_string(), hash.clone());
                         let context = UploadContext::Custom(serde_json::json!({
+                            "provider": provider_key,
                             "operation": "upload",
                             "remote_path": path,
                             "content_hash": hash
@@ -412,7 +434,7 @@ impl StorageProvider for CloudTableStorageProvider {
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             use kc_api::database::table::PORT_TABLE_NAMES;
-            use crate::storage::common::integrate_by_table_name;
+            use crate::common::integrate_by_table_name;
             let batch_size = self.batch_size;
 
             tracing::info!(
@@ -434,7 +456,7 @@ impl StorageProvider for CloudTableStorageProvider {
 
             for map_folder in map_folders {
                 let map_path = format!("{}/{}", txn_root, map_folder);
-                let (maparea_id, mapinfo_no) = crate::storage::common::parse_map_ids(&map_folder).unwrap_or((0, 0));
+                let (maparea_id, mapinfo_no) = crate::common::parse_map_ids(&map_folder).unwrap_or((0, 0));
                 
                 // Process each table type
                 for table_name in PORT_TABLE_NAMES.iter() {
