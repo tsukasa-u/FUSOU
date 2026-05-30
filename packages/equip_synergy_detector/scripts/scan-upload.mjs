@@ -22,7 +22,8 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 
-const args = process.argv.slice(2);
+// pnpm forwards "--" as an argv separator; ignore it so users can pass extra flags normally.
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
 const knownFlags = new Set(["--period-tag", "--env", "--dry-run"]);
 
 function readFlagValue(flag) {
