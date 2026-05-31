@@ -78,9 +78,8 @@ fn default_root_directory() -> PathBuf {
     if cfg!(debug_assertions) {
         // Preserve the same dev default used before storage crate extraction.
         // Original location: packages/FUSOU-APP/src-tauri + "../../FUSOU-DATABASE".
-        // Extracted location: packages/fusou-storage + "../FUSOU-APP/FUSOU-DATABASE".
-        return PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../FUSOU-APP/FUSOU-DATABASE");
+        // Extracted location: packages/fusou-storage + "../FUSOU-DATABASE".
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../FUSOU-DATABASE");
     }
 
     release_default_root_directory(dirs::document_dir(), std::env::current_dir().ok())
@@ -105,8 +104,7 @@ mod tests {
 
     #[test]
     fn dev_default_matches_pre_extraction_target_path() {
-        let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../FUSOU-APP/FUSOU-DATABASE");
+        let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../FUSOU-DATABASE");
 
         assert_eq!(default_root_directory(), expected);
     }
@@ -151,8 +149,7 @@ mod tests {
 /// The directory is created if it does not yet exist.
 pub fn open_root_dir(root: &Path) -> Result<Dir, RootValidatorError> {
     std::fs::create_dir_all(root).map_err(RootValidatorError::Io)?;
-    Dir::open_ambient_dir(root, cap_std::ambient_authority())
-        .map_err(RootValidatorError::Io)
+    Dir::open_ambient_dir(root, cap_std::ambient_authority()).map_err(RootValidatorError::Io)
 }
 
 /// Write `data` to `relative_path` under a cap-std `Dir` handle.
@@ -168,18 +165,22 @@ pub fn write_at_relative(
     relative_path: &str,
     data: &[u8],
 ) -> Result<(), RootValidatorError> {
-    use std::path::Component;
     use std::io::Write;
+    use std::path::Component;
 
     let rel = Path::new(relative_path);
     // Validate components before touching the filesystem.
     for component in rel.components() {
         match component {
             Component::ParentDir => {
-                return Err(RootValidatorError::InvalidPath("relative_path must not contain '..'"));
+                return Err(RootValidatorError::InvalidPath(
+                    "relative_path must not contain '..'",
+                ));
             }
             Component::Prefix(_) | Component::RootDir => {
-                return Err(RootValidatorError::InvalidPath("relative_path contains forbidden prefix/root"));
+                return Err(RootValidatorError::InvalidPath(
+                    "relative_path contains forbidden prefix/root",
+                ));
             }
             Component::CurDir | Component::Normal(_) => {}
         }
@@ -196,7 +197,10 @@ pub fn write_at_relative(
     let mut file = dir
         .open_with(
             rel,
-            cap_std::fs::OpenOptions::new().write(true).create(true).truncate(true),
+            cap_std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true),
         )
         .map_err(RootValidatorError::Io)?;
     file.write_all(data).map_err(RootValidatorError::Io)?;

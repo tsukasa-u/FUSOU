@@ -1,4 +1,3 @@
-use crate::auth::auth_server;
 use crate::notify;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
@@ -131,9 +130,8 @@ pub async fn perform_snapshot_sync_app(
                 notify::show(
                     app,
                     "Sign-in Required",
-                    "Session expired. Please sign in again.",
+                    "Session expired. Please continue authentication from FUSOU-WEB.",
                 );
-                let _ = auth_server::open_auth_page();
             } else {
                 notify::show(app, "Snapshot sync failed", &format!("Upload error: {}", e));
             }
