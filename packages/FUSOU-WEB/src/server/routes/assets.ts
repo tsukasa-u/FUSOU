@@ -9,7 +9,6 @@ import {
   CORS_HEADERS,
   SIGNED_URL_TTL_SECONDS,
   SAFE_MIME_BY_EXTENSION,
-  CACHE_TTL_SECONDS,
 } from "../constants";
 import {
   extractBearer,
@@ -24,6 +23,10 @@ import {
   timingSafeEqual,
 } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
+import {
+  bumpAssetIndexRevision,
+  getAssetSyncKeysResponse,
+} from "../utils/asset-index-cache";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -224,6 +227,8 @@ app.post("/upload", async (c) => {
         )
         .run();
 
+      await bumpAssetIndexRevision(db, uploadedAt);
+
       return {
         response: { key, size: storedSize },
       };
@@ -252,9 +257,14 @@ app.get("/keys", async (c) => {
 
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
 
   if (!db) {
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
+  }
+
+  if (!kv) {
+    return c.json({ error: "ASSET_SYNC_INDEX_KV is not configured" }, 503);
   }
 
   // Parse optional 'since' parameter for incremental sync
@@ -269,75 +279,17 @@ app.get("/keys", async (c) => {
   }
 
   try {
-    const keys: string[] = [];
-    const items: {
-      key: string;
-      contentHash: string | null;
-      size: number;
-      uploadedAt: number | null;
-    }[] = [];
-    let cursor = 0;
-    const BATCH_SIZE = 1000;
-
-    while (true) {
-      // Use conditional query based on whether 'since' is provided
-      let stmt: D1PreparedStatement;
-      if (sinceMs) {
-        stmt = db
-          .prepare(
-            "SELECT key, content_hash, size, uploaded_at FROM files WHERE uploaded_at > ? ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
-          )
-          .bind(sinceMs, BATCH_SIZE, cursor);
-      } else {
-        stmt = db
-          .prepare(
-            "SELECT key, content_hash, size, uploaded_at FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
-          )
-          .bind(BATCH_SIZE, cursor);
-      }
-
-      const res = await stmt.all?.();
-      const batch = (res?.results || []) as Array<{
-        key?: unknown;
-        content_hash?: unknown;
-        size?: unknown;
-        uploaded_at?: unknown;
-      }>;
-
-      const filtered = batch.filter((r) => typeof r.key === "string");
-      for (const r of filtered) {
-        const key = r.key as string;
-        keys.push(key);
-        items.push({
-          key,
-          contentHash:
-            typeof r.content_hash === "string" ? r.content_hash : null,
-          size: typeof r.size === "number" ? r.size : 0,
-          uploadedAt: typeof r.uploaded_at === "number" ? r.uploaded_at : null,
-        });
-      }
-
-      if (batch.length === 0) break;
-      cursor += batch.length;
-      if (batch.length < BATCH_SIZE) break;
-    }
-
-    const refreshedAt = Date.now();
-    const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
+    const payload = await getAssetSyncKeysResponse({
+      db,
+      kv,
+      sinceMs,
+    });
 
     console.log(
-      `GET /keys: returning ${items.length} items (incremental=${!!sinceMs})`,
+      `GET /keys: returning ${payload.items.length} items (incremental=${payload.incremental}, cached=${payload.cached}, degraded=${payload.degraded === true})`,
     );
 
-    return c.json({
-      keys,
-      items,
-      total: items.length,
-      refreshedAt: new Date(refreshedAt).toISOString(),
-      cacheExpiresAt: new Date(expiresAt).toISOString(),
-      cached: false,
-      incremental: !!sinceMs, // Indicates whether this is a partial or full sync
-    });
+    return c.json(payload);
   } catch (e) {
     console.error("GET /keys: error", e);
     return c.json({ error: "Failed to list assets" }, 502);
