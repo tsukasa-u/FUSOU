@@ -121,7 +121,7 @@ struct RemoteKeyCache {
     keys: HashSet<String>,
     hashes: HashMap<String, Option<String>>, // key -> content_hash
     expires_at: Instant,
-    last_sync_timestamp: Option<u64>, // ms since epoch from server's refreshedAt
+    last_sync_timestamp: Option<u64>, // ms since epoch from server snapshotUpperMs/refreshedAt
 }
 
 /// Persistent cache format for storing asset keys to disk
@@ -137,11 +137,11 @@ struct PersistentAssetCache {
 #[derive(Deserialize)]
 struct ExistingKeyItem {
     key: String,
-    #[serde(default)]
+    #[serde(default, alias = "contentHash")]
     content_hash: Option<String>,
     #[serde(default)]
     _size: Option<u64>,
-    #[serde(default, rename = "uploadedAt")]
+    #[serde(default, rename = "uploadedAt", alias = "uploaded_at")]
     _uploaded_at: Option<u64>,
 }
 
@@ -150,9 +150,14 @@ struct ExistingKeysResponse {
     keys: Vec<String>,
     #[serde(default)]
     items: Vec<ExistingKeyItem>,
+    #[serde(default, alias = "cacheExpiresAt")]
     cache_expires_at: Option<String>,
-    #[serde(default, rename = "refreshedAt")]
+    #[serde(default, rename = "refreshedAt", alias = "refreshed_at")]
     refreshed_at: Option<String>,
+    #[serde(default, rename = "snapshotUpperAt", alias = "snapshot_upper_at")]
+    snapshot_upper_at: Option<String>,
+    #[serde(default, rename = "snapshotUpperMs", alias = "snapshot_upper_ms")]
+    snapshot_upper_ms: Option<u64>,
     #[serde(default)]
     incremental: Option<bool>,
 }
@@ -1120,11 +1125,21 @@ async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, 
 
     let expires_at = Instant::now() + ttl;
 
-    // Parse refreshedAt to get new sync timestamp
+    // Use snapshotUpperMs as the primary incremental boundary, then fall back.
     let new_sync_ts = payload
-        .refreshed_at
-        .as_deref()
-        .and_then(parse_iso_to_millis);
+        .snapshot_upper_ms
+        .or_else(|| {
+            payload
+                .snapshot_upper_at
+                .as_deref()
+                .and_then(parse_iso_to_millis)
+        })
+        .or_else(|| {
+            payload
+                .refreshed_at
+                .as_deref()
+                .and_then(parse_iso_to_millis)
+        });
 
     // Build new keys and hashes from payload
     let new_keys: HashSet<String> = payload.keys.iter().cloned().collect();
