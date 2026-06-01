@@ -27159,7 +27159,7 @@
                   },
                   {
                     "name": "api_mst_furnituregraph",
-                    "type": "Vec<ApiMstFurnituregraph>"
+                    "type": "Option<Vec<ApiMstFurnituregraph>>"
                   },
                   {
                     "name": "api_mst_item_shop",
