@@ -9,6 +9,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
@@ -160,6 +161,18 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
+    let external_force_refresh = MenuItemBuilder::with_id(
+        "external-force-refresh".to_string(),
+        "External WebView: Force Repaint",
+    )
+    .build(app)?;
+
+    let external_screenshot = MenuItemBuilder::with_id(
+        "external-screenshot".to_string(),
+        "External WebView: Screenshot",
+    )
+    .build(app)?;
+
     let sync_snapshot =
         MenuItemBuilder::with_id("sync-snapshot".to_string(), "Sync snapshot").build(app)?;
 
@@ -217,6 +230,8 @@ fn setup_tray(
     let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
+        .item(&external_force_refresh)
+        .item(&external_screenshot)
         .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
@@ -449,6 +464,32 @@ fn setup_tray(
                             .join(logger::get_log_file_name());
                         let path_str = log_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
+                    }
+                    "external-force-refresh" => {
+                        external::force_refresh_focused_external_window(tray.app_handle());
+                        notify::show(
+                            tray.app_handle(),
+                            "External WebView",
+                            "Force repaint has been requested.",
+                        );
+                    }
+                    "external-screenshot" => {
+                        match external::capture_focused_external_window_screenshot(tray.app_handle()) {
+                            Some(path) => {
+                                notify::show(
+                                    tray.app_handle(),
+                                    "External Screenshot",
+                                    &format!("Saving screenshot to:\n{}", path.display()),
+                                );
+                            }
+                            None => {
+                                notify::show(
+                                    tray.app_handle(),
+                                    "External Screenshot",
+                                    "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
+                                );
+                            }
+                        }
                     }
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
@@ -771,6 +812,78 @@ fn configure_channel_transport() {
     }
 }
 
+fn register_external_window_shortcuts(app: &mut tauri::App) {
+    let shortcut_manager = app.global_shortcut();
+
+    if let Err(e) = shortcut_manager.on_shortcut("F5", |app, _shortcut, event| {
+        if event.state != ShortcutState::Pressed {
+            return;
+        }
+
+        tracing::warn!("global shortcut pressed: F5 (external reload)");
+
+        external::reload_focused_external_window(app);
+    }) {
+        tracing::warn!("failed to register global shortcut F5: {}", e);
+    }
+
+    let register_force_refresh = |accelerator: &str| {
+        let accelerator_label = accelerator.to_string();
+
+        if let Err(e) =
+            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+
+            tracing::warn!(
+                "global shortcut pressed: {} (external force refresh)",
+                accelerator_label
+            );
+
+            external::force_refresh_focused_external_window(app);
+        })
+        {
+            tracing::warn!(
+                "failed to register global shortcut {} for forced render refresh: {}",
+                accelerator,
+                e
+            );
+        }
+    };
+
+    register_force_refresh("Ctrl+R");
+    register_force_refresh("Super+R");
+
+    let register_external_screenshot = |accelerator: &str| {
+        let accelerator_label = accelerator.to_string();
+
+        if let Err(e) =
+            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+
+                tracing::warn!(
+                    "global shortcut pressed: {} (external screenshot)",
+                    accelerator_label
+                );
+
+                let _ = external::capture_focused_external_window_screenshot(app);
+            })
+        {
+            tracing::warn!(
+                "failed to register global shortcut {} for external screenshot: {}",
+                accelerator,
+                e
+            );
+        }
+    };
+
+    register_external_screenshot("Ctrl+S");
+    register_external_screenshot("Super+S");
+}
+
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
 
@@ -790,6 +903,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         .get_enable_autostart();
     configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
+    register_external_window_shortcuts(app);
     configure_channel_transport();
     if configs::get_user_configs_for_app()
         .discord

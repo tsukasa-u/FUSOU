@@ -1,6 +1,8 @@
 use configs;
 use std::sync::{LazyLock, Mutex};
 
+use crate::window::external;
+
 #[cfg(target_os = "linux")]
 use std::sync::Arc;
 #[cfg(target_os = "linux")]
@@ -101,6 +103,8 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
             "external" => {
                 if let Err(e) = window.close() {
                     tracing::warn!("failed to close external window: {}", e);
+                } else {
+                    external::unregister_webview_key_fallback(window.label());
                 }
             }
             #[cfg(dev)]

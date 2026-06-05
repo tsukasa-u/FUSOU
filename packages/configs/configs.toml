@@ -134,6 +134,13 @@ save_file_location = ""
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
 
+    # The directory used to save external WebView screenshots.
+    # Leave empty to use the default path: Pictures/FUSOU/screenshots
+    # Examples:
+    #   Linux: "/home/yourname/Pictures/FUSOU/custom-screenshots"
+    #   Windows: "C:/Users/yourname/Pictures/FUSOU/custom-screenshots"
+    external_screenshot_directory = ""
+
 
     [app.autostart]
     # Whether to enable the Tauri autostart integration

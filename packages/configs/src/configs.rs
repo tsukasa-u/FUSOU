@@ -241,6 +241,7 @@ impl ConfigsAppConnectKcServer {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppBrowser {
     url: Option<String>,
+    external_screenshot_directory: Option<String>,
 }
 
 impl ConfigsAppBrowser {
@@ -249,6 +250,24 @@ impl ConfigsAppBrowser {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
         }
+    }
+
+    pub fn get_external_screenshot_directory(&self) -> Option<String> {
+        self.external_screenshot_directory
+            .as_ref()
+            .map(|v| v.trim())
+            .filter(|v| !v.is_empty())
+            .map(|v| v.to_string())
+            .or_else(|| {
+                get_default_configs()
+                    .app
+                    .browser
+                    .external_screenshot_directory
+                    .as_ref()
+                    .map(|v| v.trim())
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.to_string())
+            })
     }
 }
 
@@ -1424,6 +1443,18 @@ mod tests {
             empty_font.get_font_family(),
             default_configs.app.font.get_font_family(),
             "font_family getter should return configs.toml default"
+        );
+
+        // Test App Browser defaults
+        let empty_browser = ConfigsAppBrowser {
+            url: None,
+            external_screenshot_directory: None,
+        };
+
+        assert_eq!(
+            empty_browser.get_external_screenshot_directory(),
+            default_configs.app.browser.get_external_screenshot_directory(),
+            "browser external_screenshot_directory getter should return configs.toml default"
         );
 
         // Test App Discord defaults
