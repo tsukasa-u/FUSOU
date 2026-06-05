@@ -8,7 +8,7 @@ use fusou_upload::{UploadContext, UploadRequest, Uploader};
 use kc_api::database::DATABASE_TABLE_VERSION;
 
 #[cfg(feature = "gdrive")]
-use crate::storage::cloud_provider_trait::CloudProviderFactory;
+use crate::storage::cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY};
 
 type RetryResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -255,7 +255,7 @@ impl AppUploadRetryHandler {
             }
             "localfs_write" => self.handle_localfs_write_retry(context, data).await,
             #[cfg(feature = "gdrive")]
-            "upload" => self.handle_gdrive_retry(context, data).await,
+            "upload" => self.handle_cloud_retry(context, data).await,
             _ => Err("unsupported operation".into()),
         }
     }
@@ -344,13 +344,22 @@ impl AppUploadRetryHandler {
     }
 
     #[cfg(feature = "gdrive")]
-    async fn handle_gdrive_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
+    async fn handle_cloud_retry(&self, context: &serde_json::Value, data: &[u8]) -> RetryResult {
         let remote_path = context
             .get("remote_path")
             .and_then(|v| v.as_str())
             .ok_or("missing remote_path")?;
 
-        let cloud = CloudProviderFactory::create("google")
+        // Backward compatibility: older pending entries may not include provider.
+        let provider_name = context
+            .get("provider")
+            .and_then(|v| v.as_str())
+            .unwrap_or(GOOGLE_PROVIDER_KEY);
+
+        let canonical_provider = CloudProviderFactory::canonicalize_provider_name(provider_name)
+            .ok_or_else(|| format!("unknown cloud provider in retry context: {}", provider_name))?;
+
+        let cloud = CloudProviderFactory::create(canonical_provider)
             .map_err(|e| format!("cloud provider init failed: {}", e))?;
 
         let mut temp_path = std::env::temp_dir();

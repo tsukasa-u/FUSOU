@@ -1,4 +1,3 @@
-pub mod asset_sync;
 pub mod bidirectional_channel;
 // mpsc implementation (always compiled)
 pub mod channel_types;

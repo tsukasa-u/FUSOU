@@ -121,7 +121,7 @@ struct RemoteKeyCache {
     keys: HashSet<String>,
     hashes: HashMap<String, Option<String>>, // key -> content_hash
     expires_at: Instant,
-    last_sync_timestamp: Option<u64>, // ms since epoch from server's refreshedAt
+    last_sync_timestamp: Option<u64>, // ms since epoch from server snapshotUpperMs/refreshedAt
 }
 
 /// Persistent cache format for storing asset keys to disk
@@ -137,11 +137,11 @@ struct PersistentAssetCache {
 #[derive(Deserialize)]
 struct ExistingKeyItem {
     key: String,
-    #[serde(default)]
+    #[serde(default, alias = "contentHash")]
     content_hash: Option<String>,
     #[serde(default)]
     _size: Option<u64>,
-    #[serde(default, rename = "uploadedAt")]
+    #[serde(default, rename = "uploadedAt", alias = "uploaded_at")]
     _uploaded_at: Option<u64>,
 }
 
@@ -150,9 +150,14 @@ struct ExistingKeysResponse {
     keys: Vec<String>,
     #[serde(default)]
     items: Vec<ExistingKeyItem>,
+    #[serde(default, alias = "cacheExpiresAt")]
     cache_expires_at: Option<String>,
-    #[serde(default, rename = "refreshedAt")]
+    #[serde(default, rename = "refreshedAt", alias = "refreshed_at")]
     refreshed_at: Option<String>,
+    #[serde(default, rename = "snapshotUpperAt", alias = "snapshot_upper_at")]
+    snapshot_upper_at: Option<String>,
+    #[serde(default, rename = "snapshotUpperMs", alias = "snapshot_upper_ms")]
+    snapshot_upper_ms: Option<u64>,
     #[serde(default)]
     incremental: Option<bool>,
 }
@@ -561,12 +566,12 @@ async fn process_path(
     if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
         if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
             tracing::warn!(
-                key,
+                key = %mask_sensitive(&key),
                 "Authentication failed while checking existing keys; proceeding without remote key cache"
             );
         } else {
             tracing::warn!(
-                key,
+                key = %mask_sensitive(&key),
                 error = %err,
                 "Failed to refresh existing keys cache; proceeding with upload path"
             );
@@ -1034,16 +1039,6 @@ async fn maybe_refresh_existing_keys(
         ))
     })?;
 
-    let token_preview = if access_token.len() > 20 {
-        format!(
-            "{}...{}",
-            &access_token[..10],
-            &access_token[access_token.len() - 10..]
-        )
-    } else {
-        "<short-token>".to_string()
-    };
-
     // Get last sync timestamp for incremental sync
     let last_sync_ts = get_last_sync_timestamp();
     let url = if let Some(ts) = last_sync_ts {
@@ -1058,9 +1053,9 @@ async fn maybe_refresh_existing_keys(
     };
 
     tracing::info!(
-        "maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}",
-        token_preview,
-        url
+        endpoint = %url,
+        token_len = access_token.len(),
+        "maybe_refresh_existing_keys: got access token and calling API"
     );
 
     let response = client
@@ -1130,11 +1125,21 @@ async fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, 
 
     let expires_at = Instant::now() + ttl;
 
-    // Parse refreshedAt to get new sync timestamp
+    // Use snapshotUpperMs as the primary incremental boundary, then fall back.
     let new_sync_ts = payload
-        .refreshed_at
-        .as_deref()
-        .and_then(parse_iso_to_millis);
+        .snapshot_upper_ms
+        .or_else(|| {
+            payload
+                .snapshot_upper_at
+                .as_deref()
+                .and_then(parse_iso_to_millis)
+        })
+        .or_else(|| {
+            payload
+                .refreshed_at
+                .as_deref()
+                .and_then(parse_iso_to_millis)
+        });
 
     // Build new keys and hashes from payload
     let new_keys: HashSet<String> = payload.keys.iter().cloned().collect();

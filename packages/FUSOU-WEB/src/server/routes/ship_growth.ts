@@ -24,6 +24,7 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { validateSynergyPayload } from "../utils/synergy-payload";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 
@@ -411,50 +412,36 @@ async function loadSynergyDataSet(
   env: Bindings,
   periodTag: string,
 ): Promise<SynergyDataSet> {
-  const manifest = (await env.MASTER_DATA_INDEX_DB.prepare(
-    `SELECT period_tag, period_revision, content_hash
+  const rows = (await env.MASTER_DATA_INDEX_DB.prepare(
+    `SELECT period_tag, period_revision, content_hash, sp_effect_sha256
      FROM synergy_manifest
      WHERE period_tag = ?
        AND upload_status = 'completed'
      ORDER BY period_revision DESC
-     LIMIT 1`,
+     LIMIT 20`,
   )
     .bind(periodTag)
-    .first()) as {
-    period_tag?: string;
-    period_revision?: number;
-    content_hash?: string;
-  } | null;
+    .all()) as {
+    results?: Array<{
+      period_tag?: string;
+      period_revision?: number;
+      content_hash?: string;
+      sp_effect_sha256?: string;
+    }>;
+  };
 
-  const periodRevision = manifest?.period_revision;
-  if (
-    !manifest?.period_tag ||
-    typeof periodRevision !== "number" ||
-    !Number.isInteger(periodRevision) ||
-    !manifest.content_hash
-  ) {
+  const manifests = rows.results ?? [];
+  if (manifests.length === 0) {
     throw new Error(`synergy manifest not found for period_tag=${periodTag}`);
   }
 
-  const cacheKey = `${manifest.period_tag}:${periodRevision}:${manifest.content_hash}`;
-  const cached = synergyDataCache.get(cacheKey);
-  if (cached && Date.now() - cached.loadedAt < SYNERGY_CACHE_TTL_MS) {
-    return cached.dataSet;
-  }
-
-  const r2Keys = getSynergyManifestR2Keys(
-    manifest.period_tag,
-    periodRevision,
-    manifest.content_hash,
-  );
-  const object = await env.MASTER_DATA_BUCKET.get(r2Keys.sp_effect_json);
-  if (!object) {
-    throw new Error(`synergy data missing in R2: ${r2Keys.sp_effect_json}`);
-  }
-
-  const parsed = JSON.parse(
-    new TextDecoder().decode(await object.arrayBuffer()),
-  ) as {
+  let selectedManifest: {
+    period_tag: string;
+    period_revision: number;
+    content_hash: string;
+    sp_effect_sha256: string;
+  } | null = null;
+  type ParsedSynergyPayload = {
     effects?: Record<string, unknown>;
     cross_effects?: Record<string, unknown>;
     effect_rules?: Array<{
@@ -472,12 +459,76 @@ async function loadSynergyDataSet(
     }>;
   };
 
+  let parsed: ParsedSynergyPayload | null = null;
+  let lastLoadError: unknown = null;
+
+  for (const manifest of manifests) {
+    const periodRevision = manifest.period_revision;
+    if (
+      !manifest.period_tag ||
+      typeof periodRevision !== "number" ||
+      !Number.isInteger(periodRevision) ||
+      !manifest.content_hash ||
+      !manifest.sp_effect_sha256
+    ) {
+      continue;
+    }
+
+    const cacheKey = `${manifest.period_tag}:${periodRevision}:${manifest.content_hash}:${manifest.sp_effect_sha256}`;
+    const cached = synergyDataCache.get(cacheKey);
+    if (cached && Date.now() - cached.loadedAt < SYNERGY_CACHE_TTL_MS) {
+      return cached.dataSet;
+    }
+
+    const r2Keys = getSynergyManifestR2Keys(
+      manifest.period_tag,
+      periodRevision,
+      manifest.content_hash,
+    );
+    const object = await env.MASTER_DATA_BUCKET.get(r2Keys.sp_effect_json);
+    if (!object) {
+      continue;
+    }
+
+    try {
+      parsed = (
+        await validateSynergyPayload(
+          new Uint8Array(await object.arrayBuffer()),
+          manifest.sp_effect_sha256,
+        )
+      ).parsed as ParsedSynergyPayload;
+      selectedManifest = {
+        period_tag: manifest.period_tag,
+        period_revision: periodRevision,
+        content_hash: manifest.content_hash,
+        sp_effect_sha256: manifest.sp_effect_sha256,
+      };
+      break;
+    } catch (error) {
+      lastLoadError = error;
+      console.warn(
+        `[ship-growth] skipping invalid synergy payload (period=${periodTag}, revision=${periodRevision}): ${String(error)}`,
+      );
+    }
+  }
+
+  if (!selectedManifest || !parsed) {
+    if (lastLoadError) {
+      throw new Error(
+        `synergy payload validation failed for period_tag=${periodTag}: ${String(lastLoadError)}`,
+      );
+    }
+    throw new Error(`synergy data missing in R2 for period_tag=${periodTag}`);
+  }
+
+  const parsedPayload = parsed;
+
   const singleByItem = new Map<number, SynergySingleRule[]>();
   let droppedSingleCount = 0;
 
   // Prefer new effect_rules format; fall back to legacy effects dict
-  if (parsed.effect_rules && Array.isArray(parsed.effect_rules)) {
-    for (const rule of parsed.effect_rules) {
+  if (parsedPayload.effect_rules && Array.isArray(parsedPayload.effect_rules)) {
+    for (const rule of parsedPayload.effect_rules) {
       if (!rule || !Array.isArray(rule.items)) continue;
       const synRule: SynergySingleRule = {
         ships: rule.ships ?? [],
@@ -500,7 +551,9 @@ async function loadSynergyDataSet(
       }
     }
   } else {
-    for (const [itemKey, rawRules] of Object.entries(parsed.effects ?? {})) {
+    for (const [itemKey, rawRules] of Object.entries(
+      parsedPayload.effects ?? {},
+    )) {
       const itemId = Number(itemKey);
       if (
         !Number.isInteger(itemId) ||
@@ -528,8 +581,8 @@ async function loadSynergyDataSet(
   let droppedCrossCount = 0;
 
   // Prefer new cross_rules format; fall back to legacy cross_effects dict
-  if (parsed.cross_rules && Array.isArray(parsed.cross_rules)) {
-    for (const rule of parsed.cross_rules) {
+  if (parsedPayload.cross_rules && Array.isArray(parsedPayload.cross_rules)) {
+    for (const rule of parsedPayload.cross_rules) {
       if (!rule || !Array.isArray(rule.pairs)) continue;
       const synRule: SynergyCrossRule = {
         ships: rule.ships ?? [],
@@ -547,7 +600,7 @@ async function loadSynergyDataSet(
     }
   } else {
     for (const [pairKey, rawRules] of Object.entries(
-      parsed.cross_effects ?? {},
+      parsedPayload.cross_effects ?? {},
     )) {
       if (!Array.isArray(rawRules)) {
         droppedCrossCount += 1;
@@ -571,6 +624,7 @@ async function loadSynergyDataSet(
     singleByItem,
     crossByPair,
   };
+  const cacheKey = `${selectedManifest.period_tag}:${selectedManifest.period_revision}:${selectedManifest.content_hash}:${selectedManifest.sp_effect_sha256}`;
   synergyDataCache.set(cacheKey, {
     loadedAt: Date.now(),
     dataSet,
@@ -667,8 +721,7 @@ function deriveServerNakedStats(
   // sp_effect_items has no luck field in KanColle's data, so spEffectLucky is
   // structurally 0. We still subtract slot+synergy luck to obtain the naked
   // value (= ship's intrinsic 運 stat at this level).
-  const luckyRaw =
-    ship.lucky_observed - slotLucky - totalSynergyTotals.lucky;
+  const luckyRaw = ship.lucky_observed - slotLucky - totalSynergyTotals.lucky;
 
   const kaihi = Math.max(0, kaihiRaw);
   const taisen = Math.max(0, taisenRaw);
@@ -2460,7 +2513,10 @@ app.get("/bounds", async (c) => {
     return response;
   } catch (err) {
     const message = String(err);
-    if (message.includes("no such column: updated_at") || message.includes("no such column: lucky_naked")) {
+    if (
+      message.includes("no such column: updated_at") ||
+      message.includes("no such column: lucky_naked")
+    ) {
       // Local legacy D1 schema compatibility: serve full data without delta/new luck columns.
       try {
         const BOUNDS_PAGE = 5000;
@@ -3002,7 +3058,9 @@ app.post("/ingest", async (c) => {
     }
     if (declaredSize > MAX_INGEST_BYTES) {
       return c.json(
-        { error: `file_size exceeds maximum allowed size (${MAX_INGEST_BYTES} bytes)` },
+        {
+          error: `file_size exceeds maximum allowed size (${MAX_INGEST_BYTES} bytes)`,
+        },
         400,
       );
     }

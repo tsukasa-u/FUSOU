@@ -40,6 +40,9 @@
       "path": "packages/FUSOU-URL-SHORTER",
     },
     {
+      "path": "packages/fusou-storage",
+    },
+    {
       "path": "docs",
     },
     {

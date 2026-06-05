@@ -56,8 +56,12 @@ pub struct ApiData {
     pub api_mst_stype: Vec<ApiMstStype>,
     #[serde(rename = "api_mst_slotitem")]
     pub api_mst_slotitem: Vec<ApiMstSlotitem>,
+    #[deprecated(
+        since = "0.4.0",
+        note = "Upstream API changed on 2026-05-29 and may omit this field. Prefer not to add new dependencies on it."
+    )]
     #[serde(rename = "api_mst_furnituregraph")]
-    pub api_mst_furnituregraph: Vec<ApiMstFurnituregraph>,
+    pub api_mst_furnituregraph: Option<Vec<ApiMstFurnituregraph>>,
     #[serde(rename = "api_mst_useitem")]
     pub api_mst_useitem: Vec<ApiMstUseitem>,
     #[serde(rename = "api_mst_payitem")]

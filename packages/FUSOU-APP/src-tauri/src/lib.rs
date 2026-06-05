@@ -208,6 +208,25 @@ pub async fn run() {
             // Set dataset_token persistent storage path
             auth_manager.set_dataset_token_path(Some(dataset_token_path));
 
+            // Bridge app-specific capabilities into fusou-storage runtime hooks.
+            // Keep dataset_id semantics aligned with pre-extraction behavior by
+            // resolving through AuthManager.
+            let auth_manager_for_storage_hooks = Arc::new(auth_manager.clone());
+            if let Err(err) = crate::storage::set_dataset_id_resolver({
+                let auth_manager = auth_manager_for_storage_hooks.clone();
+                move || {
+                    let auth_manager = auth_manager.clone();
+                    async move {
+                        auth_manager
+                            .resolve_dataset_id_for_upload(None)
+                            .await
+                            .unwrap_or_default()
+                    }
+                }
+            }) {
+                tracing::debug!(%err, "storage dataset_id resolver hook already initialized");
+            }
+
             let auth_manager_for_retry = Arc::new(auth_manager.clone());
             let auth_manager_state = Arc::new(Mutex::new(auth_manager.clone()));
             app.manage(auth_manager_state.clone());

@@ -6,10 +6,10 @@ use cap_std::fs::Dir;
 use kc_api::database::table::PORT_TABLE_NAMES;
 use tokio::fs;
 
-use crate::storage::constants::LOCAL_STORAGE_PROVIDER_NAME;
-use crate::storage::root_validator;
-use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
-use crate::storage::common::{
+use crate::constants::LOCAL_STORAGE_PROVIDER_NAME;
+use crate::root_validator;
+use crate::service::{StorageError, StorageFuture, StorageProvider};
+use crate::common::{
     get_all_get_data_tables, get_all_port_tables,
     generate_port_table_filename, generate_master_data_filename,
     integrate_by_table_name,

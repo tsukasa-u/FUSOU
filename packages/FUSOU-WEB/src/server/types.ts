@@ -59,6 +59,7 @@ export type Bindings = {
   SHORTENER_SERVICE: Fetcher;
 
   // KV for caching (optional)
+  ASSET_SYNC_INDEX_KV?: KVNamespace;
   DATA_LOADER_CACHE_KV?: KVNamespace;
 };
 
