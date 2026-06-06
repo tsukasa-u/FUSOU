@@ -20,6 +20,7 @@ import EndpointNode from "./EndpointNode";
 import VersionSelector from "./VersionSelector";
 import ApiGroupNav from "./ApiGroupNav";
 import NodeDetailPanel from "./NodeDetailPanel";
+import ExpandableContainer from "./ExpandableContainer";
 import "./css/reactflow.css";
 
 // Import pre-generated graph data (db versions loaded dynamically via glob)
@@ -623,8 +624,9 @@ export default function SchemaGraph({
   }, []);
 
   return (
-    <div className="w-full h-[calc(100vh-12rem)] flex flex-col gap-2">
-      {/* Top controls */}
+    <ExpandableContainer className="w-full h-[calc(100vh-12rem)]" title="API Schema Explorer">
+      <div className="w-full h-full flex flex-col gap-2">
+        {/* Top controls */}
       <div className="flex flex-wrap items-center gap-4 px-1">
         {/* Mode tabs */}
         <div
@@ -939,5 +941,6 @@ export default function SchemaGraph({
         )}
       </div>
     </div>
+    </ExpandableContainer>
   );
 }
