@@ -1,7 +1,7 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { cachedFetch } from "@/utils/fetchCache";
-import { AlertMessage } from "./common/AlertMessage";
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
 
 // ── Types ──────────────────────────────────────────────────────────
 

@@ -12,7 +12,7 @@ import { cachedFetch } from "@/utils/fetchCache";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
-} from "./common/MasterDataLoadStatusAlert";
+} from "@/components/common/solid/MasterDataLoadStatusAlert";
 
 type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 

@@ -21,13 +21,13 @@ import {
   STYPE_NAMES,
 } from "@/features/simulator/constants";
 import { buildShareGrowthUrl, copyTextWithFallback } from "@/utils/share-url";
-import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
-import { AlertMessage } from "./common/AlertMessage";
-import { ShareUrlButton } from "./common/ShareUrlButton";
+import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
+import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
-} from "./common/MasterDataLoadStatusAlert";
+} from "@/components/common/solid/MasterDataLoadStatusAlert";
 
 Chart.register(...registerables);
 

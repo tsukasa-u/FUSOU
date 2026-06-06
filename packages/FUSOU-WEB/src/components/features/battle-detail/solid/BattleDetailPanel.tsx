@@ -41,11 +41,11 @@ import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
-import { ShareUrlButton } from "../common/ShareUrlButton";
+import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
-} from "../common/MasterDataLoadStatusAlert";
+} from "@/components/common/solid/MasterDataLoadStatusAlert";
 
 type DropShipInfo = {
   shipId: number;

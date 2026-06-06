@@ -13,7 +13,7 @@ import {
   syncMemberIdHashWithApp,
   cleanupAllRealtimeSessions,
 } from "@/lib/realtime-sync";
-import { AlertMessage } from "./common/AlertMessage";
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
 
 interface MemberIdSyncButtonProps {
   onSuccess?: (memberIdHash: string) => void;

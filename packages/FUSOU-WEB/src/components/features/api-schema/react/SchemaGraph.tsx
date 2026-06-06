@@ -20,12 +20,12 @@ import EndpointNode from "./EndpointNode";
 import VersionSelector from "./VersionSelector";
 import ApiGroupNav from "./ApiGroupNav";
 import NodeDetailPanel from "./NodeDetailPanel";
-import ExpandableContainer from "./ExpandableContainer";
+import ExpandableContainer from "@/components/common/react/ExpandableContainer";
 import "./css/reactflow.css";
 
 // Import pre-generated graph data (db versions loaded dynamically via glob)
-import dbVersionsData from "../../data/graphs/db_versions.json";
-import endpointData from "../../data/graphs/endpoints_by_group.json";
+import dbVersionsData from "@/data/graphs/db_versions.json";
+import endpointData from "@/data/graphs/endpoints_by_group.json";
 
 const nodeTypes = {
   schemaTableNode: SchemaTableNode,

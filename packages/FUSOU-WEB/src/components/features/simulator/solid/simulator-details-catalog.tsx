@@ -20,7 +20,7 @@ import {
 } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
 import { buildShareDetailUrl, copyTextWithFallback } from "@/utils/share-url";
-import { ShipListRow } from "../common/ship-list-row";
+import { ShipListRow } from "@/components/common/solid/ship-list-row";
 import {
   filterForExslot,
   getExslotSelectionRequirement,

@@ -1,9 +1,9 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
-import Navigation from "@/components/layout/Navigation.astro";
-import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
-import PageShell from "@/components/ui/PageShell.astro";
-import PageHeader from "@/components/ui/PageHeader.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import DataStatusAlert from "@/components/features/simulator/astro/DataStatusAlert.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
+import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
@@ -1206,8 +1206,8 @@ const isEquip = tabQuery === "equip";
   import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
   import { initImageCaptureEvents } from "@/features/simulator/image-capture";
   import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
-  import { ensureOptimizerMounted } from "@/components/solid/simulator/simulator-optimizer";
-  import { mountSimulatorDetailsCatalog } from "@/components/solid/simulator/simulator-details-catalog";
+  import { ensureOptimizerMounted } from "@/components/features/simulator/solid/simulator-optimizer";
+  import { mountSimulatorDetailsCatalog } from "@/components/features/simulator/solid/simulator-details-catalog";
 
   let detailsMounted = false;
   function ensureDetailsMounted() {

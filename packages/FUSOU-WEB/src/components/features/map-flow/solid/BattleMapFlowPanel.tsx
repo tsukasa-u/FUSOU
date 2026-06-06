@@ -76,11 +76,11 @@ import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
 import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
-import { AlertMessage } from "../common/AlertMessage";
+import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
-} from "../common/MasterDataLoadStatusAlert";
+} from "@/components/common/solid/MasterDataLoadStatusAlert";
 
 type PeriodSummary = {
   period_tag: string;
