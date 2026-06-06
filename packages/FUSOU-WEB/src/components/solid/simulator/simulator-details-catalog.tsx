@@ -153,9 +153,9 @@ function mergeShipGrowthCaps(
 }
 
 function statRangeLabel(value: number[] | null | undefined): string {
-  if (!value || value.length === 0) return "-";
+  if (!value || value.length === 0) return "/";
   if (value.length === 1) return String(value[0]);
-  return `${value[0]} - ${value[value.length - 1]}`;
+  return `${value[0]} / ${value[value.length - 1]}`;
 }
 
 function hasStatRange(value: number[] | null | undefined): boolean {
@@ -176,7 +176,7 @@ function statRangeLabelWithFallback(
   if (typeof fallbackMax === "number" && fallbackMax > 0) {
     return `- / ${fallbackMax}`;
   }
-  return "-";
+  return "-/-";
 }
 
 function equipTypeName(typeId: number | null): string {
