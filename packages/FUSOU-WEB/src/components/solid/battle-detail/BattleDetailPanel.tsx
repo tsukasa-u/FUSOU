@@ -8,19 +8,19 @@ import {
   createEffect,
 } from "solid-js";
 import type { JSX } from "solid-js";
-import type { BattleFleets } from "@/pages/battles/lib/types";
+import type { BattleFleets } from "@/features/battles/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utility/fetchCache";
-import { buildShareBattleUrl, copyTextWithFallback } from "@/utility/share-url";
+import { cachedFetch } from "@/utils/fetchCache";
+import { buildShareBattleUrl, copyTextWithFallback } from "@/utils/share-url";
 import {
   FORMATION_NAMES,
   AIR_STATE,
   RANK_COLORS,
-} from "@/pages/battles/lib/constants";
+} from "@/features/battles/constants";
 import {
   normalizeEpochMs,
   resolveBattleResult,
-} from "@/pages/battles/lib/helpers";
+} from "@/features/battles/helpers";
 import {
   fetchBattleResultByUuid,
   fetchBattleRecordsByUuid,
@@ -36,7 +36,7 @@ import {
   resolveClosingRaigeki,
   resolveFriendlyFleet,
   resolveEnemyFleet,
-} from "@/pages/battles/lib/data-service";
+} from "@/features/battles/data-service";
 import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";

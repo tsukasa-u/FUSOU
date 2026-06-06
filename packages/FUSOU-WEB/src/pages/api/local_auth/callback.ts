@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
-} from "@/utility/security";
+} from "@/utils/security";
 
 // Use consistent cookie options with supabaseServer.ts
 // const COOKIE_OPTIONS = {

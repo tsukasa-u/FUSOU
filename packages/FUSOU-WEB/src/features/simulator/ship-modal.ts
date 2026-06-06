@@ -39,7 +39,7 @@ import {
   hasSnapshotShips,
   isWorkspaceReadOnly,
 } from "./simulator-selectors";
-import { cachedFetch } from "../../../utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 
 type ShipGrowthSummary = {
   ok: boolean;

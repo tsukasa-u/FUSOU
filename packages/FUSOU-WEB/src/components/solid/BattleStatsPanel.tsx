@@ -7,7 +7,7 @@ import {
   createSignal,
   onMount,
 } from "solid-js";
-import { cachedFetch } from "@/utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 
 type BattleRecord = {
   timestamp: number | null;

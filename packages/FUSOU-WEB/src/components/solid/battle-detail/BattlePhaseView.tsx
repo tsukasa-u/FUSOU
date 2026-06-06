@@ -1,9 +1,9 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo } from "solid-js";
 import type { JSX } from "solid-js";
-import type { BattleFleets } from "@/pages/battles/lib/types";
-import { PHASE_NAMES, AIR_STATE } from "@/pages/battles/lib/constants";
-import { transitionState } from "@/pages/battles/lib/helpers";
+import type { BattleFleets } from "@/features/battles/types";
+import { PHASE_NAMES, AIR_STATE } from "@/features/battles/constants";
+import { transitionState } from "@/features/battles/helpers";
 import {
   shipNameFromIndex,
   maxHpForShip,

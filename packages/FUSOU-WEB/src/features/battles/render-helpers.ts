@@ -2,7 +2,7 @@ import type { WeaponIconFrame, ShipInfo, BattleFleets } from "./types";
 import { escHtml, getDamageState, hpFillClass, transitionState } from "./helpers";
 import { AIR_STATE } from "./constants";
 import { getWeaponIconCaches } from "./data-service";
-import { isSafeImageUrl } from "@/utility/security";
+import { isSafeImageUrl } from "@/utils/security";
 
 export function renderWeaponIconHtml(iconType: unknown): string {
   const iconId = Number(iconType ?? 0);

@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { getRequiredClientEnv } from "@/utility/clientEnv";
+import { getRequiredClientEnv } from "@/utils/clientEnv";
 
 // This file is used only for chartPage
 // You should delete this file in the future

@@ -13,7 +13,7 @@ import {
   computeEquipBonuses,
   bannerUrl,
   createWeaponIconEl,
-} from "../../../pages/simulator/lib/equip-calc";
+} from "@/features/simulator/equip-calc";
 import {
   getMasterEquipTypeName,
   getFleetState,
@@ -22,29 +22,29 @@ import {
   getSnapshotSlotItems,
   hasSnapshotShips,
   hasSnapshotSlotItems,
-} from "../../../pages/simulator/lib/simulator-selectors";
+} from "@/features/simulator/simulator-selectors";
 import {
   setEquipModalSideFilter,
   setEquipModalTargetForFleet,
   setShipModalSideFilter,
-} from "../../../pages/simulator/lib/simulator-mutations";
-import { openShipModal } from "../../../pages/simulator/lib/ship-modal";
-import { openEquipModal } from "../../../pages/simulator/lib/equip-modal";
-import { getLoadedMasterDataMeta } from "../../../pages/simulator/lib/data-loader";
+} from "@/features/simulator/simulator-mutations";
+import { openShipModal } from "@/features/simulator/ship-modal";
+import { openEquipModal } from "@/features/simulator/equip-modal";
+import { getLoadedMasterDataMeta } from "@/features/simulator/data-loader";
 import {
   ENEMY_ID_THRESHOLD,
   RANGE_NAMES,
   SPEED_NAMES,
   STYPE_NAMES,
-} from "../../../pages/simulator/lib/constants";
+} from "@/features/simulator/constants";
 import {
   filterForExslot,
   getNormalSlotAllowedIndexes,
-} from "../../../pages/simulator/lib/equip-filter";
+} from "@/features/simulator/equip-filter";
 import type {
   MstShipData,
   MstSlotItemData,
-} from "../../../pages/simulator/lib/types";
+} from "@/features/simulator/types";
 
 // ── Constants ────────────────────────────────────────────────────────
 

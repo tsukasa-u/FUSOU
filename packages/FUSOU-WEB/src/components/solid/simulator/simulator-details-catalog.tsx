@@ -17,17 +17,16 @@ import {
   createWeaponIconEl,
   equipImageUrl,
   intersectSorted,
-} from "../../../pages/simulator/lib/equip-calc";
-import { cachedFetch } from "@/utility/fetchCache";
-import { buildShareDetailUrl, copyTextWithFallback } from "@/utility/share-url";
+} from "@/features/simulator/equip-calc";
+import { cachedFetch } from "@/utils/fetchCache";
+import { buildShareDetailUrl, copyTextWithFallback } from "@/utils/share-url";
 import { ShipListRow } from "../common/ship-list-row";
-import { ShareUrlButton } from "../common/ShareUrlButton";
 import {
   filterForExslot,
   getExslotSelectionRequirement,
   getNormalSlotAllowedIndexes,
   type EquipSelectionRequirement,
-} from "../../../pages/simulator/lib/equip-filter";
+} from "@/features/simulator/equip-filter";
 import {
   getMasterShip,
   getMasterShips,
@@ -36,14 +35,14 @@ import {
   getSlotItemEffects,
   getSokuSpeedData,
   hasMasterData,
-} from "../../../pages/simulator/lib/simulator-selectors";
+} from "@/features/simulator/simulator-selectors";
 import {
   ENEMY_ID_THRESHOLD,
   EQUIP_TYPE_NAMES,
   RANGE_NAMES,
   SPEED_NAMES,
   STYPE_NAMES,
-} from "../../../pages/simulator/lib/constants";
+} from "@/features/simulator/constants";
 
 import type {
   MstShipData,
@@ -54,7 +53,7 @@ import type {
   TripleRule,
   QuadRule,
   PentaRule,
-} from "../../../pages/simulator/lib/types";
+} from "@/features/simulator/types";
 
 type DetailsTab = "ship" | "equip";
 

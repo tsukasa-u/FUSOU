@@ -2,8 +2,8 @@
 
 import type { JSX } from "solid-js";
 import { Show, createSignal, createEffect } from "solid-js";
-import { bannerUrl } from "../../../pages/simulator/lib/equip-calc";
-import { STYPE_NAMES } from "../../../pages/simulator/lib/constants";
+import { bannerUrl } from "@/features/simulator/equip-calc";
+import { STYPE_NAMES } from "@/features/simulator/constants";
 
 export type ShipListItem = {
   id: number;

@@ -1,10 +1,10 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
-import Navigation from "@/components/Navigation.astro";
+import Navigation from "@/components/layout/Navigation.astro";
 import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
 import PageShell from "@/components/ui/PageShell.astro";
 import PageHeader from "@/components/ui/PageHeader.astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
@@ -1200,14 +1200,14 @@ const isEquip = tabQuery === "equip";
 </script>
 
 <script>
-  import { initDisplaySettingsEvents, renderAll } from "./lib/airbase-renderer";
-  import { updateDataStatus, loadMasterData } from "./lib/data-loader";
-  import { initShipModalEvents, handleResizeShip } from "./lib/ship-modal";
-  import { initEquipModalEvents, handleResizeEquip } from "./lib/equip-modal";
-  import { initImageCaptureEvents } from "./lib/image-capture";
-  import { initIOEvents, loadFromUrl } from "./lib/io-handlers";
-  import { ensureOptimizerMounted } from "../../components/solid/simulator/simulator-optimizer";
-  import { mountSimulatorDetailsCatalog } from "../../components/solid/simulator/simulator-details-catalog";
+  import { initDisplaySettingsEvents, renderAll } from "@/features/simulator/airbase-renderer";
+  import { updateDataStatus, loadMasterData } from "@/features/simulator/data-loader";
+  import { initShipModalEvents, handleResizeShip } from "@/features/simulator/ship-modal";
+  import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
+  import { initImageCaptureEvents } from "@/features/simulator/image-capture";
+  import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
+  import { ensureOptimizerMounted } from "@/components/solid/simulator/simulator-optimizer";
+  import { mountSimulatorDetailsCatalog } from "@/components/solid/simulator/simulator-details-catalog";
 
   let detailsMounted = false;
   function ensureDetailsMounted() {

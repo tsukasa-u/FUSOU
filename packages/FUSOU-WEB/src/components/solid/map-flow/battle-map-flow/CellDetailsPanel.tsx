@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
-import { isSafeImageUrl } from "@/utility/security";
+import { isSafeImageUrl } from "@/utils/security";
 import type { SelectedCellDetails, WeaponIconFrame, WeaponIconMeta } from "./types";
 import { WIN_RANK_BADGES } from "./constants";
 

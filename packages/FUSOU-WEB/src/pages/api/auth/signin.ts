@@ -1,11 +1,11 @@
 import type { APIRoute } from "astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
 import {
   validateOriginDetailed,
   validateRedirectUrl,
   sanitizeErrorMessage,
-} from "@/utility/security";
+} from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 

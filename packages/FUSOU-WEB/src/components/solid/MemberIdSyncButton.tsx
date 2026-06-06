@@ -12,7 +12,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
 import {
   syncMemberIdHashWithApp,
   cleanupAllRealtimeSessions,
-} from "../../utils/realtime-sync";
+} from "@/lib/realtime-sync";
 import { AlertMessage } from "./common/AlertMessage";
 
 interface MemberIdSyncButtonProps {

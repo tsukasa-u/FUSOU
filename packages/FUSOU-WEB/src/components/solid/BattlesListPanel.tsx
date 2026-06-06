@@ -8,7 +8,7 @@ import {
   onMount,
 } from "solid-js";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,

@@ -17,23 +17,23 @@ import type {
   AirBaseSlot,
   FleetSlot,
   StatOverrides,
-} from "../../../pages/simulator/lib/types";
+} from "@/features/simulator/types";
 import {
   AIRCRAFT_TYPES,
   RANGE_NAMES,
   SPEED_NAMES,
   STYPE_SHORT,
-} from "../../../pages/simulator/lib/constants";
+} from "@/features/simulator/constants";
 import {
   cardUrl,
   computeEquipBonuses,
   computeEquipSum,
   createWeaponIconEl,
-} from "../../../pages/simulator/lib/equip-calc";
-import { cachedFetch } from "../../../utility/fetchCache";
-import { prefetchExternalUrlForExport } from "../../../pages/simulator/lib/image-capture";
-import { openShipModal } from "../../../pages/simulator/lib/ship-modal";
-import { openEquipModal } from "../../../pages/simulator/lib/equip-modal";
+} from "@/features/simulator/equip-calc";
+import { cachedFetch } from "@/utils/fetchCache";
+import { prefetchExternalUrlForExport } from "@/features/simulator/image-capture";
+import { openShipModal } from "@/features/simulator/ship-modal";
+import { openEquipModal } from "@/features/simulator/equip-modal";
 import {
   applyAirBaseEquipSelection,
   applyFleetEquipSelection,
@@ -52,20 +52,20 @@ import {
   setEquipModalTargetForAirBase,
   setEquipModalTargetForFleet,
   setShipModalTargetForFleet,
-} from "../../../pages/simulator/lib/simulator-mutations";
+} from "@/features/simulator/simulator-mutations";
 import {
   markSimulatorStateDirty,
   simulatorFleetState,
   simulatorAirbaseState,
   type SimulatorDirtyScope,
-} from "../../../pages/simulator/lib/state";
+} from "@/features/simulator/state";
 import {
   getAirBaseState,
   getFleetState,
   getMasterShip,
   getMasterSlotItem,
   isWorkspaceReadOnly,
-} from "../../../pages/simulator/lib/simulator-selectors";
+} from "@/features/simulator/simulator-selectors";
 
 let mounted = false;
 const prefetchedCardUrls = new Set<string>();

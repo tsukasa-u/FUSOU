@@ -1,4 +1,4 @@
-import { getRequiredClientEnv } from "@/utility/clientEnv";
+import { getRequiredClientEnv } from "@/utils/clientEnv";
 
 /**
  * @deprecated Google Drive authentication is deprecated and will be removed in a future version.

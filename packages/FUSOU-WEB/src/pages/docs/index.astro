@@ -1,10 +1,10 @@
 ---
 import "@/assets/app.css";
 import "@/styles/global.css";
-import Navigation from "@/components/Navigation.astro";
+import Navigation from "@/components/layout/Navigation.astro";
 import LeftMenu from "@/components/docs/LeftMenu.astro";
 import Layout from "@/layouts/Layout.astro";
-import { compareSegments } from "@/utility/page_sorter";
+import { compareSegments } from "@/utils/page_sorter";
 import type { MarkdownInstance } from "astro";
 
 const rawDocsGlobResult = import.meta.glob("@docs/**/*.md", {

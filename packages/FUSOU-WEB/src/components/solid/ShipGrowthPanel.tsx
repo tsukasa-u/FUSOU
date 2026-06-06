@@ -15,12 +15,12 @@ import {
   type ChartData,
   type ChartDataset,
 } from "chart.js";
-import { cachedFetch } from "@/utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 import {
   ENEMY_ID_THRESHOLD,
   STYPE_NAMES,
-} from "../../pages/simulator/lib/constants";
-import { buildShareGrowthUrl, copyTextWithFallback } from "@/utility/share-url";
+} from "@/features/simulator/constants";
+import { buildShareGrowthUrl, copyTextWithFallback } from "@/utils/share-url";
 import { ShipListRow, type ShipListItem } from "./common/ship-list-row";
 import { AlertMessage } from "./common/AlertMessage";
 import { ShareUrlButton } from "./common/ShareUrlButton";

@@ -5,16 +5,16 @@ import type {
   BattleFleets,
   TimelineEvent,
   TimelineStep,
-} from "@/pages/battles/lib/types";
+} from "@/features/battles/types";
 import {
   FRIEND_COLORS,
   ENEMY_COLORS,
   DAMAGE_ZONES,
-} from "@/pages/battles/lib/constants";
+} from "@/features/battles/constants";
 import {
   buildTimelineEvents,
   buildInitialHps,
-} from "@/pages/battles/lib/timeline";
+} from "@/features/battles/timeline";
 import { shipNameFromIndex, EquipmentBadgesFromSlotIds } from "./ui";
 
 // ── Layout constants (mirrored from timeline.ts) ──────────────────────────

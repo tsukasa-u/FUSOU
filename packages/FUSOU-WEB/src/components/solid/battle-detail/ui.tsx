@@ -1,10 +1,10 @@
 /** @jsxImportSource solid-js */
 import { For, Show } from "solid-js";
 import type { JSX } from "solid-js";
-import type { ShipInfo, BattleFleets } from "@/pages/battles/lib/types";
-import { getDamageState, hpFillClass } from "@/pages/battles/lib/helpers";
-import { getWeaponIconCaches } from "@/pages/battles/lib/data-service";
-import { isSafeImageUrl } from "@/utility/security";
+import type { ShipInfo, BattleFleets } from "@/features/battles/types";
+import { getDamageState, hpFillClass } from "@/features/battles/helpers";
+import { getWeaponIconCaches } from "@/features/battles/data-service";
+import { isSafeImageUrl } from "@/utils/security";
 
 /**
  * Ship banner `<img>` with graceful loading:

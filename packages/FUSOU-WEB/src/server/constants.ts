@@ -9,7 +9,7 @@ export const CACHE_CONTROL = "public, max-age=31536000, immutable";
 export const CORS_HEADERS: Record<string, string> = {
   // PUBLIC API: CORS allows all origins (*) for read-only APIs (battle data, master data, etc.)
   // IMPORTANT: All state-mutating endpoints (POST/PUT/DELETE) MUST implement Origin validation via validateOrigin()
-  // See: src/utility/security.ts for CSRF protection patterns
+  // See: src/utils/security.ts for CSRF protection patterns
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,PATCH,OPTIONS",
   "Access-Control-Allow-Headers": "authorization,content-type",

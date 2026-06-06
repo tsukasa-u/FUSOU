@@ -13,7 +13,7 @@ import {
   getBattleMapAsset,
   resolveBattleMapSpriteUrl,
 } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 
 import type {
   BattleRecord,

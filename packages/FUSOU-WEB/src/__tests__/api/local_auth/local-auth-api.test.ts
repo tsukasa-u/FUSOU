@@ -35,7 +35,7 @@ const {
   };
 });
 
-vi.mock("@/utility/security", () => ({
+vi.mock("@/utils/security", () => ({
   validateOriginDetailed: mockValidateOriginDetailed,
   validateRedirectUrl: mockValidateRedirectUrl,
   sanitizeErrorMessage: mockSanitizeErrorMessage,
@@ -55,7 +55,7 @@ vi.mock("@/utility/security", () => ({
   },
 }));
 
-vi.mock("@/utility/supabaseServer", () => ({
+vi.mock("@/lib/supabaseServer", () => ({
   createSupabaseServerClient: vi.fn(() => ({
     auth: {
       signInWithOAuth: mockSignInWithOAuth,
@@ -65,9 +65,9 @@ vi.mock("@/utility/supabaseServer", () => ({
   })),
 }));
 
-import { POST as signInPost } from "../signin";
-import { GET as callbackGet } from "../callback";
-import { GET as appRedirectGet } from "../app-redirect";
+import { POST as signInPost } from "@/pages/api/local_auth/signin";
+import { GET as callbackGet } from "@/pages/api/local_auth/callback";
+import { GET as appRedirectGet } from "@/pages/api/local_auth/app-redirect";
 
 function createCookieJar(initial: Record<string, string> = {}) {
   const store = new Map(Object.entries(initial));

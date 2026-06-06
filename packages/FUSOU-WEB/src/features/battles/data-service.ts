@@ -1,6 +1,6 @@
 import type { ShipInfo, WeaponIconFrame } from "./types";
 import { toGroupIds, hpScoreForDeck } from "./helpers";
-import { cachedFetch } from "@/utility/fetchCache";
+import { cachedFetch } from "@/utils/fetchCache";
 
 let mstShipByIdCache: Map<number, Record<string, unknown>> | null = null;
 let mstSlotItemByIdCache: Map<number, Record<string, unknown>> | null = null;

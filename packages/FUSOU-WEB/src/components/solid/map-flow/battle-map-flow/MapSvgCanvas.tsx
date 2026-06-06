@@ -1,6 +1,6 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createEffect, createSignal } from "solid-js";
-import { isSafeImageUrl } from "@/utility/security";
+import { isSafeImageUrl } from "@/utils/security";
 import type { ResolvedRouteOverlay, SelectedCellFilter } from "./types";
 import {
   BASE_CELL_MARKER_RADIUS,
