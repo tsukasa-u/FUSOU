@@ -34,6 +34,7 @@ import {
   getMasterSlotItems,
   getSlotItemEffects,
   getSokuSpeedData,
+  hasMasterData,
 } from "../../../pages/simulator/lib/simulator-selectors";
 import {
   ENEMY_ID_THRESHOLD,
@@ -3302,19 +3303,39 @@ function SimulatorDetailsCatalog(): JSX.Element {
     setInitialShipIdFromUrl(parsePositiveInt(params.get("ship")));
     setInitialEquipIdFromUrl(parsePositiveInt(params.get("equip")));
     setUrlStateReady(true);
+
+    window.addEventListener("simulator-tab-changed", (e: any) => {
+      const newTab = e.detail;
+      if (newTab === "ship" || newTab === "equip") {
+        setTab(newTab);
+      }
+    });
+
+    window.addEventListener("simulator-master-data-loaded", () => {
+      setDataLoaded(true);
+    });
   });
 
-  const allShips = createMemo(() =>
-    Object.values(getMasterShips())
-      .filter((ship) => ship.id < ENEMY_ID_THRESHOLD)
-      .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id)),
-  );
+  createEffect(() => {
+    // Notify external tab system when tab changes internally
+    window.dispatchEvent(new CustomEvent("simulator-tab-changed-sync", { detail: tab() }));
+  });
 
-  const allEquips = createMemo(() =>
-    Object.values(getMasterSlotItems())
+  const [dataLoaded, setDataLoaded] = createSignal(hasMasterData());
+
+  const allShips = createMemo(() => {
+    if (!dataLoaded()) return [];
+    return Object.values(getMasterShips())
+      .filter((ship) => ship.id < ENEMY_ID_THRESHOLD)
+      .sort((a, b) => (a.sort_id ?? a.id) - (b.sort_id ?? b.id));
+  });
+
+  const allEquips = createMemo(() => {
+    if (!dataLoaded()) return [];
+    return Object.values(getMasterSlotItems())
       .filter((equip) => equip.id < ENEMY_ID_THRESHOLD)
-      .sort((a, b) => a.sortno - b.sortno),
-  );
+      .sort((a, b) => a.sortno - b.sortno);
+  });
 
   const shipCategories = createMemo(() =>
     [
@@ -3436,7 +3457,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   // Apply URL-specified ship/equip IDs once master data loads.
   createEffect(() => {
-    if (!urlStateReady()) return;
+    if (!urlStateReady() || !dataLoaded()) return;
     const shipFromQuery = initialShipIdFromUrl();
     if (shipFromQuery != null && getMasterShip(shipFromQuery)) {
       setSelectedShipId(shipFromQuery);
@@ -3474,23 +3495,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
   return (
     <div class="space-y-4">
       <div class="rounded-xl border border-base-300/70 bg-base-100 p-2 flex flex-wrap gap-1.5">
-        <a href="/simulator" class="btn btn-sm btn-outline">
-          艦隊シミュレータ
-        </a>
-        <button
-          id="sim-details-tab-ship"
-          class={`btn btn-sm ${tab() === "ship" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => setTab("ship")}
-        >
-          艦詳細
-        </button>
-        <button
-          id="sim-details-tab-equip"
-          class={`btn btn-sm ${tab() === "equip" ? "btn-primary" : "btn-ghost"}`}
-          onClick={() => setTab("equip")}
-        >
-          装備詳細
-        </button>
         <ShareUrlButton
           id="sim-details-share-btn"
           class="ml-auto"
@@ -4112,5 +4116,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
 }
 
 export function mountSimulatorDetailsCatalog(root: HTMLElement): void {
+  if (root.hasChildNodes()) return;
   render(() => <SimulatorDetailsCatalog />, root);
 }

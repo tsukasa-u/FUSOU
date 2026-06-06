@@ -104,13 +104,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       compact={true}
     >
       <Fragment slot="actions">
-        <a
-          id="sim-details-link"
-          href="/simulator/details"
-          class="fusou-btn-secondary gap-1.5"
-        >
-          艦/装備詳細
-        </a>
         <button id="btn-display-settings" class="fusou-btn-secondary gap-1.5">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -198,21 +191,34 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
       </Fragment>
     </PageHeader>
 
-    <!-- Tab bar -->
-    <div class="flex gap-1 mb-5 border-b border-base-300/60">
+    <div class="flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto hide-scrollbar">
       <button
         id="sim-tab-btn-fleet"
-        class="px-4 py-2 text-sm font-medium border-b-2 border-primary text-primary -mb-px transition-colors"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-primary text-primary -mb-px transition-colors whitespace-nowrap"
         data-tab="fleet"
       >
         編成
       </button>
       <button
         id="sim-tab-btn-optimizer"
-        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-base-content/55 hover:text-base-content -mb-px transition-colors"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-base-content/55 hover:text-base-content -mb-px transition-colors whitespace-nowrap"
         data-tab="optimizer"
       >
         装備最適化
+      </button>
+      <button
+        id="sim-tab-btn-ship"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-base-content/55 hover:text-base-content -mb-px transition-colors whitespace-nowrap"
+        data-tab="ship"
+      >
+        艦詳細
+      </button>
+      <button
+        id="sim-tab-btn-equip"
+        class="px-4 py-2 text-sm font-medium border-b-2 border-transparent text-base-content/55 hover:text-base-content -mb-px transition-colors whitespace-nowrap"
+        data-tab="equip"
+      >
+        装備詳細
       </button>
     </div>
 
@@ -475,6 +481,11 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
     <!-- Optimizer tab content -->
     <div id="sim-tab-optimizer" hidden>
       <div id="optimizer-mount"></div>
+    </div>
+
+    <!-- Details tab content -->
+    <div id="sim-tab-details" hidden>
+      <div id="simulator-details-root" class="min-h-96"></div>
     </div>
 
     <!-- Ship Selection Modal -->
@@ -1130,39 +1141,96 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   import { initImageCaptureEvents } from "./lib/image-capture";
   import { initIOEvents, loadFromUrl } from "./lib/io-handlers";
   import { ensureOptimizerMounted } from "../../components/solid/simulator/simulator-optimizer";
+  import { mountSimulatorDetailsCatalog } from "../../components/solid/simulator/simulator-details-catalog";
+
+  let detailsMounted = false;
+  function ensureDetailsMounted() {
+    if (detailsMounted) return;
+    const root = document.getElementById("simulator-details-root");
+    if (root) {
+      detailsMounted = true;
+      mountSimulatorDetailsCatalog(root);
+    }
+  }
 
   // Tab switching
   const fleetTab = document.getElementById("sim-tab-fleet");
   const optimizerTab = document.getElementById("sim-tab-optimizer");
+  const detailsTab = document.getElementById("sim-tab-details");
+
   const btnFleet = document.getElementById("sim-tab-btn-fleet");
   const btnOptimizer = document.getElementById("sim-tab-btn-optimizer");
+  const btnShip = document.getElementById("sim-tab-btn-ship");
+  const btnEquip = document.getElementById("sim-tab-btn-equip");
+
   const btnShare = document.getElementById("btn-share");
   const btnSaveImage = document.getElementById("btn-save-image");
+  const btnLoadFleet = document.getElementById("btn-load-fleet");
+  const btnImport = document.getElementById("btn-import");
+  const btnDisplaySettings = document.getElementById("btn-display-settings");
 
-  function activateTab(name: "fleet" | "optimizer") {
+  function activateTab(name: string, dispatchInner = true) {
     const isFleet = name === "fleet";
+    const isOptimizer = name === "optimizer";
+    const isDetails = name === "ship" || name === "equip";
+
+    const headerTitle = document.querySelector(".fusou-page-header h1");
+    const headerSubtitle = document.querySelector(".fusou-page-header p");
+
+    if (name === "fleet") {
+      if (headerTitle) headerTitle.textContent = "編成シミュレータ";
+      if (headerSubtitle) headerSubtitle.textContent = "艦隊編成を組み立てて確認・共有";
+    } else if (name === "optimizer") {
+      if (headerTitle) headerTitle.textContent = "装備最適化";
+      if (headerSubtitle) headerSubtitle.textContent = "制約条件を満たす最適な装備の組み合わせを探索";
+    } else if (name === "ship") {
+      if (headerTitle) headerTitle.textContent = "艦詳細";
+      if (headerSubtitle) headerSubtitle.textContent = "艦娘の能力・搭載・成長・シナジー等の詳細を確認";
+    } else if (name === "equip") {
+      if (headerTitle) headerTitle.textContent = "装備詳細";
+      if (headerSubtitle) headerSubtitle.textContent = "装備の性能・装備可能艦・シナジー効果を横断的に確認";
+    }
+
     fleetTab?.toggleAttribute("hidden", !isFleet);
-    optimizerTab?.toggleAttribute("hidden", isFleet);
-    // Hide fleet-specific header actions when on the optimizer tab
+    optimizerTab?.toggleAttribute("hidden", !isOptimizer);
+    detailsTab?.toggleAttribute("hidden", !isDetails);
+
+    // Hide fleet-specific header actions when not on the fleet tab
     btnShare?.toggleAttribute("hidden", !isFleet);
     btnSaveImage?.toggleAttribute("hidden", !isFleet);
-    if (btnFleet) {
-      btnFleet.classList.toggle("border-primary", isFleet);
-      btnFleet.classList.toggle("text-primary", isFleet);
-      btnFleet.classList.toggle("border-transparent", !isFleet);
-      btnFleet.classList.toggle("text-base-content/55", !isFleet);
+    btnLoadFleet?.toggleAttribute("hidden", !isFleet);
+    btnImport?.toggleAttribute("hidden", !isFleet);
+    btnDisplaySettings?.toggleAttribute("hidden", !isFleet);
+
+    const tabs = ["fleet", "optimizer", "ship", "equip"];
+    for (const t of tabs) {
+      const btn = document.getElementById(`sim-tab-btn-${t}`);
+      if (btn) {
+        const active = (t === name);
+        btn.classList.toggle("border-primary", active);
+        btn.classList.toggle("text-primary", active);
+        btn.classList.toggle("border-transparent", !active);
+        btn.classList.toggle("text-base-content/55", !active);
+      }
     }
-    if (btnOptimizer) {
-      btnOptimizer.classList.toggle("border-primary", !isFleet);
-      btnOptimizer.classList.toggle("text-primary", !isFleet);
-      btnOptimizer.classList.toggle("border-transparent", isFleet);
-      btnOptimizer.classList.toggle("text-base-content/55", isFleet);
+
+    if (!isFleet && !isDetails) ensureOptimizerMounted();
+    if (isDetails) {
+      ensureDetailsMounted();
+      if (dispatchInner) {
+        window.dispatchEvent(new CustomEvent("simulator-tab-changed", { detail: name }));
+      }
     }
-    if (!isFleet) ensureOptimizerMounted();
   }
+
+  window.addEventListener("simulator-tab-changed-sync", (e: any) => {
+    activateTab(e.detail, false);
+  });
 
   btnFleet?.addEventListener("click", () => activateTab("fleet"));
   btnOptimizer?.addEventListener("click", () => activateTab("optimizer"));
+  btnShip?.addEventListener("click", () => activateTab("ship"));
+  btnEquip?.addEventListener("click", () => activateTab("equip"));
 
   // Event listeners
   initShipModalEvents();
@@ -1178,15 +1246,19 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   (async () => {
     updateDataStatus();
 
-    // Auto-activate optimizer tab when URL specifies it (must be before renderAll
-    // so that ensureOptimizerMounted runs with the correct ?odata= still in the URL)
+    // Auto-activate tab when URL specifies it
     const initialTab = new URLSearchParams(window.location.search).get("tab");
-    if (initialTab === "optimizer") activateTab("optimizer");
+    if (initialTab === "optimizer" || initialTab === "ship" || initialTab === "equip") {
+      activateTab(initialTab);
+    }
 
     const initialWorkspaceSeed = await loadFromUrl();
     renderAll();
     initIOEvents(initialWorkspaceSeed);
-    loadMasterData(renderAll);
+    loadMasterData(() => {
+      renderAll();
+      window.dispatchEvent(new CustomEvent("simulator-master-data-loaded"));
+    });
   })();
 </script>
 
