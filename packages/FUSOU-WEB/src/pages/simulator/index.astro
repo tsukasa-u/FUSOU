@@ -257,6 +257,9 @@ const isEquip = tabQuery === "equip";
       </Fragment>
     </PageHeader>
 
+    <!-- Status -->
+    <DataStatusAlert mb="mb-5" startHidden={true} />
+
     <div class="flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto hide-scrollbar">
       <button
         id="sim-tab-btn-fleet"
@@ -373,9 +376,6 @@ const isEquip = tabQuery === "equip";
       </section>
 
       <div id="deck-capture-area">
-        <!-- Status -->
-        <DataStatusAlert mb="mb-5" startHidden={true} />
-
         <div
           id="combined-fleet-validation"
           class="alert alert-warning mb-4 py-2 hidden"
