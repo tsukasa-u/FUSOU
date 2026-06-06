@@ -7,9 +7,10 @@ import {
   createMemo,
   createSignal,
   onMount,
+  onCleanup,
   type JSX,
 } from "solid-js";
-import { render } from "solid-js/web";
+import { render, Portal } from "solid-js/web";
 import {
   bannerUrl,
   cardUrl,
@@ -3492,65 +3493,29 @@ function SimulatorDetailsCatalog(): JSX.Element {
     window.history.replaceState(window.history.state, "", url.toString());
   });
 
+  onMount(() => {
+    const btnSettings = document.getElementById("sim-details-settings-btn");
+    const btnHelp = document.getElementById("sim-details-help-btn");
+    const btnShare = document.getElementById("sim-details-share-btn");
+
+    const onSettingsClick = () => setSettingsOpen(true);
+    const onHelpClick = () => setHelpOpen(true);
+    const onShareClick = () => void issueShareUrl();
+
+    btnSettings?.addEventListener("click", onSettingsClick);
+    btnHelp?.addEventListener("click", onHelpClick);
+    btnShare?.addEventListener("click", onShareClick);
+
+    onCleanup(() => {
+      btnSettings?.removeEventListener("click", onSettingsClick);
+      btnHelp?.removeEventListener("click", onHelpClick);
+      btnShare?.removeEventListener("click", onShareClick);
+    });
+  });
+
   return (
     <div class="space-y-4">
-      <div class="rounded-xl border border-base-300/70 bg-base-100 p-2 flex flex-wrap gap-1.5">
-        <ShareUrlButton
-          id="sim-details-share-btn"
-          class="ml-auto"
-          onClick={() => {
-            void issueShareUrl();
-          }}
-        />
-        <button
-          id="sim-details-settings-btn"
-          class="btn btn-sm btn-ghost gap-1.5"
-          onClick={() => setSettingsOpen(true)}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
-            ></path>
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 9a3 3 0 100 6 3 3 0 000-6z"
-            ></path>
-          </svg>
-          表示設定
-        </button>
-        <button
-          id="sim-details-help-btn"
-          class="btn btn-sm btn-ghost gap-1.5"
-          onClick={() => setHelpOpen(true)}
-        >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-4 w-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          使い方
-        </button>
-      </div>
+
 
       <dialog
         ref={settingsDialogRef}
