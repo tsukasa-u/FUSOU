@@ -2142,6 +2142,17 @@ app.get("/exp", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
   if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
+
   const periodTag = (c.req.query("period_tag") ?? "").trim();
   const tableVersion = (c.req.query("table_version") ?? "").trim();
 
@@ -2246,6 +2257,13 @@ app.get("/exp", async (c) => {
       "public, max-age=3600, stale-while-revalidate=86400",
     );
     response.headers.set("X-FUSOU-Cache", cacheStatus);
+    if (cache) {
+      try {
+        await putShipGrowthCache(c, cache, cacheKey, response);
+      } catch (cacheErr) {
+        console.warn("[ship-growth] Failed to populate CF cache for /exp:", cacheErr);
+      }
+    }
     return response;
   } catch (err) {
     const message = String(err);
@@ -2299,6 +2317,17 @@ app.get("/exp", async (c) => {
 app.get("/bounds", async (c) => {
   const db = c.env.SHIP_GROWTH_DB;
   if (!db) return c.json({ error: "SHIP_GROWTH_DB not configured" }, 503);
+
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
 
   const periodTag = (c.req.query("period_tag") ?? "").trim();
   const tableVersion = (c.req.query("table_version") ?? "").trim();
@@ -2510,6 +2539,13 @@ app.get("/bounds", async (c) => {
       "public, max-age=3600, stale-while-revalidate=86400",
     );
     response.headers.set("X-FUSOU-Cache", cacheStatus);
+    if (cache) {
+      try {
+        await putShipGrowthCache(c, cache, cacheKey, response);
+      } catch (cacheErr) {
+        console.warn("[ship-growth] Failed to populate CF cache for /bounds:", cacheErr);
+      }
+    }
     return response;
   } catch (err) {
     const message = String(err);
@@ -2608,6 +2644,17 @@ app.get("/cumulative", async (c) => {
     return c.json({ error: "SHIP_GROWTH_ARCHIVE_BUCKET not configured" }, 503);
   }
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
+
   try {
     const { snapshot, cacheStatus } =
       await loadCumulativeShipGrowthSnapshot(env);
@@ -2624,6 +2671,13 @@ app.get("/cumulative", async (c) => {
       "public, max-age=3600, stale-while-revalidate=86400",
     );
     response.headers.set("X-FUSOU-Cache", cacheStatus);
+    if (cache) {
+      try {
+        await putShipGrowthCache(c, cache, cacheKey, response);
+      } catch (cacheErr) {
+        console.warn("[ship-growth] Failed to populate CF cache for /cumulative:", cacheErr);
+      }
+    }
     return response;
   } catch (err) {
     console.error("[ship-growth] Failed to load cumulative archive:", err);
@@ -2936,6 +2990,17 @@ app.get("/all-periods", async (c) => {
     return c.json({ error: "SHIP_GROWTH_ARCHIVE_BUCKET not configured" }, 503);
   }
 
+  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const cacheKey = new Request(c.req.url, { method: "GET" });
+  if (cache) {
+    const cached = await cache.match(cacheKey);
+    if (cached) {
+      const hit = new Response(cached.body, cached);
+      hit.headers.set("X-FUSOU-Cache", "HIT");
+      return hit;
+    }
+  }
+
   try {
     const { snapshot, cacheStatus } =
       await loadAllPeriodsShipGrowthSnapshot(env);
@@ -2950,6 +3015,13 @@ app.get("/all-periods", async (c) => {
       "public, max-age=3600, stale-while-revalidate=86400",
     );
     response.headers.set("X-FUSOU-Cache", cacheStatus);
+    if (cache) {
+      try {
+        await putShipGrowthCache(c, cache, cacheKey, response);
+      } catch (cacheErr) {
+        console.warn("[ship-growth] Failed to populate CF cache for /all-periods:", cacheErr);
+      }
+    }
     return response;
   } catch (err) {
     console.error("[ship-growth] Failed to load all-periods archive:", err);
