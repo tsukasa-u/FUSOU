@@ -27,7 +27,7 @@ use std::collections::HashSet;
 
 #[cfg(windows)]
 use webview2_com::{
-    callback::{AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler},
+    AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
     CoTaskMemPWSTR,
     Microsoft::Web::WebView2::Win32::{
         COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
@@ -631,7 +631,7 @@ pub fn capture_focused_external_window_screenshot(app: &AppHandle) -> Option<Pat
             let parameters_json = CoTaskMemPWSTR::from(r#"{"format":"png"}"#);
 
             let handler = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(
-                move |status, result_json| {
+                move |status, result_json: String| {
                     if let Err(error) = status {
                         tracing::warn!(
                             "windows screenshot devtools call failed with status: {}",
