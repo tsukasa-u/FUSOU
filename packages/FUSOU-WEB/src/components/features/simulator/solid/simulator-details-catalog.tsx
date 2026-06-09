@@ -43,6 +43,8 @@ import {
   SPEED_NAMES,
   STYPE_NAMES,
 } from "@/features/simulator/constants";
+import { VList } from "virtua/solid";
+import type { VListHandle } from "virtua/solid";
 
 import type {
   MstShipData,
@@ -3411,9 +3413,59 @@ function SimulatorDetailsCatalog(): JSX.Element {
     ),
   );
 
+  const flatShips = createMemo(() => {
+    const flat: Array<{ type: "header"; key: string } | { type: "ship"; data: MstShipData }> = [];
+    for (const group of groupedShips()) {
+      flat.push({ type: "header", key: group.key });
+      for (const ship of group.items) {
+        flat.push({ type: "ship", data: ship });
+      }
+    }
+    return flat;
+  });
+
   const groupedEquips = createMemo(() =>
     groupBy(filteredEquips(), (equip) => equipDisplayTypeName(equip)),
   );
+
+  const flatEquips = createMemo(() => {
+    const flat: Array<{ type: "header"; key: string } | { type: "equip"; data: MstSlotItemData }> = [];
+    for (const group of groupedEquips()) {
+      flat.push({ type: "header", key: group.key });
+      for (const equip of group.items) {
+        flat.push({ type: "equip", data: equip });
+      }
+    }
+    return flat;
+  });
+
+  let shipVListRef: VListHandle | undefined;
+  let equipVListRef: VListHandle | undefined;
+
+  // URLから直接開いた際など、一度だけ該当アイテムが見えるようにスクロールする
+  let hasScrolledInitialShip = false;
+  createEffect(() => {
+    const id = selectedShipId();
+    if (id && shipVListRef && !hasScrolledInitialShip) {
+      const idx = flatShips().findIndex(r => r.type === "ship" && r.data.id === id);
+      if (idx >= 0) {
+        hasScrolledInitialShip = true;
+        shipVListRef.scrollToIndex(idx, { align: "center" });
+      }
+    }
+  });
+
+  let hasScrolledInitialEquip = false;
+  createEffect(() => {
+    const id = selectedEquipId();
+    if (id && equipVListRef && !hasScrolledInitialEquip) {
+      const idx = flatEquips().findIndex(r => r.type === "equip" && r.data.id === id);
+      if (idx >= 0) {
+        hasScrolledInitialEquip = true;
+        equipVListRef.scrollToIndex(idx, { align: "center" });
+      }
+    }
+  });
 
   function parsePositiveInt(raw: string | null): number | null {
     if (!raw) return null;
@@ -3965,27 +4017,26 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setShipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 max-h-[74vh] overflow-y-auto">
-              <For each={groupedShips()}>
-                {(group) => (
-                  <section class="mb-2 last:mb-0">
-                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase sticky top-0 bg-base-100/95 backdrop-blur-sm z-10">
-                      {group.key}
-                    </h4>
-                    <div>
-                      <For each={group.items}>
-                        {(ship) => (
-                          <ShipListRow
-                            ship={ship}
-                            active={selectedShipId() === ship.id}
-                            onSelect={() => setSelectedShipId(ship.id)}
-                          />
-                        )}
-                      </For>
+            <div class="p-2 h-[74vh]">
+              <VList ref={shipVListRef} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+                {(item: any) =>
+                  item.type === "header" ? (
+                    <div class="mb-2 mt-1 first:mt-0">
+                      <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                        {item.key}
+                      </h4>
                     </div>
-                  </section>
-                )}
-              </For>
+                  ) : (
+                    <div class="mb-0.5">
+                      <ShipListRow
+                        ship={item.data}
+                        active={selectedShipId() === item.data.id}
+                        onSelect={() => setSelectedShipId(item.data.id)}
+                      />
+                    </div>
+                  )
+                }
+              </VList>
             </div>
           </aside>
 
@@ -4038,27 +4089,26 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setEquipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 max-h-[74vh] overflow-y-auto">
-              <For each={groupedEquips()}>
-                {(group) => (
-                  <section class="mb-2 last:mb-0">
-                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase sticky top-0 bg-base-100/95 backdrop-blur-sm z-10">
-                      {group.key}
-                    </h4>
-                    <div>
-                      <For each={group.items}>
-                        {(equip) => (
-                          <EquipListRow
-                            equip={equip}
-                            active={selectedEquipId() === equip.id}
-                            onSelect={() => setSelectedEquipId(equip.id)}
-                          />
-                        )}
-                      </For>
+            <div class="p-2 h-[74vh]">
+              <VList ref={equipVListRef} data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
+                {(item: any) =>
+                  item.type === "header" ? (
+                    <div class="mb-2 mt-1 first:mt-0">
+                      <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                        {item.key}
+                      </h4>
                     </div>
-                  </section>
-                )}
-              </For>
+                  ) : (
+                    <div class="mb-0.5">
+                      <EquipListRow
+                        equip={item.data}
+                        active={selectedEquipId() === item.data.id}
+                        onSelect={() => setSelectedEquipId(item.data.id)}
+                      />
+                    </div>
+                  )
+                }
+              </VList>
             </div>
           </aside>
 

@@ -28,6 +28,7 @@ import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
+import { VList, type VListHandle } from "virtua/solid";
 
 Chart.register(...registerables);
 
@@ -673,6 +674,31 @@ export default function ShipGrowthPanel() {
     return Array.from(map.entries())
       .sort((a, b) => a[0].localeCompare(b[0], "ja"))
       .map(([key, items]) => ({ key, items }));
+  });
+
+  const flatShips = createMemo(() => {
+    const flat: Array<{ type: "header"; key: string } | { type: "ship"; data: ShipListItem }> = [];
+    for (const group of groupedShips()) {
+      flat.push({ type: "header", key: group.key });
+      for (const ship of group.items) {
+        flat.push({ type: "ship", data: ship });
+      }
+    }
+    return flat;
+  });
+
+  let shipVListRef: VListHandle | undefined;
+
+  let hasScrolledInitialShip = false;
+  createEffect(() => {
+    const id = selectedMasterId();
+    if (id != null && shipVListRef && !hasScrolledInitialShip) {
+      const idx = flatShips().findIndex((r) => r.type === "ship" && r.data.id === id);
+      if (idx >= 0) {
+        hasScrolledInitialShip = true;
+        shipVListRef.scrollToIndex(idx, { align: "center" });
+      }
+    }
   });
 
   async function fetchSummary() {
@@ -1347,27 +1373,26 @@ export default function ShipGrowthPanel() {
               </div>
             </Show>
             <Show when={!loadingShips()}>
-              <div class="max-h-[74vh] overflow-y-auto pr-1">
-                <For each={groupedShips()}>
-                  {(group) => (
-                    <section class="mb-2 last:mb-0">
-                      <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase sticky top-0 bg-base-100/95 backdrop-blur-sm z-10">
-                        {group.key}
-                      </h4>
-                      <div>
-                        <For each={group.items}>
-                          {(ship) => (
-                            <ShipListRow
-                              ship={ship}
-                              active={selectedMasterId() === ship.id}
-                              onSelect={() => selectShip(ship.id)}
-                            />
-                          )}
-                        </For>
+              <div class="h-[74vh] pr-1">
+                <VList ref={shipVListRef} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+                  {(item: any) =>
+                    item.type === "header" ? (
+                      <div class="mb-2 mt-1 first:mt-0">
+                        <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                          {item.key}
+                        </h4>
                       </div>
-                    </section>
-                  )}
-                </For>
+                    ) : (
+                      <div class="mb-0.5">
+                        <ShipListRow
+                          ship={item.data}
+                          active={selectedMasterId() === item.data.id}
+                          onSelect={() => selectShip(item.data.id)}
+                        />
+                      </div>
+                    )
+                  }
+                </VList>
               </div>
             </Show>
           </div>
