@@ -27,10 +27,10 @@ export const FORMATION_NAMES: Record<number, string> = {
 };
 
 export const AIR_STATE: Record<number, { label: string; cls: string }> = {
-  0: { label: "航空均衡", cls: "text-warning" },
+  0: { label: "不明", cls: "text-base-content/50" },
   1: { label: "制空権確保", cls: "text-success" },
   2: { label: "航空優勢", cls: "text-info" },
-  3: { label: "航空劣勢", cls: "text-error" },
+  3: { label: "不明", cls: "text-base-content/50" },
   4: { label: "制空権喪失", cls: "text-error" },
 };
 

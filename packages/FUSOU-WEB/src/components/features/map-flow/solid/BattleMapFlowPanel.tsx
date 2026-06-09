@@ -14,6 +14,7 @@ import {
   resolveBattleMapSpriteUrl,
 } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utils/fetchCache";
+import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
   BattleRecord,
@@ -94,24 +95,9 @@ function periodLabel(period: PeriodSummary): string {
   return `${period.period_tag} (v${period.table_version})`;
 }
 
-export default function BattleMapFlowPanel() {
+export default function BattleMapFlowPanel(props: { dashboardState: SharedDashboardState }) {
+  const d = props.dashboardState;
   // ── UI control signals ──────────────────────────────────────────────────────
-  const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
-  const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
-  const [loadingPeriods, setLoadingPeriods] = createSignal(false);
-  const [urlStateReady, setUrlStateReady] = createSignal(false);
-  const [mapFilter, setMapFilter] = createSignal("");
-  const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [partialLoadWarnings, setPartialLoadWarnings] = createSignal<string[]>(
-    [],
-  );
-  const [masterDataStatus, setMasterDataStatus] = createSignal<
-    MasterDataLoadStatusItem[]
-  >([
-    { name: "mst_ship", status: "pending" },
-    { name: "mst_slotitem", status: "pending" },
-  ]);
   const [selectedSortieId, setSelectedSortieId] = createSignal("");
   const [selectedCellFilter, setSelectedCellFilter] =
     createSignal<SelectedCellFilter | null>(null);
@@ -125,22 +111,6 @@ export default function BattleMapFlowPanel() {
   let displaySettingsModalRef!: HTMLDialogElement;
 
   // ── Data signals ────────────────────────────────────────────────────────────
-  const [battleRecords, setBattleRecords] = createSignal<BattleRecord[]>([]);
-  const [cellRecords, setCellRecords] = createSignal<CellRecord[]>([]);
-  const [enemyDecks, setEnemyDecks] = createSignal<EnemyDeckRecord[]>([]);
-  const [enemyShips, setEnemyShips] = createSignal<EnemyShipRecord[]>([]);
-  const [enemySlotItems, setEnemySlotItems] = createSignal<
-    EnemySlotItemRecord[]
-  >([]);
-  const [mstShips, setMstShips] = createSignal<MstShipRecord[]>([]);
-  const [mstSlotItems, setMstSlotItems] = createSignal<MstSlotItemRecord[]>([]);
-  const [weaponIconFrames, setWeaponIconFrames] = createSignal<
-    Record<number, WeaponIconFrame>
-  >({});
-  const [weaponIconMeta, setWeaponIconMeta] = createSignal<WeaponIconMeta>({
-    width: 0,
-    height: 0,
-  });
   const [mapSpotsByKey, setMapSpotsByKey] = createSignal<
     Record<string, MapSpot[]>
   >({});
@@ -156,7 +126,6 @@ export default function BattleMapFlowPanel() {
   const pendingMetadataLoads = new Map<string, Promise<void>>();
 
   let mapMetadataAbortController: AbortController | null = null;
-  let loadDataAbortController: AbortController | null = null;
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
 
@@ -331,35 +300,31 @@ export default function BattleMapFlowPanel() {
   // ── Derived data ─────────────────────────────────────────────────────────────
 
   const describeEnemy = createMemo(() =>
-    buildEnemyDeckResolver(enemyDecks(), enemyShips(), mstShips()),
+    buildEnemyDeckResolver(d.enemyDecks(), d.enemyShips(), d.mstShips()),
   );
 
   const describeEnemyFleet = createMemo(() =>
     buildEnemyFleetResolver(
-      enemyDecks(),
-      enemyShips(),
-      enemySlotItems(),
-      mstShips(),
-      mstSlotItems(),
+      d.enemyDecks(),
+      d.enemyShips(),
+      d.enemySlotItems(),
+      d.mstShips(),
+      d.mstSlotItems(),
     ),
   );
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
-    for (const rec of battleRecords()) {
+    for (const rec of d.battleRecords()) {
       const key = mapKeyOf(rec);
       if (key !== "0-0") values.add(key);
     }
-    for (const rec of cellRecords()) {
+    for (const rec of d.cellRecords()) {
       const key = mapKeyOf(rec);
       if (key !== "0-0") values.add(key);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   });
-
-  const selectedPeriod = createMemo(
-    () => periods()[selectedPeriodIdx()] ?? null,
-  );
 
   createEffect(() => {
     const maps = mapOptions();
@@ -369,19 +334,19 @@ export default function BattleMapFlowPanel() {
   });
 
   const filteredBattles = createMemo(() => {
-    const selected = mapFilter();
-    return battleRecords()
+    const selected = d.mapFilter();
+    return d.battleRecords()
       .filter((r) => !selected || mapKeyOf(r) === selected)
       .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
   });
 
   const filteredCellRecords = createMemo(() => {
-    const selected = mapFilter();
-    return cellRecords().filter((r) => !selected || mapKeyOf(r) === selected);
+    const selected = d.mapFilter();
+    return d.cellRecords().filter((r) => !selected || mapKeyOf(r) === selected);
   });
 
   const mstShipNameById = createMemo(
-    () => new Map(mstShips().map((ship) => [ship.id, ship.name])),
+    () => new Map(d.mstShips().map((ship) => [ship.id, ship.name])),
   );
 
   const battleGroupsByUuid = createMemo(() => {
@@ -626,7 +591,7 @@ export default function BattleMapFlowPanel() {
 
   const selectedAsset = createMemo(() => {
     const selected = selectedSortieRoute();
-    const key = selected?.mapKey || mapFilter() || null;
+    const key = selected?.mapKey || d.mapFilter() || null;
     return getBattleMapAsset(key);
   });
 
@@ -954,614 +919,33 @@ export default function BattleMapFlowPanel() {
     };
   });
 
-  // ── Data fetching ───────────────────────────────────────────────────────────
-
-  async function fetchPeriodSummary(): Promise<PeriodSummary[]> {
-    setLoadingPeriods(true);
-    try {
-      const response = await cachedFetch("/api/battle-data/global/summary?table=battle");
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = (await response.json()) as {
-        periods?: Array<{ period_tag?: string; table_version?: string }>;
-      };
-      const rowsFromSummary = (payload.periods || [])
-        .map((row) => ({
-          period_tag: String(row.period_tag ?? "").trim(),
-          table_version: String(row.table_version ?? "").trim() || null,
-        }))
-        .filter((row) => row.period_tag.length > 0 && !!row.table_version);
-      const rows: PeriodSummary[] = [
-        { period_tag: "latest", table_version: null },
-        { period_tag: "all", table_version: null },
-        ...rowsFromSummary,
-      ];
-      setPeriods(rows);
-      return rows;
-    } finally {
-      setLoadingPeriods(false);
-    }
-  }
-
-  function resolveInitialPeriodIndex(
-    rows: PeriodSummary[],
-    rawPeriodTag: string | null,
-    rawTableVersion: string | null,
-  ): number {
-    if (rows.length === 0) return 0;
-    const periodTag = rawPeriodTag?.trim() || null;
-    const tableVersion = rawTableVersion?.trim() || null;
-    if (!periodTag) {
-      return rows.findIndex((row) => row.period_tag === "latest") >= 0
-        ? rows.findIndex((row) => row.period_tag === "latest")
-        : 0;
-    }
-
-    const exactIdx = rows.findIndex(
-      (row) =>
-        row.period_tag === periodTag &&
-        (!tableVersion || row.table_version === tableVersion),
-    );
-    if (exactIdx >= 0) return exactIdx;
-
-    const periodOnlyIdx = rows.findIndex((row) => row.period_tag === periodTag);
-    return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
-  }
-
-  async function loadData(periodOverride?: PeriodSummary | null) {
-    const requestedPeriod = periodOverride ?? selectedPeriod();
-    if (!requestedPeriod) {
-      setError("利用可能な期間データがありません。");
-      setBattleRecords([]);
-      setCellRecords([]);
-      return;
-    }
-
-    loadDataAbortController?.abort();
-    const abortController = new AbortController();
-    loadDataAbortController = abortController;
-    const signal = abortController.signal;
-    const requestedPeriodTag = requestedPeriod.period_tag;
-    const tableVersionQuery = requestedPeriod.table_version
-      ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
-      : "";
-
-    setLoading(true);
-    setError(null);
-    setPartialLoadWarnings([]);
-    setMasterDataStatus([
-      { name: "mst_ship", status: "pending" },
-      { name: "mst_slotitem", status: "pending" },
-    ]);
-    try {
-      const parseOptionalJson = async <T,>(
-        response: Response,
-        fallback: T,
-        label: string,
-        warnings: Set<string>,
-      ): Promise<T> => {
-        if (!response.ok) {
-          warnings.add(`${label}の読込に失敗`);
-          return fallback;
-        }
-        try {
-          return (await response.json()) as T;
-        } catch (err) {
-          console.warn("[map-flow] Failed to parse optional response", err);
-          warnings.add(`${label}の解析に失敗`);
-          return fallback;
-        }
-      };
-
-      const optionalWarnings = new Set<string>();
-
-      const [
-        battleRes,
-        cellsRes,
-        enemyDeckRes,
-        enemyShipRes,
-        enemySlotItemRes,
-        mstShipRes,
-        mstSlotItemRes,
-        battleResultRes,
-        weaponIconFramesRes,
-      ] = await Promise.all([
-        cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000&include_sortie_key=1`,
-          { signal },
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-          { signal },
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-          { signal },
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-          { signal },
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=40000`,
-          { signal },
-        ),
-        cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
-        cachedFetch(`/api/master-data/json?table_name=mst_slotitem`, {
-          signal,
-        }),
-        cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-          { signal },
-        ),
-        cachedFetch(`/api/asset-sync/weapon-icon-frames?v=2`, { signal }),
-      ]);
-
-      if (signal.aborted) return;
-
-      if (!battleRes.ok) {
-        setError("戦闘データの取得に失敗しました。");
-        setBattleRecords([]);
-        // mstShipRes and mstSlotItemRes were received from Promise.all before this check.
-        // Reflect their real status so the alert doesn't stay frozen at "loading".
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: mstShipRes.ok ? "success" : "failed",
-            detail: mstShipRes.ok ? undefined : `HTTP ${mstShipRes.status}`,
-          },
-          {
-            name: "mst_slotitem",
-            status: mstSlotItemRes.ok ? "success" : "failed",
-            detail: mstSlotItemRes.ok ? undefined : `HTTP ${mstSlotItemRes.status}`,
-          },
-        ]);
-        return;
-      }
-
-      const battlePayload = (await battleRes.json()) as {
-        records?: BattleRecord[];
-      };
-      const cellsPayload = await parseOptionalJson<{ records?: CellRecord[] }>(
-        cellsRes,
-        { records: [] },
-        "セル履歴",
-        optionalWarnings,
-      );
-      const deckPayload = await parseOptionalJson<{
-        records?: EnemyDeckRecord[];
-      }>(enemyDeckRes, { records: [] }, "敵編成", optionalWarnings);
-      const shipPayload = await parseOptionalJson<{
-        records?: EnemyShipRecord[];
-      }>(enemyShipRes, { records: [] }, "敵艦情報", optionalWarnings);
-      const slotItemPayload = await parseOptionalJson<{
-        records?: EnemySlotItemRecord[];
-      }>(enemySlotItemRes, { records: [] }, "敵装備情報", optionalWarnings);
-      const mstPayload = await parseOptionalJson<{ records?: MstShipRecord[] }>(
-        mstShipRes,
-        { records: [] },
-        "艦マスタ",
-        optionalWarnings,
-      );
-      const mstSlotItemPayload = await parseOptionalJson<{
-        records?: MstSlotItemRecord[];
-      }>(mstSlotItemRes, { records: [] }, "装備マスタ", optionalWarnings);
-      setMasterDataStatus([
-        {
-          name: "mst_ship",
-          status: mstShipRes.ok ? "success" : "failed",
-          detail: mstShipRes.ok
-            ? `${(mstPayload.records || []).length}件`
-            : `HTTP ${mstShipRes.status}`,
-        },
-        {
-          name: "mst_slotitem",
-          status: mstSlotItemRes.ok ? "success" : "failed",
-          detail: mstSlotItemRes.ok
-            ? `${(mstSlotItemPayload.records || []).length}件`
-            : `HTTP ${mstSlotItemRes.status}`,
-        },
-      ]);
-      const battleResultPayload = await parseOptionalJson<{
-        records?: BattleResultRecord[];
-      }>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
-      const weaponIconFramesPayload = await parseOptionalJson<{
-        frames?: Record<
-          string,
-          { frame?: { x?: number; y?: number; w?: number; h?: number } }
-        >;
-        meta?: { size?: { w?: number; h?: number } };
-      }>(weaponIconFramesRes, {}, "装備アイコン情報", optionalWarnings);
-
-      if (optionalWarnings.size > 0) {
-        setPartialLoadWarnings([...optionalWarnings]);
-      }
-
-      const iconFrames: Record<number, WeaponIconFrame> = {};
-      for (const [name, entry] of Object.entries(
-        weaponIconFramesPayload.frames || {},
-      )) {
-        const match = name.match(/_id_(\d+)$/);
-        if (!match) continue;
-        const iconId = Number.parseInt(match[1], 10);
-        const frame = entry?.frame;
-        if (!frame) continue;
-        const x = Number(frame.x ?? NaN);
-        const y = Number(frame.y ?? NaN);
-        const w = Number(frame.w ?? NaN);
-        const h = Number(frame.h ?? NaN);
-        if (
-          !Number.isFinite(iconId) ||
-          !Number.isFinite(x) ||
-          !Number.isFinite(y) ||
-          !Number.isFinite(w) ||
-          !Number.isFinite(h)
-        ) {
-          continue;
-        }
-        iconFrames[iconId] = { x, y, w, h };
-      }
-
-      const battleResultByUuid = new Map<string, BattleResultData>();
-      for (const rec of battleResultPayload.records || []) {
-        if (!rec?.uuid || !rec.win_rank) continue;
-        battleResultByUuid.set(rec.uuid, {
-          win_rank: rec.win_rank,
-          drop_ship_id: rec.drop_ship_id ?? null,
-        });
-      }
-
-      // Resolve battle results that are referenced by UUID but not in the bulk payload.
-      const unresolvedResultUuids = new Set<string>();
-      for (const rec of battlePayload.records || []) {
-        if (
-          typeof rec?.battle_result === "string" &&
-          !battleResultByUuid.has(rec.battle_result)
-        ) {
-          unresolvedResultUuids.add(rec.battle_result);
-        }
-      }
-
-      if (unresolvedResultUuids.size > 0) {
-        const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        // Batch lookup: send all UUIDs in a single filter_json with array value
-        const batchFilterJson = encodeURIComponent(
-          JSON.stringify({ uuid: fillTargets }),
-        );
-        const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
-          { signal },
-        );
-        if (batchRes.ok) {
-          const body = (await batchRes.json().catch(() => ({}))) as {
-            records?: BattleResultRecord[];
-          };
-          for (const found of body.records || []) {
-            if (
-              found?.uuid &&
-              found.win_rank &&
-              !battleResultByUuid.has(found.uuid)
-            ) {
-              battleResultByUuid.set(found.uuid, {
-                win_rank: found.win_rank,
-                drop_ship_id: found.drop_ship_id ?? null,
-              });
-            }
-          }
-        }
-      }
-
-      if (signal.aborted || loadDataAbortController !== abortController) return;
-
-      // Build a map from battle-group UUID to map coordinates (some battle records lack map info).
-      const mapByBattleUuid = new Map<
-        string,
-        { maparea_id: number; mapinfo_no: number }
-      >();
-      for (const cell of cellsPayload.records || []) {
-        const battleUuid = cell.battles;
-        if (!battleUuid) continue;
-        const maparea = Number(cell.maparea_id ?? 0);
-        const mapinfo = Number(cell.mapinfo_no ?? 0);
-        if (maparea > 0 && mapinfo > 0) {
-          mapByBattleUuid.set(battleUuid, {
-            maparea_id: maparea,
-            mapinfo_no: mapinfo,
-          });
-        }
-      }
-
-      const mergedBattles = (battlePayload.records || [])
-        .filter((r) => typeof r.cell_id === "number")
-        .map((r) => {
-          const normalizedTimestamp =
-            normalizeEpochMs(r.timestamp) ??
-            normalizeEpochMs(r.midnight_timestamp) ??
-            null;
-          const normalizedBattleResult = resolveBattleResult(
-            r.battle_result,
-            battleResultByUuid,
-          );
-          if (r.maparea_id && r.mapinfo_no) {
-            return {
-              ...r,
-              timestamp: normalizedTimestamp,
-              battle_result: normalizedBattleResult,
-            };
-          }
-          const resolved = r.uuid ? mapByBattleUuid.get(r.uuid) : undefined;
-          return {
-            ...r,
-            ...(resolved || {}),
-            timestamp: normalizedTimestamp,
-            battle_result: normalizedBattleResult,
-          };
-        });
-
-      setBattleRecords(mergedBattles);
-      setCellRecords(cellsPayload.records || []);
-      setEnemyDecks(deckPayload.records || []);
-      setEnemyShips(shipPayload.records || []);
-      setEnemySlotItems(slotItemPayload.records || []);
-      setMstShips(mstPayload.records || []);
-      setMstSlotItems(mstSlotItemPayload.records || []);
-      setWeaponIconFrames(iconFrames);
-      setWeaponIconMeta({
-        width: Number(weaponIconFramesPayload.meta?.size?.w ?? 0) || 0,
-        height: Number(weaponIconFramesPayload.meta?.size?.h ?? 0) || 0,
-      });
-
-      const hasMapInPayload =
-        mergedBattles.some((r) => mapKeyOf(r) === mapFilter()) ||
-        (cellsPayload.records || []).some((r) => mapKeyOf(r) === mapFilter());
-      if (mapFilter() && !hasMapInPayload) {
-        setMapFilter("");
-      }
-    } catch (e) {
-      if (isAbortError(e)) return;
-      // Mark any master-data items that never completed (still "pending") as failed,
-      // so the alert doesn't stay frozen in "loading" state after a network error.
-      setMasterDataStatus((prev) =>
-        prev.map((item) =>
-          item.status === "pending"
-            ? { ...item, status: "failed" as const, detail: "読込失敗" }
-            : item,
-        ),
-      );
-      setError("読込に失敗しました。しばらくしてから再試行してください。");
-      setBattleRecords([]);
-      setCellRecords([]);
-    } finally {
-      if (loadDataAbortController === abortController) {
-        setLoading(false);
-      }
-    }
-  }
-
-  // ── Lifecycle ───────────────────────────────────────────────────────────────
-
-  onMount(() => {
-    const params = new URLSearchParams(window.location.search);
-    const initialPeriodTag = params.get("period_tag");
-    const initialTableVersion = params.get("table_version");
-
-    const detectTheme = (): BattleMapTheme => {
-      const rootTheme = document.documentElement
-        .getAttribute("data-theme")
-        ?.toLowerCase();
-      if (rootTheme?.includes("dark")) return "dark";
-      if (rootTheme?.includes("light")) return "light";
-      return window.matchMedia("(prefers-color-scheme: dark)").matches
-        ? "dark"
-        : "light";
-    };
-
-    const applyDetectedTheme = () => setDetectedTheme(detectTheme());
-    applyDetectedTheme();
-
-    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-    const onMediaQueryChange = () => applyDetectedTheme();
-    mediaQuery.addEventListener("change", onMediaQueryChange);
-
-    const observer = new MutationObserver(() => applyDetectedTheme());
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme", "class"],
-    });
-
-    const saved = window.localStorage.getItem(MAP_FLOW_DISPLAY_SETTINGS_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as {
-          showOfficialMapAssets?: boolean;
-          officialMapThemeMode?: OfficialMapThemeMode;
-        };
-        setShowOfficialMapAssets(parsed.showOfficialMapAssets ?? true);
-        setOfficialMapThemeMode(
-          parseOfficialMapThemeMode(parsed.officialMapThemeMode),
-        );
-      } catch {
-        window.localStorage.removeItem(MAP_FLOW_DISPLAY_SETTINGS_KEY);
-      }
-    }
-
-    onCleanup(() => {
-      mapMetadataAbortController?.abort();
-      loadDataAbortController?.abort();
-      pendingMetadataLoads.clear();
-      observer.disconnect();
-      mediaQuery.removeEventListener("change", onMediaQueryChange);
-    });
-
-    void (async () => {
-      try {
-        const rows = await fetchPeriodSummary();
-        if (rows.length > 0) {
-          const idx = resolveInitialPeriodIndex(
-            rows,
-            initialPeriodTag,
-            initialTableVersion,
-          );
-          setSelectedPeriodIdx(idx);
-          setUrlStateReady(true);
-          await loadData(rows[idx] ?? rows[0]);
-          return;
-        }
-        setError("利用可能な期間データがありません。");
-      } catch (e) {
-        setError(`期間データの取得に失敗しました: ${String(e)}`);
-      }
-      setUrlStateReady(true);
-    })();
-  });
-
-  createEffect(() => {
-    if (!urlStateReady()) return;
-    const period = selectedPeriod();
-    if (!period) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("period_tag", period.period_tag);
-    if (period.table_version) {
-      url.searchParams.set("table_version", period.table_version);
-    } else {
-      url.searchParams.delete("table_version");
-    }
-    window.history.replaceState({}, "", url.toString());
-  });
-
-  // Persist display settings whenever they change.
-  createEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(
-      MAP_FLOW_DISPLAY_SETTINGS_KEY,
-      JSON.stringify({
-        showOfficialMapAssets: showOfficialMapAssets(),
-        officialMapThemeMode: officialMapThemeMode(),
-      }),
-    );
-  });
-
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <>
-      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-4" />
+      {/* Hidden button for triggering Display Settings modal from the global header */}
+      <button
+        id="map-flow-display-settings-btn"
+        class="hidden"
+        type="button"
+        onClick={() => displaySettingsModalRef.showModal()}
+      >
+        表示設定
+      </button>
 
-      {/* Filter / load controls */}
-      <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body p-4">
-          <div class="flex flex-wrap gap-4 items-end">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">マップ</span>
-              </label>
-              <select
-                id="map-flow-filter-map"
-                class="select select-bordered select-sm"
-                value={mapFilter()}
-                onInput={(e) => setMapFilter(e.currentTarget.value)}
-              >
-                <option value="">全て</option>
-                <For each={mapOptions()}>
-                  {(map) => <option value={map}>{map}</option>}
-                </For>
-              </select>
-            </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">期間</span>
-              </label>
-              <Show
-                when={!loadingPeriods()}
-                fallback={<span class="loading loading-spinner loading-sm" />}
-              >
-                <select
-                  id="map-flow-filter-period"
-                  class="select select-bordered select-sm"
-                  value={selectedPeriodIdx()}
-                  onChange={(e) =>
-                    setSelectedPeriodIdx(Number.parseInt(e.currentTarget.value, 10))
-                  }
-                  disabled={periods().length === 0}
-                >
-                  <For each={periods()}>
-                    {(period, idx) => (
-                      <option value={idx()}>{periodLabel(period)}</option>
-                    )}
-                  </For>
-                </select>
-              </Show>
-            </div>
-            <button
-              id="map-flow-load-btn"
-              class="btn btn-primary btn-sm"
-              onClick={() => void loadData()}
-              disabled={loading() || loadingPeriods() || periods().length === 0}
-            >
-              {loading() ? "読込中..." : "読込"}
-            </button>
-            <button
-              id="map-flow-display-settings-btn"
-              class="btn btn-ghost btn-sm gap-1.5"
-              type="button"
-              onClick={() => displaySettingsModalRef.showModal()}
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"
-                />
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 9a3 3 0 100 6 3 3 0 000-6z"
-                />
-              </svg>
-              表示設定
-            </button>
-          </div>
-          <Show when={error()}>
-            {(msg) => <p class="mt-3 text-sm text-error">{msg()}</p>}
-          </Show>
-          <Show when={partialLoadWarnings().length > 0}>
-            <AlertMessage
-              type="info"
-              title="一部データを取得できませんでした"
-              class="mt-3 p-3 text-sm items-start"
-            >
-              <div class="text-xs text-base-content/80">
-                表示は継続していますが、結果の一部が欠損している可能性があります。しばらく待って再読込してください。
-              </div>
-              <div class="text-xs text-base-content/70 mt-1">
-                失敗項目: {partialLoadWarnings().join(" / ")}
-              </div>
-            </AlertMessage>
-          </Show>
-          <Show when={metadataWarnings().length > 0}>
-            <AlertMessage
-              type="warning"
-              title="マップメタデータ警告"
-              class="mt-3 p-3 text-sm items-start"
-            >
-              <For each={metadataWarnings()}>
-                {(warning) => (
-                  <div class="text-xs text-base-content/80">{warning}</div>
-                )}
-              </For>
-            </AlertMessage>
-          </Show>
-        </div>
-      </div>
+      <Show when={metadataWarnings().length > 0}>
+        <AlertMessage
+          type="warning"
+          title="マップメタデータ警告"
+          class="mb-6 p-3 text-sm items-start shadow-sm"
+        >
+          <For each={metadataWarnings()}>
+            {(warning) => (
+              <div class="text-xs text-base-content/80">{warning}</div>
+            )}
+          </For>
+        </AlertMessage>
+      </Show>
 
       {/* Map route visualisation */}
       <div class="card bg-base-100 shadow-sm mb-6">
@@ -1574,7 +958,7 @@ export default function BattleMapFlowPanel() {
             when={selectedRouteOverlay()}
             fallback={
               <div class="flex items-center justify-center h-64 text-base-content/40">
-                {loading() ? "読込中..." : "マップデータを読み込んでいます"}
+                {d.loading() ? "読込中..." : "マップデータを読み込んでいます"}
               </div>
             }
           >
@@ -1680,8 +1064,8 @@ export default function BattleMapFlowPanel() {
                         displayedSortieRoutes().length
                       }
                       mstShipNameById={mstShipNameById()}
-                      weaponIconFrames={weaponIconFrames()}
-                      weaponIconMeta={weaponIconMeta()}
+                      weaponIconFrames={d.weaponIconFrames()}
+                      weaponIconMeta={d.weaponIconMeta()}
                       onClear={() => setSelectedCellFilter(null)}
                     />
                   )}
@@ -1708,14 +1092,14 @@ export default function BattleMapFlowPanel() {
               </thead>
               <tbody>
                 <Show
-                  when={!loading() && analysis().stats.length > 0}
+                  when={!d.loading() && analysis().stats.length > 0}
                   fallback={
                     <tr>
                       <td
                         colspan={5}
                         class="text-center py-8 text-base-content/40"
                       >
-                        {loading() ? "読込中..." : "データ読込後に表示されます"}
+                        {d.loading() ? "読込中..." : "データ読込後に表示されます"}
                       </td>
                     </tr>
                   }
@@ -1726,7 +1110,7 @@ export default function BattleMapFlowPanel() {
                         .sort((a, b) => b[1] - a[1])
                         .map(
                           ([cell, count]) =>
-                            `${cellLabel(cell, mapFilter() || undefined)} (${count})`,
+                            `${cellLabel(cell, d.mapFilter() || undefined)} (${count})`,
                         )
                         .join(", ");
                       const topEnemies = [...s.enemyCounts.entries()]

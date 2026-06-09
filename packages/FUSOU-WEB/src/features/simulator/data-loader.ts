@@ -141,24 +141,31 @@ async function normalizeCompressedComboRules(
     data.penta_rules,
     data.hexa_rules,
   ];
+  const promises: Promise<void>[] = [];
 
   for (const rules of ruleLists) {
     if (!rules) continue;
     for (const rule of rules) {
       if (!rule.combos_gz_b64 || !rule.combos_codec) continue;
-      const inflated = await gunzipBytes(base64ToBytes(rule.combos_gz_b64));
-      const inflatedB64 = bytesToBase64(inflated);
-      if (rule.combos_codec === "u8") {
-        rule.combos_b64 = inflatedB64;
-      } else if (rule.combos_codec === "u16") {
-        rule.combos_u16_b64 = inflatedB64;
-      } else {
-        rule.combos_u32_b64 = inflatedB64;
-      }
-      delete rule.combos_gz_b64;
-      delete rule.combos_codec;
+      
+      const p = (async () => {
+        const inflated = await gunzipBytes(base64ToBytes(rule.combos_gz_b64!));
+        const inflatedB64 = bytesToBase64(inflated);
+        if (rule.combos_codec === "u8") {
+          rule.combos_b64 = inflatedB64;
+        } else if (rule.combos_codec === "u16") {
+          rule.combos_u16_b64 = inflatedB64;
+        } else {
+          rule.combos_u32_b64 = inflatedB64;
+        }
+        delete rule.combos_gz_b64;
+        delete rule.combos_codec;
+      })();
+      promises.push(p);
     }
   }
+
+  await Promise.all(promises);
 
   return data;
 }
@@ -697,9 +704,8 @@ export async function loadMasterData(renderAll: () => void) {
 
   beginBulkLoad();
   try {
-    const synergyBundle = await fetchSynergyDataWithMeta();
-
     const [
+      synergyBundle,
       shipData,
       equipData,
       bannerMapData,
@@ -715,6 +721,7 @@ export async function loadMasterData(renderAll: () => void) {
       equipExslotShipData,
       equipLimitExslotData,
     ] = await Promise.all([
+      fetchSynergyDataWithMeta(),
       fetchJsonSafe<{
         records: MstShipData[];
         period_tag?: string;

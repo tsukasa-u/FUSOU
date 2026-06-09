@@ -1,0 +1,84 @@
+---
+const currentPath = Astro.url.pathname.replace(/\/$/, ""); // Normalize trailing slash
+
+// Identify active tab based on pathname
+const isList = currentPath === "/battles";
+const isMapFlow = currentPath === "/battles/map-flow";
+const isStats = currentPath === "/battles/stats";
+// Anything else under /battles/ that is not map-flow or stats is considered detail.
+const isDetail = currentPath.startsWith("/battles/") && !isMapFlow && !isStats;
+
+// Preserve query parameters
+const periodTag = Astro.url.searchParams.get("period_tag")?.trim();
+const tableVersion = Astro.url.searchParams.get("table_version")?.trim();
+const sharedParams = new URLSearchParams();
+if (periodTag) sharedParams.set("period_tag", periodTag);
+if (tableVersion) sharedParams.set("table_version", tableVersion);
+const sharedQuery = sharedParams.toString();
+const qs = sharedQuery ? `?${sharedQuery}` : "";
+
+// Generate links
+const listHref = `/battles${qs}`;
+const mapFlowHref = `/battles/map-flow${qs}`;
+const statsHref = `/battles/stats${qs}`;
+
+// detail is disabled if we don't have an ID (i.e. we are not already on the detail page)
+const detailHref = isDetail ? `${currentPath}${qs}` : null;
+---
+
+<div class="flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto hide-scrollbar">
+  <a
+    href={listHref}
+    class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px ${
+      isList
+        ? "border-primary text-primary"
+        : "border-transparent text-base-content/55 hover:text-base-content"
+    }`}
+  >
+    一覧
+  </a>
+  
+  {
+    detailHref ? (
+      <a
+        href={detailHref}
+        class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px ${
+          isDetail
+            ? "border-primary text-primary"
+            : "border-transparent text-base-content/55 hover:text-base-content"
+        }`}
+      >
+        詳細
+      </a>
+    ) : (
+      <span
+        class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px border-transparent text-base-content/30 cursor-not-allowed`}
+        title="一覧から戦闘を選択してください"
+      >
+        詳細
+      </span>
+    )
+  }
+
+  <a
+    href={mapFlowHref}
+    class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px ${
+      isMapFlow
+        ? "border-primary text-primary"
+        : "border-transparent text-base-content/55 hover:text-base-content"
+    }`}
+  >
+    マップ進行
+  </a>
+  
+  <a
+    href={statsHref}
+    class={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap -mb-px ${
+      isStats
+        ? "border-primary text-primary"
+        : "border-transparent text-base-content/55 hover:text-base-content"
+    }`}
+  >
+    統計
+  </a>
+</div>

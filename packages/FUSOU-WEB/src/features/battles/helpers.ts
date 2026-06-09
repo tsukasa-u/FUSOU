@@ -79,8 +79,8 @@ export function transitionState(
 
 export function resolveBattleResult(
   raw: unknown,
-  battleResultByUuid: Map<string, { win_rank: string; drop_ship_id: unknown }>,
-): { win_rank: string; drop_ship_id: unknown } | null {
+  battleResultByUuid: Map<string, { win_rank: string; drop_ship_id: unknown; mvp?: unknown }>,
+): { win_rank: string; drop_ship_id: unknown; mvp?: unknown } | null {
   if (!raw) return null;
   if (typeof raw === "string") {
     return battleResultByUuid.get(raw) ?? null;
@@ -90,6 +90,7 @@ export function resolveBattleResult(
     return {
       win_rank: String(obj.win_rank),
       drop_ship_id: obj.drop_ship_id ?? null,
+      mvp: obj.mvp ?? null,
     };
   }
   return null;

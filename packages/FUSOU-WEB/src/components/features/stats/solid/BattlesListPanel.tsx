@@ -1,71 +1,7 @@
 /** @jsxImportSource solid-js */
-import {
-  For,
-  Show,
-  createEffect,
-  createMemo,
-  createSignal,
-  onMount,
-} from "solid-js";
-import { getBattleMapAsset } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utils/fetchCache";
-import {
-  MasterDataLoadStatusAlert,
-  type MasterDataLoadStatusItem,
-} from "@/components/common/solid/MasterDataLoadStatusAlert";
-
-type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
-
-type BattleRecord = {
-  uuid?: string;
-  env_uuid?: string;
-  index?: number | null;
-  timestamp: number | null;
-  midnight_timestamp?: number | null;
-  maparea_id?: number | null;
-  mapinfo_no?: number | null;
-  cell_id: number;
-  f_formation?: number | null;
-  battle_result?:
-    | { win_rank: WinRank; drop_ship_id: number | null }
-    | string
-    | null;
-  opening_air_attack: Array<{ air_superiority: number | null } | null> | null;
-  e_deck_id?: string | null;
-};
-
-type BattleResultRecord = {
-  uuid?: string;
-  win_rank?: WinRank | null;
-  drop_ship_id?: number | null;
-};
-
-type CellRecord = {
-  battles?: string | null;
-  maparea_id?: number | null;
-  mapinfo_no?: number | null;
-};
-
-type EnemyDeckRecord = {
-  uuid: string;
-  ship_ids?: string[] | string | null;
-};
-
-type EnemyShipRecord = {
-  uuid: string;
-  index?: number | null;
-  mst_ship_id?: number | null;
-};
-
-type MstShipRecord = {
-  id: number;
-  name: string;
-};
-
-type PeriodSummary = {
-  period_tag: string;
-  table_version: string | null;
-};
+import { For, Show, createMemo, createSignal } from "solid-js";
+import type { SharedDashboardState } from "../../battles/solid/types";
+import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
 
 const WIN_RANK_BADGES: Record<string, string> = {
   S: "badge-success",
@@ -99,76 +35,64 @@ const AIR_SUPERIORITY_NAMES: Record<number, string> = {
 
 const PAGE_SIZE = 50;
 
-function formatTimestamp(ts: number | null): string {
-  if (!ts) return "-";
-  return new Date(ts).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
-}
-
-function normalizeEpochMs(value: number | null | undefined): number | null {
-  if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return value < 1_000_000_000_000 ? value * 1000 : value;
-}
-
-function resolveBattleResult(
-  raw: BattleRecord["battle_result"],
-  battleResultByUuid: Map<
-    string,
-    { win_rank: WinRank; drop_ship_id: number | null }
-  >,
-): { win_rank: WinRank; drop_ship_id: number | null } | null {
-  if (!raw) return null;
-  if (typeof raw === "string") {
-    return battleResultByUuid.get(raw) ?? null;
-  }
-  if (typeof raw === "object" && raw.win_rank) {
-    return { win_rank: raw.win_rank, drop_ship_id: raw.drop_ship_id ?? null };
-  }
-  return null;
-}
-
-function battleResultOf(
-  b: BattleRecord,
-): { win_rank: WinRank; drop_ship_id: number | null } | null {
+function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null } | null {
   if (!b.battle_result || typeof b.battle_result !== "object") return null;
   return b.battle_result;
 }
 
-function mapLabelOf(b: BattleRecord): string {
-  return b.maparea_id && b.mapinfo_no ? `${b.maparea_id}-${b.mapinfo_no}` : "-";
-}
-
-function periodLabel(period: PeriodSummary): string {
-  if (period.period_tag === "latest") return "最新期間";
-  if (period.period_tag === "all") return "全期間";
-  if (!period.table_version) return period.period_tag;
-  return `${period.period_tag} (v${period.table_version})`;
-}
-
-export default function BattlesListPanel() {
-  const [loading, setLoading] = createSignal(false);
-  const [loadingPeriods, setLoadingPeriods] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
-  const [selectedPeriodIdx, setSelectedPeriodIdx] = createSignal(0);
-  const [mapFilter, setMapFilter] = createSignal("");
-  const [resultFilter, setResultFilter] = createSignal("");
+export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
+  const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
-  const [urlStateReady, setUrlStateReady] = createSignal(false);
-  const [allBattles, setAllBattles] = createSignal<BattleRecord[]>([]);
-  const [enemyDeckNameById, setEnemyDeckNameById] = createSignal<
-    Map<string, string>
-  >(new Map());
-  const [cellLabelsByMapKey, setCellLabelsByMapKey] = createSignal<
-    Record<string, Record<number, string>>
-  >({});
-  const [masterShipNameById, setMasterShipNameById] = createSignal<
-    Map<number, string>
-  >(new Map());
-  const [masterDataStatus, setMasterDataStatus] = createSignal<
-    MasterDataLoadStatusItem[]
-  >([
-    { name: "mst_ship", status: "pending" },
-  ]);
+
+  const masterShipNameById = createMemo(() => {
+    return new Map(d.mstShips().map((s) => [s.id, s.name]));
+  });
+
+  const enemyDeckNameById = createMemo(() => {
+    const deckById = new Map(d.enemyDecks().map((deck) => [deck.uuid, deck]));
+    const shipsByGroupId = new Map<string, any[]>();
+    for (const ship of d.enemyShips()) {
+      const group = shipsByGroupId.get(ship.uuid);
+      if (group) group.push(ship);
+      else shipsByGroupId.set(ship.uuid, [ship]);
+    }
+    for (const group of shipsByGroupId.values()) {
+      group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+    }
+    
+    const names = new Map<string, string>();
+    for (const battle of d.battleRecords()) {
+      if (!battle.e_deck_id || names.has(battle.e_deck_id)) continue;
+      const deck = deckById.get(battle.e_deck_id);
+      if (!deck?.ship_ids) {
+        names.set(battle.e_deck_id, `敵艦隊 ${battle.e_deck_id.slice(0, 8)}`);
+        continue;
+      }
+      
+      let shipIds: string[] = [];
+      if (Array.isArray(deck.ship_ids)) {
+        shipIds = deck.ship_ids.filter((id: any) => typeof id === "string" && id.length > 0);
+      } else if (typeof deck.ship_ids === "string" && deck.ship_ids.length > 0) {
+        shipIds = [deck.ship_ids];
+      }
+      
+      const n: string[] = [];
+      for (const groupId of shipIds) {
+        const ships = shipsByGroupId.get(groupId) || [];
+        for (const ship of ships) {
+          const id = ship.mst_ship_id;
+          if (id) n.push(masterShipNameById().get(id) ?? `艦ID:${id}`);
+        }
+      }
+      const uniq = [...new Set(n)];
+      if (uniq.length === 0) names.set(battle.e_deck_id, `敵艦隊 ${battle.e_deck_id.slice(0, 8)}`);
+      else {
+        const head = uniq.slice(0, 3).join(" / ");
+        names.set(battle.e_deck_id, uniq.length > 3 ? `${head} +${uniq.length - 3}` : head);
+      }
+    }
+    return names;
+  });
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -182,38 +106,34 @@ export default function BattlesListPanel() {
     return label;
   };
 
-  const cellDisplayLabelOf = (b: BattleRecord): string => {
+  const cellDisplayLabelOf = (b: any): string => {
     const cellId = Number(b.cell_id ?? NaN);
     if (!Number.isFinite(cellId)) return "-";
     if (cellId === 0) return "港";
-    const mapKey = mapLabelOf(b);
-    const labels = mapKey !== "-" ? cellLabelsByMapKey()[mapKey] : undefined;
-    return labels?.[cellId] || alphaCellLabel(cellId);
+    return alphaCellLabel(cellId); // Note: Simplified for SPA to avoid async labels for now, or we can add it to dashboard.
   };
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
-    for (const b of allBattles()) {
-      const label = mapLabelOf(b);
+    for (const b of d.battleRecords()) {
+      const label = mapKeyOf(b);
       if (label !== "-") values.add(label);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   });
 
   const filteredBattles = createMemo(() => {
-    let list = allBattles();
-    if (resultFilter()) {
-      list = list.filter((b) => battleResultOf(b)?.win_rank === resultFilter());
+    let list = d.battleRecords();
+    if (d.resultFilter()) {
+      list = list.filter((b) => battleResultOf(b)?.win_rank === d.resultFilter());
     }
-    if (mapFilter()) {
-      list = list.filter((b) => mapLabelOf(b) === mapFilter());
+    if (d.mapFilter()) {
+      list = list.filter((b) => mapKeyOf(b) === d.mapFilter());
     }
     return list;
   });
 
-  const totalPages = createMemo(() =>
-    Math.ceil(filteredBattles().length / PAGE_SIZE),
-  );
+  const totalPages = createMemo(() => Math.ceil(filteredBattles().length / PAGE_SIZE));
 
   const pagedBattles = createMemo(() => {
     const start = currentPage() * PAGE_SIZE;
@@ -221,556 +141,40 @@ export default function BattlesListPanel() {
   });
 
   const recentSummary = createMemo(() => {
-    return [...allBattles()]
+    return [...d.battleRecords()]
       .filter((b) => !!b.timestamp)
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
       .slice(0, 25);
   });
 
-  const selectedPeriod = createMemo(
-    () => periods()[selectedPeriodIdx()] ?? null,
-  );
-
-  async function fetchPeriodSummary(): Promise<PeriodSummary[]> {
-    setLoadingPeriods(true);
-    try {
-      const response = await cachedFetch("/api/battle-data/global/summary?table=battle");
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const payload = (await response.json()) as {
-        periods?: Array<{ period_tag?: string; table_version?: string }>;
-      };
-      const rowsFromSummary = (payload.periods || [])
-        .map((row) => ({
-          period_tag: String(row.period_tag ?? "").trim(),
-          table_version: String(row.table_version ?? "").trim() || null,
-        }))
-        .filter((row) => row.period_tag.length > 0 && !!row.table_version);
-      const rows: PeriodSummary[] = [
-        { period_tag: "latest", table_version: null },
-        { period_tag: "all", table_version: null },
-        ...rowsFromSummary,
-      ];
-      setPeriods(rows);
-      return rows;
-    } finally {
-      setLoadingPeriods(false);
-    }
-  }
-
-  function resolveInitialPeriodIndex(
-    rows: PeriodSummary[],
-    rawPeriodTag: string | null,
-    rawTableVersion: string | null,
-  ): number {
-    if (rows.length === 0) return 0;
-    const periodTag = rawPeriodTag?.trim() || null;
-    const tableVersion = rawTableVersion?.trim() || null;
-    if (!periodTag) {
-      return rows.findIndex((row) => row.period_tag === "latest") >= 0
-        ? rows.findIndex((row) => row.period_tag === "latest")
-        : 0;
-    }
-
-    const exactIdx = rows.findIndex(
-      (row) =>
-        row.period_tag === periodTag &&
-        (!tableVersion || row.table_version === tableVersion),
-    );
-    if (exactIdx >= 0) return exactIdx;
-
-    const periodOnlyIdx = rows.findIndex((row) => row.period_tag === periodTag);
-    return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
-  }
-
-  async function loadBattles(periodOverride?: PeriodSummary | null) {
-    const requestedPeriod = periodOverride ?? selectedPeriod();
-    if (!requestedPeriod) {
-      setError("利用可能な期間データがありません。");
-      setAllBattles([]);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setMasterDataStatus([
-      { name: "mst_ship", status: "pending" },
-    ]);
-    try {
-      const tableVersionQuery = requestedPeriod.table_version
-        ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
-        : "";
-      const [
-        response,
-        cellsResponse,
-        battleResultResponse,
-        enemyDeckResponse,
-        enemyShipResponse,
-        mstShipResponse,
-      ] = await Promise.all([
-        cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-        ),
-        cachedFetch(
-          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriod.period_tag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
-        ),
-        cachedFetch(`/api/master-data/json?table_name=mst_ship`),
-      ]);
-      if (!response.ok) {
-        const payload = (await response.json().catch(() => ({}))) as {
-          message?: string;
-        };
-        setError(payload.message || "戦闘データの取得に失敗しました。");
-        setAllBattles([]);
-        // Update master data status with actual mstShipResponse result (already received)
-        setMasterDataStatus([
-          {
-            name: "mst_ship",
-            status: mstShipResponse.ok ? "success" : "failed",
-            detail: mstShipResponse.ok
-              ? undefined
-              : `HTTP ${mstShipResponse.status}`,
-          },
-        ]);
-        return;
-      }
-
-      const payload = (await response.json()) as { records?: BattleRecord[] };
-      const cellsPayload = cellsResponse.ok
-        ? ((await cellsResponse.json()) as { records?: CellRecord[] })
-        : { records: [] };
-      const battleResultPayload = battleResultResponse.ok
-        ? ((await battleResultResponse.json()) as {
-            records?: BattleResultRecord[];
-          })
-        : { records: [] };
-      const enemyDeckPayload = enemyDeckResponse.ok
-        ? ((await enemyDeckResponse.json()) as { records?: EnemyDeckRecord[] })
-        : { records: [] };
-      const enemyShipPayload = enemyShipResponse.ok
-        ? ((await enemyShipResponse.json()) as { records?: EnemyShipRecord[] })
-        : { records: [] };
-      const mstShipPayload = mstShipResponse.ok
-        ? ((await mstShipResponse.json()) as {
-            records?: MstShipRecord[];
-            period_tag?: string;
-            period_revision?: number;
-          })
-        : { records: [] };
-      setMasterDataStatus([
-        {
-          name: "mst_ship",
-          status: mstShipResponse.ok ? "success" : "failed",
-          detail:
-            mstShipResponse.ok
-              ? `${(mstShipPayload.records || []).length}件${mstShipPayload.period_tag ? ` / ${mstShipPayload.period_tag} rev${mstShipPayload.period_revision ?? "?"}` : ""}`
-              : `HTTP ${mstShipResponse.status}`,
-        },
-      ]);
-      const battleResultByUuid = new Map<
-        string,
-        { win_rank: WinRank; drop_ship_id: number | null }
-      >();
-      for (const rec of battleResultPayload.records || []) {
-        if (!rec?.uuid || !rec.win_rank) continue;
-        battleResultByUuid.set(rec.uuid, {
-          win_rank: rec.win_rank,
-          drop_ship_id: rec.drop_ship_id ?? null,
-        });
-      }
-
-      const unresolvedResultUuids = new Set<string>();
-      for (const rec of payload.records || []) {
-        if (
-          typeof rec?.battle_result === "string" &&
-          !battleResultByUuid.has(rec.battle_result)
-        ) {
-          unresolvedResultUuids.add(rec.battle_result);
-        }
-      }
-
-      if (unresolvedResultUuids.size > 0) {
-        const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const batchFilterJson = encodeURIComponent(
-          JSON.stringify({ uuid: fillTargets }),
-        );
-        const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
-        );
-        if (batchRes.ok) {
-          const body = (await batchRes.json().catch(() => ({}))) as {
-            records?: BattleResultRecord[];
-          };
-          for (const found of body.records || []) {
-            if (
-              found?.uuid &&
-              found.win_rank &&
-              !battleResultByUuid.has(found.uuid)
-            ) {
-              battleResultByUuid.set(found.uuid, {
-                win_rank: found.win_rank,
-                drop_ship_id: found.drop_ship_id ?? null,
-              });
-            }
-          }
-        }
-      }
-
-      const mapByBattleUuid = new Map<
-        string,
-        { maparea_id: number; mapinfo_no: number }
-      >();
-      for (const cell of cellsPayload.records || []) {
-        const battleUuid = cell.battles;
-        if (!battleUuid) continue;
-        const maparea = Number(cell.maparea_id ?? 0);
-        const mapinfo = Number(cell.mapinfo_no ?? 0);
-        if (maparea > 0 && mapinfo > 0) {
-          mapByBattleUuid.set(battleUuid, {
-            maparea_id: maparea,
-            mapinfo_no: mapinfo,
-          });
-        }
-      }
-
-      const sorted = (payload.records || [])
-        .filter((b) => typeof b.cell_id === "number")
-        .map((b) => {
-          const normalizedTimestamp =
-            normalizeEpochMs(b.timestamp) ??
-            normalizeEpochMs(b.midnight_timestamp) ??
-            null;
-          const normalizedBattleResult = resolveBattleResult(
-            b.battle_result,
-            battleResultByUuid,
-          );
-
-          if (b.maparea_id && b.mapinfo_no) {
-            return {
-              ...b,
-              timestamp: normalizedTimestamp,
-              battle_result: normalizedBattleResult,
-            };
-          }
-          const resolved = b.uuid ? mapByBattleUuid.get(b.uuid) : undefined;
-          return {
-            ...b,
-            ...(resolved || {}),
-            timestamp: normalizedTimestamp,
-            battle_result: normalizedBattleResult,
-          };
-        })
-        .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
-
-      const deckById = new Map(
-        (enemyDeckPayload.records || []).map((d) => [d.uuid, d]),
-      );
-      const shipsByGroupId = new Map<string, EnemyShipRecord[]>();
-      for (const ship of enemyShipPayload.records || []) {
-        const group = shipsByGroupId.get(ship.uuid);
-        if (group) {
-          group.push(ship);
-        } else {
-          shipsByGroupId.set(ship.uuid, [ship]);
-        }
-      }
-      for (const group of shipsByGroupId.values()) {
-        group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-      }
-      const mstShipNameById = new Map(
-        (mstShipPayload.records || []).map((s) => [s.id, s.name]),
-      );
-      setMasterShipNameById(mstShipNameById);
-
-      const toGroupIds = (shipIds: EnemyDeckRecord["ship_ids"]): string[] => {
-        if (Array.isArray(shipIds)) {
-          return shipIds.filter(
-            (id): id is string => typeof id === "string" && id.length > 0,
-          );
-        }
-        if (typeof shipIds === "string" && shipIds.length > 0) {
-          return [shipIds];
-        }
-        return [];
-      };
-
-      const describeEnemy = (deckId?: string | null): string => {
-        if (!deckId) return "-";
-        const deck = deckById.get(deckId);
-        if (!deck?.ship_ids) return `敵艦隊 ${deckId.slice(0, 8)}`;
-        const names: string[] = [];
-        for (const groupId of toGroupIds(deck.ship_ids)) {
-          const ships = shipsByGroupId.get(groupId) || [];
-          for (const ship of ships) {
-            const id = ship.mst_ship_id;
-            if (!id) continue;
-            names.push(mstShipNameById.get(id) ?? `艦ID:${id}`);
-          }
-        }
-        const uniq = [...new Set(names)];
-        if (uniq.length === 0) return `敵艦隊 ${deckId.slice(0, 8)}`;
-        const head = uniq.slice(0, 3).join(" / ");
-        return uniq.length > 3 ? `${head} +${uniq.length - 3}` : head;
-      };
-
-      const enemyNames = new Map<string, string>();
-      for (const battle of sorted) {
-        if (!battle.e_deck_id || enemyNames.has(battle.e_deck_id)) continue;
-        enemyNames.set(battle.e_deck_id, describeEnemy(battle.e_deck_id));
-      }
-
-      const mapKeys = [
-        ...new Set(
-          sorted.map((b) => mapLabelOf(b)).filter((key) => key !== "-"),
-        ),
-      ];
-      const labelEntries = await Promise.all(
-        mapKeys.map(async (mapKey) => {
-          const asset = getBattleMapAsset(mapKey);
-          if (!asset?.labelsUrl)
-            return [mapKey, {} as Record<number, string>] as const;
-          try {
-            const response = await fetch(asset.labelsUrl, {
-              headers: { "Content-Type": "application/json" },
-            });
-            if (!response.ok)
-              return [mapKey, {} as Record<number, string>] as const;
-            const payload = (await response.json()) as Record<string, string>;
-            const labels: Record<number, string> = {};
-            for (const [rawId, label] of Object.entries(payload || {})) {
-              const id = Number(rawId);
-              if (!Number.isFinite(id) || typeof label !== "string" || !label)
-                continue;
-              labels[id] = label;
-            }
-            return [mapKey, labels] as const;
-          } catch {
-            return [mapKey, {} as Record<number, string>] as const;
-          }
-        }),
-      );
-
-      const labelsByMap: Record<string, Record<number, string>> = {};
-      for (const [mapKey, labels] of labelEntries) {
-        labelsByMap[mapKey] = labels;
-      }
-
-      setAllBattles(sorted);
-      setEnemyDeckNameById(enemyNames);
-      setCellLabelsByMapKey(labelsByMap);
-      setCurrentPage(0);
-      if (mapFilter() && !sorted.some((b) => mapLabelOf(b) === mapFilter())) {
-        setMapFilter("");
-      }
-    } catch (e) {
-      setError(`読込エラー: ${String(e)}`);
-      setAllBattles([]);
-      // Network error before setMasterDataStatus was reached — mark pending items as failed
-      setMasterDataStatus((prev) =>
-        prev.map((item) =>
-          item.status === "pending"
-            ? { ...item, status: "failed" as const, detail: "読込失敗" }
-            : item,
-        ),
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function moveToDetail(battle: BattleRecord, fallbackIndex: number) {
+  function moveToDetail(battle: any, fallbackIndex: number) {
     try {
       sessionStorage.setItem("battleDetail", JSON.stringify(battle));
-    } catch {
-      // Ignore storage errors and keep navigation.
-    }
+    } catch {}
     const detailId = battle.uuid || battle.env_uuid || String(fallbackIndex);
-    const detailUrl = new URL(
-      `/battles/${encodeURIComponent(detailId)}`,
-      window.location.origin,
-    );
-    const period = selectedPeriod();
-    if (period) {
-      detailUrl.searchParams.set("period_tag", period.period_tag);
-      if (period.table_version) {
-        detailUrl.searchParams.set("table_version", period.table_version);
-      } else {
-        detailUrl.searchParams.delete("table_version");
-      }
-    }
-    window.location.href = detailUrl.toString();
+    d.setSelectedDetailId(detailId);
+    d.setActiveTab("detail");
   }
-
-  onMount(() => {
-    void (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const initialPeriodTag = params.get("period_tag");
-      const initialTableVersion = params.get("table_version");
-      try {
-        const rows = await fetchPeriodSummary();
-        if (rows.length > 0) {
-          const idx = resolveInitialPeriodIndex(
-            rows,
-            initialPeriodTag,
-            initialTableVersion,
-          );
-          setSelectedPeriodIdx(idx);
-          setUrlStateReady(true);
-          await loadBattles(rows[idx] ?? rows[0]);
-          return;
-        }
-        setError("利用可能な期間データがありません。");
-      } catch (e) {
-        setError(`期間データの取得に失敗しました: ${String(e)}`);
-      }
-      setUrlStateReady(true);
-    })();
-  });
-
-  createEffect(() => {
-    if (!urlStateReady()) return;
-    const period = selectedPeriod();
-    if (!period) return;
-    const url = new URL(window.location.href);
-    url.searchParams.set("period_tag", period.period_tag);
-    if (period.table_version) {
-      url.searchParams.set("table_version", period.table_version);
-    } else {
-      url.searchParams.delete("table_version");
-    }
-    window.history.replaceState({}, "", url.toString());
-  });
 
   return (
     <>
-      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-4" />
-
-      <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body p-4">
-          <div class="flex flex-wrap gap-4 items-end">
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">期間</span>
-              </label>
-              <Show
-                when={!loadingPeriods()}
-                fallback={<span class="loading loading-spinner loading-sm" />}
-              >
-                <select
-                  id="battles-filter-period"
-                  class="select select-bordered select-sm"
-                  value={selectedPeriodIdx()}
-                  onChange={(e) =>
-                    setSelectedPeriodIdx(Number.parseInt(e.currentTarget.value, 10))
-                  }
-                  disabled={periods().length === 0}
-                >
-                  <For each={periods()}>
-                    {(period, idx) => (
-                      <option value={idx()}>{periodLabel(period)}</option>
-                    )}
-                  </For>
-                </select>
-              </Show>
-            </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">マップ</span>
-              </label>
-              <select
-                id="battles-filter-map"
-                class="select select-bordered select-sm"
-                value={mapFilter()}
-                onInput={(e) => {
-                  setMapFilter(e.currentTarget.value);
-                  setCurrentPage(0);
-                }}
-              >
-                <option value="">全て</option>
-                <For each={mapOptions()}>
-                  {(map) => <option value={map}>{map}</option>}
-                </For>
-              </select>
-            </div>
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">結果</span>
-              </label>
-              <select
-                id="battles-filter-result"
-                class="select select-bordered select-sm"
-                value={resultFilter()}
-                onInput={(e) => {
-                  setResultFilter(e.currentTarget.value);
-                  setCurrentPage(0);
-                }}
-              >
-                <option value="">全て</option>
-                <option value="S">S勝利</option>
-                <option value="A">A勝利</option>
-                <option value="B">B勝利</option>
-                <option value="C">C敗北</option>
-                <option value="D">D敗北</option>
-              </select>
-            </div>
-            <button
-              id="battles-load-btn"
-              class="btn btn-primary btn-sm"
-              onClick={() => void loadBattles()}
-              disabled={loading() || loadingPeriods() || periods().length === 0}
-            >
-              {loading() ? "読込中..." : "読込"}
-            </button>
-          </div>
-          <Show when={error()}>
-            {(msg) => <p class="mt-3 text-sm text-error">{msg()}</p>}
-          </Show>
-        </div>
-      </div>
-
       <div class="card bg-base-100 shadow-sm mb-6">
         <div class="card-body p-4">
           <h3 class="font-bold">直近の進軍ルート（サマリ）</h3>
           <div class="text-sm text-base-content/70">
-            <Show
-              when={recentSummary().length > 0}
-              fallback={
-                <span>読込後に最新の進軍順路と交戦結果を表示します。</span>
-              }
-            >
+            <Show when={recentSummary().length > 0} fallback={<span>読込後に最新の進軍順路と交戦結果を表示します。</span>}>
               <For each={recentSummary()}>
                 {(b) => {
                   const rank = battleResultOf(b)?.win_rank ?? "-";
                   return (
                     <div class="py-1 border-b border-base-200">
-                      <span class="font-mono text-xs mr-2">
-                        {formatTimestamp(b.timestamp)}
-                      </span>
-                      <span class="badge badge-ghost badge-sm mr-2">
-                        {mapLabelOf(b)}
-                      </span>
+                      <span class="font-mono text-xs mr-2">{formatTimestamp(b.timestamp)}</span>
+                      <span class="badge badge-ghost badge-sm mr-2">{mapKeyOf(b)}</span>
                       <span class="mr-2">{cellDisplayLabelOf(b)}</span>
                       <span class="mr-2">
-                        {b.e_deck_id
-                          ? (enemyDeckNameById().get(b.e_deck_id) ??
-                            `敵艦隊 ${b.e_deck_id.slice(0, 8)}`)
-                          : "-"}
+                        {b.e_deck_id ? (enemyDeckNameById().get(b.e_deck_id) ?? `敵艦隊 ${b.e_deck_id.slice(0, 8)}`) : "-"}
                       </span>
-                      <span
-                        class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}
-                      >
-                        {rank}
-                      </span>
+                      <span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span>
                     </div>
                   );
                 }}
@@ -798,128 +202,50 @@ export default function BattlesListPanel() {
               </thead>
               <tbody>
                 <Show
-                  when={!loading()}
-                  fallback={
-                    <tr>
-                      <td colspan={8} class="text-center py-12">
-                        <span class="loading loading-spinner loading-md"></span>
-                      </td>
-                    </tr>
-                  }
+                  when={!d.loading()}
+                  fallback={<tr><td colspan={8} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}
                 >
                   <Show
                     when={pagedBattles().length > 0}
-                    fallback={
-                      <tr>
-                        <td
-                          colspan={8}
-                          class="text-center py-12 text-base-content/40"
-                        >
-                          データがありません
-                        </td>
-                      </tr>
-                    }
+                    fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
                   >
                     <For each={pagedBattles()}>
                       {(b, i) => {
                         const result = battleResultOf(b);
                         const rank = result?.win_rank ?? "-";
                         const formation = b.f_formation ?? 0;
-                        const airSup =
-                          b.opening_air_attack?.[0]?.air_superiority;
+                        const airSup = b.opening_air_attack?.[0]?.air_superiority;
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
-                        const detailId =
-                          b.uuid || b.env_uuid || String(fallbackIdx);
-                        const detailHref = () => {
-                          const period = selectedPeriod();
-                          const url = new URL(
-                            `/battles/${encodeURIComponent(detailId)}`,
-                            window.location.origin,
-                          );
-                          if (period) {
-                            url.searchParams.set("period_tag", period.period_tag);
-                            if (period.table_version) {
-                              url.searchParams.set(
-                                "table_version",
-                                period.table_version,
-                              );
-                            } else {
-                              url.searchParams.delete("table_version");
-                            }
-                          }
-                          return `${url.pathname}${url.search}`;
-                        };
+                        
                         return (
-                          <tr
-                            class="hover cursor-pointer"
-                            onClick={() => moveToDetail(b, fallbackIdx)}
-                          >
-                            <td class="whitespace-nowrap">
-                              {formatTimestamp(b.timestamp)}
-                            </td>
-                            <td>{mapLabelOf(b)}</td>
+                          <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
+                            <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
+                            <td>{mapKeyOf(b)}</td>
                             <td>{cellDisplayLabelOf(b)}</td>
                             <td>{FORMATION_NAMES[formation] ?? "-"}</td>
-                            <td>
-                              {airSup != null
-                                ? (AIR_SUPERIORITY_NAMES[airSup] ??
-                                  String(airSup))
-                                : "-"}
-                            </td>
-                            <td>
-                              <span
-                                class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}
-                              >
-                                {rank}
-                              </span>
-                            </td>
+                            <td>{airSup != null ? (AIR_SUPERIORITY_NAMES[airSup] ?? String(airSup)) : "-"}</td>
+                            <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>
                             <td>
                               {result?.drop_ship_id ? (
                                 <div class="flex items-center gap-1 min-w-[100px]">
                                   <img
                                     src={`/api/asset-sync/ship-banner/${result.drop_ship_id}`}
-                                    alt={
-                                      masterShipNameById().get(
-                                        result.drop_ship_id,
-                                      ) ?? `#${result.drop_ship_id}`
-                                    }
+                                    alt={masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
                                     class="h-5 w-20 object-cover rounded-sm"
                                     loading="lazy"
-                                    onError={(e) => {
-                                      (
-                                        e.currentTarget as HTMLImageElement
-                                      ).style.display = "none";
-                                    }}
+                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
                                   />
                                   <span class="text-xs truncate max-w-24">
-                                    {masterShipNameById().get(
-                                      result.drop_ship_id,
-                                    ) ?? `#${result.drop_ship_id}`}
+                                    {masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
                                   </span>
                                 </div>
-                              ) : (
-                                "-"
-                              )}
+                              ) : "-"}
                             </td>
                             <td>
-                              <a
-                                id="battles-detail-link"
-                                href={detailHref()}
-                                class="btn btn-ghost btn-xs"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  try {
-                                    sessionStorage.setItem(
-                                      "battleDetail",
-                                      JSON.stringify(b),
-                                    );
-                                  } catch {
-                                    // Ignore storage errors.
-                                  }
-                                }}
-                              >
-                                詳細
-                              </a>
+                              <button class="btn btn-ghost btn-xs" onClick={(e) => {
+                                e.stopPropagation();
+                                moveToDetail(b, fallbackIdx);
+                              }}>詳細</button>
                             </td>
                           </tr>
                         );
@@ -932,12 +258,7 @@ export default function BattlesListPanel() {
           </div>
           <Show when={totalPages() > 1}>
             <div class="flex justify-center py-4 gap-2">
-              <For
-                each={Array.from(
-                  { length: Math.min(totalPages(), 10) },
-                  (_, i) => i,
-                )}
-              >
+              <For each={Array.from({ length: Math.min(totalPages(), 10) }, (_, i) => i)}>
                 {(page) => (
                   <button
                     class={`btn btn-sm ${page === currentPage() ? "btn-active" : ""}`}

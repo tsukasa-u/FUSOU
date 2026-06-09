@@ -201,6 +201,8 @@ function statValueOrDash(value: number | null | undefined): string | number {
   return value == null || value === 0 ? "-" : value;
 }
 
+const _normalizeEffectsCache = new WeakMap<SlotItemEffectsData, Record<string, EquipEffect[]>>();
+
 /**
  * Normalize SlotItemEffectsData to a legacy-style effects dict keyed by itemId string.
  * Supports both old `effects` and new `effect_rules` formats.
@@ -208,8 +210,12 @@ function statValueOrDash(value: number | null | undefined): string | number {
 function normalizeEffects(
   data: SlotItemEffectsData,
 ): Record<string, EquipEffect[]> {
+  const cached = _normalizeEffectsCache.get(data);
+  if (cached) return cached;
+
+  let out: Record<string, EquipEffect[]>;
   if (data.effect_rules && data.effect_rules.length > 0) {
-    const out: Record<string, EquipEffect[]> = {};
+    out = {};
     for (const rule of data.effect_rules) {
       const entry: EquipEffect = {
         ships: rule.ships,
@@ -224,10 +230,15 @@ function normalizeEffects(
         out[key].push(entry);
       }
     }
-    return out;
+  } else {
+    out = data.effects ?? {};
   }
-  return data.effects ?? {};
+  
+  _normalizeEffectsCache.set(data, out);
+  return out;
 }
+
+const _normalizeCrossEffectsCache = new WeakMap<SlotItemEffectsData, Record<string, CrossEffect[]>>();
 
 /**
  * Normalize SlotItemEffectsData to a legacy-style cross_effects dict keyed by "a:b".
@@ -236,8 +247,12 @@ function normalizeEffects(
 function normalizeCrossEffects(
   data: SlotItemEffectsData,
 ): Record<string, CrossEffect[]> {
+  const cached = _normalizeCrossEffectsCache.get(data);
+  if (cached) return cached;
+
+  let out: Record<string, CrossEffect[]>;
   if (data.cross_rules && data.cross_rules.length > 0) {
-    const out: Record<string, CrossEffect[]> = {};
+    out = {};
     for (const rule of data.cross_rules) {
       for (const [a, b] of rule.pairs) {
         const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
@@ -250,9 +265,12 @@ function normalizeCrossEffects(
         out[key].push(entry);
       }
     }
-    return out;
+  } else {
+    out = data.cross_effects ?? {};
   }
-  return data.cross_effects ?? {};
+
+  _normalizeCrossEffectsCache.set(data, out);
+  return out;
 }
 
 // ── Multi-item rule helpers ──────────────────────────────────────────
@@ -1722,11 +1740,6 @@ function ShipDetailPanel(props: {
                           </Show>
                         </div>
                         <div class="flex flex-wrap items-center gap-1">
-                          <Show when={row.sourceType === "combo"}>
-                            <span class="badge badge-outline badge-xs">
-                              組み合わせ例
-                            </span>
-                          </Show>
                           <span
                             class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
                               row.after - row.before > 0
@@ -2249,6 +2262,7 @@ function EquipDetailPanel(props: {
           if (pool.length < comboSize) continue;
           all.push({ kind: "pool", pool, comboSize, correction: rule.synergy });
         } else {
+          if (rule.items && !rule.items.includes(equipId)) continue;
           // Explicit combos: decode all, filter those containing this equip
           const combos = decodeCombosForDisplay(rule, comboSize, 999999);
           const shipIdForCalc = rule.ships.length > 0 ? rule.ships[0] : 0;

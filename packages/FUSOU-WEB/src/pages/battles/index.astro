@@ -1,28 +1,9 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import BattlesListPanel from "@/components/features/stats/solid/BattlesListPanel";
-import PageShell from "@/components/common/astro/ui/PageShell.astro";
-import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
+import BattlesDashboard from "@/components/features/battles/solid/BattlesDashboard";
 
 export const prerender = false;
-
-const periodTag = Astro.url.searchParams.get("period_tag")?.trim();
-const tableVersion = Astro.url.searchParams.get("table_version")?.trim();
-const sharedParams = new URLSearchParams();
-if (periodTag) {
-  sharedParams.set("period_tag", periodTag);
-}
-if (tableVersion) {
-  sharedParams.set("table_version", tableVersion);
-}
-const sharedQuery = sharedParams.toString();
-const mapFlowHref = sharedQuery
-  ? `/battles/map-flow?${sharedQuery}`
-  : "/battles/map-flow";
-const statsHref = sharedQuery
-  ? `/battles/stats?${sharedQuery}`
-  : "/battles/stats";
 ---
 
 <PageLayout
@@ -53,16 +34,6 @@ const statsHref = sharedQuery
         tone: "primary",
       },
       {
-        sourceSelector: "#battles-map-flow-link",
-        description: "進軍ルート表示ページへ移動します。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#battles-stats-link",
-        description: "統計ダッシュボードへ移動します。",
-        tone: "outline",
-      },
-      {
         sourceSelector: "#battles-detail-link",
         description: "選択した行の戦闘詳細ページへ移動します。",
         tone: "ghost",
@@ -76,30 +47,10 @@ const statsHref = sharedQuery
     steps: [
       "フィルタで期間・海域・勝敗を絞り込みます。",
       "行をクリックして戦闘詳細へ遷移します。",
-      "右上導線からマップ進行・統計に切り替えて分析します。",
+      "タブからマップ進行・統計に切り替えて分析します。",
     ],
   }}
 >
   <Navigation filled={true} />
-  <PageShell>
-    <PageHeader
-      title="戦闘データ"
-      subtitle="R2に保存された戦闘履歴を閲覧・分析"
-    >
-      <Fragment slot="actions">
-        <a
-          id="battles-map-flow-link"
-          href={mapFlowHref}
-          class="fusou-btn-secondary">マップ進行</a
-        >
-        <a
-          id="battles-stats-link"
-          href={statsHref}
-          class="fusou-btn-secondary">統計</a
-        >
-      </Fragment>
-    </PageHeader>
-
-    <BattlesListPanel client:only="solid-js" />
-  </PageShell>
+  <BattlesDashboard client:only="solid-js" />
 </PageLayout>

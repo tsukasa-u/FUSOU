@@ -13,6 +13,8 @@ export type MasterDataLoadStatusItem = {
 export function MasterDataLoadStatusAlert(props: {
   items: MasterDataLoadStatusItem[];
   title?: string;
+  subtitle?: string | JSX.Element;
+  alwaysShow?: boolean;
   class?: string;
 }): JSX.Element {
   const [showDetails, setShowDetails] = createSignal(false);
@@ -37,14 +39,15 @@ export function MasterDataLoadStatusAlert(props: {
     const { success, failed, pending, total } = summary();
     if (props.title) return props.title;
     if (failed > 0)
-      return `マスターデータ読込エラー — ${failed}件失敗 / ${total}件中`;
+      return `データ読込エラー — ${failed}件失敗 / ${total}件中`;
     if (pending > 0)
-      return `マスターデータ読込中... (${total - pending}/${total})`;
-    return `マスターデータ読込済み (${success}件)`;
+      return `データ読込中... (${total - pending}/${total})`;
+    return `データ読込完了 (${success}件)`;
   });
 
   // Show only while loading or when there are failures; hide on complete success.
   const shouldShow = createMemo(() => {
+    if (props.alwaysShow) return true;
     const { failed, pending } = summary();
     return failed > 0 || pending > 0;
   });
@@ -54,7 +57,12 @@ export function MasterDataLoadStatusAlert(props: {
       <div class={`alert alert-${alertType()} text-sm ${props.class ?? ""}`.trim()}>
         <div class="flex flex-col gap-2 w-full">
           <div class="flex items-center justify-between gap-2">
-            <span>{titleText()}</span>
+            <div class="flex flex-col gap-0.5">
+              <span>{titleText()}</span>
+              <Show when={props.subtitle}>
+                <span class="text-[11px] opacity-70">{props.subtitle}</span>
+              </Show>
+            </div>
             <button
               class="btn btn-xs btn-ghost"
               type="button"
@@ -64,7 +72,7 @@ export function MasterDataLoadStatusAlert(props: {
             </button>
           </div>
           <Show when={showDetails()}>
-            <div class="flex flex-col gap-1 text-xs opacity-80">
+            <div class="flex flex-col gap-1 text-xs opacity-80 mt-1">
               <For each={props.items}>
                 {(item) => (
                   <div class="flex items-center gap-1">
