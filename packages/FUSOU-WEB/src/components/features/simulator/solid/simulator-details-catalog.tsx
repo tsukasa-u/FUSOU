@@ -4018,7 +4018,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
             </div>
             <div class="p-2 h-[74vh]">
-              <VList ref={shipVListRef} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+              <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
                 {(item: any) =>
                   item.type === "header" ? (
                     <div class="mb-2 mt-1 first:mt-0">
@@ -4090,7 +4090,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
             </div>
             <div class="p-2 h-[74vh]">
-              <VList ref={equipVListRef} data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
+              <VList ref={(el) => { equipVListRef = el; }} data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
                 {(item: any) =>
                   item.type === "header" ? (
                     <div class="mb-2 mt-1 first:mt-0">

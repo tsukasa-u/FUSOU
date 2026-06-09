@@ -1374,7 +1374,7 @@ export default function ShipGrowthPanel() {
             </Show>
             <Show when={!loadingShips()}>
               <div class="h-[74vh] pr-1">
-                <VList ref={shipVListRef} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+                <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
                   {(item: any) =>
                     item.type === "header" ? (
                       <div class="mb-2 mt-1 first:mt-0">
