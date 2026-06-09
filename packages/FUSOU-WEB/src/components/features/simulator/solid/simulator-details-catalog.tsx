@@ -722,6 +722,7 @@ function ImageFallbackBox(props: {
           alt={props.alt}
           class={props.objectClass ?? "w-full h-full object-cover"}
           loading="lazy"
+          decoding="async"
           onError={() => setErrored(true)}
         />
       </Show>

@@ -39,7 +39,7 @@ type NormalSlotRestrictionMode = "exclude" | "allow-only";
 type NormalSlotRestrictionSourceRule = {
   slotIndex: number | { min: number };
   mode: NormalSlotRestrictionMode;
-  typeIds: number[];
+  typeIds: Set<number>;
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -83,18 +83,31 @@ function parseShipSpecificNormalSlotRules(
     parsed.push({
       slotIndex,
       mode,
-      typeIds,
+      typeIds: new Set(typeIds),
     });
   }
 
   return parsed;
 }
 
+let _restrictionRuleCacheDataRef: unknown = null;
+let _restrictionRuleCache = new Map<number, NormalSlotRestrictionSourceRule[]>();
+
 function getNormalSlotRestrictionRulesForShip(
   shipId: number,
 ): NormalSlotRestrictionSourceRule[] {
-  const shipOverride = getMasterEquipShipMap()[shipId];
-  return parseShipSpecificNormalSlotRules(shipOverride);
+  const mapRef = getMasterEquipShipMap();
+  if (_restrictionRuleCacheDataRef !== mapRef) {
+    _restrictionRuleCacheDataRef = mapRef;
+    _restrictionRuleCache.clear();
+  }
+  let cached = _restrictionRuleCache.get(shipId);
+  if (cached !== undefined) return cached;
+
+  const shipOverride = mapRef[shipId];
+  cached = parseShipSpecificNormalSlotRules(shipOverride);
+  _restrictionRuleCache.set(shipId, cached);
+  return cached;
 }
 
 function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
@@ -124,6 +137,9 @@ function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
   return allowedTypes.size > 0 ? { allowedTypes, itemAllowListByType } : null;
 }
 
+let _normalRuleCacheDataRef: unknown = null;
+let _normalRuleCache = new Map<number, NormalSlotRule | null>();
+
 /**
  * Get the set of allowed equipment type IDs (type[2]) for a ship in normal slots.
  *
@@ -132,31 +148,45 @@ function parseShipOverrideRule(shipId: number): NormalSlotRule | null {
  *  2. mst_stype default for the ship's stype
  */
 function getNormalSlotRule(shipId: number): NormalSlotRule | null {
-  const ship = getMasterShip(shipId);
-  if (!ship) return null;
-
-  // Per-ship override from mst_equip_ship
-  const shipRule = parseShipOverrideRule(shipId);
-  if (shipRule) return shipRule;
-
-  // Default from mst_stype
-  const stypeData = getMasterStypes()[ship.stype];
-  if (!stypeData) return null;
-
-  const allowedTypes = new Set<number>();
-  for (const [typeIdStr, flag] of Object.entries(stypeData.equip_type)) {
-    if (flag === 1) {
-      const typeId = Number(typeIdStr);
-      if (!Number.isFinite(typeId)) continue;
-      allowedTypes.add(typeId);
-    }
+  const mapRef = getMasterEquipShipMap();
+  if (_normalRuleCacheDataRef !== mapRef) {
+    _normalRuleCacheDataRef = mapRef;
+    _normalRuleCache.clear();
   }
+  let cached = _normalRuleCache.get(shipId);
+  if (cached !== undefined) return cached;
 
-  if (allowedTypes.size === 0) return null;
-  return {
-    allowedTypes,
-    itemAllowListByType: new Map<number, Set<number>>(),
+  const compute = () => {
+    const ship = getMasterShip(shipId);
+    if (!ship) return null;
+
+    // Per-ship override from mst_equip_ship
+    const shipRule = parseShipOverrideRule(shipId);
+    if (shipRule) return shipRule;
+
+    // Default from mst_stype
+    const stypeData = getMasterStypes()[ship.stype];
+    if (!stypeData) return null;
+
+    const allowedTypes = new Set<number>();
+    for (const [typeIdStr, flag] of Object.entries(stypeData.equip_type)) {
+      if (flag === 1) {
+        const typeId = Number(typeIdStr);
+        if (!Number.isFinite(typeId)) continue;
+        allowedTypes.add(typeId);
+      }
+    }
+
+    if (allowedTypes.size === 0) return null;
+    return {
+      allowedTypes,
+      itemAllowListByType: new Map<number, Set<number>>(),
+    };
   };
+
+  const result = compute();
+  _normalRuleCache.set(shipId, result);
+  return result;
 }
 
 function getNormalSlotTypeRestriction(
@@ -175,7 +205,7 @@ function getNormalSlotTypeRestriction(
 
     return {
       mode: rule.mode,
-      typeIds: new Set(rule.typeIds),
+      typeIds: rule.typeIds,
     };
   }
 
@@ -239,6 +269,24 @@ function canEquipInExslot(
   return getExslotSelectionRequirement(shipId, equip) != null;
 }
 
+let _limitDataCacheDataRef: unknown = null;
+let _limitDataCache = new Map<number, Set<number>>();
+
+function getExslotBlockedTypeSet(shipId: number): Set<number> {
+  const mapRef = getMasterEquipShipMap(); // use this as a proxy for master data changes
+  if (_limitDataCacheDataRef !== mapRef) {
+    _limitDataCacheDataRef = mapRef;
+    _limitDataCache.clear();
+  }
+  let cached = _limitDataCache.get(shipId);
+  if (cached !== undefined) return cached;
+
+  const limitData = getMasterEquipLimitExslot(shipId);
+  cached = new Set((limitData?.equip ?? []).map(Number));
+  _limitDataCache.set(shipId, cached);
+  return cached;
+}
+
 /**
  * Return the minimum required improvement/proficiency values to equip in exslot.
  * Returns null when the item is not equippable in exslot for the target ship.
@@ -271,8 +319,7 @@ export function getExslotSelectionRequirement(
 
   // Base exslot type rule with per-ship excluded type list.
   const inBaseTypeList = hasBaseExslotEquipType(equipType);
-  const limitData = getMasterEquipLimitExslot(shipId);
-  const blockedTypeSet = new Set((limitData?.equip ?? []).map(Number));
+  const blockedTypeSet = getExslotBlockedTypeSet(shipId);
   const allowByBaseType = inBaseTypeList && !blockedTypeSet.has(equipType);
 
   // Per-equipment exslot-ship explicit rule.

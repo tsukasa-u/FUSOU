@@ -519,6 +519,8 @@ export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
     const img = document.createElement("img");
     img.src = spriteSheet.url;
     img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
     img.style.width = `${spriteSheet.width * scaleX}px`;
     img.style.height = `${spriteSheet.height * scaleY}px`;
     img.style.marginLeft = `-${fx * scaleX}px`;
@@ -553,6 +555,8 @@ export function createShipTypeIconEl(
     const img = document.createElement("img");
     img.src = spriteSheet.url;
     img.alt = "";
+    img.loading = "lazy";
+    img.decoding = "async";
     img.style.width = `${spriteSheet.width * scaleX}px`;
     img.style.height = `${spriteSheet.height * scaleY}px`;
     img.style.marginLeft = `-${fx * scaleX}px`;
