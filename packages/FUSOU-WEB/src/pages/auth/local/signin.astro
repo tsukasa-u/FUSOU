@@ -1,7 +1,7 @@
 ---
-import Layout from "../../../layouts/Layout.astro";
-import Navigation from "../../../components/Navigation.astro";
-import KeyIcon from "../../../components/icons/KeyIcon.astro";
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
 
 // const { cookies, redirect } = Astro;
 
@@ -426,7 +426,7 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
   </div>
 
   <script>
-    import { syncMemberIdHashWithApp } from "../../../utils/realtime-sync";
+    import { syncMemberIdHashWithApp } from "@/lib/realtime-sync";
 
     // Type declaration for window.showStep
     declare global {

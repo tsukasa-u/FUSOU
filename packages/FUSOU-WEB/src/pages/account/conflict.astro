@@ -1,8 +1,8 @@
 ---
-import Layout from "../../layouts/Layout.astro";
-import Navigation from "../../components/Navigation.astro";
-import AlertBox from "../../components/AlertBox.astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;

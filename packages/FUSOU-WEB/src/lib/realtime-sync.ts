@@ -15,7 +15,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { v4 as uuidv4 } from "uuid";
-import { getRequiredClientEnv } from "@/utility/clientEnv";
+import { getRequiredClientEnv } from "@/utils/clientEnv";
 
 // Lazy-initialized Supabase client (deferred to avoid errors during astro check)
 let _supabase: SupabaseClient | null = null;

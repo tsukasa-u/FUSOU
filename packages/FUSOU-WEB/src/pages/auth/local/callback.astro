@@ -1,9 +1,9 @@
 ---
-import Layout from "../../../layouts/Layout.astro";
-import Navigation from "../../../components/Navigation.astro";
-import CheckIcon from "../../../components/icons/CheckIcon.astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { validateRedirectUrl } from "@/utility/security";
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import CheckIcon from "@/components/common/astro/icons/CheckIcon.astro";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import { validateRedirectUrl } from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 

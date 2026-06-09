@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { validateRedirectUrl } from "@/utility/security";
+import { validateRedirectUrl } from "@/utils/security";
 
 // One-time redirect endpoint: reads the short-lived fusou:// redirect URL from
 // an httpOnly cookie set by /auth/local/callback.astro, issues the redirect,

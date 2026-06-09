@@ -1,10 +1,10 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
-import Navigation from "@/components/Navigation.astro";
-import DataStatusAlert from "@/components/simulator/DataStatusAlert.astro";
-import PageShell from "@/components/ui/PageShell.astro";
-import PageHeader from "@/components/ui/PageHeader.astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import DataStatusAlert from "@/components/features/simulator/astro/DataStatusAlert.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
+import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
 export const prerender = false;
@@ -257,6 +257,9 @@ const isEquip = tabQuery === "equip";
       </Fragment>
     </PageHeader>
 
+    <!-- Status -->
+    <DataStatusAlert mb="mb-5" startHidden={true} />
+
     <div class="flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto hide-scrollbar">
       <button
         id="sim-tab-btn-fleet"
@@ -373,9 +376,6 @@ const isEquip = tabQuery === "equip";
       </section>
 
       <div id="deck-capture-area">
-        <!-- Status -->
-        <DataStatusAlert mb="mb-5" startHidden={true} />
-
         <div
           id="combined-fleet-validation"
           class="alert alert-warning mb-4 py-2 hidden"
@@ -1200,14 +1200,14 @@ const isEquip = tabQuery === "equip";
 </script>
 
 <script>
-  import { initDisplaySettingsEvents, renderAll } from "./lib/airbase-renderer";
-  import { updateDataStatus, loadMasterData } from "./lib/data-loader";
-  import { initShipModalEvents, handleResizeShip } from "./lib/ship-modal";
-  import { initEquipModalEvents, handleResizeEquip } from "./lib/equip-modal";
-  import { initImageCaptureEvents } from "./lib/image-capture";
-  import { initIOEvents, loadFromUrl } from "./lib/io-handlers";
-  import { ensureOptimizerMounted } from "../../components/solid/simulator/simulator-optimizer";
-  import { mountSimulatorDetailsCatalog } from "../../components/solid/simulator/simulator-details-catalog";
+  import { initDisplaySettingsEvents, renderAll } from "@/features/simulator/airbase-renderer";
+  import { updateDataStatus, loadMasterData } from "@/features/simulator/data-loader";
+  import { initShipModalEvents, handleResizeShip } from "@/features/simulator/ship-modal";
+  import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
+  import { initImageCaptureEvents } from "@/features/simulator/image-capture";
+  import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
+  import { ensureOptimizerMounted } from "@/components/features/simulator/solid/simulator-optimizer";
+  import { mountSimulatorDetailsCatalog } from "@/components/features/simulator/solid/simulator-details-catalog";
 
   let detailsMounted = false;
   function ensureDetailsMounted() {

@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { SECURE_COOKIE_OPTIONS, validateOrigin } from "@/utility/security";
+import { SECURE_COOKIE_OPTIONS, validateOrigin } from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
