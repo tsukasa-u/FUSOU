@@ -2,6 +2,7 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 
 const WIN_RANK_BADGES: Record<string, string> = {
   S: "badge-success",
@@ -229,7 +230,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                               {result?.drop_ship_id ? (
                                 <div class="flex items-center gap-1 min-w-[100px]">
                                   <img
-                                    src={`/api/asset-sync/ship-banner/${result.drop_ship_id}`}
+                                    src={bannerUrl(result.drop_ship_id, { w: 192, f: "auto" })}
                                     alt={masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
                                     class="h-5 w-20 object-cover rounded-sm"
                                     loading="lazy"

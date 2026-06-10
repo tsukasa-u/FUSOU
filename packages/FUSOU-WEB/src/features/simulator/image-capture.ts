@@ -33,6 +33,12 @@ function sanitizeFileName(name: string): string {
   return n || "fleet-deck";
 }
 
+export function getOriginalImageUrl(url: string): string {
+  // Strip Cloudflare Image Resizing parameters
+  // e.g. https://domain/cdn-cgi/image/width=400,format=auto/path/to/img.png -> https://domain/path/to/img.png
+  return url.replace(/\/cdn-cgi\/image\/[^/]+\//, "/");
+}
+
 interface CaptureStats {
   totalImages: number;
   externalImages: number;
@@ -232,7 +238,8 @@ export function prefetchExternalUrlForExport(absUrl: string): void {
   } catch {
     return;
   }
-  getCachedExternalDataUrl(absUrl).catch(() => {});
+  const originalUrl = getOriginalImageUrl(absUrl);
+  getCachedExternalDataUrl(originalUrl).catch(() => {});
 }
 
 export async function prewarmVisibleExternalImageCache(
@@ -246,7 +253,7 @@ export async function prewarmVisibleExternalImageCache(
     if (!srcAttr || srcAttr.startsWith("data:")) return;
     try {
       const u = new URL(srcAttr, window.location.href);
-      if (u.origin !== window.location.origin) targets.add(u.toString());
+      if (u.origin !== window.location.origin) targets.add(getOriginalImageUrl(u.toString()));
     } catch {
       /* ignore */
     }
@@ -259,7 +266,7 @@ export async function prewarmVisibleExternalImageCache(
     if (!rawUrl || rawUrl.startsWith("#") || rawUrl.startsWith("data:")) return;
     try {
       const u = new URL(rawUrl, window.location.href);
-      if (u.origin !== window.location.origin) targets.add(u.toString());
+      if (u.origin !== window.location.origin) targets.add(getOriginalImageUrl(u.toString()));
     } catch {
       /* ignore */
     }
@@ -410,7 +417,8 @@ async function buildCaptureNode(opts: {
         (async () => {
           try {
             const absUrl = new URL(rawUrl, window.location.href).toString();
-            const dataUrl = await getCachedExternalDataUrl(absUrl, stats);
+            const originalUrl = getOriginalImageUrl(absUrl);
+            const dataUrl = await getCachedExternalDataUrl(originalUrl, stats);
             if (dataUrl) {
               node.style.backgroundImage = bgImage.replace(rawUrl, dataUrl);
             } else {
@@ -483,7 +491,8 @@ async function buildCaptureNode(opts: {
       if (opts.useImageProxy && isExternal && absSrc && !shouldHideExternal) {
         tasks.push(
           (async () => {
-            const dataUrl = await getCachedExternalDataUrl(absSrc, stats);
+            const originalUrl = getOriginalImageUrl(absSrc);
+            const dataUrl = await getCachedExternalDataUrl(originalUrl, stats);
             if (dataUrl) {
               node.src = dataUrl;
               stats.proxiedImages += 1;

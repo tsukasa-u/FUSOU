@@ -511,25 +511,70 @@ export function computeEquipSum(
   return sums;
 }
 
-export function bannerUrl(shipId: number): string {
+export interface ImageOptions {
+  w?: number;
+  h?: number;
+  q?: number;
+  f?: "auto" | "webp" | "avif" | "png" | "jpeg";
+}
+
+function buildImageUrl(base: string, key: string, opts?: ImageOptions): string {
+  // Always strip any trailing slash from base to ensure consistent joining
+  const cleanBase = base.replace(/\/$/, "");
+  
+  if (!opts) return `${cleanBase}/${key}`;
+  
+  try {
+    const u = new URL(cleanBase);
+    // Cloudflare Image Resizing is strictly an Edge feature.
+    // If the base URL is local (e.g. local wrangler proxy), bypass resizing
+    // and serve the original image directly.
+    if (
+      u.hostname === "localhost" ||
+      u.hostname === "127.0.0.1" ||
+      u.hostname.startsWith("192.168.") ||
+      u.hostname.startsWith("10.") ||
+      u.hostname.endsWith(".local")
+    ) {
+      return `${cleanBase}/${key}`;
+    }
+  } catch {
+    // If base is not a valid URL, fallback to direct concatenation
+  }
+
+  const params: string[] = [];
+  if (opts.w) params.push(`width=${opts.w}`);
+  if (opts.h) params.push(`height=${opts.h}`);
+  if (opts.q) params.push(`quality=${opts.q}`);
+  if (opts.f) params.push(`format=${opts.f}`);
+  if (params.length === 0) return `${cleanBase}/${key}`;
+  return `${cleanBase}/cdn-cgi/image/${params.join(",")}/${key}`;
+}
+
+export function bannerUrl(shipId: number, options?: ImageOptions): string {
   const assetBaseUrl = getAssetBaseUrl();
   const key = getBannerMap()[String(shipId)];
-  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
-  if (!assetBaseUrl) return `/api/asset-sync/ship-banner/${shipId}`;
+  if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
+  if (!assetBaseUrl) {
+    const fallback = `/api/asset-sync/ship-banner/${shipId}`;
+    if (!options) return fallback;
+    // For local fallback via image-proxy, resizing isn't supported, so just return the original
+    return fallback;
+  }
   return "";
 }
 
-export function cardUrl(shipId: number): string {
+export function cardUrl(shipId: number, options?: ImageOptions): string {
   const assetBaseUrl = getAssetBaseUrl();
   const key = getCardMap()[String(shipId)];
-  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
+  if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
   return "";
 }
 
-export function shipIconUrl(shipId: number): string {
+export function shipIconUrl(shipId: number, options?: ImageOptions): string {
   const assetBaseUrl = getAssetBaseUrl();
   const key = getShipIconMap()[String(shipId)];
-  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
+  if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
   return "";
 }
 
@@ -601,10 +646,10 @@ export function createShipTypeIconEl(
   return el;
 }
 
-export function equipImageUrl(equipId: number): string {
+export function equipImageUrl(equipId: number, options?: ImageOptions): string {
   const id = String(equipId);
   const assetBaseUrl = getAssetBaseUrl();
   const key = getEquipItemUpMap()[id] || getEquipCardMap()[id];
-  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
+  if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
   return "";
 }

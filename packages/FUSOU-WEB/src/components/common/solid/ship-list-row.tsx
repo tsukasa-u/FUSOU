@@ -22,7 +22,7 @@ export function ShipListRow(props: {
     return stypeLabel ? `ID ${props.ship.id} / ${stypeLabel}` : `ID ${props.ship.id}`;
   };
 
-  const imgSrc = () => bannerUrl(props.ship.id);
+  const imgSrc = () => bannerUrl(props.ship.id, { w: 192, f: "auto" });
   const [imgErrored, setImgErrored] = createSignal(!imgSrc());
   createEffect(() => {
     setImgErrored(!imgSrc());

@@ -6,6 +6,7 @@ import type {
   MstShipRecord,
   MstSlotItemRecord,
 } from "./types";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 
 export function buildEnemyDeckResolver(
   enemyDecks: EnemyDeckRecord[],
@@ -106,11 +107,6 @@ export function buildEnemyFleetResolver(
     return [];
   };
 
-  const bannerUrl = (mstShipId: number | null): string => {
-    if (!mstShipId) return "";
-    return `/api/asset-sync/ship-banner/${mstShipId}`;
-  };
-
   const signatureOf = (ships: EnemyFleetDetails["ships"]): string =>
     ships
       .map((ship) => {
@@ -186,7 +182,7 @@ export function buildEnemyFleetResolver(
         ships.push({
           mstShipId: mstId,
           name: shipName,
-          bannerUrl: bannerUrl(mstId),
+          bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
           karyoku: shipData.karyoku ?? null,
           raisou: shipData.raisou ?? null,
           taiku: shipData.taiku ?? null,

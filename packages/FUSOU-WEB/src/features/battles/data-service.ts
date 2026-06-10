@@ -1,5 +1,6 @@
 import type { ShipInfo, WeaponIconFrame } from "./types";
 import { toGroupIds, hpScoreForDeck } from "./helpers";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
 
 let mstShipByIdCache: Map<number, Record<string, unknown>> | null = null;
@@ -709,7 +710,7 @@ export async function resolveFriendlyFleet(
       raisou: ship.raisou ?? null,
       taiku: ship.taiku ?? null,
       soukou: ship.soukou ?? null,
-      bannerUrl: shipId ? `/api/asset-sync/ship-banner/${shipId}` : "",
+      bannerUrl: shipId ? bannerUrl(shipId, { w: 192, f: "auto" }) : "",
       equipments: equips,
     } satisfies ShipInfo;
   });
@@ -804,7 +805,7 @@ export async function resolveEnemyFleet(
           raisou: ship.raisou ?? null,
           taiku: ship.taiku ?? null,
           soukou: ship.soukou ?? null,
-          bannerUrl: mstId ? `/api/asset-sync/ship-banner/${mstId}` : "",
+          bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
           equipments: [],
         } satisfies ShipInfo;
       });
@@ -898,7 +899,7 @@ export async function resolveEnemyFleet(
       raisou: ship.raisou ?? null,
       taiku: ship.taiku ?? null,
       soukou: ship.soukou ?? null,
-      bannerUrl: mstId ? `/api/asset-sync/ship-banner/${mstId}` : "",
+      bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
       equipments: equips,
     });
   }

@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 import { For } from "solid-js";
 import { ShipBanner } from "../../battle-detail/solid/ui";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 
 const RARITY_NAMES: Record<number, { label: string; colorClass: string }> = {
   1: { label: "コモン", colorClass: "text-blue-500" },
@@ -37,7 +38,7 @@ export function ShipDropCard(props: ShipDropCardProps) {
       <div class="flex flex-col items-center w-32 shrink-0 p-2 border-r border-base-200 bg-base-200/20">
         <div class="w-full rounded shadow-sm overflow-hidden mb-2 flex items-center justify-center bg-base-200/50" style="aspect-ratio: 4/1;">
           <ShipBanner
-            src={`/api/asset-sync/ship-banner/${props.shipId}`}
+            src={bannerUrl(props.shipId, { w: 192, f: "auto" })}
             alt={props.shipName}
             class="w-full h-full object-cover"
           />

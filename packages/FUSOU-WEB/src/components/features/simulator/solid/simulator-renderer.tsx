@@ -31,7 +31,6 @@ import {
   createWeaponIconEl,
 } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
-import { prefetchExternalUrlForExport } from "@/features/simulator/image-capture";
 import { openShipModal } from "@/features/simulator/ship-modal";
 import { openEquipModal } from "@/features/simulator/equip-modal";
 import {
@@ -68,7 +67,6 @@ import {
 } from "@/features/simulator/simulator-selectors";
 
 let mounted = false;
-const prefetchedCardUrls = new Set<string>();
 const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
 const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
@@ -225,11 +223,6 @@ async function getShipGrowthCaps(
 
 const isReadOnly = () => isWorkspaceReadOnly();
 
-function prefetchCardOnce(url: string): void {
-  if (prefetchedCardUrls.has(url)) return;
-  prefetchedCardUrls.add(url);
-  prefetchExternalUrlForExport(url);
-}
 
 function ProfBadge(props: { level: number; hovered?: boolean }): JSX.Element {
   const symbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
@@ -797,8 +790,7 @@ function ShipCard(props: {
         }
       >
         {(d) => {
-          const imageUrl = cardUrl(d.slot.shipId!);
-          if (imageUrl) prefetchCardOnce(imageUrl);
+          const imageUrl = cardUrl(d.slot.shipId!, { w: 400, f: "auto" });
           const [cardImageUnavailable, setCardImageUnavailable] =
             createSignal(!imageUrl);
           const [exRowHovered, setExRowHovered] = createSignal(false);

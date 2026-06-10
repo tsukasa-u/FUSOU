@@ -1932,9 +1932,9 @@ function EquipOptimizer(): JSX.Element {
                       <span class="absolute inset-0 flex items-center justify-center text-[9px] text-base-content/35">
                         NO IMAGE
                       </span>
-                      <Show when={bannerUrl(ship().id)}>
+                      <Show when={bannerUrl(ship().id, { w: 192, f: "auto" })}>
                         <img
-                          src={bannerUrl(ship().id)}
+                          src={bannerUrl(ship().id, { w: 192, f: "auto" })}
                           alt={ship().name}
                           class="absolute inset-0 w-full h-full object-cover"
                           onError={(e) => {

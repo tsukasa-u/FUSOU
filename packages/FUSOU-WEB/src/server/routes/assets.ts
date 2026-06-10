@@ -413,7 +413,7 @@ app.get("/ship-banner-map", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     return c.json({ base_url: assetBaseUrl, banners }, 200, {
       "Cache-Control": cacheControl,
@@ -482,7 +482,7 @@ app.get("/ship-card-map", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     return c.json({ base_url: assetBaseUrl, cards }, 200, {
       "Cache-Control": cacheControl,
@@ -550,7 +550,7 @@ app.get("/ship-icon-map", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     return c.json({ base_url: assetBaseUrl, icons }, 200, {
       "Cache-Control": cacheControl,
@@ -600,7 +600,7 @@ app.get("/equip-image-map", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "no-store"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     return c.json({ base_url: assetBaseUrl, card, item_up: itemUp }, 200, {
       "Cache-Control": cacheControl,
@@ -699,7 +699,7 @@ app.get("/ship-banner/:shipId", async (c) => {
       headers: {
         "Content-Type": "image/png",
         "Content-Length": String(body.byteLength),
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "Cache-Control": "public, max-age=2592000, stale-while-revalidate=2592000",
         ETag: etag,
         ...CORS_HEADERS,
       },
@@ -862,7 +862,7 @@ app.get("/weapon-icon-frames", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     // Always return plain JSON. Some clients do not transparently decode
     // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
@@ -992,7 +992,7 @@ app.get("/image-proxy", async (c) => {
 
   const cacheControl = envCtx.isDev
     ? "no-store"
-    : "public, max-age=86400, stale-while-revalidate=604800";
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
 
   // ── R2 direct access (primary path on Cloudflare Workers) ────────────────
   // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.

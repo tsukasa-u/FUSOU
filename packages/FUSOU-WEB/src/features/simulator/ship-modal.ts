@@ -614,7 +614,7 @@ function createShipItem(ship: MstShipData): HTMLElement {
   imgWrap.className =
     "w-[72px] h-[28px] bg-base-200 rounded overflow-hidden shrink-0";
   const img = document.createElement("img");
-  img.src = bannerUrl(ship.id);
+  img.src = bannerUrl(ship.id, { w: 192, f: "auto" });
   img.alt = ship.name;
   img.className = "w-full h-full object-cover";
   img.loading = "lazy";
@@ -717,7 +717,7 @@ async function renderShipDetail(ship: MstShipData) {
   bannerWrap.className =
     "w-full h-14 bg-base-200 rounded-lg overflow-hidden mb-3";
   const bannerImg = document.createElement("img");
-  bannerImg.src = bannerUrl(ship.id);
+  bannerImg.src = bannerUrl(ship.id, { w: 192, f: "auto" });
   bannerImg.className = "w-full h-full object-cover";
   bannerImg.onerror = function () {
     const parent = (this as HTMLImageElement).parentElement;

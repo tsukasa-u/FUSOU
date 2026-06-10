@@ -639,7 +639,7 @@ function renderEquipDetail(equip: MstSlotItemData) {
   if (!(panel instanceof HTMLElement)) return;
   panel.replaceChildren();
 
-  const imgSrc = equipImageUrl(equip.id);
+  const imgSrc = equipImageUrl(equip.id, { w: 256, f: "auto" });
   if (imgSrc) {
     const imgWrap = document.createElement("div");
     imgWrap.className =

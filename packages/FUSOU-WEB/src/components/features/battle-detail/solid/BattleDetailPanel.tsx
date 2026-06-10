@@ -37,6 +37,7 @@ import {
   resolveFriendlyFleet,
   resolveEnemyFleet,
 } from "@/features/battles/data-service";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 import { ShipBanner, ShipRows } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
@@ -483,7 +484,7 @@ export default function BattleDetailPanel(props: {
             ? {
                 shipId: dropShipId,
                 name: String(dropShip?.name ?? `艦#${dropShipId}`),
-                bannerUrl: `/api/asset-sync/ship-banner/${dropShipId}`,
+                bannerUrl: bannerUrl(dropShipId, { w: 192, f: "auto" }),
               }
             : null,
         );
