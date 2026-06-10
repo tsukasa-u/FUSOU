@@ -57,6 +57,44 @@ import type {
   PentaRule,
 } from "@/features/simulator/types";
 
+function ProgressiveGrid<T>(props: {
+  data: T[];
+  class?: string;
+  children: (item: T) => JSX.Element;
+}) {
+  const [limit, setLimit] = createSignal(40);
+  let observerTarget: HTMLDivElement | undefined;
+
+  createEffect(() => {
+    // Reset limit when data changes
+    props.data;
+    setLimit(40);
+  });
+
+  onMount(() => {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setLimit((l) => l + 40);
+      }
+    }, { rootMargin: "200px" });
+    if (observerTarget) observer.observe(observerTarget);
+    onCleanup(() => observer.disconnect());
+  });
+
+  return (
+    <>
+      <div class={props.class}>
+        <For each={props.data.slice(0, limit())}>
+          {props.children}
+        </For>
+      </div>
+      <Show when={limit() < props.data.length}>
+        <div ref={observerTarget} class="h-1" />
+      </Show>
+    </>
+  );
+}
+
 type DetailsTab = "ship" | "equip";
 
 type ShipGrowthSummary = {
@@ -1413,67 +1451,47 @@ function ShipDetailPanel(props: {
     const quad = groupByMultiStat(buildMultiEntries(effects.quad_rules, 4));
     const penta = groupByMultiStat(buildMultiEntries(effects.penta_rules, 5));
 
-    const initialGroups: Array<{
-      a: MstSlotItemData;
-      bGroup: MstSlotItemData[];
-      stats: Record<string, number>;
-    }> = [];
-    const pairUsed = new Set<number>();
-    
-    // Pass 1: Group right-hand side (B items) for the same left-hand item (A item)
-    for (let i = 0; i < pair.length; i++) {
-      if (pairUsed.has(i)) continue;
-      const row = pair[i];
-      const group: MstSlotItemData[] = [row.b];
-      const icon = row.b.type?.[3] ?? 0;
-      const statHash = JSON.stringify(Object.entries(row.stats).sort());
-      
-      for (let j = i + 1; j < pair.length; j++) {
-        if (pairUsed.has(j)) continue;
-        const other = pair[j];
-        if (other.a.id === row.a.id) {
-          const otherHash = JSON.stringify(Object.entries(other.stats).sort());
-          if (otherHash === statHash) {
-            group.push(other.b);
-            pairUsed.add(j);
-          }
-        }
+    const initialGroupMap = new Map<string, { a: MstSlotItemData; bGroup: MstSlotItemData[]; stats: Record<string, number> }>();
+    for (const row of pair) {
+      const statHash = synergySignature(row.stats);
+      const key = `${row.a.id}::${statHash}`;
+      let group = initialGroupMap.get(key);
+      if (!group) {
+        group = { a: row.a, bGroup: [], stats: row.stats };
+        initialGroupMap.set(key, group);
       }
-      group.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
-      initialGroups.push({ a: row.a, bGroup: group, stats: row.stats });
+      group.bGroup.push(row.b);
+    }
+
+    const initialGroups = Array.from(initialGroupMap.values());
+    for (const row of initialGroups) {
+      row.bGroup.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
     }
 
     // Pass 2: Group left-hand side (A items) if their B groups and stats match perfectly
-    const pairGroups: Array<{
-      aGroup: MstSlotItemData[];
-      bGroup: MstSlotItemData[];
-      stats: Record<string, number>;
-    }> = [];
-    const initialUsed = new Set<number>();
-
-    for (let i = 0; i < initialGroups.length; i++) {
-      if (initialUsed.has(i)) continue;
-      const row = initialGroups[i];
-      const aGroup: MstSlotItemData[] = [row.a];
-      const aIcon = row.a.type?.[3] ?? 0;
-      const bHash = JSON.stringify(row.bGroup.map(b => b.id));
-      const statHash = JSON.stringify(Object.entries(row.stats).sort());
-
-      for (let j = i + 1; j < initialGroups.length; j++) {
-        if (initialUsed.has(j)) continue;
-        const other = initialGroups[j];
-        const otherBHash = JSON.stringify(other.bGroup.map(b => b.id));
-        if (otherBHash === bHash) {
-          const otherStatHash = JSON.stringify(Object.entries(other.stats).sort());
-          if (otherStatHash === statHash) {
-            aGroup.push(other.a);
-            initialUsed.add(j);
-          }
-        }
+    const finalGroupMap = new Map<string, { aGroup: MstSlotItemData[]; bGroup: MstSlotItemData[]; stats: Record<string, number> }>();
+    for (const row of initialGroups) {
+      const bHash = row.bGroup.map(b => b.id).join(',');
+      const statHash = synergySignature(row.stats);
+      const key = `${bHash}::${statHash}`;
+      let group = finalGroupMap.get(key);
+      if (!group) {
+        group = { aGroup: [], bGroup: row.bGroup, stats: row.stats };
+        finalGroupMap.set(key, group);
       }
-      aGroup.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
-      pairGroups.push({ aGroup, bGroup: row.bGroup, stats: row.stats });
+      group.aGroup.push(row.a);
     }
+
+    const pairGroups = Array.from(finalGroupMap.values());
+    for (const row of pairGroups) {
+      row.aGroup.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
+    }
+    pairGroups.sort((a, b) => {
+      const aIcon = a.aGroup[0].type?.[3] ?? 0;
+      const bIcon = b.aGroup[0].type?.[3] ?? 0;
+      if (aIcon !== bIcon) return aIcon - bIcon;
+      return a.aGroup[0].sortno - b.aGroup[0].sortno || a.aGroup[0].id - b.aGroup[0].id;
+    });
 
     return {
       single,
@@ -1705,22 +1723,21 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">装備組み合わせシナジー</h5>
-                    <div
+                    <ProgressiveGrid
+                      data={shipSynergy().pair}
                       class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
                     >
-                      <For each={shipSynergy().pair.slice(0, 80)}>
-                        {(row) => (
-                          <div class="rounded border border-base-300/70 p-2 space-y-1">
-                            <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                              <EquipSlotGroup slotItems={row.aGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
-                              <span>+</span>
-                              <EquipSlotGroup slotItems={row.bGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
-                            </div>
-                            <SynergyStatInline stats={row.stats} />
+                      {(row) => (
+                        <div class="rounded border border-base-300/70 p-2 space-y-1">
+                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                            <EquipSlotGroup slotItems={row.aGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                            <span>+</span>
+                            <EquipSlotGroup slotItems={row.bGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
                           </div>
-                        )}
-                      </For>
-                    </div>
+                          <SynergyStatInline stats={row.stats} />
+                        </div>
+                      )}
+                    </ProgressiveGrid>
                   </div>
                 </Show>
 
@@ -1734,63 +1751,62 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">速力シナジー</h5>
-                    <div
+                    <ProgressiveGrid
+                      data={shipSynergy().speedSynergies}
                       class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
                     >
-                      <For each={shipSynergy().speedSynergies.slice(0, 60)}>
-                        {(row) => (
-                          <div class="rounded border border-base-300/70 p-2 space-y-1">
-                            <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                              <button
-                                class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                onClick={() => props.onOpenEquip(row.equip.id)}
-                                title={row.equip.name}
-                              >
-                                <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                  <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
-                                </span>
-                                <span class="truncate max-w-40">
-                                  {row.equip.name}
-                                </span>
-                              </button>
-                              <Show when={row.partner}>
-                                <>
-                                  <span>+</span>
-                                  <button
-                                    class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                    onClick={() =>
-                                      props.onOpenEquip(row.partner!.id)
-                                    }
-                                    title={row.partner?.name}
-                                  >
-                                    <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                      <WeaponIcon
-                                        iconNum={row.partner?.type?.[3] ?? 0}
-                                      />
-                                    </span>
-                                    <span class="truncate max-w-40">
-                                      {row.partner?.name}
-                                    </span>
-                                  </button>
-                                </>
-                              </Show>
-                            </div>
-                            <div class="flex flex-wrap items-center gap-1">
-                              <span
-                                class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                  row.after - row.before > 0
-                                    ? "border-info/55 text-info"
-                                    : "border-error/45 text-error"
-                                }`}
-                              >
-                                速力 {speedDisplay(row.before)} →{" "}
-                                {speedDisplay(row.after)}
+                      {(row) => (
+                        <div class="rounded border border-base-300/70 p-2 space-y-1">
+                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                            <button
+                              class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                              onClick={() => props.onOpenEquip(row.equip.id)}
+                              title={row.equip.name}
+                            >
+                              <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
                               </span>
-                            </div>
+                              <span class="truncate max-w-40">
+                                {row.equip.name}
+                              </span>
+                            </button>
+                            <Show when={row.partner}>
+                              <>
+                                <span>+</span>
+                                <button
+                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                  onClick={() =>
+                                    props.onOpenEquip(row.partner!.id)
+                                  }
+                                  title={row.partner?.name}
+                                >
+                                  <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                    <WeaponIcon
+                                      iconNum={row.partner?.type?.[3] ?? 0}
+                                    />
+                                  </span>
+                                  <span class="truncate max-w-40">
+                                    {row.partner?.name}
+                                  </span>
+                                </button>
+                              </>
+                            </Show>
                           </div>
-                        )}
-                      </For>
-                    </div>
+                          <div class="flex flex-wrap items-center gap-1">
+                            <span
+                              class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                row.after - row.before > 0
+                                  ? "border-info/55 text-info"
+                                  : "border-error/45 text-error"
+                              }`}
+                            >
+                              速力 {speedDisplay(row.before)} →{" "}
+                              {speedDisplay(row.after)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </ProgressiveGrid>
                   </div>
                 </Show>
 
@@ -1804,63 +1820,62 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">射程シナジー</h5>
-                    <div
+                    <ProgressiveGrid
+                      data={shipSynergy().rangeSynergies}
                       class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
                     >
-                      <For each={shipSynergy().rangeSynergies.slice(0, 60)}>
-                        {(row) => (
-                          <div class="rounded border border-base-300/70 p-2 space-y-1">
-                            <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                              <button
-                                class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                onClick={() => props.onOpenEquip(row.equip.id)}
-                                title={row.equip.name}
-                              >
-                                <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                  <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
-                                </span>
-                                <span class="truncate max-w-40">
-                                  {row.equip.name}
-                                </span>
-                              </button>
-                              <Show when={row.partner}>
-                                <>
-                                  <span>+</span>
-                                  <button
-                                    class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                    onClick={() =>
-                                      props.onOpenEquip(row.partner!.id)
-                                    }
-                                    title={row.partner?.name}
-                                  >
-                                    <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                      <WeaponIcon
-                                        iconNum={row.partner?.type?.[3] ?? 0}
-                                      />
-                                    </span>
-                                    <span class="truncate max-w-40">
-                                      {row.partner?.name}
-                                    </span>
-                                  </button>
-                                </>
-                              </Show>
-                            </div>
-                            <div class="flex flex-wrap items-center gap-1">
-                              <span
-                                class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                  row.after - row.before > 0
-                                    ? "border-info/55 text-info"
-                                    : "border-error/45 text-error"
-                                }`}
-                              >
-                                射程 {rangeDisplay(row.before)} →{" "}
-                                {rangeDisplay(row.after)}
+                      {(row) => (
+                        <div class="rounded border border-base-300/70 p-2 space-y-1">
+                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                            <button
+                              class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                              onClick={() => props.onOpenEquip(row.equip.id)}
+                              title={row.equip.name}
+                            >
+                              <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
                               </span>
-                            </div>
+                              <span class="truncate max-w-40">
+                                {row.equip.name}
+                              </span>
+                            </button>
+                            <Show when={row.partner}>
+                              <>
+                                <span>+</span>
+                                <button
+                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                  onClick={() =>
+                                    props.onOpenEquip(row.partner!.id)
+                                  }
+                                  title={row.partner?.name}
+                                >
+                                  <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                    <WeaponIcon
+                                      iconNum={row.partner?.type?.[3] ?? 0}
+                                    />
+                                  </span>
+                                  <span class="truncate max-w-40">
+                                    {row.partner?.name}
+                                  </span>
+                                </button>
+                              </>
+                            </Show>
                           </div>
-                        )}
-                      </For>
-                    </div>
+                          <div class="flex flex-wrap items-center gap-1">
+                            <span
+                              class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                row.after - row.before > 0
+                                  ? "border-info/55 text-info"
+                                  : "border-error/45 text-error"
+                              }`}
+                            >
+                              射程 {rangeDisplay(row.before)} →{" "}
+                              {rangeDisplay(row.after)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </ProgressiveGrid>
                   </div>
                 </Show>
 
@@ -1891,15 +1906,14 @@ function ShipDetailPanel(props: {
                                       （{group.entries.length}件）
                                     </span>
                                   </h6>
-                                  <div
+                                  <ProgressiveGrid
+                                    data={group.entries}
                                     class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
                                   >
-                                    <For each={group.entries}>
-                                      {(entry) =>
-                                        <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                      }
-                                    </For>
-                                  </div>
+                                    {(entry) =>
+                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
+                                    }
+                                  </ProgressiveGrid>
                                 </div>
                               )}
                             </For>
@@ -1920,15 +1934,14 @@ function ShipDetailPanel(props: {
                                       （{group.entries.length}件）
                                     </span>
                                   </h6>
-                                  <div
+                                  <ProgressiveGrid
+                                    data={group.entries}
                                     class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
                                   >
-                                    <For each={group.entries}>
-                                      {(entry) =>
-                                        <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                      }
-                                    </For>
-                                  </div>
+                                    {(entry) =>
+                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
+                                    }
+                                  </ProgressiveGrid>
                                 </div>
                               )}
                             </For>
@@ -1949,13 +1962,14 @@ function ShipDetailPanel(props: {
                                       （{group.entries.length}件）
                                     </span>
                                   </h6>
-                                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                    <For each={group.entries}>
-                                      {(entry) =>
-                                        <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                      }
-                                    </For>
-                                  </div>
+                                  <ProgressiveGrid
+                                    data={group.entries}
+                                    class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
+                                  >
+                                    {(entry) =>
+                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
+                                    }
+                                  </ProgressiveGrid>
                                 </div>
                               )}
                             </For>
