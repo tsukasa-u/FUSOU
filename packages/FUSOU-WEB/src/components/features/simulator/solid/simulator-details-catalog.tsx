@@ -732,6 +732,71 @@ function groupByMultiStat(entries: MultiEntry[]): MultiGroup[] {
   return result;
 }
 
+type SynergyGroup<T> = { statKey: string; label: string; entries: T[] };
+
+function groupByGenericStat<T>(
+  entries: T[],
+  getStats: (entry: T) => Record<string, number>,
+  getScore: (entry: T) => number
+): SynergyGroup<T>[] {
+  const map = new Map<string, T[]>();
+  for (const entry of entries) {
+    const key = primaryStatKey(getStats(entry));
+    const list = map.get(key);
+    if (list) list.push(entry);
+    else map.set(key, [entry]);
+  }
+  const result: SynergyGroup<T>[] = [];
+  const ordered = [...(SYNERGY_STAT_ORDER as unknown as string[]), "other"];
+  for (const k of ordered) {
+    const list = map.get(k);
+    if (!list) continue;
+    list.sort((a, b) => getScore(b) - getScore(a));
+    result.push({
+      statKey: k,
+      label: SYNERGY_STAT_LABELS[k] ?? k,
+      entries: list,
+    });
+    map.delete(k);
+  }
+  for (const [k, list] of map) {
+    list.sort((a, b) => getScore(b) - getScore(a));
+    result.push({
+      statKey: k,
+      label: SYNERGY_STAT_LABELS[k] ?? k,
+      entries: list,
+    });
+  }
+  return result;
+}
+
+function groupByEquipType<T>(
+  entries: T[],
+  getEquip: (entry: T) => MstSlotItemData,
+  getScore: (entry: T) => number
+): SynergyGroup<T>[] {
+  const map = new Map<string, T[]>();
+  for (const entry of entries) {
+    const equip = getEquip(entry);
+    const key = equipDisplayTypeName(equip);
+    const list = map.get(key);
+    if (list) list.push(entry);
+    else map.set(key, [entry]);
+  }
+  const result: SynergyGroup<T>[] = [];
+  const ordered = Array.from(map.keys()).sort();
+  for (const k of ordered) {
+    const list = map.get(k)!;
+    list.sort((a, b) => getScore(b) - getScore(a));
+    result.push({
+      statKey: k,
+      label: k,
+      entries: list,
+    });
+  }
+  return result;
+}
+
 function WeaponIcon(props: { iconNum: number }): JSX.Element {
   let host!: HTMLSpanElement;
 
@@ -1493,11 +1558,16 @@ function ShipDetailPanel(props: {
       return a.aGroup[0].sortno - b.aGroup[0].sortno || a.aGroup[0].id - b.aGroup[0].id;
     });
 
+    const groupedSingle = groupByGenericStat(single, (row) => row.base, (row) => scoreSynergy(row.base));
+    const groupedPair = groupByGenericStat(pairGroups, (row) => row.stats, (row) => scoreSynergy(row.stats));
+    const groupedSpeed = groupByEquipType(speedSynergies, (row) => row.equip, (row) => (row.after - row.before));
+    const groupedRange = groupByEquipType(rangeSynergies, (row) => row.equip, (row) => (row.after - row.before));
+
     return {
-      single,
-      pair: pairGroups,
-      speedSynergies,
-      rangeSynergies,
+      single: groupedSingle,
+      pair: groupedPair,
+      speedSynergies: groupedSpeed,
+      rangeSynergies: groupedRange,
       triple,
       quad,
       penta,
@@ -1663,49 +1733,59 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">単体装備シナジー</h5>
-                    <div
-                      class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
-                    >
-                      <For each={shipSynergy().single.slice(0, 80)}>
-                        {(row) => (
-                          <div class="rounded border border-base-300/70 p-2 space-y-1">
-                            <button
-                              class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
-                              onClick={() => props.onOpenEquip(row.equip.id)}
-                              title={row.equip.name}
+                    <div class="space-y-3">
+                      <For each={shipSynergy().single}>
+                        {(group) => (
+                          <div>
+                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                              {group.label}系 <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                            </h6>
+                            <ProgressiveGrid
+                              data={group.entries}
+                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
                             >
-                              <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
-                                <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
-                              </span>
-                              <span class="text-sm font-medium truncate">
-                                {row.equip.name}
-                              </span>
-                            </button>
-                            <div class="text-xs text-base-content/70 inline-flex items-center h-5">
-                              基本
-                            </div>
-                            <SynergyStatInline stats={row.base} />
-                            <Show
-                              when={
-                                row.star10 != null &&
-                                scoreSynergy(row.star10 ?? undefined) > 0
-                              }
-                            >
-                              <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
-                                改修★10
-                              </div>
-                              <SynergyStatInline stats={row.star10!} />
-                            </Show>
-                            <For each={stackingSynergyRows(row.c2, row.c3)}>
-                              {(stackRow) => (
-                                <>
-                                  <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
-                                    {stackRow.label}
+                              {(row) => (
+                                <div class="rounded border border-base-300/70 p-2 space-y-1">
+                                  <button
+                                    class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
+                                    onClick={() => props.onOpenEquip(row.equip.id)}
+                                    title={row.equip.name}
+                                  >
+                                    <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
+                                      <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                    </span>
+                                    <span class="text-sm font-medium truncate">
+                                      {row.equip.name}
+                                    </span>
+                                  </button>
+                                  <div class="text-xs text-base-content/70 inline-flex items-center h-5">
+                                    基本
                                   </div>
-                                  <SynergyStatInline stats={stackRow.stats} />
-                                </>
+                                  <SynergyStatInline stats={row.base} />
+                                  <Show
+                                    when={
+                                      row.star10 != null &&
+                                      scoreSynergy(row.star10 ?? undefined) > 0
+                                    }
+                                  >
+                                    <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
+                                      改修★10
+                                    </div>
+                                    <SynergyStatInline stats={row.star10!} />
+                                  </Show>
+                                  <For each={stackingSynergyRows(row.c2, row.c3)}>
+                                    {(stackRow) => (
+                                      <>
+                                        <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
+                                          {stackRow.label}
+                                        </div>
+                                        <SynergyStatInline stats={stackRow.stats} />
+                                      </>
+                                    )}
+                                  </For>
+                                </div>
                               )}
-                            </For>
+                            </ProgressiveGrid>
                           </div>
                         )}
                       </For>
@@ -1723,21 +1803,32 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">装備組み合わせシナジー</h5>
-                    <ProgressiveGrid
-                      data={shipSynergy().pair}
-                      class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
-                    >
-                      {(row) => (
-                        <div class="rounded border border-base-300/70 p-2 space-y-1">
-                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                            <EquipSlotGroup slotItems={row.aGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
-                            <span>+</span>
-                            <EquipSlotGroup slotItems={row.bGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                    <div class="space-y-3">
+                      <For each={shipSynergy().pair}>
+                        {(group) => (
+                          <div>
+                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                              {group.label}系 <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                            </h6>
+                            <ProgressiveGrid
+                              data={group.entries}
+                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
+                            >
+                              {(row) => (
+                                <div class="rounded border border-base-300/70 p-2 space-y-1">
+                                  <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                    <EquipSlotGroup slotItems={row.aGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                                    <span>+</span>
+                                    <EquipSlotGroup slotItems={row.bGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                                  </div>
+                                  <SynergyStatInline stats={row.stats} />
+                                </div>
+                              )}
+                            </ProgressiveGrid>
                           </div>
-                          <SynergyStatInline stats={row.stats} />
-                        </div>
-                      )}
-                    </ProgressiveGrid>
+                        )}
+                      </For>
+                    </div>
                   </div>
                 </Show>
 
@@ -1751,62 +1842,73 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">速力シナジー</h5>
-                    <ProgressiveGrid
-                      data={shipSynergy().speedSynergies}
-                      class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
-                    >
-                      {(row) => (
-                        <div class="rounded border border-base-300/70 p-2 space-y-1">
-                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                            <button
-                              class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                              onClick={() => props.onOpenEquip(row.equip.id)}
-                              title={row.equip.name}
+                    <div class="space-y-3">
+                      <For each={shipSynergy().speedSynergies}>
+                        {(group) => (
+                          <div>
+                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                              {group.label} <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                            </h6>
+                            <ProgressiveGrid
+                              data={group.entries}
+                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
                             >
-                              <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
-                              </span>
-                              <span class="truncate max-w-40">
-                                {row.equip.name}
-                              </span>
-                            </button>
-                            <Show when={row.partner}>
-                              <>
-                                <span>+</span>
-                                <button
-                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                  onClick={() =>
-                                    props.onOpenEquip(row.partner!.id)
-                                  }
-                                  title={row.partner?.name}
-                                >
-                                  <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                    <WeaponIcon
-                                      iconNum={row.partner?.type?.[3] ?? 0}
-                                    />
-                                  </span>
-                                  <span class="truncate max-w-40">
-                                    {row.partner?.name}
-                                  </span>
-                                </button>
-                              </>
-                            </Show>
+                              {(row) => (
+                                <div class="rounded border border-base-300/70 p-2 space-y-1">
+                                  <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                    <button
+                                      class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                      onClick={() => props.onOpenEquip(row.equip.id)}
+                                      title={row.equip.name}
+                                    >
+                                      <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                        <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                      </span>
+                                      <span class="truncate max-w-40">
+                                        {row.equip.name}
+                                      </span>
+                                    </button>
+                                    <Show when={row.partner}>
+                                      <>
+                                        <span>+</span>
+                                        <button
+                                          class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                          onClick={() =>
+                                            props.onOpenEquip(row.partner!.id)
+                                          }
+                                          title={row.partner?.name}
+                                        >
+                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                            <WeaponIcon
+                                              iconNum={row.partner?.type?.[3] ?? 0}
+                                            />
+                                          </span>
+                                          <span class="truncate max-w-40">
+                                            {row.partner?.name}
+                                          </span>
+                                        </button>
+                                      </>
+                                    </Show>
+                                  </div>
+                                  <div class="flex flex-wrap items-center gap-1">
+                                    <span
+                                      class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                        row.after - row.before > 0
+                                          ? "border-info/55 text-info"
+                                          : "border-error/45 text-error"
+                                      }`}
+                                    >
+                                      速力 {speedDisplay(row.before)} →{" "}
+                                      {speedDisplay(row.after)}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </ProgressiveGrid>
                           </div>
-                          <div class="flex flex-wrap items-center gap-1">
-                            <span
-                              class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                row.after - row.before > 0
-                                  ? "border-info/55 text-info"
-                                  : "border-error/45 text-error"
-                              }`}
-                            >
-                              速力 {speedDisplay(row.before)} →{" "}
-                              {speedDisplay(row.after)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </ProgressiveGrid>
+                        )}
+                      </For>
+                    </div>
                   </div>
                 </Show>
 
@@ -1820,62 +1922,73 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <h5 class="text-sm font-medium mb-2">射程シナジー</h5>
-                    <ProgressiveGrid
-                      data={shipSynergy().rangeSynergies}
-                      class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
-                    >
-                      {(row) => (
-                        <div class="rounded border border-base-300/70 p-2 space-y-1">
-                          <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                            <button
-                              class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                              onClick={() => props.onOpenEquip(row.equip.id)}
-                              title={row.equip.name}
+                    <div class="space-y-3">
+                      <For each={shipSynergy().rangeSynergies}>
+                        {(group) => (
+                          <div>
+                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                              {group.label} <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                            </h6>
+                            <ProgressiveGrid
+                              data={group.entries}
+                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
                             >
-                              <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
-                              </span>
-                              <span class="truncate max-w-40">
-                                {row.equip.name}
-                              </span>
-                            </button>
-                            <Show when={row.partner}>
-                              <>
-                                <span>+</span>
-                                <button
-                                  class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                  onClick={() =>
-                                    props.onOpenEquip(row.partner!.id)
-                                  }
-                                  title={row.partner?.name}
-                                >
-                                  <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                    <WeaponIcon
-                                      iconNum={row.partner?.type?.[3] ?? 0}
-                                    />
-                                  </span>
-                                  <span class="truncate max-w-40">
-                                    {row.partner?.name}
-                                  </span>
-                                </button>
-                              </>
-                            </Show>
+                              {(row) => (
+                                <div class="rounded border border-base-300/70 p-2 space-y-1">
+                                  <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                    <button
+                                      class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                      onClick={() => props.onOpenEquip(row.equip.id)}
+                                      title={row.equip.name}
+                                    >
+                                      <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                        <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                      </span>
+                                      <span class="truncate max-w-40">
+                                        {row.equip.name}
+                                      </span>
+                                    </button>
+                                    <Show when={row.partner}>
+                                      <>
+                                        <span>+</span>
+                                        <button
+                                          class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                          onClick={() =>
+                                            props.onOpenEquip(row.partner!.id)
+                                          }
+                                          title={row.partner?.name}
+                                        >
+                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                            <WeaponIcon
+                                              iconNum={row.partner?.type?.[3] ?? 0}
+                                            />
+                                          </span>
+                                          <span class="truncate max-w-40">
+                                            {row.partner?.name}
+                                          </span>
+                                        </button>
+                                      </>
+                                    </Show>
+                                  </div>
+                                  <div class="flex flex-wrap items-center gap-1">
+                                    <span
+                                      class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                        row.after - row.before > 0
+                                          ? "border-info/55 text-info"
+                                          : "border-error/45 text-error"
+                                      }`}
+                                    >
+                                      射程 {rangeDisplay(row.before)} →{" "}
+                                      {rangeDisplay(row.after)}
+                                    </span>
+                                  </div>
+                                </div>
+                              )}
+                            </ProgressiveGrid>
                           </div>
-                          <div class="flex flex-wrap items-center gap-1">
-                            <span
-                              class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                row.after - row.before > 0
-                                  ? "border-info/55 text-info"
-                                  : "border-error/45 text-error"
-                              }`}
-                            >
-                              射程 {rangeDisplay(row.before)} →{" "}
-                              {rangeDisplay(row.after)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                    </ProgressiveGrid>
+                        )}
+                      </For>
+                    </div>
                   </div>
                 </Show>
 

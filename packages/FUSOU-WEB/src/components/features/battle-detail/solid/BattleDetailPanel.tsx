@@ -745,24 +745,28 @@ export default function BattleDetailPanel(props: {
                 </div>
 
                 {/* Phase detail view */}
-                <div class={viewMode() === "phase" ? "" : "hidden"}>
-                  <BattlePhaseView
-                    battle={b()}
-                    fleets={fleets()}
-                    mstSlotItemById={mstSlotItemById()}
-                  />
-                </div>
+                <Show when={viewMode() === "phase"}>
+                  <div>
+                    <BattlePhaseView
+                      battle={b()}
+                      fleets={fleets()}
+                      mstSlotItemById={mstSlotItemById()}
+                    />
+                  </div>
+                </Show>
 
                 {/* Timeline view */}
-                <div class={viewMode() === "timeline" ? "" : "hidden"}>
-                  <BattleTimelineView
-                    battle={b()}
-                    fleets={fleets()}
-                    mstSlotItemById={mstSlotItemById()}
-                    mstShipById={mstShipById()}
-                    showPhaseSeparators={showPhaseSeparators()}
-                  />
-                </div>
+                <Show when={viewMode() === "timeline"}>
+                  <div>
+                    <BattleTimelineView
+                      battle={b()}
+                      fleets={fleets()}
+                      mstSlotItemById={mstSlotItemById()}
+                      mstShipById={mstShipById()}
+                      showPhaseSeparators={showPhaseSeparators()}
+                    />
+                  </div>
+                </Show>
               </div>
             </div>
           </>
