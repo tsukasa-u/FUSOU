@@ -128,10 +128,14 @@ interface MultiItemRule {
   combos_codec?: "u8" | "u16" | "u32";
   /** Explicit combos (fallback for items.length ≥ 256, extremely rare). */
   combos?: number[][];
+  category_pools?: number[][];
+  cancels_single?: boolean;
+  implicants?: number[][][];
 }
 
 export interface TripleRule extends MultiItemRule {
   combos?: [number, number, number][];
+  implicants?: number[][][];
 }
 export interface QuadRule extends MultiItemRule {
   combos?: [number, number, number, number][];

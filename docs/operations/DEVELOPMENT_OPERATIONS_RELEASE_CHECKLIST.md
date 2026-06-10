@@ -163,21 +163,47 @@ cd packages/equip_synergy_detector
 pnpm scan:upload -- --period-tag <YYYY-MM-DD>
 ```
 
-### 4.4.4 計算済み JSON を使う場合
+### 4.4.4 ローカル開発環境(エミュレータ)へのアップロード
 
+```bash
+cd packages/equip_synergy_detector
+pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development
+```
+
+同一データによるスキップ（409 Duplicate）を無視して強制的にアップロード日時を最新にする場合:
+
+```bash
+cd packages/equip_synergy_detector
+pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development --force
+```
+
+### 4.4.5 計算済み JSON を使う場合 (スキャン・再計算をスキップ)
+
+本番環境向け:
 ```bash
 cd packages/equip_synergy_detector
 pnpm upload:only -- --period-tag <YYYY-MM-DD>
 ```
 
-同一ハッシュで 409 が返る想定運用時のみ:
-
+本番環境向け（強制上書き）:
 ```bash
 cd packages/equip_synergy_detector
 pnpm upload:only:force -- --period-tag <YYYY-MM-DD>
 ```
 
-### 4.4.5 必須前提
+ローカル開発環境向け:
+```bash
+cd packages/equip_synergy_detector
+pnpm upload:local -- --period-tag <YYYY-MM-DD>
+```
+
+ローカル開発環境向け（強制上書き）:
+```bash
+cd packages/equip_synergy_detector
+pnpm upload:local -- --period-tag <YYYY-MM-DD> --force
+```
+
+### 4.4.6 必須前提
 
 - `npx wrangler login` 済みであること（R2 upload に必要）。
 - `packages/FUSOU-WEB/.env` と `packages/.env.keys` が解読可能な状態であること。

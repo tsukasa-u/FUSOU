@@ -263,11 +263,39 @@ export function computeEquipBonuses(
       combos_u16_b64?: string;
       combos_u32_b64?: string;
       combos?: number[][];
+      category_pools?: number[][];
+      cancels_single?: boolean;
     },
     comboSize: number,
   ) => {
     if (!rule.ships.includes(shipId)) return;
-    if (rule.item_pool) {
+    if (rule.category_pools) {
+      // Group identical pools to calculate exact combinations
+      const poolMap = new Map<string, { pool: number[]; count: number }>();
+      for (const pool of rule.category_pools) {
+        const key = pool.join(",");
+        if (!poolMap.has(key)) poolMap.set(key, { pool, count: 0 });
+        poolMap.get(key)!.count++;
+      }
+
+      let times = 1;
+      for (const { pool, count } of poolMap.values()) {
+        let overlap = 0;
+        for (let i = 0; i < pool.length; i++) {
+          if (equippedSet.has(pool[i])) overlap++;
+        }
+        if (overlap < count) {
+          times = 0;
+          break;
+        }
+        times *= choose(overlap, count);
+      }
+      if (times > 0) {
+        for (const [k, v] of Object.entries(rule.synergy)) {
+          if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
+        }
+      }
+    } else if (rule.item_pool) {
       const overlap = rule.item_pool.filter((id) => equippedSet.has(id)).length;
       if (overlap >= comboSize) {
         const times = choose(overlap, comboSize);

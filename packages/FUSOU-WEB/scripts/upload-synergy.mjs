@@ -256,6 +256,7 @@ function wranglerR2Put(r2Key, localPath, env, bucketName) {
   const spawnOptions = {
     stdio: "inherit",
     shell: process.platform === "win32",
+    cwd: join(__dirname, ".."),
   };
 
   const command = localWrangler;

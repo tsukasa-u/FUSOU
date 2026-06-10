@@ -95,3 +95,5 @@ packages/FUSOU-WEB/.seed-battle-tmp/
 /packages/FUSOU-WEB/.tmp
 /packages/fusou-storage/target_verify
 /packages/FUSOU-PROXY/proxy-https/target_verify
+
+packages/equip_synergy_detector/.wrangler/
