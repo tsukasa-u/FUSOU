@@ -790,7 +790,7 @@ function ShipCard(props: {
         }
       >
         {(d) => {
-          const imageUrl = cardUrl(d.slot.shipId!, { w: 400, f: "auto" });
+          const imageUrl = cardUrl(d.slot.shipId!);
           const [cardImageUnavailable, setCardImageUnavailable] =
             createSignal(!imageUrl);
           const [exRowHovered, setExRowHovered] = createSignal(false);

@@ -1,11 +1,10 @@
 // ── Equipment stat calculation & asset URL helpers ──
 
-import { STAT_KEYS } from "./constants";
 import {
   getAssetBaseUrl,
   getBannerMap,
   getCardMap,
-  getEquipCardMap,
+  getEquipItemOnMap,
   getEquipItemUpMap,
   getShipTypeIconFrame,
   getShipTypeSpriteSheetMeta,
@@ -201,7 +200,7 @@ export function computeEquipBonuses(
       } else if (count >= 3 && entry.c3) {
         src = { ...entry.c3 };
         if (count > 3) {
-          for (const k of STAT_KEYS) {
+          for (const k of Object.keys(entry.b)) {
             const extra = (entry.b[k] || 0) * (count - 3);
             if (extra) src[k] = (src[k] || 0) + extra;
           }
@@ -209,14 +208,14 @@ export function computeEquipBonuses(
       } else if (count >= 2 && entry.c2) {
         src = { ...entry.c2 };
         if (count > 2) {
-          for (const k of STAT_KEYS) {
+          for (const k of Object.keys(entry.b)) {
             const extra = (entry.b[k] || 0) * (count - 2);
             if (extra) src[k] = (src[k] || 0) + extra;
           }
         }
       } else {
         src = {};
-        for (const k of STAT_KEYS) {
+        for (const k of Object.keys(entry.b)) {
           const v = (entry.b[k] || 0) * count;
           if (v) src[k] = v;
         }
@@ -512,23 +511,32 @@ export function computeEquipSum(
 }
 
 export interface ImageOptions {
-  w?: number;
-  h?: number;
-  q?: number;
+  /** format=auto lets Cloudflare serve the best format for the browser */
   f?: "auto" | "webp" | "avif" | "png" | "jpeg";
 }
 
+/**
+ * Build a Cloudflare Image Resizing URL.
+ *
+ * Cloudflare URL format (per docs):
+ *   https://<ZONE>/cdn-cgi/image/<OPTIONS>/<SOURCE-IMAGE>
+ *
+ * - <ZONE> is the Cloudflare zone domain (our site origin, e.g. fusou.dev)
+ * - <OPTIONS> is comma-separated parameters (format=auto)
+ * - <SOURCE-IMAGE> is the absolute URL of the original image
+ *
+ * For local development (localhost etc.), bypass cdn-cgi and serve directly.
+ */
 function buildImageUrl(base: string, key: string, opts?: ImageOptions): string {
   // Always strip any trailing slash from base to ensure consistent joining
   const cleanBase = base.replace(/\/$/, "");
-  
-  if (!opts) return `${cleanBase}/${key}`;
-  
+  const sourceUrl = `${cleanBase}/${key}`;
+
+  if (!opts) return sourceUrl;
+
   try {
     const u = new URL(cleanBase);
-    // Cloudflare Image Resizing is strictly an Edge feature.
-    // If the base URL is local (e.g. local wrangler proxy), bypass resizing
-    // and serve the original image directly.
+    // Localhost / local IP bypass
     if (
       u.hostname === "localhost" ||
       u.hostname === "127.0.0.1" ||
@@ -536,18 +544,18 @@ function buildImageUrl(base: string, key: string, opts?: ImageOptions): string {
       u.hostname.startsWith("10.") ||
       u.hostname.endsWith(".local")
     ) {
-      return `${cleanBase}/${key}`;
+      return sourceUrl;
     }
   } catch {
-    // If base is not a valid URL, fallback to direct concatenation
+    return sourceUrl;
   }
 
   const params: string[] = [];
-  if (opts.w) params.push(`width=${opts.w}`);
-  if (opts.h) params.push(`height=${opts.h}`);
-  if (opts.q) params.push(`quality=${opts.q}`);
   if (opts.f) params.push(`format=${opts.f}`);
-  if (params.length === 0) return `${cleanBase}/${key}`;
+  if (params.length === 0) return sourceUrl;
+
+  // Build: https://assets.fusou.dev/cdn-cgi/image/<OPTIONS>/<KEY>
+  // This uses a relative path from the asset domain which is much safer and avoids cross-origin resizing blocks.
   return `${cleanBase}/cdn-cgi/image/${params.join(",")}/${key}`;
 }
 
@@ -557,17 +565,15 @@ export function bannerUrl(shipId: number, options?: ImageOptions): string {
   if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
   if (!assetBaseUrl) {
     const fallback = `/api/asset-sync/ship-banner/${shipId}`;
-    if (!options) return fallback;
-    // For local fallback via image-proxy, resizing isn't supported, so just return the original
     return fallback;
   }
   return "";
 }
 
-export function cardUrl(shipId: number, options?: ImageOptions): string {
+export function cardUrl(shipId: number): string {
   const assetBaseUrl = getAssetBaseUrl();
   const key = getCardMap()[String(shipId)];
-  if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
+  if (assetBaseUrl && key) return `${assetBaseUrl}/${key}`;
   return "";
 }
 
@@ -646,10 +652,17 @@ export function createShipTypeIconEl(
   return el;
 }
 
+/**
+ * Get equipment image URL. Prioritizes item_on path, falls back to item_up.
+ * Uses item_on (the "equipped" display image) by default per user requirement.
+ * Only falls back to item_up if item_on is not available.
+ */
 export function equipImageUrl(equipId: number, options?: ImageOptions): string {
   const id = String(equipId);
   const assetBaseUrl = getAssetBaseUrl();
-  const key = getEquipItemUpMap()[id] || getEquipCardMap()[id];
+  // Prioritize item_on, fallback to item_up
+  const key = getEquipItemOnMap()[id] || getEquipItemUpMap()[id];
   if (assetBaseUrl && key) return buildImageUrl(assetBaseUrl, key, options);
   return "";
 }
+

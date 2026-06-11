@@ -230,7 +230,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                               {result?.drop_ship_id ? (
                                 <div class="flex items-center gap-1 min-w-[100px]">
                                   <img
-                                    src={bannerUrl(result.drop_ship_id, { w: 192, f: "auto" })}
+                                    src={bannerUrl(result.drop_ship_id, { f: "auto" })}
                                     alt={masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
                                     class="h-5 w-20 object-cover rounded-sm"
                                     loading="lazy"

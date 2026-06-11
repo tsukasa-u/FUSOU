@@ -182,7 +182,7 @@ export function buildEnemyFleetResolver(
         ships.push({
           mstShipId: mstId,
           name: shipName,
-          bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
+          bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
           karyoku: shipData.karyoku ?? null,
           raisou: shipData.raisou ?? null,
           taiku: shipData.taiku ?? null,

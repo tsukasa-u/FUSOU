@@ -710,7 +710,7 @@ export async function resolveFriendlyFleet(
       raisou: ship.raisou ?? null,
       taiku: ship.taiku ?? null,
       soukou: ship.soukou ?? null,
-      bannerUrl: shipId ? bannerUrl(shipId, { w: 192, f: "auto" }) : "",
+      bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
       equipments: equips,
     } satisfies ShipInfo;
   });
@@ -805,7 +805,7 @@ export async function resolveEnemyFleet(
           raisou: ship.raisou ?? null,
           taiku: ship.taiku ?? null,
           soukou: ship.soukou ?? null,
-          bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
+          bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
           equipments: [],
         } satisfies ShipInfo;
       });
@@ -899,7 +899,7 @@ export async function resolveEnemyFleet(
       raisou: ship.raisou ?? null,
       taiku: ship.taiku ?? null,
       soukou: ship.soukou ?? null,
-      bannerUrl: mstId ? bannerUrl(mstId, { w: 192, f: "auto" }) : "",
+      bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
       equipments: equips,
     });
   }

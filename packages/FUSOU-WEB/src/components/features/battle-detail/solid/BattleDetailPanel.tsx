@@ -484,7 +484,7 @@ export default function BattleDetailPanel(props: {
             ? {
                 shipId: dropShipId,
                 name: String(dropShip?.name ?? `艦#${dropShipId}`),
-                bannerUrl: bannerUrl(dropShipId, { w: 192, f: "auto" }),
+                bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
               }
             : null,
         );

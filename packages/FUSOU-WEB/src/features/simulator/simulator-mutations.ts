@@ -438,6 +438,11 @@ export function setEquipCardMap(equipCardMap: Record<string, string>): void {
   markSimulatorStateDirty();
 }
 
+export function setEquipItemOnMap(equipItemOnMap: Record<string, string>): void {
+  state.equipItemOnMap = equipItemOnMap;
+  markSimulatorStateDirty();
+}
+
 export function setEquipItemUpMap(equipItemUpMap: Record<string, string>): void {
   state.equipItemUpMap = equipItemUpMap;
   markSimulatorStateDirty();

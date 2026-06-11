@@ -34,9 +34,9 @@ function sanitizeFileName(name: string): string {
 }
 
 export function getOriginalImageUrl(url: string): string {
-  // Strip Cloudflare Image Resizing parameters
-  // e.g. https://domain/cdn-cgi/image/width=400,format=auto/path/to/img.png -> https://domain/path/to/img.png
-  return url.replace(/\/cdn-cgi\/image\/[^/]+\//, "/");
+  // With format=auto only (no resize), the cdn-cgi URL serves the same image
+  // in an optimized format. No need to strip and re-fetch the original.
+  return url;
 }
 
 interface CaptureStats {

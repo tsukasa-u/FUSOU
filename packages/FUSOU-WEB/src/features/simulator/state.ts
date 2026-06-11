@@ -195,6 +195,7 @@ export const state = {
   shipIconMap: {} as Record<string, string>,
   assetBaseUrl: "",
   equipCardMap: {} as Record<string, string>,
+  equipItemOnMap: {} as Record<string, string>,
   equipItemUpMap: {} as Record<string, string>,
 
   // Combined fleet type: 0=通常, 1=機動部隊, 2=水上打撃部隊, 3=輸送護衛部隊

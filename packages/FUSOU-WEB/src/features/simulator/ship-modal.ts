@@ -64,6 +64,7 @@ type NormalizedShipGrowthCaps = {
 };
 
 type ShipGrowthBoundRow = {
+  master_id: number;
   lv: number;
   kaihi_naked: number;
   taisen_naked: number;
@@ -118,17 +119,20 @@ function deriveShipGrowthCapsFromBounds(
 ): NormalizedShipGrowthCaps | null {
   if (!Array.isArray(bounds) || bounds.length === 0) return null;
 
+  const shipBounds = bounds.filter((row) => row.master_id === masterId);
+  if (shipBounds.length === 0) return null;
+
   const kaihiMax = Math.max(
     0,
-    ...bounds.map((row) => Number(row.kaihi_naked || 0)),
+    ...shipBounds.map((row) => Number(row.kaihi_naked || 0)),
   );
   const taisenMax = Math.max(
     0,
-    ...bounds.map((row) => Number(row.taisen_naked || 0)),
+    ...shipBounds.map((row) => Number(row.taisen_naked || 0)),
   );
   const sakutekiMax = Math.max(
     0,
-    ...bounds.map((row) => Number(row.sakuteki_naked || 0)),
+    ...shipBounds.map((row) => Number(row.sakuteki_naked || 0)),
   );
   return {
     master_id: masterId,
@@ -614,7 +618,7 @@ function createShipItem(ship: MstShipData): HTMLElement {
   imgWrap.className =
     "w-[72px] h-[28px] bg-base-200 rounded overflow-hidden shrink-0";
   const img = document.createElement("img");
-  img.src = bannerUrl(ship.id, { w: 192, f: "auto" });
+  img.src = bannerUrl(ship.id, { f: "auto" });
   img.alt = ship.name;
   img.className = "w-full h-full object-cover";
   img.loading = "lazy";
@@ -717,7 +721,7 @@ async function renderShipDetail(ship: MstShipData) {
   bannerWrap.className =
     "w-full h-14 bg-base-200 rounded-lg overflow-hidden mb-3";
   const bannerImg = document.createElement("img");
-  bannerImg.src = bannerUrl(ship.id, { w: 192, f: "auto" });
+  bannerImg.src = bannerUrl(ship.id, { f: "auto" });
   bannerImg.className = "w-full h-full object-cover";
   bannerImg.onerror = function () {
     const parent = (this as HTMLImageElement).parentElement;

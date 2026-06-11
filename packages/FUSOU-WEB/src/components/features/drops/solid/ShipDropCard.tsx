@@ -38,7 +38,7 @@ export function ShipDropCard(props: ShipDropCardProps) {
       <div class="flex flex-col items-center w-32 shrink-0 p-2 border-r border-base-200 bg-base-200/20">
         <div class="w-full rounded shadow-sm overflow-hidden mb-2 flex items-center justify-center bg-base-200/50" style="aspect-ratio: 4/1;">
           <ShipBanner
-            src={bannerUrl(props.shipId, { w: 192, f: "auto" })}
+            src={bannerUrl(props.shipId, { f: "auto" })}
             alt={props.shipName}
             class="w-full h-full object-cover"
           />

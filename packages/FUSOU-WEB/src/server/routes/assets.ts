@@ -565,7 +565,7 @@ app.get("/ship-icon-map", async (c) => {
 /**
  * GET /equip-image-map - Bulk mapping of equipment IDs to R2 keys
  *
- * Returns { base_url, card: { [equipId]: r2Key }, item_up: { [equipId]: r2Key } }
+ * Returns { base_url, card: { [equipId]: r2Key }, item_on: { [equipId]: r2Key }, item_up: { [equipId]: r2Key } }
  * so the client can build CDN URLs for equipment images.
  */
 app.get("/equip-image-map", async (c) => {
@@ -579,21 +579,22 @@ app.get("/equip-image-map", async (c) => {
 
   try {
     const card: Record<string, string> = {};
+    const itemOn: Record<string, string> = {};
     const itemUp: Record<string, string> = {};
 
     const rows = await db
       .prepare(
-        "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/slot/card/%' OR key LIKE 'assets/kcs2/resources/slot/item_up/%'",
+        "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/slot/card/%' OR key LIKE 'assets/kcs2/resources/slot/item_on/%' OR key LIKE 'assets/kcs2/resources/slot/item_up/%'",
       )
       .all();
 
     if (rows.results) {
       for (const row of rows.results as { key: string }[]) {
-        const match = row.key.match(/\/slot\/(card|item_up)\/(\d{4})_/);
+        const match = row.key.match(/\/slot\/(card|item_on|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
         const equipId = String(parseInt(padded, 10));
-        const target = type === "card" ? card : itemUp;
+        const target = type === "card" ? card : type === "item_on" ? itemOn : itemUp;
         if (!target[equipId]) target[equipId] = row.key;
       }
     }
@@ -602,7 +603,7 @@ app.get("/equip-image-map", async (c) => {
       ? "no-store"
       : "public, max-age=2592000, stale-while-revalidate=2592000";
 
-    return c.json({ base_url: assetBaseUrl, card, item_up: itemUp }, 200, {
+    return c.json({ base_url: assetBaseUrl, card, item_on: itemOn, item_up: itemUp }, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -612,7 +613,7 @@ app.get("/equip-image-map", async (c) => {
       err instanceof Error &&
       /no such table:\s*files/i.test(err.message)
     ) {
-      return c.json({ base_url: assetBaseUrl, card: {}, item_up: {} }, 200, {
+      return c.json({ base_url: assetBaseUrl, card: {}, item_on: {}, item_up: {} }, 200, {
         "Cache-Control": "no-store",
         ...CORS_HEADERS,
       });

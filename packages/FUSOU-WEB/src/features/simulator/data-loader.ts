@@ -8,6 +8,7 @@ import {
   setBannerMap,
   setCardMap,
   setEquipCardMap,
+  setEquipItemOnMap,
   setEquipItemUpMap,
   setHasMasterData,
   setMasterEquipExslotShip,
@@ -747,6 +748,7 @@ export async function loadMasterData(renderAll: () => void) {
       fetchJsonSafe<{
         base_url: string;
         card: Record<string, string>;
+        item_on: Record<string, string>;
         item_up: Record<string, string>;
       }>("/api/asset-sync/equip-image-map", "equip-image-map"),
       fetchJsonSafe<{
@@ -852,6 +854,7 @@ export async function loadMasterData(renderAll: () => void) {
     if (equipImageData?.base_url && !getAssetBaseUrl())
       setAssetBaseUrl(equipImageData.base_url);
     if (equipImageData?.card) setEquipCardMap(equipImageData.card);
+    if (equipImageData?.item_on) setEquipItemOnMap(equipImageData.item_on);
     if (equipImageData?.item_up) setEquipItemUpMap(equipImageData.item_up);
 
     if (iconFrameData?.frames) {

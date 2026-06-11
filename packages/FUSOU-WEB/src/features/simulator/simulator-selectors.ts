@@ -264,6 +264,10 @@ export function getEquipCardMap(): typeof state.equipCardMap {
   return state.equipCardMap;
 }
 
+export function getEquipItemOnMap(): typeof state.equipItemOnMap {
+  return state.equipItemOnMap;
+}
+
 export function getEquipItemUpMap(): typeof state.equipItemUpMap {
   return state.equipItemUpMap;
 }

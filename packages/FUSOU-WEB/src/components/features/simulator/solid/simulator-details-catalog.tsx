@@ -1649,7 +1649,7 @@ function ShipDetailPanel(props: {
         <div class="grid grid-cols-1 xl:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] gap-4 items-stretch">
           <div class="rounded-xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-80 h-full flex flex-col items-center justify-center overflow-hidden xl:max-w-sm">
             <ImageFallbackBox
-              src={cardUrl(props.ship.id, { w: 400, f: "auto" })}
+              src={cardUrl(props.ship.id)}
               alt={props.ship.name}
               class="w-full h-72 rounded-md"
               objectClass="w-full h-full object-contain object-center"
@@ -2615,7 +2615,7 @@ function EquipDetailPanel(props: {
         <div class="grid grid-cols-1 xl:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] gap-4 items-stretch">
           <div class="relative rounded-xl border border-base-300/70 bg-linear-to-b from-base-200 to-base-100 p-3 min-h-64 h-full xl:max-w-sm flex items-end justify-center overflow-hidden">
             <ImageFallbackBox
-              src={equipImageUrl(props.equip.id, { w: 128, f: "auto" })}
+              src={equipImageUrl(props.equip.id, { f: "auto" })}
               alt={props.equip.name}
               class="w-full h-56"
               objectClass="w-full h-full object-contain object-center"
@@ -2671,7 +2671,7 @@ function EquipDetailPanel(props: {
                               title={row.ship.name}
                             >
                               <ImageFallbackBox
-                                src={bannerUrl(row.ship.id, { w: 192, f: "auto" })}
+                                src={bannerUrl(row.ship.id, { f: "auto" })}
                                 alt={row.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
@@ -2813,7 +2813,7 @@ function EquipDetailPanel(props: {
                               title={entry.ship.name}
                             >
                               <ImageFallbackBox
-                                src={bannerUrl(entry.ship.id, { w: 192, f: "auto" })}
+                                src={bannerUrl(entry.ship.id, { f: "auto" })}
                                 alt={entry.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
@@ -2949,7 +2949,7 @@ function EquipDetailPanel(props: {
                               title={entry.ship.name}
                             >
                               <ImageFallbackBox
-                                src={bannerUrl(entry.ship.id, { w: 192, f: "auto" })}
+                                src={bannerUrl(entry.ship.id, { f: "auto" })}
                                 alt={entry.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
@@ -3144,7 +3144,7 @@ function EquipDetailPanel(props: {
                               title={row.ship.name}
                             >
                               <ImageFallbackBox
-                                src={bannerUrl(row.ship.id, { w: 192, f: "auto" })}
+                                src={bannerUrl(row.ship.id, { f: "auto" })}
                                 alt={row.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
