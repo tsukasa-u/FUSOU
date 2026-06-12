@@ -471,13 +471,12 @@ app.post("/ingest", async (c) => {
     const cacheKV = c.env.DATA_LOADER_CACHE_KV;
     if (cacheKV) {
       const cacheKey = `soku-speed-upgrade:v1:${period_tag}:${table_version}`;
-      c.executionCtx.waitUntil(
-        (async () => {
-          try {
-            await cacheKV.delete(cacheKey);
-            const result = await db
-              .prepare(
-                `SELECT master_id, soku_observed, slots_json, exslot_json FROM soku_speed_observations WHERE period_tag = ? AND table_version = ?`
+      const prewarmTask = (async () => {
+        try {
+          await cacheKV.delete(cacheKey);
+          const result = await db
+            .prepare(
+              `SELECT master_id, soku_observed, slots_json, exslot_json FROM soku_speed_observations WHERE period_tag = ? AND table_version = ?`
               )
               .bind(period_tag, table_version)
               .all();
@@ -539,14 +538,23 @@ app.post("/ingest", async (c) => {
             for (const [masterId, comboMap] of byMaster) {
               data[masterId] = Array.from(comboMap.values());
             }
-            await cacheKV.put(cacheKey, JSON.stringify(data), {
-              expirationTtl: 86400 * 30,
+            const responseString = JSON.stringify({
+              ok: true,
+              period_tag: period_tag,
+              table_version: table_version,
+              data,
             });
+            await cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 });
           } catch (e) {
-            console.error("[soku-speed] Failed to pre-warm KV cache:", e);
+            console.error("[soku-speed] pre-warm error:", e);
           }
-        })()
-      );
+      })();
+
+      if (c.executionCtx?.waitUntil) {
+        c.executionCtx.waitUntil(prewarmTask);
+      } else {
+        void prewarmTask.catch((err) => console.warn("[soku-speed] Background task failed:", err));
+      }
     }
   } catch (error) {
     return c.json(
@@ -620,18 +628,15 @@ app.get("/speed-upgrade", async (c) => {
 
   if (cacheKV) {
     try {
-      const cachedData = await cacheKV.get<Record<number, AggEntry[]>>(cacheKey, "json");
-      if (cachedData) {
-        const response = c.json({
-          ok: true,
-          period_tag: periodTag,
-          table_version: tableVersion,
-          data: cachedData,
+      const cachedString = await cacheKV.get(cacheKey, "text");
+      if (cachedString) {
+        const response = new Response(cachedString, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            "X-FUSOU-Cache": "HIT",
+          }
         });
-        response.headers.set(
-          "Cache-Control",
-          "public, max-age=3600, stale-while-revalidate=86400",
-        );
         return response;
       }
     } catch (e) {
@@ -728,27 +733,31 @@ app.get("/speed-upgrade", async (c) => {
     data[masterId] = Array.from(comboMap.values());
   }
 
-  if (cacheKV) {
-    // Cache the aggregated data (e.g. for 30 days)
-    // The data is bound to period_tag & table_version, so it won't easily become stale
-    // unless explicitly updated by an ingest event.
-    c.executionCtx.waitUntil(
-      cacheKV.put(cacheKey, JSON.stringify(data), { expirationTtl: 86400 * 30 }).catch((e) => {
-        console.error("[soku-speed] KV cache write error:", e);
-      })
-    );
-  }
-
-  const response = c.json({
+  const responseString = JSON.stringify({
     ok: true,
     period_tag: periodTag,
     table_version: tableVersion,
     data,
   });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
+
+  if (cacheKV) {
+    const writeTask = cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 }).catch((e) => {
+      console.error("[soku-speed] KV cache write error:", e);
+    });
+    if (c.executionCtx?.waitUntil) {
+      c.executionCtx.waitUntil(writeTask);
+    } else {
+      void writeTask.catch((err) => console.warn("[soku-speed] Background task failed:", err));
+    }
+  }
+
+  const response = new Response(responseString, {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+      "X-FUSOU-Cache": "MISS",
+    }
+  });
   return response;
 });
 export default app;
