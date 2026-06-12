@@ -7,6 +7,7 @@ import {
   validateJWT,
   extractBearer,
   timingSafeEqual,
+  safeWaitUntil,
 } from "../utils";
 import { validateCachedPeriodTag, listAllowedPeriodTags } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
@@ -843,6 +844,29 @@ app.post("/upload", async (c) => {
             },
           );
         }
+        // Cache Warming (Write-Through)
+        const kv = env.runtime.DATA_LOADER_CACHE_KV;
+        if (kv) {
+          safeWaitUntil(c, (async () => {
+            console.info(`[master-data] Starting cache warming for ${tableOffsets.length} tables`);
+            for (let i = 0; i < tableOffsets.length; i++) {
+              const offset = tableOffsets[i];
+              const tableData = data.slice(offset.start, offset.end);
+              try {
+                const bytes =
+                  tableData.buffer instanceof ArrayBuffer && tableData.byteOffset === 0
+                    ? tableData
+                    : new Uint8Array(tableData);
+                const decodedRecords = decodeAvroOcfToJson(bytes as Uint8Array) as Array<Record<string, unknown>>;
+                const cacheKey = `master-data:json:${offset.table_name}:${tableVersion}:${periodTag}:${periodRevision}`;
+                await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
+                console.info(`[master-data] Warmed cache for ${cacheKey}`);
+              } catch (e) {
+                console.warn(`[master-data] Failed to warm cache for ${offset.table_name}:`, e);
+              }
+            }
+          })());
+        }
 
         return {
           response: {
@@ -900,6 +924,7 @@ app.get("/json", async (c) => {
   const env = createEnvContext(c);
   const db = env.runtime.MASTER_DATA_INDEX_DB;
   const bucket = env.runtime.MASTER_DATA_BUCKET;
+  const kv = env.runtime.DATA_LOADER_CACHE_KV;
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1026,6 +1051,51 @@ app.get("/json", async (c) => {
       r2_key: r2Key,
     } = record;
 
+    const cacheKey = `master-data:json:${tableName}:${table_version}:${period_tag}:${period_revision}`;
+    const cacheControl = requestedVersion
+      ? "public, max-age=86400, stale-while-revalidate=604800"
+      : "public, max-age=60, stale-while-revalidate=300";
+
+    // Attempt to read from KV first
+    if (kv) {
+      try {
+        const cachedStr = await kv.get(cacheKey);
+        if (cachedStr) {
+          const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
+          const records =
+            requestedRecordId == null
+              ? decodedRecords
+              : decodedRecords.filter((row) => {
+                  const rowId =
+                    typeof row.id === "number"
+                      ? row.id
+                      : typeof row.api_id === "number"
+                        ? row.api_id
+                        : null;
+                  return rowId === requestedRecordId;
+                });
+          
+          return c.json(
+            {
+              table_name: tableName,
+              table_version,
+              period_tag,
+              period_revision,
+              count: records.length,
+              records,
+            },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
+      } catch (kvErr) {
+        console.warn(`[master-data] KV read failed for ${cacheKey}:`, kvErr);
+      }
+    }
+
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);
     if (!r2Object) {
@@ -1074,12 +1144,13 @@ app.get("/json", async (c) => {
             return rowId === requestedRecordId;
           });
 
-    // When an explicit version is requested the data is immutable — cache aggressively.
-    // When serving the latest version the key changes after each upload, so use a short
-    // TTL to avoid CDN/clients staying on stale "latest" data.
-    const cacheControl = requestedVersion
-      ? "public, max-age=86400, stale-while-revalidate=604800"
-      : "public, max-age=60, stale-while-revalidate=300";
+    if (kv) {
+      try {
+        await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
+      } catch (kvErr) {
+        console.warn(`[master-data] KV write failed for ${cacheKey}:`, kvErr);
+      }
+    }
 
     return c.json(
       {

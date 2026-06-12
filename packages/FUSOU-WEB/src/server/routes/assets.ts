@@ -142,6 +142,12 @@ app.post("/upload", async (c) => {
         );
       }
 
+      const cachesToClear: string[] = [];
+      if (key.includes("/ship/banner/")) cachesToClear.push("cache:ship-banner-map");
+      if (key.includes("/ship/card/")) cachesToClear.push("cache:ship-card-map");
+      if (key.includes("/ship/reward_icon/")) cachesToClear.push("cache:ship-icon-map");
+      if (key.includes("/slot/card/") || key.includes("/slot/item_on/") || key.includes("/slot/item_up/")) cachesToClear.push("cache:equip-image-map");
+
       return {
         tokenPayload: {
           key,
@@ -149,6 +155,7 @@ app.post("/upload", async (c) => {
           declared_size: declaredSize,
           file_name: fileName,
           content_hash: contentHash,
+          caches_to_clear: JSON.stringify(cachesToClear),
         },
         fields: {
           key,
@@ -228,6 +235,19 @@ app.post("/upload", async (c) => {
         .run();
 
       await bumpAssetIndexRevision(db, uploadedAt);
+
+      const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+      if (kv && typeof tokenPayload.caches_to_clear === "string") {
+        try {
+          const cachesToClear = JSON.parse(tokenPayload.caches_to_clear) as string[];
+          for (const cacheKey of cachesToClear) {
+            await kv.delete(cacheKey);
+            console.info(`[asset-sync] Cleared KV cache: ${cacheKey}`);
+          }
+        } catch (kvErr) {
+          console.warn("[asset-sync] Failed to clear KV caches:", kvErr);
+        }
+      }
 
       return {
         response: { key, size: storedSize },
@@ -363,7 +383,28 @@ app.get("/ship-banner-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-banner-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -411,11 +452,17 @@ app.get("/ship-banner-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=2592000, stale-while-revalidate=2592000";
+    const resultObj = { base_url: assetBaseUrl, banners };
 
-    return c.json({ base_url: assetBaseUrl, banners }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-banner-map", JSON.stringify({ banners }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -435,7 +482,28 @@ app.get("/ship-card-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-card-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -480,11 +548,17 @@ app.get("/ship-card-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=2592000, stale-while-revalidate=2592000";
+    const resultObj = { base_url: assetBaseUrl, cards };
 
-    return c.json({ base_url: assetBaseUrl, cards }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-card-map", JSON.stringify({ cards }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -504,7 +578,28 @@ app.get("/ship-icon-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-icon-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -548,11 +643,17 @@ app.get("/ship-icon-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=2592000, stale-while-revalidate=2592000";
+    const resultObj = { base_url: assetBaseUrl, icons };
 
-    return c.json({ base_url: assetBaseUrl, icons }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-icon-map", JSON.stringify({ icons }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -571,7 +672,28 @@ app.get("/ship-icon-map", async (c) => {
 app.get("/equip-image-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:equip-image-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -599,11 +721,17 @@ app.get("/equip-image-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "no-store"
-      : "public, max-age=2592000, stale-while-revalidate=2592000";
+    const resultObj = { base_url: assetBaseUrl, card, item_on: itemOn, item_up: itemUp };
 
-    return c.json({ base_url: assetBaseUrl, card, item_on: itemOn, item_up: itemUp }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:equip-image-map", JSON.stringify({ card, item_on: itemOn, item_up: itemUp }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
