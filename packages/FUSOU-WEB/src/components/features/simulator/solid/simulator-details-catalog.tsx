@@ -73,11 +73,14 @@ function ProgressiveGrid<T>(props: {
   });
 
   onMount(() => {
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setLimit((l) => l + 40);
-      }
-    }, { rootMargin: "200px" });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setLimit((l) => l + 40);
+        }
+      },
+      { rootMargin: "200px" },
+    );
     if (observerTarget) observer.observe(observerTarget);
     onCleanup(() => observer.disconnect());
   });
@@ -85,9 +88,7 @@ function ProgressiveGrid<T>(props: {
   return (
     <>
       <div class={props.class}>
-        <For each={props.data.slice(0, limit())}>
-          {props.children}
-        </For>
+        <For each={props.data.slice(0, limit())}>{props.children}</For>
       </div>
       <Show when={limit() < props.data.length}>
         <div ref={observerTarget} class="h-1" />
@@ -242,7 +243,10 @@ function statValueOrDash(value: number | null | undefined): string | number {
   return value == null || value === 0 ? "-" : value;
 }
 
-const _normalizeEffectsCache = new WeakMap<SlotItemEffectsData, Record<string, EquipEffect[]>>();
+const _normalizeEffectsCache = new WeakMap<
+  SlotItemEffectsData,
+  Record<string, EquipEffect[]>
+>();
 
 /**
  * Normalize SlotItemEffectsData to a legacy-style effects dict keyed by itemId string.
@@ -274,12 +278,15 @@ function normalizeEffects(
   } else {
     out = data.effects ?? {};
   }
-  
+
   _normalizeEffectsCache.set(data, out);
   return out;
 }
 
-const _normalizeCrossEffectsCache = new WeakMap<SlotItemEffectsData, Record<string, CrossEffect[]>>();
+const _normalizeCrossEffectsCache = new WeakMap<
+  SlotItemEffectsData,
+  Record<string, CrossEffect[]>
+>();
 
 /**
  * Normalize SlotItemEffectsData to a legacy-style cross_effects dict keyed by "a:b".
@@ -357,7 +364,9 @@ function getCrossEntriesForEquip(
   }
   return Object.values(normalizeCrossEffects(effects))
     .flat()
-    .filter((entry) => entry.items[0] === equipId || entry.items[1] === equipId);
+    .filter(
+      (entry) => entry.items[0] === equipId || entry.items[1] === equipId,
+    );
 }
 
 // ── Multi-item rule helpers ──────────────────────────────────────────
@@ -610,7 +619,11 @@ type MultiGroupedComboEntry = {
   netStats: Record<string, number>;
   ships?: number[];
 };
-type MultiEntry = MultiComboEntry | MultiPoolEntry | MultiCategoryEntry | MultiGroupedComboEntry;
+type MultiEntry =
+  | MultiComboEntry
+  | MultiPoolEntry
+  | MultiCategoryEntry
+  | MultiGroupedComboEntry;
 type MultiGroup = { statKey: string; label: string; entries: MultiEntry[] };
 
 const MOBILITY_SYNERGY_KEYS = new Set(["soku", "leng"]);
@@ -750,7 +763,10 @@ function primaryStatKey(stats: Record<string, number>): string {
 function groupByMultiStat(entries: MultiEntry[]): MultiGroup[] {
   const map = new Map<string, MultiEntry[]>();
   for (const entry of entries) {
-    const stats = (entry.kind === "combo" || entry.kind === "grouped_combo") ? entry.netStats : entry.correction;
+    const stats =
+      entry.kind === "combo" || entry.kind === "grouped_combo"
+        ? entry.netStats
+        : entry.correction;
     const key = primaryStatKey(stats);
     const list = map.get(key);
     if (list) list.push(entry);
@@ -762,8 +778,16 @@ function groupByMultiStat(entries: MultiEntry[]): MultiGroup[] {
     const list = map.get(k);
     if (!list) continue;
     list.sort((a, b) => {
-      const sa = scoreSynergy((a.kind === "combo" || a.kind === "grouped_combo") ? a.netStats : a.correction);
-      const sb = scoreSynergy((b.kind === "combo" || b.kind === "grouped_combo") ? b.netStats : b.correction);
+      const sa = scoreSynergy(
+        a.kind === "combo" || a.kind === "grouped_combo"
+          ? a.netStats
+          : a.correction,
+      );
+      const sb = scoreSynergy(
+        b.kind === "combo" || b.kind === "grouped_combo"
+          ? b.netStats
+          : b.correction,
+      );
       return sb - sa;
     });
     result.push({
@@ -788,7 +812,7 @@ type SynergyGroup<T> = { statKey: string; label: string; entries: T[] };
 function groupByGenericStat<T>(
   entries: T[],
   getStats: (entry: T) => Record<string, number>,
-  getScore: (entry: T) => number
+  getScore: (entry: T) => number,
 ): SynergyGroup<T>[] {
   const map = new Map<string, T[]>();
   for (const entry of entries) {
@@ -824,7 +848,7 @@ function groupByGenericStat<T>(
 function groupByEquipType<T>(
   entries: T[],
   getEquip: (entry: T) => MstSlotItemData,
-  getScore: (entry: T) => number
+  getScore: (entry: T) => number,
 ): SynergyGroup<T>[] {
   const map = new Map<string, T[]>();
   for (const entry of entries) {
@@ -1142,7 +1166,7 @@ function ShipDetailPanel(props: {
     return (
       (needsStatFallback(props.ship.tais) && cap.taisen_max > 0) ||
       (needsStatFallback(props.ship.kaih) && cap.kaihi_max > 0) ||
-        (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
+      (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
     );
   });
 
@@ -1214,7 +1238,7 @@ function ShipDetailPanel(props: {
         )
           continue;
         if (scoreSynergy(entry.synergy) === 0) continue;
-        
+
         // Always place the item with lower sortno on the left so that
         // grouping by row.a correctly clusters same-type items.
         if (a.sortno > b.sortno || (a.sortno === b.sortno && a.id > b.id)) {
@@ -1222,13 +1246,13 @@ function ShipDetailPanel(props: {
           a = b;
           b = tmp;
         }
-        
+
         // Prevent duplicate entries with the exact same items and stats
         // which would cause pairGroups to split identical items into multiple groups.
         const dedupeKey = `${a.id}:${b.id}:${JSON.stringify(entry.synergy)}`;
         if (pairDedupe.has(dedupeKey)) continue;
         pairDedupe.add(dedupeKey);
-        
+
         pair.push({ a, b, stats: entry.synergy });
       }
     }
@@ -1489,13 +1513,22 @@ function ShipDetailPanel(props: {
       for (const rule of rules) {
         if (!appliesToShip(rule.ships)) continue;
         if (rule.category_pools) {
-          const pools = rule.category_pools.map(p =>
-            p.map((id) => getMasterSlotItem(id))
-             .filter((it): it is MstSlotItemData => it != null && it.id < ENEMY_ID_THRESHOLD)
+          const pools = rule.category_pools.map((p) =>
+            p
+              .map((id) => getMasterSlotItem(id))
+              .filter(
+                (it): it is MstSlotItemData =>
+                  it != null && it.id < ENEMY_ID_THRESHOLD,
+              ),
           );
-          if (pools.some(p => p.length === 0)) continue;
+          if (pools.some((p) => p.length === 0)) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
-          all.push({ kind: "category", pools, cancels_single: !!rule.cancels_single, correction: rule.synergy });
+          all.push({
+            kind: "category",
+            pools,
+            cancels_single: !!rule.cancels_single,
+            correction: rule.synergy,
+          });
         } else if (rule.item_pool) {
           // Pool rule: "any comboSize of these pool items" → show pool + correction
           const pool = rule.item_pool
@@ -1541,16 +1574,21 @@ function ShipDetailPanel(props: {
         } else {
           // Explicit combos: decode up to 500 to prevent main-thread locking
           const combos = decodeCombosForDisplay(rule, comboSize, 500);
-          
+
           for (const comboIds of combos) {
             const items = comboIds.map((id) => getMasterSlotItem(id));
-            if (items.some((it) => !it || it.id >= ENEMY_ID_THRESHOLD)) continue;
+            if (items.some((it) => !it || it.id >= ENEMY_ID_THRESHOLD))
+              continue;
             const base = comboBaseBonus(props.ship.id, comboIds, _em, _cm);
             for (const [k, v] of Object.entries(rule.synergy)) {
               if (v) base[k] = (base[k] || 0) + v;
             }
             if (scoreSynergy(base) > 0) {
-              all.push({ kind: "combo", combo: items as MstSlotItemData[], netStats: base });
+              all.push({
+                kind: "combo",
+                combo: items as MstSlotItemData[],
+                netStats: base,
+              });
             }
           }
         }
@@ -1562,7 +1600,14 @@ function ShipDetailPanel(props: {
     const quad = groupByMultiStat(buildMultiEntries(effects.quad_rules, 4));
     const penta = groupByMultiStat(buildMultiEntries(effects.penta_rules, 5));
 
-    const initialGroupMap = new Map<string, { a: MstSlotItemData; bGroup: MstSlotItemData[]; stats: Record<string, number> }>();
+    const initialGroupMap = new Map<
+      string,
+      {
+        a: MstSlotItemData;
+        bGroup: MstSlotItemData[];
+        stats: Record<string, number>;
+      }
+    >();
     for (const row of pair) {
       const statHash = synergySignature(row.stats);
       const key = `${row.a.id}::${statHash}`;
@@ -1580,9 +1625,16 @@ function ShipDetailPanel(props: {
     }
 
     // Pass 2: Group left-hand side (A items) if their B groups and stats match perfectly
-    const finalGroupMap = new Map<string, { aGroup: MstSlotItemData[]; bGroup: MstSlotItemData[]; stats: Record<string, number> }>();
+    const finalGroupMap = new Map<
+      string,
+      {
+        aGroup: MstSlotItemData[];
+        bGroup: MstSlotItemData[];
+        stats: Record<string, number>;
+      }
+    >();
     for (const row of initialGroups) {
-      const bHash = row.bGroup.map(b => b.id).join(',');
+      const bHash = row.bGroup.map((b) => b.id).join(",");
       const statHash = synergySignature(row.stats);
       const key = `${bHash}::${statHash}`;
       let group = finalGroupMap.get(key);
@@ -1601,13 +1653,32 @@ function ShipDetailPanel(props: {
       const aIcon = a.aGroup[0].type?.[3] ?? 0;
       const bIcon = b.aGroup[0].type?.[3] ?? 0;
       if (aIcon !== bIcon) return aIcon - bIcon;
-      return a.aGroup[0].sortno - b.aGroup[0].sortno || a.aGroup[0].id - b.aGroup[0].id;
+      return (
+        a.aGroup[0].sortno - b.aGroup[0].sortno ||
+        a.aGroup[0].id - b.aGroup[0].id
+      );
     });
 
-    const groupedSingle = groupByGenericStat(single, (row) => row.base, (row) => scoreSynergy(row.base));
-    const groupedPair = groupByGenericStat(pairGroups, (row) => row.stats, (row) => scoreSynergy(row.stats));
-    const groupedSpeed = groupByEquipType(speedSynergies, (row) => row.equip, (row) => (row.after - row.before));
-    const groupedRange = groupByEquipType(rangeSynergies, (row) => row.equip, (row) => (row.after - row.before));
+    const groupedSingle = groupByGenericStat(
+      single,
+      (row) => row.base,
+      (row) => scoreSynergy(row.base),
+    );
+    const groupedPair = groupByGenericStat(
+      pairGroups,
+      (row) => row.stats,
+      (row) => scoreSynergy(row.stats),
+    );
+    const groupedSpeed = groupByEquipType(
+      speedSynergies,
+      (row) => row.equip,
+      (row) => row.after - row.before,
+    );
+    const groupedRange = groupByEquipType(
+      rangeSynergies,
+      (row) => row.equip,
+      (row) => row.after - row.before,
+    );
 
     return {
       single: groupedSingle,
@@ -1786,7 +1857,10 @@ function ShipDetailPanel(props: {
                         {(group) => (
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label}系 <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                              {group.label}系{" "}
+                              <span class="font-normal text-base-content/60">
+                                （{group.entries.length}件）
+                              </span>
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
@@ -1796,11 +1870,15 @@ function ShipDetailPanel(props: {
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
                                   <button
                                     class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
-                                    onClick={() => props.onOpenEquip(row.equip.id)}
+                                    onClick={() =>
+                                      props.onOpenEquip(row.equip.id)
+                                    }
                                     title={row.equip.name}
                                   >
                                     <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
-                                      <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                      <WeaponIcon
+                                        iconNum={row.equip.type?.[3] ?? 0}
+                                      />
                                     </span>
                                     <span class="text-sm font-medium truncate">
                                       {row.equip.name}
@@ -1821,13 +1899,17 @@ function ShipDetailPanel(props: {
                                     </div>
                                     <SynergyStatInline stats={row.star10!} />
                                   </Show>
-                                  <For each={stackingSynergyRows(row.c2, row.c3)}>
+                                  <For
+                                    each={stackingSynergyRows(row.c2, row.c3)}
+                                  >
                                     {(stackRow) => (
                                       <>
                                         <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
                                           {stackRow.label}
                                         </div>
-                                        <SynergyStatInline stats={stackRow.stats} />
+                                        <SynergyStatInline
+                                          stats={stackRow.stats}
+                                        />
                                       </>
                                     )}
                                   </For>
@@ -1850,13 +1932,18 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <h5 class="text-sm font-medium mb-2">装備組み合わせシナジー</h5>
+                    <h5 class="text-sm font-medium mb-2">
+                      装備組み合わせシナジー
+                    </h5>
                     <div class="space-y-3">
                       <For each={shipSynergy().pair}>
                         {(group) => (
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label}系 <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                              {group.label}系{" "}
+                              <span class="font-normal text-base-content/60">
+                                （{group.entries.length}件）
+                              </span>
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
@@ -1865,9 +1952,17 @@ function ShipDetailPanel(props: {
                               {(row) => (
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
                                   <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                    <EquipSlotGroup slotItems={row.aGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                                    <EquipSlotGroup
+                                      slotItems={row.aGroup}
+                                      currentEquipId={undefined}
+                                      onOpenEquip={props.onOpenEquip}
+                                    />
                                     <span>+</span>
-                                    <EquipSlotGroup slotItems={row.bGroup} currentEquipId={undefined} onOpenEquip={props.onOpenEquip} />
+                                    <EquipSlotGroup
+                                      slotItems={row.bGroup}
+                                      currentEquipId={undefined}
+                                      onOpenEquip={props.onOpenEquip}
+                                    />
                                   </div>
                                   <SynergyStatInline stats={row.stats} />
                                 </div>
@@ -1895,7 +1990,10 @@ function ShipDetailPanel(props: {
                         {(group) => (
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label} <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                              {group.label}{" "}
+                              <span class="font-normal text-base-content/60">
+                                （{group.entries.length}件）
+                              </span>
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
@@ -1906,11 +2004,15 @@ function ShipDetailPanel(props: {
                                   <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
                                     <button
                                       class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                      onClick={() => props.onOpenEquip(row.equip.id)}
+                                      onClick={() =>
+                                        props.onOpenEquip(row.equip.id)
+                                      }
                                       title={row.equip.name}
                                     >
                                       <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                        <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                        <WeaponIcon
+                                          iconNum={row.equip.type?.[3] ?? 0}
+                                        />
                                       </span>
                                       <span class="truncate max-w-40">
                                         {row.equip.name}
@@ -1928,7 +2030,9 @@ function ShipDetailPanel(props: {
                                         >
                                           <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
                                             <WeaponIcon
-                                              iconNum={row.partner?.type?.[3] ?? 0}
+                                              iconNum={
+                                                row.partner?.type?.[3] ?? 0
+                                              }
                                             />
                                           </span>
                                           <span class="truncate max-w-40">
@@ -1975,7 +2079,10 @@ function ShipDetailPanel(props: {
                         {(group) => (
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label} <span class="font-normal text-base-content/60">（{group.entries.length}件）</span>
+                              {group.label}{" "}
+                              <span class="font-normal text-base-content/60">
+                                （{group.entries.length}件）
+                              </span>
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
@@ -1986,11 +2093,15 @@ function ShipDetailPanel(props: {
                                   <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
                                     <button
                                       class="inline-flex items-center gap-1 min-w-0 hover:underline"
-                                      onClick={() => props.onOpenEquip(row.equip.id)}
+                                      onClick={() =>
+                                        props.onOpenEquip(row.equip.id)
+                                      }
                                       title={row.equip.name}
                                     >
                                       <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                        <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
+                                        <WeaponIcon
+                                          iconNum={row.equip.type?.[3] ?? 0}
+                                        />
                                       </span>
                                       <span class="truncate max-w-40">
                                         {row.equip.name}
@@ -2008,7 +2119,9 @@ function ShipDetailPanel(props: {
                                         >
                                           <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
                                             <WeaponIcon
-                                              iconNum={row.partner?.type?.[3] ?? 0}
+                                              iconNum={
+                                                row.partner?.type?.[3] ?? 0
+                                              }
                                             />
                                           </span>
                                           <span class="truncate max-w-40">
@@ -2056,7 +2169,9 @@ function ShipDetailPanel(props: {
                     <div class="space-y-4">
                       <Show when={shipSynergy().triple.length > 0}>
                         <div class="rounded-lg border border-base-300/70 p-2">
-                          <h5 class="text-sm font-medium mb-2">3装備シナジー</h5>
+                          <h5 class="text-sm font-medium mb-2">
+                            3装備シナジー
+                          </h5>
                           <div class="space-y-3">
                             <For each={shipSynergy().triple}>
                               {(group) => (
@@ -2071,9 +2186,12 @@ function ShipDetailPanel(props: {
                                     data={group.entries}
                                     class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
                                   >
-                                    {(entry) =>
-                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                    }
+                                    {(entry) => (
+                                      <MultiEntryDisplay
+                                        entry={entry}
+                                        onOpenEquip={props.onOpenEquip}
+                                      />
+                                    )}
                                   </ProgressiveGrid>
                                 </div>
                               )}
@@ -2084,7 +2202,9 @@ function ShipDetailPanel(props: {
 
                       <Show when={shipSynergy().quad.length > 0}>
                         <div class="rounded-lg border border-base-300/70 p-2">
-                          <h5 class="text-sm font-medium mb-2">4装備シナジー</h5>
+                          <h5 class="text-sm font-medium mb-2">
+                            4装備シナジー
+                          </h5>
                           <div class="space-y-3">
                             <For each={shipSynergy().quad}>
                               {(group) => (
@@ -2099,9 +2219,12 @@ function ShipDetailPanel(props: {
                                     data={group.entries}
                                     class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
                                   >
-                                    {(entry) =>
-                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                    }
+                                    {(entry) => (
+                                      <MultiEntryDisplay
+                                        entry={entry}
+                                        onOpenEquip={props.onOpenEquip}
+                                      />
+                                    )}
                                   </ProgressiveGrid>
                                 </div>
                               )}
@@ -2112,7 +2235,9 @@ function ShipDetailPanel(props: {
 
                       <Show when={shipSynergy().penta.length > 0}>
                         <div class="rounded-lg border border-base-300/70 p-2">
-                          <h5 class="text-sm font-medium mb-2">5装備シナジー</h5>
+                          <h5 class="text-sm font-medium mb-2">
+                            5装備シナジー
+                          </h5>
                           <div class="space-y-3">
                             <For each={shipSynergy().penta}>
                               {(group) => (
@@ -2127,9 +2252,12 @@ function ShipDetailPanel(props: {
                                     data={group.entries}
                                     class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
                                   >
-                                    {(entry) =>
-                                      <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} />
-                                    }
+                                    {(entry) => (
+                                      <MultiEntryDisplay
+                                        entry={entry}
+                                        onOpenEquip={props.onOpenEquip}
+                                      />
+                                    )}
                                   </ProgressiveGrid>
                                 </div>
                               )}
@@ -2213,7 +2341,9 @@ function EquipDetailPanel(props: {
         .sort((a, b) => {
           const ta = a.equip.type?.[3] ?? 0;
           const tb = b.equip.type?.[3] ?? 0;
-          return ta !== tb ? ta - tb : scoreSynergy(b.stats) - scoreSynergy(a.stats);
+          return ta !== tb
+            ? ta - tb
+            : scoreSynergy(b.stats) - scoreSynergy(a.stats);
         });
 
       const hasSingle =
@@ -2258,8 +2388,11 @@ function EquipDetailPanel(props: {
       const seenCombos = new Set<string>();
       const all: MultiEntry[] = [];
 
-      const filterValidShips = (ships: number[], requiredItems: MstSlotItemData[]) => {
-        return ships.filter(shipId => {
+      const filterValidShips = (
+        ships: number[],
+        requiredItems: MstSlotItemData[],
+      ) => {
+        return ships.filter((shipId) => {
           if (shipId >= ENEMY_ID_THRESHOLD) return false;
           for (const item of requiredItems) {
             const n = filterForNormalSlot(shipId, [item]);
@@ -2283,16 +2416,26 @@ function EquipDetailPanel(props: {
         }
 
         if (rule.category_pools) {
-          if (!rule.category_pools.some(p => p.includes(equipId))) continue;
+          if (!rule.category_pools.some((p) => p.includes(equipId))) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
-          const pools = rule.category_pools.map(p =>
-            p.map((id) => getMasterSlotItem(id))
-             .filter((it): it is MstSlotItemData => it != null && it.id < ENEMY_ID_THRESHOLD)
-             .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0))
+          const pools = rule.category_pools.map((p) =>
+            p
+              .map((id) => getMasterSlotItem(id))
+              .filter(
+                (it): it is MstSlotItemData =>
+                  it != null && it.id < ENEMY_ID_THRESHOLD,
+              )
+              .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0)),
           );
-          if (pools.some(p => p.length === 0)) continue;
+          if (pools.some((p) => p.length === 0)) continue;
           const validShips = filterValidShips(rule.ships, [props.equip]);
-          all.push({ kind: "category", pools, cancels_single: !!rule.cancels_single, correction: rule.synergy, ships: validShips });
+          all.push({
+            kind: "category",
+            pools,
+            cancels_single: !!rule.cancels_single,
+            correction: rule.synergy,
+            ships: validShips,
+          });
         } else if (rule.item_pool) {
           // Pool rule: check if equipId is in the pool
           if (!rule.item_pool.includes(equipId)) continue;
@@ -2306,7 +2449,13 @@ function EquipDetailPanel(props: {
             .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0));
           if (pool.length < comboSize) continue;
           const validShips = filterValidShips(rule.ships, [props.equip]);
-          all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, ships: validShips });
+          all.push({
+            kind: "pool",
+            pool,
+            comboSize,
+            correction: rule.synergy,
+            ships: validShips,
+          });
         } else if (rule.fixed_items && rule.free_pool) {
           // Fixed+free rule: check if equipId appears in fixed_items or free_pool
           const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
@@ -2321,7 +2470,13 @@ function EquipDetailPanel(props: {
             .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0));
           if (pool.length < comboSize) continue;
           const validShips = filterValidShips(rule.ships, [props.equip]);
-          all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, ships: validShips });
+          all.push({
+            kind: "pool",
+            pool,
+            comboSize,
+            correction: rule.synergy,
+            ships: validShips,
+          });
         } else {
           if (rule.items && !rule.items.includes(equipId)) continue;
           // Explicit combos: decode all, filter those containing this equip
@@ -2338,23 +2493,34 @@ function EquipDetailPanel(props: {
             const items = comboIds.map((id) => getMasterSlotItem(id));
             if (items.some((it) => !it || it.id >= ENEMY_ID_THRESHOLD))
               continue;
-            
+
             items.sort((a, b) => (a!.type?.[3] ?? 0) - (b!.type?.[3] ?? 0));
-            const validShips = filterValidShips(rule.ships, items as MstSlotItemData[]);
+            const validShips = filterValidShips(
+              rule.ships,
+              items as MstSlotItemData[],
+            );
 
             // QMC Safety Limit: if too many items, skip complex logic
             if (comboIds.length > 15) {
               const base: Record<string, number> = {};
               for (const id of comboIds) {
-                const itemEntry = _em[String(id)]?.find(e => e.ships.includes(shipIdForCalc));
+                const itemEntry = _em[String(id)]?.find((e) =>
+                  e.ships.includes(shipIdForCalc),
+                );
                 if (itemEntry) {
-                    for (const [k, v] of Object.entries(itemEntry.b ?? {})) base[k] = (base[k] || 0) + v;
+                  for (const [k, v] of Object.entries(itemEntry.b ?? {}))
+                    base[k] = (base[k] || 0) + v;
                 }
               }
               for (const [k, v] of Object.entries(rule.synergy)) {
                 if (v) base[k] = (base[k] || 0) + v;
               }
-              all.push({ kind: "combo", combo: items as MstSlotItemData[], netStats: base, ships: validShips });
+              all.push({
+                kind: "combo",
+                combo: items as MstSlotItemData[],
+                netStats: base,
+                ships: validShips,
+              });
               continue;
             }
 
@@ -2367,7 +2533,7 @@ function EquipDetailPanel(props: {
               kind: "combo",
               combo: items as MstSlotItemData[],
               netStats: base,
-              ships: validShips
+              ships: validShips,
             });
           }
         }
@@ -2438,7 +2604,8 @@ function EquipDetailPanel(props: {
     }> = [];
     const crossEntries = getCrossEntriesForEquip(effects, equipId);
     for (const entry of crossEntries) {
-      const partnerId = entry.items[0] === equipId ? entry.items[1] : entry.items[0];
+      const partnerId =
+        entry.items[0] === equipId ? entry.items[1] : entry.items[0];
       crossEntriesByPartner.push({ partnerId, entry });
     }
 
@@ -2598,9 +2765,11 @@ function EquipDetailPanel(props: {
           ? crossEntries.find(
               (e) =>
                 (e.items[0] === otherEquipId || e.items[1] === otherEquipId) &&
-                e.ships.includes(shipId)
+                e.ships.includes(shipId),
             )
-          : normalizeCrossEffects(effects)[pairKey]?.find((e) => e.ships.includes(shipId));
+          : normalizeCrossEffects(effects)[pairKey]?.find((e) =>
+              e.ships.includes(shipId),
+            );
         const crossLeng = crossEntryLocal?.synergy.leng ?? 0;
         const effectiveBase = Math.max(
           ship.leng,
@@ -2683,6 +2852,64 @@ function EquipDetailPanel(props: {
         </div>
 
         <section>
+          <h4 class="font-medium mb-2">装備可能な艦</h4>
+          <p class="text-xs text-base-content/55 mb-2">
+            補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
+          </p>
+          <div class="rounded-lg border border-base-300/70 p-3 bg-base-50/50">
+            <div
+              class={`space-y-4 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}
+            >
+              <For each={compatibleShips()}>
+                {(group) => (
+                  <div class="mb-2 last:mb-0">
+                    <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                      {group.key}
+                    </h5>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
+                      <For each={group.items}>
+                        {(row) => {
+                          return (
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                              <button
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                onClick={() => props.onOpenShip(row.ship.id)}
+                                title={row.ship.name}
+                              >
+                                <ImageFallbackBox
+                                  src={bannerUrl(row.ship.id, { f: "auto" })}
+                                  alt={row.ship.name}
+                                  class="w-20 h-6 rounded shrink-0"
+                                  fallbackText="No Image"
+                                  loading="lazy"
+                                />
+                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                  {row.ship.name}
+                                </span>
+                                <CompatibilityBadges
+                                  normalSlots={row.compat.normalSlots}
+                                  slotCount={row.ship.slot_num}
+                                  exslot={row.compat.exslot}
+                                />
+                              </button>
+                            </div>
+                          );
+                        }}
+                      </For>
+                    </div>
+                  </div>
+                )}
+              </For>
+              <Show when={compatibleShips().length === 0}>
+                <div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center mt-4">
+                  装備可能な艦はありません
+                </div>
+              </Show>
+            </div>
+          </div>
+        </section>
+
+        <section>
           <h4 class="font-medium mb-2">この装備のシナジー対象艦</h4>
           <Show
             when={equipSynergyShips().length > 0}
@@ -2696,131 +2923,144 @@ function EquipDetailPanel(props: {
               <div
                 class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
               >
-                <For each={(() => {
-                  const rows = equipSynergyShips();
-                  const grouped = new Map<number, typeof rows>();
-                  for (const r of rows) {
-                    if (!grouped.has(r.ship.stype)) grouped.set(r.ship.stype, []);
-                    grouped.get(r.ship.stype)!.push(r);
-                  }
-                  return Array.from(grouped.entries()).sort(([a], [b]) => a - b).map(([k, v]) => ({ stype: k, rows: v }));
-                })()}>
+                <For
+                  each={(() => {
+                    const rows = equipSynergyShips();
+                    const grouped = new Map<number, typeof rows>();
+                    for (const r of rows) {
+                      if (!grouped.has(r.ship.stype))
+                        grouped.set(r.ship.stype, []);
+                      grouped.get(r.ship.stype)!.push(r);
+                    }
+                    return Array.from(grouped.entries())
+                      .sort(([a], [b]) => a - b)
+                      .map(([k, v]) => ({ stype: k, rows: v }));
+                  })()}
+                >
                   {({ stype, rows }) => (
                     <div class="mb-2 last:mb-0">
                       <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                         {STYPE_NAMES[stype] ?? "不明"}
                       </h5>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                      <For each={rows}>
-                        {(row) => (
-                          <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
-                            <button
-                              class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
-                              onClick={() => props.onOpenShip(row.ship.id)}
-                              title={row.ship.name}
-                            >
-                              <ImageFallbackBox
-                                src={bannerUrl(row.ship.id, { f: "auto" })}
-                                alt={row.ship.name}
-                                class="w-20 h-6 rounded shrink-0"
-                                fallbackText="No Image"
-                                loading="lazy"
-                              />
-                              <span class="text-sm font-medium truncate group-hover:text-primary transition-colors">
-                                {row.ship.name}
-                              </span>
-                            </button>
+                      <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
+                        <For each={rows}>
+                          {(row) => (
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                              <button
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                onClick={() => props.onOpenShip(row.ship.id)}
+                                title={row.ship.name}
+                              >
+                                <ImageFallbackBox
+                                  src={bannerUrl(row.ship.id, { f: "auto" })}
+                                  alt={row.ship.name}
+                                  class="w-20 h-6 rounded shrink-0"
+                                  fallbackText="No Image"
+                                  loading="lazy"
+                                />
+                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                  {row.ship.name}
+                                </span>
+                              </button>
 
-                            <Show
-                              when={
-                                row.base != null &&
-                                scoreSynergy(row.base ?? undefined) > 0
-                              }
-                            >
-                              <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
-                                単体シナジー
-                              </div>
-                              <SynergyStatInline stats={row.base!} />
-                            </Show>
-                            <Show
-                              when={
-                                row.star10 != null &&
-                                scoreSynergy(row.star10 ?? undefined) > 0
-                              }
-                            >
-                              <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
-                                改修★10
-                              </div>
-                              <SynergyStatInline stats={row.star10!} />
-                            </Show>
-                            <For each={stackingSynergyRows(row.c2, row.c3)}>
-                              {(stackRow) => (
-                                <>
-                                  <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
-                                    {stackRow.label}
-                                  </div>
-                                  <SynergyStatInline stats={stackRow.stats} />
-                                </>
-                              )}
-                            </For>
-
-                            <Show when={row.partners.length > 0}>
-                              <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
-                                他装備組み合わせ
-                              </div>
-                              <div class="space-y-1 mt-1">
-                                <For each={row.partners.slice(0, 8)}>
-                                  {(partner) => (
-                                    <div class="rounded border border-base-300/70 p-1.5">
-                                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                        <button
-                                          class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
-                                          onClick={() =>
-                                            props.onOpenEquip(props.equip.id)
-                                          }
-                                          title={props.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={props.equip.type?.[3] ?? 0}
-                                            />
-                                          </span>
-                                          <span class="truncate max-w-40">
-                                            {props.equip.name}
-                                          </span>
-                                        </button>
-                                        <span>+</span>
-                                        <button
-                                          class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? 'text-primary font-bold' : ''}`}
-                                          onClick={() =>
-                                            props.onOpenEquip(partner.equip.id)
-                                          }
-                                          title={partner.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={partner.equip.type?.[3] ?? 0}
-                                            />
-                                          </span>
-                                          <span class="truncate max-w-40">
-                                            {partner.equip.name}
-                                          </span>
-                                        </button>
-                                      </div>
-                                      <SynergyStatInline stats={partner.stats} />
+                              <Show
+                                when={
+                                  row.base != null &&
+                                  scoreSynergy(row.base ?? undefined) > 0
+                                }
+                              >
+                                <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                  単体シナジー
+                                </div>
+                                <SynergyStatInline stats={row.base!} />
+                              </Show>
+                              <Show
+                                when={
+                                  row.star10 != null &&
+                                  scoreSynergy(row.star10 ?? undefined) > 0
+                                }
+                              >
+                                <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
+                                  改修★10
+                                </div>
+                                <SynergyStatInline stats={row.star10!} />
+                              </Show>
+                              <For each={stackingSynergyRows(row.c2, row.c3)}>
+                                {(stackRow) => (
+                                  <>
+                                    <div class="mt-1 text-xs text-base-content/70 inline-flex items-center h-5">
+                                      {stackRow.label}
                                     </div>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                        )}
-                      </For>
+                                    <SynergyStatInline stats={stackRow.stats} />
+                                  </>
+                                )}
+                              </For>
+
+                              <Show when={row.partners.length > 0}>
+                                <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                                  他装備組み合わせ
+                                </div>
+                                <div class="space-y-1 mt-1">
+                                  <For each={row.partners.slice(0, 8)}>
+                                    {(partner) => (
+                                      <div class="rounded border border-base-300/70 p-1.5">
+                                        <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                          <button
+                                            class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
+                                            onClick={() =>
+                                              props.onOpenEquip(props.equip.id)
+                                            }
+                                            title={props.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  props.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {props.equip.name}
+                                            </span>
+                                          </button>
+                                          <span>+</span>
+                                          <button
+                                            class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? "text-primary font-bold" : ""}`}
+                                            onClick={() =>
+                                              props.onOpenEquip(
+                                                partner.equip.id,
+                                              )
+                                            }
+                                            title={partner.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  partner.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {partner.equip.name}
+                                            </span>
+                                          </button>
+                                        </div>
+                                        <SynergyStatInline
+                                          stats={partner.stats}
+                                        />
+                                      </div>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
-            </div>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
         </section>
@@ -2839,125 +3079,141 @@ function EquipDetailPanel(props: {
               <div
                 class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
               >
-                <For each={(() => {
-                  const rows = equipMobilitySynergies().speedEntries.slice(0, 60);
-                  const grouped = new Map<number, typeof rows>();
-                  for (const r of rows) {
-                    if (!grouped.has(r.ship.stype)) grouped.set(r.ship.stype, []);
-                    grouped.get(r.ship.stype)!.push(r);
-                  }
-                  return Array.from(grouped.entries()).sort(([a], [b]) => a - b).map(([k, v]) => ({ stype: k, rows: v }));
-                })()}>
+                <For
+                  each={(() => {
+                    const rows = equipMobilitySynergies().speedEntries.slice(
+                      0,
+                      60,
+                    );
+                    const grouped = new Map<number, typeof rows>();
+                    for (const r of rows) {
+                      if (!grouped.has(r.ship.stype))
+                        grouped.set(r.ship.stype, []);
+                      grouped.get(r.ship.stype)!.push(r);
+                    }
+                    return Array.from(grouped.entries())
+                      .sort(([a], [b]) => a - b)
+                      .map(([k, v]) => ({ stype: k, rows: v }));
+                  })()}
+                >
                   {({ stype, rows }) => (
                     <div class="mb-2 last:mb-0">
                       <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                         {STYPE_NAMES[stype] ?? "不明"}
                       </h5>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                      <For each={rows}>
-                        {(entry) => (
-                          <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition">
-                            <button
-                              class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
-                              onClick={() => props.onOpenShip(entry.ship.id)}
-                              title={entry.ship.name}
-                            >
-                              <ImageFallbackBox
-                                src={bannerUrl(entry.ship.id, { f: "auto" })}
-                                alt={entry.ship.name}
-                                class="w-20 h-6 rounded shrink-0"
-                                fallbackText="No Image"
-                                loading="lazy"
-                              />
-                              <span class="text-sm font-medium truncate">
-                                {entry.ship.name}
-                              </span>
-                            </button>
-                            <Show when={entry.single != null}>
-                              <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
-                                単体
-                              </div>
-                              <div class="flex flex-wrap items-center gap-1">
-                                <span
-                                  class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                    entry.single!.after - entry.single!.before > 0
-                                      ? "border-info/55 text-info"
-                                      : "border-error/45 text-error"
-                                  }`}
-                                >
-                                  速力 {speedDisplay(entry.single!.before)} →{" "}
-                                  {speedDisplay(entry.single!.after)}
+                      <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
+                        <For each={rows}>
+                          {(entry) => (
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                              <button
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                onClick={() => props.onOpenShip(entry.ship.id)}
+                                title={entry.ship.name}
+                              >
+                                <ImageFallbackBox
+                                  src={bannerUrl(entry.ship.id, { f: "auto" })}
+                                  alt={entry.ship.name}
+                                  class="w-20 h-6 rounded shrink-0"
+                                  fallbackText="No Image"
+                                  loading="lazy"
+                                />
+                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                  {entry.ship.name}
                                 </span>
-                              </div>
-                            </Show>
-                            <Show when={entry.partners.length > 0}>
-                              <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
-                                他装備組み合わせ
-                              </div>
-                              <div class="space-y-1 mt-1">
-                                <For each={entry.partners.slice(0, 8)}>
-                                  {(partner) => (
-                                    <div class="rounded border border-base-300/70 p-1.5">
-                                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                        <button
-                                          class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
-                                          onClick={() =>
-                                            props.onOpenEquip(props.equip.id)
-                                          }
-                                          title={props.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={props.equip.type?.[3] ?? 0}
-                                            />
+                              </button>
+                              <Show when={entry.single != null}>
+                                <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                  単体
+                                </div>
+                                <div class="flex flex-wrap items-center gap-1">
+                                  <span
+                                    class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                      entry.single!.after -
+                                        entry.single!.before >
+                                      0
+                                        ? "border-info/55 text-info"
+                                        : "border-error/45 text-error"
+                                    }`}
+                                  >
+                                    速力 {speedDisplay(entry.single!.before)} →{" "}
+                                    {speedDisplay(entry.single!.after)}
+                                  </span>
+                                </div>
+                              </Show>
+                              <Show when={entry.partners.length > 0}>
+                                <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                                  他装備組み合わせ
+                                </div>
+                                <div class="space-y-1 mt-1">
+                                  <For each={entry.partners.slice(0, 8)}>
+                                    {(partner) => (
+                                      <div class="rounded border border-base-300/70 p-1.5">
+                                        <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                          <button
+                                            class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
+                                            onClick={() =>
+                                              props.onOpenEquip(props.equip.id)
+                                            }
+                                            title={props.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  props.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {props.equip.name}
+                                            </span>
+                                          </button>
+                                          <span>+</span>
+                                          <button
+                                            class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? "text-primary font-bold" : ""}`}
+                                            onClick={() =>
+                                              props.onOpenEquip(
+                                                partner.equip.id,
+                                              )
+                                            }
+                                            title={partner.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  partner.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {partner.equip.name}
+                                            </span>
+                                          </button>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-1 mt-1">
+                                          <span
+                                            class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                              partner.after - partner.before > 0
+                                                ? "border-info/55 text-info"
+                                                : "border-error/45 text-error"
+                                            }`}
+                                          >
+                                            速力 {speedDisplay(partner.before)}{" "}
+                                            → {speedDisplay(partner.after)}
                                           </span>
-                                          <span class="truncate max-w-40">
-                                            {props.equip.name}
-                                          </span>
-                                        </button>
-                                        <span>+</span>
-                                        <button
-                                          class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? 'text-primary font-bold' : ''}`}
-                                          onClick={() =>
-                                            props.onOpenEquip(partner.equip.id)
-                                          }
-                                          title={partner.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={partner.equip.type?.[3] ?? 0}
-                                            />
-                                          </span>
-                                          <span class="truncate max-w-40">
-                                            {partner.equip.name}
-                                          </span>
-                                        </button>
+                                        </div>
                                       </div>
-                                      <div class="flex flex-wrap items-center gap-1 mt-1">
-                                        <span
-                                          class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                            partner.after - partner.before > 0
-                                              ? "border-info/55 text-info"
-                                              : "border-error/45 text-error"
-                                          }`}
-                                        >
-                                          速力 {speedDisplay(partner.before)} →{" "}
-                                          {speedDisplay(partner.after)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                        )}
-                      </For>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
-            </div>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
         </section>
@@ -2976,125 +3232,141 @@ function EquipDetailPanel(props: {
               <div
                 class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
               >
-                <For each={(() => {
-                  const rows = equipMobilitySynergies().rangeEntries.slice(0, 60);
-                  const grouped = new Map<number, typeof rows>();
-                  for (const r of rows) {
-                    if (!grouped.has(r.ship.stype)) grouped.set(r.ship.stype, []);
-                    grouped.get(r.ship.stype)!.push(r);
-                  }
-                  return Array.from(grouped.entries()).sort(([a], [b]) => a - b).map(([k, v]) => ({ stype: k, rows: v }));
-                })()}>
+                <For
+                  each={(() => {
+                    const rows = equipMobilitySynergies().rangeEntries.slice(
+                      0,
+                      60,
+                    );
+                    const grouped = new Map<number, typeof rows>();
+                    for (const r of rows) {
+                      if (!grouped.has(r.ship.stype))
+                        grouped.set(r.ship.stype, []);
+                      grouped.get(r.ship.stype)!.push(r);
+                    }
+                    return Array.from(grouped.entries())
+                      .sort(([a], [b]) => a - b)
+                      .map(([k, v]) => ({ stype: k, rows: v }));
+                  })()}
+                >
                   {({ stype, rows }) => (
                     <div class="mb-2 last:mb-0">
                       <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                         {STYPE_NAMES[stype] ?? "不明"}
                       </h5>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                      <For each={rows}>
-                        {(entry) => (
-                          <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition">
-                            <button
-                              class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
-                              onClick={() => props.onOpenShip(entry.ship.id)}
-                              title={entry.ship.name}
-                            >
-                              <ImageFallbackBox
-                                src={bannerUrl(entry.ship.id, { f: "auto" })}
-                                alt={entry.ship.name}
-                                class="w-20 h-6 rounded shrink-0"
-                                fallbackText="No Image"
-                                loading="lazy"
-                              />
-                              <span class="text-sm font-medium truncate">
-                                {entry.ship.name}
-                              </span>
-                            </button>
-                            <Show when={entry.single != null}>
-                              <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
-                                単体
-                              </div>
-                              <div class="flex flex-wrap items-center gap-1">
-                                <span
-                                  class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                    entry.single!.after - entry.single!.before > 0
-                                      ? "border-info/55 text-info"
-                                      : "border-error/45 text-error"
-                                  }`}
-                                >
-                                  射程 {rangeDisplay(entry.single!.before)} →{" "}
-                                  {rangeDisplay(entry.single!.after)}
+                      <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
+                        <For each={rows}>
+                          {(entry) => (
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                              <button
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                onClick={() => props.onOpenShip(entry.ship.id)}
+                                title={entry.ship.name}
+                              >
+                                <ImageFallbackBox
+                                  src={bannerUrl(entry.ship.id, { f: "auto" })}
+                                  alt={entry.ship.name}
+                                  class="w-20 h-6 rounded shrink-0"
+                                  fallbackText="No Image"
+                                  loading="lazy"
+                                />
+                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                  {entry.ship.name}
                                 </span>
-                              </div>
-                            </Show>
-                            <Show when={entry.partners.length > 0}>
-                              <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
-                                他装備組み合わせ
-                              </div>
-                              <div class="space-y-1 mt-1">
-                                <For each={entry.partners.slice(0, 8)}>
-                                  {(partner) => (
-                                    <div class="rounded border border-base-300/70 p-1.5">
-                                      <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                        <button
-                                          class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
-                                          onClick={() =>
-                                            props.onOpenEquip(props.equip.id)
-                                          }
-                                          title={props.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={props.equip.type?.[3] ?? 0}
-                                            />
+                              </button>
+                              <Show when={entry.single != null}>
+                                <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                  単体
+                                </div>
+                                <div class="flex flex-wrap items-center gap-1">
+                                  <span
+                                    class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                      entry.single!.after -
+                                        entry.single!.before >
+                                      0
+                                        ? "border-info/55 text-info"
+                                        : "border-error/45 text-error"
+                                    }`}
+                                  >
+                                    射程 {rangeDisplay(entry.single!.before)} →{" "}
+                                    {rangeDisplay(entry.single!.after)}
+                                  </span>
+                                </div>
+                              </Show>
+                              <Show when={entry.partners.length > 0}>
+                                <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                                  他装備組み合わせ
+                                </div>
+                                <div class="space-y-1 mt-1">
+                                  <For each={entry.partners.slice(0, 8)}>
+                                    {(partner) => (
+                                      <div class="rounded border border-base-300/70 p-1.5">
+                                        <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
+                                          <button
+                                            class="inline-flex items-center gap-1 min-w-0 hover:underline text-primary font-bold transition-colors"
+                                            onClick={() =>
+                                              props.onOpenEquip(props.equip.id)
+                                            }
+                                            title={props.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  props.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {props.equip.name}
+                                            </span>
+                                          </button>
+                                          <span>+</span>
+                                          <button
+                                            class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? "text-primary font-bold" : ""}`}
+                                            onClick={() =>
+                                              props.onOpenEquip(
+                                                partner.equip.id,
+                                              )
+                                            }
+                                            title={partner.equip.name}
+                                          >
+                                            <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
+                                              <WeaponIcon
+                                                iconNum={
+                                                  partner.equip.type?.[3] ?? 0
+                                                }
+                                              />
+                                            </span>
+                                            <span class="truncate max-w-40">
+                                              {partner.equip.name}
+                                            </span>
+                                          </button>
+                                        </div>
+                                        <div class="flex flex-wrap items-center gap-1 mt-1">
+                                          <span
+                                            class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
+                                              partner.after - partner.before > 0
+                                                ? "border-info/55 text-info"
+                                                : "border-error/45 text-error"
+                                            }`}
+                                          >
+                                            射程 {rangeDisplay(partner.before)}{" "}
+                                            → {rangeDisplay(partner.after)}
                                           </span>
-                                          <span class="truncate max-w-40">
-                                            {props.equip.name}
-                                          </span>
-                                        </button>
-                                        <span>+</span>
-                                        <button
-                                          class={`inline-flex items-center gap-1 min-w-0 hover:underline transition-colors ${partner.equip.id === props.equip.id ? 'text-primary font-bold' : ''}`}
-                                          onClick={() =>
-                                            props.onOpenEquip(partner.equip.id)
-                                          }
-                                          title={partner.equip.name}
-                                        >
-                                          <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-200/70 shrink-0">
-                                            <WeaponIcon
-                                              iconNum={partner.equip.type?.[3] ?? 0}
-                                            />
-                                          </span>
-                                          <span class="truncate max-w-40">
-                                            {partner.equip.name}
-                                          </span>
-                                        </button>
+                                        </div>
                                       </div>
-                                      <div class="flex flex-wrap items-center gap-1 mt-1">
-                                        <span
-                                          class={`badge badge-outline badge-sm font-mono inline-flex items-center leading-none ${
-                                            partner.after - partner.before > 0
-                                              ? "border-info/55 text-info"
-                                              : "border-error/45 text-error"
-                                          }`}
-                                        >
-                                          射程 {rangeDisplay(partner.before)} →{" "}
-                                          {rangeDisplay(partner.after)}
-                                        </span>
-                                      </div>
-                                    </div>
-                                  )}
-                                </For>
-                              </div>
-                            </Show>
-                          </div>
-                        )}
-                      </For>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
-            </div>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
         </section>
@@ -3128,9 +3400,13 @@ function EquipDetailPanel(props: {
                             class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                           >
                             <For each={group.entries}>
-                              {(entry) =>
-                                <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} currentEquipId={props.equip.id} />
-                              }
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                  currentEquipId={props.equip.id}
+                                />
+                              )}
                             </For>
                           </div>
                         </div>
@@ -3157,9 +3433,13 @@ function EquipDetailPanel(props: {
                             class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[30vh] overflow-y-auto"}`}
                           >
                             <For each={group.entries}>
-                              {(entry) =>
-                                <MultiEntryDisplay entry={entry} onOpenEquip={props.onOpenEquip} currentEquipId={props.equip.id} />
-                              }
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                  currentEquipId={props.equip.id}
+                                />
+                              )}
                             </For>
                           </div>
                         </div>
@@ -3171,62 +3451,6 @@ function EquipDetailPanel(props: {
             </div>
           </section>
         </Show>
-
-        <section>
-          <h4 class="font-medium mb-2">装備可能な艦</h4>
-          <p class="text-xs text-base-content/55 mb-2">
-            補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
-          </p>
-          <div class="rounded-lg border border-base-300/70 p-3 bg-base-50/50">
-            <div
-              class={`space-y-4 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}
-            >
-              <For each={compatibleShips()}>
-                {(group) => (
-                  <div class="mb-2 last:mb-0">
-                    <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">{group.key}</h5>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                    <For each={group.items}>
-                      {(row) => {
-                        return (
-                          <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
-                            <button
-                              class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
-                              onClick={() => props.onOpenShip(row.ship.id)}
-                              title={row.ship.name}
-                            >
-                              <ImageFallbackBox
-                                src={bannerUrl(row.ship.id, { f: "auto" })}
-                                alt={row.ship.name}
-                                class="w-20 h-6 rounded shrink-0"
-                                fallbackText="No Image"
-                                loading="lazy"
-                              />
-                              <span class="text-sm font-medium truncate flex-1 group-hover:text-primary transition-colors">
-                                {row.ship.name}
-                              </span>
-                              <CompatibilityBadges
-                                normalSlots={row.compat.normalSlots}
-                                slotCount={row.ship.slot_num}
-                                exslot={row.compat.exslot}
-                              />
-                            </button>
-                          </div>
-                        );
-                      }}
-                    </For>
-                  </div>
-                </div>
-              )}
-            </For>
-            <Show when={compatibleShips().length === 0}>
-              <div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center mt-4">
-                装備可能な艦はありません
-              </div>
-            </Show>
-          </div>
-          </div>
-        </section>
       </div>
     </article>
   );
@@ -3284,7 +3508,7 @@ function EquipSlotGroup(props: {
   }
 
   const iconGroups = groupItemsByIcon(props.slotItems);
-  
+
   if (iconGroups.length === 1) {
     return (
       <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
@@ -3295,10 +3519,14 @@ function EquipSlotGroup(props: {
           <For each={iconGroups[0]}>
             {(equip, idx) => (
               <>
-                {idx() > 0 && <span class="text-base-content/30 text-sm font-light">/</span>}
+                {idx() > 0 && (
+                  <span class="text-base-content/30 text-sm font-light">/</span>
+                )}
                 <button
                   class={`hover:underline truncate max-w-40 transition-colors min-h-[24px] py-0.5 ${
-                    props.currentEquipId === equip.id ? "text-primary font-bold" : ""
+                    props.currentEquipId === equip.id
+                      ? "text-primary font-bold"
+                      : ""
                   }`}
                   onClick={() => props.onOpenEquip(equip.id)}
                   title={equip.name}
@@ -3318,7 +3546,9 @@ function EquipSlotGroup(props: {
       <For each={iconGroups}>
         {(group, idx) => (
           <>
-            {idx() > 0 && <span class="text-base-content/60 text-sm font-light">/</span>}
+            {idx() > 0 && (
+              <span class="text-base-content/60 text-sm font-light">/</span>
+            )}
             <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300/50 bg-base-100 rounded px-1.5 py-0.5 shadow-sm">
               <span class="inline-flex w-4 h-4 items-center justify-center rounded bg-base-200/70 shrink-0">
                 <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
@@ -3327,10 +3557,16 @@ function EquipSlotGroup(props: {
                 <For each={group}>
                   {(equip, eIdx) => (
                     <>
-                      {eIdx() > 0 && <span class="text-base-content/30 text-xs font-light">/</span>}
+                      {eIdx() > 0 && (
+                        <span class="text-base-content/30 text-xs font-light">
+                          /
+                        </span>
+                      )}
                       <button
                         class={`hover:underline text-xs truncate max-w-40 transition-colors min-h-[24px] py-0.5 ${
-                          props.currentEquipId === equip.id ? "text-primary font-bold" : ""
+                          props.currentEquipId === equip.id
+                            ? "text-primary font-bold"
+                            : ""
                         }`}
                         onClick={() => props.onOpenEquip(equip.id)}
                         title={equip.name}
@@ -3362,7 +3598,11 @@ function MultiEntryDisplay(props: {
             {(equip, idx) => (
               <>
                 {idx() > 0 && <span>+</span>}
-                <EquipSlotGroup slotItems={[equip]} currentEquipId={props.currentEquipId} onOpenEquip={props.onOpenEquip} />
+                <EquipSlotGroup
+                  slotItems={[equip]}
+                  currentEquipId={props.currentEquipId}
+                  onOpenEquip={props.onOpenEquip}
+                />
               </>
             )}
           </For>
@@ -3372,12 +3612,18 @@ function MultiEntryDisplay(props: {
 
       <Show when={props.entry.kind === "pool"}>
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-          <span class="text-[10px] text-info font-bold shrink-0">任意{((props.entry as MultiPoolEntry).comboSize)}種</span>
+          <span class="text-[10px] text-info font-bold shrink-0">
+            任意{(props.entry as MultiPoolEntry).comboSize}種
+          </span>
           <For each={[(props.entry as MultiPoolEntry).pool]}>
             {(group, idx) => (
               <>
                 {idx() > 0 && <span class="text-base-content/30">/</span>}
-                <EquipSlotGroup slotItems={group} currentEquipId={props.currentEquipId} onOpenEquip={props.onOpenEquip} />
+                <EquipSlotGroup
+                  slotItems={group}
+                  currentEquipId={props.currentEquipId}
+                  onOpenEquip={props.onOpenEquip}
+                />
               </>
             )}
           </For>
@@ -3388,30 +3634,48 @@ function MultiEntryDisplay(props: {
       <Show when={props.entry.kind === "category"}>
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
           <Show when={(props.entry as MultiCategoryEntry).cancels_single}>
-            <span class="text-error font-bold text-[10px] shrink-0" title="単体シナジーを打ち消します">[単体打消]</span>
+            <span
+              class="text-error font-bold text-[10px] shrink-0"
+              title="単体シナジーを打ち消します"
+            >
+              [単体打消]
+            </span>
           </Show>
-          <For each={(() => {
-            const pools = (props.entry as MultiCategoryEntry).pools;
-            const grouped = new Map<string, { pool: typeof pools[0]; count: number }>();
-            for (const p of pools) {
-              const k = p.map(i => i.id).join(",");
-              if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
-              grouped.get(k)!.count++;
-            }
-            return Array.from(grouped.values());
-          })()}>
+          <For
+            each={(() => {
+              const pools = (props.entry as MultiCategoryEntry).pools;
+              const grouped = new Map<
+                string,
+                { pool: (typeof pools)[0]; count: number }
+              >();
+              for (const p of pools) {
+                const k = p.map((i) => i.id).join(",");
+                if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
+                grouped.get(k)!.count++;
+              }
+              return Array.from(grouped.values());
+            })()}
+          >
             {({ pool, count }, idx) => (
               <>
                 {idx() > 0 && <span>+</span>}
                 <span class="flex items-center gap-1 bg-base-200/40 px-1 rounded">
                   <Show when={count > 1}>
-                    <span class="text-[10px] text-info font-bold shrink-0">{count}個:</span>
+                    <span class="text-[10px] text-info font-bold shrink-0">
+                      {count}個:
+                    </span>
                   </Show>
                   <For each={[pool]}>
                     {(group, gIdx) => (
                       <>
-                        {gIdx() > 0 && <span class="text-base-content/30">/</span>}
-                        <EquipSlotGroup slotItems={group} currentEquipId={props.currentEquipId} onOpenEquip={props.onOpenEquip} />
+                        {gIdx() > 0 && (
+                          <span class="text-base-content/30">/</span>
+                        )}
+                        <EquipSlotGroup
+                          slotItems={group}
+                          currentEquipId={props.currentEquipId}
+                          onOpenEquip={props.onOpenEquip}
+                        />
                       </>
                     )}
                   </For>
@@ -3420,33 +3684,49 @@ function MultiEntryDisplay(props: {
             )}
           </For>
         </div>
-        <SynergyStatInline stats={(props.entry as MultiCategoryEntry).correction} />
+        <SynergyStatInline
+          stats={(props.entry as MultiCategoryEntry).correction}
+        />
       </Show>
 
       <Show when={props.entry.kind === "grouped_combo"}>
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-          <For each={(() => {
-            const pools = (props.entry as MultiGroupedComboEntry).groupedPools;
-            const grouped = new Map<string, { pool: typeof pools[0]; count: number }>();
-            for (const p of pools) {
-              const k = p.map(i => i.id).join(",");
-              if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
-              grouped.get(k)!.count++;
-            }
-            return Array.from(grouped.values());
-          })()}>
+          <For
+            each={(() => {
+              const pools = (props.entry as MultiGroupedComboEntry)
+                .groupedPools;
+              const grouped = new Map<
+                string,
+                { pool: (typeof pools)[0]; count: number }
+              >();
+              for (const p of pools) {
+                const k = p.map((i) => i.id).join(",");
+                if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
+                grouped.get(k)!.count++;
+              }
+              return Array.from(grouped.values());
+            })()}
+          >
             {({ pool, count }, idx) => (
               <>
                 {idx() > 0 && <span>+</span>}
                 <span class="flex items-center gap-1 bg-base-200/40 px-1 rounded">
                   <Show when={count > 1}>
-                    <span class="text-[10px] text-info font-bold shrink-0">{count}個:</span>
+                    <span class="text-[10px] text-info font-bold shrink-0">
+                      {count}個:
+                    </span>
                   </Show>
                   <For each={[pool]}>
                     {(group, gIdx) => (
                       <>
-                        {gIdx() > 0 && <span class="text-base-content/30">/</span>}
-                        <EquipSlotGroup slotItems={group} currentEquipId={props.currentEquipId} onOpenEquip={props.onOpenEquip} />
+                        {gIdx() > 0 && (
+                          <span class="text-base-content/30">/</span>
+                        )}
+                        <EquipSlotGroup
+                          slotItems={group}
+                          currentEquipId={props.currentEquipId}
+                          onOpenEquip={props.onOpenEquip}
+                        />
                       </>
                     )}
                   </For>
@@ -3455,28 +3735,42 @@ function MultiEntryDisplay(props: {
             )}
           </For>
         </div>
-        <SynergyStatInline stats={(props.entry as MultiGroupedComboEntry).netStats} />
+        <SynergyStatInline
+          stats={(props.entry as MultiGroupedComboEntry).netStats}
+        />
       </Show>
 
       <Show when={props.entry.ships && props.entry.ships.length > 0}>
         <div class="mt-1 text-[10px] text-base-content/60 border-t border-base-200 pt-1 space-y-0.5">
           <div class="font-bold">対象艦 (計{props.entry.ships!.length}隻):</div>
-          <For each={(() => {
-            const ships = props.entry.ships!.map(id => getMasterShip(id)).filter(Boolean);
-            const byStype = new Map<number, typeof ships>();
-            for (const s of ships) {
-              if (!byStype.has(s!.stype)) byStype.set(s!.stype, []);
-              byStype.get(s!.stype)!.push(s);
-            }
-            const stypes = Array.from(byStype.keys()).sort((a, b) => a - b);
-            return stypes.map(st => ({ stype: st, ships: byStype.get(st)! }));
-          })()}>
+          <For
+            each={(() => {
+              const ships = props.entry
+                .ships!.map((id) => getMasterShip(id))
+                .filter(Boolean);
+              const byStype = new Map<number, typeof ships>();
+              for (const s of ships) {
+                if (!byStype.has(s!.stype)) byStype.set(s!.stype, []);
+                byStype.get(s!.stype)!.push(s);
+              }
+              const stypes = Array.from(byStype.keys()).sort((a, b) => a - b);
+              return stypes.map((st) => ({
+                stype: st,
+                ships: byStype.get(st)!,
+              }));
+            })()}
+          >
             {({ stype, ships }) => (
               <div>
-                <span class="font-medium text-base-content/70">[{STYPE_NAMES[stype] ?? "不明"}]</span>{" "}
-                {ships.length <= 5 
-                  ? ships.map(s => s!.name).join("、") 
-                  : `${ships.slice(0, 4).map(s => s!.name).join("、")} など(計${ships.length}隻)`}
+                <span class="font-medium text-base-content/70">
+                  [{STYPE_NAMES[stype] ?? "不明"}]
+                </span>{" "}
+                {ships.length <= 5
+                  ? ships.map((s) => s!.name).join("、")
+                  : `${ships
+                      .slice(0, 4)
+                      .map((s) => s!.name)
+                      .join("、")} など(計${ships.length}隻)`}
               </div>
             )}
           </For>
@@ -3556,7 +3850,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   createEffect(() => {
     // Notify external tab system when tab changes internally
-    window.dispatchEvent(new CustomEvent("simulator-tab-changed-sync", { detail: tab() }));
+    window.dispatchEvent(
+      new CustomEvent("simulator-tab-changed-sync", { detail: tab() }),
+    );
   });
 
   const [dataLoaded, setDataLoaded] = createSignal(hasMasterData());
@@ -3635,7 +3931,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
   );
 
   const flatShips = createMemo(() => {
-    const flat: Array<{ type: "header"; key: string } | { type: "ship"; data: MstShipData }> = [];
+    const flat: Array<
+      { type: "header"; key: string } | { type: "ship"; data: MstShipData }
+    > = [];
     for (const group of groupedShips()) {
       flat.push({ type: "header", key: group.key });
       for (const ship of group.items) {
@@ -3650,7 +3948,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
   );
 
   const flatEquips = createMemo(() => {
-    const flat: Array<{ type: "header"; key: string } | { type: "equip"; data: MstSlotItemData }> = [];
+    const flat: Array<
+      { type: "header"; key: string } | { type: "equip"; data: MstSlotItemData }
+    > = [];
     for (const group of groupedEquips()) {
       flat.push({ type: "header", key: group.key });
       for (const equip of group.items) {
@@ -3668,7 +3968,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
   createEffect(() => {
     const id = selectedShipId();
     if (id && shipVListRef && !hasScrolledInitialShip) {
-      const idx = flatShips().findIndex(r => r.type === "ship" && r.data.id === id);
+      const idx = flatShips().findIndex(
+        (r) => r.type === "ship" && r.data.id === id,
+      );
       if (idx >= 0) {
         hasScrolledInitialShip = true;
         shipVListRef.scrollToIndex(idx, { align: "center" });
@@ -3680,7 +3982,9 @@ function SimulatorDetailsCatalog(): JSX.Element {
   createEffect(() => {
     const id = selectedEquipId();
     if (id && equipVListRef && !hasScrolledInitialEquip) {
-      const idx = flatEquips().findIndex(r => r.type === "equip" && r.data.id === id);
+      const idx = flatEquips().findIndex(
+        (r) => r.type === "equip" && r.data.id === id,
+      );
       if (idx >= 0) {
         hasScrolledInitialEquip = true;
         equipVListRef.scrollToIndex(idx, { align: "center" });
@@ -3802,8 +4106,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   return (
     <div class="space-y-4">
-
-
       <dialog
         ref={settingsDialogRef}
         class="modal"
@@ -4241,7 +4543,13 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
             </div>
             <div class="p-2 h-[74vh]">
-              <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+              <VList
+                ref={(el) => {
+                  shipVListRef = el;
+                }}
+                data={flatShips()}
+                class="h-full overflow-y-auto overflow-x-hidden"
+              >
                 {(item: any) =>
                   item.type === "header" ? (
                     <div class="mb-2 mt-1 first:mt-0">
@@ -4315,7 +4623,13 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
             </div>
             <div class="p-2 h-[74vh]">
-              <VList ref={(el) => { equipVListRef = el; }} data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
+              <VList
+                ref={(el) => {
+                  equipVListRef = el;
+                }}
+                data={flatEquips()}
+                class="h-full overflow-y-auto overflow-x-hidden"
+              >
                 {(item: any) =>
                   item.type === "header" ? (
                     <div class="mb-2 mt-1 first:mt-0">
