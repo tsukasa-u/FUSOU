@@ -820,6 +820,8 @@ function ImageFallbackBox(props: {
   class: string;
   fallbackText?: string;
   objectClass?: string;
+  loading?: "lazy" | "eager" | undefined;
+  fetchpriority?: "high" | "low" | "auto" | undefined;
 }): JSX.Element {
   const [errored, setErrored] = createSignal(!props.src);
 
@@ -841,7 +843,8 @@ function ImageFallbackBox(props: {
           src={props.src}
           alt={props.alt}
           class={props.objectClass ?? "w-full h-full object-cover"}
-          loading="lazy"
+          loading={props.loading}
+          fetchpriority={props.fetchpriority ?? "auto"}
           decoding="async"
           onError={() => setErrored(true)}
         />
@@ -1654,6 +1657,8 @@ function ShipDetailPanel(props: {
               class="w-full h-72 rounded-md"
               objectClass="w-full h-full object-contain object-center"
               fallbackText="No Image"
+              loading={undefined}
+              fetchpriority="high"
             />
           </div>
           <div class="min-w-0 h-full flex flex-col gap-2">
@@ -2620,6 +2625,8 @@ function EquipDetailPanel(props: {
               class="w-full h-56"
               objectClass="w-full h-full object-contain object-center"
               fallbackText="No Image"
+              loading={undefined}
+              fetchpriority="high"
             />
             <span class="absolute top-3 left-3 inline-flex h-7 items-center justify-center rounded bg-base-100/92 border border-base-300/70 px-1.5 shadow-sm">
               <WeaponIcon iconNum={props.equip.type?.[3] ?? 0} />
@@ -2675,6 +2682,7 @@ function EquipDetailPanel(props: {
                                 alt={row.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
+                                loading="lazy"
                               />
                               <span class="text-sm font-medium truncate group-hover:text-primary transition-colors">
                                 {row.ship.name}
@@ -2817,6 +2825,7 @@ function EquipDetailPanel(props: {
                                 alt={entry.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
+                                loading="lazy"
                               />
                               <span class="text-sm font-medium truncate">
                                 {entry.ship.name}
@@ -2953,6 +2962,7 @@ function EquipDetailPanel(props: {
                                 alt={entry.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
+                                loading="lazy"
                               />
                               <span class="text-sm font-medium truncate">
                                 {entry.ship.name}
@@ -3148,6 +3158,7 @@ function EquipDetailPanel(props: {
                                 alt={row.ship.name}
                                 class="w-20 h-6 rounded shrink-0"
                                 fallbackText="No Image"
+                                loading="lazy"
                               />
                               <span class="text-sm font-medium truncate flex-1 group-hover:text-primary transition-colors">
                                 {row.ship.name}
