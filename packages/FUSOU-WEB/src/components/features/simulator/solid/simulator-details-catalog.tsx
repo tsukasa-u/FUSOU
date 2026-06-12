@@ -2870,29 +2870,27 @@ function EquipDetailPanel(props: {
                       <For each={group.items}>
                         {(row) => {
                           return (
-                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
-                              <button
-                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
-                                onClick={() => props.onOpenShip(row.ship.id)}
-                                title={row.ship.name}
-                              >
-                                <ImageFallbackBox
-                                  src={bannerUrl(row.ship.id, { f: "auto" })}
-                                  alt={row.ship.name}
-                                  class="w-20 h-6 rounded shrink-0"
-                                  fallbackText="No Image"
-                                  loading="lazy"
-                                />
-                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
-                                  {row.ship.name}
-                                </span>
-                                <CompatibilityBadges
-                                  normalSlots={row.compat.normalSlots}
-                                  slotCount={row.ship.slot_num}
-                                  exslot={row.compat.exslot}
-                                />
-                              </button>
-                            </div>
+                            <button
+                              class="w-full flex items-center gap-2 text-left rounded-lg border border-base-300/70 hover:border-primary/45 p-2 bg-base-100/50 transition"
+                              onClick={() => props.onOpenShip(row.ship.id)}
+                              title={row.ship.name}
+                            >
+                              <ImageFallbackBox
+                                src={bannerUrl(row.ship.id, { f: "auto" })}
+                                alt={row.ship.name}
+                                class="w-20 h-6 rounded shrink-0"
+                                fallbackText="No Image"
+                                loading="lazy"
+                              />
+                              <span class="text-sm font-medium truncate flex-1">
+                                {row.ship.name}
+                              </span>
+                              <CompatibilityBadges
+                                normalSlots={row.compat.normalSlots}
+                                slotCount={row.ship.slot_num}
+                                exslot={row.compat.exslot}
+                              />
+                            </button>
                           );
                         }}
                       </For>
@@ -2945,9 +2943,9 @@ function EquipDetailPanel(props: {
                       <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                         <For each={rows}>
                           {(row) => (
-                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                               <button
-                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                 onClick={() => props.onOpenShip(row.ship.id)}
                                 title={row.ship.name}
                               >
@@ -2958,7 +2956,7 @@ function EquipDetailPanel(props: {
                                   fallbackText="No Image"
                                   loading="lazy"
                                 />
-                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                <span class="text-sm font-medium truncate">
                                   {row.ship.name}
                                 </span>
                               </button>
@@ -3104,9 +3102,9 @@ function EquipDetailPanel(props: {
                       <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                         <For each={rows}>
                           {(entry) => (
-                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                               <button
-                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                 onClick={() => props.onOpenShip(entry.ship.id)}
                                 title={entry.ship.name}
                               >
@@ -3117,7 +3115,7 @@ function EquipDetailPanel(props: {
                                   fallbackText="No Image"
                                   loading="lazy"
                                 />
-                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                <span class="text-sm font-medium truncate">
                                   {entry.ship.name}
                                 </span>
                               </button>
@@ -3257,9 +3255,9 @@ function EquipDetailPanel(props: {
                       <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                         <For each={rows}>
                           {(entry) => (
-                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 hover:border-primary/45 transition-colors duration-200">
+                            <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                               <button
-                                class="flex items-center gap-2 min-w-0 w-full text-left hover:opacity-80 transition-opacity group"
+                                class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                 onClick={() => props.onOpenShip(entry.ship.id)}
                                 title={entry.ship.name}
                               >
@@ -3270,7 +3268,7 @@ function EquipDetailPanel(props: {
                                   fallbackText="No Image"
                                   loading="lazy"
                                 />
-                                <span class="text-sm font-medium truncate group-hover:text-primary transition-colors flex-1">
+                                <span class="text-sm font-medium truncate">
                                   {entry.ship.name}
                                 </span>
                               </button>
