@@ -1,4 +1,4 @@
-import type { Bindings } from "../types";
+import type { Bindings, D1Database } from "../types";
 
 type SupabaseRestConfigLike = {
   url: string;
@@ -279,4 +279,37 @@ async function resolveSupabaseRestConfig(
 
   const { getSupabaseRestConfig } = await import("./supabase-rest");
   return getSupabaseRestConfig(c);
+}
+
+export async function getLatestMasterPeriodTag(
+  db: D1Database,
+  kv?: KVNamespace,
+): Promise<{ period_tag: string; table_version: string } | null> {
+  const cacheKey = "master-data-index:v1:latest-with-version";
+  if (kv) {
+    try {
+      const cached = await kv.get(cacheKey, "json");
+      if (cached) return cached as { period_tag: string; table_version: string };
+    } catch (e) {
+      console.warn("[period-tags] failed to read from kv for latest master period", e);
+    }
+  }
+
+  const latestMasterData = (await db
+    .prepare(
+      `SELECT period_tag, table_version FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
+    )
+    .first()) as { period_tag: string; table_version: string } | null;
+
+  if (latestMasterData?.period_tag) {
+    if (kv) {
+      try {
+        await kv.put(cacheKey, JSON.stringify(latestMasterData), { expirationTtl: 300 });
+      } catch (e) {
+        console.warn("[period-tags] failed to write to kv for latest master period", e);
+      }
+    }
+    return latestMasterData;
+  }
+  return null;
 }

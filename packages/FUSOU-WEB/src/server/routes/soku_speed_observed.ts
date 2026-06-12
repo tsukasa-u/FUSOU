@@ -15,6 +15,7 @@ import {
   safeWaitUntil,
 } from "../utils";
 import {
+  getLatestMasterPeriodTag,
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
@@ -165,16 +166,7 @@ function validateSokuSpeedIngestBody(
   }
   return { ok: true, datasetId, requestId, eventType };
 }
-async function resolveLatestMasterPeriod(
-  masterDb: D1Database,
-): Promise<{ period_tag: string; table_version: string } | null> {
-  const latest = (await masterDb
-    .prepare(
-      `SELECT period_tag, table_version       FROM master_data_index       WHERE upload_status = 'completed'       ORDER BY completed_at DESC, period_revision DESC       LIMIT 1`,
-    )
-    .first()) as { period_tag: string; table_version: string } | null;
-  return latest;
-}
+
 app.post("/ingest", async (c) => {
   const db = c.env.SOKU_SPEED_OBSERVED_DB;
   if (!db)
@@ -239,9 +231,9 @@ app.post("/ingest", async (c) => {
       );
     }
     const bodyTableVersion = String(handshakeBody?.table_version ?? "").trim();
-    const latestMaster = await resolveLatestMasterPeriod(masterDb);
+    const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
     if (!latestMaster) {
-      return c.json({ error: "No completed master data period found" }, 503);
+      return c.json({ error: "No master data available" }, 404);
     }
     if (
       latestMaster.period_tag !== bodyPeriodTag ||
@@ -387,9 +379,9 @@ app.post("/ingest", async (c) => {
       periodTagValidation.status,
     );
   }
-  const latestMaster = await resolveLatestMasterPeriod(masterDb);
+  const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
   if (!latestMaster) {
-    return c.json({ error: "No completed master data period found" }, 503);
+    return c.json({ error: "No master data available" }, 404);
   }
   if (
     latestMaster.period_tag !== period_tag ||
@@ -612,12 +604,13 @@ app.get("/speed-upgrade", async (c) => {
     try {
       const masterDb = c.env.MASTER_DATA_INDEX_DB;
       const latest = masterDb
-        ? await resolveLatestMasterPeriod(masterDb)
-        : ((await db
+        ? (await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)) ??
+          ((await db
             .prepare(
               `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
             )
-            .first()) as { period_tag: string; table_version: string } | null);
+            .first()) as { period_tag: string; table_version: string } | null)
+        : null;
       if (!latest) {
         const empty = c.json({
           ok: true,

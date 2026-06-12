@@ -9,7 +9,7 @@ import {
   timingSafeEqual,
   safeWaitUntil,
 } from "../utils";
-import { validateCachedPeriodTag, listAllowedPeriodTags } from "../utils/period-tags";
+import { validateCachedPeriodTag, listAllowedPeriodTags, getLatestMasterPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -999,10 +999,10 @@ app.get("/json", async (c) => {
     let effectiveParams = [...params];
 
     if (!requestedPeriodTag) {
-      const allowedPeriodTags = await listAllowedPeriodTags(c, {
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
-      });
-      if (allowedPeriodTags.length === 0) {
+      const latestMaster = await getLatestMasterPeriodTag(db, env.runtime.DATA_LOADER_CACHE_KV);
+      const latestPeriodTag = latestMaster?.period_tag;
+
+      if (!latestPeriodTag) {
         return c.json(
           {
             table_name: tableName,
@@ -1015,9 +1015,8 @@ app.get("/json", async (c) => {
           { ...CORS_HEADERS },
         );
       }
-      const placeholders = allowedPeriodTags.map(() => "?").join(", ");
-      effectiveSql += ` AND i.period_tag IN (${placeholders})`;
-      effectiveParams.push(...allowedPeriodTags);
+      effectiveSql += ` AND i.period_tag = ?`;
+      effectiveParams.push(latestPeriodTag);
     }
 
     let record = (await db

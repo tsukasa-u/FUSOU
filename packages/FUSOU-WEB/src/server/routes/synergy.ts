@@ -14,6 +14,7 @@ import { createEnvContext, verifyAdminToken } from "../utils";
 import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
+  getLatestMasterPeriodTag,
 } from "../utils/period-tags";
 import {
   SynergyPayloadValidationError,
@@ -134,15 +135,7 @@ app.get("/synergy-data", async (c) => {
   try {
     let effectivePeriodTag = periodTagQuery;
     if (!effectivePeriodTag) {
-      const latestMasterData = (await db
-        .prepare(
-          `SELECT period_tag
-           FROM master_data_index
-           WHERE upload_status = 'completed'
-           ORDER BY completed_at DESC, period_revision DESC
-           LIMIT 1`,
-        )
-        .first()) as { period_tag: string } | null;
+      const latestMasterData = await getLatestMasterPeriodTag(db, c.env.DATA_LOADER_CACHE_KV);
 
       if (latestMasterData?.period_tag) {
         effectivePeriodTag = latestMasterData.period_tag;
@@ -150,13 +143,32 @@ app.get("/synergy-data", async (c) => {
     }
     // Fallback to synergy_manifest if needed
     if (!effectivePeriodTag) {
-      const latestSynergy = (await db
-        .prepare(
-          `SELECT period_tag FROM synergy_manifest WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
-        )
-        .first()) as { period_tag: string } | null;
-      if (latestSynergy?.period_tag) {
-        effectivePeriodTag = latestSynergy.period_tag;
+      const cacheKey = "synergy-manifest:v1:latest";
+      let latestSynergyTag: string | null = null;
+      if (c.env.DATA_LOADER_CACHE_KV) {
+        try {
+          latestSynergyTag = await c.env.DATA_LOADER_CACHE_KV.get(cacheKey);
+        } catch (e) {}
+      }
+
+      if (!latestSynergyTag) {
+        const latestSynergyRow = (await db
+          .prepare(
+            `SELECT period_tag FROM synergy_manifest WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
+          )
+          .first()) as { period_tag: string } | null;
+        if (latestSynergyRow?.period_tag) {
+          latestSynergyTag = latestSynergyRow.period_tag;
+          if (c.env.DATA_LOADER_CACHE_KV) {
+            try {
+              await c.env.DATA_LOADER_CACHE_KV.put(cacheKey, latestSynergyTag, { expirationTtl: 300 });
+            } catch (e) {}
+          }
+        }
+      }
+
+      if (latestSynergyTag) {
+        effectivePeriodTag = latestSynergyTag;
       } else {
         if (envCtx.isDev && !periodTagQuery) {
           return c.json(EMPTY_SYNERGY_DATA, 200, {

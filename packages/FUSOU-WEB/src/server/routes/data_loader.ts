@@ -24,6 +24,7 @@ import {
 } from "../utils/supabase-rest";
 import {
   getLatestAllowedPeriodTag,
+  getLatestMasterPeriodTag,
   listAllowedPeriodTags,
 } from "../utils/period-tags";
 
@@ -449,16 +450,9 @@ app.get("/data/:table", async (c) => {
       // For master-data, ignore scope parameter (always "all")
       let periodTag: string | null = null;
       if (periodTagParam === "latest") {
-        // Get latest period_tag from master_data_index
-        const latestStmt = masterDb.prepare(
-          `SELECT mdi.period_tag FROM master_data_tables mdt
-           JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
-           WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'
-            ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1`,
-        );
-        const latestResult = await latestStmt.bind(tableName).first();
-        const latestPeriodTag = (latestResult as { period_tag?: string } | null)
-          ?.period_tag;
+        const latestMaster = await getLatestMasterPeriodTag(masterDb, env.runtime.DATA_LOADER_CACHE_KV);
+        const latestPeriodTag = latestMaster?.period_tag;
+
         if (latestPeriodTag) {
           periodTag = latestPeriodTag;
         } else {
