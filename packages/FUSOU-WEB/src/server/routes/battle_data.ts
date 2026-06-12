@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
+import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
 import {
   getAllowedPeriodTagSet,
   validateCachedPeriodTag,
@@ -275,28 +275,13 @@ function matchesRecordFilter(
 }
 
 async function putCacheSafely(
-  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  c: any,
   cache: Cache,
-  cacheKey: RequestInfo | URL,
+  cacheKey: Request,
   response: Response,
 ): Promise<void> {
   const putPromise = cache.put(cacheKey, response.clone());
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, putPromise);
-      return;
-    }
-  } catch (err) {
-    // Hono can throw this in stateless contexts; direct await keeps behavior correct.
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn(
-        "[battle-data] ExecutionContext unavailable for cache put",
-        err,
-      );
-    }
-  }
-  await putPromise;
+  safeWaitUntil(c, putPromise);
 }
 
 async function decodeIndexedBlock(

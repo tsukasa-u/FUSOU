@@ -14,6 +14,8 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
+  safeGetExecutionCtx,
 } from "../utils";
 import {
   invalidateCanonicalSnapshots,
@@ -2003,48 +2005,20 @@ async function staleMarkAllPeriodsSnapshot(
 // ── Cache helper ───────────────────────────────────────────────────
 
 async function putShipGrowthCache(
-  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  c: any,
   cache: Cache,
   cacheKey: Request,
   response: Response,
 ): Promise<void> {
   const putPromise = cache.put(cacheKey, response.clone());
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, putPromise);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn(
-        "[ship-growth] ExecutionContext unavailable for cache put",
-        err,
-      );
-    }
-  }
-  await putPromise;
+  safeWaitUntil(c, putPromise);
 }
 
 function scheduleShipGrowthTask(
-  c: { executionCtx?: { waitUntil?: (p: Promise<unknown>) => void } },
+  c: any,
   task: Promise<unknown>,
 ): void {
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, task);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[ship-growth] ExecutionContext unavailable", err);
-    }
-  }
-
-  void task.catch((err) => {
-    console.warn("[ship-growth] async task failed", err);
-  });
+  safeWaitUntil(c, task);
 }
 
 // ── Public READ endpoints ──────────────────────────────────────────
@@ -3310,19 +3284,19 @@ app.post("/ingest", async (c) => {
               `/summary`,
               {},
               c.env,
-              c.executionCtx
+              safeGetExecutionCtx(c)
             );
             await app.request(
               `/exp?period_tag=${period_tag}&table_version=${table_version}`,
               {},
               c.env,
-              c.executionCtx
+              safeGetExecutionCtx(c)
             );
             await app.request(
               `/bounds?period_tag=${period_tag}&table_version=${table_version}`,
               {},
               c.env,
-              c.executionCtx
+              safeGetExecutionCtx(c)
             );
           } catch (err) {
             console.warn("[ship-growth] Failed to pre-warm caches:", err);

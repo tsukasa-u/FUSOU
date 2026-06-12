@@ -253,6 +253,32 @@ export function injectEnv(_locals?: unknown): Bindings {
 // ヘルパー関数
 // ========================
 
+/**
+ * Hono の c.executionCtx に安全にアクセスする
+ * Hono の仕様により、Execution Context が提供されていない状態で c.executionCtx を読むと例外が発生するため
+ */
+export function safeGetExecutionCtx(c: any): any | undefined {
+  try {
+    return c.executionCtx;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * バックグラウンドタスクを安全にスケジュールする
+ */
+export function safeWaitUntil(c: any, promise: Promise<unknown>): void {
+  const ctx = safeGetExecutionCtx(c);
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(promise);
+  } else {
+    void promise.catch((err) =>
+      console.warn("[Background Task Failed]:", err)
+    );
+  }
+}
+
 /** Authorization ヘッダーから Bearer トークンを抽出 */
 export function extractBearer(
   header: string | null | undefined,

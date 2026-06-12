@@ -13,6 +13,8 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
+  safeGetExecutionCtx,
 } from "../utils";
 import {
   invalidateCanonicalSnapshots,
@@ -150,24 +152,10 @@ async function invalidateQuestTreeCaches(
 }
 
 function scheduleQuestTreeTask(
-  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  c: any,
   task: Promise<unknown>,
 ): void {
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, task);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[quest-tree] ExecutionContext unavailable", err);
-    }
-  }
-
-  void task.catch((err) => {
-    console.warn("[quest-tree] async task failed", err);
-  });
+  safeWaitUntil(c, task);
 }
 
 function toInt(value: unknown): number | null {
@@ -1157,7 +1145,7 @@ app.post("/ingest", async (c) => {
               `/graph?period_tag=${periodTag}&table_version=${tableVersion}`,
               {},
               c.env,
-              c.executionCtx
+              safeGetExecutionCtx(c),
             );
           } catch (err) {
             console.warn("[quest-tree] Failed to pre-warm caches:", err);

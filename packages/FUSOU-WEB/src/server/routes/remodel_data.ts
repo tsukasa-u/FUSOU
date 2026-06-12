@@ -12,6 +12,8 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
+  safeGetExecutionCtx,
 } from "../utils";
 import {
   invalidateCanonicalSnapshots,
@@ -249,24 +251,10 @@ async function invalidateRemodelCaches(
 }
 
 function scheduleRemodelTask(
-  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  c: any,
   task: Promise<unknown>,
 ): void {
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, task);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[remodel] ExecutionContext unavailable", err);
-    }
-  }
-
-  void task.catch((err) => {
-    console.warn("[remodel] async task failed", err);
-  });
+  safeWaitUntil(c, task);
 }
 
 // ── Public READ endpoint ───────────────────────────────────────────
@@ -740,7 +728,7 @@ app.post("/ingest", async (c) => {
         "remodel:summary",
       ]);
       try {
-        await app.request(`/summary`, {}, c.env, c.executionCtx);
+        await app.request(`/summary`, {}, c.env, safeGetExecutionCtx(c));
       } catch (err) {
         console.warn("[remodel-data] Failed to pre-warm caches:", err);
       }
