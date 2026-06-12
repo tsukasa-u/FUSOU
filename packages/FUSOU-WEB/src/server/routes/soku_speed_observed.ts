@@ -550,7 +550,7 @@ app.post("/ingest", async (c) => {
           }
       })();
 
-      if (c.executionCtx?.waitUntil) {
+      if (typeof c.executionCtx?.waitUntil === "function") {
         c.executionCtx.waitUntil(prewarmTask);
       } else {
         void prewarmTask.catch((err) => console.warn("[soku-speed] Background task failed:", err));
@@ -744,7 +744,7 @@ app.get("/speed-upgrade", async (c) => {
     const writeTask = cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 }).catch((e) => {
       console.error("[soku-speed] KV cache write error:", e);
     });
-    if (c.executionCtx?.waitUntil) {
+    if (typeof c.executionCtx?.waitUntil === "function") {
       c.executionCtx.waitUntil(writeTask);
     } else {
       void writeTask.catch((err) => console.warn("[soku-speed] Background task failed:", err));
