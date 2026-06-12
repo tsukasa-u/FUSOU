@@ -1652,6 +1652,46 @@ const tripleRules = buildRules(tripleSynergies, 3);
 const quadRules = buildRules(quadSynergies, 4);
 const pentaRules = buildRules(pentaSynergies, 5);
 const hexaRules = buildRules(hexaSynergies, 6);
+
+function buildEquipIndex(rules) {
+  const index = {};
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    const items = new Set();
+    if (rule.items) rule.items.forEach(id => items.add(id));
+    if (rule.item_pool) rule.item_pool.forEach(id => items.add(id));
+    if (rule.fixed_items) rule.fixed_items.forEach(id => items.add(id));
+    if (rule.free_pool) rule.free_pool.forEach(id => items.add(id));
+    if (rule.category_pools) {
+      for (const pool of rule.category_pools) {
+        pool.forEach(id => items.add(id));
+      }
+    }
+    if (rule.pairs) {
+      for (const pair of rule.pairs) {
+        pair.forEach(id => items.add(id));
+      }
+    }
+    if (rule.combos) {
+      for (const combo of rule.combos) {
+        combo.forEach(id => items.add(id));
+      }
+    }
+    if (rule.implicants) {
+      for (const imp of rule.implicants) {
+        for (const term of imp) {
+          term.forEach(id => items.add(id));
+        }
+      }
+    }
+    for (const id of items) {
+      if (!index[id]) index[id] = [];
+      index[id].push(i);
+    }
+  }
+  return index;
+}
+
 const pkgVersion = (() => {
   try {
     return (
@@ -1713,6 +1753,12 @@ const output = {
   quad_rules: quadRules,
   penta_rules: pentaRules,
   hexa_rules: hexaRules,
+  effect_rules_equip_index: buildEquipIndex(effectRules),
+  cross_rules_equip_index: buildEquipIndex(crossRules),
+  triple_rules_equip_index: buildEquipIndex(tripleRules),
+  quad_rules_equip_index: buildEquipIndex(quadRules),
+  penta_rules_equip_index: buildEquipIndex(pentaRules),
+  hexa_rules_equip_index: buildEquipIndex(hexaRules),
 };
 
 const dir = path.dirname(outputPath);

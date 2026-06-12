@@ -314,6 +314,52 @@ function normalizeCrossEffects(
   return out;
 }
 
+function getSingleEntriesForEquip(
+  effects: SlotItemEffectsData,
+  equipId: number,
+): EquipEffect[] {
+  if (effects.effect_rules_equip_index) {
+    const indices = effects.effect_rules_equip_index[String(equipId)] ?? [];
+    return indices.map((i) => {
+      const rule = effects.effect_rules![i];
+      return {
+        ships: rule.ships,
+        b: rule.b,
+        l: rule.l,
+        c2: rule.c2,
+        c3: rule.c3,
+      };
+    });
+  }
+  return normalizeEffects(effects)[String(equipId)] ?? [];
+}
+
+function getCrossEntriesForEquip(
+  effects: SlotItemEffectsData,
+  equipId: number,
+): CrossEffect[] {
+  if (effects.cross_rules_equip_index) {
+    const indices = effects.cross_rules_equip_index[String(equipId)] ?? [];
+    const out: CrossEffect[] = [];
+    for (const i of indices) {
+      const rule = effects.cross_rules![i];
+      for (const [a, b] of rule.pairs) {
+        if (a === equipId || b === equipId) {
+          out.push({
+            ships: rule.ships,
+            items: [a, b],
+            synergy: rule.synergy,
+          });
+        }
+      }
+    }
+    return out;
+  }
+  return Object.values(normalizeCrossEffects(effects))
+    .flat()
+    .filter((entry) => entry.items[0] === equipId || entry.items[1] === equipId);
+}
+
 // ── Multi-item rule helpers ──────────────────────────────────────────
 
 /** WeakMap cache: rule object → decoded combo arrays (all combos, ID arrays). */
@@ -2125,15 +2171,8 @@ function EquipDetailPanel(props: {
         }>;
       }>;
 
-    const singleEntries =
-      normalizeEffects(effects)[String(props.equip.id)] ?? [];
-    const crossEntries = Object.values(normalizeCrossEffects(effects))
-      .flat()
-      .filter(
-        (entry) =>
-          entry.items[0] === props.equip.id ||
-          entry.items[1] === props.equip.id,
-      );
+    const singleEntries = getSingleEntriesForEquip(effects, props.equip.id);
+    const crossEntries = getCrossEntriesForEquip(effects, props.equip.id);
 
     const rows: Array<{
       ship: MstShipData;
@@ -2390,21 +2429,17 @@ function EquipDetailPanel(props: {
 
     if (!effects) return { speedEntries: [], rangeEntries: [] };
 
-    const singleEntries = normalizeEffects(effects)[String(equipId)] ?? [];
+    const singleEntries = getSingleEntriesForEquip(effects, equipId);
 
     // Cross entries involving this equip
-    const _crossMapLocal = normalizeCrossEffects(effects);
     const crossEntriesByPartner: Array<{
       partnerId: number;
       entry: CrossEffect;
     }> = [];
-    for (const [pairKey, entries] of Object.entries(_crossMapLocal)) {
-      const [a, b] = pairKey.split(":").map(Number);
-      if (a !== equipId && b !== equipId) continue;
-      const partnerId = a === equipId ? b : a;
-      for (const entry of entries) {
-        crossEntriesByPartner.push({ partnerId, entry });
-      }
+    const crossEntries = getCrossEntriesForEquip(effects, equipId);
+    for (const entry of crossEntries) {
+      const partnerId = entry.items[0] === equipId ? entry.items[1] : entry.items[0];
+      crossEntriesByPartner.push({ partnerId, entry });
     }
 
     // ── Speed synergy — derived from actual gameplay observations ──
@@ -2538,13 +2573,16 @@ function EquipDetailPanel(props: {
       if (!ship || ship.id >= ENEMY_ID_THRESHOLD) continue;
       const thisAfter = Math.max(ship.leng, equipLeng) + thisBonus;
 
-      for (const [otherEquipIdStr, otherEntries] of Object.entries(
-        normalizeEffects(effects),
-      )) {
+      const otherEquipIds = effects.effect_rules_equip_index
+        ? Object.keys(effects.effect_rules_equip_index)
+        : Object.keys(normalizeEffects(effects));
+
+      for (const otherEquipIdStr of otherEquipIds) {
         const otherEquipId = Number(otherEquipIdStr);
         if (otherEquipId === equipId) continue;
         const otherEquip = getMasterSlotItem(otherEquipId);
         if (!otherEquip || otherEquip.id >= ENEMY_ID_THRESHOLD) continue;
+        const otherEntries = getSingleEntriesForEquip(effects, otherEquipId);
         const otherEntry = otherEntries.find((e) => e.ships.includes(shipId));
         if (!otherEntry) continue;
         const otherMaxLeng = Math.max(
@@ -2556,10 +2594,14 @@ function EquipDetailPanel(props: {
         if (otherMaxLeng === 0) continue;
 
         const pairKey = `${Math.min(equipId, otherEquipId)}:${Math.max(equipId, otherEquipId)}`;
-        const crossEntry = _crossMapLocal[pairKey]?.find((e) =>
-          e.ships.includes(shipId),
-        );
-        const crossLeng = crossEntry?.synergy.leng ?? 0;
+        const crossEntryLocal = effects.cross_rules_equip_index
+          ? crossEntries.find(
+              (e) =>
+                (e.items[0] === otherEquipId || e.items[1] === otherEquipId) &&
+                e.ships.includes(shipId)
+            )
+          : normalizeCrossEffects(effects)[pairKey]?.find((e) => e.ships.includes(shipId));
+        const crossLeng = crossEntryLocal?.synergy.leng ?? 0;
         const effectiveBase = Math.max(
           ship.leng,
           equipLeng,

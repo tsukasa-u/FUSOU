@@ -184,6 +184,18 @@ export interface SlotItemEffectsData {
   penta_rules?: PentaRule[];
   /** 6-item cross-synergy correction rules (for ships with 5+1 effective slots). */
   hexa_rules?: HexaRule[];
+  /** Equipment-centric index: maps equipId to matching effect_rules indices. */
+  effect_rules_equip_index?: Record<string, number[]>;
+  /** Equipment-centric index: maps equipId to matching cross_rules indices. */
+  cross_rules_equip_index?: Record<string, number[]>;
+  /** Equipment-centric index: maps equipId to matching triple_rules indices. */
+  triple_rules_equip_index?: Record<string, number[]>;
+  /** Equipment-centric index: maps equipId to matching quad_rules indices. */
+  quad_rules_equip_index?: Record<string, number[]>;
+  /** Equipment-centric index: maps equipId to matching penta_rules indices. */
+  penta_rules_equip_index?: Record<string, number[]>;
+  /** Equipment-centric index: maps equipId to matching hexa_rules indices. */
+  hexa_rules_equip_index?: Record<string, number[]>;
   /** Legacy: keyed by itemId — kept for backward-compat with server routes. */
   effects?: Record<string, EquipEffect[]>;
   /** Legacy: keyed by "a:b" pair — kept for backward-compat with server routes. */

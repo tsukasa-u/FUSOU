@@ -546,6 +546,7 @@ app.post("/ingest", async (c) => {
               data,
             });
             await cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 });
+            await cacheKV.put(`soku-speed-upgrade:v1:latest`, responseString, { expirationTtl: 86400 * 30 });
           } catch (e) {
             console.error("[soku-speed] pre-warm error:", e);
           }
@@ -587,7 +588,27 @@ app.get("/speed-upgrade", async (c) => {
   };
   let periodTag = requestedPeriodTag;
   let tableVersion = requestedTableVersion;
+  const cacheKV = c.env.DATA_LOADER_CACHE_KV;
+
   if (!periodTag || !tableVersion) {
+    if (cacheKV) {
+      try {
+        const cachedString = await cacheKV.get("soku-speed-upgrade:v1:latest", "text");
+        if (cachedString) {
+          const response = new Response(cachedString, {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+              "X-FUSOU-Cache": "HIT",
+            }
+          });
+          return response;
+        }
+      } catch (e) {
+        console.warn("[soku-speed] KV latest cache read error:", e);
+      }
+    }
+
     try {
       const masterDb = c.env.MASTER_DATA_INDEX_DB;
       const latest = masterDb
@@ -620,7 +641,6 @@ app.get("/speed-upgrade", async (c) => {
 
   type AggEntry = { soku_observed: number; item_ids: number[] };
 
-  const cacheKV = c.env.DATA_LOADER_CACHE_KV;
   const cacheKey = `soku-speed-upgrade:v1:${periodTag}:${tableVersion}`;
 
   if (cacheKV) {
@@ -738,9 +758,16 @@ app.get("/speed-upgrade", async (c) => {
   });
 
   if (cacheKV) {
-    const writeTask = cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 }).catch((e) => {
-      console.error("[soku-speed] KV cache write error:", e);
-    });
+    const writeTask = (async () => {
+      try {
+        await cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 });
+        if (!requestedPeriodTag || !requestedTableVersion) {
+          await cacheKV.put("soku-speed-upgrade:v1:latest", responseString, { expirationTtl: 86400 * 30 });
+        }
+      } catch (e) {
+        console.error("[soku-speed] KV cache write error:", e);
+      }
+    })();
     safeWaitUntil(c, writeTask);
   }
 

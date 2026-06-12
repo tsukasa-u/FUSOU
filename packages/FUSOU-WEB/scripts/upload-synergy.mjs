@@ -80,6 +80,8 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
+    if (arg === "--") continue;
+
     if (!arg.startsWith("--") && arg !== "-h") {
       console.error(`Error: unexpected argument: ${arg}`);
       process.exit(1);
