@@ -1148,9 +1148,21 @@ app.post("/ingest", async (c) => {
     if (periodTag && tableVersion) {
       scheduleQuestTreeTask(
         c,
-        invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-          `qtree:graph:${periodTag}:${tableVersion}`,
-        ]),
+        (async () => {
+          await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+            `qtree:graph:${periodTag}:${tableVersion}`,
+          ]);
+          try {
+            await app.request(
+              `/graph?period_tag=${periodTag}&table_version=${tableVersion}`,
+              {},
+              c.env,
+              c.executionCtx
+            );
+          } catch (err) {
+            console.warn("[quest-tree] Failed to pre-warm caches:", err);
+          }
+        })()
       );
     }
 

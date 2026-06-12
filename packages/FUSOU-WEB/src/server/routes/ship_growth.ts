@@ -2450,23 +2450,35 @@ app.get("/bounds", async (c) => {
       loadFull: async () => {
         // Paginate bounds to handle large datasets (D1 per-query response size cap).
         // KanColle can have 400+ ship classes × 180 levels = 72,000+ rows, well above
-        // a conservative per-query row limit. Each 5,000-row page is a separate D1 read.
+        // a conservative per-query row limit. We use db.batch to fetch pages in parallel.
+        const countRes = await db
+          .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
+          .bind(periodTag, tableVersion)
+          .first();
+        const totalRows = (countRes?.c as number) || 0;
+
         const BOUNDS_PAGE = 5000;
         let boundsRows: Array<BoundsRow & { updated_at: number }> = [];
-        for (let offset = 0; ; offset += BOUNDS_PAGE) {
-          const page = ((
-            await db
-              .prepare(
+
+        if (totalRows > 0) {
+          const stmts: any[] = [];
+          for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
+            stmts.push(
+              db.prepare(
                 `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked, lucky_naked, updated_at
                  FROM ship_growth_bounds
                  WHERE period_tag = ? AND table_version = ?
-                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`,
-              )
-              .bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
-              .all()
-          ).results ?? []) as Array<BoundsRow & { updated_at: number }>;
-          boundsRows = boundsRows.concat(page);
-          if (page.length < BOUNDS_PAGE) break;
+                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`
+              ).bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
+            );
+          }
+          const BATCH_LIMIT = 100; // max statements per db.batch
+          for (let i = 0; i < stmts.length; i += BATCH_LIMIT) {
+            const batchResults = await db.batch(stmts.slice(i, i + BATCH_LIMIT));
+            for (const res of batchResults) {
+              boundsRows = boundsRows.concat((res.results ?? []) as Array<BoundsRow & { updated_at: number }>);
+            }
+          }
         }
 
         const capsRows = ((
@@ -2555,24 +2567,35 @@ app.get("/bounds", async (c) => {
     ) {
       // Local legacy D1 schema compatibility: serve full data without delta/new luck columns.
       try {
+        const countRes = await db
+          .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
+          .bind(periodTag, tableVersion)
+          .first();
+        const totalRows = (countRes?.c as number) || 0;
+
         const BOUNDS_PAGE = 5000;
         let legacyBounds: Array<BoundsRow> = [];
-        for (let offset = 0; ; offset += BOUNDS_PAGE) {
-          const page = ((
-            await db
-              .prepare(
+
+        if (totalRows > 0) {
+          const stmts: any[] = [];
+          for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
+            stmts.push(
+              db.prepare(
                 `SELECT master_id, lv, kaihi_naked, taisen_naked, sakuteki_naked
                  FROM ship_growth_bounds
                  WHERE period_tag = ? AND table_version = ?
-                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`,
-              )
-              .bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
-              .all()
-          ).results ?? []) as Array<Omit<BoundsRow, "lucky_naked">>;
-          legacyBounds = legacyBounds.concat(
-            page.map((r) => ({ ...r, lucky_naked: 0 })),
-          );
-          if (page.length < BOUNDS_PAGE) break;
+                 ORDER BY master_id ASC, lv ASC LIMIT ? OFFSET ?`
+              ).bind(periodTag, tableVersion, BOUNDS_PAGE, offset)
+            );
+          }
+          const BATCH_LIMIT = 100;
+          for (let i = 0; i < stmts.length; i += BATCH_LIMIT) {
+            const batchResults = await db.batch(stmts.slice(i, i + BATCH_LIMIT));
+            for (const res of batchResults) {
+              const page = (res.results ?? []) as Array<Omit<BoundsRow, "lucky_naked">>;
+              legacyBounds = legacyBounds.concat(page.map((r) => ({ ...r, lucky_naked: 0 })));
+            }
+          }
         }
 
         const legacyCaps = ((
@@ -3275,11 +3298,36 @@ app.post("/ingest", async (c) => {
     if (period_tag && table_version) {
       scheduleShipGrowthTask(
         c,
-        invalidateShipGrowthKvSnapshots(
-          c.env.DATA_LOADER_CACHE_KV,
-          period_tag,
-          table_version,
-        ),
+        (async () => {
+          await invalidateShipGrowthKvSnapshots(
+            c.env.DATA_LOADER_CACHE_KV,
+            period_tag,
+            table_version,
+          );
+          // Pre-warm caches immediately after invalidation so the next user doesn't hit a full D1 scan
+          try {
+            await app.request(
+              `/summary`,
+              {},
+              c.env,
+              c.executionCtx
+            );
+            await app.request(
+              `/exp?period_tag=${period_tag}&table_version=${table_version}`,
+              {},
+              c.env,
+              c.executionCtx
+            );
+            await app.request(
+              `/bounds?period_tag=${period_tag}&table_version=${table_version}`,
+              {},
+              c.env,
+              c.executionCtx
+            );
+          } catch (err) {
+            console.warn("[ship-growth] Failed to pre-warm caches:", err);
+          }
+        })()
       );
     }
 

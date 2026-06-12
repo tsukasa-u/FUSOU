@@ -735,9 +735,16 @@ app.post("/ingest", async (c) => {
 
   scheduleRemodelTask(
     c,
-    invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-      "remodel:summary",
-    ]),
+    (async () => {
+      await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+        "remodel:summary",
+      ]);
+      try {
+        await app.request(`/summary`, {}, c.env, c.executionCtx);
+      } catch (err) {
+        console.warn("[remodel-data] Failed to pre-warm caches:", err);
+      }
+    })()
   );
 
   // Best-effort cache invalidation after successful ingest
