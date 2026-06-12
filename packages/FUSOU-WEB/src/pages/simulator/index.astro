@@ -1206,17 +1206,30 @@ const isEquip = tabQuery === "equip";
   import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
   import { initImageCaptureEvents } from "@/features/simulator/image-capture";
   import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
-  import { ensureOptimizerMounted } from "@/components/features/simulator/solid/simulator-optimizer";
-  import { mountSimulatorDetailsCatalog } from "@/components/features/simulator/solid/simulator-details-catalog";
+// Dynamic imports for SolidJS components to reduce initial JS payload
+  let ensureOptimizerMounted: any;
+  let mountSimulatorDetailsCatalog: any;
 
   let detailsMounted = false;
-  function ensureDetailsMounted() {
+  async function ensureDetailsMounted() {
     if (detailsMounted) return;
     const root = document.getElementById("simulator-details-root");
     if (root) {
       detailsMounted = true;
+      if (!mountSimulatorDetailsCatalog) {
+        const mod = await import("@/components/features/simulator/solid/simulator-details-catalog");
+        mountSimulatorDetailsCatalog = mod.mountSimulatorDetailsCatalog;
+      }
       mountSimulatorDetailsCatalog(root);
     }
+  }
+
+  async function loadOptimizer() {
+    if (!ensureOptimizerMounted) {
+      const mod = await import("@/components/features/simulator/solid/simulator-optimizer");
+      ensureOptimizerMounted = mod.ensureOptimizerMounted;
+    }
+    ensureOptimizerMounted();
   }
 
   // Tab switching
@@ -1288,7 +1301,7 @@ const isEquip = tabQuery === "equip";
       }
     }
 
-    if (!isFleet && !isDetails) ensureOptimizerMounted();
+    if (!isFleet && !isDetails) loadOptimizer();
     if (isDetails) {
       ensureDetailsMounted();
       if (dispatchInner) {

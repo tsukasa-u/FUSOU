@@ -466,6 +466,88 @@ app.post("/ingest", async (c) => {
     for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
       await db.batch(stmts.slice(i, i + BATCH_SIZE));
     }
+
+    // Invalidate and pre-warm KV cache since D1 data changed
+    const cacheKV = c.env.DATA_LOADER_CACHE_KV;
+    if (cacheKV) {
+      const cacheKey = `soku-speed-upgrade:v1:${period_tag}:${table_version}`;
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            await cacheKV.delete(cacheKey);
+            const result = await db
+              .prepare(
+                `SELECT master_id, soku_observed, slots_json, exslot_json FROM soku_speed_observations WHERE period_tag = ? AND table_version = ?`
+              )
+              .bind(period_tag, table_version)
+              .all();
+            const rows = (result.results ?? []) as {
+              master_id: number;
+              soku_observed: number;
+              slots_json: string;
+              exslot_json: string | null;
+            }[];
+            const byMaster = new Map<
+              number,
+              Map<string, { soku_observed: number; item_ids: number[] }>
+            >();
+            for (const row of rows) {
+              let slots: Array<{ slotitem_id: number }>;
+              try {
+                slots = JSON.parse(row.slots_json) as Array<{
+                  slotitem_id: number;
+                }>;
+              } catch {
+                continue;
+              }
+              const itemIds: number[] = [];
+              for (const s of slots) {
+                if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
+              }
+              if (row.exslot_json) {
+                try {
+                  const ex = JSON.parse(row.exslot_json) as {
+                    slotitem_id: number;
+                  } | null;
+                  if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+                } catch {
+                  /* skip malformed */
+                }
+              }
+              itemIds.sort((a, b) => a - b);
+              if (!byMaster.has(row.master_id))
+                byMaster.set(row.master_id, new Map());
+              const comboKey = itemIds.join(",");
+              const masterMap = byMaster.get(row.master_id)!;
+              const existing = masterMap.get(comboKey);
+              if (!existing) {
+                masterMap.set(comboKey, {
+                  soku_observed: row.soku_observed,
+                  item_ids: itemIds,
+                });
+              } else {
+                existing.soku_observed = Math.max(
+                  existing.soku_observed,
+                  row.soku_observed,
+                );
+              }
+            }
+            const data: Record<
+              number,
+              { soku_observed: number; item_ids: number[] }[]
+            > = {};
+            for (const [masterId, comboMap] of byMaster) {
+              data[masterId] = Array.from(comboMap.values());
+            }
+            await cacheKV.put(cacheKey, JSON.stringify(data), {
+              expirationTtl: 86400 * 30,
+            });
+          } catch (e) {
+            console.error("[soku-speed] Failed to pre-warm KV cache:", e);
+          }
+        })()
+      );
+    }
   } catch (error) {
     return c.json(
       {
@@ -530,6 +612,32 @@ app.get("/speed-upgrade", async (c) => {
       return c.json({ error: "Failed to resolve speed upgrade period" }, 500);
     }
   }
+
+  type AggEntry = { soku_observed: number; item_ids: number[] };
+
+  const cacheKV = c.env.DATA_LOADER_CACHE_KV;
+  const cacheKey = `soku-speed-upgrade:v1:${periodTag}:${tableVersion}`;
+
+  if (cacheKV) {
+    try {
+      const cachedData = await cacheKV.get<Record<number, AggEntry[]>>(cacheKey, "json");
+      if (cachedData) {
+        const response = c.json({
+          ok: true,
+          period_tag: periodTag,
+          table_version: tableVersion,
+          data: cachedData,
+        });
+        response.headers.set(
+          "Cache-Control",
+          "public, max-age=3600, stale-while-revalidate=86400",
+        );
+        return response;
+      }
+    } catch (e) {
+      console.warn("[soku-speed] KV cache read error:", e);
+    }
+  }
   let rows: ObsRow[];
   try {
     const result = await db
@@ -576,7 +684,6 @@ app.get("/speed-upgrade", async (c) => {
     );
     return c.json({ error: "Failed to query speed upgrade observations" }, 500);
   }
-  type AggEntry = { soku_observed: number; item_ids: number[] };
   const byMaster = new Map<number, Map<string, AggEntry>>();
   for (const row of rows) {
     let slots: Array<{ slotitem_id: number }>;
@@ -620,6 +727,18 @@ app.get("/speed-upgrade", async (c) => {
   for (const [masterId, comboMap] of byMaster) {
     data[masterId] = Array.from(comboMap.values());
   }
+
+  if (cacheKV) {
+    // Cache the aggregated data (e.g. for 30 days)
+    // The data is bound to period_tag & table_version, so it won't easily become stale
+    // unless explicitly updated by an ingest event.
+    c.executionCtx.waitUntil(
+      cacheKV.put(cacheKey, JSON.stringify(data), { expirationTtl: 86400 * 30 }).catch((e) => {
+        console.error("[soku-speed] KV cache write error:", e);
+      })
+    );
+  }
+
   const response = c.json({
     ok: true,
     period_tag: periodTag,

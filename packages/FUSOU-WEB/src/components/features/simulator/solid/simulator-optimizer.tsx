@@ -8,6 +8,7 @@ import {
   createSignal,
   type JSX,
 } from "solid-js";
+import { VList } from "virtua/solid";
 import { render } from "solid-js/web";
 import {
   computeEquipBonuses,
@@ -2495,14 +2496,13 @@ function EquipOptimizer(): JSX.Element {
               </div>
             }
           >
-            <div class="divide-y divide-base-200 max-h-[560px] overflow-y-auto">
-              <For each={results()}>
+            <VList data={results()} class="divide-y divide-base-200 max-h-[560px] overflow-y-auto overflow-x-hidden">
                 {(row, i) => (
                   <div class="px-4 py-3 hover:bg-base-200/20 transition-colors">
                     {/* Stats row */}
                     <div class="flex items-start gap-1 mb-1.5">
                       <span class="text-base-content/35 font-mono text-[11px] w-5 text-right shrink-0 mt-0.5">
-                        {i() + 1}
+                        {(typeof i === "function" ? i() : i) + 1}
                       </span>
                       <div class="flex flex-1 flex-wrap gap-x-3 gap-y-0.5 pl-1 text-[11px] font-mono">
                         <For each={activeStats()}>
@@ -2570,8 +2570,7 @@ function EquipOptimizer(): JSX.Element {
                     </div>
                   </div>
                 )}
-              </For>
-            </div>
+              </VList>
             <div class="px-4 py-2 border-t border-base-200 text-[11px] text-base-content/40">
               ※
               保有のみでは装備個体ごとの改修値・熟練度・同一装備複数所持を考慮します。全データでは改修0・熟練0前提で、同一装備の重複候補も探索します。
