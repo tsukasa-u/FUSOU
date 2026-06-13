@@ -1800,20 +1800,21 @@ function ShipDetailPanel(props: {
                 {(group) => (
                   <div>
                     <h5 class="text-sm font-medium mb-2">{group.key}</h5>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-1.5">
-                      <For each={group.items}>
+                    <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-1.5">
                         {(row) => (
                           <button
-                            class="w-full text-left flex items-center gap-2 rounded border border-base-300/70 hover:border-accent/45 px-2 py-1.5 transition"
+                            class="w-full flex items-center gap-2 text-left rounded-lg border border-base-300/70 hover:border-primary/45 p-2 bg-base-100/50 transition"
                             onClick={() => props.onOpenEquip(row.equip.id)}
                             title={row.equip.name}
                           >
-                            <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
+                            <span class="w-10 h-6 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
                               <WeaponIcon iconNum={row.equip.type?.[3] ?? 0} />
                             </span>
-                            <span class="text-xs truncate flex-1">
-                              {row.equip.name}
-                            </span>
+                            <div class="min-w-0 flex-1">
+                              <div class="text-sm font-medium truncate">
+                                {row.equip.name}
+                              </div>
+                            </div>
                             <CompatibilityBadges
                               normalSlots={row.compat.normalSlots}
                               slotCount={props.ship.slot_num}
@@ -1821,8 +1822,7 @@ function ShipDetailPanel(props: {
                             />
                           </button>
                         )}
-                      </For>
-                    </div>
+                      </ProgressiveGrid>
                   </div>
                 )}
               </For>
@@ -2886,8 +2886,7 @@ function EquipDetailPanel(props: {
                       <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                         {group.key}
                       </h5>
-                      <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                        <For each={group.items}>
+                      <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                           {(row) => {
                             return (
                               <button
@@ -2913,8 +2912,7 @@ function EquipDetailPanel(props: {
                               </button>
                             );
                           }}
-                        </For>
-                      </div>
+                        </ProgressiveGrid>
                     </div>
                   )}
                 </For>
@@ -3455,19 +3453,18 @@ function EquipDetailPanel(props: {
                                 （{group.entries.length}件）
                               </span>
                             </h6>
-                            <div
+                            <ProgressiveGrid
+                              data={group.entries}
                               class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                             >
-                              <For each={group.entries}>
-                                {(entry) => (
-                                  <MultiEntryDisplay
-                                    entry={entry}
-                                    onOpenEquip={props.onOpenEquip}
-                                    currentEquipId={props.equip.id}
-                                  />
-                                )}
-                              </For>
-                            </div>
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                  currentEquipId={props.equip.id}
+                                />
+                              )}
+                            </ProgressiveGrid>
                           </div>
                         )}
                       </For>
@@ -3488,19 +3485,18 @@ function EquipDetailPanel(props: {
                                 （{group.entries.length}件）
                               </span>
                             </h6>
-                            <div
+                            <ProgressiveGrid
+                              data={group.entries}
                               class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                             >
-                              <For each={group.entries}>
-                                {(entry) => (
-                                  <MultiEntryDisplay
-                                    entry={entry}
-                                    onOpenEquip={props.onOpenEquip}
-                                    currentEquipId={props.equip.id}
-                                  />
-                                )}
-                              </For>
-                            </div>
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                  currentEquipId={props.equip.id}
+                                />
+                              )}
+                            </ProgressiveGrid>
                           </div>
                         )}
                       </For>
@@ -3521,19 +3517,18 @@ function EquipDetailPanel(props: {
                                 （{group.entries.length}件）
                               </span>
                             </h6>
-                            <div
+                            <ProgressiveGrid
+                              data={group.entries}
                               class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                             >
-                              <For each={group.entries}>
-                                {(entry) => (
-                                  <MultiEntryDisplay
-                                    entry={entry}
-                                    onOpenEquip={props.onOpenEquip}
-                                    currentEquipId={props.equip.id}
-                                  />
-                                )}
-                              </For>
-                            </div>
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                  currentEquipId={props.equip.id}
+                                />
+                              )}
+                            </ProgressiveGrid>
                           </div>
                         )}
                       </For>
