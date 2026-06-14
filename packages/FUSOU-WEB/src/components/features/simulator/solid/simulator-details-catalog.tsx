@@ -1662,6 +1662,9 @@ function ShipDetailPanel(props: {
     };
   });
 
+  let shipSynergyContainerRef!: HTMLElement;
+  const [shipMinHeight, setShipMinHeight] = createSignal<number | null>(null);
+
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   const deferredSynergies = createMemo(() => {
     if (!isSynergiesReady()) return null;
@@ -1670,9 +1673,13 @@ function ShipDetailPanel(props: {
 
   createEffect(() => {
     props.ship; // Track ship changes
+    if (shipSynergyContainerRef) {
+      setShipMinHeight(shipSynergyContainerRef.offsetHeight);
+    }
     setIsSynergiesReady(false);
     setTimeout(() => {
       setIsSynergiesReady(true);
+      setTimeout(() => setShipMinHeight(null), 50);
     }, 50); // Yield to let DOM paint the ship details first
   });
 
@@ -1801,7 +1808,7 @@ function ShipDetailPanel(props: {
           </div>
         </section>
 
-        <section class="mb-8">
+        <section class="mb-8" ref={shipSynergyContainerRef} style={{ "min-height": shipMinHeight() != null ? `${shipMinHeight()}px` : undefined }}>
           <Show
             when={deferredSynergies()}
             fallback={
@@ -2253,12 +2260,19 @@ function EquipDetailPanel(props: {
   expandSynergyShips: boolean;
   expandCompatibleShips: boolean;
 }): JSX.Element {
+  let equipSynergyContainerRef!: HTMLDivElement;
+  const [equipMinHeight, setEquipMinHeight] = createSignal<number | null>(null);
+
   const [isSynergiesReady, setIsSynergiesReady] = createSignal(false);
   createEffect(() => {
     props.equip; // Track equip changes
+    if (equipSynergyContainerRef) {
+      setEquipMinHeight(equipSynergyContainerRef.offsetHeight);
+    }
     setIsSynergiesReady(false);
     setTimeout(() => {
       setIsSynergiesReady(true);
+      setTimeout(() => setEquipMinHeight(null), 50);
     }, 50); // Yield to let DOM paint the equip details first
   });
 
@@ -2827,6 +2841,7 @@ function EquipDetailPanel(props: {
           </div>
         </div>
 
+        <div ref={equipSynergyContainerRef} style={{ "min-height": equipMinHeight() != null ? `${equipMinHeight()}px` : undefined }}>
         <Show
           when={isSynergiesReady()}
           fallback={
@@ -3496,6 +3511,7 @@ function EquipDetailPanel(props: {
             </section>
           </Show>
         </Show>
+        </div>
       </div>
     </article>
   );
