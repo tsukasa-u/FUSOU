@@ -123,7 +123,7 @@ function ProgressiveGrid<T>(props: {
         <For each={props.data.slice(0, limit())}>{props.children}</For>
       </div>
       <Show when={limit() < props.data.length}>
-        <div ref={observerTarget} class="h-1" />
+        <div ref={observerTarget} class="h-px w-full" />
       </Show>
     </>
   );
@@ -1800,18 +1800,18 @@ function ShipDetailPanel(props: {
           </div>
         </div>
 
-        <section>
-          <h4 class="font-medium mb-2">装備可能な装備</h4>
-          <div
-            class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}
-          >
-            <div class="rounded-lg border border-base-300/70 p-2">
+        <section class="mb-8">
+          <h4 class="text-md font-medium mb-2">装備可能な装備</h4>
+          <div class="rounded-lg border border-base-300/70 p-2">
+            <div class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
               <For each={equippableGroups()}>
                 {(group) => (
-<LazyRender>
-<div>
-                    <h5 class="text-sm font-medium mb-2">{group.key}</h5>
-                    <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-1.5">
+                  <LazyRender>
+                  <div>
+                    <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                      {group.key}
+                    </h6>
+                    <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                         {(row) => (
                           <button
                             class="w-full flex items-center gap-2 text-left rounded-lg border border-base-300/70 hover:border-primary/45 p-2 bg-base-100/50 transition"
@@ -1853,7 +1853,8 @@ function ShipDetailPanel(props: {
           }
           >
             {(shipSynergy) => (
-              <div class="space-y-4">
+              <div class="space-y-8">
+                <section>
                 <h4 class="text-md font-medium mb-2">単体装備シナジー</h4>
                 <Show
                   when={shipSynergy().single.length > 0}
@@ -1936,7 +1937,9 @@ function ShipDetailPanel(props: {
                     </div>
                   </div>
                 </Show>
+                </section>
 
+                <section>
                 <h4 class="text-md font-medium mb-2">装備組み合わせシナジー</h4>
                 <Show
                   when={shipSynergy().pair.length > 0}
@@ -1988,7 +1991,9 @@ function ShipDetailPanel(props: {
                     </div>
                   </div>
                 </Show>
+                </section>
 
+                <section>
                 <h4 class="text-md font-medium mb-2">速力シナジー</h4>
                 <Show
                   when={shipSynergy().speedSynergies.length > 0}
@@ -2079,7 +2084,9 @@ function ShipDetailPanel(props: {
                     </div>
                   </div>
                 </Show>
+                </section>
 
+                <section>
                 <h4 class="text-md font-medium mb-2">射程シナジー</h4>
                 <Show 
                   when={shipSynergy().rangeSynergies.length > 0}
@@ -2170,6 +2177,7 @@ function ShipDetailPanel(props: {
                     </div>
                   </div>
                 </Show>
+                </section>
 
                 <Show
                   when={
@@ -2909,8 +2917,8 @@ function EquipDetailPanel(props: {
             </div>
           }
         >
-          <section>
-            <h4 class="font-medium mb-2">装備可能な艦</h4>
+          <section class="mb-8">
+            <h4 class="text-md font-medium mb-2">装備可能な艦</h4>
             <p class="text-xs text-base-content/55 mb-2">
               補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
             </p>
@@ -2922,17 +2930,15 @@ function EquipDetailPanel(props: {
                 </div>
               }
             >
-              <div class="rounded-lg border border-base-300/70 p-3 bg-base-50/50">
-              <div
-                class={`space-y-4 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}
-              >
+              <div class="rounded-lg border border-base-300/70 p-2">
+              <div class={`space-y-3 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}>
                 <For each={compatibleShips()}>
                   {(group) => (
                     <LazyRender>
-                    <div class="mb-2 last:mb-0">
-                      <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                    <div>
+                      <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                         {group.key}
-                      </h5>
+                      </h6>
                       <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
                           {(row) => {
                             return (
@@ -2969,8 +2975,9 @@ function EquipDetailPanel(props: {
           </Show>
           </section>
 
-          <section>
-            <h4 class="font-medium mb-2">この装備のシナジー対象艦</h4>
+          <div class="space-y-8">
+            <section>
+            <h4 class="text-md font-medium mb-2">この装備のシナジー対象艦</h4>
             <Show
               when={equipSynergyShips().length > 0}
               fallback={
@@ -2979,9 +2986,9 @@ function EquipDetailPanel(props: {
                 </div>
               }
             >
-              <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+              <div class="rounded-lg border border-base-300/70 p-2">
                 <div
-                  class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
+                  class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                 >
                   <For
                     each={(() => {
@@ -2999,13 +3006,16 @@ function EquipDetailPanel(props: {
                   >
                     {({ stype, rows }) => (
                       <LazyRender>
-                      <div class="mb-2 last:mb-0">
-                        <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
-                          {STYPE_NAMES[stype] ?? "不明"}
-                        </h5>
+                      <div>
+                        <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                          {STYPE_NAMES[stype] ?? "不明"}{" "}
+                          <span class="font-normal text-base-content/60">
+                            （{rows.length}件）
+                          </span>
+                        </h6>
                         <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                             {(row) => (
-                              <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
+                              <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 space-y-1">
                                 <button
                                   class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                   onClick={() => props.onOpenShip(row.ship.id)}
@@ -3029,7 +3039,7 @@ function EquipDetailPanel(props: {
                                     scoreSynergy(row.base ?? undefined) > 0
                                   }
                                 >
-                                  <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                  <div class="text-xs text-base-content/70 inline-flex items-center h-5">
                                     単体シナジー
                                   </div>
                                   <SynergyStatInline stats={row.base!} />
@@ -3059,10 +3069,11 @@ function EquipDetailPanel(props: {
                                 </For>
 
                                 <Show when={row.partners.length > 0}>
-                                  <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
-                                    他装備組み合わせ
-                                  </div>
-                                  <div class="space-y-1 mt-1">
+                                  <div class="mt-2 pt-2 border-t border-base-200/60 w-full flex flex-col">
+                                    <div class="text-xs font-medium text-base-content/60 mb-1 px-0.5">
+                                      他装備組み合わせ
+                                    </div>
+                                    <div class="space-y-1.5">
                                     <For each={row.partners.slice(0, 8)}>
                                       {(partner) => (
                                         <div class="rounded border border-base-300/70 p-1.5">
@@ -3115,6 +3126,7 @@ function EquipDetailPanel(props: {
                                         </div>
                                       )}
                                     </For>
+                                    </div>
                                   </div>
                                 </Show>
                               </div>
@@ -3127,10 +3139,10 @@ function EquipDetailPanel(props: {
                 </div>
               </div>
             </Show>
-          </section>
 
-          <section>
-            <h4 class="font-medium mb-2">この装備の速力シナジー対象艦</h4>
+            </section>
+            <section>
+            <h4 class="text-md font-medium mb-2">この装備の速力シナジー対象艦</h4>
             <Show
               when={ready()}
               fallback={
@@ -3147,9 +3159,9 @@ function EquipDetailPanel(props: {
                   </div>
                 }
               >
-                <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+                <div class="rounded-lg border border-base-300/70 p-2">
                   <div
-                    class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
+                    class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                   >
                     <For
                       each={(() => {
@@ -3167,13 +3179,16 @@ function EquipDetailPanel(props: {
                     >
                       {({ stype, rows }) => (
                         <LazyRender>
-                        <div class="mb-2 last:mb-0">
-                          <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
-                            {STYPE_NAMES[stype] ?? "不明"}
-                          </h5>
+                        <div>
+                          <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                            {STYPE_NAMES[stype] ?? "不明"}{" "}
+                            <span class="font-normal text-base-content/60">
+                              （{rows.length}件）
+                            </span>
+                          </h6>
                           <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                               {(entry) => (
-                                <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
+                                <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 space-y-1">
                                   <button
                                     class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                     onClick={() =>
@@ -3195,7 +3210,7 @@ function EquipDetailPanel(props: {
                                     </span>
                                   </button>
                                   <Show when={entry.single != null}>
-                                    <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                    <div class="text-xs text-base-content/70 inline-flex items-center h-5">
                                       単体
                                     </div>
                                     <div class="flex flex-wrap items-center gap-1">
@@ -3215,10 +3230,11 @@ function EquipDetailPanel(props: {
                                     </div>
                                   </Show>
                                   <Show when={entry.partners.length > 0}>
-                                    <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                                  <div class="mt-2 pt-2 border-t border-base-200/60 w-full flex flex-col">
+                                    <div class="text-xs font-medium text-base-content/60 mb-1 px-0.5">
                                       他装備組み合わせ
                                     </div>
-                                    <div class="space-y-1 mt-1">
+                                    <div class="space-y-1.5">
                                       <For each={entry.partners.slice(0, 8)}>
                                         {(partner) => (
                                           <div class="rounded border border-base-300/70 p-1.5">
@@ -3285,10 +3301,11 @@ function EquipDetailPanel(props: {
                                         )}
                                       </For>
                                     </div>
-                                  </Show>
-                                </div>
-                              )}
-                            </ProgressiveGrid>
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </ProgressiveGrid>
                         </div>
                         </LazyRender>
                       )}
@@ -3297,10 +3314,10 @@ function EquipDetailPanel(props: {
                 </div>
               </Show>
             </Show>
-          </section>
 
-          <section>
-            <h4 class="font-medium mb-2">この装備の射程シナジー対象艦</h4>
+            </section>
+            <section>
+            <h4 class="text-md font-medium mb-2">この装備の射程シナジー対象艦</h4>
             <Show
               when={ready()}
               fallback={
@@ -3317,9 +3334,9 @@ function EquipDetailPanel(props: {
                   </div>
                 }
               >
-                <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+                <div class="rounded-lg border border-base-300/70 p-2">
                   <div
-                    class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
+                    class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                   >
                     <For
                       each={(() => {
@@ -3337,13 +3354,16 @@ function EquipDetailPanel(props: {
                     >
                       {({ stype, rows }) => (
                         <LazyRender>
-                        <div class="mb-2 last:mb-0">
-                          <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
-                            {STYPE_NAMES[stype] ?? "不明"}
-                          </h5>
+                        <div>
+                          <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
+                            {STYPE_NAMES[stype] ?? "不明"}{" "}
+                            <span class="font-normal text-base-content/60">
+                              （{rows.length}件）
+                            </span>
+                          </h6>
                           <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                               {(entry) => (
-                                <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
+                                <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50 space-y-1">
                                   <button
                                     class="flex items-center gap-2 min-w-0 w-full text-left hover:underline"
                                     onClick={() =>
@@ -3365,7 +3385,7 @@ function EquipDetailPanel(props: {
                                     </span>
                                   </button>
                                   <Show when={entry.single != null}>
-                                    <div class="mt-2 text-xs text-base-content/70 inline-flex items-center h-5">
+                                    <div class="text-xs text-base-content/70 inline-flex items-center h-5">
                                       単体
                                     </div>
                                     <div class="flex flex-wrap items-center gap-1">
@@ -3385,10 +3405,11 @@ function EquipDetailPanel(props: {
                                     </div>
                                   </Show>
                                   <Show when={entry.partners.length > 0}>
-                                    <div class="mt-2 text-xs font-medium text-base-content/60 inline-flex items-center h-5">
+                                  <div class="mt-2 pt-2 border-t border-base-200/60 w-full flex flex-col">
+                                    <div class="text-xs font-medium text-base-content/60 mb-1 px-0.5">
                                       他装備組み合わせ
                                     </div>
-                                    <div class="space-y-1 mt-1">
+                                    <div class="space-y-1.5">
                                       <For each={entry.partners.slice(0, 8)}>
                                         {(partner) => (
                                           <div class="rounded border border-base-300/70 p-1.5">
@@ -3455,10 +3476,11 @@ function EquipDetailPanel(props: {
                                         )}
                                       </For>
                                     </div>
-                                  </Show>
-                                </div>
-                              )}
-                            </ProgressiveGrid>
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </ProgressiveGrid>
                         </div>
                         </LazyRender>
                       )}
@@ -3467,7 +3489,7 @@ function EquipDetailPanel(props: {
                 </div>
               </Show>
             </Show>
-          </section>
+          
 
           <Show
             when={
@@ -3477,115 +3499,123 @@ function EquipDetailPanel(props: {
             }
           >
             <section>
-              <h4 class="font-medium mb-1">この装備を含む多装備シナジー</h4>
+              <h4 class="text-md font-medium mb-2">この装備を含む多装備シナジー</h4>
               <p class="text-xs text-base-content/50 mb-2">
                 この装備が含まれる3・4装備の組み合わせ。ステータス種別ごとにグループ表示。
               </p>
               <div class="space-y-4">
                 <Show when={equipMultiSynergies().triple.length > 0}>
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <h5 class="text-sm font-medium mb-2">3装備シナジー</h5>
-                    <div class="space-y-3">
-                      <For each={equipMultiSynergies().triple}>
-                        {(group) => (
-                          <LazyRender>
-                          <div>
-                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label}系{" "}
-                              <span class="font-normal text-base-content/60">
-                                （{group.entries.length}件）
-                              </span>
-                            </h6>
-                            <ProgressiveGrid
-                              data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
-                            >
-                              {(entry) => (
-                                <MultiEntryDisplay
-                                  entry={entry}
-                                  onOpenEquip={props.onOpenEquip}
-                                  currentEquipId={props.equip.id}
-                                />
-                              )}
-                            </ProgressiveGrid>
-                          </div>
-                          </LazyRender>
-                        )}
-                      </For>
+                  <section class="mb-6">
+                    <h4 class="font-medium mb-2">3装備シナジー</h4>
+                    <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                        <For each={equipMultiSynergies().triple}>
+                          {(group) => (
+                            <LazyRender>
+                            <div class="mb-2 last:mb-0">
+                              <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                                {group.label}系{" "}
+                                <span class="font-normal text-base-content/60">
+                                  （{group.entries.length}件）
+                                </span>
+                              </h5>
+                              <ProgressiveGrid
+                                data={group.entries}
+                                class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
+                              >
+                                {(entry) => (
+                                  <MultiEntryDisplay
+                                    entry={entry}
+                                    onOpenEquip={props.onOpenEquip}
+                                    currentEquipId={props.equip.id}
+                                  />
+                                )}
+                              </ProgressiveGrid>
+                            </div>
+                            </LazyRender>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
+                  </section>
                 </Show>
 
                 <Show when={equipMultiSynergies().quad.length > 0}>
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <h5 class="text-sm font-medium mb-2">4装備シナジー</h5>
-                    <div class="space-y-3">
-                      <For each={equipMultiSynergies().quad}>
-                        {(group) => (
-                          <LazyRender>
-                          <div>
-                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label}系{" "}
-                              <span class="font-normal text-base-content/60">
-                                （{group.entries.length}件）
-                              </span>
-                            </h6>
-                            <ProgressiveGrid
-                              data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
-                            >
-                              {(entry) => (
-                                <MultiEntryDisplay
-                                  entry={entry}
-                                  onOpenEquip={props.onOpenEquip}
-                                  currentEquipId={props.equip.id}
-                                />
-                              )}
-                            </ProgressiveGrid>
-                          </div>
-                          </LazyRender>
-                        )}
-                      </For>
+                  <section class="mb-6">
+                    <h4 class="font-medium mb-2">4装備シナジー</h4>
+                    <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                        <For each={equipMultiSynergies().quad}>
+                          {(group) => (
+                            <LazyRender>
+                            <div class="mb-2 last:mb-0">
+                              <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                                {group.label}系{" "}
+                                <span class="font-normal text-base-content/60">
+                                  （{group.entries.length}件）
+                                </span>
+                              </h5>
+                              <ProgressiveGrid
+                                data={group.entries}
+                                class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
+                              >
+                                {(entry) => (
+                                  <MultiEntryDisplay
+                                    entry={entry}
+                                    onOpenEquip={props.onOpenEquip}
+                                    currentEquipId={props.equip.id}
+                                  />
+                                )}
+                              </ProgressiveGrid>
+                            </div>
+                            </LazyRender>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
+                  </section>
                 </Show>
 
                 <Show when={equipMultiSynergies().penta.length > 0}>
-                  <div class="rounded-lg border border-base-300/70 p-2">
-                    <h5 class="text-sm font-medium mb-2">5装備シナジー</h5>
-                    <div class="space-y-3">
-                      <For each={equipMultiSynergies().penta}>
-                        {(group) => (
-                          <LazyRender>
-                          <div>
-                            <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
-                              {group.label}系{" "}
-                              <span class="font-normal text-base-content/60">
-                                （{group.entries.length}件）
-                              </span>
-                            </h6>
-                            <ProgressiveGrid
-                              data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
-                            >
-                              {(entry) => (
-                                <MultiEntryDisplay
-                                  entry={entry}
-                                  onOpenEquip={props.onOpenEquip}
-                                  currentEquipId={props.equip.id}
-                                />
-                              )}
-                            </ProgressiveGrid>
-                          </div>
-                          </LazyRender>
-                        )}
-                      </For>
+                  <section class="mb-6">
+                    <h4 class="font-medium mb-2">5装備シナジー</h4>
+                    <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
+                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                        <For each={equipMultiSynergies().penta}>
+                          {(group) => (
+                            <LazyRender>
+                            <div class="mb-2 last:mb-0">
+                              <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
+                                {group.label}系{" "}
+                                <span class="font-normal text-base-content/60">
+                                  （{group.entries.length}件）
+                                </span>
+                              </h5>
+                              <ProgressiveGrid
+                                data={group.entries}
+                                class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
+                              >
+                                {(entry) => (
+                                  <MultiEntryDisplay
+                                    entry={entry}
+                                    onOpenEquip={props.onOpenEquip}
+                                    currentEquipId={props.equip.id}
+                                  />
+                                )}
+                              </ProgressiveGrid>
+                            </div>
+                            </LazyRender>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
+                  </section>
                 </Show>
-              </div>
+                            </div>
             </section>
           </Show>
+          </section>
+          </div>
         </Show>
         </div>
       </div>
