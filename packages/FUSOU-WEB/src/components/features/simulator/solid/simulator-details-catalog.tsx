@@ -2713,30 +2713,28 @@ function EquipDetailPanel(props: {
         }
       }
     }
+    const allSingleLengEntries: Array<{ equipId: number; entry: EquipEffect; maxLeng: number }> = [];
+    if (effects.effect_rules) {
+      for (const rule of effects.effect_rules) {
+        const maxLeng = Math.max(rule.b?.leng ?? 0, rule.l?.leng ?? 0, rule.c2?.leng ?? 0, rule.c3?.leng ?? 0);
+        if (maxLeng === 0) continue;
+        for (const itemId of rule.items) {
+           allSingleLengEntries.push({ equipId: itemId, entry: rule, maxLeng });
+        }
+      }
+    }
+
     for (const [shipId, thisBonus] of singleLengByShip) {
       const ship = getMasterShip(shipId);
       if (!ship || ship.id >= ENEMY_ID_THRESHOLD) continue;
       const thisAfter = Math.max(ship.leng, equipLeng) + thisBonus;
 
-      const otherEquipIds = effects.effect_rules_equip_index
-        ? Object.keys(effects.effect_rules_equip_index)
-        : Object.keys(normalizeEffects(effects));
-
-      for (const otherEquipIdStr of otherEquipIds) {
-        const otherEquipId = Number(otherEquipIdStr);
+      for (const { equipId: otherEquipId, entry: otherEntry, maxLeng: otherMaxLeng } of allSingleLengEntries) {
         if (otherEquipId === equipId) continue;
+        if (!otherEntry.ships.includes(shipId)) continue;
+        
         const otherEquip = getMasterSlotItem(otherEquipId);
         if (!otherEquip || otherEquip.id >= ENEMY_ID_THRESHOLD) continue;
-        const otherEntries = getSingleEntriesForEquip(effects, otherEquipId);
-        const otherEntry = otherEntries.find((e) => e.ships.includes(shipId));
-        if (!otherEntry) continue;
-        const otherMaxLeng = Math.max(
-          otherEntry.b?.leng ?? 0,
-          otherEntry.l?.leng ?? 0,
-          otherEntry.c2?.leng ?? 0,
-          otherEntry.c3?.leng ?? 0,
-        );
-        if (otherMaxLeng === 0) continue;
 
         const pairKey = `${Math.min(equipId, otherEquipId)}:${Math.max(equipId, otherEquipId)}`;
         const crossEntryLocal = effects.cross_rules_equip_index
