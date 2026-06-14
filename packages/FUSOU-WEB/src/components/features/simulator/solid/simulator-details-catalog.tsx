@@ -2914,7 +2914,15 @@ function EquipDetailPanel(props: {
             <p class="text-xs text-base-content/55 mb-2">
               補強増設の装備条件は表示しています。改修値が必要な条件は「補強枠条件」に併記します。
             </p>
-            <div class="rounded-lg border border-base-300/70 p-3 bg-base-50/50">
+            <Show 
+              when={compatibleShips().length > 0}
+              fallback={
+                <div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center mt-4">
+                  装備可能な艦はありません
+                </div>
+              }
+            >
+              <div class="rounded-lg border border-base-300/70 p-3 bg-base-50/50">
               <div
                 class={`space-y-4 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}
               >
@@ -2956,13 +2964,9 @@ function EquipDetailPanel(props: {
                     </LazyRender>
                   )}
                 </For>
-                <Show when={compatibleShips().length === 0}>
-                  <div class="rounded-lg border border-dashed border-base-300 px-3 py-6 text-sm text-base-content/50 text-center mt-4">
-                    装備可能な艦はありません
-                  </div>
-                </Show>
               </div>
             </div>
+          </Show>
           </section>
 
           <section>
