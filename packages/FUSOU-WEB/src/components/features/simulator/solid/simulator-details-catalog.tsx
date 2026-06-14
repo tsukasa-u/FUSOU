@@ -1823,7 +1823,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class="space-y-3">
+                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().single}>
                         {(group) => (
                           <div>
@@ -1835,7 +1835,7 @@ function ShipDetailPanel(props: {
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}
+                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2"
                             >
                               {(row) => (
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
@@ -1904,7 +1904,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class="space-y-3">
+                    <div class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().pair}>
                         {(group) => (
                           <div>
@@ -1916,7 +1916,7 @@ function ShipDetailPanel(props: {
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
+                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2"
                             >
                               {(row) => (
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
@@ -1954,7 +1954,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class="space-y-3">
+                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().speedSynergies}>
                         {(group) => (
                           <div>
@@ -1966,7 +1966,7 @@ function ShipDetailPanel(props: {
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
+                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2"
                             >
                               {(row) => (
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
@@ -2043,7 +2043,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class="space-y-3">
+                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().rangeSynergies}>
                         {(group) => (
                           <div>
@@ -2055,7 +2055,7 @@ function ShipDetailPanel(props: {
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
-                              class={`grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}
+                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2"
                             >
                               {(row) => (
                                 <div class="rounded border border-base-300/70 p-2 space-y-1">
@@ -2923,8 +2923,7 @@ function EquipDetailPanel(props: {
                         <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                           {STYPE_NAMES[stype] ?? "不明"}
                         </h5>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                          <For each={rows}>
+                        <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                             {(row) => (
                               <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                                 <button
@@ -3040,8 +3039,7 @@ function EquipDetailPanel(props: {
                                 </Show>
                               </div>
                             )}
-                          </For>
-                        </div>
+                          </ProgressiveGrid>
                       </div>
                     )}
                   </For>
@@ -3074,8 +3072,7 @@ function EquipDetailPanel(props: {
                   >
                     <For
                       each={(() => {
-                        const rows =
-                          equipMobilitySynergies().speedEntries.slice(0, 60);
+                        const rows = equipMobilitySynergies().speedEntries;
                         const grouped = new Map<number, typeof rows>();
                         for (const r of rows) {
                           if (!grouped.has(r.ship.stype))
@@ -3092,8 +3089,7 @@ function EquipDetailPanel(props: {
                           <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                             {STYPE_NAMES[stype] ?? "不明"}
                           </h5>
-                          <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                            <For each={rows}>
+                          <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                               {(entry) => (
                                 <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                                   <button
@@ -3210,8 +3206,7 @@ function EquipDetailPanel(props: {
                                   </Show>
                                 </div>
                               )}
-                            </For>
-                          </div>
+                            </ProgressiveGrid>
                         </div>
                       )}
                     </For>
@@ -3245,8 +3240,7 @@ function EquipDetailPanel(props: {
                   >
                     <For
                       each={(() => {
-                        const rows =
-                          equipMobilitySynergies().rangeEntries.slice(0, 60);
+                        const rows = equipMobilitySynergies().rangeEntries;
                         const grouped = new Map<number, typeof rows>();
                         for (const r of rows) {
                           if (!grouped.has(r.ship.stype))
@@ -3263,8 +3257,7 @@ function EquipDetailPanel(props: {
                           <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                             {STYPE_NAMES[stype] ?? "不明"}
                           </h5>
-                          <div class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2">
-                            <For each={rows}>
+                          <ProgressiveGrid class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2" data={rows}>
                               {(entry) => (
                                 <div class="w-full flex flex-col rounded-lg border border-base-300/70 p-2 bg-base-100/50">
                                   <button
@@ -3381,8 +3374,7 @@ function EquipDetailPanel(props: {
                                   </Show>
                                 </div>
                               )}
-                            </For>
-                          </div>
+                            </ProgressiveGrid>
                         </div>
                       )}
                     </For>
