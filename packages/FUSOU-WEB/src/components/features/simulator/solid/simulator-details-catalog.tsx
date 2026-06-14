@@ -1168,28 +1168,34 @@ function ShipDetailPanel(props: {
       c2: Record<string, number> | null;
       c3: Record<string, number> | null;
     }> = [];
-    const _effectsMap = normalizeEffects(effects);
-    const _crossMap = normalizeCrossEffects(effects);
-    for (const [equipIdRaw, entries] of Object.entries(_effectsMap)) {
-      const equipId = Number(equipIdRaw);
-      const equip = getMasterSlotItem(equipId);
-      if (!equip || equip.id >= ENEMY_ID_THRESHOLD) continue;
-      const matched = entries.find((entry) => appliesToShip(entry.ships));
-      if (!matched) continue;
+    const singleDedupe = new Set<string>();
+    const _em = normalizeEffects(effects);
+    const _cm = normalizeCrossEffects(effects);
+
+    for (const rule of effects.effect_rules || []) {
+      if (!appliesToShip(rule.ships)) continue;
       if (
-        scoreSynergy(matched.b) === 0 &&
-        scoreSynergy(matched.l) === 0 &&
-        scoreSynergy(matched.c2) === 0 &&
-        scoreSynergy(matched.c3) === 0
+        scoreSynergy(rule.b) === 0 &&
+        scoreSynergy(rule.l) === 0 &&
+        scoreSynergy(rule.c2) === 0 &&
+        scoreSynergy(rule.c3) === 0
       )
         continue;
-      single.push({
-        equip,
-        base: matched.b,
-        star10: matched.l ?? null,
-        c2: matched.c2 ?? null,
-        c3: matched.c3 ?? null,
-      });
+
+      for (const itemId of rule.items) {
+        const key = String(itemId);
+        if (singleDedupe.has(key)) continue;
+        const equip = getMasterSlotItem(itemId);
+        if (!equip || equip.id >= ENEMY_ID_THRESHOLD) continue;
+        singleDedupe.add(key);
+        single.push({
+          equip,
+          base: rule.b,
+          star10: rule.l ?? null,
+          c2: rule.c2 ?? null,
+          c3: rule.c3 ?? null,
+        });
+      }
     }
 
     const pair: Array<{
@@ -1198,35 +1204,27 @@ function ShipDetailPanel(props: {
       stats: Record<string, number>;
     }> = [];
     const pairDedupe = new Set<string>();
-    for (const entries of Object.values(_crossMap)) {
-      for (const entry of entries) {
-        if (!appliesToShip(entry.ships)) continue;
-        let a = getMasterSlotItem(entry.items[0]);
-        let b = getMasterSlotItem(entry.items[1]);
-        if (
-          !a ||
-          !b ||
-          a.id >= ENEMY_ID_THRESHOLD ||
-          b.id >= ENEMY_ID_THRESHOLD
-        )
-          continue;
-        if (scoreSynergy(entry.synergy) === 0) continue;
 
-        // Always place the item with lower sortno on the left so that
-        // grouping by row.a correctly clusters same-type items.
+    for (const rule of effects.cross_rules || []) {
+      if (!appliesToShip(rule.ships)) continue;
+      if (scoreSynergy(rule.synergy) === 0) continue;
+
+      for (const p of rule.pairs) {
+        let a = getMasterSlotItem(p[0]);
+        let b = getMasterSlotItem(p[1]);
+        if (!a || !b || a.id >= ENEMY_ID_THRESHOLD || b.id >= ENEMY_ID_THRESHOLD) continue;
+
         if (a.sortno > b.sortno || (a.sortno === b.sortno && a.id > b.id)) {
           const tmp = a;
           a = b;
           b = tmp;
         }
 
-        // Prevent duplicate entries with the exact same items and stats
-        // which would cause pairGroups to split identical items into multiple groups.
-        const dedupeKey = `${a.id}:${b.id}:${JSON.stringify(entry.synergy)}`;
+        const dedupeKey = `${a.id}:${b.id}:${JSON.stringify(rule.synergy)}`;
         if (pairDedupe.has(dedupeKey)) continue;
         pairDedupe.add(dedupeKey);
 
-        pair.push({ a, b, stats: entry.synergy });
+        pair.push({ a, b, stats: rule.synergy });
       }
     }
 
@@ -2419,6 +2417,22 @@ function EquipDetailPanel(props: {
             correction: rule.synergy,
             ships: rule.ships,
           });
+        } else if (rule.implicants) {
+          if (scoreSynergy(rule.synergy) === 0) continue;
+          for (const implicant of rule.implicants) {
+            if (!implicant.some(p => p.includes(equipId))) continue;
+            const pools = implicant.map((p) =>
+              p.map((id) => getMasterSlotItem(id)).filter((it): it is MstSlotItemData => it != null && it.id < ENEMY_ID_THRESHOLD).sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0))
+            );
+            if (pools.some((p) => p.length === 0)) continue;
+            all.push({
+              kind: "category",
+              pools,
+              cancels_single: !!rule.cancels_single,
+              correction: rule.synergy,
+              ships: rule.ships,
+            });
+          }
         } else if (rule.fixed_items && rule.free_pool) {
           const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
           if (scoreSynergy(rule.synergy) === 0) continue;
