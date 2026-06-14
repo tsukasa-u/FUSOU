@@ -3162,6 +3162,7 @@ function EquipDetailPanel(props: {
                       })()}
                     >
                       {({ stype, rows }) => (
+                        <LazyRender>
                         <div class="mb-2 last:mb-0">
                           <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                             {STYPE_NAMES[stype] ?? "不明"}
@@ -3285,6 +3286,7 @@ function EquipDetailPanel(props: {
                               )}
                             </ProgressiveGrid>
                         </div>
+                        </LazyRender>
                       )}
                     </For>
                   </div>
@@ -3330,6 +3332,7 @@ function EquipDetailPanel(props: {
                       })()}
                     >
                       {({ stype, rows }) => (
+                        <LazyRender>
                         <div class="mb-2 last:mb-0">
                           <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                             {STYPE_NAMES[stype] ?? "不明"}
@@ -3453,6 +3456,7 @@ function EquipDetailPanel(props: {
                               )}
                             </ProgressiveGrid>
                         </div>
+                        </LazyRender>
                       )}
                     </For>
                   </div>
@@ -3480,6 +3484,7 @@ function EquipDetailPanel(props: {
                     <div class="space-y-3">
                       <For each={equipMultiSynergies().triple}>
                         {(group) => (
+                          <LazyRender>
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}系{" "}
@@ -3500,6 +3505,7 @@ function EquipDetailPanel(props: {
                               )}
                             </ProgressiveGrid>
                           </div>
+                          </LazyRender>
                         )}
                       </For>
                     </div>
@@ -3512,6 +3518,7 @@ function EquipDetailPanel(props: {
                     <div class="space-y-3">
                       <For each={equipMultiSynergies().quad}>
                         {(group) => (
+                          <LazyRender>
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}系{" "}
@@ -3532,6 +3539,7 @@ function EquipDetailPanel(props: {
                               )}
                             </ProgressiveGrid>
                           </div>
+                          </LazyRender>
                         )}
                       </For>
                     </div>
@@ -3544,6 +3552,7 @@ function EquipDetailPanel(props: {
                     <div class="space-y-3">
                       <For each={equipMultiSynergies().penta}>
                         {(group) => (
+                          <LazyRender>
                           <div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}系{" "}
@@ -3564,6 +3573,7 @@ function EquipDetailPanel(props: {
                               )}
                             </ProgressiveGrid>
                           </div>
+                          </LazyRender>
                         )}
                       </For>
                     </div>
