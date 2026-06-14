@@ -58,11 +58,43 @@ import type {
   PentaRule,
 } from "@/features/simulator/types";
 
+function LazyRender(props: { children: JSX.Element }) {
+  const [isVisible, setIsVisible] = createSignal(false);
+  let ref: HTMLDivElement | undefined;
+
+  onMount(() => {
+    setTimeout(() => {
+      console.log('DOM size after 1 sec:', document.querySelectorAll('*').length);
+      console.log('ProgressiveGrids rendered:', document.querySelectorAll('.grid.grid-cols-1').length);
+    }, 1000);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "10px" },
+    );
+    if (ref) observer.observe(ref);
+    onCleanup(() => observer.disconnect());
+  });
+
+  return (
+    <div ref={ref}>
+      <Show when={isVisible()} fallback={<div class="min-h-[4rem] w-full" />}>
+        {props.children}
+      </Show>
+    </div>
+  );
+}
+
 function ProgressiveGrid<T>(props: {
   data: T[];
   class?: string;
   children: (item: T) => JSX.Element;
 }) {
+  console.log("ProgressiveGrid instantiated with data length:", props.data.length);
   const [limit, setLimit] = createSignal(40);
   let observerTarget: HTMLDivElement | undefined;
 
@@ -1776,7 +1808,8 @@ function ShipDetailPanel(props: {
             <div class="rounded-lg border border-base-300/70 p-2">
               <For each={equippableGroups()}>
                 {(group) => (
-                  <div>
+<LazyRender>
+<div>
                     <h5 class="text-sm font-medium mb-2">{group.key}</h5>
                     <ProgressiveGrid data={group.items} class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-1.5">
                         {(row) => (
@@ -1801,9 +1834,10 @@ function ShipDetailPanel(props: {
                           </button>
                         )}
                       </ProgressiveGrid>
-                  </div>
-                )}
-              </For>
+</div>
+</LazyRender>
+)}
+</For>
             </div>
           </div>
         </section>
@@ -1833,7 +1867,8 @@ function ShipDetailPanel(props: {
                     <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().single}>
                         {(group) => (
-                          <div>
+<LazyRender>
+<div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}系{" "}
                               <span class="font-normal text-base-content/60">
@@ -1894,9 +1929,10 @@ function ShipDetailPanel(props: {
                                 </div>
                               )}
                             </ProgressiveGrid>
-                          </div>
-                        )}
-                      </For>
+</div>
+</LazyRender>
+)}
+</For>
                     </div>
                   </div>
                 </Show>
@@ -1914,7 +1950,8 @@ function ShipDetailPanel(props: {
                     <div class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().pair}>
                         {(group) => (
-                          <div>
+<LazyRender>
+<div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}系{" "}
                               <span class="font-normal text-base-content/60">
@@ -1944,9 +1981,10 @@ function ShipDetailPanel(props: {
                                 </div>
                               )}
                             </ProgressiveGrid>
-                          </div>
-                        )}
-                      </For>
+</div>
+</LazyRender>
+)}
+</For>
                     </div>
                   </div>
                 </Show>
@@ -1964,7 +2002,8 @@ function ShipDetailPanel(props: {
                     <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().speedSynergies}>
                         {(group) => (
-                          <div>
+<LazyRender>
+<div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}{" "}
                               <span class="font-normal text-base-content/60">
@@ -2033,9 +2072,10 @@ function ShipDetailPanel(props: {
                                 </div>
                               )}
                             </ProgressiveGrid>
-                          </div>
-                        )}
-                      </For>
+</div>
+</LazyRender>
+)}
+</For>
                     </div>
                   </div>
                 </Show>
@@ -2053,7 +2093,8 @@ function ShipDetailPanel(props: {
                     <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().rangeSynergies}>
                         {(group) => (
-                          <div>
+<LazyRender>
+<div>
                             <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                               {group.label}{" "}
                               <span class="font-normal text-base-content/60">
@@ -2122,9 +2163,10 @@ function ShipDetailPanel(props: {
                                 </div>
                               )}
                             </ProgressiveGrid>
-                          </div>
-                        )}
-                      </For>
+</div>
+</LazyRender>
+)}
+</For>
                     </div>
                   </div>
                 </Show>
@@ -2150,7 +2192,8 @@ function ShipDetailPanel(props: {
                             <div class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().triple}>
                                 {(group) => (
-                                  <div class="mb-2 last:mb-0">
+<LazyRender>
+<div class="mb-2 last:mb-0">
                                     <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                                       {group.label}系{" "}
                                       <span class="font-normal text-base-content/60">
@@ -2168,9 +2211,10 @@ function ShipDetailPanel(props: {
                                         />
                                       )}
                                     </ProgressiveGrid>
-                                  </div>
-                                )}
-                              </For>
+</div>
+</LazyRender>
+)}
+</For>
                             </div>
                           </div>
                         </section>
@@ -2183,7 +2227,8 @@ function ShipDetailPanel(props: {
                             <div class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().quad}>
                                 {(group) => (
-                                  <div class="mb-2 last:mb-0">
+<LazyRender>
+<div class="mb-2 last:mb-0">
                                     <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                                       {group.label}系{" "}
                                       <span class="font-normal text-base-content/60">
@@ -2201,9 +2246,10 @@ function ShipDetailPanel(props: {
                                         />
                                       )}
                                     </ProgressiveGrid>
-                                  </div>
-                                )}
-                              </For>
+</div>
+</LazyRender>
+)}
+</For>
                             </div>
                           </div>
                         </section>
@@ -2217,7 +2263,8 @@ function ShipDetailPanel(props: {
                           <div class="space-y-3">
                             <For each={shipSynergy().penta}>
                               {(group) => (
-                                <div>
+<LazyRender>
+<div>
                                   <h6 class="text-xs font-semibold text-base-content/60 mb-1.5 px-1">
                                     {group.label}系{" "}
                                     <span class="font-normal text-base-content/60">
@@ -2235,9 +2282,10 @@ function ShipDetailPanel(props: {
                                       />
                                     )}
                                   </ProgressiveGrid>
-                                </div>
-                              )}
-                            </For>
+</div>
+</LazyRender>
+)}
+</For>
                           </div>
                         </div>
                       </Show>
@@ -2307,14 +2355,24 @@ function EquipDetailPanel(props: {
       }>;
     }> = [];
 
-    for (const ship of Object.values(getMasterShips())) {
-      if (ship.id >= ENEMY_ID_THRESHOLD) continue;
+    const relevantShipIds = new Set<number>();
+    for (const entry of singleEntries) {
+      for (const id of entry.ships) relevantShipIds.add(id);
+    }
+    for (const entry of crossEntries) {
+      for (const id of entry.ships) relevantShipIds.add(id);
+    }
+
+    for (const shipId of relevantShipIds) {
+      if (shipId >= ENEMY_ID_THRESHOLD) continue;
+      const ship = getMasterShip(shipId);
+      if (!ship) continue;
 
       const single = singleEntries.find((entry) =>
-        entry.ships.includes(ship.id),
+        entry.ships.includes(shipId),
       );
       const partners = crossEntries
-        .filter((entry) => entry.ships.includes(ship.id))
+        .filter((entry) => entry.ships.includes(shipId))
         .map((entry) => {
           const partnerId =
             entry.items[0] === props.equip.id ? entry.items[1] : entry.items[0];
@@ -2862,6 +2920,7 @@ function EquipDetailPanel(props: {
               >
                 <For each={compatibleShips()}>
                   {(group) => (
+                    <LazyRender>
                     <div class="mb-2 last:mb-0">
                       <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                         {group.key}
@@ -2894,6 +2953,7 @@ function EquipDetailPanel(props: {
                           }}
                         </ProgressiveGrid>
                     </div>
+                    </LazyRender>
                   )}
                 </For>
                 <Show when={compatibleShips().length === 0}>
@@ -2934,6 +2994,7 @@ function EquipDetailPanel(props: {
                     })()}
                   >
                     {({ stype, rows }) => (
+                      <LazyRender>
                       <div class="mb-2 last:mb-0">
                         <h5 class="text-sm font-medium mb-2 border-b border-base-200 pb-1">
                           {STYPE_NAMES[stype] ?? "不明"}
@@ -3056,6 +3117,7 @@ function EquipDetailPanel(props: {
                             )}
                           </ProgressiveGrid>
                       </div>
+                      </LazyRender>
                     )}
                   </For>
                 </div>
