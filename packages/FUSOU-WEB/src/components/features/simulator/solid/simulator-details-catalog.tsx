@@ -376,7 +376,7 @@ const _comboDisplayCache = new WeakMap<object, number[][]>();
 
 /**
  * Decode a multi-item rule into an array of combos (each combo = array of item IDs).
- * Returns at most `maxCombos` entries. Results are cached per rule object.
+ * Results are cached per rule object.
  */
 function decodeCombosForDisplay(
   rule: {
@@ -390,100 +390,73 @@ function decodeCombosForDisplay(
     combos?: number[][];
   },
   comboSize: number,
-  maxCombos = 500,
 ): number[][] {
   const cached = _comboDisplayCache.get(rule);
-  if (cached)
-    return cached.length <= maxCombos ? cached : cached.slice(0, maxCombos);
+  if (cached) return cached;
 
-  let result: number[][];
+  let result: number[][] = [];
 
   if (rule.item_pool) {
     const pool = rule.item_pool;
-    result = [];
     const pick = (start: number, cur: number[]) => {
       if (cur.length === comboSize) {
         result.push([...cur]);
         return;
       }
-      if (result.length >= maxCombos) return;
       for (let i = start; i < pool.length; i++) {
         cur.push(pool[i]);
         pick(i + 1, cur);
         cur.pop();
-        if (result.length >= maxCombos) return;
       }
     };
     pick(0, []);
   } else if (rule.fixed_items && rule.free_pool) {
-    // Enumerate all C(free_pool, comboSize - fixed_items.length), prepend fixed items.
     const fixed = rule.fixed_items;
     const free = rule.free_pool;
     const neededFree = comboSize - fixed.length;
-    result = [];
     const pick = (start: number, cur: number[]) => {
       if (cur.length === neededFree) {
         result.push([...fixed, ...cur]);
         return;
       }
-      if (result.length >= maxCombos) return;
       for (let i = start; i < free.length; i++) {
         cur.push(free[i]);
         pick(i + 1, cur);
         cur.pop();
-        if (result.length >= maxCombos) return;
       }
     };
     pick(0, []);
   } else if (rule.combos_b64 && rule.items) {
     const buf = Uint8Array.from(atob(rule.combos_b64), (c) => c.charCodeAt(0));
     const totalCount = buf.length / comboSize;
-    const count = Math.min(totalCount, maxCombos);
-    result = [];
-    for (let ci = 0; ci < count; ci++) {
+    for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
       for (let j = 0; j < comboSize; j++)
         combo.push(rule.items[buf[ci * comboSize + j]]);
       result.push(combo);
     }
   } else if (rule.combos_u16_b64 && rule.items) {
-    const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) =>
-      c.charCodeAt(0),
-    );
-    const buf = new Uint16Array(
-      raw.buffer,
-      raw.byteOffset,
-      Math.floor(raw.byteLength / 2),
-    );
+    const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) => c.charCodeAt(0));
+    const buf = new Uint16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
     const totalCount = buf.length / comboSize;
-    const count = Math.min(totalCount, maxCombos);
-    result = [];
-    for (let ci = 0; ci < count; ci++) {
+    for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
       for (let j = 0; j < comboSize; j++)
         combo.push(rule.items[buf[ci * comboSize + j]]);
       result.push(combo);
     }
   } else if (rule.combos_u32_b64 && rule.items) {
-    const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) =>
-      c.charCodeAt(0),
-    );
-    const buf = new Uint32Array(
-      raw.buffer,
-      raw.byteOffset,
-      Math.floor(raw.byteLength / 4),
-    );
+    const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) => c.charCodeAt(0));
+    const buf = new Uint32Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 4));
     const totalCount = buf.length / comboSize;
-    const count = Math.min(totalCount, maxCombos);
-    result = [];
-    for (let ci = 0; ci < count; ci++) {
+    for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
       for (let j = 0; j < comboSize; j++)
         combo.push(rule.items[buf[ci * comboSize + j]]);
       result.push(combo);
     }
-  } else {
-    result = (rule.combos ?? []).slice(0, maxCombos) as number[][];
+  } else if (rule.combos) {
+    result = rule.combos;
   }
 
   _comboDisplayCache.set(rule, result);
@@ -1573,7 +1546,7 @@ function ShipDetailPanel(props: {
           }
         } else {
           // Explicit combos: decode up to 500 to prevent main-thread locking
-          const combos = decodeCombosForDisplay(rule, comboSize, 500);
+          const combos = decodeCombosForDisplay(rule, comboSize);
 
           for (const comboIds of combos) {
             const items = comboIds.map((id) => getMasterSlotItem(id));
@@ -2400,41 +2373,17 @@ function EquipDetailPanel(props: {
 
     const buildEquipEntries = (
       rules: Array<TripleRule | QuadRule | PentaRule> | undefined,
+      indices: number[] | undefined,
       comboSize: number,
     ): MultiEntry[] => {
-      if (!rules) return [];
+      if (!rules || !indices) return [];
       const seenCombos = new Set<string>();
       const all: MultiEntry[] = [];
 
-      const filterValidShips = (
-        ships: number[],
-        requiredItems: MstSlotItemData[],
-      ) => {
-        return ships.filter((shipId) => {
-          if (shipId >= ENEMY_ID_THRESHOLD) return false;
-          for (const item of requiredItems) {
-            const n = filterForNormalSlot(shipId, [item]);
-            if (n != null && n.length === 0) {
-              const x = filterForExslot(shipId, [item]);
-              if (x != null && x.length === 0) return false;
-            }
-          }
-          return true;
-        });
-      };
-
-      for (const rule of rules) {
-        // Filter: at least one allied ship must benefit (or all-ships rule)
-        if (rule.ships.length > 0) {
-          const anyShip = rule.ships.some((sid) => {
-            const s = getMasterShip(sid);
-            return s != null && s.id < ENEMY_ID_THRESHOLD;
-          });
-          if (!anyShip) continue;
-        }
+      for (const idx of indices) {
+        const rule = rules[idx];
 
         if (rule.category_pools) {
-          if (!rule.category_pools.some((p) => p.includes(equipId))) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
           const pools = rule.category_pools.map((p) =>
             p
@@ -2446,17 +2395,14 @@ function EquipDetailPanel(props: {
               .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0)),
           );
           if (pools.some((p) => p.length === 0)) continue;
-          const validShips = filterValidShips(rule.ships, [props.equip]);
           all.push({
             kind: "category",
             pools,
             cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
-            ships: validShips,
+            ships: rule.ships,
           });
         } else if (rule.item_pool) {
-          // Pool rule: check if equipId is in the pool
-          if (!rule.item_pool.includes(equipId)) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
           const pool = rule.item_pool
             .map((id) => getMasterSlotItem(id))
@@ -2466,18 +2412,15 @@ function EquipDetailPanel(props: {
             )
             .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0));
           if (pool.length < comboSize) continue;
-          const validShips = filterValidShips(rule.ships, [props.equip]);
           all.push({
             kind: "pool",
             pool,
             comboSize,
             correction: rule.synergy,
-            ships: validShips,
+            ships: rule.ships,
           });
         } else if (rule.fixed_items && rule.free_pool) {
-          // Fixed+free rule: check if equipId appears in fixed_items or free_pool
           const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
-          if (!allPoolIds.includes(equipId)) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
           const pool = allPoolIds
             .map((id) => getMasterSlotItem(id))
@@ -2487,18 +2430,16 @@ function EquipDetailPanel(props: {
             )
             .sort((a, b) => (a.type?.[3] ?? 0) - (b.type?.[3] ?? 0));
           if (pool.length < comboSize) continue;
-          const validShips = filterValidShips(rule.ships, [props.equip]);
           all.push({
             kind: "pool",
             pool,
             comboSize,
             correction: rule.synergy,
-            ships: validShips,
+            ships: rule.ships,
           });
         } else {
-          if (rule.items && !rule.items.includes(equipId)) continue;
           // Explicit combos: decode all, filter those containing this equip
-          const combos = decodeCombosForDisplay(rule, comboSize, 500);
+          const combos = decodeCombosForDisplay(rule, comboSize);
           const shipIdForCalc = rule.ships.length > 0 ? rule.ships[0] : 0;
           for (const comboIds of combos) {
             if (!comboIds.includes(equipId)) continue;
@@ -2513,12 +2454,7 @@ function EquipDetailPanel(props: {
               continue;
 
             items.sort((a, b) => (a!.type?.[3] ?? 0) - (b!.type?.[3] ?? 0));
-            const validShips = filterValidShips(
-              rule.ships,
-              items as MstSlotItemData[],
-            );
-
-            // QMC Safety Limit: if too many items, skip complex logic
+            
             if (comboIds.length > 15) {
               const base: Record<string, number> = {};
               for (const id of comboIds) {
@@ -2537,7 +2473,7 @@ function EquipDetailPanel(props: {
                 kind: "combo",
                 combo: items as MstSlotItemData[],
                 netStats: base,
-                ships: validShips,
+                ships: rule.ships,
               });
               continue;
             }
@@ -2551,7 +2487,7 @@ function EquipDetailPanel(props: {
               kind: "combo",
               combo: items as MstSlotItemData[],
               netStats: base,
-              ships: validShips,
+              ships: rule.ships,
             });
           }
         }
@@ -2559,11 +2495,28 @@ function EquipDetailPanel(props: {
       return all;
     };
 
-    return {
-      triple: groupByMultiStat(buildEquipEntries(effects.triple_rules, 3)),
-      quad: groupByMultiStat(buildEquipEntries(effects.quad_rules, 4)),
-      penta: groupByMultiStat(buildEquipEntries(effects.penta_rules, 5)),
-    };
+    const triple = groupByMultiStat(
+      buildEquipEntries(
+        effects.triple_rules,
+        effects.triple_rules_equip_index?.[String(equipId)],
+        3,
+      ),
+    );
+    const quad = groupByMultiStat(
+      buildEquipEntries(
+        effects.quad_rules,
+        effects.quad_rules_equip_index?.[String(equipId)],
+        4,
+      ),
+    );
+    const penta = groupByMultiStat(
+      buildEquipEntries(
+        effects.penta_rules,
+        effects.penta_rules_equip_index?.[String(equipId)],
+        5,
+      ),
+    );
+    return { triple, quad, penta };
   });
 
   const compatibleShips = createMemo(() => {
