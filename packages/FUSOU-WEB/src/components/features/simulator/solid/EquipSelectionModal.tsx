@@ -2,6 +2,7 @@
 import { createSignal, createMemo, onMount, onCleanup, createEffect, Show, For } from "solid-js";
 import { VList } from "virtua/solid";
 import type { Component } from "solid-js";
+import { useStore } from "@nanostores/solid";
 import type { MstSlotItemData } from "@/features/simulator/types";
 import { AIRCRAFT_TYPES, EQUIP_TYPE_NAMES, EQUIP_TYPE_SHORT, ENEMY_ID_THRESHOLD, RANGE_NAMES } from "@/features/simulator/constants";
 import { equipImageUrl, computeEquipBonuses } from "@/features/simulator/equip-calc";
@@ -9,6 +10,7 @@ import { filterForNormalSlot, filterForExslot, getExslotSelectionRequirement } f
 import { EQUIP_ROW_PITCH, HEADER_HEIGHT } from "@/features/simulator/virtual-scroll";
 import { consumeEquipModalCallback, setEquipModalSideFilter, setEquipModalSource } from "@/features/simulator/simulator-mutations";
 import { getEquipModalCurrentId, getEquipModalSideFilter, getEquipModalSource, getEquipModalTarget, getMasterEquipTypeName, getMasterShip, getMasterSlotItem, getMasterSlotItems, getSlotItemEffects, getSnapshotSlotItems, getSpriteSheetMeta, getWeaponIconFrame, hasMasterData, hasSnapshotSlotItems, isAirBaseEquipModalTarget, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
+import { masterDataStatusStore } from "@/features/simulator/data-loader";
 
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
 
@@ -41,6 +43,7 @@ function getEquipTypeName(typeId: number): string {
 export function EquipSelectionModal() {
   let dialogRef!: HTMLDialogElement;
   let vlistRef: any;
+  const masterDataStatus = useStore(masterDataStatusStore);
 
   const [search, setSearch] = createSignal("");
   const [sideFilter, setSideFilter] = createSignal<SideFilter>(getEquipModalSideFilter());
@@ -51,6 +54,7 @@ export function EquipSelectionModal() {
   createEffect(() => {
     if (equipModalTrigger() > 0) {
       setSearch("");
+      setTypeFilter("");
       setSideFilter(getEquipModalSideFilter());
       setSource(hasSnapshotSlotItems() ? "snapshot" : "master");
       setHoveredEquipId(getEquipModalCurrentId() ?? null);
@@ -68,6 +72,8 @@ export function EquipSelectionModal() {
   const closeModal = () => { if (dialogRef && dialogRef.open) dialogRef.close(); };
 
   const equipOptions = createMemo(() => {
+    masterDataStatus();
+    equipModalTrigger();
     const types = new Map<number, string>();
     let items = filterEquipsBySide(Object.values(getMasterSlotItems()), sideFilter());
     if (isAirBaseEquipModalTarget()) items = items.filter((e) => isValidAirBaseItem(e));
@@ -79,6 +85,8 @@ export function EquipSelectionModal() {
   });
 
   const filteredEquips = createMemo(() => {
+    masterDataStatus();
+    equipModalTrigger();
     if (!hasMasterData()) return [];
     let items: MstSlotItemData[];
     const isAirBase = isAirBaseEquipModalTarget();
@@ -246,7 +254,7 @@ export function EquipSelectionModal() {
              <Show when={listData().rows.length === 0}>
                 <p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>
              </Show>
-             <div class="flex-1 min-h-0 overflow-hidden">
+             <div id="equip-modal-grid" class="flex-1 min-h-0 overflow-hidden">
                <VList data={listData().rows} ref={vlistRef} style={{ height: "100%" }} class="overflow-x-hidden">
                  {(row: any) => {
                    if (row.kind === "header") {

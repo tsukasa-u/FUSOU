@@ -14,7 +14,7 @@ export function openShipModal(
     setShipModalSideFilter(currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally");
   }
   // Trigger the SolidJS reactive effect to show the modal
-  setShipModalTrigger(Date.now());
+  setShipModalTrigger((value) => value + 1);
 }
 
 /** Wire up DOM event listeners for the ship modal. Call once at init time. */

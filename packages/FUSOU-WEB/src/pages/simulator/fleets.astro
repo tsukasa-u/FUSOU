@@ -129,7 +129,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
   const accessToken = (window as any).__fusouAccessToken ?? null;
   const root = document.getElementById("fleet-list-body");
   if (root) {
-    root.innerHTML = "";
     mountFleetListPanel(root, accessToken);
   }
 </script>

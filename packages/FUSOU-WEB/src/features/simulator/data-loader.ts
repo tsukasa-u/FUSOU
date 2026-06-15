@@ -252,6 +252,7 @@ import { atom } from "nanostores";
 
 export const masterDataStatusStore = atom<{
   hasMasterData: boolean;
+  hasSynergyData: boolean;
   shipCount: number;
   equipCount: number;
   synergyMetaText: string | null;
@@ -260,6 +261,7 @@ export const masterDataStatusStore = atom<{
   results: DataLoadResult[];
 }>({
   hasMasterData: false,
+  hasSynergyData: false,
   shipCount: 0,
   equipCount: 0,
   synergyMetaText: null,
@@ -272,6 +274,7 @@ export function updateDataStatus() {
   const counts = getMasterDataCounts();
   const shipCount = counts.ships;
   const equipCount = counts.equips;
+  const hasSynergyData = !!getSlotItemEffects();
   
   if (shipCount > 0 || equipCount > 0) {
     setHasMasterData(true);
@@ -281,6 +284,7 @@ export function updateDataStatus() {
 
   masterDataStatusStore.set({
     hasMasterData: shipCount > 0 || equipCount > 0,
+    hasSynergyData,
     shipCount,
     equipCount,
     synergyMetaText: getSlotItemEffectsMetaForStatus(),
@@ -525,11 +529,11 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     // ── Equipment filtering tables (JSON import preserves keys) ──
     loadEquipFilterFromJson(obj);
 
-    updateDataStatus();
   } finally {
     endBulkLoad("all");
   }
   renderAll();
+  updateDataStatus();
 }
 
 let _weaponIconDataUrl: string | null = null;
@@ -949,9 +953,9 @@ export async function loadMasterData(renderAll: () => void) {
 
     console.info("[simulator] master data load summary", getMasterDataCounts());
 
-    updateDataStatus();
   } finally {
     endBulkLoad("all");
   }
   renderAll();
+  updateDataStatus();
 }

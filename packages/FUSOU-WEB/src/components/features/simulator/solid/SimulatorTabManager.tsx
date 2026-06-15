@@ -3,7 +3,7 @@ import { createSignal, createEffect, onMount, onCleanup } from "solid-js";
 import { render } from "solid-js/web";
 import { SimulatorFleetTab } from "./SimulatorFleetTab";
 import { SimulatorModals } from "./SimulatorModals";
-import { initDisplaySettingsEvents, renderAll } from "@/features/simulator/airbase-renderer";
+import { renderAll } from "@/features/simulator/airbase-renderer";
 import { updateDataStatus, loadMasterData } from "@/features/simulator/data-loader";
 import { initShipModalEvents, handleResizeShip } from "@/features/simulator/ship-modal";
 import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
@@ -13,6 +13,7 @@ import { displaySettingsModalRef, saveImageModalRef } from "./SimulatorModals";
 import { apiPasteModalRef } from "./ApiPasteModal";
 import { shareSettingsModalRef } from "./ShareSettingsModal";
 import { loadFleetModalRef } from "./LoadFleetModal";
+import { MasterDataStatusAlert } from "./MasterDataStatusAlert";
 
 export function SimulatorTabManager(props: { initialTab: string, accessToken: string | null }) {
   const [activeTab, setActiveTab] = createSignal(props.initialTab || "fleet");
@@ -164,6 +165,8 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
           </button>
         </div>
       </div>
+
+      <MasterDataStatusAlert />
 
       <div class="flex gap-1 mb-5 border-b border-base-300/60 overflow-x-auto hide-scrollbar">
         <button

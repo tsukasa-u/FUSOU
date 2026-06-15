@@ -108,6 +108,7 @@ export function WorkspacePanel() {
         </div>
         <div class="flex items-center gap-0.5 shrink-0">
           <button
+            id="btn-workspace-add-current"
             class="btn btn-ghost btn-xs gap-1"
             title={isPlaygroundActive() ? "現在のPlayground編成をワークスペースに追加" : "Playgroundでのみ利用できます"}
             disabled={!isPlaygroundActive()}
@@ -119,6 +120,7 @@ export function WorkspacePanel() {
             <span class="hidden sm:inline text-[11px]">編成追加</span>
           </button>
           <button
+            id="btn-workspace-add"
             class="btn btn-ghost btn-xs gap-1"
             title="共有URLをワークスペースに追加"
             onClick={() => {

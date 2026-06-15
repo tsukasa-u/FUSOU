@@ -2,6 +2,7 @@
 import { createSignal, createMemo, onMount, onCleanup, createEffect, Show, For } from "solid-js";
 import { VList } from "virtua/solid";
 import type { Component } from "solid-js";
+import { useStore } from "@nanostores/solid";
 import type { MstShipData } from "@/features/simulator/types";
 import { STYPE_NAMES, STYPE_SHORT, SPEED_NAMES, ENEMY_ID_THRESHOLD } from "@/features/simulator/constants";
 import { canAssignShipWithoutWorseningCombinedRules } from "@/features/simulator/combined-fleet";
@@ -10,6 +11,7 @@ import { SHIP_ROW_PITCH, HEADER_HEIGHT } from "@/features/simulator/virtual-scro
 import { consumeShipModalCallback, setShipModalSideFilter, setShipModalSource } from "@/features/simulator/simulator-mutations";
 import { getCombinedFleetType, getFleetState, getMasterShip, getMasterShips, getShipModalCurrentId, getShipModalTarget, getShipModalSideFilter, getShipModalSource, getSnapshotShips, hasMasterData, hasSnapshotShips, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
 import { cachedFetch } from "@/utils/fetchCache";
+import { masterDataStatusStore } from "@/features/simulator/data-loader";
 
 // Modal trigger signal
 export const [shipModalTrigger, setShipModalTrigger] = createSignal(0);
@@ -101,6 +103,7 @@ function filterShipsByCombinedRules(ships: MstShipData[]): MstShipData[] {
 export function ShipSelectionModal() {
   let dialogRef!: HTMLDialogElement;
   let vlistRef: any;
+  const masterDataStatus = useStore(masterDataStatusStore);
 
   const [search, setSearch] = createSignal("");
   const [sideFilter, setSideFilter] = createSignal<SideFilter>(getShipModalSideFilter());
@@ -112,6 +115,7 @@ export function ShipSelectionModal() {
   createEffect(() => {
     if (shipModalTrigger() > 0) {
       setSearch("");
+      setStypeFilter("");
       setSideFilter(getShipModalSideFilter());
       setSource(hasSnapshotShips() ? "snapshot" : "master");
       setHoveredShipId(getShipModalCurrentId() ?? null);
@@ -131,6 +135,8 @@ export function ShipSelectionModal() {
   };
 
   const stypeOptions = createMemo(() => {
+    masterDataStatus();
+    shipModalTrigger();
     const stypes = new Set<number>();
     for (const s of filterShipsBySide(Object.values(getMasterShips()), sideFilter())) {
       if (s.stype >= 1 && s.stype <= 22) stypes.add(s.stype);
@@ -139,6 +145,8 @@ export function ShipSelectionModal() {
   });
 
   const filteredShips = createMemo(() => {
+    masterDataStatus();
+    shipModalTrigger();
     if (!hasMasterData()) return [];
     let ships: MstShipData[];
     if (source() === "snapshot" && hasSnapshotShips()) {
@@ -319,7 +327,7 @@ export function ShipSelectionModal() {
              <Show when={listData().rows.length === 0}>
                 <p class="text-sm text-base-content/30 text-center py-12">該当する艦が見つかりません</p>
              </Show>
-             <div class="flex-1 min-h-0 overflow-hidden">
+             <div id="ship-modal-grid" class="flex-1 min-h-0 overflow-hidden">
                <VList
                  data={listData().rows}
                  ref={vlistRef}

@@ -13,7 +13,7 @@ export function openEquipModal(
     setEquipModalSideFilter(currentId >= ENEMY_ID_THRESHOLD ? "enemy" : "ally");
   }
   // Trigger the SolidJS reactive effect to show the modal
-  setEquipModalTrigger(Date.now());
+  setEquipModalTrigger((value) => value + 1);
 }
 
 export function initEquipModalEvents() {

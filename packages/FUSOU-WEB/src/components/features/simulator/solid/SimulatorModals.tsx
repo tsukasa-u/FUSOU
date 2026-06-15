@@ -166,8 +166,6 @@ export function DisplaySettingsModal() {
   );
 }
 
-      <LoadFleetModal />
-
 export function SaveImageModal() {
   const [target, setTarget] = createSignal<CaptureImageOptions["fleetTarget"]>("both");
   const [includeAirbase, setIncludeAirbase] = createSignal(true);
