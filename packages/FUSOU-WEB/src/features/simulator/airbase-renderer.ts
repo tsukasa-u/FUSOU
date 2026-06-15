@@ -163,89 +163,7 @@ function syncDisplaySettingsControls(): void {
 }
 
 function applyDisplaySettingsUi(): void {
-  const effectiveSlotLayout = getEffectiveFleetSlotLayout();
-  const isMobileSingleColumn = window.innerWidth < MOBILE_SINGLE_COLUMN_BREAKPOINT_PX;
-  const fleetSectionMaxWidth =
-    isMobileSingleColumn
-      ? MOBILE_FLEET_SECTION_MAX_WIDTH
-      : effectiveSlotLayout === "3x2"
-        ? FLEET_SECTION_MAX_WIDTH_3X2
-        : FLEET_SECTION_MAX_WIDTH_2X3;
-
-  const visibleFleetIndexes: number[] = [];
-
-  for (const i of FLEET_SECTION_IDS) {
-    const section = document.getElementById(`fleet-${i}-section`) as HTMLElement | null;
-    if (!section) continue;
-
-    const visible = isFleetSectionVisible(i);
-    if (visible) visibleFleetIndexes.push(i);
-
-    // Keep hidden fleets fully out of layout flow.
-    section.hidden = !visible;
-    section.style.display = visible ? "block" : "none";
-    section.style.maxWidth = fleetSectionMaxWidth;
-    section.style.width = "100%";
-    section.style.justifySelf = "center";
-  }
-
-  for (const i of FLEET_SECTION_IDS) {
-    const slots = document.getElementById(`fleet-${i}-slots`) as HTMLElement | null;
-    if (!slots) continue;
-    if (isMobileSingleColumn) {
-      slots.style.gridTemplateColumns = "minmax(0, 1fr)";
-      // Keep cards full-width in single-column mode to avoid collapsed tiles.
-      slots.style.justifyItems = "stretch";
-      slots.style.justifyContent = "";
-      continue;
-    }
-    slots.style.justifyItems = "stretch";
-    slots.style.justifyContent = "";
-    slots.style.gridTemplateColumns =
-      effectiveSlotLayout === "3x2"
-        ? "repeat(3, minmax(0, 1fr))"
-        : "repeat(2, minmax(0, 1fr))";
-  }
-
-  const fleetSections = document.getElementById("fleet-sections") as HTMLElement | null;
-  if (fleetSections) {
-    const twoCol =
-      effectiveSlotLayout === "2x3" &&
-      visibleFleetIndexes.length >= 2 && window.innerWidth >= TWO_COLUMN_BREAKPOINT_PX;
-    fleetSections.style.display = "grid";
-    fleetSections.style.justifyContent = "center";
-    fleetSections.style.gridTemplateColumns = twoCol
-      ? `repeat(2, minmax(0, ${fleetSectionMaxWidth}))`
-      : `minmax(0, ${fleetSectionMaxWidth})`;
-  }
-
-  const airbaseSection = document.getElementById("airbase-section") as HTMLElement | null;
-  const showAirbase = isAirbaseSectionVisible();
-  if (airbaseSection) {
-    airbaseSection.style.display = showAirbase ? "block" : "none";
-    airbaseSection.style.maxWidth = fleetSectionMaxWidth;
-    airbaseSection.style.width = "100%";
-    airbaseSection.style.marginLeft = "auto";
-    airbaseSection.style.marginRight = "auto";
-  }
-
-  const visibleBaseCount = getVisibleAirbaseCount();
-  const airBasesGrid = document.getElementById("air-bases") as HTMLElement | null;
-  if (airBasesGrid) {
-    const maxColsByWidth =
-      window.innerWidth >= AIRBASE_THREE_COLUMN_BREAKPOINT_PX
-        ? 3
-        : window.innerWidth >= AIRBASE_TWO_COLUMN_BREAKPOINT_PX
-          ? 2
-          : 1;
-    const airbaseCols = Math.max(1, Math.min(visibleBaseCount, maxColsByWidth));
-    airBasesGrid.style.gridTemplateColumns = `repeat(${airbaseCols}, minmax(0, 1fr))`;
-  }
-
-  const baseCards = document.querySelectorAll<HTMLElement>("#air-bases > *");
-  baseCards.forEach((card, index) => {
-    card.style.display = showAirbase && index < visibleBaseCount ? "block" : "none";
-  });
+  // Now handled reactively in SimulatorFleetTab.tsx
 }
 
 const applyDisplaySettingsUiOnResize = debounce(() => {
@@ -253,51 +171,7 @@ const applyDisplaySettingsUiOnResize = debounce(() => {
 }, 80);
 
 function syncCombinedFleetUI(): void {
-  const combinedType = getCombinedFleetType();
-  const isCombined = combinedType > 0;
-  const combinedLabel: Record<number, string> = {
-    1: "機動部隊",
-    2: "水上打撃部隊",
-    3: "輸送護衛部隊",
-  };
-
-  for (const fleetIdx of [1, 2, 3, 4] as const) {
-    const badge = document.getElementById(`fleet-${fleetIdx}-combined-badge`) as HTMLElement | null;
-    if (!badge) continue;
-    if (fleetIdx === 1 && isCombined) {
-      badge.textContent = combinedLabel[combinedType] ?? "";
-      badge.hidden = false;
-    } else if (fleetIdx === 2 && isCombined) {
-      badge.textContent = "護衛";
-      badge.hidden = false;
-    } else {
-      badge.hidden = true;
-    }
-  }
-
-  const validationEl = document.getElementById("combined-fleet-validation") as HTMLElement | null;
-  const validationTextEl = document.getElementById("combined-fleet-validation-text") as HTMLElement | null;
-  if (!validationEl || !validationTextEl) return;
-
-  if (!isCombined) {
-    validationEl.classList.add("hidden");
-    validationTextEl.textContent = "";
-    return;
-  }
-
-  const fleets = getFleetState();
-  const result = validateCombinedFleet(combinedType, fleets.fleet1, fleets.fleet2);
-  if (result.ok) {
-    validationEl.classList.add("hidden");
-    validationTextEl.textContent = "";
-    return;
-  }
-
-  const parts: string[] = [];
-  if (result.mainErrors.length > 0) parts.push(`本隊: ${result.mainErrors.join(' / ')}`);
-  if (result.escortErrors.length > 0) parts.push(`護衛: ${result.escortErrors.join(' / ')}`);
-  validationTextEl.textContent = parts.join('  |  ');
-  validationEl.classList.remove("hidden");
+  // Now handled reactively in SimulatorFleetTab.tsx
 }
 
 function bindDisplaySettingsEvents(): void {

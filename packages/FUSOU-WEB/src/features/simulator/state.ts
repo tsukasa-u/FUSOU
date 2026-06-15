@@ -28,6 +28,7 @@ export type SimulatorDirtyScope = "fleet" | "airbase" | "all";
 
 export const simulatorFleetRevision = atom(0);
 export const simulatorAirbaseRevision = atom(0);
+export const simulatorDisplayRevision = atom(0);
 export const simulatorReadOnly = atom(false);
 /** 0=通常, 1=機動部隊, 2=水上打撃部隊, 3=輸送護衛部隊 */
 export const simulatorCombinedFleetType = atom<0 | 1 | 2 | 3>(0);
@@ -216,6 +217,7 @@ export const state = {
   } as Record<number, boolean>,
   airbaseSectionVisible: true,
   visibleAirbaseCount: 3,
+  fleetSlotLayoutMode: "2x3" as "2x3" | "3x2",
   airBases: Array.from({ length: 3 }, emptyAirBase) as AirBaseSlot[],
 
   // Modal callbacks and state

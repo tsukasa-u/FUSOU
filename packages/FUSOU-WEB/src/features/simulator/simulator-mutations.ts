@@ -1,6 +1,6 @@
 // ── Centralized simulator state mutations ──
 
-import { markSimulatorStateDirty, simulatorReadOnly, simulatorCombinedFleetType, state } from "./state";
+import { markSimulatorStateDirty, simulatorReadOnly, simulatorCombinedFleetType, simulatorDisplayRevision, state } from "./state";
 import { AIRCRAFT_TYPES } from "./constants";
 import { filterForNormalSlot, getExslotSelectionRequirement } from "./equip-filter";
 import type {
@@ -237,15 +237,18 @@ export function applyAirBaseEquipSelection(
 
 export function setFleetSectionVisible(index: number, visible: boolean): void {
   state.fleetSectionVisible[index] = visible;
+  simulatorDisplayRevision.set(simulatorDisplayRevision.get() + 1);
 }
 
 export function setAirbaseSectionVisible(visible: boolean): void {
   state.airbaseSectionVisible = visible;
+  simulatorDisplayRevision.set(simulatorDisplayRevision.get() + 1);
 }
 
 export function setVisibleAirbaseCount(count: number): void {
   const n = Number.isFinite(count) ? Math.trunc(count) : 3;
   state.visibleAirbaseCount = Math.max(0, Math.min(3, n));
+  simulatorDisplayRevision.set(simulatorDisplayRevision.get() + 1);
 }
 
 export function setWorkspaceReadOnly(readOnly: boolean): void {
@@ -509,3 +512,8 @@ export function setSokuSpeedData(data: SokuSpeedData | null): void {
 
 // Legacy compatibility mutation.
 export const setSokuLengSpeedData = setSokuSpeedData;
+
+export function setFleetSlotLayoutMode(mode: "2x3" | "3x2"): void {
+  state.fleetSlotLayoutMode = mode;
+  simulatorDisplayRevision.set(simulatorDisplayRevision.get() + 1);
+}

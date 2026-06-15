@@ -13,6 +13,7 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 import { useStore } from "@nanostores/solid";
 import { render } from "solid-js/web";
+import { WeaponIcon } from "@/components/features/simulator/solid/shared-ui";
 import type {
   AirBaseSlot,
   FleetSlot,
@@ -28,7 +29,6 @@ import {
   cardUrl,
   computeEquipBonuses,
   computeEquipSum,
-  createWeaponIconEl,
 } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
 import { openShipModal } from "@/features/simulator/ship-modal";
@@ -56,15 +56,33 @@ import {
   markSimulatorStateDirty,
   simulatorFleetState,
   simulatorAirbaseState,
+  simulatorDisplayRevision,
   type SimulatorDirtyScope,
 } from "@/features/simulator/state";
 import {
   getAirBaseState,
   getFleetState,
+  getSokuSpeedData,
+  getSpriteSheetMeta,
+  getWeaponIconFrame,
+  getVisibleAirbaseCount,
   getMasterShip,
   getMasterSlotItem,
   isWorkspaceReadOnly,
 } from "@/features/simulator/simulator-selectors";
+import type {
+  ShipGrowthSummary,
+  ShipGrowthCaps,
+  NormalizedShipGrowthCaps,
+  ShipGrowthBoundRow,
+  ShipGrowthBoundsResponse,
+} from "@/features/simulator/ship-growth-utils";
+import {
+  normalizeShipGrowthCaps,
+  deriveShipGrowthCapsFromBounds,
+  mergeShipGrowthCaps,
+  needsStatFallback,
+} from "@/features/simulator/ship-growth-utils";
 
 let mounted = false;
 const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
@@ -72,99 +90,12 @@ const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
 const AIRBASE_EQUIP_SLOT_INDEXES = [0, 1, 2, 3] as const;
 
-type ShipGrowthSummary = {
-  ok: boolean;
-  periods?: Array<{ period_tag: string; table_version: string }>;
-};
-
-type ShipGrowthCaps = {
-  master_id: number;
-  kaihi_max?: number;
-  taisen_max?: number;
-  sakuteki_max?: number;
-  kaih_max?: number;
-  tais_max?: number;
-  saku_max?: number;
-};
-
-type NormalizedShipGrowthCaps = {
-  master_id: number;
-  kaihi_max: number;
-  taisen_max: number;
-  sakuteki_max: number;
-};
-
-type ShipGrowthBoundRow = {
-  lv: number;
-  kaihi_naked: number;
-  taisen_naked: number;
-  sakuteki_naked: number;
-};
-
 let shipGrowthPeriodPromise: Promise<{
   period_tag: string;
   table_version: string;
 } | null> | null = null;
 const shipGrowthCapsCache = new Map<number, NormalizedShipGrowthCaps | null>();
 
-function normalizeShipGrowthCaps(
-  raw: ShipGrowthCaps | null,
-): NormalizedShipGrowthCaps | null {
-  if (!raw) return null;
-  return {
-    master_id: raw.master_id,
-    kaihi_max: Number(raw.kaihi_max ?? raw.kaih_max ?? 0),
-    taisen_max: Number(raw.taisen_max ?? raw.tais_max ?? 0),
-    sakuteki_max: Number(raw.sakuteki_max ?? raw.saku_max ?? 0),
-  };
-}
-
-function deriveShipGrowthCapsFromBounds(
-  masterId: number,
-  bounds: ShipGrowthBoundRow[],
-): NormalizedShipGrowthCaps | null {
-  if (!Array.isArray(bounds) || bounds.length === 0) return null;
-  const kaihiMax = Math.max(
-    0,
-    ...bounds.map((row) => Number(row.kaihi_naked || 0)),
-  );
-  const taisenMax = Math.max(
-    0,
-    ...bounds.map((row) => Number(row.taisen_naked || 0)),
-  );
-  const sakutekiMax = Math.max(
-    0,
-    ...bounds.map((row) => Number(row.sakuteki_naked || 0)),
-  );
-  return {
-    master_id: masterId,
-    kaihi_max: kaihiMax,
-    taisen_max: taisenMax,
-    sakuteki_max: sakutekiMax,
-  };
-}
-
-function mergeShipGrowthCaps(
-  primary: NormalizedShipGrowthCaps | null,
-  fallback: NormalizedShipGrowthCaps | null,
-): NormalizedShipGrowthCaps | null {
-  if (!primary && !fallback) return null;
-  if (!primary) return fallback;
-  if (!fallback) return primary;
-  return {
-    master_id: primary.master_id,
-    kaihi_max: primary.kaihi_max > 0 ? primary.kaihi_max : fallback.kaihi_max,
-    taisen_max:
-      primary.taisen_max > 0 ? primary.taisen_max : fallback.taisen_max,
-    sakuteki_max:
-      primary.sakuteki_max > 0 ? primary.sakuteki_max : fallback.sakuteki_max,
-  };
-}
-
-function needsStatFallback(value: number[] | null | undefined): boolean {
-  if (!Array.isArray(value) || value.length === 0) return true;
-  return value.every((v) => !Number.isFinite(v) || v <= 0);
-}
 
 async function getLatestShipGrowthPeriod(): Promise<{
   period_tag: string;
@@ -271,19 +202,7 @@ function ImpBadge(props: { level: number; hovered?: boolean }): JSX.Element {
   );
 }
 
-function WeaponIcon(props: { iconNum: number }): JSX.Element {
-  let host!: HTMLSpanElement;
 
-  // createEffect is deferred until after the span ref is set, and re-runs
-  // reactively whenever iconNum changes. Replaces the previous onMount +
-  // createMemo anti-pattern (createMemo is for pure computations, not
-  // side-effects; also called createWeaponIconEl twice on mount).
-  createEffect(() => {
-    host.replaceChildren(createWeaponIconEl(props.iconNum, 16));
-  });
-
-  return <span ref={host} class="shrink-0 inline-flex" />;
-}
 
 function DeleteIcon(): JSX.Element {
   return (
@@ -1491,7 +1410,7 @@ function ShipCard(props: {
   );
 }
 
-function FleetSlotsView(props: { fleetIndex: 1 | 2 | 3 | 4 }): JSX.Element {
+export function FleetSlotsView(props: { fleetIndex: 1 | 2 | 3 | 4 }): JSX.Element {
   // Each ShipCard subscribes to simulatorFleetState independently via useStore.
   // No top-level subscription needed here.
   return (
@@ -1655,31 +1574,16 @@ function AirBaseCard(props: { index: number }): JSX.Element {
   );
 }
 
-function AirBaseView(): JSX.Element {
-  // Each AirBaseCard subscribes to simulatorAirbaseState independently via useStore.
+export function AirBaseView(): JSX.Element {
+  const displayRev = useStore(simulatorDisplayRevision);
+  const count = createMemo(() => { displayRev(); return getVisibleAirbaseCount(); });
   return (
-    <Index each={AIRBASE_INDEXES}>{(i) => <AirBaseCard index={i()} />}</Index>
+    <Index each={AIRBASE_INDEXES.slice(0, count())}>{(i) => <AirBaseCard index={i()} />}</Index>
   );
 }
 
 export function ensureSolidSimulatorMounted(): void {
-  if (mounted) return;
-
-  const fleet1El = document.getElementById("fleet-1-slots");
-  const fleet2El = document.getElementById("fleet-2-slots");
-  const fleet3El = document.getElementById("fleet-3-slots");
-  const fleet4El = document.getElementById("fleet-4-slots");
-  const airbaseEl = document.getElementById("air-bases");
-
-  if (!fleet1El || !fleet2El || !fleet3El || !fleet4El || !airbaseEl) return;
-
-  render(() => <FleetSlotsView fleetIndex={1} />, fleet1El);
-  render(() => <FleetSlotsView fleetIndex={2} />, fleet2El);
-  render(() => <FleetSlotsView fleetIndex={3} />, fleet3El);
-  render(() => <FleetSlotsView fleetIndex={4} />, fleet4El);
-  render(() => <AirBaseView />, airbaseEl);
-
-  mounted = true;
+  // Now handled declaratively by SimulatorFleetTab.tsx
 }
 
 export function rerenderSolidSimulator(

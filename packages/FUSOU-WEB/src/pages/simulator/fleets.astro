@@ -97,12 +97,6 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
               </tr>
             </thead>
             <tbody id="fleet-list-body">
-              <tr>
-                <td colspan="3" class="text-center py-12">
-                  <span class="loading loading-spinner loading-md"></span>
-                  <p class="mt-2 text-base-content/40">読込中...</p>
-                </td>
-              </tr>
             </tbody>
           </table>
         </div>
@@ -130,131 +124,13 @@ if (accessTokenCookie?.value && refreshTokenCookie?.value) {
 </script>
 
 <script>
+  import { mountFleetListPanel } from "@/components/features/simulator/solid/FleetListPanel";
+
   const accessToken = (window as any).__fusouAccessToken ?? null;
-
-  function authHeaders(): HeadersInit {
-    if (!accessToken) return {};
-    return { Authorization: `Bearer ${accessToken}` };
+  const root = document.getElementById("fleet-list-body");
+  if (root) {
+    root.innerHTML = "";
+    mountFleetListPanel(root, accessToken);
   }
-
-  function renderMessageRow(
-    message: string,
-    className = "text-base-content/40",
-  ) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 3;
-    td.className = `text-center py-12 ${className}`;
-    td.textContent = message;
-    tr.appendChild(td);
-    return tr;
-  }
-
-  function formatUploadedAt(input: string | Date | undefined): string {
-    if (!input) return "-";
-    const date = new Date(input);
-    if (Number.isNaN(date.getTime())) return "-";
-    return date.toLocaleString();
-  }
-
-  function renderFleetRow(tag: string, uploadedAt: string) {
-    const tr = document.createElement("tr");
-    tr.className = "hover";
-
-    const tagTd = document.createElement("td");
-    tagTd.className = "font-mono";
-    tagTd.textContent = tag;
-
-    const savedAtTd = document.createElement("td");
-    savedAtTd.className = "text-base-content/40";
-    savedAtTd.textContent = uploadedAt;
-
-    const actionsTd = document.createElement("td");
-    actionsTd.className = "flex gap-1";
-
-    const openLink = document.createElement("a");
-    openLink.href = `/simulator?fleet=${encodeURIComponent(tag)}`;
-    openLink.className = "btn btn-primary btn-xs btn-open-fleet";
-    openLink.textContent = "シミュレータで開く";
-
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "btn btn-ghost btn-xs btn-delete";
-    deleteButton.dataset.tag = tag;
-    deleteButton.textContent = "削除";
-    deleteButton.addEventListener("click", async () => {
-      if (!confirm(`「${tag}」を削除しますか？`)) return;
-      try {
-        const res = await fetch(
-          `/api/fleet/snapshot/${encodeURIComponent(tag)}`,
-          {
-            method: "DELETE",
-            headers: authHeaders(),
-          },
-        );
-        if (!res.ok) {
-          alert("削除に失敗しました");
-          return;
-        }
-        tr.remove();
-      } catch {
-        alert("削除エラー");
-      }
-    });
-
-    actionsTd.appendChild(openLink);
-    actionsTd.appendChild(deleteButton);
-    tr.appendChild(tagTd);
-    tr.appendChild(savedAtTd);
-    tr.appendChild(actionsTd);
-    return tr;
-  }
-
-  async function loadFleets() {
-    const tbody = document.getElementById("fleet-list-body")!;
-
-    if (!accessToken) {
-      tbody.replaceChildren(
-        renderMessageRow(
-          "一覧表示には Webサービス連携が必要です",
-          "text-warning",
-        ),
-      );
-      return;
-    }
-
-    try {
-      const res = await fetch("/api/fleet/snapshots/list", {
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        tbody.replaceChildren(
-          renderMessageRow("読込に失敗しました", "text-error"),
-        );
-        return;
-      }
-
-      const data = (await res.json()) as {
-        ok: boolean;
-        tags: { tag: string; uploaded?: string; size?: number }[];
-      };
-      if (!data.tags || data.tags.length === 0) {
-        tbody.replaceChildren(
-          renderMessageRow("保存された艦隊データがありません"),
-        );
-        return;
-      }
-
-      tbody.replaceChildren(
-        ...data.tags.map((entry) =>
-          renderFleetRow(entry.tag, formatUploadedAt(entry.uploaded)),
-        ),
-      );
-    } catch (err) {
-      console.error("Failed to load fleet list:", err);
-      tbody.replaceChildren(renderMessageRow("読込エラー", "text-error"));
-    }
-  }
-
-  loadFleets();
 </script>
+
