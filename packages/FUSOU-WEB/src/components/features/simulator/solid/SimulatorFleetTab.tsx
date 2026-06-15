@@ -5,6 +5,7 @@ import { simulatorDisplayRevision, simulatorCombinedFleetType } from "@/features
 import { isFleetSectionVisible, isAirbaseSectionVisible, getVisibleAirbaseCount, getFleetSlotLayoutMode, getFleetState } from "@/features/simulator/simulator-selectors";
 import { validateCombinedFleet } from "@/features/simulator/combined-fleet";
 import { FleetSlotsView, AirBaseView } from "@/components/features/simulator/solid/simulator-renderer";
+import { WorkspacePanel } from "./WorkspacePanel";
 
 export function SimulatorFleetTab() {
   const displayRev = useStore(simulatorDisplayRevision);
@@ -68,37 +69,7 @@ export function SimulatorFleetTab() {
 
   return (
     <>
-      <section id="shared-workspace-panel" class="bg-base-100 rounded-xl shadow-sm border border-base-300/40 p-3 mb-5">
-        <div class="flex items-center justify-between gap-1.5 mb-2">
-          <div class="flex items-center gap-2 min-w-0">
-            <h2 class="text-sm font-semibold shrink-0">ワークスペース</h2>
-            <span id="workspace-mode-status" class="badge badge-sm badge-outline truncate">PLAYGROUND</span>
-          </div>
-          <div class="flex items-center gap-0.5 shrink-0">
-            <button id="btn-workspace-add-current" class="btn btn-ghost btn-xs gap-1" title="現在のPlayground編成をワークスペースに追加" aria-label="現在編成を追加">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1-4l-3 3m0 0l-3-3m3 3V4"></path></svg>
-              <span class="hidden sm:inline text-[11px]">編成追加</span>
-            </button>
-            <button id="btn-workspace-add" class="btn btn-ghost btn-xs gap-1" title="共有URLをワークスペースに追加" aria-label="URLを追加">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-              <span class="hidden sm:inline text-[11px]">URL追加</span>
-            </button>
-            <span id="workspace-count" class="text-xs text-base-content/50 pl-1">0件</span>
-          </div>
-        </div>
-        <p id="workspace-empty" class="text-sm text-base-content/50 mb-2">他人の共有URLと自分のデッキを、ページ遷移せずに切り替えて管理できます。</p>
-        <div id="workspace-playground-entry" class="space-y-2"></div>
-        <div class="mt-3 border-t border-base-300/60 pt-3">
-          <div class="flex items-center justify-between gap-2 mb-2">
-            <span class="text-xs font-medium tracking-wide text-base-content/60">保存済み</span>
-            <span class="text-[11px] text-base-content/45">一覧のみスクロールします</span>
-          </div>
-          <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-[28rem] overflow-y-auto pr-1">
-            <div id="workspace-entry-list" class="space-y-2"></div>
-          </div>
-          <div id="workspace-entry-list-footer" class="mt-2"></div>
-        </div>
-      </section>
+      <WorkspacePanel />
 
       <div id="deck-capture-area">
         <Show when={!combinedValidation().ok}>

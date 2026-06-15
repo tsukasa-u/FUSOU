@@ -22,6 +22,8 @@ export interface ViewerWorkspace {
   entries: ViewerEntry[];
 }
 
+import { atom } from "nanostores";
+
 const STORAGE_KEY = "__fusouViewerWorkspace";
 const MAX_ENTRIES = 20;
 
@@ -58,32 +60,29 @@ function saveWorkspace(ws: ViewerWorkspace): void {
   }
 }
 
-let _ws: ViewerWorkspace = loadWorkspace();
+export const workspaceStore = atom<ViewerWorkspace>(loadWorkspace());
 
 export function getWorkspace(): ViewerWorkspace {
-  return _ws;
+  return workspaceStore.get();
 }
 
 function findBySource(
   sourceType: ViewerEntry["sourceType"],
   sourceValue: string,
 ): ViewerEntry | null {
+  const ws = workspaceStore.get();
   return (
-    _ws.entries.find(
+    ws.entries.find(
       (e) => e.sourceType === sourceType && e.sourceValue === sourceValue,
     ) ?? null
   );
 }
 
-/**
- * Add or refresh an entry.
- * If a duplicate source already exists, refresh its payload/name and move it to front.
- * Returns the resulting entry.
- */
 export function addEntry(
   entry: Omit<ViewerEntry, "id" | "updatedAt"> & { id?: string },
 ): ViewerEntry {
   const existing = findBySource(entry.sourceType, entry.sourceValue);
+  const ws = workspaceStore.get();
   if (existing) {
     if (!existing.locked) {
       existing.payload = entry.payload;
@@ -94,8 +93,9 @@ export function addEntry(
       existing.memo = entry.memo;
     }
     existing.updatedAt = Date.now();
-    _ws.entries = [existing, ..._ws.entries.filter((e) => e.id !== existing.id)];
-    saveWorkspace(_ws);
+    const newWs = { ...ws, entries: [existing, ...ws.entries.filter((e) => e.id !== existing.id)] };
+    workspaceStore.set(newWs);
+    saveWorkspace(newWs);
     return existing;
   }
 
@@ -112,9 +112,8 @@ export function addEntry(
     locked: entry.locked ?? false,
   };
 
-  let entries = [newEntry, ..._ws.entries];
+  let entries = [newEntry, ...ws.entries];
 
-  // LRU eviction: drop the oldest non-pinned entries when over the limit.
   if (entries.length > MAX_ENTRIES) {
     const pinned = entries.filter((e) => e.pinned);
     const unpinned = entries.filter((e) => !e.pinned);
@@ -122,21 +121,22 @@ export function addEntry(
       unpinned.pop();
     }
     entries = [...pinned, ...unpinned];
-    // Hard cap: if all entries are pinned and still over limit, drop oldest pinned.
     if (entries.length > MAX_ENTRIES) {
       entries = entries.slice(0, MAX_ENTRIES);
     }
   }
 
-  _ws.entries = entries;
-  saveWorkspace(_ws);
+  const newWs = { ...ws, entries };
+  workspaceStore.set(newWs);
+  saveWorkspace(newWs);
   return newEntry;
 }
 
 export function upsertEntry(
   entry: Omit<ViewerEntry, "updatedAt">,
 ): ViewerEntry {
-  const duplicate = _ws.entries.find(
+  const ws = workspaceStore.get();
+  const duplicate = ws.entries.find(
     (current) => current.id !== entry.id
       && current.sourceType === entry.sourceType
       && current.sourceValue === entry.sourceValue,
@@ -150,18 +150,23 @@ export function upsertEntry(
     duplicate.pinned = entry.pinned;
     duplicate.locked = entry.locked ?? false;
     duplicate.updatedAt = Date.now();
-    _ws.entries = [
-      duplicate,
-      ..._ws.entries.filter((current) => current.id !== duplicate.id && current.id !== entry.id),
-    ];
-    if (_ws.activeId === entry.id || _ws.activeId === duplicate.id) {
-      _ws.activeId = duplicate.id;
+    let newActiveId = ws.activeId;
+    if (newActiveId === entry.id || newActiveId === duplicate.id) {
+      newActiveId = duplicate.id;
     }
-    saveWorkspace(_ws);
+    const newWs = {
+      activeId: newActiveId,
+      entries: [
+        duplicate,
+        ...ws.entries.filter((current) => current.id !== duplicate.id && current.id !== entry.id),
+      ]
+    };
+    workspaceStore.set(newWs);
+    saveWorkspace(newWs);
     return duplicate;
   }
 
-  const target = _ws.entries.find((current) => current.id === entry.id);
+  const target = ws.entries.find((current) => current.id === entry.id);
   if (target) {
     target.name = entry.name;
     target.memo = entry.memo;
@@ -172,8 +177,9 @@ export function upsertEntry(
     target.pinned = entry.pinned;
     target.locked = entry.locked ?? false;
     target.updatedAt = Date.now();
-    _ws.entries = [target, ..._ws.entries.filter((current) => current.id !== target.id)];
-    saveWorkspace(_ws);
+    const newWs = { ...ws, entries: [target, ...ws.entries.filter((current) => current.id !== target.id)] };
+    workspaceStore.set(newWs);
+    saveWorkspace(newWs);
     return target;
   }
 
@@ -181,32 +187,42 @@ export function upsertEntry(
 }
 
 export function removeEntry(id: string): void {
-  _ws.entries = _ws.entries.filter((e) => e.id !== id);
-  if (_ws.activeId === id) {
-    _ws.activeId = _ws.entries[0]?.id ?? null;
+  const ws = workspaceStore.get();
+  let newActiveId = ws.activeId;
+  const newEntries = ws.entries.filter((e) => e.id !== id);
+  if (newActiveId === id) {
+    newActiveId = newEntries[0]?.id ?? null;
   }
-  saveWorkspace(_ws);
+  const newWs = { activeId: newActiveId, entries: newEntries };
+  workspaceStore.set(newWs);
+  saveWorkspace(newWs);
 }
 
 export function setActive(id: string): void {
-  if (_ws.entries.some((e) => e.id === id)) {
-    _ws.activeId = id;
-    saveWorkspace(_ws);
+  const ws = workspaceStore.get();
+  if (ws.entries.some((e) => e.id === id)) {
+    const newWs = { ...ws, activeId: id };
+    workspaceStore.set(newWs);
+    saveWorkspace(newWs);
   }
 }
 
 export function clearActive(): void {
-  if (_ws.activeId !== null) {
-    _ws.activeId = null;
-    saveWorkspace(_ws);
+  const ws = workspaceStore.get();
+  if (ws.activeId !== null) {
+    const newWs = { ...ws, activeId: null };
+    workspaceStore.set(newWs);
+    saveWorkspace(newWs);
   }
 }
 
 export function toggleLock(id: string): void {
-  const entry = _ws.entries.find((e) => e.id === id);
+  const ws = workspaceStore.get();
+  const entry = ws.entries.find((e) => e.id === id);
   if (entry) {
     entry.locked = !entry.locked;
-    saveWorkspace(_ws);
+    workspaceStore.set({ ...ws });
+    saveWorkspace(ws);
   }
 }
 
@@ -214,17 +230,20 @@ export function updateEntryData(
   id: string,
   data: Pick<ViewerEntry, "payloadKind" | "payload">,
 ): ViewerEntry | null {
-  const entry = _ws.entries.find((e) => e.id === id);
+  const ws = workspaceStore.get();
+  const entry = ws.entries.find((e) => e.id === id);
   if (!entry) return null;
   entry.payloadKind = data.payloadKind;
   entry.payload = data.payload;
   entry.updatedAt = Date.now();
-  saveWorkspace(_ws);
+  workspaceStore.set({ ...ws });
+  saveWorkspace(ws);
   return entry;
 }
 
 export function duplicateEntry(id: string): ViewerEntry | null {
-  const src = _ws.entries.find((e) => e.id === id);
+  const ws = workspaceStore.get();
+  const src = ws.entries.find((e) => e.id === id);
   if (!src) return null;
 
   const duplicated: ViewerEntry = {
@@ -237,15 +256,18 @@ export function duplicateEntry(id: string): ViewerEntry | null {
     locked: false,
   };
 
-  _ws.entries = [duplicated, ..._ws.entries];
-  if (_ws.entries.length > MAX_ENTRIES) {
-    _ws.entries = _ws.entries.slice(0, MAX_ENTRIES);
+  let newEntries = [duplicated, ...ws.entries];
+  if (newEntries.length > MAX_ENTRIES) {
+    newEntries = newEntries.slice(0, MAX_ENTRIES);
   }
-  saveWorkspace(_ws);
+  const newWs = { ...ws, entries: newEntries };
+  workspaceStore.set(newWs);
+  saveWorkspace(newWs);
   return duplicated;
 }
 
 export function getActive(): ViewerEntry | null {
-  if (!_ws.activeId) return null;
-  return _ws.entries.find((e) => e.id === _ws.activeId) ?? null;
+  const ws = workspaceStore.get();
+  if (!ws.activeId) return null;
+  return ws.entries.find((e) => e.id === ws.activeId) ?? null;
 }

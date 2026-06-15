@@ -248,135 +248,46 @@ async function fetchSynergyDataWithMeta(): Promise<{
   }
 }
 
+import { atom } from "nanostores";
+
+export const masterDataStatusStore = atom<{
+  hasMasterData: boolean;
+  shipCount: number;
+  equipCount: number;
+  synergyMetaText: string | null;
+  masterPeriodTag: string | null;
+  masterPeriodRevision: number | null;
+  results: DataLoadResult[];
+}>({
+  hasMasterData: false,
+  shipCount: 0,
+  equipCount: 0,
+  synergyMetaText: null,
+  masterPeriodTag: null,
+  masterPeriodRevision: null,
+  results: [],
+});
+
 export function updateDataStatus() {
-  const statusEl = document.getElementById("data-status");
-  const textEl = document.getElementById("data-status-text");
-  const masterMetaEl = document.getElementById("data-status-master-meta");
-  const synergyMetaEl = document.getElementById("data-status-synergy-meta");
-  const detailsEl = document.getElementById("data-status-details");
-  const detailsToggleEl = document.getElementById("data-status-details-toggle");
   const counts = getMasterDataCounts();
   const shipCount = counts.ships;
   const equipCount = counts.equips;
-  const synergyMetaText = getSlotItemEffectsMetaForStatus();
-  const hasSynergyData = !!getSlotItemEffects();
-
-  if (!statusEl || !textEl) {
-    // Some render paths may load data before the status elements are mounted.
-    setHasMasterData(shipCount > 0 || equipCount > 0);
-    return;
-  }
-
-  // Swap the alert color modifier without touching other classes (mb-*, py-*, hidden, …).
-  function setAlertType(type: "info" | "success" | "warning") {
-    for (const cls of [
-      "alert-info",
-      "alert-success",
-      "alert-warning",
-      "alert-error",
-    ] as const) {
-      statusEl!.classList.remove(cls);
-    }
-    statusEl!.classList.add(`alert-${type}`);
-  }
-
-  // Show only the icon that matches the current state.
-  function showIcon(active: "info" | "success" | "warning") {
-    for (const t of ["info", "success", "warning"] as const) {
-      document
-        .getElementById(`data-status-icon-${t}`)
-        ?.classList.toggle("hidden", t !== active);
-    }
-  }
-
-  statusEl.classList.remove("hidden");
-
-  if (masterMetaEl) {
-    if (_masterDataPeriodTag && _masterDataPeriodRevision != null) {
-      masterMetaEl.classList.remove("hidden");
-      masterMetaEl.textContent = `マスターデータ: ${_masterDataPeriodTag} rev${_masterDataPeriodRevision}`;
-    } else {
-      masterMetaEl.classList.add("hidden");
-      masterMetaEl.textContent = "";
-    }
-  }
-
-  if (synergyMetaEl) {
-    if (synergyMetaText) {
-      synergyMetaEl.classList.remove("hidden");
-      synergyMetaEl.textContent = `装備シナジーデータ: ${synergyMetaText}`;
-    } else if (hasSynergyData) {
-      synergyMetaEl.classList.remove("hidden");
-      synergyMetaEl.textContent = "装備シナジーデータ読込済み";
-    } else {
-      synergyMetaEl.classList.add("hidden");
-      synergyMetaEl.textContent = "";
-    }
-  }
-
-  // Render detailed load results
-  if (detailsEl) {
-    const results = getDataLoadResults();
-    if (results.length > 0) {
-      // Preserve open/closed state across updates
-      const wasOpen = !detailsEl.classList.contains("hidden");
-      detailsEl.innerHTML = results
-        .map((result) => {
-          const icon =
-            result.status === "success"
-              ? '<span class="text-success">✓</span>'
-              : result.status === "failed"
-                ? '<span class="text-error">✗</span>'
-                : '<span class="text-info">⋯</span>';
-          // Only show record count when meaningful (> 0)
-          const label =
-            result.recordCount != null && result.recordCount > 0
-              ? `${result.name} (${result.recordCount})`
-              : result.name;
-          return `<div class="flex items-center gap-1">${icon} <span class="truncate">${label}</span></div>`;
-        })
-        .join("");
-      if (!wasOpen) {
-        detailsEl.classList.add("hidden");
-      }
-    }
-  }
-
-  // Toggle button visibility
-  if (detailsToggleEl) {
-    const hasFailed =
-      _dataLoadResults.some((r) => r.status === "failed") ||
-      shipCount === 0;
-    if (hasFailed) {
-      detailsToggleEl.style.display = "inline-block";
-    } else {
-      detailsToggleEl.style.display = "none";
-    }
-
-    // Add toggle handler
-    detailsToggleEl.onclick = () => {
-      if (detailsEl) {
-        detailsEl.classList.toggle("hidden");
-      }
-    };
-  }
-
-  if (shipCount > 0 && equipCount > 0) {
+  
+  if (shipCount > 0 || equipCount > 0) {
     setHasMasterData(true);
-    setAlertType("success");
-    showIcon("success");
-    textEl.textContent = `マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
-  } else if (shipCount > 0 || equipCount > 0) {
-    setHasMasterData(true);
-    setAlertType("warning");
-    showIcon("warning");
-    textEl.textContent = `一部マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
   } else {
     setHasMasterData(false);
-    setAlertType("warning");
-    showIcon("warning");
-    textEl.textContent = "マスターデータが未読込です";
   }
+
+  masterDataStatusStore.set({
+    hasMasterData: shipCount > 0 || equipCount > 0,
+    shipCount,
+    equipCount,
+    synergyMetaText: getSlotItemEffectsMetaForStatus(),
+    masterPeriodTag: _masterDataPeriodTag,
+    masterPeriodRevision: _masterDataPeriodRevision,
+    results: [..._dataLoadResults],
+  });
 }
 
 /**

@@ -40,9 +40,13 @@ const AIRBASE_THREE_COLUMN_BREAKPOINT_PX = 1200;
 const AIRBASE_TWO_COLUMN_BREAKPOINT_PX = 768;
 const MOBILE_SINGLE_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
 const TWO_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
-let fleetSlotLayoutMode: "2x3" | "3x2" = "2x3";
+export let fleetSlotLayoutMode: "2x3" | "3x2" = "2x3";
 
-function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
+export function setFleetSlotLayoutMode(mode: "2x3" | "3x2"): void {
+  fleetSlotLayoutMode = mode;
+}
+
+export function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
   if (
     fleetSlotLayoutMode === "3x2" &&
     typeof window !== "undefined" &&
@@ -87,21 +91,21 @@ function readDisplaySettings(): DisplaySettings | null {
   }
 }
 
-function writeDisplaySettings(): void {
+export function writeDisplaySettings(): void {
+  const current: DisplaySettings = {
+    fleets: {
+      1: isFleetSectionVisible(1),
+      2: isFleetSectionVisible(2),
+      3: isFleetSectionVisible(3),
+      4: isFleetSectionVisible(4),
+    },
+    showAirbase: isAirbaseSectionVisible(),
+    airbaseCount: getVisibleAirbaseCount(),
+    fleetSlotLayout: fleetSlotLayoutMode,
+    combinedFleetType: getCombinedFleetType(),
+  };
   try {
-    const payload: DisplaySettings = {
-      fleets: {
-        1: isFleetSectionVisible(1),
-        2: isFleetSectionVisible(2),
-        3: isFleetSectionVisible(3),
-        4: isFleetSectionVisible(4),
-      },
-      showAirbase: isAirbaseSectionVisible(),
-      airbaseCount: getVisibleAirbaseCount(),
-      fleetSlotLayout: fleetSlotLayoutMode,
-      combinedFleetType: getCombinedFleetType()
-    };
-    localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(payload));
+    localStorage.setItem(DISPLAY_SETTINGS_KEY, JSON.stringify(current));
   } catch {
     // ignore persistence failures
   }
@@ -133,35 +137,6 @@ function loadDisplaySettingsOnce(): void {
   setCombinedFleetType(settings.combinedFleetType);
 }
 
-function syncDisplaySettingsControls(): void {
-  const modal = document.getElementById("display-settings-modal");
-  if (!(modal instanceof HTMLDialogElement)) return;
-
-  for (const i of [1, 2, 3, 4] as const) {
-    const el = document.getElementById(`display-fleet-${i}`) as HTMLInputElement | null;
-    if (el) el.checked = isFleetSectionVisible(i);
-  }
-
-  const airbaseVisible = document.getElementById("display-airbase") as HTMLInputElement | null;
-  if (airbaseVisible) airbaseVisible.checked = isAirbaseSectionVisible();
-
-  const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
-  if (airbaseCount) {
-    airbaseCount.value = String(getVisibleAirbaseCount());
-    airbaseCount.disabled = !isAirbaseSectionVisible();
-  }
-
-  const slotLayout = document.getElementById("display-fleet-slot-layout") as HTMLSelectElement | null;
-  if (slotLayout) {
-    slotLayout.value = fleetSlotLayoutMode;
-  }
-
-  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
-  if (combinedFleet) {
-    combinedFleet.value = String(getCombinedFleetType());
-  }
-}
-
 function applyDisplaySettingsUi(): void {
   // Now handled reactively in SimulatorFleetTab.tsx
 }
@@ -174,112 +149,17 @@ function syncCombinedFleetUI(): void {
   // Now handled reactively in SimulatorFleetTab.tsx
 }
 
-function bindDisplaySettingsEvents(): void {
-  if (settingsEventsBound) return;
-  settingsEventsBound = true;
-
-  const openBtn = document.getElementById("btn-display-settings");
-  const modal = document.getElementById("display-settings-modal") as HTMLDialogElement | null;
-  if (openBtn instanceof HTMLButtonElement && modal) {
-    openBtn.addEventListener("click", () => {
-      syncDisplaySettingsControls();
-      modal.showModal();
-    });
-  }
-
-  for (const i of [1, 2, 3, 4] as const) {
-    const el = document.getElementById(`display-fleet-${i}`) as HTMLInputElement | null;
-    if (!el) continue;
-    el.addEventListener("change", () => {
-      setFleetSectionVisible(i, el.checked);
-      applyDisplaySettingsUi();
-      writeDisplaySettings();
-    });
-  }
-
-  const airbaseVisible = document.getElementById("display-airbase") as HTMLInputElement | null;
-  if (airbaseVisible) {
-    airbaseVisible.addEventListener("change", () => {
-      setAirbaseSectionVisible(airbaseVisible.checked);
-      const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
-      if (airbaseCount) airbaseCount.disabled = !airbaseVisible.checked;
-      applyDisplaySettingsUi();
-      writeDisplaySettings();
-    });
-  }
-
-  const airbaseCount = document.getElementById("display-airbase-count") as HTMLSelectElement | null;
-  if (airbaseCount) {
-    airbaseCount.addEventListener("change", () => {
-      setVisibleAirbaseCount(Number.parseInt(airbaseCount.value, 10));
-      applyDisplaySettingsUi();
-      writeDisplaySettings();
-    });
-  }
-
-  const slotLayout = document.getElementById("display-fleet-slot-layout") as HTMLSelectElement | null;
-  if (slotLayout) {
-    slotLayout.addEventListener("change", () => {
-      fleetSlotLayoutMode = slotLayout.value === "3x2" ? "3x2" : "2x3";
-      applyDisplaySettingsUi();
-      writeDisplaySettings();
-    });
-  }
-
-  // Combined fleet type selector
-  const combinedFleet = document.getElementById("display-combined-fleet") as HTMLSelectElement | null;
-  if (combinedFleet) {
-    combinedFleet.addEventListener("change", () => {
-      const newType = Math.max(0, Math.min(3, Number.parseInt(combinedFleet.value, 10) || 0)) as 0 | 1 | 2 | 3;
-      const isCombined = newType > 0;
-      setCombinedFleetType(newType);
-
-      // Auto-show fleet 2 when entering combined mode
-      if (isCombined && !isFleetSectionVisible(2)) {
-        setFleetSectionVisible(2, true);
-        const cb = document.getElementById("display-fleet-2") as HTMLInputElement | null;
-        if (cb) cb.checked = true;
-      }
-
-      syncCombinedFleetUI();
-      applyDisplaySettingsUi();
-      writeDisplaySettings();
-    });
-  }
-
-  document.getElementById("btn-display-settings-apply")?.addEventListener("click", () => {
-    const modalEl = document.getElementById("display-settings-modal") as HTMLDialogElement | null;
-    modalEl?.close();
-  });
-
-  window.addEventListener("resize", applyDisplaySettingsUiOnResize);
-}
-
-let combinedFleetUiSubscribed = false;
 
 export function initDisplaySettingsEvents(): void {
   loadDisplaySettingsOnce();
-  bindDisplaySettingsEvents();
-  syncDisplaySettingsControls();
-  applyDisplaySettingsUi();
-  syncCombinedFleetUI();
-  if (!combinedFleetUiSubscribed) {
-    combinedFleetUiSubscribed = true;
-    onSimulatorStateDirty("fleet", () => {
-      syncCombinedFleetUI();
-    });
-  }
 }
 
 export function renderAirBases(): void {
   loadDisplaySettingsOnce();
   rerenderSolidSimulator("airbase");
-  applyDisplaySettingsUi();
 }
 
 export function renderAll(): void {
   loadDisplaySettingsOnce();
   rerenderSolidSimulator("all");
-  applyDisplaySettingsUi();
-  syncCombinedFleetUI();
 }

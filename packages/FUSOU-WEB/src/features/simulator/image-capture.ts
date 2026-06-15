@@ -520,83 +520,25 @@ async function buildCaptureNode(opts: {
   return { host, node: clone, stats };
 }
 
-/** Wire up save-image modal and button event listeners. */
-export function initImageCaptureEvents() {
-  document.getElementById("btn-save-image")?.addEventListener("click", () => {
-    const openBtn = document.getElementById("btn-save-image");
-    if (openBtn instanceof HTMLButtonElement) {
-      flashPressedEffect(openBtn);
-    }
-    const modal = document.getElementById("save-image-modal");
-    const captureRoot = document.getElementById("deck-capture-area");
-    if (captureRoot) {
-      prewarmVisibleExternalImageCache(captureRoot).catch(() => {});
-    }
-    if (modal instanceof HTMLDialogElement) {
-      modal.showModal();
-      syncSaveTargetControls();
-    }
-  });
+export interface CaptureImageOptions {
+  fleetTarget: "both" | "fleet1" | "fleet2" | "fleet3" | "fleet4" | "airbase";
+  includeAirBase: boolean;
+  transparentBackground: boolean;
+  scale: number;
+  fileBase: string;
+}
 
-  document
-    .querySelectorAll<HTMLInputElement>('input[name="saveimg-fleet-target"]')
-    .forEach((radio) => {
-      radio.addEventListener("change", syncSaveTargetControls);
-    });
+export async function prewarmImageCacheForCapture() {
+  const captureRoot = document.getElementById("deck-capture-area");
+  if (captureRoot) {
+    await prewarmVisibleExternalImageCache(captureRoot).catch(() => {});
+  }
+}
 
-  document
-    .getElementById("btn-save-image-confirm")
-    ?.addEventListener("click", async () => {
-      const btn = document.getElementById("btn-save-image-confirm");
-      const modal = document.getElementById("save-image-modal");
-      if (!(btn instanceof HTMLButtonElement)) return;
-      flashPressedEffect(btn);
-
-      const fleetTarget = ((
-        document.querySelector(
-          'input[name="saveimg-fleet-target"]:checked',
-        ) as HTMLInputElement | null
-      )?.value ?? "both") as
-        | "both"
-        | "fleet1"
-        | "fleet2"
-        | "fleet3"
-        | "fleet4"
-        | "airbase";
-      const includeAirBaseChecked =
-        (
-          document.getElementById(
-            "saveimg-include-airbase",
-          ) as HTMLInputElement | null
-        )?.checked ?? true;
-      const includeAirBase =
-        fleetTarget === "airbase" ? true : includeAirBaseChecked;
-      const transparentBackground =
-        (
-          document.getElementById(
-            "saveimg-transparent-bg",
-          ) as HTMLInputElement | null
-        )?.checked ?? false;
-      const hideExternalImages = false;
-      const useImageProxy = true;
-      const scaleRaw = parseInt(
-        (document.getElementById("saveimg-scale") as HTMLSelectElement | null)
-          ?.value ?? "2",
-        10,
-      );
-      const scale = Math.max(
-        1,
-        Math.min(3, Number.isFinite(scaleRaw) ? scaleRaw : 2),
-      );
-      const fileBase = sanitizeFileName(
-        (document.getElementById("saveimg-filename") as HTMLInputElement | null)
-          ?.value ?? "fleet-deck",
-      );
-
-      const prevDisabled = btn.disabled;
-      const prevText = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "保存中...";
+export async function captureAndSaveImage(options: CaptureImageOptions): Promise<void> {
+  const { fleetTarget, includeAirBase, transparentBackground, scale, fileBase } = options;
+  const hideExternalImages = false;
+  const useImageProxy = true;
 
       let host: HTMLElement | null = null;
       let aggregatedStats = emptyCaptureStats();
@@ -678,6 +620,7 @@ export function initImageCaptureEvents() {
         a.click();
         a.remove();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+        
         logSaveImageDiagnostics({
           ...aggregatedStats,
           attempt,
@@ -688,7 +631,6 @@ export function initImageCaptureEvents() {
           success: true,
           note: `target=${fleetTarget}`,
         });
-        if (modal instanceof HTMLDialogElement) modal.close();
       } catch (err) {
         console.error("[save-image] failed", err);
         const msg = err instanceof Error ? err.message : String(err);
@@ -707,8 +649,5 @@ export function initImageCaptureEvents() {
         );
       } finally {
         if (host && host.parentElement) host.parentElement.removeChild(host);
-        btn.disabled = prevDisabled;
-        if (prevText != null) btn.textContent = prevText;
       }
-    });
 }

@@ -7,8 +7,12 @@ import { initDisplaySettingsEvents, renderAll } from "@/features/simulator/airba
 import { updateDataStatus, loadMasterData } from "@/features/simulator/data-loader";
 import { initShipModalEvents, handleResizeShip } from "@/features/simulator/ship-modal";
 import { initEquipModalEvents, handleResizeEquip } from "@/features/simulator/equip-modal";
-import { initImageCaptureEvents } from "@/features/simulator/image-capture";
+import { prewarmImageCacheForCapture } from "@/features/simulator/image-capture";
 import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
+import { displaySettingsModalRef, saveImageModalRef } from "./SimulatorModals";
+import { apiPasteModalRef } from "./ApiPasteModal";
+import { shareSettingsModalRef } from "./ShareSettingsModal";
+import { loadFleetModalRef } from "./LoadFleetModal";
 
 export function SimulatorTabManager(props: { initialTab: string, accessToken: string | null }) {
   const [activeTab, setActiveTab] = createSignal(props.initialTab || "fleet");
@@ -57,8 +61,6 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
 
     initShipModalEvents();
     initEquipModalEvents();
-    initDisplaySettingsEvents();
-    initImageCaptureEvents();
 
     const handleResize = () => {
       handleResizeShip();
@@ -106,32 +108,35 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
           </p>
         </div>
         <div class="fusou-page-actions">
-          <button id="btn-display-settings" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()}>
+          <button id="btn-display-settings" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => displaySettingsModalRef.current?.showModal()}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317a1 1 0 011.35-.936l.964.429a1 1 0 00.88 0l.964-.429a1 1 0 011.35.936l.093 1.053a1 1 0 00.516.79l.9.52a1 1 0 01.364 1.365l-.53.918a1 1 0 000 .998l.53.918a1 1 0 01-.364 1.365l-.9.52a1 1 0 00-.516.79l-.093 1.053a1 1 0 01-1.35.936l-.964-.429a1 1 0 00-.88 0l-.964.429a1 1 0 01-1.35-.936l-.093-1.053a1 1 0 00-.516-.79l-.9-.52a1 1 0 01-.364-1.365l.53-.918a1 1 0 000-.998l-.53-.918a1 1 0 01.364-1.365l.9-.52a1 1 0 00.516-.79l.093-1.053z"></path>
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9a3 3 0 100 6 3 3 0 000-6z"></path>
             </svg>
             表示設定
           </button>
-          <button id="btn-load-fleet" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()}>
+          <button id="btn-load-fleet" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => loadFleetModalRef.current?.showModal()}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
             </svg>
             R2読込
           </button>
-          <button id="btn-import" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()}>
+          <button id="btn-import" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => apiPasteModalRef.current?.showModal()}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
             </svg>
             APIレスポンス貼り付け
           </button>
-          <button id="btn-save-image" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()}>
+          <button id="btn-save-image" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => {
+            prewarmImageCacheForCapture();
+            saveImageModalRef.current?.showModal();
+          }}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7h4l2-2h6l2 2h4v12H3V7zm9 10a4 4 0 100-8 4 4 0 000 8z"></path>
             </svg>
             画像保存
           </button>
-          <button id="btn-share" class="fusou-btn-primary gap-1.5" hidden={!isFleet()}>
+          <button id="btn-share" class="fusou-btn-secondary gap-1.5" hidden={!isFleet()} onClick={() => shareSettingsModalRef.current?.showModal()}>
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
             </svg>

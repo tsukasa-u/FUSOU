@@ -43,7 +43,7 @@ function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${_accessToken}` };
 }
 
-async function copyTextWithFallback(text: string): Promise<boolean> {
+export async function copyTextWithFallback(text: string): Promise<boolean> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);
@@ -63,7 +63,7 @@ type ShortenApiResponse = {
   status?: number;
 };
 
-type ShareOptions = {
+export type ShareOptions = {
   includeAirBases: boolean;
   includeDetailedStats: boolean;
   includeSnapshotData: boolean;
@@ -133,11 +133,43 @@ function buildSharePayload(opts: ShareOptions) {
   return payload;
 }
 
+export async function createShareUrl(opts: ShareOptions): Promise<string> {
+  const payload = buildSharePayload(opts);
+  if (opts.includeSnapshotData) {
+    const snapshotPayload = buildSnapshotPayloadForShare();
+    if (snapshotPayload.snapshotShips) {
+      payload.snapshotShips = snapshotPayload.snapshotShips;
+    }
+    if (snapshotPayload.snapshotSlotItems) {
+      payload.snapshotSlotItems = snapshotPayload.snapshotSlotItems;
+    }
+  }
+
+  const base64Str = encodePayloadBase64(payload);
+  
+  const res = await fetch("/api/shorten", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ payload: base64Str }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
+  }
+
+  const json = await res.json() as ShortenApiResponse;
+  if (!json.ok || !json.shortUrl) {
+    throw new Error(json.error || "Failed to shorten URL");
+  }
+
+  return new URL(json.shortUrl, window.location.origin).toString();
+}
+
 function buildSnapshotPayloadForShare() {
   return getSnapshotShareState();
 }
 
-function buildCurrentPlaygroundPayload(): Record<string, unknown> {
+export function buildCurrentPlaygroundPayload(): Record<string, unknown> {
   const payload = buildSharePayload({
     includeAirBases: true,
     includeDetailedStats: true,
@@ -196,20 +228,16 @@ function applyPlaygroundDraftOrBlank(): void {
   setSnapshotPlaygroundMode(false);
 }
 
-function finalizePlaygroundLoad(
-  snapshotMode: boolean = hasSnapshotData(),
+export function finalizePlaygroundLoad(
+  hasSnapshotDataBool: boolean = hasSnapshotData(),
   rerender = false,
 ): void {
   clearActive();
-  // Playground should always stay editable even if a locked workspace item was
-  // active immediately before loading.
-  setWorkspaceReadOnly(false);
   _playgroundDraft = buildCurrentPlaygroundPayload();
-  setSnapshotPlaygroundMode(snapshotMode);
-  if (rerender) renderWorkspacePanel();
+  setSnapshotPlaygroundMode(hasSnapshotDataBool);
 }
 
-function activateWorkspaceEntry(
+export function activateWorkspaceEntry(
   entry: ViewerEntry,
   rememberPlayground = true,
 ): void {
@@ -224,37 +252,17 @@ function activateWorkspaceEntry(
   setActive(entry.id);
   applyViewerEntry(entry);
   setSnapshotPlaygroundMode(false);
-  renderWorkspacePanel();
 }
 
-function switchToPlayground(): void {
+export function switchToPlayground(): void {
   const activeEntry = getActiveWorkspaceEntry();
   if (activeEntry) {
     saveCurrentStateToEntry(activeEntry);
   }
   clearActive();
-  setWorkspaceReadOnly(false);
   applyPlaygroundDraftOrBlank();
-  renderWorkspacePanel();
 }
 
-function getShareOptions(): ShareOptions {
-  const includeAirBasesEl = document.getElementById(
-    "share-include-airbase",
-  ) as HTMLInputElement | null;
-  const includeDetailedStatsEl = document.getElementById(
-    "share-include-detailed-stats",
-  ) as HTMLInputElement | null;
-  const includeSnapshotDataEl = document.getElementById(
-    "share-include-snapshot",
-  ) as HTMLInputElement | null;
-
-  return {
-    includeAirBases: includeAirBasesEl?.checked ?? true,
-    includeDetailedStats: includeDetailedStatsEl?.checked ?? true,
-    includeSnapshotData: includeSnapshotDataEl?.checked ?? false,
-  };
-}
 
 function applyViewerEntry(entry: ViewerEntry): void {
   if (entry.payloadKind === "exportedFleet") {
@@ -264,7 +272,7 @@ function applyViewerEntry(entry: ViewerEntry): void {
   }
 }
 
-function saveCurrentStateToEntry(entry: ViewerEntry): void {
+export function saveCurrentStateToEntry(entry: ViewerEntry): void {
   if (entry.sourceType !== "ownDeck") return;
   if (entry.locked) return;
 
@@ -276,7 +284,7 @@ function saveCurrentStateToEntry(entry: ViewerEntry): void {
   });
 }
 
-function createOwnDeckFromCurrentState(
+export function createOwnDeckFromCurrentState(
   name: string,
   memo: string,
 ): ViewerEntry {
@@ -300,96 +308,14 @@ function saveActiveOwnDeckIfNeeded(): void {
   saveCurrentStateToEntry(activeEntry);
 }
 
-function getWorkspaceModalElements() {
-  return {
-    modal: document.getElementById(
-      "workspace-add-modal",
-    ) as HTMLDialogElement | null,
-    title: document.getElementById("workspace-modal-title"),
-    description: document.getElementById("workspace-modal-description"),
-    labelInput: document.getElementById(
-      "workspace-entry-label",
-    ) as HTMLInputElement | null,
-    memoInput: document.getElementById(
-      "workspace-entry-memo",
-    ) as HTMLTextAreaElement | null,
-    shareInput: document.getElementById(
-      "workspace-share-input",
-    ) as HTMLInputElement | null,
-    confirmBtn: document.getElementById(
-      "btn-workspace-add-confirm",
-    ) as HTMLButtonElement | null,
-  };
-}
-
 function getWorkspaceEntryById(id: string): ViewerEntry | null {
   return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
 }
 
-function createLockIconElement(locked: boolean): SVGElement {
-  const svgNs = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(svgNs, "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
-  svg.setAttribute("width", "16");
-  svg.setAttribute("height", "16");
-  svg.setAttribute("aria-hidden", "true");
-
-  if (locked) {
-    const shackle = document.createElementNS(svgNs, "path");
-    shackle.setAttribute("d", "M7 10V8a5 5 0 1 1 10 0v2");
-    shackle.setAttribute("fill", "none");
-    shackle.setAttribute("stroke", "currentColor");
-    shackle.setAttribute("stroke-width", "2.2");
-    shackle.setAttribute("stroke-linecap", "round");
-
-    const body = document.createElementNS(svgNs, "rect");
-    body.setAttribute("x", "5");
-    body.setAttribute("y", "10");
-    body.setAttribute("width", "14");
-    body.setAttribute("height", "10");
-    body.setAttribute("rx", "2.2");
-    body.setAttribute("fill", "currentColor");
-    body.setAttribute("fill-opacity", "0.14");
-    body.setAttribute("stroke", "currentColor");
-    body.setAttribute("stroke-width", "2.2");
-
-    svg.appendChild(shackle);
-    svg.appendChild(body);
-    return svg;
-  }
-
-  const shackle = document.createElementNS(svgNs, "path");
-  shackle.setAttribute("d", "M9 10V8a5 5 0 0 1 9.4-2.4");
-  shackle.setAttribute("fill", "none");
-  shackle.setAttribute("stroke", "currentColor");
-  shackle.setAttribute("stroke-width", "2.2");
-  shackle.setAttribute("stroke-linecap", "round");
-
-  const body = document.createElementNS(svgNs, "path");
-  body.setAttribute("d", "M15 10h4v10H5V10h7");
-  body.setAttribute("fill", "currentColor");
-  body.setAttribute("fill-opacity", "0.12");
-  body.setAttribute("stroke", "currentColor");
-  body.setAttribute("stroke-width", "2.2");
-  body.setAttribute("stroke-linecap", "round");
-  body.setAttribute("stroke-linejoin", "round");
-
-  svg.appendChild(shackle);
-  svg.appendChild(body);
-  return svg;
-}
+export function isSnapshotPlayground(): boolean { return _isSnapshotPlayground; }
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
   _isSnapshotPlayground = enabled;
-  const btn = document.getElementById(
-    "btn-workspace-add-current",
-  ) as HTMLButtonElement | null;
-  if (!btn) return;
-  const isPlayground = getWorkspace().activeId === null;
-  btn.disabled = !isPlayground;
-  btn.title = isPlayground
-    ? "現在のplayground編成をワークスペースへ追加"
-    : "playgroundでのみ利用できます";
 }
 
 function hasSnapshotLink(entry: ViewerEntry): boolean {
@@ -406,357 +332,6 @@ function hasSnapshotLink(entry: ViewerEntry): boolean {
     typeof snapshotSlotItems === "object" &&
     Object.keys(snapshotSlotItems).length > 0;
   return hasShips || hasItems;
-}
-
-function renderWorkspaceModeIndicator(): void {
-  const el = document.getElementById("workspace-mode-status");
-  if (!el) return;
-  const activeId = getWorkspace().activeId;
-  if (!activeId) {
-    if (_isSnapshotPlayground) {
-      el.textContent = "PLAYGROUND: SNAPSHOT";
-      el.className = "badge badge-sm badge-info";
-    } else {
-      el.textContent = "PLAYGROUND: BLANK";
-      el.className = "badge badge-sm badge-ghost";
-    }
-    return;
-  }
-  const active = getWorkspaceEntryById(activeId);
-  if (!active) {
-    el.textContent = "PLAYGROUND";
-    el.className = "badge badge-sm badge-ghost";
-    return;
-  }
-  const typeLabel = active.sourceType === "ownDeck" ? "DECK" : "URL";
-  el.textContent = `WORKSPACE: ${typeLabel}`;
-  el.className =
-    active.sourceType === "ownDeck"
-      ? "badge badge-sm badge-success"
-      : "badge badge-sm badge-accent";
-}
-
-function syncLockedEditState(): void {
-  const activeId = getWorkspace().activeId;
-  const active = activeId ? getWorkspaceEntryById(activeId) : null;
-  const locked = Boolean(active?.locked);
-  const lockedMessage = "ロック中のため編集できません";
-  setWorkspaceReadOnly(locked);
-
-  const deckCaptureArea = document.getElementById(
-    "deck-capture-area",
-  ) as HTMLElement | null;
-  if (deckCaptureArea) {
-    deckCaptureArea.title = locked ? lockedMessage : "";
-  }
-
-  const blockingButtons = ["btn-load-fleet", "btn-import"];
-  for (const id of blockingButtons) {
-    const btn = document.getElementById(id) as HTMLButtonElement | null;
-    if (btn) {
-      btn.disabled = locked;
-      btn.title = locked ? lockedMessage : "";
-    }
-  }
-
-  const modeBadge = document.getElementById(
-    "workspace-mode-status",
-  ) as HTMLElement | null;
-  if (modeBadge) {
-    modeBadge.title = locked ? lockedMessage : "";
-  }
-
-  const shipGrid = document.getElementById(
-    "ship-modal-grid",
-  ) as HTMLElement | null;
-  const equipGrid = document.getElementById(
-    "equip-modal-grid",
-  ) as HTMLElement | null;
-  if (shipGrid) shipGrid.title = locked ? lockedMessage : "";
-  if (equipGrid) equipGrid.title = locked ? lockedMessage : "";
-}
-
-function resetWorkspaceModal(): void {
-  const {
-    modal,
-    title,
-    description,
-    labelInput,
-    memoInput,
-    shareInput,
-    confirmBtn,
-  } = getWorkspaceModalElements();
-  if (modal) delete modal.dataset.editEntryId;
-  if (title) title.textContent = "ワークスペースにURLを追加";
-  if (description) {
-    description.textContent =
-      "共有URL（/share/short/xxxx or /share/data?data=...）を追加できます。URLを空欄のまま保存すると現在の編成を自分のデッキとして追加します。";
-  }
-  if (labelInput) labelInput.value = "";
-  if (memoInput) memoInput.value = "";
-  if (labelInput) labelInput.disabled = false;
-  if (memoInput) memoInput.disabled = false;
-  if (shareInput) {
-    shareInput.value = "";
-    shareInput.disabled = false;
-  }
-  if (confirmBtn) confirmBtn.textContent = "追加して切り替え";
-  if (confirmBtn) confirmBtn.disabled = false;
-}
-
-function openWorkspaceEditModal(entry: ViewerEntry): void {
-  const {
-    modal,
-    title,
-    description,
-    labelInput,
-    memoInput,
-    shareInput,
-    confirmBtn,
-  } = getWorkspaceModalElements();
-  if (!modal) return;
-
-  modal.dataset.editEntryId = entry.id;
-  if (title) title.textContent = "ワークスペース項目を編集";
-  if (labelInput) labelInput.value = entry.name;
-  if (memoInput) memoInput.value = entry.memo ?? "";
-  if (labelInput) labelInput.disabled = Boolean(entry.locked);
-  if (memoInput) memoInput.disabled = Boolean(entry.locked);
-  if (shareInput) {
-    if (entry.sourceType === "ownDeck") {
-      shareInput.value = "";
-      shareInput.disabled = true;
-      if (description) {
-        description.textContent = entry.locked
-          ? "ロック中のデッキは編集できません。"
-          : "自分のデッキ項目です。表示名とメモを更新できます。";
-      }
-    } else {
-      shareInput.value =
-        entry.sourceType === "shareKey"
-          ? entry.sourceValue
-          : entry.sourceType === "simulatorUrl"
-            ? entry.sourceValue
-            : "";
-      shareInput.disabled = false;
-      if (description) {
-        description.textContent = entry.locked
-          ? "ロック中の項目は編集できません。"
-          : "表示名・メモ・共有URLを更新できます。保存するとこの項目へ切り替えます。";
-      }
-    }
-  }
-  if (confirmBtn) {
-    confirmBtn.textContent = "保存して切り替え";
-    confirmBtn.disabled = Boolean(entry.locked);
-  }
-  modal.showModal();
-}
-
-/** Render the shared workspace panel chips from current workspace state. */
-function renderWorkspacePanel() {
-  const ws = getWorkspace();
-  const playgroundHost = document.getElementById("workspace-playground-entry");
-  const list = document.getElementById("workspace-entry-list");
-  const listFooter = document.getElementById("workspace-entry-list-footer");
-  const empty = document.getElementById("workspace-empty");
-  const count = document.getElementById("workspace-count");
-
-  if (!playgroundHost || !list) return;
-
-  renderWorkspaceModeIndicator();
-  syncLockedEditState();
-
-  if (count) count.textContent = `${ws.entries.length}件`;
-
-  if (ws.entries.length === 0) {
-    if (empty) empty.style.display = "";
-  } else {
-    if (empty) empty.style.display = "none";
-  }
-
-  if (ws.entries.length <= WORKSPACE_COLLAPSED_VISIBLE_COUNT) {
-    _workspaceListExpanded = false;
-  }
-
-  playgroundHost.replaceChildren();
-  list.replaceChildren();
-  if (listFooter) listFooter.replaceChildren();
-
-  const activeIndex = ws.activeId
-    ? ws.entries.findIndex((entry) => entry.id === ws.activeId)
-    : -1;
-  const shouldAutoExpandForActive =
-    activeIndex >= WORKSPACE_COLLAPSED_VISIBLE_COUNT;
-  const isExpanded = _workspaceListExpanded || shouldAutoExpandForActive;
-  const visibleEntries = isExpanded
-    ? ws.entries
-    : ws.entries.slice(0, WORKSPACE_COLLAPSED_VISIBLE_COUNT);
-  const hiddenCount = Math.max(0, ws.entries.length - visibleEntries.length);
-
-  const playgroundChip = document.createElement("div");
-  const isPlaygroundActive = ws.activeId === null;
-  playgroundChip.className = [
-    "flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
-    isPlaygroundActive
-      ? "border-info bg-info/10"
-      : "border-base-300/60 hover:border-info/50",
-  ].join(" ");
-
-  const playgroundText = document.createElement("div");
-  playgroundText.className = "flex-1 min-w-0";
-  const playgroundName = document.createElement("div");
-  playgroundName.className = "truncate font-medium";
-  playgroundName.textContent = "Playground";
-  const playgroundDesc = document.createElement("div");
-  playgroundDesc.className = "text-[11px] text-base-content/55 mt-0.5";
-  playgroundDesc.textContent = _isSnapshotPlayground
-    ? "スナップショットを反映した作業中の編成"
-    : "白紙状態から編成を作成する作業領域";
-  playgroundText.appendChild(playgroundName);
-  playgroundText.appendChild(playgroundDesc);
-
-  playgroundChip.appendChild(playgroundText);
-  playgroundChip.addEventListener("click", () => {
-    switchToPlayground();
-  });
-  playgroundHost.appendChild(playgroundChip);
-
-  for (const entry of visibleEntries) {
-    const isActive = entry.id === ws.activeId;
-
-    const chip = document.createElement("div");
-    chip.className = [
-      "flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors",
-      isActive
-        ? "border-primary bg-primary/10"
-        : "border-base-300/60 hover:border-primary/40",
-    ].join(" ");
-    chip.dataset.entryId = entry.id;
-
-    const textBlock = document.createElement("div");
-    textBlock.className = "flex-1 min-w-0";
-
-    const nameSpan = document.createElement("div");
-    nameSpan.className = "truncate font-medium";
-    nameSpan.textContent = entry.name;
-
-    const memoSpan = document.createElement("div");
-    memoSpan.className =
-      "text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden";
-    memoSpan.textContent = entry.memo?.trim() ?? "";
-
-    textBlock.appendChild(nameSpan);
-    if (memoSpan.textContent) {
-      textBlock.appendChild(memoSpan);
-    }
-
-    const badge = document.createElement("span");
-    badge.className =
-      "badge badge-sm shrink-0 " +
-      (entry.sourceType === "ownDeck" ? "badge-warning" : "badge-accent");
-    badge.textContent = entry.sourceType === "ownDeck" ? "DECK" : "URL";
-
-    const snapshotBadge = document.createElement("span");
-    snapshotBadge.className =
-      "badge badge-sm shrink-0 " +
-      (hasSnapshotLink(entry) ? "badge-info" : "badge-ghost");
-    snapshotBadge.textContent = hasSnapshotLink(entry) ? "SNAP" : "NO-SNAP";
-
-    const lockBtn = document.createElement("button");
-    lockBtn.className =
-      "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors";
-    lockBtn.replaceChildren(createLockIconElement(Boolean(entry.locked)));
-    lockBtn.style.color = entry.locked ? "#dc2626" : "#16a34a";
-    lockBtn.style.backgroundColor = entry.locked
-      ? "rgba(220, 38, 38, 0.10)"
-      : "rgba(22, 163, 74, 0.10)";
-    lockBtn.style.border = `1px solid ${entry.locked ? "rgba(220, 38, 38, 0.20)" : "rgba(22, 163, 74, 0.20)"}`;
-    lockBtn.title = entry.locked
-      ? "ロック中：R2再読込で上書きされません。クリックで解除"
-      : "ロック解除中：R2再読込で上書きされます。クリックでロック";
-    lockBtn.setAttribute(
-      "aria-label",
-      entry.locked ? "ロック中" : "ロック解除中",
-    );
-    lockBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      toggleLock(entry.id);
-      renderWorkspacePanel();
-    });
-
-    const editBtn = document.createElement("button");
-    editBtn.className = "btn btn-ghost btn-xs shrink-0";
-    editBtn.textContent = "編集";
-    editBtn.title = entry.locked ? "ロック中は編集できません" : "編集";
-    editBtn.disabled = Boolean(entry.locked);
-    editBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (entry.locked) return;
-      openWorkspaceEditModal(entry);
-    });
-
-    const delBtn = document.createElement("button");
-    delBtn.className = "btn btn-ghost btn-xs shrink-0";
-    delBtn.textContent = "×";
-    delBtn.title = "削除";
-    delBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      removeEntry(entry.id);
-      renderWorkspacePanel();
-    });
-
-    const dupBtn = document.createElement("button");
-    dupBtn.className = "btn btn-ghost btn-xs shrink-0";
-    dupBtn.textContent = "複製";
-    dupBtn.title = "この項目を複製";
-    dupBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const duplicated = duplicateEntry(entry.id);
-      if (!duplicated) return;
-      activateWorkspaceEntry(duplicated);
-    });
-
-    chip.appendChild(textBlock);
-    chip.appendChild(badge);
-    chip.appendChild(snapshotBadge);
-    chip.appendChild(lockBtn);
-    chip.appendChild(dupBtn);
-    chip.appendChild(editBtn);
-    chip.appendChild(delBtn);
-
-    chip.addEventListener("click", () => {
-      activateWorkspaceEntry(entry);
-    });
-
-    list.appendChild(chip);
-  }
-
-  if (listFooter && ws.entries.length > WORKSPACE_COLLAPSED_VISIBLE_COUNT) {
-    const footerWrap = document.createElement("div");
-    footerWrap.className = "flex items-center justify-between gap-2";
-
-    const footerText = document.createElement("span");
-    footerText.className = "text-xs text-base-content/55";
-    footerText.textContent = isExpanded
-      ? `${ws.entries.length}件を表示中`
-      : `${visibleEntries.length}件を表示中 / あと${hiddenCount}件`;
-
-    const toggleBtn = document.createElement("button");
-    toggleBtn.className = "btn btn-ghost btn-xs";
-    toggleBtn.textContent = isExpanded
-      ? "折りたたむ"
-      : `さらに表示 (${hiddenCount})`;
-    toggleBtn.setAttribute("aria-expanded", isExpanded ? "true" : "false");
-    toggleBtn.addEventListener("click", () => {
-      _workspaceListExpanded = !isExpanded;
-      renderWorkspacePanel();
-    });
-
-    footerWrap.appendChild(footerText);
-    footerWrap.appendChild(toggleBtn);
-    listFooter.appendChild(footerWrap);
-  }
 }
 
 export async function loadFromUrl(): Promise<ViewerEntry | null> {
@@ -838,654 +413,12 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
   return null;
 }
 
-// ── API Response Paste Dialog ──
-
-interface ApiPasteCallbacks {
-  onApplyExportedFleet(json: Record<string, unknown>): void;
-  onApplySnapshot(json: Record<string, unknown>): void;
-  onLoadMasterData(json: Record<string, unknown>): void;
-}
-
-function initApiPasteDialog(cb: ApiPasteCallbacks): void {
-  const modal = document.getElementById(
-    "api-paste-modal",
-  ) as HTMLDialogElement | null;
-
-  const portTextarea = document.getElementById(
-    "api-paste-port",
-  ) as HTMLTextAreaElement | null;
-  const requireTextarea = document.getElementById(
-    "api-paste-require",
-  ) as HTMLTextAreaElement | null;
-  const masterTextarea = document.getElementById(
-    "api-paste-master",
-  ) as HTMLTextAreaElement | null;
-
-  function setFieldMessage(
-    section: "port" | "require" | "master",
-    msg: string,
-    kind: "info" | "success" | "error" = "info",
-  ): void {
-    const el = document.getElementById(`api-paste-message-${section}`);
-    if (!el) return;
-    el.textContent = msg;
-    el.className = `text-xs mt-1 min-h-[1.2em] ${
-      kind === "success"
-        ? "text-success"
-        : kind === "error"
-          ? "text-error"
-          : "text-base-content/60"
-    }`;
-  }
-
-  function setBadge(
-    section: "port" | "require" | "master",
-    text: string,
-    success: boolean,
-  ): void {
-    const badge = document.getElementById(`api-paste-status-${section}`);
-    if (!badge) return;
-    badge.textContent = text;
-    badge.className = success
-      ? "badge badge-success badge-sm"
-      : "badge badge-ghost badge-sm";
-  }
-
-  function tryParseJson(
-    textarea: HTMLTextAreaElement | null,
-    section: "port" | "require" | "master",
-  ): Record<string, unknown> | null {
-    const raw = textarea?.value ?? "";
-    if (!raw.trim()) return null; // empty is not an error — just skip
-    try {
-      return JSON.parse(stripSvdataPrefix(raw));
-    } catch {
-      setFieldMessage(section, "JSONのパースに失敗しました", "error");
-      return null;
-    }
-  }
-
-  function resetAll(): void {
-    if (portTextarea) portTextarea.value = "";
-    if (requireTextarea) requireTextarea.value = "";
-    if (masterTextarea) masterTextarea.value = "";
-    for (const s of ["port", "require", "master"] as const) {
-      setFieldMessage(s, "");
-      setBadge(s, "未読込", false);
-    }
-  }
-
-  // Open dialog
-  document.getElementById("btn-import")?.addEventListener("click", () => {
-    if (!modal) return;
-    modal.showModal();
-  });
-
-  // Apply — parse all non-empty textareas at once
-  document
-    .getElementById("btn-api-paste-apply")
-    ?.addEventListener("click", () => {
-      // Clear previous messages
-      for (const s of ["port", "require", "master"] as const)
-        setFieldMessage(s, "");
-
-      let hadError = false;
-
-      // --- master data (getData) ---
-      const masterJson = tryParseJson(masterTextarea, "master");
-      if (masterJson) {
-        const kind = detectResponseKind(masterJson);
-        if (kind === "getData") {
-          cb.onLoadMasterData(convertGetDataToMasterData(masterJson));
-          setBadge("master", "読込済み", true);
-          setFieldMessage(
-            "master",
-            "マスターデータを読み込みました",
-            "success",
-          );
-          if (masterTextarea) masterTextarea.value = "";
-        } else if (
-          masterJson.mst_ships ||
-          masterJson.mst_slot_items ||
-          masterJson.ships ||
-          masterJson.equipments
-        ) {
-          cb.onLoadMasterData(masterJson);
-          setBadge("master", "読込済み", true);
-          setFieldMessage(
-            "master",
-            "マスターデータを読み込みました",
-            "success",
-          );
-          if (masterTextarea) masterTextarea.value = "";
-        } else {
-          setFieldMessage(
-            "master",
-            "api_start2/getData のレスポンスではありません",
-            "error",
-          );
-          hadError = true;
-        }
-      }
-
-      // --- port ---
-      const portJson = tryParseJson(portTextarea, "port");
-      if (portJson) {
-        const kind = detectResponseKind(portJson);
-        if (kind === "port") {
-          // Normal port response — needs require_info too
-          const reqJson = tryParseJson(requireTextarea, "require");
-          if (reqJson) {
-            const reqKind = detectResponseKind(reqJson);
-            if (reqKind === "requireInfo") {
-              const portSnap = convertPortToSnapshot(portJson);
-              const reqSnap = convertRequireInfoToSnapshot(reqJson);
-              const snapshot = mergeSnapshots(portSnap, reqSnap);
-              cb.onApplySnapshot(snapshot);
-              setBadge(
-                "port",
-                `${portSnap.s3s.length}隻 / ${portSnap.d8k.length}艦隊`,
-                true,
-              );
-              setBadge("require", `${reqSnap.s8s.length}件`, true);
-              setFieldMessage("port", "編成に反映しました", "success");
-              setFieldMessage("require", "編成に反映しました", "success");
-              if (portTextarea) portTextarea.value = "";
-              if (requireTextarea) requireTextarea.value = "";
-            } else {
-              setFieldMessage(
-                "require",
-                "api_get_member/require_info のレスポンスではありません",
-                "error",
-              );
-              hadError = true;
-            }
-          } else if (!requireTextarea?.value.trim()) {
-            setFieldMessage(
-              "require",
-              "port と合わせて require_info も貼り付けてください",
-              "error",
-            );
-            hadError = true;
-          } else {
-            hadError = true; // parse error already set by tryParseJson
-          }
-        } else if (
-          portJson.fleet1 ||
-          portJson.fleet2 ||
-          portJson.fleet3 ||
-          portJson.fleet4 ||
-          portJson.airBases
-        ) {
-          cb.onApplyExportedFleet(portJson);
-          setBadge("port", "反映済み", true);
-          setFieldMessage(
-            "port",
-            "エクスポート済み編成を反映しました",
-            "success",
-          );
-          if (portTextarea) portTextarea.value = "";
-        } else if (portJson.s3s) {
-          cb.onApplySnapshot(portJson);
-          setBadge("port", "反映済み", true);
-          setFieldMessage("port", "スナップショットを反映しました", "success");
-          if (portTextarea) portTextarea.value = "";
-        } else {
-          setFieldMessage(
-            "port",
-            "api_port/port のレスポンスではありません",
-            "error",
-          );
-          hadError = true;
-        }
-      }
-
-      // --- require_info only (no port) ---
-      if (!portJson && requireTextarea?.value.trim()) {
-        const reqJson = tryParseJson(requireTextarea, "require");
-        if (reqJson) {
-          setFieldMessage(
-            "require",
-            "require_info 単体では反映できません。port も貼り付けてください",
-            "error",
-          );
-          hadError = true;
-        }
-      }
-
-      if (!hadError && !portJson && !masterJson) {
-        setFieldMessage(
-          "port",
-          "いずれかのテキストエリアにデータを貼り付けてください",
-          "info",
-        );
-      }
-    });
-
-  // Reset
-  document
-    .getElementById("btn-api-paste-reset")
-    ?.addEventListener("click", () => {
-      resetAll();
-    });
-}
-
-/** Wire up all I/O-related event listeners. Call once at init time. */
 export function initIOEvents(_initialEntry?: ViewerEntry | null) {
-  const shareModal = document.getElementById(
-    "share-settings-modal",
-  ) as HTMLDialogElement | null;
-  const shareConfirmBtn = document.getElementById(
-    "btn-share-confirm",
-  ) as HTMLButtonElement | null;
-
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
-  setSnapshotPlaygroundMode(hasSnapshotData());
+  _isSnapshotPlayground = hasSnapshotData();
 
   window.addEventListener("beforeunload", () => {
     saveActiveOwnDeckIfNeeded();
   });
-
-  const setFleetListMessage = (
-    container: HTMLElement,
-    message: string,
-    className: string,
-    linkHref?: string,
-    linkText?: string,
-  ) => {
-    const p = document.createElement("p");
-    p.className = className;
-    p.appendChild(document.createTextNode(message));
-    if (linkHref && linkText) {
-      const link = document.createElement("a");
-      link.href = linkHref;
-      link.className = "link link-primary";
-      link.textContent = linkText;
-      p.appendChild(link);
-    }
-    container.replaceChildren(p);
-  };
-
-  type FleetListInlinePart =
-    | { kind: "text"; value: string }
-    | { kind: "link"; href: string; label: string };
-
-  const setFleetListInlineMessage = (
-    container: HTMLElement,
-    className: string,
-    parts: FleetListInlinePart[],
-  ) => {
-    const p = document.createElement("p");
-    p.className = className;
-
-    for (const part of parts) {
-      if (part.kind === "text") {
-        p.appendChild(document.createTextNode(part.value));
-        continue;
-      }
-
-      const link = document.createElement("a");
-      link.href = part.href;
-      link.className = "link link-primary";
-      link.textContent = part.label;
-      p.appendChild(link);
-    }
-
-    container.replaceChildren(p);
-  };
-
-  const setFleetListLoading = (container: HTMLElement) => {
-    const spinner = document.createElement("span");
-    spinner.className = "loading loading-spinner loading-sm";
-    container.replaceChildren(spinner);
-  };
-
-  // R2 fleet load
-  document
-    .getElementById("btn-load-fleet")
-    ?.addEventListener("click", async () => {
-      const modal = document.getElementById(
-        "load-fleet-modal",
-      ) as HTMLDialogElement;
-      modal.showModal();
-
-      const listContainer = document.getElementById("fleet-list-container")!;
-
-      if (!_accessToken) {
-        setFleetListInlineMessage(
-          listContainer,
-          "text-base-content/60 text-sm",
-          [
-            {
-              kind: "text",
-              value: "この機能を利用するにはFUSOU-APPのスナップショット機能と",
-            },
-            {
-              kind: "link",
-              href: "/auth/local/signin",
-              label: "ローカルアプリ連携",
-            },
-            { kind: "text", value: "と" },
-            {
-              kind: "link",
-              href: "/auth/signin",
-              label: "Webサービス連携",
-            },
-            { kind: "text", value: "が必要です" },
-          ],
-        );
-        return;
-      }
-
-      setFleetListLoading(listContainer);
-
-      try {
-        const res = await fetch("/api/fleet/snapshots/list", {
-          headers: authHeaders(),
-        });
-        if (res.status === 401 || res.status === 403) {
-          const body = (await res.json().catch(() => ({}))) as {
-            error?: string;
-          };
-          const msg = body.error ?? "認証エラー";
-          setFleetListMessage(listContainer, msg, "text-warning text-sm");
-          return;
-        }
-        if (!res.ok) {
-          setFleetListMessage(
-            listContainer,
-            "読込に失敗しました",
-            "text-error text-sm",
-          );
-          return;
-        }
-        const data = (await res.json()) as {
-          ok: boolean;
-          tags: { tag: string; uploaded: string; size: number }[];
-        };
-        if (!data.tags || data.tags.length === 0) {
-          setFleetListMessage(
-            listContainer,
-            "保存された艦隊データがありません",
-            "text-base-content/40",
-          );
-          return;
-        }
-
-        listContainer.replaceChildren();
-        for (const entry of data.tags) {
-          const btn: HTMLButtonElement = document.createElement("button");
-          btn.className = "btn btn-ghost btn-sm w-full justify-start gap-2";
-          const uploaded = entry.uploaded
-            ? new Date(entry.uploaded).toLocaleString()
-            : "";
-
-          const tagSpan = document.createElement("span");
-          tagSpan.className = "flex-1 text-left";
-          tagSpan.textContent = entry.tag;
-
-          const uploadedSpan = document.createElement("span");
-          uploadedSpan.className = "text-xs text-base-content/40";
-          uploadedSpan.textContent = uploaded;
-
-          btn.appendChild(tagSpan);
-          btn.appendChild(uploadedSpan);
-          btn.addEventListener("click", async () => {
-            try {
-              const snapRes = await fetch(
-                `/api/fleet/snapshot/${encodeURIComponent(entry.tag)}`,
-                { headers: authHeaders() },
-              );
-              if (snapRes.ok) {
-                const result = (await snapRes.json()) as {
-                  ok: boolean;
-                  snapshot: Record<string, unknown>;
-                };
-                applyFleetSnapshot(result.snapshot);
-                finalizePlaygroundLoad(true, true);
-                modal.close();
-              } else {
-                alert("スナップショットの読込に失敗しました");
-              }
-            } catch {
-              alert("読込エラー");
-            }
-          });
-          listContainer.appendChild(btn);
-        }
-      } catch {
-        setFleetListMessage(listContainer, "読込エラー", "text-error text-sm");
-      }
-    });
-
-  initApiPasteDialog({
-    onApplyExportedFleet(json) {
-      applyExportedFleet(json);
-      finalizePlaygroundLoad(hasSnapshotData(), true);
-    },
-    onApplySnapshot(json) {
-      applyFleetSnapshot(json);
-      finalizePlaygroundLoad(true, true);
-    },
-    onLoadMasterData(json) {
-      loadMasterDataFromJson(json, renderAll);
-    },
-  });
-
-  // Share (with URL shortening)
-  document.getElementById("btn-share")?.addEventListener("click", () => {
-    if (!shareModal) return;
-    const includeSnapshotDataEl = document.getElementById(
-      "share-include-snapshot",
-    ) as HTMLInputElement | null;
-    const snapshotHintEl = document.getElementById("share-snapshot-hint");
-    const hasSnapshot = hasSnapshotData();
-    if (includeSnapshotDataEl) {
-      includeSnapshotDataEl.checked = hasSnapshot;
-      includeSnapshotDataEl.disabled = !hasSnapshot;
-    }
-    if (snapshotHintEl) {
-      snapshotHintEl.textContent = hasSnapshot
-        ? "スナップショット情報を共有に含めます。"
-        : "この編成にはスナップショット情報がないため選択できません。";
-    }
-    shareModal.showModal();
-  });
-
-  shareConfirmBtn?.addEventListener("click", async () => {
-    const opts = getShareOptions();
-    const payload = buildSharePayload(opts);
-    const snapshotPayload = opts.includeSnapshotData
-      ? buildSnapshotPayloadForShare()
-      : undefined;
-    const encoded = encodePayloadBase64(payload);
-    const longUrl = `${window.location.origin}/share/data?data=${encodeURIComponent(encoded)}`;
-
-    let shortUrl = "";
-    try {
-      const res = await fetch("/api/shorten", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: longUrl, snapshotPayload }),
-      });
-
-      const responseText = await res.text();
-      let data: ShortenApiResponse | null = null;
-      try {
-        data = JSON.parse(responseText) as ShortenApiResponse;
-      } catch {
-        console.warn(
-          "URL shortener response is not JSON:",
-          responseText.slice(0, 300),
-        );
-        alert("短縮URL応答の形式が不正です。時間をおいて再度お試しください。");
-        return;
-      }
-
-      if (!res.ok || !data.ok) {
-        console.warn("URL shortener normalized error:", res.status, data);
-        const message = [data.error, data.detail]
-          .filter(
-            (v): v is string => typeof v === "string" && v.trim().length > 0,
-          )
-          .join("\n");
-        alert(
-          message ||
-            "短縮URLの生成に失敗しました。設定または接続状態を確認してください。",
-        );
-        return;
-      }
-
-      shortUrl = (data.shortUrl ?? "").trim();
-      if (!shortUrl) {
-        console.warn("URL shortener response missing shortUrl:", data);
-        alert("短縮URL応答が不正です。時間をおいて再度お試しください。");
-        return;
-      }
-    } catch (error) {
-      console.warn("URL shortener request threw:", error);
-      alert(
-        "短縮URLの生成に失敗しました。ネットワーク状態を確認してください。",
-      );
-      return;
-    }
-
-    const copied = await copyTextWithFallback(shortUrl);
-    if (copied) {
-      shareModal?.close();
-      alert("共有URLをクリップボードにコピーしました");
-      return;
-    }
-
-    // Last-resort manual copy guidance.
-    shareModal?.close();
-    window.prompt(
-      "自動コピーに失敗しました。以下を手動でコピーしてください:",
-      shortUrl,
-    );
-  });
-
-  // ── Workspace: open add modal ──
-  document
-    .getElementById("btn-workspace-add")
-    ?.addEventListener("click", () => {
-      resetWorkspaceModal();
-      const modal = document.getElementById(
-        "workspace-add-modal",
-      ) as HTMLDialogElement | null;
-      modal?.showModal();
-    });
-
-  // ── Workspace: quick add current composition ──
-  document
-    .getElementById("btn-workspace-add-current")
-    ?.addEventListener("click", () => {
-      const hasSnapshot = hasSnapshotData();
-      const entry = createOwnDeckFromCurrentState(
-        hasSnapshot
-          ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}`
-          : "自分のデッキ",
-        "",
-      );
-      activateWorkspaceEntry(entry);
-    });
-
-  // ── Workspace: confirm add ──
-  document
-    .getElementById("btn-workspace-add-confirm")
-    ?.addEventListener("click", async () => {
-      const { modal, labelInput, memoInput, shareInput, confirmBtn } =
-        getWorkspaceModalElements();
-      const editingEntryId = modal?.dataset.editEntryId ?? "";
-
-      const label = labelInput?.value.trim() ?? "";
-      const memoRaw = memoInput?.value.trim() ?? "";
-      const memo = memoRaw.slice(0, WORKSPACE_MEMO_MAX_LENGTH);
-      const shareUrl = shareInput?.value.trim() ?? "";
-      const editingEntry = editingEntryId
-        ? getWorkspaceEntryById(editingEntryId)
-        : null;
-
-      if (editingEntry?.sourceType === "ownDeck") {
-        if (editingEntry.locked) {
-          alert("ロック中のデッキは編集できません");
-          return;
-        }
-        let payloadSource = editingEntry;
-        if (getWorkspace().activeId === editingEntry.id) {
-          saveCurrentStateToEntry(editingEntry);
-          payloadSource =
-            getWorkspaceEntryById(editingEntry.id) ?? editingEntry;
-        }
-
-        const updated = upsertEntry({
-          id: payloadSource.id,
-          name: label || payloadSource.name,
-          memo,
-          sourceType: payloadSource.sourceType,
-          sourceValue: payloadSource.sourceValue,
-          payloadKind: payloadSource.payloadKind,
-          payload: payloadSource.payload,
-          pinned: payloadSource.pinned,
-          locked: payloadSource.locked ?? false,
-        });
-        activateWorkspaceEntry(updated);
-        modal?.close();
-        resetWorkspaceModal();
-        return;
-      }
-
-      if (!shareUrl) {
-        if (!editingEntryId) {
-          const entry = createOwnDeckFromCurrentState(label, memo);
-          activateWorkspaceEntry(entry);
-          modal?.close();
-          resetWorkspaceModal();
-          return;
-        }
-        alert("共有URLを入力してください");
-        return;
-      }
-
-      if (confirmBtn) confirmBtn.disabled = true;
-
-      try {
-        if (shareUrl) {
-          const resolved = await resolveShareInput(shareUrl);
-          if (!resolved.ok) {
-            alert(resolved.error);
-            return;
-          }
-          const entry = editingEntryId
-            ? upsertEntry({
-                id: editingEntryId,
-                name: label || resolved.sourceValue.slice(0, 40),
-                memo,
-                sourceType: resolved.sourceType,
-                sourceValue: resolved.sourceValue,
-                payloadKind: resolved.payloadKind,
-                payload: resolved.payload,
-                pinned: false,
-              })
-            : addEntry({
-                name: label || resolved.sourceValue.slice(0, 40),
-                memo,
-                sourceType: resolved.sourceType,
-                sourceValue: resolved.sourceValue,
-                payloadKind: resolved.payloadKind,
-                payload: resolved.payload,
-                pinned: false,
-              });
-          activateWorkspaceEntry(entry);
-          modal?.close();
-          resetWorkspaceModal();
-        }
-      } finally {
-        if (confirmBtn) confirmBtn.disabled = false;
-      }
-    });
-
-  // ── Workspace: initial render ──
-  renderWorkspacePanel();
 }
