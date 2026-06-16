@@ -1,6 +1,7 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import DataStatusAlert from "@/components/features/simulator/astro/DataStatusAlert.astro";
 import PageShell from "@/components/common/astro/ui/PageShell.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
@@ -43,7 +44,7 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
       "艦隊・装備・基地航空隊を編集し、保存・共有・比較まで一通り行えます。",
     controls: [
       {
-        sourceSelector: "#sim-tab-btn-ship",
+        sourceSelector: "#sim-details-link",
         description: "艦娘・装備の詳細カタログを別ページで確認します。",
         tone: "outline",
       },
@@ -98,6 +99,9 @@ const tabQuery = Astro.url.searchParams.get("tab") || "fleet";
 >
   <Navigation filled={true} />
   <PageShell paddingY="6">
+    <!-- Status -->
+    <DataStatusAlert mb="mb-5" startHidden={true} />
+
     <!-- Mount point for SolidJS Simulator App -->
     <div id="simulator-tab-manager-root"></div>
   </PageShell>
