@@ -71,6 +71,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
   let settingsDialogRef!: HTMLDialogElement;
   const [helpOpen, setHelpOpen] = createSignal(false);
   let helpDialogRef!: HTMLDialogElement;
+  const [shipListOpen, setShipListOpen] = createSignal(true);
+  const [equipListOpen, setEquipListOpen] = createSignal(true);
 
   const allExpanded = createMemo(() => {
     const s = expandSettings();
@@ -785,8 +787,18 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "ship"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+          <aside class={`rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)] ${shipListOpen() ? "" : "hidden xl:flex"}`}>
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
+              <div class="flex items-center justify-between gap-2 xl:hidden">
+                <p class="text-xs font-semibold text-base-content/60">艦選択リスト</p>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  type="button"
+                  onClick={() => setShipListOpen(false)}
+                >
+                  閉じる
+                </button>
+              </div>
               <select
                 class="select select-bordered select-sm w-full"
                 aria-label="艦種フィルター"
@@ -809,7 +821,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setShipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 h-[74vh]">
+            <div class="p-2 flex-1 min-h-0">
               <VList
                 ref={(el) => {
                   shipVListRef = el;
@@ -838,36 +850,57 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show
-            when={selectedShip()}
-            fallback={
-              <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
-                艦を選択してください。
-              </div>
-            }
-          >
-            {(ship) => (
-              <ShipDetailPanel
-                ship={ship()}
-                onOpenEquip={(equipId) => {
-                  setSelectedEquipId(equipId);
-                  setTab("equip");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                expandEquippableEquip={expandSettings().expandEquippableEquip}
-                expandSingleSynergy={expandSettings().expandSingleSynergy}
-                expandPairSynergy={expandSettings().expandPairSynergy}
-                showMultiSynergy={expandSettings().showMultiSynergy}
-              />
-            )}
-          </Show>
+          <div class="min-w-0 space-y-2">
+            <Show when={!shipListOpen()}>
+              <button
+                class="btn btn-outline btn-sm xl:hidden"
+                type="button"
+                onClick={() => setShipListOpen(true)}
+              >
+                艦選択リストを開く
+              </button>
+            </Show>
+            <Show
+              when={selectedShip()}
+              fallback={
+                <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
+                  艦を選択してください。
+                </div>
+              }
+            >
+              {(ship) => (
+                <ShipDetailPanel
+                  ship={ship()}
+                  onOpenEquip={(equipId) => {
+                    setSelectedEquipId(equipId);
+                    setTab("equip");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  expandEquippableEquip={expandSettings().expandEquippableEquip}
+                  expandSingleSynergy={expandSettings().expandSingleSynergy}
+                  expandPairSynergy={expandSettings().expandPairSynergy}
+                  showMultiSynergy={expandSettings().showMultiSynergy}
+                />
+              )}
+            </Show>
+          </div>
         </section>
       </Show>
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+          <aside class={`rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)] ${equipListOpen() ? "" : "hidden xl:flex"}`}>
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
+              <div class="flex items-center justify-between gap-2 xl:hidden">
+                <p class="text-xs font-semibold text-base-content/60">装備選択リスト</p>
+                <button
+                  class="btn btn-ghost btn-xs"
+                  type="button"
+                  onClick={() => setEquipListOpen(false)}
+                >
+                  閉じる
+                </button>
+              </div>
               <select
                 class="select select-bordered select-sm w-full"
                 aria-label="装備種別フィルター"
@@ -889,7 +922,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setEquipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 h-[74vh]">
+            <div class="p-2 flex-1 min-h-0">
               <VList
                 ref={(el) => {
                   equipVListRef = el;
@@ -918,32 +951,44 @@ function SimulatorDetailsCatalog(): JSX.Element {
             </div>
           </aside>
 
-          <Show
-            when={selectedEquip()}
-            fallback={
-              <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
-                装備を選択してください。
-              </div>
-            }
-          >
-            {(equip) => (
-              <EquipDetailPanel
-                equip={equip()}
-                onOpenShip={(shipId) => {
-                  setSelectedShipId(shipId);
-                  setTab("ship");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                onOpenEquip={(equipId) => {
-                  setSelectedEquipId(equipId);
-                  setTab("equip");
-                  window.scrollTo({ top: 0, behavior: "smooth" });
-                }}
-                expandSynergyShips={expandSettings().expandSynergyShips}
-                expandCompatibleShips={expandSettings().expandCompatibleShips}
-              />
-            )}
-          </Show>
+          <div class="min-w-0 space-y-2">
+            <Show when={!equipListOpen()}>
+              <button
+                class="btn btn-outline btn-sm xl:hidden"
+                type="button"
+                onClick={() => setEquipListOpen(true)}
+              >
+                装備選択リストを開く
+              </button>
+            </Show>
+            <Show
+              when={selectedEquip()}
+              fallback={
+                <div class="rounded-xl border border-base-300/70 bg-base-100 p-4 text-base-content/50">
+                  装備を選択してください。
+                </div>
+              }
+            >
+              {(equip) => (
+                <EquipDetailPanel
+                  equip={equip()}
+                  onOpenShip={(shipId) => {
+                    setSelectedShipId(shipId);
+                    setTab("ship");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onOpenEquip={(equipId) => {
+                    setSelectedEquipId(equipId);
+                    setTab("equip");
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  expandSynergyShips={expandSettings().expandSynergyShips}
+                  expandCompatibleShips={expandSettings().expandCompatibleShips}
+                  showMultiSynergy={expandSettings().showMultiSynergy}
+                />
+              )}
+            </Show>
+          </div>
         </section>
       </Show>
     </div>

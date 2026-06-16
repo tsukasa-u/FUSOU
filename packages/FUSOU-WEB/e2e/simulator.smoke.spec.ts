@@ -17,31 +17,89 @@ const masterRecords: Record<string, unknown[]> = {
       id: 1,
       name: "テスト艦",
       stype: 1,
-      slots: [0, 0, 0, 0, 0],
-      sort_no: 1,
+      ctype: 1,
+      sort_id: 1,
+      taik: [15, 35],
+      souk: [5, 35],
+      houg: [10, 40],
+      raig: [0, 0],
+      tyku: [8, 28],
+      tais: [18, 65],
+      kaih: [38, 82],
+      saku: [5, 32],
+      luck: [10, 40],
+      soku: 10,
+      leng: 1,
+      slot_num: 4,
+      maxeq: [0, 0, 0, 0, 0],
     },
   ],
   mst_slotitem: [
     {
       id: 1,
       name: "テスト装備",
-      type: [0, 0, 0, 0],
+      sortno: 1,
+      type: [0, 0, 1, 1],
+      houm: 0,
+      souk: 0,
       houg: 0,
       raig: 0,
       tyku: 0,
       tais: 0,
       baku: 0,
       saku: 0,
+      houk: 0,
       luck: 0,
       leng: 1,
-      rare: 1,
+      soku: 0,
+      distance: 0,
+      kaih: 0,
+    },
+    {
+      id: 2,
+      name: "テスト装備B",
+      sortno: 2,
+      type: [0, 0, 1, 2],
+      houm: 0,
+      souk: 0,
+      houg: 0,
+      raig: 0,
+      tyku: 0,
+      tais: 0,
+      baku: 0,
+      saku: 0,
+      houk: 0,
+      luck: 0,
+      leng: 1,
+      soku: 0,
+      distance: 0,
+      kaih: 0,
+    },
+    {
+      id: 3,
+      name: "テスト装備C",
+      sortno: 3,
+      type: [0, 0, 1, 3],
+      houm: 0,
+      souk: 0,
+      houg: 0,
+      raig: 0,
+      tyku: 0,
+      tais: 0,
+      baku: 0,
+      saku: 0,
+      houk: 0,
+      luck: 0,
+      leng: 1,
+      soku: 0,
+      distance: 0,
       kaih: 0,
     },
   ],
-  mst_slotitem_equiptype: [{ id: 1, name: "小口径主砲" }],
-  mst_stype: [{ id: 1, name: "駆逐艦" }],
+  mst_slotitem_equiptype: [{ id: 1, name: "テスト種別" }],
+  mst_stype: [{ id: 1, sortno: 1, name: "駆逐艦", equip_type: { "1": 1 } }],
   mst_equip_exslot: [],
-  mst_equip_ship: [],
+  mst_equip_ship: [{ ship_id: 1, equip_type: { "1": [1, 2, 3] } }],
   mst_equip_exslot_ship: [],
   mst_equip_limit_exslot: [],
 };
@@ -118,6 +176,50 @@ async function mockSimulatorData(page: Page): Promise<void> {
   await page.route("**/api/asset-sync/weapon-icons", async (route: Route) => {
     await route.fulfill({ status: 404, body: "" });
   });
+
+  await page.route("**/api/master-data/synergy-data", async (route: Route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        effect_rules: [],
+        cross_rules: [
+          {
+            ships: [],
+            synergy: { houg: 2 },
+            pairs: [[1, 2]],
+          },
+        ],
+        cross_rules_equip_index: {
+          "1": [0],
+          "2": [0],
+        },
+        cross_effects: {
+          "1:2": [
+            {
+              ships: [1],
+              items: [1, 2],
+              synergy: { houg: 2 },
+            },
+          ],
+        },
+        triple_rules: [
+          {
+            ships: [1],
+            synergy: { houg: 1 },
+            item_pool: [1, 2, 3],
+          },
+        ],
+        triple_rules_equip_index: {
+          "1": [0],
+          "2": [0],
+          "3": [0],
+        },
+        quad_rules: [],
+        penta_rules: [],
+      }),
+    });
+  });
 }
 
 async function waitForMasterDataReady(page: Page): Promise<void> {
@@ -136,18 +238,63 @@ async function waitForMasterDataReady(page: Page): Promise<void> {
     .toBe(true);
 }
 
+async function openShipSelectModalFromFirstSlot(page: Page): Promise<void> {
+  const emptySlot = page
+    .locator("#fleet-1-slots div.cursor-pointer", {
+      hasText: "艦を配置",
+    })
+    .first();
+
+  await expect(emptySlot).toBeVisible();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await emptySlot.click({ force: true });
+    const opened = await page
+      .locator("#ship-select-modal")
+      .evaluate((el) => (el as HTMLDialogElement).open)
+      .catch(() => false);
+    if (opened) return;
+    await page.waitForTimeout(150);
+  }
+
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator("#ship-select-modal")
+          .evaluate((el) => (el as HTMLDialogElement).open)
+          .catch(() => false),
+      { timeout: 5000 },
+    )
+    .toBe(true);
+}
+
+async function ensureTutorialClosed(page: Page): Promise<void> {
+  const tutorialModal = page.locator("#tutorial-modal");
+  const closeBtn = page.locator("#tutorial-close-btn");
+
+  // Tutorial may open with a short delay after initial render.
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const visible = await tutorialModal.isVisible().catch(() => false);
+    if (!visible) {
+      await page.waitForTimeout(120);
+      continue;
+    }
+    await closeBtn.click({ force: true });
+    await expect(tutorialModal).toBeHidden();
+    return;
+  }
+
+  await expect(tutorialModal).toBeHidden();
+}
+
 test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
   test.beforeEach(async ({ page }) => {
     await mockSimulatorData(page);
     await page.goto("/simulator");
     await page.waitForLoadState("domcontentloaded");
 
-    // Close first-visit tutorial modal if auto-opened to avoid interaction overlap.
-    const tutorialCloseBtn = page.locator("#tutorial-close-btn");
-    if (await tutorialCloseBtn.isVisible().catch(() => false)) {
-      await tutorialCloseBtn.click();
-      await expect(page.locator("#tutorial-modal")).toBeHidden();
-    }
+    await ensureTutorialClosed(page);
   });
 
   test("loads simulator shell and critical controls with mocked data", async ({
@@ -165,28 +312,121 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
 
   test("opens ship selection modal from first fleet slot", async ({ page }) => {
     await waitForMasterDataReady(page);
-
-    const emptySlot = page
-      .locator("#fleet-1-slots div.cursor-pointer", {
-        hasText: "艦を配置",
-      })
-      .first();
-
-    await expect(emptySlot).toBeVisible();
-    await emptySlot.click({ force: true });
-
-    await expect
-      .poll(
-        async () =>
-          page
-            .locator("#ship-select-modal")
-            .evaluate((el) => (el as HTMLDialogElement).open)
-            .catch(() => false),
-        { timeout: 10000 },
-      )
-      .toBe(true);
+    await openShipSelectModalFromFirstSlot(page);
 
     await expect(page.locator("#ship-select-modal")).toBeVisible();
     await expect(page.locator("#ship-modal-grid")).toContainText("テスト艦");
+  });
+
+  test("details display settings react and ship list keeps sticky viewport-height layout", async ({
+    page,
+  }) => {
+    await waitForMasterDataReady(page);
+    await ensureTutorialClosed(page);
+
+    await page.locator("#sim-tab-btn-ship").click();
+    await expect(page.locator("#ship-detail-equippable-list")).toBeVisible();
+
+    const beforeOverflowY = await page
+      .locator("#ship-detail-equippable-list")
+      .evaluate((el) => getComputedStyle(el as HTMLElement).overflowY);
+    expect(beforeOverflowY).toBe("auto");
+
+    const shipAsideLayout = await page
+      .locator("aside")
+      .first()
+      .evaluate((el) => {
+        const styles = getComputedStyle(el as HTMLElement);
+        const h = Number.parseFloat(styles.height || "0");
+        return {
+          position: styles.position,
+          height: h,
+          expected: window.innerHeight - 88,
+        };
+      });
+    expect(shipAsideLayout.position).toBe("sticky");
+    expect(Math.abs(shipAsideLayout.height - shipAsideLayout.expected)).toBeLessThanOrEqual(3);
+
+    await page.locator("#sim-details-settings-btn").click();
+    await expect(page.locator("dialog.modal[open]")).toBeVisible();
+    const expandEquippableCheckbox = page
+      .locator("dialog.modal[open]")
+      .getByLabel("装備可能な装備");
+    await expandEquippableCheckbox.setChecked(true, { force: true });
+    await expect(expandEquippableCheckbox).toBeChecked();
+    await page.getByRole("button", { name: "閉じる" }).click();
+
+    await expect
+      .poll(async () =>
+        page
+          .locator("#ship-detail-equippable-list")
+          .evaluate((el) => ({
+            overflowY: getComputedStyle(el as HTMLElement).overflowY,
+            className: (el as HTMLElement).className,
+          })),
+      )
+      .toEqual(
+        expect.objectContaining({
+          overflowY: "visible",
+        }),
+      );
+
+    await expect(page.locator("#ship-detail-equippable-list")).not.toHaveClass(
+      /max-h-\[40vh\]/,
+    );
+  });
+
+  test("equip detail shows partner synergy entries", async ({ page }) => {
+    await waitForMasterDataReady(page);
+    await ensureTutorialClosed(page);
+
+    await page.locator("#sim-tab-btn-equip").click();
+    await expect(page.locator("#equip-detail-synergy-ships-list")).toBeVisible();
+    await page
+      .locator("aside")
+      .getByRole("button", { name: /テスト装備B ID 2/ })
+      .first()
+      .click();
+    const synergyList = page.locator("#equip-detail-synergy-ships-list");
+    await synergyList.scrollIntoViewIfNeeded();
+    await expect
+      .poll(async () => {
+        const text = (await synergyList.textContent()) ?? "";
+        return text.includes("他装備組み合わせ") || text.includes("テスト装備");
+      })
+      .toBe(true);
+
+    await expect(page.getByText("この装備を含む多装備シナジー")).toBeVisible();
+
+    await page.locator("#sim-details-settings-btn").click();
+    const showMultiSynergyCheckbox = page
+      .locator("dialog.modal[open]")
+      .getByLabel("3装備以上のシナジーを表示");
+    await showMultiSynergyCheckbox.setChecked(false, { force: true });
+    await page.getByRole("button", { name: "閉じる" }).click();
+
+    await expect(page.getByText("この装備を含む多装備シナジー")).toBeHidden();
+  });
+
+  test("mobile view can close and reopen ship/equip side lists", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitForMasterDataReady(page);
+    await ensureTutorialClosed(page);
+
+    await page.locator("#sim-tab-btn-ship").click();
+    await expect(page.locator("#sim-details-search-input")).toBeVisible();
+    await page.locator("aside").first().getByRole("button", { name: "閉じる" }).click();
+    await expect(page.locator("aside").first()).toBeHidden();
+    await page.getByRole("button", { name: "艦選択リストを開く" }).click();
+    await expect(page.locator("#sim-details-search-input")).toBeVisible();
+
+    await page.locator("#sim-tab-btn-equip").click();
+    await expect(page.getByLabel("装備名検索")).toBeVisible();
+    await page.locator("aside").first().getByRole("button", { name: "閉じる" }).click();
+    await expect(page.locator("aside").first()).toBeHidden();
+    await page.getByRole("button", { name: "装備選択リストを開く" }).click();
+    await expect(page.getByLabel("装備名検索")).toBeVisible();
   });
 });

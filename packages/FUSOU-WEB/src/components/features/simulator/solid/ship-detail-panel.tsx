@@ -741,7 +741,7 @@ function ShipDetailPanel(props: {
   );
 
   return (
-    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-x-hidden">
       <div class="px-4 py-3 border-b border-base-200 bg-linear-to-r from-primary/10 to-transparent">
         <h2 class="font-semibold">艦詳細</h2>
       </div>
@@ -774,7 +774,7 @@ function ShipDetailPanel(props: {
         <section class="mb-8">
           <h4 class="text-md font-medium mb-2">装備可能な装備</h4>
           <div class="rounded-lg border border-base-300/70 p-2">
-            <div class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
+            <div id="ship-detail-equippable-list" class={`space-y-3 pr-1 ${props.expandEquippableEquip ? "" : "max-h-[40vh] overflow-y-auto"}`}>
               <For each={equippableGroups()}>
                 {(group) => (
                   <LazyRender>
@@ -836,7 +836,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                    <div id="ship-detail-single-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().single}>
                         {(group) => (
 <LazyRender>
@@ -921,7 +921,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
+                    <div id="ship-detail-pair-synergy-list" class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().pair}>
                         {(group) => (
 <LazyRender>
@@ -975,7 +975,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
+                    <div id="ship-detail-speed-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().speedSynergies}>
                         {(group) => (
 <LazyRender>
@@ -1068,7 +1068,7 @@ function ShipDetailPanel(props: {
                   }
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
-                    <div class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
+                    <div id="ship-detail-range-synergy-list" class={`space-y-3 pr-1 ${props.expandSingleSynergy ? "" : "max-h-[24vh] overflow-y-auto"}`}>
                       <For each={shipSynergy().rangeSynergies}>
                         {(group) => (
 <LazyRender>
@@ -1168,7 +1168,7 @@ function ShipDetailPanel(props: {
                         <section class="mb-6">
                           <h4 class="font-medium mb-2">3装備シナジー</h4>
                           <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                            <div id="ship-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().triple}>
                                 {(group) => (
 <LazyRender>
@@ -1203,7 +1203,7 @@ function ShipDetailPanel(props: {
                         <section class="mb-6">
                           <h4 class="font-medium mb-2">4装備シナジー</h4>
                           <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                            <div id="ship-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().quad}>
                                 {(group) => (
 <LazyRender>
@@ -1239,7 +1239,7 @@ function ShipDetailPanel(props: {
                           <h5 class="text-sm font-medium mb-2">
                             5装備シナジー
                           </h5>
-                          <div class="space-y-3">
+                          <div id="ship-detail-penta-synergy-list" class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
                             <For each={shipSynergy().penta}>
                               {(group) => (
 <LazyRender>
@@ -1252,7 +1252,7 @@ function ShipDetailPanel(props: {
                                   </h6>
                                   <ProgressiveGrid
                                     data={group.entries}
-                                    class={`grid grid-cols-1 sm:grid-cols-2 gap-2 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}
+                                    class="grid grid-cols-1 sm:grid-cols-2 gap-2"
                                   >
                                     {(entry) => (
                                       <MultiEntryDisplay

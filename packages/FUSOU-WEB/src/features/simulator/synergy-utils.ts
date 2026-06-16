@@ -204,7 +204,7 @@ export function getSingleEntriesForEquip(
 ): EquipEffect[] {
   if (effects.effect_rules_equip_index) {
     const indices = effects.effect_rules_equip_index[String(equipId)] ?? [];
-    return indices.map((i) => {
+    const indexedEntries = indices.map((i) => {
       const rule = effects.effect_rules![i];
       return {
         ships: rule.ships,
@@ -214,6 +214,9 @@ export function getSingleEntriesForEquip(
         c3: rule.c3,
       };
     });
+    if (indexedEntries.length > 0) {
+      return indexedEntries;
+    }
   }
   return normalizeEffects(effects)[String(equipId)] ?? [];
 }
@@ -237,7 +240,9 @@ export function getCrossEntriesForEquip(
         }
       }
     }
-    return out;
+    if (out.length > 0) {
+      return out;
+    }
   }
   return Object.values(normalizeCrossEffects(effects))
     .flat()

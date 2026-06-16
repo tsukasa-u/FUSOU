@@ -82,6 +82,7 @@ function EquipDetailPanel(props: {
   onOpenEquip: (equipId: number) => void;
   expandSynergyShips: boolean;
   expandCompatibleShips: boolean;
+  showMultiSynergy: boolean;
 }): JSX.Element {
   let equipSynergyContainerRef!: HTMLDivElement;
   const [equipMinHeight, setEquipMinHeight] = createSignal<number | null>(null);
@@ -130,12 +131,68 @@ function EquipDetailPanel(props: {
       }>;
     }> = [];
 
+    const allShips = Object.values(getMasterShips()).filter(
+      (ship) => ship.id < ENEMY_ID_THRESHOLD,
+    );
+
+    const isCompatibleWithEquip = (
+      ship: MstShipData,
+      equip: MstSlotItemData,
+    ): boolean => {
+      const compat = getCompatibilityMeta(ship, equip);
+      return compat.normalSlots.length > 0 || compat.exslot != null;
+    };
+
+    const resolvePartnerEquip = (entry: CrossEffect): MstSlotItemData | null => {
+      const partnerId =
+        entry.items[0] === props.equip.id ? entry.items[1] : entry.items[0];
+      const partnerEquip = getMasterSlotItem(partnerId);
+      if (!partnerEquip || partnerEquip.id >= ENEMY_ID_THRESHOLD) {
+        return null;
+      }
+      return partnerEquip;
+    };
+
+    const singleAppliesToShip = (entry: EquipEffect, ship: MstShipData): boolean => {
+      if (Array.isArray(entry.ships) && entry.ships.length > 0) {
+        return entry.ships.includes(ship.id);
+      }
+      return true;
+    };
+
+    const crossAppliesToShip = (entry: CrossEffect, ship: MstShipData): boolean => {
+      if (Array.isArray(entry.ships) && entry.ships.length > 0) {
+        return entry.ships.includes(ship.id);
+      }
+      const partnerEquip = resolvePartnerEquip(entry);
+      if (!partnerEquip) return false;
+      return true;
+    };
+
     const relevantShipIds = new Set<number>();
     for (const entry of singleEntries) {
-      for (const id of entry.ships) relevantShipIds.add(id);
+      if (Array.isArray(entry.ships) && entry.ships.length > 0) {
+        for (const id of entry.ships) {
+          if (id < ENEMY_ID_THRESHOLD) relevantShipIds.add(id);
+        }
+      } else {
+        for (const ship of allShips) {
+          relevantShipIds.add(ship.id);
+        }
+      }
     }
     for (const entry of crossEntries) {
-      for (const id of entry.ships) relevantShipIds.add(id);
+      if (Array.isArray(entry.ships) && entry.ships.length > 0) {
+        for (const id of entry.ships) {
+          if (id < ENEMY_ID_THRESHOLD) relevantShipIds.add(id);
+        }
+      } else {
+        const partnerEquip = resolvePartnerEquip(entry);
+        if (!partnerEquip) continue;
+        for (const ship of allShips) {
+          relevantShipIds.add(ship.id);
+        }
+      }
     }
 
     for (const shipId of relevantShipIds) {
@@ -143,15 +200,11 @@ function EquipDetailPanel(props: {
       const ship = getMasterShip(shipId);
       if (!ship) continue;
 
-      const single = singleEntries.find((entry) =>
-        entry.ships.includes(shipId),
-      );
+      const single = singleEntries.find((entry) => singleAppliesToShip(entry, ship));
       const partners = crossEntries
-        .filter((entry) => entry.ships.includes(shipId))
+        .filter((entry) => crossAppliesToShip(entry, ship))
         .map((entry) => {
-          const partnerId =
-            entry.items[0] === props.equip.id ? entry.items[1] : entry.items[0];
-          const partnerEquip = getMasterSlotItem(partnerId);
+          const partnerEquip = resolvePartnerEquip(entry);
           if (
             !partnerEquip ||
             partnerEquip.id >= ENEMY_ID_THRESHOLD ||
@@ -645,7 +698,7 @@ function EquipDetailPanel(props: {
   );
 
   return (
-    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden">
+    <article class="rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-x-hidden">
       <div class="px-4 py-3 border-b border-base-200 bg-linear-to-r from-accent/10 to-transparent">
         <h2 class="font-semibold">装備詳細</h2>
       </div>
@@ -698,7 +751,7 @@ function EquipDetailPanel(props: {
               }
             >
               <div class="rounded-lg border border-base-300/70 p-2">
-              <div class={`space-y-3 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}>
+              <div id="equip-detail-compatible-list" class={`space-y-3 pr-1 ${props.expandCompatibleShips ? "" : "max-h-[40vh] overflow-y-auto"}`}>
                 <For each={compatibleShips()}>
                   {(group) => (
                     <LazyRender>
@@ -755,6 +808,7 @@ function EquipDetailPanel(props: {
             >
               <div class="rounded-lg border border-base-300/70 p-2">
                 <div
+                  id="equip-detail-synergy-ships-list"
                   class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                 >
                   <For
@@ -928,6 +982,7 @@ function EquipDetailPanel(props: {
               >
                 <div class="rounded-lg border border-base-300/70 p-2">
                   <div
+                    id="equip-detail-speed-synergy-ships-list"
                     class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                   >
                     <For
@@ -1103,6 +1158,7 @@ function EquipDetailPanel(props: {
               >
                 <div class="rounded-lg border border-base-300/70 p-2">
                   <div
+                    id="equip-detail-range-synergy-ships-list"
                     class={`space-y-3 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}
                   >
                     <For
@@ -1260,9 +1316,10 @@ function EquipDetailPanel(props: {
 
           <Show
             when={
-              equipMultiSynergies().triple.length > 0 ||
-              equipMultiSynergies().quad.length > 0 ||
-              equipMultiSynergies().penta.length > 0
+              props.showMultiSynergy &&
+              (equipMultiSynergies().triple.length > 0 ||
+                equipMultiSynergies().quad.length > 0 ||
+                equipMultiSynergies().penta.length > 0)
             }
           >
             <section>
@@ -1275,7 +1332,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">3装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().triple}>
                           {(group) => (
                             <LazyRender>
@@ -1311,7 +1368,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">4装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().quad}>
                           {(group) => (
                             <LazyRender>
@@ -1347,7 +1404,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">5装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-penta-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().penta}>
                           {(group) => (
                             <LazyRender>
