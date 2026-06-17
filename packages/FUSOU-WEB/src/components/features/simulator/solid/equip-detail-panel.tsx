@@ -81,6 +81,7 @@ function EquipDetailPanel(props: {
   onOpenShip: (shipId: number) => void;
   onOpenEquip: (equipId: number) => void;
   expandSynergyShips: boolean;
+  expandMultiSynergy: boolean;
   expandCompatibleShips: boolean;
   showMultiSynergy: boolean;
 }): JSX.Element {
@@ -274,15 +275,22 @@ function EquipDetailPanel(props: {
       indices: number[] | undefined,
       comboSize: number,
     ): MultiEntry[] => {
-      if (!rules || !indices) return [];
+      if (!rules) return [];
       const seenCombos = new Set<string>();
       const all: MultiEntry[] = [];
+      const candidateIndices =
+        indices && indices.length > 0
+          ? indices
+          : rules.map((_, index) => index);
 
-      for (const idx of indices) {
+      for (const idx of candidateIndices) {
         const rule = rules[idx];
 
         if (rule.category_pools) {
           if (scoreSynergy(rule.synergy) === 0) continue;
+          if (!rule.category_pools.some((pool) => pool.includes(equipId))) {
+            continue;
+          }
           const pools = rule.category_pools.map((p) =>
             p
               .map((id) => getMasterSlotItem(id))
@@ -302,6 +310,7 @@ function EquipDetailPanel(props: {
           });
         } else if (rule.item_pool) {
           if (scoreSynergy(rule.synergy) === 0) continue;
+          if (!rule.item_pool.includes(equipId)) continue;
           const pool = rule.item_pool
             .map((id) => getMasterSlotItem(id))
             .filter(
@@ -336,6 +345,7 @@ function EquipDetailPanel(props: {
         } else if (rule.fixed_items && rule.free_pool) {
           const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
           if (scoreSynergy(rule.synergy) === 0) continue;
+          if (!allPoolIds.includes(equipId)) continue;
           const pool = allPoolIds
             .map((id) => getMasterSlotItem(id))
             .filter(
@@ -1332,7 +1342,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">3装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div id="equip-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().triple}>
                           {(group) => (
                             <LazyRender>
@@ -1368,7 +1378,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">4装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div id="equip-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().quad}>
                           {(group) => (
                             <LazyRender>
@@ -1404,7 +1414,7 @@ function EquipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-2">5装備シナジー</h4>
                     <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                      <div id="equip-detail-penta-synergy-list" class={`space-y-4 pr-1 ${props.expandSynergyShips ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                      <div id="equip-detail-penta-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                         <For each={equipMultiSynergies().penta}>
                           {(group) => (
                             <LazyRender>

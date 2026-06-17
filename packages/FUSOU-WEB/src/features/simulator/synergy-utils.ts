@@ -74,6 +74,7 @@ export type ListExpandSettings = {
   expandEquippableEquip: boolean;
   expandSingleSynergy: boolean;
   expandPairSynergy: boolean;
+  expandMultiSynergy: boolean;
   expandSynergyShips: boolean;
   expandCompatibleShips: boolean;
   showMultiSynergy: boolean;
@@ -83,6 +84,7 @@ export const DEFAULT_EXPAND_SETTINGS: ListExpandSettings = {
   expandEquippableEquip: false,
   expandSingleSynergy: false,
   expandPairSynergy: false,
+  expandMultiSynergy: false,
   expandSynergyShips: false,
   expandCompatibleShips: false,
   showMultiSynergy: true,

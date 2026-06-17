@@ -83,6 +83,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
       s.expandEquippableEquip &&
       s.expandSingleSynergy &&
       s.expandPairSynergy &&
+      s.expandMultiSynergy &&
       s.expandSynergyShips &&
       s.expandCompatibleShips
     );
@@ -420,12 +421,41 @@ function SimulatorDetailsCatalog(): JSX.Element {
                     expandEquippableEquip: e.currentTarget.checked,
                     expandSingleSynergy: e.currentTarget.checked,
                     expandPairSynergy: e.currentTarget.checked,
+                    expandMultiSynergy: e.currentTarget.checked,
                     expandSynergyShips: e.currentTarget.checked,
                     expandCompatibleShips: e.currentTarget.checked,
                   }))
                 }
               />
               <span class="label-text font-medium">すべてのリストを展開</span>
+            </label>
+            <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
+                checked={expandSettings().showMultiSynergy}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    showMultiSynergy: e.currentTarget.checked,
+                  }))
+                }
+              />
+              <span class="label-text font-medium">3装備以上のシナジーを表示</span>
+            </label>
+            <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-sm shrink-0"
+                checked={expandSettings().expandMultiSynergy}
+                onChange={(e) =>
+                  setExpandSettings((prev) => ({
+                    ...prev,
+                    expandMultiSynergy: e.currentTarget.checked,
+                  }))
+                }
+              />
+              <span class="label-text font-medium">3装備以上の装備組み合わせを展開</span>
             </label>
             <p class="text-xs text-base-content/50 font-medium pt-1">艦詳細</p>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
@@ -469,20 +499,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 }
               />
               <span class="label-text">装備組み合わせシナジー</span>
-            </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().showMultiSynergy}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    showMultiSynergy: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">3装備以上のシナジーを表示</span>
             </label>
             <p class="text-xs text-base-content/50 font-medium pt-1">
               装備詳細
@@ -1015,6 +1031,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                   expandEquippableEquip={expandSettings().expandEquippableEquip}
                   expandSingleSynergy={expandSettings().expandSingleSynergy}
                   expandPairSynergy={expandSettings().expandPairSynergy}
+                  expandMultiSynergy={expandSettings().expandMultiSynergy}
                   showMultiSynergy={expandSettings().showMultiSynergy}
                 />
               )}
@@ -1127,6 +1144,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
                   expandSynergyShips={expandSettings().expandSynergyShips}
+                  expandMultiSynergy={expandSettings().expandMultiSynergy}
                   expandCompatibleShips={expandSettings().expandCompatibleShips}
                   showMultiSynergy={expandSettings().showMultiSynergy}
                 />

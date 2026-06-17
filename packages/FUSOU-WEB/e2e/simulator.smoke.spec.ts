@@ -407,9 +407,32 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await expect(page.getByText("この装備を含む多装備シナジー")).toBeVisible();
 
     await page.locator("#sim-details-settings-btn").click();
+    const settingsModal = page.locator("dialog.modal[open]");
+    const settingsText = (await settingsModal.textContent()) ?? "";
+    expect(settingsText.indexOf("3装備以上のシナジーを表示")).toBeGreaterThan(-1);
+    expect(settingsText.indexOf("艦詳細")).toBeGreaterThan(-1);
+    expect(settingsText.indexOf("3装備以上のシナジーを表示")).toBeLessThan(
+      settingsText.indexOf("艦詳細"),
+    );
+
+    const expandMultiSynergyCheckbox = settingsModal.getByLabel(
+      "3装備以上の装備組み合わせを展開",
+    );
+    await expandMultiSynergyCheckbox.setChecked(true, { force: true });
     const showMultiSynergyCheckbox = page
       .locator("dialog.modal[open]")
       .getByLabel("3装備以上のシナジーを表示");
+    await page.getByRole("button", { name: "閉じる" }).click();
+
+    await expect
+      .poll(async () =>
+        page
+          .locator("#equip-detail-triple-synergy-list")
+          .evaluate((el) => getComputedStyle(el as HTMLElement).overflowY),
+      )
+      .toBe("visible");
+
+    await page.locator("#sim-details-settings-btn").click();
     await showMultiSynergyCheckbox.setChecked(false, { force: true });
     await page.getByRole("button", { name: "閉じる" }).click();
 

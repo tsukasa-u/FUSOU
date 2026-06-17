@@ -80,6 +80,7 @@ function ShipDetailPanel(props: {
   expandEquippableEquip: boolean;
   expandSingleSynergy: boolean;
   expandPairSynergy: boolean;
+  expandMultiSynergy: boolean;
   showMultiSynergy: boolean;
 }): JSX.Element {
   const [shipGrowthCap, setShipGrowthCap] =
@@ -1168,7 +1169,7 @@ function ShipDetailPanel(props: {
                         <section class="mb-6">
                           <h4 class="font-medium mb-2">3装備シナジー</h4>
                           <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div id="ship-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                            <div id="ship-detail-triple-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().triple}>
                                 {(group) => (
 <LazyRender>
@@ -1203,7 +1204,7 @@ function ShipDetailPanel(props: {
                         <section class="mb-6">
                           <h4 class="font-medium mb-2">4装備シナジー</h4>
                           <div class="rounded-lg border border-base-300/70 p-3 mb-4 bg-base-50/50">
-                            <div id="ship-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandPairSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
+                            <div id="ship-detail-quad-synergy-list" class={`space-y-4 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[36vh] overflow-y-auto"}`}>
                               <For each={shipSynergy().quad}>
                                 {(group) => (
 <LazyRender>
@@ -1239,7 +1240,7 @@ function ShipDetailPanel(props: {
                           <h5 class="text-sm font-medium mb-2">
                             5装備シナジー
                           </h5>
-                          <div id="ship-detail-penta-synergy-list" class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
+                          <div id="ship-detail-penta-synergy-list" class={`space-y-3 pr-1 ${props.expandMultiSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
                             <For each={shipSynergy().penta}>
                               {(group) => (
 <LazyRender>
