@@ -321,6 +321,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
   test("details display settings react and ship list keeps sticky viewport-height layout", async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
     await waitForMasterDataReady(page);
     await ensureTutorialClosed(page);
 
@@ -346,6 +347,13 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
       });
     expect(shipAsideLayout.position).toBe("sticky");
     expect(Math.abs(shipAsideLayout.height - shipAsideLayout.expected)).toBeLessThanOrEqual(3);
+
+    const scrollStyles = await page.evaluate(() => ({
+      htmlOverflowY: getComputedStyle(document.documentElement).overflowY,
+      bodyOverflowY: getComputedStyle(document.body).overflowY,
+    }));
+    expect(scrollStyles.htmlOverflowY).not.toBe("hidden");
+    expect(scrollStyles.bodyOverflowY).not.toBe("hidden");
 
     await page.locator("#sim-details-settings-btn").click();
     await expect(page.locator("dialog.modal[open]")).toBeVisible();
@@ -408,7 +416,7 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await expect(page.getByText("この装備を含む多装備シナジー")).toBeHidden();
   });
 
-  test("mobile view can close and reopen ship/equip side lists", async ({
+  test("mobile view uses floating picker buttons and modal selection", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -416,17 +424,29 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await ensureTutorialClosed(page);
 
     await page.locator("#sim-tab-btn-ship").click();
-    await expect(page.locator("#sim-details-search-input")).toBeVisible();
-    await page.locator("aside").first().getByRole("button", { name: "閉じる" }).click();
-    await expect(page.locator("aside").first()).toBeHidden();
-    await page.getByRole("button", { name: "艦選択リストを開く" }).click();
-    await expect(page.locator("#sim-details-search-input")).toBeVisible();
+    const shipPickerBtn = page.locator("#ship-mobile-picker-btn");
+    await expect(shipPickerBtn).toBeVisible();
+    await shipPickerBtn.click({ force: true });
+    await expect(page.locator("#ship-mobile-picker-dialog[open]")).toBeVisible();
+    await page
+      .locator("#ship-mobile-picker-dialog")
+      .getByRole("button", { name: /テスト艦 ID 1/ })
+      .first()
+      .click();
+    await expect(page.locator("#ship-mobile-picker-dialog[open]")).toBeHidden();
+    await expect(shipPickerBtn).toContainText("テスト艦");
 
     await page.locator("#sim-tab-btn-equip").click();
-    await expect(page.getByLabel("装備名検索")).toBeVisible();
-    await page.locator("aside").first().getByRole("button", { name: "閉じる" }).click();
-    await expect(page.locator("aside").first()).toBeHidden();
-    await page.getByRole("button", { name: "装備選択リストを開く" }).click();
-    await expect(page.getByLabel("装備名検索")).toBeVisible();
+    const equipPickerBtn = page.locator("#equip-mobile-picker-btn");
+    await expect(equipPickerBtn).toBeVisible();
+    await equipPickerBtn.click({ force: true });
+    await expect(page.locator("#equip-mobile-picker-dialog[open]")).toBeVisible();
+    await page
+      .locator("#equip-mobile-picker-dialog")
+      .getByRole("button", { name: /テスト装備B ID 2/ })
+      .first()
+      .click();
+    await expect(page.locator("#equip-mobile-picker-dialog[open]")).toBeHidden();
+    await expect(equipPickerBtn).toContainText("テスト装備B");
   });
 });

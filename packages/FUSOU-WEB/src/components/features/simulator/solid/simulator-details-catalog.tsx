@@ -18,6 +18,7 @@ import {
 } from "solid-js";
 import { render } from "solid-js/web";
 import { buildShareDetailUrl, copyTextWithFallback } from "@/utils/share-url";
+import { bannerUrl } from "@/features/simulator/equip-calc";
 import { ShipListRow } from "@/components/common/solid/ship-list-row";
 import {
   getMasterShip,
@@ -43,7 +44,7 @@ import {
 } from "@/features/simulator/synergy-utils";
 import { ShipDetailPanel } from "./ship-detail-panel";
 import { EquipDetailPanel } from "./equip-detail-panel";
-import { EquipListRow } from "./shared-ui";
+import { EquipListRow, WeaponIcon, ImageFallbackBox } from "./shared-ui";
 
 type DetailsTab = "ship" | "equip";
 
@@ -71,8 +72,10 @@ function SimulatorDetailsCatalog(): JSX.Element {
   let settingsDialogRef!: HTMLDialogElement;
   const [helpOpen, setHelpOpen] = createSignal(false);
   let helpDialogRef!: HTMLDialogElement;
-  const [shipListOpen, setShipListOpen] = createSignal(true);
-  const [equipListOpen, setEquipListOpen] = createSignal(true);
+  const [shipPickerOpen, setShipPickerOpen] = createSignal(false);
+  let shipPickerDialogRef!: HTMLDialogElement;
+  const [equipPickerOpen, setEquipPickerOpen] = createSignal(false);
+  let equipPickerDialogRef!: HTMLDialogElement;
 
   const allExpanded = createMemo(() => {
     const s = expandSettings();
@@ -93,6 +96,16 @@ function SimulatorDetailsCatalog(): JSX.Element {
   createEffect(() => {
     if (helpOpen()) helpDialogRef.showModal();
     else helpDialogRef.close();
+  });
+
+  createEffect(() => {
+    if (shipPickerOpen()) shipPickerDialogRef?.showModal();
+    else shipPickerDialogRef?.close();
+  });
+
+  createEffect(() => {
+    if (equipPickerOpen()) equipPickerDialogRef?.showModal();
+    else equipPickerDialogRef?.close();
   });
 
   onMount(() => {
@@ -190,6 +203,16 @@ function SimulatorDetailsCatalog(): JSX.Element {
   const selectedEquip = createMemo(() => {
     const id = selectedEquipId();
     return id == null ? null : getMasterSlotItem(id);
+  });
+
+  const selectedShipSummary = createMemo(() => {
+    const ship = selectedShip();
+    return ship ? ship.name : "未選択";
+  });
+
+  const selectedEquipSummary = createMemo(() => {
+    const equip = selectedEquip();
+    return equip ? equip.name : "未選択";
   });
 
   const groupedShips = createMemo(() =>
@@ -785,20 +808,142 @@ function SimulatorDetailsCatalog(): JSX.Element {
         </form>
       </dialog>
 
+      <dialog
+        id="ship-mobile-picker-dialog"
+        ref={shipPickerDialogRef}
+        class="modal xl:hidden"
+        onClose={() => setShipPickerOpen(false)}
+      >
+        <div class="modal-box rounded-xl max-w-xl w-[min(100vw-1rem,42rem)] max-h-[82vh] p-0 overflow-hidden">
+          <div class="px-4 py-3 border-b border-base-200 bg-base-100">
+            <h3 class="font-semibold">艦選択</h3>
+            <p class="text-xs text-base-content/60 truncate">
+              現在: {selectedShipSummary()}
+            </p>
+          </div>
+          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
+            <select
+              class="select select-bordered select-sm w-full"
+              aria-label="艦種フィルター"
+              value={selectedShipCategory()}
+              onChange={(event) =>
+                setSelectedShipCategory(event.currentTarget.value)
+              }
+            >
+              <option value="all">すべての艦種</option>
+              <For each={shipCategories()}>
+                {(category) => <option value={category}>{category}</option>}
+              </For>
+            </select>
+            <input
+              id="sim-details-search-input-mobile"
+              class="input input-bordered input-sm w-full"
+              aria-label="艦名検索"
+              placeholder="艦名 / ID で検索"
+              value={shipQuery()}
+              onInput={(event) => setShipQuery(event.currentTarget.value)}
+            />
+          </div>
+          <div class="p-2 h-[56vh]">
+            <VList data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
+              {(item: any) =>
+                item.type === "header" ? (
+                  <div class="mb-2 mt-1 first:mt-0">
+                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                      {item.key}
+                    </h4>
+                  </div>
+                ) : (
+                  <div class="mb-0.5">
+                    <ShipListRow
+                      ship={item.data}
+                      active={selectedShipId() === item.data.id}
+                      onSelect={() => {
+                        setSelectedShipId(item.data.id);
+                        setShipPickerOpen(false);
+                      }}
+                    />
+                  </div>
+                )
+              }
+            </VList>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
+      <dialog
+        id="equip-mobile-picker-dialog"
+        ref={equipPickerDialogRef}
+        class="modal xl:hidden"
+        onClose={() => setEquipPickerOpen(false)}
+      >
+        <div class="modal-box rounded-xl max-w-xl w-[min(100vw-1rem,42rem)] max-h-[82vh] p-0 overflow-hidden">
+          <div class="px-4 py-3 border-b border-base-200 bg-base-100">
+            <h3 class="font-semibold">装備選択</h3>
+            <p class="text-xs text-base-content/60 truncate">
+              現在: {selectedEquipSummary()}
+            </p>
+          </div>
+          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
+            <select
+              class="select select-bordered select-sm w-full"
+              aria-label="装備種別フィルター"
+              value={selectedEquipCategory()}
+              onChange={(event) =>
+                setSelectedEquipCategory(event.currentTarget.value)
+              }
+            >
+              <option value="all">すべての装備種別</option>
+              <For each={equipCategories()}>
+                {(category) => <option value={category}>{category}</option>}
+              </For>
+            </select>
+            <input
+              id="sim-details-equip-search-input-mobile"
+              class="input input-bordered input-sm w-full"
+              aria-label="装備名検索"
+              placeholder="装備名 / ID で検索"
+              value={equipQuery()}
+              onInput={(event) => setEquipQuery(event.currentTarget.value)}
+            />
+          </div>
+          <div class="p-2 h-[56vh]">
+            <VList data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
+              {(item: any) =>
+                item.type === "header" ? (
+                  <div class="mb-2 mt-1 first:mt-0">
+                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                      {item.key}
+                    </h4>
+                  </div>
+                ) : (
+                  <div class="mb-0.5">
+                    <EquipListRow
+                      equip={item.data}
+                      active={selectedEquipId() === item.data.id}
+                      onSelect={() => {
+                        setSelectedEquipId(item.data.id);
+                        setEquipPickerOpen(false);
+                      }}
+                    />
+                  </div>
+                )
+              }
+            </VList>
+          </div>
+        </div>
+        <form method="dialog" class="modal-backdrop">
+          <button>close</button>
+        </form>
+      </dialog>
+
       <Show when={tab() === "ship"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class={`rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)] ${shipListOpen() ? "" : "hidden xl:flex"}`}>
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-              <div class="flex items-center justify-between gap-2 xl:hidden">
-                <p class="text-xs font-semibold text-base-content/60">艦選択リスト</p>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  type="button"
-                  onClick={() => setShipListOpen(false)}
-                >
-                  閉じる
-                </button>
-              </div>
               <select
                 class="select select-bordered select-sm w-full"
                 aria-label="艦種フィルター"
@@ -851,15 +996,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </aside>
 
           <div class="min-w-0 space-y-2">
-            <Show when={!shipListOpen()}>
-              <button
-                class="btn btn-outline btn-sm xl:hidden"
-                type="button"
-                onClick={() => setShipListOpen(true)}
-              >
-                艦選択リストを開く
-              </button>
-            </Show>
             <Show
               when={selectedShip()}
               fallback={
@@ -884,23 +1020,40 @@ function SimulatorDetailsCatalog(): JSX.Element {
               )}
             </Show>
           </div>
+
+          <button
+            id="ship-mobile-picker-btn"
+            class="btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)] justify-start gap-2 shadow-md backdrop-blur"
+            type="button"
+            onClick={() => setShipPickerOpen(true)}
+          >
+            <Show
+              when={selectedShip()}
+              fallback={
+                <span class="inline-flex w-16 h-6 items-center justify-center rounded bg-base-200/70 text-[11px] text-base-content/55">
+                  No Image
+                </span>
+              }
+            >
+              {(ship) => (
+                <ImageFallbackBox
+                  src={bannerUrl(ship().id, { f: "auto" })}
+                  alt={ship().name}
+                  class="w-16 h-6 rounded shrink-0"
+                  fallbackText="No Image"
+                  loading="lazy"
+                />
+              )}
+            </Show>
+            <span class="truncate max-w-[52vw]">{selectedShipSummary()}</span>
+          </button>
         </section>
       </Show>
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class={`rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)] ${equipListOpen() ? "" : "hidden xl:flex"}`}>
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-              <div class="flex items-center justify-between gap-2 xl:hidden">
-                <p class="text-xs font-semibold text-base-content/60">装備選択リスト</p>
-                <button
-                  class="btn btn-ghost btn-xs"
-                  type="button"
-                  onClick={() => setEquipListOpen(false)}
-                >
-                  閉じる
-                </button>
-              </div>
               <select
                 class="select select-bordered select-sm w-full"
                 aria-label="装備種別フィルター"
@@ -952,15 +1105,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </aside>
 
           <div class="min-w-0 space-y-2">
-            <Show when={!equipListOpen()}>
-              <button
-                class="btn btn-outline btn-sm xl:hidden"
-                type="button"
-                onClick={() => setEquipListOpen(true)}
-              >
-                装備選択リストを開く
-              </button>
-            </Show>
             <Show
               when={selectedEquip()}
               fallback={
@@ -989,6 +1133,18 @@ function SimulatorDetailsCatalog(): JSX.Element {
               )}
             </Show>
           </div>
+
+          <button
+            id="equip-mobile-picker-btn"
+            class="btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)] justify-start gap-2 shadow-md backdrop-blur"
+            type="button"
+            onClick={() => setEquipPickerOpen(true)}
+          >
+            <span class="inline-flex w-6 h-6 items-center justify-center rounded bg-base-200/70 shrink-0">
+              <WeaponIcon iconNum={selectedEquip()?.type?.[3] ?? 0} />
+            </span>
+            <span class="truncate max-w-[52vw]">{selectedEquipSummary()}</span>
+          </button>
         </section>
       </Show>
     </div>
