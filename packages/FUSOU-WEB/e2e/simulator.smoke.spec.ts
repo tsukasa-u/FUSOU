@@ -449,6 +449,20 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await page.locator("#sim-tab-btn-ship").click();
     const shipPickerBtn = page.locator("#ship-mobile-picker-btn");
     await expect(shipPickerBtn).toBeVisible();
+    await expect(shipPickerBtn).not.toHaveClass(/fixed/);
+
+    await page.locator("#sim-details-settings-btn").click();
+    await page
+      .locator("dialog.modal[open]")
+      .locator("#mobile-picker-mode-floating")
+      .check({ force: true });
+    await page.getByRole("button", { name: "閉じる" }).click();
+    await expect
+      .poll(async () =>
+        shipPickerBtn.evaluate((el) => el.parentElement?.className ?? ""),
+      )
+      .toMatch(/fixed/);
+
     await shipPickerBtn.click({ force: true });
     await expect(page.locator("#ship-mobile-picker-dialog[open]")).toBeVisible();
     await page

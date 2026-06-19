@@ -47,6 +47,7 @@ import { EquipDetailPanel } from "./equip-detail-panel";
 import { EquipListRow, WeaponIcon, ImageFallbackBox } from "./shared-ui";
 
 type DetailsTab = "ship" | "equip";
+type MobilePickerDisplayMode = "sticky" | "floating";
 
 function SimulatorDetailsCatalog(): JSX.Element {
   const [tab, setTab] = createSignal<DetailsTab>("ship");
@@ -76,6 +77,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
   let shipPickerDialogRef!: HTMLDialogElement;
   const [equipPickerOpen, setEquipPickerOpen] = createSignal(false);
   let equipPickerDialogRef!: HTMLDialogElement;
+  const [mobilePickerDisplayMode, setMobilePickerDisplayMode] =
+    createSignal<MobilePickerDisplayMode>("sticky");
 
   const allExpanded = createMemo(() => {
     const s = expandSettings();
@@ -457,6 +460,35 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
               <span class="label-text font-medium">3装備以上の装備組み合わせを展開</span>
             </label>
+            <div class="pt-1">
+              <p class="text-xs text-base-content/50 font-medium">
+                モバイル選択ボタン表示
+              </p>
+              <div class="mt-1 space-y-1 pl-1">
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    id="mobile-picker-mode-sticky"
+                    type="radio"
+                    name="mobile-picker-display-mode"
+                    class="radio radio-sm"
+                    checked={mobilePickerDisplayMode() === "sticky"}
+                    onChange={() => setMobilePickerDisplayMode("sticky")}
+                  />
+                  <span class="label-text">スティッキー（ナビゲーション下に固定）</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    id="mobile-picker-mode-floating"
+                    type="radio"
+                    name="mobile-picker-display-mode"
+                    class="radio radio-sm"
+                    checked={mobilePickerDisplayMode() === "floating"}
+                    onChange={() => setMobilePickerDisplayMode("floating")}
+                  />
+                  <span class="label-text">フローティング（画面左下）</span>
+                </label>
+              </div>
+            </div>
             <p class="text-xs text-base-content/50 font-medium pt-1">艦詳細</p>
             <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
               <input
@@ -1012,6 +1044,45 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </aside>
 
           <div class="min-w-0 space-y-2">
+            <div
+              class={
+                mobilePickerDisplayMode() === "sticky"
+                  ? "sticky top-[5rem] z-30 xl:hidden"
+                  : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
+              }
+            >
+              <button
+                id="ship-mobile-picker-btn"
+                class={
+                  mobilePickerDisplayMode() === "sticky"
+                    ? "btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content w-full justify-start gap-2 shadow-sm backdrop-blur"
+                    : "btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content justify-start gap-2 shadow-md backdrop-blur"
+                }
+                type="button"
+                onClick={() => setShipPickerOpen(true)}
+              >
+                <Show
+                  when={selectedShip()}
+                  fallback={
+                    <span class="inline-flex w-16 h-6 items-center justify-center rounded bg-base-200/70 text-[11px] text-base-content/55">
+                      No Image
+                    </span>
+                  }
+                >
+                  {(ship) => (
+                    <ImageFallbackBox
+                      src={bannerUrl(ship().id, { f: "auto" })}
+                      alt={ship().name}
+                      class="w-16 h-6 rounded shrink-0"
+                      fallbackText="No Image"
+                      loading="lazy"
+                    />
+                  )}
+                </Show>
+                <span class="truncate max-w-[52vw]">{selectedShipSummary()}</span>
+              </button>
+            </div>
+
             <Show
               when={selectedShip()}
               fallback={
@@ -1037,33 +1108,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
               )}
             </Show>
           </div>
-
-          <button
-            id="ship-mobile-picker-btn"
-            class="btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)] justify-start gap-2 shadow-md backdrop-blur"
-            type="button"
-            onClick={() => setShipPickerOpen(true)}
-          >
-            <Show
-              when={selectedShip()}
-              fallback={
-                <span class="inline-flex w-16 h-6 items-center justify-center rounded bg-base-200/70 text-[11px] text-base-content/55">
-                  No Image
-                </span>
-              }
-            >
-              {(ship) => (
-                <ImageFallbackBox
-                  src={bannerUrl(ship().id, { f: "auto" })}
-                  alt={ship().name}
-                  class="w-16 h-6 rounded shrink-0"
-                  fallbackText="No Image"
-                  loading="lazy"
-                />
-              )}
-            </Show>
-            <span class="truncate max-w-[52vw]">{selectedShipSummary()}</span>
-          </button>
         </section>
       </Show>
 
@@ -1122,6 +1166,30 @@ function SimulatorDetailsCatalog(): JSX.Element {
           </aside>
 
           <div class="min-w-0 space-y-2">
+            <div
+              class={
+                mobilePickerDisplayMode() === "sticky"
+                  ? "sticky top-[5rem] z-30 xl:hidden"
+                  : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
+              }
+            >
+              <button
+                id="equip-mobile-picker-btn"
+                class={
+                  mobilePickerDisplayMode() === "sticky"
+                    ? "btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content w-full justify-start gap-2 shadow-sm backdrop-blur"
+                    : "btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content justify-start gap-2 shadow-md backdrop-blur"
+                }
+                type="button"
+                onClick={() => setEquipPickerOpen(true)}
+              >
+                <span class="inline-flex w-6 h-6 items-center justify-center rounded bg-base-200/70 shrink-0">
+                  <WeaponIcon iconNum={selectedEquip()?.type?.[3] ?? 0} />
+                </span>
+                <span class="truncate max-w-[52vw]">{selectedEquipSummary()}</span>
+              </button>
+            </div>
+
             <Show
               when={selectedEquip()}
               fallback={
@@ -1151,18 +1219,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
               )}
             </Show>
           </div>
-
-          <button
-            id="equip-mobile-picker-btn"
-            class="btn btn-sm btn-outline border-base-300 bg-base-100/95 text-base-content fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)] justify-start gap-2 shadow-md backdrop-blur"
-            type="button"
-            onClick={() => setEquipPickerOpen(true)}
-          >
-            <span class="inline-flex w-6 h-6 items-center justify-center rounded bg-base-200/70 shrink-0">
-              <WeaponIcon iconNum={selectedEquip()?.type?.[3] ?? 0} />
-            </span>
-            <span class="truncate max-w-[52vw]">{selectedEquipSummary()}</span>
-          </button>
         </section>
       </Show>
     </div>
