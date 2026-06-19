@@ -845,7 +845,7 @@ export async function loadMasterData(renderAll: () => void) {
     }
 
     if (shipTypeIconFrameData) {
-      const pngKey = "assets/kcs2/img/organize/organize_ship.png";
+      const pngKey = "assets/kcs2/img/port/port_ships.png";
       if (_shipTypeIconDataUrl) {
         setShipTypeSpriteSheetUrl(_shipTypeIconDataUrl);
       } else {

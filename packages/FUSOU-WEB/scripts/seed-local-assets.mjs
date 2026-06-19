@@ -69,7 +69,31 @@ const SINGLE_FILE_ASSETS = {
     r2Key: "assets/kcs2/img/common/common_icon_weapon.json",
     contentType: "application/json",
   },
+  ship_type_icon_png: {
+    srcPath: "kcs2/img/port/port_ships.png",
+    r2Key: "assets/kcs2/img/port/port_ships.png",
+    contentType: "image/png",
+    dated: true,
+  },
+  ship_type_icon_json: {
+    srcPath: "kcs2/img/port/port_ships.json",
+    r2Key: "assets/kcs2/img/port/port_ships.json",
+    contentType: "application/json",
+    dated: true,
+  },
 };
+
+function resolveLatestDatedFile(srcPath) {
+  const dateDirs = readdirSync(PROXY_DATA_DIR)
+    .filter((d) => statSync(join(PROXY_DATA_DIR, d)).isDirectory())
+    .sort();
+
+  for (let i = dateDirs.length - 1; i >= 0; i--) {
+    const candidate = join(PROXY_DATA_DIR, dateDirs[i], srcPath);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
 
 function run(cmd) {
   return execSync(cmd, {
@@ -110,11 +134,16 @@ function collectFiles(proxySubpath) {
 }
 
 async function seedSingleFile(type, config) {
-  const { srcPath, r2Key, contentType } = config;
-  const filePath = join(PROXY_DATA_DIR, srcPath);
+  const { srcPath, r2Key, contentType, dated } = config;
+  const filePath = dated
+    ? resolveLatestDatedFile(srcPath)
+    : join(PROXY_DATA_DIR, srcPath);
   console.log(`\n--- Seeding single file: ${type} ---`);
-  if (!existsSync(filePath)) {
-    console.log(`  Not found: ${filePath} — skipping.`);
+  if (!filePath || !existsSync(filePath)) {
+    const displayPath = dated
+      ? `<latest-date>/${srcPath}`
+      : join(PROXY_DATA_DIR, srcPath);
+    console.log(`  Not found: ${displayPath} — skipping.`);
     return 0;
   }
   process.stdout.write(`  ${srcPath}...`);

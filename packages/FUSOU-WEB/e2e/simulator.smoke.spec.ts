@@ -409,19 +409,23 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await page.locator("#sim-details-settings-btn").click();
     const settingsModal = page.locator("dialog.modal[open]");
     const settingsText = (await settingsModal.textContent()) ?? "";
-    expect(settingsText.indexOf("3装備以上のシナジーを表示")).toBeGreaterThan(-1);
+    // 装備詳細セクションに「3装備以上の装備組み合わせを表示する」が存在すること
+    expect(settingsText.indexOf("3装備以上の装備組み合わせを表示する")).toBeGreaterThan(-1);
+    // 「艦詳細」ラベルが存在し、その配下に「3装備以上のシナジーを表示」があること
     expect(settingsText.indexOf("艦詳細")).toBeGreaterThan(-1);
-    expect(settingsText.indexOf("3装備以上のシナジーを表示")).toBeLessThan(
+    expect(settingsText.indexOf("3装備以上のシナジーを表示")).toBeGreaterThan(
       settingsText.indexOf("艦詳細"),
     );
 
-    const expandMultiSynergyCheckbox = settingsModal.getByLabel(
-      "3装備以上の装備組み合わせを展開",
-    );
+    // 装備詳細セクションの展開チェックボックス（2番目）を使う
+    const expandMultiSynergyCheckbox = settingsModal
+      .getByLabel("3装備以上の装備組み合わせのリストを展開する")
+      .nth(1);
     await expandMultiSynergyCheckbox.setChecked(true, { force: true });
+    // 装備詳細の表示チェックボックス
     const showMultiSynergyCheckbox = page
       .locator("dialog.modal[open]")
-      .getByLabel("3装備以上のシナジーを表示");
+      .getByLabel("3装備以上の装備組み合わせを表示する");
     await page.getByRole("button", { name: "閉じる" }).click();
 
     await expect

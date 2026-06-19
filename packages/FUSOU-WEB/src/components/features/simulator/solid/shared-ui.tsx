@@ -15,7 +15,12 @@ import {
   onCleanup,
   type JSX,
 } from "solid-js";
-import { getWeaponIconFrame, getSpriteSheetMeta } from "@/features/simulator/simulator-selectors";
+import {
+  getWeaponIconFrame,
+  getSpriteSheetMeta,
+  getShipTypeIconFrame,
+  getShipTypeSpriteSheetMeta,
+} from "@/features/simulator/simulator-selectors";
 import {
   toSynergyStatRows,
   splitSynergyStatRows,
@@ -55,7 +60,7 @@ export function LazyRender(props: { children: JSX.Element }) {
 
   return (
     <div ref={ref}>
-      <Show when={isVisible()} fallback={<div class="min-h-[4rem] w-full" />}>
+      <Show when={isVisible()} fallback={<div class="min-h-16 w-full" />}>
         {props.children}
       </Show>
     </div>
@@ -109,6 +114,48 @@ export function WeaponIcon(props: { iconNum: number; size?: number }): JSX.Eleme
   const size = () => props.size ?? 18;
   const frame = () => getWeaponIconFrame(props.iconNum);
   const spriteSheet = () => getSpriteSheetMeta();
+
+  const imgStyle = () => {
+    const f = frame();
+    const s = spriteSheet();
+    if (!f || !s.url) return undefined;
+    const [fx, fy, fw, fh] = f;
+    const scaleX = size() / fw;
+    const scaleY = size() / fh;
+    return {
+      width: `${s.width * scaleX}px`,
+      height: `${s.height * scaleY}px`,
+      "margin-left": `-${fx * scaleX}px`,
+      "margin-top": `-${fy * scaleY}px`,
+      "max-width": "none",
+      display: "block",
+    };
+  };
+
+  return (
+    <div
+      class="shrink-0 overflow-hidden"
+      style={{ width: `${size()}px`, height: `${size()}px` }}
+    >
+      <Show when={frame() && spriteSheet().url}>
+        <img
+          src={spriteSheet().url!}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          style={imgStyle()}
+        />
+      </Show>
+    </div>
+  );
+}
+
+// ── ShipTypeIcon ─────────────────────────────────────────────────────
+
+export function ShipTypeIcon(props: { stype: number; size?: number }): JSX.Element {
+  const size = () => props.size ?? 18;
+  const frame = () => getShipTypeIconFrame(props.stype);
+  const spriteSheet = () => getShipTypeSpriteSheetMeta();
 
   const imgStyle = () => {
     const f = frame();
@@ -373,7 +420,7 @@ export function EquipSlotGroup(props: {
           <WeaponIcon iconNum={equip.type?.[3] ?? 0} />
         </span>
         <button
-          class={`hover:underline truncate max-w-40 transition-colors min-h-[24px] py-0.5 ${
+          class={`hover:underline truncate max-w-40 transition-colors min-h-6 py-0.5 ${
             props.currentEquipId === equip.id ? "text-primary font-bold" : ""
           }`}
           onClick={() => props.onOpenEquip(equip.id)}
@@ -401,7 +448,7 @@ export function EquipSlotGroup(props: {
                   <span class="text-base-content/30 text-sm font-light">/</span>
                 )}
                 <button
-                  class={`hover:underline truncate max-w-40 transition-colors min-h-[24px] py-0.5 ${
+                  class={`hover:underline truncate max-w-40 transition-colors min-h-6 py-0.5 ${
                     props.currentEquipId === equip.id
                       ? "text-primary font-bold"
                       : ""
@@ -441,7 +488,7 @@ export function EquipSlotGroup(props: {
                         </span>
                       )}
                       <button
-                        class={`hover:underline text-xs truncate max-w-40 transition-colors min-h-[24px] py-0.5 ${
+                        class={`hover:underline text-xs truncate max-w-40 transition-colors min-h-6 py-0.5 ${
                           props.currentEquipId === equip.id
                             ? "text-primary font-bold"
                             : ""

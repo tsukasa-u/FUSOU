@@ -30,6 +30,7 @@ import {
 import {
   ENEMY_ID_THRESHOLD,
   STYPE_NAMES,
+  STYPE_SHORT,
 } from "@/features/simulator/constants";
 import { VList } from "virtua/solid";
 import type { VListHandle } from "virtua/solid";
@@ -44,7 +45,13 @@ import {
 } from "@/features/simulator/synergy-utils";
 import { ShipDetailPanel } from "./ship-detail-panel";
 import { EquipDetailPanel } from "./equip-detail-panel";
-import { EquipListRow, WeaponIcon, ImageFallbackBox } from "./shared-ui";
+import {
+  EquipListRow,
+  WeaponIcon,
+  ImageFallbackBox,
+  ShipTypeIcon,
+} from "./shared-ui";
+import { ItemPickerModal } from "./item-picker-modal";
 
 type DetailsTab = "ship" | "equip";
 type MobilePickerDisplayMode = "sticky" | "floating";
@@ -243,6 +250,28 @@ function SimulatorDetailsCatalog(): JSX.Element {
     groupBy(filteredEquips(), (equip) => equipDisplayTypeName(equip)),
   );
 
+  const shipQuickAccessItems = createMemo(() =>
+    groupedShips().map((group) => {
+      const stype = group.items[0]?.stype ?? 0;
+      return {
+        key: group.key,
+        label: STYPE_SHORT[stype] ?? group.key,
+        icon: <ShipTypeIcon stype={stype} size={14} />,
+      };
+    }),
+  );
+
+  const equipQuickAccessItems = createMemo(() =>
+    groupedEquips().map((group) => {
+      const iconNum = group.items[0]?.type?.[3] ?? 0;
+      return {
+        key: group.key,
+        label: group.key,
+        icon: <WeaponIcon iconNum={iconNum} size={14} />,
+      };
+    }),
+  );
+
   const flatEquips = createMemo(() => {
     const flat: Array<
       { type: "header"; key: string } | { type: "equip"; data: MstSlotItemData }
@@ -413,6 +442,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             各リストをスクロールなしで全件表示するかどうかを設定します。
           </p>
           <div class="space-y-3 text-sm">
+            {/* ── すべて展開 ── */}
             <label class="label w-full cursor-pointer justify-start gap-3 py-1">
               <input
                 type="checkbox"
@@ -432,34 +462,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
               />
               <span class="label-text font-medium">すべてのリストを展開</span>
             </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().showMultiSynergy}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    showMultiSynergy: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text font-medium">3装備以上のシナジーを表示</span>
-            </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandMultiSynergy}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandMultiSynergy: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text font-medium">3装備以上の装備組み合わせを展開</span>
-            </label>
+
+            {/* ── モバイル選択ボタン表示 ── */}
             <div class="pt-1">
               <p class="text-xs text-base-content/50 font-medium">
                 モバイル選択ボタン表示
@@ -489,80 +493,146 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 </label>
               </div>
             </div>
-            <p class="text-xs text-base-content/50 font-medium pt-1">艦詳細</p>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandEquippableEquip}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandEquippableEquip: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">装備可能な装備</span>
-            </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandSingleSynergy}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandSingleSynergy: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">単体装備シナジー</span>
-            </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandPairSynergy}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandPairSynergy: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">装備組み合わせシナジー</span>
-            </label>
-            <p class="text-xs text-base-content/50 font-medium pt-1">
-              装備詳細
-            </p>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandSynergyShips}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandSynergyShips: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">シナジー対象艦</span>
-            </label>
-            <label class="label w-full cursor-pointer justify-start gap-3 py-1 pl-1">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-sm shrink-0"
-                checked={expandSettings().expandCompatibleShips}
-                onChange={(e) =>
-                  setExpandSettings((prev) => ({
-                    ...prev,
-                    expandCompatibleShips: e.currentTarget.checked,
-                  }))
-                }
-              />
-              <span class="label-text">装備可能な艦</span>
-            </label>
+
+            {/* ── 艦詳細 ── */}
+            <div class="pt-1">
+              <p class="text-xs text-base-content/50 font-medium">艦詳細</p>
+              <div class="mt-1 space-y-0.5 pl-1">
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().showMultiSynergy}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        showMultiSynergy: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">3装備以上のシナジーを表示</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandEquippableEquip}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandEquippableEquip: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">装備可能な装備のリストを展開する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandSingleSynergy}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandSingleSynergy: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">単体装備シナジーのリストを展開する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandPairSynergy}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandPairSynergy: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">装備組み合わせシナジーのリストを展開する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandMultiSynergy}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandMultiSynergy: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">3装備以上の装備組み合わせのリストを展開する</span>
+                </label>
+              </div>
+            </div>
+
+            {/* ── 装備詳細 ── */}
+            <div class="pt-1">
+              <p class="text-xs text-base-content/50 font-medium">装備詳細</p>
+              <div class="mt-1 space-y-0.5 pl-1">
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().showMultiSynergyEquip}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        showMultiSynergyEquip: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">3装備以上の装備組み合わせを表示する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandSynergyShips}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandSynergyShips: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">シナジー対象艦のリストを展開する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandCompatibleShips}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandCompatibleShips: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">装備可能な艦のリストを展開する</span>
+                </label>
+                <label class="label w-full cursor-pointer justify-start gap-3 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm shrink-0"
+                    checked={expandSettings().expandMultiSynergy}
+                    onChange={(e) =>
+                      setExpandSettings((prev) => ({
+                        ...prev,
+                        expandMultiSynergy: e.currentTarget.checked,
+                      }))
+                    }
+                  />
+                  <span class="label-text">3装備以上の装備組み合わせのリストを展開する</span>
+                </label>
+              </div>
+            </div>
           </div>
           <div class="modal-action">
             <button
@@ -856,141 +926,67 @@ function SimulatorDetailsCatalog(): JSX.Element {
         </form>
       </dialog>
 
-      <dialog
+      <ItemPickerModal
         id="ship-mobile-picker-dialog"
-        ref={shipPickerDialogRef}
-        class="modal xl:hidden"
+        dialogRef={(el) => { shipPickerDialogRef = el; }}
+        title="艦選択"
+        currentSummary={selectedShipSummary()}
+        category={selectedShipCategory()}
+        onCategoryChange={setSelectedShipCategory}
+        categories={shipCategories()}
+        allOptionLabel="すべての艦種"
+        searchId="sim-details-search-input-mobile"
+        searchAriaLabel="艦名検索"
+        searchPlaceholder="艦名 / ID で検索"
+        searchValue={shipQuery()}
+        onSearchInput={setShipQuery}
+        flatItems={flatShips()}
+        quickAccessItems={shipQuickAccessItems()}
         onClose={() => setShipPickerOpen(false)}
-      >
-        <div class="modal-box rounded-xl max-w-xl w-[min(100vw-1rem,42rem)] max-h-[82vh] p-0 overflow-hidden">
-          <div class="px-4 py-3 border-b border-base-200 bg-base-100">
-            <h3 class="font-semibold">艦選択</h3>
-            <p class="text-xs text-base-content/60 truncate">
-              現在: {selectedShipSummary()}
-            </p>
-          </div>
-          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-            <select
-              class="select select-bordered select-sm w-full"
-              aria-label="艦種フィルター"
-              value={selectedShipCategory()}
-              onChange={(event) =>
-                setSelectedShipCategory(event.currentTarget.value)
-              }
-            >
-              <option value="all">すべての艦種</option>
-              <For each={shipCategories()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-            <input
-              id="sim-details-search-input-mobile"
-              class="input input-bordered input-sm w-full"
-              aria-label="艦名検索"
-              placeholder="艦名 / ID で検索"
-              value={shipQuery()}
-              onInput={(event) => setShipQuery(event.currentTarget.value)}
-            />
-          </div>
-          <div class="p-2 h-[56vh]">
-            <VList data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
-              {(item: any) =>
-                item.type === "header" ? (
-                  <div class="mb-2 mt-1 first:mt-0">
-                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                      {item.key}
-                    </h4>
-                  </div>
-                ) : (
-                  <div class="mb-0.5">
-                    <ShipListRow
-                      ship={item.data}
-                      active={selectedShipId() === item.data.id}
-                      onSelect={() => {
-                        setSelectedShipId(item.data.id);
-                        setShipPickerOpen(false);
-                      }}
-                    />
-                  </div>
-                )
-              }
-            </VList>
-          </div>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
+        renderRow={(item: any) => (
+          <ShipListRow
+            ship={item}
+            active={selectedShipId() === item.id}
+            onSelect={() => {
+              setSelectedShipId(item.id);
+              setShipPickerOpen(false);
+            }}
+          />
+        )}
+      />
 
-      <dialog
+      <ItemPickerModal
         id="equip-mobile-picker-dialog"
-        ref={equipPickerDialogRef}
-        class="modal xl:hidden"
+        dialogRef={(el) => { equipPickerDialogRef = el; }}
+        title="装備選択"
+        currentSummary={selectedEquipSummary()}
+        category={selectedEquipCategory()}
+        onCategoryChange={setSelectedEquipCategory}
+        categories={equipCategories()}
+        allOptionLabel="すべての装備種別"
+        searchId="sim-details-equip-search-input-mobile"
+        searchAriaLabel="装備名検索"
+        searchPlaceholder="装備名 / ID で検索"
+        searchValue={equipQuery()}
+        onSearchInput={setEquipQuery}
+        flatItems={flatEquips()}
+        quickAccessItems={equipQuickAccessItems()}
         onClose={() => setEquipPickerOpen(false)}
-      >
-        <div class="modal-box rounded-xl max-w-xl w-[min(100vw-1rem,42rem)] max-h-[82vh] p-0 overflow-hidden">
-          <div class="px-4 py-3 border-b border-base-200 bg-base-100">
-            <h3 class="font-semibold">装備選択</h3>
-            <p class="text-xs text-base-content/60 truncate">
-              現在: {selectedEquipSummary()}
-            </p>
-          </div>
-          <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
-            <select
-              class="select select-bordered select-sm w-full"
-              aria-label="装備種別フィルター"
-              value={selectedEquipCategory()}
-              onChange={(event) =>
-                setSelectedEquipCategory(event.currentTarget.value)
-              }
-            >
-              <option value="all">すべての装備種別</option>
-              <For each={equipCategories()}>
-                {(category) => <option value={category}>{category}</option>}
-              </For>
-            </select>
-            <input
-              id="sim-details-equip-search-input-mobile"
-              class="input input-bordered input-sm w-full"
-              aria-label="装備名検索"
-              placeholder="装備名 / ID で検索"
-              value={equipQuery()}
-              onInput={(event) => setEquipQuery(event.currentTarget.value)}
-            />
-          </div>
-          <div class="p-2 h-[56vh]">
-            <VList data={flatEquips()} class="h-full overflow-y-auto overflow-x-hidden">
-              {(item: any) =>
-                item.type === "header" ? (
-                  <div class="mb-2 mt-1 first:mt-0">
-                    <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                      {item.key}
-                    </h4>
-                  </div>
-                ) : (
-                  <div class="mb-0.5">
-                    <EquipListRow
-                      equip={item.data}
-                      active={selectedEquipId() === item.data.id}
-                      onSelect={() => {
-                        setSelectedEquipId(item.data.id);
-                        setEquipPickerOpen(false);
-                      }}
-                    />
-                  </div>
-                )
-              }
-            </VList>
-          </div>
-        </div>
-        <form method="dialog" class="modal-backdrop">
-          <button>close</button>
-        </form>
-      </dialog>
+        renderRow={(item: any) => (
+          <EquipListRow
+            equip={item}
+            active={selectedEquipId() === item.id}
+            onSelect={() => {
+              setSelectedEquipId(item.id);
+              setEquipPickerOpen(false);
+            }}
+          />
+        )}
+      />
 
       <Show when={tab() === "ship"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)]">
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"
@@ -1047,7 +1043,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             <div
               class={
                 mobilePickerDisplayMode() === "sticky"
-                  ? "sticky top-[5rem] z-30 xl:hidden"
+                  ? "sticky top-20 z-30 xl:hidden"
                   : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
               }
             >
@@ -1079,7 +1075,13 @@ function SimulatorDetailsCatalog(): JSX.Element {
                     />
                   )}
                 </Show>
-                <span class="truncate max-w-[52vw]">{selectedShipSummary()}</span>
+                <span class="truncate max-w-[42vw]">{selectedShipSummary()}</span>
+                {/* モーダル開示インジケーター */}
+                <span class="ml-auto shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-primary/15 text-primary" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                    <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                  </svg>
+                </span>
               </button>
             </div>
 
@@ -1113,7 +1115,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
       <Show when={tab() === "equip"}>
         <section class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
-          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-[5rem] xl:h-[calc(100vh-5.5rem)]">
+          <aside class="hidden xl:flex rounded-xl border border-base-300/70 bg-base-100 shadow-sm overflow-hidden flex-col xl:sticky xl:top-20 xl:h-[calc(100vh-5.5rem)]">
             <div class="p-3 border-b border-base-200 bg-base-50/50 space-y-2">
               <select
                 class="select select-bordered select-sm w-full"
@@ -1169,7 +1171,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
             <div
               class={
                 mobilePickerDisplayMode() === "sticky"
-                  ? "sticky top-[5rem] z-30 xl:hidden"
+                  ? "sticky top-20 z-30 xl:hidden"
                   : "fixed bottom-4 left-4 z-40 xl:hidden max-w-[calc(100vw-2rem)]"
               }
             >
@@ -1186,7 +1188,13 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 <span class="inline-flex w-6 h-6 items-center justify-center rounded bg-base-200/70 shrink-0">
                   <WeaponIcon iconNum={selectedEquip()?.type?.[3] ?? 0} />
                 </span>
-                <span class="truncate max-w-[52vw]">{selectedEquipSummary()}</span>
+                <span class="truncate max-w-[42vw]">{selectedEquipSummary()}</span>
+                {/* モーダル開示インジケーター */}
+                <span class="ml-auto shrink-0 inline-flex items-center justify-center w-5 h-5 rounded bg-primary/15 text-primary" aria-hidden="true">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+                    <path fill-rule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                  </svg>
+                </span>
               </button>
             </div>
 
@@ -1214,7 +1222,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                   expandSynergyShips={expandSettings().expandSynergyShips}
                   expandMultiSynergy={expandSettings().expandMultiSynergy}
                   expandCompatibleShips={expandSettings().expandCompatibleShips}
-                  showMultiSynergy={expandSettings().showMultiSynergy}
+                  showMultiSynergy={expandSettings().showMultiSynergyEquip}
                 />
               )}
             </Show>

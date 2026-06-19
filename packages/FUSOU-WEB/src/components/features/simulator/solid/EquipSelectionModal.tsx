@@ -196,8 +196,8 @@ export function EquipSelectionModal() {
   };
 
   return (
-    <dialog id="equip-select-modal" ref={dialogRef} class="modal modal-bottom sm:modal-middle z-[1200]" onClose={() => setHoveredEquipId(null)}>
-      <div class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]">
+    <dialog id="equip-select-modal" ref={dialogRef} class="modal modal-bottom sm:modal-middle z-1200" onClose={() => setHoveredEquipId(null)}>
+      <div class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-1201">
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">装備を選択</h3>

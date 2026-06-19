@@ -163,7 +163,7 @@ export function WorkspacePanel() {
           <span class="text-[11px] text-base-content/45">一覧のみスクロールします</span>
         </div>
         
-        <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-[28rem] overflow-y-auto pr-1">
+        <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-112 overflow-y-auto pr-1">
           <div class="space-y-2">
             <For each={visibleEntries()}>
               {(entry) => {

@@ -78,6 +78,7 @@ export type ListExpandSettings = {
   expandSynergyShips: boolean;
   expandCompatibleShips: boolean;
   showMultiSynergy: boolean;
+  showMultiSynergyEquip: boolean;
 };
 
 export const DEFAULT_EXPAND_SETTINGS: ListExpandSettings = {
@@ -88,6 +89,7 @@ export const DEFAULT_EXPAND_SETTINGS: ListExpandSettings = {
   expandSynergyShips: false,
   expandCompatibleShips: false,
   showMultiSynergy: true,
+  showMultiSynergyEquip: true,
 };
 
 // Multi-item synergy display types

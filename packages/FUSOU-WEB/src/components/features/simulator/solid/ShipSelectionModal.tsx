@@ -238,10 +238,10 @@ export function ShipSelectionModal() {
     <dialog
       id="ship-select-modal"
       ref={dialogRef}
-      class="modal modal-bottom sm:modal-middle z-[1200]"
+      class="modal modal-bottom sm:modal-middle z-1200"
       onClose={() => setHoveredShipId(null)}
     >
-      <div class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-[1201]">
+      <div class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-1201">
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">艦を選択</h3>
@@ -351,7 +351,7 @@ export function ShipSelectionModal() {
                          onMouseEnter={() => setHoveredShipId(ship.id)}
                          onClick={() => handleSelect(ship)}
                        >
-                         <div class="w-[72px] h-[28px] bg-base-200 rounded overflow-hidden shrink-0">
+                         <div class="w-[72px] h-7 bg-base-200 rounded overflow-hidden shrink-0">
                            <img src={bannerUrl(ship.id, { f: "auto" })} alt={ship.name} class="w-full h-full object-cover" loading="lazy" onError={(e) => { e.currentTarget.style.display='none'; }} />
                          </div>
                          <div class="min-w-0 flex-1 overflow-hidden">

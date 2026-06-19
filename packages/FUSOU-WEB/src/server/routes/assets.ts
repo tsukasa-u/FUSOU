@@ -912,11 +912,16 @@ app.get("/ship-type-icons", async (c) => {
     return c.json({ error: "Asset storage not configured" }, 503);
   }
 
-  const r2Key = "assets/kcs2/img/organize/organize_ship.png";
+  const candidateKeys = [
+    "assets/kcs2/img/port/port_ships.png",
+    "assets/kcs2/img/organize/organize_ship.png",
+  ] as const;
 
   try {
     const ifNoneMatch = c.req.header("If-None-Match");
-    const r2Object = await bucket.get(r2Key);
+    const r2Object =
+      (await bucket.get(candidateKeys[0])) ??
+      (await bucket.get(candidateKeys[1]));
 
     if (!r2Object) {
       if (envCtx.isDev) {
@@ -1037,8 +1042,13 @@ app.get("/ship-type-icon-frames", async (c) => {
   }
 
   try {
-    const jsonKey = "assets/kcs2/img/organize/organize_ship.json";
-    const r2Object = await bucket.get(jsonKey);
+    const candidateKeys = [
+      "assets/kcs2/img/port/port_ships.json",
+      "assets/kcs2/img/organize/organize_ship.json",
+    ] as const;
+    const r2Object =
+      (await bucket.get(candidateKeys[0])) ??
+      (await bucket.get(candidateKeys[1]));
     if (!r2Object) {
       if (envCtx.isDev) {
         return c.json({ frames: {}, meta: { size: { w: 0, h: 0 } } }, 200, {
