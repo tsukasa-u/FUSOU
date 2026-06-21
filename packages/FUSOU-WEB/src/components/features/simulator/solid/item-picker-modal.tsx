@@ -6,8 +6,13 @@
  * ヘッダー行（カテゴリ仕切り）と通常行の描画はコールバックで切り替える。
  */
 
-import { For, type JSX } from "solid-js";
+import { For, createEffect, createSignal, type JSX } from "solid-js";
 import { VList } from "virtua/solid";
+import {
+  PickerQuickAccess,
+  type PickerQuickAccessEntry,
+} from "./picker-quick-access";
+import { SelectionModalShell } from "./selection-modal-shell";
 
 /** flatItems の各要素の型 */
 export type FlatPickerItem =
@@ -59,6 +64,7 @@ export interface ItemPickerModalProps {
 
 export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
   let vlistRef: any;
+  const [activeQuickAccessId, setActiveQuickAccessId] = createSignal<string | null>(null);
 
   const scrollToCategory = (categoryKey: string) => {
     const targetIndex = props.flatItems.findIndex(
@@ -71,14 +77,63 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
     }
   };
 
+  const quickAccessEntries = (): PickerQuickAccessEntry[] =>
+    (props.quickAccessItems ?? []).map((entry) => ({
+      id: entry.key,
+      label: entry.label,
+      icon: entry.icon,
+      onSelect: () => {
+        setActiveQuickAccessId(entry.key);
+        scrollToCategory(entry.key);
+      },
+    }));
+
+  const updateActiveQuickAccessByScroll = () => {
+    const entries = quickAccessEntries();
+    if (entries.length === 0) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    if (!vlistRef || typeof vlistRef.findStartIndex !== "function") {
+      setActiveQuickAccessId(entries[0]?.id ?? null);
+      return;
+    }
+
+    const startIdx = Number(vlistRef.findStartIndex() ?? 0);
+    let activeKey: string | null = null;
+
+    for (let i = Math.min(startIdx, props.flatItems.length - 1); i >= 0; i--) {
+      const item = props.flatItems[i];
+      if (item?.type === "header") {
+        activeKey = (item as { type: "header"; key: string }).key;
+        break;
+      }
+    }
+
+    if (!activeKey) {
+      const fallback = props.flatItems.find((item) => item.type === "header") as
+        | { type: "header"; key: string }
+        | undefined;
+      activeKey = fallback?.key ?? entries[0]?.id ?? null;
+    }
+
+    setActiveQuickAccessId(activeKey);
+  };
+
+  createEffect(() => {
+    props.flatItems;
+    props.quickAccessItems;
+    requestAnimationFrame(() => updateActiveQuickAccessByScroll());
+  });
+
   return (
-    <dialog
+    <SelectionModalShell
       id={props.id}
-      ref={props.dialogRef}
-      class={`modal xl:hidden${props.class ? " " + props.class : ""}`}
+      dialogRef={props.dialogRef}
+      dialogClass={`xl:hidden${props.class ? " " + props.class : ""}`}
+      boxClass="w-[min(96vw,72rem)] max-w-[72rem] overflow-hidden"
       onClose={props.onClose}
     >
-      <div class="modal-box rounded-xl max-w-xl w-[min(100vw-1rem,42rem)] max-h-[82vh] p-0 overflow-hidden">
         {/* ヘッダー */}
         <div class="px-4 py-3 border-b border-base-200 bg-base-100">
           <h3 class="font-semibold">{props.title}</h3>
@@ -110,51 +165,19 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
           />
         </div>
 
-        {/* リスト + クイックアクセス */}
-        <div class="sm:hidden border-b border-base-200 bg-base-200/20 overflow-x-auto hide-scrollbar">
-          <div class="px-2 py-1.5 inline-flex gap-1.5 min-w-max">
-            <For each={props.quickAccessItems ?? []}>
-              {(entry) => (
-                <button
-                  type="button"
-                  class="px-2 py-1 rounded-md text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/65 hover:text-base-content inline-flex items-center gap-1.5"
-                  title={entry.label}
-                  onClick={() => scrollToCategory(entry.key)}
-                >
-                  <span class="inline-flex w-4 h-4 items-center justify-center shrink-0">
-                    {entry.icon}
-                  </span>
-                  <span class="truncate">{entry.label}</span>
-                </button>
-              )}
-            </For>
-          </div>
-        </div>
+        {/* 共通クイックアクセス + リスト（画面サイズ共通） */}
         <div class="h-[52vh] flex min-h-0">
-          <div class="w-28 border-r border-base-200 bg-base-200/20 overflow-y-auto hidden sm:block hide-scrollbar">
-            <div class="p-2 space-y-1">
-              <For each={props.quickAccessItems ?? []}>
-                {(entry) => (
-                  <button
-                    type="button"
-                    class="w-full text-left px-2 py-1.5 rounded-md text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/65 hover:text-base-content flex items-center gap-1.5"
-                    title={entry.label}
-                    onClick={() => scrollToCategory(entry.key)}
-                  >
-                    <span class="inline-flex w-4 h-4 items-center justify-center shrink-0">
-                      {entry.icon}
-                    </span>
-                    <span class="truncate">{entry.label}</span>
-                  </button>
-                )}
-              </For>
-            </div>
-          </div>
+          <PickerQuickAccess
+            entries={quickAccessEntries()}
+            widthClass="w-32"
+            activeId={activeQuickAccessId()}
+          />
           <div class="p-2 flex-1 min-h-0">
             <VList
               data={props.flatItems}
               ref={vlistRef}
               class="h-full overflow-y-auto overflow-x-hidden"
+              onScroll={updateActiveQuickAccessByScroll}
             >
               {(item) =>
                 item.type === "header" ? (
@@ -172,10 +195,6 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
             </VList>
           </div>
         </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+    </SelectionModalShell>
   );
 }

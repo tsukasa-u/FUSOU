@@ -11,6 +11,12 @@ import { EQUIP_ROW_PITCH, HEADER_HEIGHT } from "@/features/simulator/virtual-scr
 import { consumeEquipModalCallback, setEquipModalSideFilter, setEquipModalSource } from "@/features/simulator/simulator-mutations";
 import { getEquipModalCurrentId, getEquipModalSideFilter, getEquipModalSource, getEquipModalTarget, getMasterEquipTypeName, getMasterShip, getMasterSlotItem, getMasterSlotItems, getSlotItemEffects, getSnapshotSlotItems, getSpriteSheetMeta, getWeaponIconFrame, hasMasterData, hasSnapshotSlotItems, isAirBaseEquipModalTarget, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
 import { masterDataStatusStore } from "@/features/simulator/data-loader";
+import {
+  PickerQuickAccess,
+  type PickerQuickAccessEntry,
+} from "./picker-quick-access";
+import { WeaponIcon } from "./shared-ui";
+import { SelectionModalShell } from "./selection-modal-shell";
 
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
 
@@ -50,6 +56,7 @@ export function EquipSelectionModal() {
   const [typeFilter, setTypeFilter] = createSignal("");
   const [source, setSource] = createSignal<"snapshot" | "master">(getEquipModalSource());
   const [hoveredEquipId, setHoveredEquipId] = createSignal<number | null>(null);
+  const [activeQuickAccessId, setActiveQuickAccessId] = createSignal<string | null>(null);
 
   createEffect(() => {
     if (equipModalTrigger() > 0) {
@@ -183,6 +190,53 @@ export function EquipSelectionModal() {
     return data.rows.findIndex(r => r.kind === "item" && r.equip.id === currentId);
   });
 
+  const quickAccessEntries = createMemo<PickerQuickAccessEntry[]>(() =>
+    listData().catOffsets.map((cat) => {
+      const iconNum =
+        filteredEquips().find((e) => (e.type?.[2] ?? 0) === cat.typeId)?.type?.[3] ??
+        0;
+      return {
+        id: String(cat.typeId),
+        label: EQUIP_TYPE_SHORT[cat.typeId] ?? getEquipTypeName(cat.typeId),
+        icon: <WeaponIcon iconNum={iconNum} size={22} />,
+        onSelect: () => {
+          const targetIdx = listData().rows.findIndex(
+            (r) => r.kind === "header" && r.typeId === cat.typeId,
+          );
+          if (targetIdx >= 0 && vlistRef) {
+            setActiveQuickAccessId(String(cat.typeId));
+            vlistRef.scrollToIndex(targetIdx);
+          }
+        },
+      };
+    }),
+  );
+
+  const updateActiveQuickAccessByOffset = (offset: number) => {
+    const cats = listData().catOffsets;
+    if (cats.length === 0) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    let current = cats[0].typeId;
+    for (const cat of cats) {
+      if (cat.offset <= offset + 2) current = cat.typeId;
+      else break;
+    }
+    setActiveQuickAccessId(String(current));
+  };
+
+  createEffect(() => {
+    const cats = listData().catOffsets;
+    if (cats.length === 0) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    if (!activeQuickAccessId()) {
+      setActiveQuickAccessId(String(cats[0].typeId));
+    }
+  });
+
   const handleSelect = (equip: MstSlotItemData) => {
     if (isWorkspaceReadOnly()) return;
     consumeEquipModalCallback({ id: equip.id, level: getCandidateLevel(equip), alv: getCandidateAlv(equip) });
@@ -196,8 +250,14 @@ export function EquipSelectionModal() {
   };
 
   return (
-    <dialog id="equip-select-modal" ref={dialogRef} class="modal modal-bottom sm:modal-middle z-1200" onClose={() => setHoveredEquipId(null)}>
-      <div class="modal-box max-w-4xl w-[90vw] h-[80vh] sm:h-[75vh] max-h-[700px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-1201">
+    <SelectionModalShell
+      id="equip-select-modal"
+      dialogRef={(el) => {
+        dialogRef = el;
+      }}
+      boxClass="w-[min(96vw,84rem)] max-w-[84rem]"
+      onClose={() => setHoveredEquipId(null)}
+    >
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">装備を選択</h3>
@@ -224,22 +284,11 @@ export function EquipSelectionModal() {
         </div>
 
         <div class="flex flex-1 min-h-0">
-          <div class="w-24 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar">
-             <For each={listData().catOffsets}>
-               {(cat) => (
-                 <button
-                   class="w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content"
-                   title={getEquipTypeName(cat.typeId)}
-                   onClick={() => {
-                     const targetIdx = listData().rows.findIndex(r => r.kind === 'header' && r.typeId === cat.typeId);
-                     if (targetIdx >= 0 && vlistRef) vlistRef.scrollToIndex(targetIdx);
-                   }}
-                 >
-                   {EQUIP_TYPE_SHORT[cat.typeId] ?? getEquipTypeName(cat.typeId)}
-                 </button>
-               )}
-             </For>
-          </div>
+          <PickerQuickAccess
+            entries={quickAccessEntries()}
+            widthClass="w-32"
+            activeId={activeQuickAccessId()}
+          />
 
           <div class="relative flex-1 p-2 sm:p-3 flex flex-col min-h-0 overflow-hidden">
              <Show when={getEquipModalCurrentId() != null}>
@@ -255,7 +304,7 @@ export function EquipSelectionModal() {
                 <p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>
              </Show>
              <div id="equip-modal-grid" class="flex-1 min-h-0 overflow-hidden">
-               <VList data={listData().rows} ref={vlistRef} style={{ height: "100%" }} class="overflow-x-hidden">
+               <VList data={listData().rows} ref={vlistRef} style={{ height: "100%" }} class="overflow-x-hidden" onScroll={updateActiveQuickAccessByOffset}>
                  {(row: any) => {
                    if (row.kind === "header") {
                      return <div class="bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center" style={{ height: `${HEADER_HEIGHT}px` }}>{getEquipTypeName(row.typeId)}</div>;
@@ -272,11 +321,12 @@ export function EquipSelectionModal() {
                    const hasRequiredMeta = reqLv > 0 || reqAlv > 0;
                    const isSnapshot = source() === "snapshot";
                    const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
+                   const iconPx = 30;
 
                    return (
                      <div style={{ height: `${EQUIP_ROW_PITCH}px`, display: "flex", "align-items": "center", "box-sizing": "border-box" }}>
                        <div class={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-primary/8 active:bg-primary/15"}`} onMouseEnter={() => setHoveredEquipId(equip.id)} onClick={() => handleSelect(equip)}>
-                         <div class="w-6 h-6 rounded" style={frame && spriteSheet.url ? { "background-image": `url('${spriteSheet.url}')`, "background-position": `-${frame[0] * (24 / frame[2])}px -${frame[1] * (24 / frame[3])}px`, "background-size": `${spriteSheet.width * (24 / frame[2])}px ${spriteSheet.height * (24 / frame[3])}px`, "background-repeat": "no-repeat" } : {}}></div>
+                         <div class="rounded shrink-0" style={frame && spriteSheet.url ? { width: `${iconPx}px`, height: `${iconPx}px`, "background-image": `url('${spriteSheet.url}')`, "background-position": `-${frame[0] * (iconPx / frame[2])}px -${frame[1] * (iconPx / frame[3])}px`, "background-size": `${spriteSheet.width * (iconPx / frame[2])}px ${spriteSheet.height * (iconPx / frame[3])}px`, "background-repeat": "no-repeat" } : { width: `${iconPx}px`, height: `${iconPx}px` }}></div>
                          <div class="min-w-0 flex-1 overflow-hidden">
                            <div class="text-sm truncate leading-tight font-medium">{equip.name}</div>
                            <div class="grid grid-cols-[minmax(0,1fr)_2.1rem_2.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight">
@@ -314,9 +364,7 @@ export function EquipSelectionModal() {
             </Show>
           </div>
         </div>
-      </div>
-      <form method="dialog" class="modal-backdrop"><button>close</button></form>
-    </dialog>
+    </SelectionModalShell>
   );
 }
 

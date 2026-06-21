@@ -791,13 +791,76 @@ export async function loadMasterData(renderAll: () => void) {
 
     if (shipTypeIconFrameData?.frames) {
       resetShipTypeIconFrames();
+
+      const portShipFrameByIndex = new Map<
+        number,
+        [number, number, number, number]
+      >();
       for (const [name, entry] of Object.entries(
         shipTypeIconFrameData.frames,
       )) {
-        const m = name.match(/_([0-9]+)$/);
-        if (!m) continue;
+        const portMatch = name.match(/^port_ships_(\d+)$/);
+        if (!portMatch) continue;
+        const idx = Number.parseInt(portMatch[1], 10);
+        if (!Number.isFinite(idx) || idx < 0) continue;
         const { x, y, w, h } = entry.frame;
-        setShipTypeIconFrame(parseInt(m[1], 10), [x, y, w, h]);
+        portShipFrameByIndex.set(idx, [x, y, w, h]);
+      }
+
+      // 根拠: 艦これクライアント側 deobfuscated コードの
+      // _getTextureName(classType, shipTypeID) で定義されている対応を採用。
+      // 参照: packages/equip_synergy_detector/output/deobfuscated.js
+      const stypeToPortShipsFrameIndex: Record<number, number> = {
+        1: 14,
+        2: 0,
+        3: 11,
+        4: 16,
+        5: 15,
+        6: 17,
+        7: 20,
+        8: 18,
+        9: 18,
+        10: 19,
+        11: 21,
+        12: 18,
+        13: 1,
+        14: 2,
+        15: 9,
+        16: 3,
+        17: 7,
+        18: 5,
+        19: 6,
+        20: 4,
+        21: 8,
+        22: 9,
+      };
+
+      if (portShipFrameByIndex.size > 0) {
+        for (const [stypeRaw, frameIdx] of Object.entries(
+          stypeToPortShipsFrameIndex,
+        )) {
+          const stype = Number.parseInt(stypeRaw, 10);
+          const frame = portShipFrameByIndex.get(frameIdx);
+          if (!frame || !Number.isFinite(stype) || stype <= 0) continue;
+          setShipTypeIconFrame(stype, frame);
+        }
+      }
+
+      // organize_ship_* 等の従来形式は末尾数字を stype として扱う。
+      for (const [name, entry] of Object.entries(
+        shipTypeIconFrameData.frames,
+      )) {
+        if (/^port_ships_\d+$/.test(name)) continue;
+        const genericMatch = name.match(/_([0-9]+)$/);
+        if (!genericMatch) continue;
+        const stype = Number.parseInt(genericMatch[1], 10);
+        if (!Number.isFinite(stype) || stype <= 0) continue;
+        if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) {
+          // port_ships がある場合はゲームコード由来マッピングを優先。
+          continue;
+        }
+        const { x, y, w, h } = entry.frame;
+        setShipTypeIconFrame(stype, [x, y, w, h]);
       }
     }
 

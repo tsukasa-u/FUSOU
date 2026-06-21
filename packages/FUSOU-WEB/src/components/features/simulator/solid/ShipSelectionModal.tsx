@@ -12,6 +12,11 @@ import { consumeShipModalCallback, setShipModalSideFilter, setShipModalSource } 
 import { getCombinedFleetType, getFleetState, getMasterShip, getMasterShips, getShipModalCurrentId, getShipModalTarget, getShipModalSideFilter, getShipModalSource, getSnapshotShips, hasMasterData, hasSnapshotShips, isWorkspaceReadOnly } from "@/features/simulator/simulator-selectors";
 import { cachedFetch } from "@/utils/fetchCache";
 import { masterDataStatusStore } from "@/features/simulator/data-loader";
+import {
+  PickerQuickAccess,
+  type PickerQuickAccessEntry,
+} from "./picker-quick-access";
+import { SelectionModalShell } from "./selection-modal-shell";
 
 // Modal trigger signal
 export const [shipModalTrigger, setShipModalTrigger] = createSignal(0);
@@ -110,6 +115,7 @@ export function ShipSelectionModal() {
   const [stypeFilter, setStypeFilter] = createSignal("");
   const [source, setSource] = createSignal<"snapshot" | "master">(getShipModalSource());
   const [hoveredShipId, setHoveredShipId] = createSignal<number | null>(null);
+  const [activeQuickAccessId, setActiveQuickAccessId] = createSignal<string | null>(null);
 
   // Sync state when opened
   createEffect(() => {
@@ -222,6 +228,47 @@ export function ShipSelectionModal() {
     return data.rows.findIndex(r => r.kind === "item" && r.ship.id === data.currentId);
   });
 
+  const quickAccessEntries = createMemo<PickerQuickAccessEntry[]>(() =>
+    listData().catOffsets.map((cat) => ({
+      id: String(cat.stype),
+      label: STYPE_SHORT[cat.stype] ?? STYPE_NAMES[cat.stype] ?? `${cat.stype}`,
+      onSelect: () => {
+        const targetIdx = listData().rows.findIndex(
+          (r) => r.kind === "header" && r.stype === cat.stype,
+        );
+        if (targetIdx >= 0 && vlistRef) {
+          setActiveQuickAccessId(String(cat.stype));
+          vlistRef.scrollToIndex(targetIdx);
+        }
+      },
+    })),
+  );
+
+  const updateActiveQuickAccessByOffset = (offset: number) => {
+    const cats = listData().catOffsets;
+    if (cats.length === 0) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    let current = cats[0].stype;
+    for (const cat of cats) {
+      if (cat.offset <= offset + 2) current = cat.stype;
+      else break;
+    }
+    setActiveQuickAccessId(String(current));
+  };
+
+  createEffect(() => {
+    const cats = listData().catOffsets;
+    if (cats.length === 0) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    if (!activeQuickAccessId()) {
+      setActiveQuickAccessId(String(cats[0].stype));
+    }
+  });
+
   const handleSelect = (ship: MstShipData) => {
     if (isWorkspaceReadOnly()) return;
     consumeShipModalCallback({ id: ship.id, level: (ship as any)._snapshotLevel });
@@ -235,13 +282,14 @@ export function ShipSelectionModal() {
   };
 
   return (
-    <dialog
+    <SelectionModalShell
       id="ship-select-modal"
-      ref={dialogRef}
-      class="modal modal-bottom sm:modal-middle z-1200"
+      dialogRef={(el) => {
+        dialogRef = el;
+      }}
+      boxClass="w-[min(96vw,90rem)] max-w-[90rem]"
       onClose={() => setHoveredShipId(null)}
     >
-      <div class="modal-box max-w-5xl w-[95vw] h-[85vh] sm:h-[80vh] max-h-[800px] p-0 flex flex-col rounded-t-2xl sm:rounded-xl relative z-1201">
         <div class="px-5 pt-4 pb-3 border-b border-base-200 shrink-0">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-bold text-lg">艦を選択</h3>
@@ -296,23 +344,11 @@ export function ShipSelectionModal() {
         </div>
         
         <div class="flex flex-1 min-h-0">
-          <div class="w-20 overflow-y-auto border-r border-base-200 bg-base-200/20 shrink-0 hidden sm:block hide-scrollbar">
-             <For each={listData().catOffsets}>
-               {(cat) => (
-                 <button
-                   class="w-full text-left px-2 py-1.5 text-[11px] leading-tight hover:bg-primary/10 active:bg-primary/15 transition-colors text-base-content/60 hover:text-base-content"
-                   title={STYPE_NAMES[cat.stype] ?? `Type ${cat.stype}`}
-                   onClick={() => {
-                     // Virtua scroll To offset or index. VList scrollToIndex is easier.
-                     const targetIdx = listData().rows.findIndex(r => r.kind === 'header' && r.stype === cat.stype);
-                     if (targetIdx >= 0 && vlistRef) vlistRef.scrollToIndex(targetIdx);
-                   }}
-                 >
-                   {STYPE_SHORT[cat.stype] ?? STYPE_NAMES[cat.stype] ?? `${cat.stype}`}
-                 </button>
-               )}
-             </For>
-          </div>
+          <PickerQuickAccess
+            entries={quickAccessEntries()}
+            widthClass="w-28"
+            activeId={activeQuickAccessId()}
+          />
 
           <div class="relative flex-1 p-2 sm:p-3 flex flex-col min-h-0 overflow-hidden">
              <Show when={getShipModalCurrentId() != null}>
@@ -333,6 +369,7 @@ export function ShipSelectionModal() {
                  ref={vlistRef}
                  style={{ height: "100%" }}
                  class="overflow-x-hidden"
+                 onScroll={updateActiveQuickAccessByOffset}
                >
                  {(row: any) => {
                    if (row.kind === "header") {
@@ -385,11 +422,7 @@ export function ShipSelectionModal() {
             </Show>
           </div>
         </div>
-      </div>
-      <form method="dialog" class="modal-backdrop">
-        <button>close</button>
-      </form>
-    </dialog>
+    </SelectionModalShell>
   );
 }
 

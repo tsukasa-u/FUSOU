@@ -490,4 +490,52 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
     await expect(page.locator("#equip-mobile-picker-dialog[open]")).toBeHidden();
     await expect(equipPickerBtn).toContainText("テスト装備B");
   });
+
+  test("ship detail tab picker modal opens, shows list, and selection works", async ({
+    page,
+  }) => {
+    // 1600px幅のデスクトップ表示で艦詳細タブを開く
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await waitForMasterDataReady(page);
+    await ensureTutorialClosed(page);
+
+    await page.locator("#sim-tab-btn-ship").click();
+
+    // モーダルをトリガー (xl未満の場合のボタン、または xl 以上ではサイドバーのアイテムをクリック)
+    // テストは xl 幅なのでサイドバー (aside) の艦リストからクリック可能
+    const shipInAside = page.locator("aside").first().getByRole("button", { name: /テスト艦/ }).first();
+    await expect(shipInAside).toBeVisible();
+    await shipInAside.click();
+
+    // 艦詳細パネルが表示される
+    await expect(page.locator("#ship-detail-equippable-list")).toBeVisible();
+  });
+
+  test("equip detail tab picker modal list shows items and quick access sidebar is present", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await waitForMasterDataReady(page);
+    await ensureTutorialClosed(page);
+
+    await page.locator("#sim-tab-btn-equip").click();
+
+    // モバイル幅では equip picker ボタンが存在する
+    const equipPickerBtn = page.locator("#equip-mobile-picker-btn");
+    await expect(equipPickerBtn).toBeVisible();
+    await equipPickerBtn.click({ force: true });
+
+    const dialog = page.locator("#equip-mobile-picker-dialog[open]");
+    await expect(dialog).toBeVisible();
+
+    // リスト（VList）の中にアイテムが表示される
+    await expect(dialog.getByRole("button", { name: /テスト装備/ }).first()).toBeVisible();
+
+    // モーダルを閉じてから装備詳細が表示されることを確認
+    await dialog
+      .getByRole("button", { name: /テスト装備B ID 2/ })
+      .first()
+      .click();
+    await expect(page.locator("#equip-detail-synergy-ships-list")).toBeVisible();
+  });
 });

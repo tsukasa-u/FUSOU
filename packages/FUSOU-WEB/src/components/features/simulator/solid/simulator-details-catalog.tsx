@@ -49,9 +49,9 @@ import {
   EquipListRow,
   WeaponIcon,
   ImageFallbackBox,
-  ShipTypeIcon,
 } from "./shared-ui";
 import { ItemPickerModal } from "./item-picker-modal";
+import { PickerQuickAccess } from "./picker-quick-access";
 
 type DetailsTab = "ship" | "equip";
 type MobilePickerDisplayMode = "sticky" | "floating";
@@ -230,7 +230,12 @@ function SimulatorDetailsCatalog(): JSX.Element {
     groupBy(
       filteredShips(),
       (ship) => STYPE_NAMES[ship.stype] ?? `艦種${ship.stype}`,
-    ),
+    ).sort((a, b) => {
+      const aStype = a.items[0]?.stype ?? 0;
+      const bStype = b.items[0]?.stype ?? 0;
+      if (aStype !== bStype) return aStype - bStype;
+      return a.key.localeCompare(b.key, "ja");
+    }),
   );
 
   const flatShips = createMemo(() => {
@@ -247,7 +252,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
   });
 
   const groupedEquips = createMemo(() =>
-    groupBy(filteredEquips(), (equip) => equipDisplayTypeName(equip)),
+    groupBy(filteredEquips(), (equip) => equipDisplayTypeName(equip)).sort(
+      (a, b) => {
+        const aType = a.items[0]?.type?.[2] ?? 0;
+        const bType = b.items[0]?.type?.[2] ?? 0;
+        if (aType !== bType) return aType - bType;
+        return a.key.localeCompare(b.key, "ja");
+      },
+    ),
   );
 
   const shipQuickAccessItems = createMemo(() =>
@@ -256,7 +268,6 @@ function SimulatorDetailsCatalog(): JSX.Element {
       return {
         key: group.key,
         label: STYPE_SHORT[stype] ?? group.key,
-        icon: <ShipTypeIcon stype={stype} size={14} />,
       };
     }),
   );
@@ -267,7 +278,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
       return {
         key: group.key,
         label: group.key,
-        icon: <WeaponIcon iconNum={iconNum} size={14} />,
+        icon: <WeaponIcon iconNum={iconNum} size={20} />,
       };
     }),
   );
@@ -287,6 +298,98 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   let shipVListRef: VListHandle | undefined;
   let equipVListRef: VListHandle | undefined;
+  const [shipDesktopActiveQuickAccessId, setShipDesktopActiveQuickAccessId] =
+    createSignal<string | null>(null);
+  const [equipDesktopActiveQuickAccessId, setEquipDesktopActiveQuickAccessId] =
+    createSignal<string | null>(null);
+
+  const scrollShipDesktopToCategory = (categoryKey: string) => {
+    const targetIndex = flatShips().findIndex(
+      (item) => item.type === "header" && item.key === categoryKey,
+    );
+    if (targetIndex >= 0 && shipVListRef) {
+      setShipDesktopActiveQuickAccessId(categoryKey);
+      shipVListRef.scrollToIndex(targetIndex, { align: "start" });
+    }
+  };
+
+  const scrollEquipDesktopToCategory = (categoryKey: string) => {
+    const targetIndex = flatEquips().findIndex(
+      (item) => item.type === "header" && item.key === categoryKey,
+    );
+    if (targetIndex >= 0 && equipVListRef) {
+      setEquipDesktopActiveQuickAccessId(categoryKey);
+      equipVListRef.scrollToIndex(targetIndex, { align: "start" });
+    }
+  };
+
+  const updateShipDesktopQuickAccessByScroll = () => {
+    const entries = shipQuickAccessItems();
+    if (entries.length === 0) {
+      setShipDesktopActiveQuickAccessId(null);
+      return;
+    }
+    if (!shipVListRef || typeof shipVListRef.findStartIndex !== "function") {
+      setShipDesktopActiveQuickAccessId(entries[0]?.key ?? null);
+      return;
+    }
+
+    const startIdx = Number(shipVListRef.findStartIndex() ?? 0);
+    let activeKey: string | null = null;
+    const shipRows = flatShips();
+    for (let i = Math.min(startIdx, shipRows.length - 1); i >= 0; i--) {
+      const item = shipRows[i];
+      if (item?.type === "header") {
+        activeKey = item.key;
+        break;
+      }
+    }
+    if (!activeKey) {
+      const fallback = shipRows.find((item) => item.type === "header");
+      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+    }
+    setShipDesktopActiveQuickAccessId(activeKey ?? null);
+  };
+
+  const updateEquipDesktopQuickAccessByScroll = () => {
+    const entries = equipQuickAccessItems();
+    if (entries.length === 0) {
+      setEquipDesktopActiveQuickAccessId(null);
+      return;
+    }
+    if (!equipVListRef || typeof equipVListRef.findStartIndex !== "function") {
+      setEquipDesktopActiveQuickAccessId(entries[0]?.key ?? null);
+      return;
+    }
+
+    const startIdx = Number(equipVListRef.findStartIndex() ?? 0);
+    let activeKey: string | null = null;
+    const equipRows = flatEquips();
+    for (let i = Math.min(startIdx, equipRows.length - 1); i >= 0; i--) {
+      const item = equipRows[i];
+      if (item?.type === "header") {
+        activeKey = item.key;
+        break;
+      }
+    }
+    if (!activeKey) {
+      const fallback = equipRows.find((item) => item.type === "header");
+      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+    }
+    setEquipDesktopActiveQuickAccessId(activeKey ?? null);
+  };
+
+  createEffect(() => {
+    flatShips();
+    shipQuickAccessItems();
+    requestAnimationFrame(() => updateShipDesktopQuickAccessByScroll());
+  });
+
+  createEffect(() => {
+    flatEquips();
+    equipQuickAccessItems();
+    requestAnimationFrame(() => updateEquipDesktopQuickAccessByScroll());
+  });
 
   // URLから直接開いた際など、一度だけ該当アイテムが見えるようにスクロールする
   let hasScrolledInitialShip = false;
@@ -1010,32 +1113,44 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setShipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 flex-1 min-h-0">
-              <VList
-                ref={(el) => {
-                  shipVListRef = el;
-                }}
-                data={flatShips()}
-                class="h-full overflow-y-auto overflow-x-hidden"
-              >
-                {(item: any) =>
-                  item.type === "header" ? (
-                    <div class="mb-2 mt-1 first:mt-0">
-                      <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                        {item.key}
-                      </h4>
-                    </div>
-                  ) : (
-                    <div class="mb-0.5">
-                      <ShipListRow
-                        ship={item.data}
-                        active={selectedShipId() === item.data.id}
-                        onSelect={() => setSelectedShipId(item.data.id)}
-                      />
-                    </div>
-                  )
-                }
-              </VList>
+            <div class="flex flex-1 min-h-0 overflow-hidden">
+              <PickerQuickAccess
+                entries={shipQuickAccessItems().map((entry) => ({
+                  id: entry.key,
+                  label: entry.label,
+                  onSelect: () => scrollShipDesktopToCategory(entry.key),
+                }))}
+                widthClass="w-28"
+                activeId={shipDesktopActiveQuickAccessId()}
+              />
+              <div class="p-2 flex-1 min-h-0">
+                <VList
+                  ref={(el) => {
+                    shipVListRef = el;
+                  }}
+                  data={flatShips()}
+                  class="h-full overflow-y-auto overflow-x-hidden"
+                  onScroll={() => updateShipDesktopQuickAccessByScroll()}
+                >
+                  {(item: any) =>
+                    item.type === "header" ? (
+                      <div class="mb-2 mt-1 first:mt-0">
+                        <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                          {item.key}
+                        </h4>
+                      </div>
+                    ) : (
+                      <div class="mb-0.5">
+                        <ShipListRow
+                          ship={item.data}
+                          active={selectedShipId() === item.data.id}
+                          onSelect={() => setSelectedShipId(item.data.id)}
+                        />
+                      </div>
+                    )
+                  }
+                </VList>
+              </div>
             </div>
           </aside>
 
@@ -1138,32 +1253,45 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 onInput={(event) => setEquipQuery(event.currentTarget.value)}
               />
             </div>
-            <div class="p-2 flex-1 min-h-0">
-              <VList
-                ref={(el) => {
-                  equipVListRef = el;
-                }}
-                data={flatEquips()}
-                class="h-full overflow-y-auto overflow-x-hidden"
-              >
-                {(item: any) =>
-                  item.type === "header" ? (
-                    <div class="mb-2 mt-1 first:mt-0">
-                      <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
-                        {item.key}
-                      </h4>
-                    </div>
-                  ) : (
-                    <div class="mb-0.5">
-                      <EquipListRow
-                        equip={item.data}
-                        active={selectedEquipId() === item.data.id}
-                        onSelect={() => setSelectedEquipId(item.data.id)}
-                      />
-                    </div>
-                  )
-                }
-              </VList>
+            <div class="flex flex-1 min-h-0 overflow-hidden">
+              <PickerQuickAccess
+                entries={equipQuickAccessItems().map((entry) => ({
+                  id: entry.key,
+                  label: entry.label,
+                  icon: entry.icon,
+                  onSelect: () => scrollEquipDesktopToCategory(entry.key),
+                }))}
+                widthClass="w-32"
+                activeId={equipDesktopActiveQuickAccessId()}
+              />
+              <div class="p-2 flex-1 min-h-0">
+                <VList
+                  ref={(el) => {
+                    equipVListRef = el;
+                  }}
+                  data={flatEquips()}
+                  class="h-full overflow-y-auto overflow-x-hidden"
+                  onScroll={() => updateEquipDesktopQuickAccessByScroll()}
+                >
+                  {(item: any) =>
+                    item.type === "header" ? (
+                      <div class="mb-2 mt-1 first:mt-0">
+                        <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">
+                          {item.key}
+                        </h4>
+                      </div>
+                    ) : (
+                      <div class="mb-0.5">
+                        <EquipListRow
+                          equip={item.data}
+                          active={selectedEquipId() === item.data.id}
+                          onSelect={() => setSelectedEquipId(item.data.id)}
+                        />
+                      </div>
+                    )
+                  }
+                </VList>
+              </div>
             </div>
           </aside>
 

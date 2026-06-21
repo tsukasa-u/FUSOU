@@ -152,23 +152,38 @@ export function WeaponIcon(props: { iconNum: number; size?: number }): JSX.Eleme
 
 // ── ShipTypeIcon ─────────────────────────────────────────────────────
 
-export function ShipTypeIcon(props: { stype: number; size?: number }): JSX.Element {
-  const size = () => props.size ?? 18;
+/** 艦種アイコン。height を基準に縦横比を保持してレンダリングする。 */
+export function ShipTypeIcon(props: {
+  stype: number;
+  /** 表示高さ（px）。フレームの縦横比を保持して横幅を自動計算する。 */
+  height?: number;
+  /** @deprecated `height` を使用してください（後方互換のため残存） */
+  size?: number;
+}): JSX.Element {
+  const displayH = () => props.height ?? props.size ?? 18;
   const frame = () => getShipTypeIconFrame(props.stype);
   const spriteSheet = () => getShipTypeSpriteSheetMeta();
+
+  /** 高さ基準の単一スケールで縦横比を保持する */
+  const layout = () => {
+    const f = frame();
+    if (!f) return { w: displayH(), h: displayH() };
+    const [, , fw, fh] = f;
+    const scale = displayH() / fh;
+    return { w: Math.round(fw * scale), h: displayH(), scale };
+  };
 
   const imgStyle = () => {
     const f = frame();
     const s = spriteSheet();
-    if (!f || !s.url) return undefined;
-    const [fx, fy, fw, fh] = f;
-    const scaleX = size() / fw;
-    const scaleY = size() / fh;
+    const { scale } = layout() as { w: number; h: number; scale?: number };
+    if (!f || !s.url || scale == null) return undefined;
+    const [fx, fy] = f;
     return {
-      width: `${s.width * scaleX}px`,
-      height: `${s.height * scaleY}px`,
-      "margin-left": `-${fx * scaleX}px`,
-      "margin-top": `-${fy * scaleY}px`,
+      width: `${s.width * scale}px`,
+      height: `${s.height * scale}px`,
+      "margin-left": `-${fx * scale}px`,
+      "margin-top": `-${fy * scale}px`,
       "max-width": "none",
       display: "block",
     };
@@ -177,7 +192,7 @@ export function ShipTypeIcon(props: { stype: number; size?: number }): JSX.Eleme
   return (
     <div
       class="shrink-0 overflow-hidden"
-      style={{ width: `${size()}px`, height: `${size()}px` }}
+      style={{ width: `${layout().w}px`, height: `${layout().h}px` }}
     >
       <Show when={frame() && spriteSheet().url}>
         <img
@@ -387,8 +402,8 @@ export function EquipListRow(props: {
       }`}
       onClick={props.onSelect}
     >
-      <span class="w-5 h-5 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
-        <WeaponIcon iconNum={iconNum} />
+      <span class="w-7 h-7 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
+        <WeaponIcon iconNum={iconNum} size={22} />
       </span>
       <div class="min-w-0 text-left">
         <p

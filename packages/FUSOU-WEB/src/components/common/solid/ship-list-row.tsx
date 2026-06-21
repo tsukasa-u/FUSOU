@@ -40,7 +40,7 @@ export function ShipListRow(props: {
       <Show
         when={!imgErrored()}
         fallback={
-          <div class="w-24 h-7 rounded shrink-0 bg-base-200 flex items-center justify-center">
+          <div class="w-28 h-8 rounded shrink-0 bg-base-200 flex items-center justify-center">
             <span class="text-[10px] font-bold tracking-wide text-base-content/45">No Image</span>
           </div>
         }
@@ -48,7 +48,7 @@ export function ShipListRow(props: {
         <img
           src={imgSrc()}
           alt={props.ship.name}
-          class="w-24 h-7 rounded shrink-0 object-cover"
+          class="w-28 h-8 rounded shrink-0 object-cover"
           loading="lazy"
           onError={() => setImgErrored(true)}
         />
