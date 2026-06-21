@@ -6,7 +6,7 @@
 
 // ── Type detection ──
 
-export type ApiResponseKind = "port" | "requireInfo" | "getData" | "unknown";
+export type ApiResponseKind = "port" | "requireInfo" | "getData" | "exportedFleet" | "unknown";
 
 /**
  * Strip the `svdata=` prefix that the game server prepends to JSON responses.
@@ -38,6 +38,11 @@ export function detectResponseKind(json: Record<string, unknown>): ApiResponseKi
   // require_info: has equipment instances
   if (data.api_slot_item && !data.api_ship) {
     return "requireInfo";
+  }
+
+  // exportedFleet: FUSOU internal format
+  if (json.v === 2 && (json.fleet1 || json.fleet2)) {
+    return "exportedFleet";
   }
 
   return "unknown";

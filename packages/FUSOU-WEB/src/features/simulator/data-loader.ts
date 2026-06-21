@@ -248,135 +248,50 @@ async function fetchSynergyDataWithMeta(): Promise<{
   }
 }
 
+import { atom } from "nanostores";
+
+export const masterDataStatusStore = atom<{
+  hasMasterData: boolean;
+  hasSynergyData: boolean;
+  shipCount: number;
+  equipCount: number;
+  synergyMetaText: string | null;
+  masterPeriodTag: string | null;
+  masterPeriodRevision: number | null;
+  results: DataLoadResult[];
+}>({
+  hasMasterData: false,
+  hasSynergyData: false,
+  shipCount: 0,
+  equipCount: 0,
+  synergyMetaText: null,
+  masterPeriodTag: null,
+  masterPeriodRevision: null,
+  results: [],
+});
+
 export function updateDataStatus() {
-  const statusEl = document.getElementById("data-status");
-  const textEl = document.getElementById("data-status-text");
-  const masterMetaEl = document.getElementById("data-status-master-meta");
-  const synergyMetaEl = document.getElementById("data-status-synergy-meta");
-  const detailsEl = document.getElementById("data-status-details");
-  const detailsToggleEl = document.getElementById("data-status-details-toggle");
   const counts = getMasterDataCounts();
   const shipCount = counts.ships;
   const equipCount = counts.equips;
-  const synergyMetaText = getSlotItemEffectsMetaForStatus();
   const hasSynergyData = !!getSlotItemEffects();
-
-  if (!statusEl || !textEl) {
-    // Some render paths may load data before the status elements are mounted.
-    setHasMasterData(shipCount > 0 || equipCount > 0);
-    return;
-  }
-
-  // Swap the alert color modifier without touching other classes (mb-*, py-*, hidden, …).
-  function setAlertType(type: "info" | "success" | "warning") {
-    for (const cls of [
-      "alert-info",
-      "alert-success",
-      "alert-warning",
-      "alert-error",
-    ] as const) {
-      statusEl!.classList.remove(cls);
-    }
-    statusEl!.classList.add(`alert-${type}`);
-  }
-
-  // Show only the icon that matches the current state.
-  function showIcon(active: "info" | "success" | "warning") {
-    for (const t of ["info", "success", "warning"] as const) {
-      document
-        .getElementById(`data-status-icon-${t}`)
-        ?.classList.toggle("hidden", t !== active);
-    }
-  }
-
-  statusEl.classList.remove("hidden");
-
-  if (masterMetaEl) {
-    if (_masterDataPeriodTag && _masterDataPeriodRevision != null) {
-      masterMetaEl.classList.remove("hidden");
-      masterMetaEl.textContent = `マスターデータ: ${_masterDataPeriodTag} rev${_masterDataPeriodRevision}`;
-    } else {
-      masterMetaEl.classList.add("hidden");
-      masterMetaEl.textContent = "";
-    }
-  }
-
-  if (synergyMetaEl) {
-    if (synergyMetaText) {
-      synergyMetaEl.classList.remove("hidden");
-      synergyMetaEl.textContent = `装備シナジーデータ: ${synergyMetaText}`;
-    } else if (hasSynergyData) {
-      synergyMetaEl.classList.remove("hidden");
-      synergyMetaEl.textContent = "装備シナジーデータ読込済み";
-    } else {
-      synergyMetaEl.classList.add("hidden");
-      synergyMetaEl.textContent = "";
-    }
-  }
-
-  // Render detailed load results
-  if (detailsEl) {
-    const results = getDataLoadResults();
-    if (results.length > 0) {
-      // Preserve open/closed state across updates
-      const wasOpen = !detailsEl.classList.contains("hidden");
-      detailsEl.innerHTML = results
-        .map((result) => {
-          const icon =
-            result.status === "success"
-              ? '<span class="text-success">✓</span>'
-              : result.status === "failed"
-                ? '<span class="text-error">✗</span>'
-                : '<span class="text-info">⋯</span>';
-          // Only show record count when meaningful (> 0)
-          const label =
-            result.recordCount != null && result.recordCount > 0
-              ? `${result.name} (${result.recordCount})`
-              : result.name;
-          return `<div class="flex items-center gap-1">${icon} <span class="truncate">${label}</span></div>`;
-        })
-        .join("");
-      if (!wasOpen) {
-        detailsEl.classList.add("hidden");
-      }
-    }
-  }
-
-  // Toggle button visibility
-  if (detailsToggleEl) {
-    const hasFailed =
-      _dataLoadResults.some((r) => r.status === "failed") ||
-      shipCount === 0;
-    if (hasFailed) {
-      detailsToggleEl.style.display = "inline-block";
-    } else {
-      detailsToggleEl.style.display = "none";
-    }
-
-    // Add toggle handler
-    detailsToggleEl.onclick = () => {
-      if (detailsEl) {
-        detailsEl.classList.toggle("hidden");
-      }
-    };
-  }
-
-  if (shipCount > 0 && equipCount > 0) {
+  
+  if (shipCount > 0 || equipCount > 0) {
     setHasMasterData(true);
-    setAlertType("success");
-    showIcon("success");
-    textEl.textContent = `マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
-  } else if (shipCount > 0 || equipCount > 0) {
-    setHasMasterData(true);
-    setAlertType("warning");
-    showIcon("warning");
-    textEl.textContent = `一部マスターデータ読込済み — 艦 ${shipCount}件 / 装備 ${equipCount}件`;
   } else {
     setHasMasterData(false);
-    setAlertType("warning");
-    showIcon("warning");
-    textEl.textContent = "マスターデータが未読込です";
   }
+
+  masterDataStatusStore.set({
+    hasMasterData: shipCount > 0 || equipCount > 0,
+    hasSynergyData,
+    shipCount,
+    equipCount,
+    synergyMetaText: getSlotItemEffectsMetaForStatus(),
+    masterPeriodTag: _masterDataPeriodTag,
+    masterPeriodRevision: _masterDataPeriodRevision,
+    results: [..._dataLoadResults],
+  });
 }
 
 /**
@@ -614,11 +529,11 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     // ── Equipment filtering tables (JSON import preserves keys) ──
     loadEquipFilterFromJson(obj);
 
-    updateDataStatus();
   } finally {
     endBulkLoad("all");
   }
   renderAll();
+  updateDataStatus();
 }
 
 let _weaponIconDataUrl: string | null = null;
@@ -876,13 +791,76 @@ export async function loadMasterData(renderAll: () => void) {
 
     if (shipTypeIconFrameData?.frames) {
       resetShipTypeIconFrames();
+
+      const portShipFrameByIndex = new Map<
+        number,
+        [number, number, number, number]
+      >();
       for (const [name, entry] of Object.entries(
         shipTypeIconFrameData.frames,
       )) {
-        const m = name.match(/_([0-9]+)$/);
-        if (!m) continue;
+        const portMatch = name.match(/^port_ships_(\d+)$/);
+        if (!portMatch) continue;
+        const idx = Number.parseInt(portMatch[1], 10);
+        if (!Number.isFinite(idx) || idx < 0) continue;
         const { x, y, w, h } = entry.frame;
-        setShipTypeIconFrame(parseInt(m[1], 10), [x, y, w, h]);
+        portShipFrameByIndex.set(idx, [x, y, w, h]);
+      }
+
+      // 根拠: 艦これクライアント側 deobfuscated コードの
+      // _getTextureName(classType, shipTypeID) で定義されている対応を採用。
+      // 参照: packages/equip_synergy_detector/output/deobfuscated.js
+      const stypeToPortShipsFrameIndex: Record<number, number> = {
+        1: 14,
+        2: 0,
+        3: 11,
+        4: 16,
+        5: 15,
+        6: 17,
+        7: 20,
+        8: 18,
+        9: 18,
+        10: 19,
+        11: 21,
+        12: 18,
+        13: 1,
+        14: 2,
+        15: 9,
+        16: 3,
+        17: 7,
+        18: 5,
+        19: 6,
+        20: 4,
+        21: 8,
+        22: 9,
+      };
+
+      if (portShipFrameByIndex.size > 0) {
+        for (const [stypeRaw, frameIdx] of Object.entries(
+          stypeToPortShipsFrameIndex,
+        )) {
+          const stype = Number.parseInt(stypeRaw, 10);
+          const frame = portShipFrameByIndex.get(frameIdx);
+          if (!frame || !Number.isFinite(stype) || stype <= 0) continue;
+          setShipTypeIconFrame(stype, frame);
+        }
+      }
+
+      // organize_ship_* 等の従来形式は末尾数字を stype として扱う。
+      for (const [name, entry] of Object.entries(
+        shipTypeIconFrameData.frames,
+      )) {
+        if (/^port_ships_\d+$/.test(name)) continue;
+        const genericMatch = name.match(/_([0-9]+)$/);
+        if (!genericMatch) continue;
+        const stype = Number.parseInt(genericMatch[1], 10);
+        if (!Number.isFinite(stype) || stype <= 0) continue;
+        if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) {
+          // port_ships がある場合はゲームコード由来マッピングを優先。
+          continue;
+        }
+        const { x, y, w, h } = entry.frame;
+        setShipTypeIconFrame(stype, [x, y, w, h]);
       }
     }
 
@@ -930,7 +908,7 @@ export async function loadMasterData(renderAll: () => void) {
     }
 
     if (shipTypeIconFrameData) {
-      const pngKey = "assets/kcs2/img/organize/organize_ship.png";
+      const pngKey = "assets/kcs2/img/port/port_ships.png";
       if (_shipTypeIconDataUrl) {
         setShipTypeSpriteSheetUrl(_shipTypeIconDataUrl);
       } else {
@@ -1038,9 +1016,9 @@ export async function loadMasterData(renderAll: () => void) {
 
     console.info("[simulator] master data load summary", getMasterDataCounts());
 
-    updateDataStatus();
   } finally {
     endBulkLoad("all");
   }
   renderAll();
+  updateDataStatus();
 }

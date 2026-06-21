@@ -13,8 +13,8 @@ import { render } from "solid-js/web";
 import {
   computeEquipBonuses,
   bannerUrl,
-  createWeaponIconEl,
 } from "@/features/simulator/equip-calc";
+import { WeaponIcon } from "@/components/features/simulator/solid/shared-ui";
 import {
   getMasterEquipTypeName,
   getFleetState,
@@ -990,21 +990,7 @@ async function runOptimizer(
 
 // ── Sub-components ────────────────────────────────────────────────────
 
-function WeaponIcon(props: { iconNum: number; size?: number }): JSX.Element {
-  let host!: HTMLSpanElement;
-  const size = props.size ?? 16;
-  // eslint-disable-next-line solid/reactivity
-  const el = createWeaponIconEl(props.iconNum, size);
-  return (
-    <span
-      ref={(el_host) => {
-        host = el_host;
-        host.appendChild(el);
-      }}
-      class="inline-flex shrink-0"
-    />
-  );
-}
+
 
 function EquipChip(props: {
   equip: MstSlotItemData | null;

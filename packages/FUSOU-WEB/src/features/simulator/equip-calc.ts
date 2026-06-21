@@ -584,73 +584,7 @@ export function shipIconUrl(shipId: number, options?: ImageOptions): string {
   return "";
 }
 
-export function createWeaponIconEl(iconNum: number, size = 20): HTMLElement {
-  const frame = getWeaponIconFrame(iconNum);
-  const spriteSheet = getSpriteSheetMeta();
-  if (frame && spriteSheet.url) {
-    const [fx, fy, fw, fh] = frame;
-    const scaleX = size / fw;
-    const scaleY = size / fh;
-    const wrapper = document.createElement("div");
-    wrapper.className = "shrink-0 overflow-hidden";
-    wrapper.style.width = `${size}px`;
-    wrapper.style.height = `${size}px`;
-    const img = document.createElement("img");
-    img.src = spriteSheet.url;
-    img.alt = "";
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.style.width = `${spriteSheet.width * scaleX}px`;
-    img.style.height = `${spriteSheet.height * scaleY}px`;
-    img.style.marginLeft = `-${fx * scaleX}px`;
-    img.style.marginTop = `-${fy * scaleY}px`;
-    img.style.maxWidth = "none";
-    img.style.display = "block";
-    wrapper.appendChild(img);
-    return wrapper;
-  }
-  const el = document.createElement("div");
-  el.style.width = `${size}px`;
-  el.style.height = `${size}px`;
-  el.className = "shrink-0";
-  return el;
-}
 
-export function createShipTypeIconEl(
-  stype: number,
-  width = 66,
-  height = 18,
-): HTMLElement {
-  const frame = getShipTypeIconFrame(stype);
-  const spriteSheet = getShipTypeSpriteSheetMeta();
-  if (frame && spriteSheet.url) {
-    const [fx, fy, fw, fh] = frame;
-    const scaleX = width / fw;
-    const scaleY = height / fh;
-    const wrapper = document.createElement("div");
-    wrapper.className = "shrink-0 overflow-hidden";
-    wrapper.style.width = `${width}px`;
-    wrapper.style.height = `${height}px`;
-    const img = document.createElement("img");
-    img.src = spriteSheet.url;
-    img.alt = "";
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.style.width = `${spriteSheet.width * scaleX}px`;
-    img.style.height = `${spriteSheet.height * scaleY}px`;
-    img.style.marginLeft = `-${fx * scaleX}px`;
-    img.style.marginTop = `-${fy * scaleY}px`;
-    img.style.maxWidth = "none";
-    img.style.display = "block";
-    wrapper.appendChild(img);
-    return wrapper;
-  }
-  const el = document.createElement("div");
-  el.style.width = `${width}px`;
-  el.style.height = `${height}px`;
-  el.className = "shrink-0";
-  return el;
-}
 
 /**
  * Get equipment image URL. Prioritizes item_on path, falls back to item_up.

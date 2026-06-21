@@ -323,3 +323,7 @@ export function getCombinedFleetType(): 0 | 1 | 2 | 3 {
 export function getFleetFormation(fleetIndex: 1 | 2 | 3 | 4): number {
   return state.fleetFormations[fleetIndex] ?? 0;
 }
+
+export function getFleetSlotLayoutMode(): "2x3" | "3x2" {
+  return state.fleetSlotLayoutMode;
+}
