@@ -131,7 +131,7 @@ export function DisplaySettingsModal() {
           </label>
           <div class="form-control">
             <label class="label py-1"><span class="label-text">連合艦隊タイプ</span></label>
-            <select class="select select-bordered select-sm w-52" value={combined()} onChange={(e) => handleCombinedChange(Number(e.currentTarget.value))}>
+            <select id="display-combined-fleet" class="select select-bordered select-sm w-52" value={combined()} onChange={(e) => handleCombinedChange(Number(e.currentTarget.value))}>
               <option value="0">通常艦隊</option>
               <option value="1">機動部隊（第1＋第2）</option>
               <option value="2">水上打撃部隊（第1＋第2）</option>
@@ -140,14 +140,14 @@ export function DisplaySettingsModal() {
           </div>
           <div class="form-control">
             <label class="label py-1"><span class="label-text">艦隊内スロット配置</span></label>
-            <select class="select select-bordered select-sm w-40" value={layout()} onChange={(e) => handleLayoutChange(e.currentTarget.value as "2x3" | "3x2")}>
+            <select id="display-fleet-slot-layout" class="select select-bordered select-sm w-40" value={layout()} onChange={(e) => handleLayoutChange(e.currentTarget.value as "2x3" | "3x2")}>
               <option value="2x3">2x3（縦長）</option>
               <option value="3x2">3x2（横長）</option>
             </select>
           </div>
           <div class="form-control">
             <label class="label py-1"><span class="label-text">表示する基地航空隊数</span></label>
-            <select class="select select-bordered select-sm w-36" value={airbaseCount()} disabled={!airbase()} onChange={(e) => handleAirbaseCountChange(Number(e.currentTarget.value))}>
+            <select id="display-airbase-count" class="select select-bordered select-sm w-36" value={airbaseCount()} disabled={!airbase()} onChange={(e) => handleAirbaseCountChange(Number(e.currentTarget.value))}>
               <option value="0">0</option>
               <option value="1">1</option>
               <option value="2">2</option>

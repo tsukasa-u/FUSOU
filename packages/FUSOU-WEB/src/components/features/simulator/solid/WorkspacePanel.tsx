@@ -104,7 +104,7 @@ export function WorkspacePanel() {
       <div class="flex items-center justify-between gap-1.5 mb-2">
         <div class="flex items-center gap-2 min-w-0">
           <h2 class="text-sm font-semibold shrink-0">ワークスペース</h2>
-          <span class={modeStatusClass()}>{modeStatusText()}</span>
+          <span id="workspace-mode-status" class={modeStatusClass()}>{modeStatusText()}</span>
         </div>
         <div class="flex items-center gap-0.5 shrink-0">
           <button
@@ -143,6 +143,7 @@ export function WorkspacePanel() {
 
       <div class="space-y-2">
         <div
+          id="workspace-playground-entry"
           class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
             isPlaygroundActive() ? "border-info bg-info/10" : "border-base-300/60 hover:border-info/50"
           }`}
@@ -164,7 +165,7 @@ export function WorkspacePanel() {
         </div>
         
         <div class="max-h-[38vh] sm:max-h-[46vh] lg:max-h-112 overflow-y-auto pr-1">
-          <div class="space-y-2">
+          <div id="workspace-entry-list" role="list" class="space-y-2">
             <For each={visibleEntries()}>
               {(entry) => {
                 const isActive = ws().activeId === entry.id;
@@ -173,6 +174,8 @@ export function WorkspacePanel() {
                 
                 return (
                   <div
+                    data-entry-id={entry.id}
+                    role="listitem"
                     class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
                       isActive ? "border-primary bg-primary/10" : "border-base-300/60 hover:border-primary/40"
                     }`}
@@ -197,6 +200,7 @@ export function WorkspacePanel() {
 
                     <button
                       class="shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-md transition-colors"
+                      aria-label={entry.locked ? "ロック解除" : "ロック"}
                       style={{
                         color: entry.locked ? "#dc2626" : "#16a34a",
                         "background-color": entry.locked ? "rgba(220, 38, 38, 0.10)" : "rgba(22, 163, 74, 0.10)",

@@ -264,7 +264,7 @@ export function EquipSelectionModal() {
             <form method="dialog"><button class="btn btn-ghost btn-sm btn-circle">✕</button></form>
           </div>
           <div class="flex gap-2">
-            <input type="text" placeholder="装備名で検索..." class="input input-bordered input-sm flex-1" autocomplete="off" value={search()} onInput={(e) => setSearch(e.currentTarget.value)} />
+            <input id="equip-modal-search" type="text" placeholder="装備名で検索..." class="input input-bordered input-sm flex-1" autocomplete="off" value={search()} onInput={(e) => setSearch(e.currentTarget.value)} />
             <select class="select select-bordered select-sm w-28 sm:w-32" value={sideFilter()} onChange={(e) => { setSideFilter(e.currentTarget.value as SideFilter); setEquipModalSideFilter(e.currentTarget.value as SideFilter); }}>
               <option value="ally">味方のみ</option><option value="enemy">敵のみ</option><option value="all">全て</option>
             </select>
@@ -357,7 +357,7 @@ export function EquipSelectionModal() {
              </div>
           </div>
 
-          <div class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block">
+          <div id="equip-modal-detail" class="w-64 xl:w-72 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block">
             <Show when={hoveredEquipId()} fallback={<p class="text-sm text-base-content/30 text-center pt-10">装備にカーソルを合わせると<br />詳細が表示されます</p>}>
               {(id) => <EquipDetail equip={getMasterSlotItem(id())!} />}
             </Show>
