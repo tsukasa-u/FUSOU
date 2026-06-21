@@ -218,12 +218,18 @@ export function clearActive(): void {
 
 export function toggleLock(id: string): void {
   const ws = workspaceStore.get();
-  const entry = ws.entries.find((e) => e.id === id);
-  if (entry) {
-    entry.locked = !entry.locked;
-    workspaceStore.set({ ...ws });
-    saveWorkspace(ws);
-  }
+  const hasTarget = ws.entries.some((e) => e.id === id);
+  if (!hasTarget) return;
+
+  const newWs: ViewerWorkspace = {
+    ...ws,
+    entries: ws.entries.map((entry) =>
+      entry.id === id ? { ...entry, locked: !(entry.locked ?? false) } : entry,
+    ),
+  };
+
+  workspaceStore.set(newWs);
+  saveWorkspace(newWs);
 }
 
 export function updateEntryData(

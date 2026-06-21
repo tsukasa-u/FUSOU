@@ -432,6 +432,7 @@ export function EquipListRow(props: {
   equip: MstSlotItemData;
   active: boolean;
   onSelect: () => void;
+  onPreview?: () => void;
   showStatLabels?: boolean;
   showStats?: boolean;
 }): JSX.Element {
@@ -446,6 +447,8 @@ export function EquipListRow(props: {
       }`}
       aria-label={`${props.equip.name} ID ${props.equip.id}`}
       onClick={props.onSelect}
+      onMouseEnter={props.onPreview}
+      onFocusIn={props.onPreview}
     >
       <span class="w-7 h-7 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
         <WeaponIcon iconNum={iconNum} size={22} />

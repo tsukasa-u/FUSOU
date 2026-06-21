@@ -300,6 +300,7 @@ export function ShipSelectionModal() {
           </div>
           <div class="flex gap-2">
             <input
+              id="ship-modal-search"
               type="text"
               placeholder="名前・IDで検索..."
               class="input input-bordered input-sm flex-1"
@@ -382,14 +383,11 @@ export function ShipSelectionModal() {
                    }
                    const ship = row.ship;
                    return (
-                     <div
-                       class="mb-0.5"
-                       onMouseEnter={() => setHoveredShipId(ship.id)}
-                       onFocusIn={() => setHoveredShipId(ship.id)}
-                     >
+                     <div class="mb-0.5">
                        <ShipListRow
                          ship={ship}
                          active={ship.id === getShipModalCurrentId()}
+                         onPreview={() => setHoveredShipId(ship.id)}
                          subtitle={`ID ${ship.id} / ${STYPE_NAMES[ship.stype] ?? ""}${ship._snapshotLevel ? ` / Lv${ship._snapshotLevel}` : ""}${ship._snapshotCount > 1 ? ` / ×${ship._snapshotCount}` : ""}`}
                          onSelect={() => handleSelect(ship)}
                        />
@@ -400,7 +398,7 @@ export function ShipSelectionModal() {
              </div>
           </div>
           
-          <div class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block">
+          <div id="ship-modal-detail" class="w-72 xl:w-80 overflow-y-auto p-4 bg-base-200/30 border-l border-base-200 hidden md:block">
             <Show when={hoveredShipId()} fallback={<p class="text-sm text-base-content/30 text-center pt-10">艦にカーソルを合わせると<br />詳細が表示されます</p>}>
               {(id) => <ShipDetail ship={getMasterShip(id())!} />}
             </Show>

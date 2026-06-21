@@ -20,6 +20,7 @@ export function ShipListRow(props: {
   ship: ShipListItem;
   active: boolean;
   onSelect: () => void;
+  onPreview?: () => void;
   subtitle?: string;
   showStatLabels?: boolean;
   showStats?: boolean;
@@ -45,13 +46,15 @@ export function ShipListRow(props: {
 
   return (
     <button
-      class={`w-full h-[52px] flex items-center gap-2 px-2.5 py-2 rounded-lg transition border overflow-hidden ${
+      class={`w-full h-[52px] flex items-center gap-2 px-2.5 py-2 rounded-lg transition border overflow-hidden cursor-pointer ${
         props.active
           ? "bg-primary/12 border-primary/35"
           : "hover:bg-primary/8 active:bg-primary/15 border-transparent"
       }`}
       aria-label={`${props.ship.name} ID ${props.ship.id}`}
       onClick={props.onSelect}
+      onMouseEnter={props.onPreview}
+      onFocusIn={props.onPreview}
     >
       <Show
         when={!imgErrored()}
