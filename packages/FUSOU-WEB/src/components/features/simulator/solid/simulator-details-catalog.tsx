@@ -278,7 +278,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
       return {
         key: group.key,
         label: group.key,
-        icon: <WeaponIcon iconNum={iconNum} size={20} />,
+        icon: () => <WeaponIcon iconNum={iconNum} size={20} />,
       };
     }),
   );
@@ -1144,6 +1144,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
                         <ShipListRow
                           ship={item.data}
                           active={selectedShipId() === item.data.id}
+                          showStatLabels={false}
+                          showStats={false}
                           onSelect={() => setSelectedShipId(item.data.id)}
                         />
                       </div>
@@ -1258,7 +1260,7 @@ function SimulatorDetailsCatalog(): JSX.Element {
                 entries={equipQuickAccessItems().map((entry) => ({
                   id: entry.key,
                   label: entry.label,
-                  icon: entry.icon,
+                  icon: entry.icon?.(),
                   onSelect: () => scrollEquipDesktopToCategory(entry.key),
                 }))}
                 widthClass="w-32"
@@ -1285,6 +1287,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
                         <EquipListRow
                           equip={item.data}
                           active={selectedEquipId() === item.data.id}
+                          showStatLabels={false}
+                          showStats={false}
                           onSelect={() => setSelectedEquipId(item.data.id)}
                         />
                       </div>

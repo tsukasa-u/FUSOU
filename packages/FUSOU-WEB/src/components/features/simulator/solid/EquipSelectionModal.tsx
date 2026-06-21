@@ -15,7 +15,7 @@ import {
   PickerQuickAccess,
   type PickerQuickAccessEntry,
 } from "./picker-quick-access";
-import { WeaponIcon } from "./shared-ui";
+import { StatPill, WeaponIcon } from "./shared-ui";
 import { SelectionModalShell } from "./selection-modal-shell";
 
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
@@ -343,12 +343,11 @@ export function EquipSelectionModal() {
                              </Show>
                            </div>
                          </div>
-                         <div class="w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right">
-                           <Show when={equip.houg}><span class={`text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${equip.houg > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>火{equip.houg > 0 ? "+" : ""}{equip.houg}</span></Show>
-                           <Show when={equip.raig}><span class={`text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${equip.raig > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>雷{equip.raig > 0 ? "+" : ""}{equip.raig}</span></Show>
-                           <Show when={equip.tyku && !equip.houg && !equip.raig}><span class={`text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${equip.tyku > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>空{equip.tyku > 0 ? "+" : ""}{equip.tyku}</span></Show>
-                           <Show when={equip.tais && (!equip.tyku || equip.houg || equip.raig)}><span class={`text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${equip.tais > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>潜{equip.tais > 0 ? "+" : ""}{equip.tais}</span></Show>
-                           <Show when={equip.baku && !equip.tais}><span class={`text-[10px] px-1 py-0.5 rounded font-mono shrink-0 ${equip.baku > 0 ? "bg-success/10 text-success" : "bg-error/10 text-error"}`}>爆{equip.baku > 0 ? "+" : ""}{equip.baku}</span></Show>
+                         <div class="ml-auto flex shrink-0 items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right min-w-38 sm:min-w-42">
+                           <StatPill label="火" value={equip.houg} tone="fire" />
+                           <StatPill label="雷" value={equip.raig} tone="torpedo" />
+                           <StatPill label="空" value={equip.tyku} tone="aa" />
+                           <StatPill label="装" value={equip.souk} tone="armor" />
                          </div>
                        </div>
                      </div>

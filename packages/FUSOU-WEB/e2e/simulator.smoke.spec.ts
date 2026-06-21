@@ -33,6 +33,26 @@ const masterRecords: Record<string, unknown[]> = {
       slot_num: 4,
       maxeq: [0, 0, 0, 0, 0],
     },
+    {
+      id: 2,
+      name: "テスト艦二",
+      stype: 1,
+      ctype: 1,
+      sort_id: 2,
+      taik: [16, 36],
+      souk: [6, 36],
+      houg: [11, 41],
+      raig: [0, 0],
+      tyku: [9, 29],
+      tais: [19, 66],
+      kaih: [39, 83],
+      saku: [6, 33],
+      luck: [11, 41],
+      soku: 10,
+      leng: 1,
+      slot_num: 4,
+      maxeq: [0, 0, 0, 0, 0],
+    },
   ],
   mst_slotitem: [
     {
@@ -269,6 +289,34 @@ async function openShipSelectModalFromFirstSlot(page: Page): Promise<void> {
     .toBe(true);
 }
 
+async function openEquipSelectModalFromFleet1FirstEquipSlot(
+  page: Page,
+): Promise<void> {
+  const equipSlot = page.locator("#fleet-1-slots [class*='group/equip']").first();
+  await expect(equipSlot).toBeVisible();
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await equipSlot.click({ force: true });
+    const opened = await page
+      .locator("#equip-select-modal")
+      .evaluate((el) => (el as HTMLDialogElement).open)
+      .catch(() => false);
+    if (opened) return;
+    await page.waitForTimeout(150);
+  }
+
+  await expect
+    .poll(
+      async () =>
+        page
+          .locator("#equip-select-modal")
+          .evaluate((el) => (el as HTMLDialogElement).open)
+          .catch(() => false),
+      { timeout: 5000 },
+    )
+    .toBe(true);
+}
+
 async function ensureTutorialClosed(page: Page): Promise<void> {
   const tutorialModal = page.locator("#tutorial-modal");
   const closeBtn = page.locator("#tutorial-close-btn");
@@ -316,6 +364,57 @@ test.describe("Simulator Smoke E2E (D1/R2-isolated)", () => {
 
     await expect(page.locator("#ship-select-modal")).toBeVisible();
     await expect(page.locator("#ship-modal-grid")).toContainText("テスト艦");
+  });
+
+  test("ship selection hover updates right detail preview", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await waitForMasterDataReady(page);
+    await openShipSelectModalFromFirstSlot(page);
+
+    const modal = page.locator("#ship-select-modal");
+    const rightPreview = modal.locator(".w-72.xl\\:w-80").first();
+
+    await expect(rightPreview).toContainText("艦にカーソルを合わせると");
+
+    const ship1 = modal.getByRole("button", { name: /テスト艦 ID 1/ }).first();
+    const ship2 = modal.getByRole("button", { name: /テスト艦二 ID 2/ }).first();
+
+    await ship1.hover();
+    await expect(rightPreview).toContainText("テスト艦");
+    await expect(rightPreview).toContainText("#1");
+
+    await ship2.hover();
+    await expect(rightPreview).toContainText("テスト艦二");
+    await expect(rightPreview).toContainText("#2");
+  });
+
+  test("equip selection hover updates right detail preview", async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await waitForMasterDataReady(page);
+    await openShipSelectModalFromFirstSlot(page);
+    await page
+      .locator("#ship-select-modal")
+      .getByRole("button", { name: /テスト艦 ID 1/ })
+      .first()
+      .click();
+
+    await openEquipSelectModalFromFleet1FirstEquipSlot(page);
+
+    const modal = page.locator("#equip-select-modal");
+    const rightPreview = modal.locator(".w-64.xl\\:w-72").first();
+
+    await expect(rightPreview).toContainText("装備にカーソルを合わせると");
+
+    const equipB = modal.locator("#equip-modal-grid").getByText("テスト装備B").first();
+    const equipC = modal.locator("#equip-modal-grid").getByText("テスト装備C").first();
+
+    await equipB.hover();
+    await expect(rightPreview).toContainText("テスト装備B");
+    await expect(rightPreview).toContainText("#2");
+
+    await equipC.hover();
+    await expect(rightPreview).toContainText("テスト装備C");
+    await expect(rightPreview).toContainText("#3");
   });
 
   test("details display settings react and ship list keeps sticky viewport-height layout", async ({

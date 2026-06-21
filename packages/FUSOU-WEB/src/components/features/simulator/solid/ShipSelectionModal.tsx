@@ -16,6 +16,7 @@ import {
   PickerQuickAccess,
   type PickerQuickAccessEntry,
 } from "./picker-quick-access";
+import { ShipListRow } from "@/components/common/solid/ship-list-row";
 import { SelectionModalShell } from "./selection-modal-shell";
 
 // Modal trigger signal
@@ -380,35 +381,18 @@ export function ShipSelectionModal() {
                      );
                    }
                    const ship = row.ship;
-                   const isSelected = ship.id === getShipModalCurrentId();
                    return (
-                     <div style={{ height: `${SHIP_ROW_PITCH}px`, display: "flex", "align-items": "center", "box-sizing": "border-box" }}>
-                       <div
-                         class={`w-full flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer transition-colors min-w-0 ${isSelected ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-primary/8 active:bg-primary/15"}`}
-                         onMouseEnter={() => setHoveredShipId(ship.id)}
-                         onClick={() => handleSelect(ship)}
-                       >
-                         <div class="w-[72px] h-7 bg-base-200 rounded overflow-hidden shrink-0">
-                           <img src={bannerUrl(ship.id, { f: "auto" })} alt={ship.name} class="w-full h-full object-cover" loading="lazy" onError={(e) => { e.currentTarget.style.display='none'; }} />
-                         </div>
-                         <div class="min-w-0 flex-1 overflow-hidden">
-                           <div class="text-sm font-medium truncate leading-tight">{ship.name}</div>
-                           <div class="grid grid-cols-[minmax(0,1fr)_3.1rem_2.4rem] items-center gap-0.5 text-[11px] text-base-content/40 leading-tight">
-                             <span class="truncate">{STYPE_NAMES[ship.stype] ?? ""} #{ship.id}</span>
-                             <span class={`text-right font-mono ${ship._snapshotLevel ? "text-teal-700 font-bold" : "text-base-content/30"}`}>
-                               {ship._snapshotLevel ? `Lv${ship._snapshotLevel}` : ""}
-                             </span>
-                             <span class={`text-right font-mono ${ship._snapshotCount > 1 ? "font-bold text-base-content/60" : "text-base-content/30"}`}>
-                               {ship._snapshotCount > 1 ? `×${ship._snapshotCount}` : ""}
-                             </span>
-                           </div>
-                         </div>
-                         <div class="w-[5.2rem] shrink-0 flex items-center justify-end gap-0.5 whitespace-nowrap overflow-hidden text-right">
-                           <Show when={(ship.houg?.[0] ?? 0) > 0}><span class="text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success">火+{ship.houg[0]}</span></Show>
-                           <Show when={(ship.raig?.[0] ?? 0) > 0}><span class="text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success">雷+{ship.raig[0]}</span></Show>
-                           <Show when={(ship.tyku?.[0] ?? 0) > 0 && !((ship.houg?.[0] ?? 0) > 0 && (ship.raig?.[0] ?? 0) > 0)}><span class="text-[10px] px-1 py-0.5 rounded font-mono shrink-0 bg-success/10 text-success">空+{ship.tyku[0]}</span></Show>
-                         </div>
-                       </div>
+                     <div
+                       class="mb-0.5"
+                       onMouseEnter={() => setHoveredShipId(ship.id)}
+                       onFocusIn={() => setHoveredShipId(ship.id)}
+                     >
+                       <ShipListRow
+                         ship={ship}
+                         active={ship.id === getShipModalCurrentId()}
+                         subtitle={`ID ${ship.id} / ${STYPE_NAMES[ship.stype] ?? ""}${ship._snapshotLevel ? ` / Lv${ship._snapshotLevel}` : ""}${ship._snapshotCount > 1 ? ` / ×${ship._snapshotCount}` : ""}`}
+                         onSelect={() => handleSelect(ship)}
+                       />
                      </div>
                    );
                  }}

@@ -54,7 +54,7 @@ export interface ItemPickerModalProps {
   quickAccessItems?: Array<{
     key: string;
     label: string;
-    icon?: JSX.Element;
+    icon?: () => JSX.Element;
   }>;
   /** ダイアログ close 時のハンドラ */
   onClose: () => void;
@@ -81,7 +81,7 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
     (props.quickAccessItems ?? []).map((entry) => ({
       id: entry.key,
       label: entry.label,
-      icon: entry.icon,
+      icon: entry.icon?.(),
       onSelect: () => {
         setActiveQuickAccessId(entry.key);
         scrollToCategory(entry.key);
@@ -136,10 +136,22 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
     >
         {/* ヘッダー */}
         <div class="px-4 py-3 border-b border-base-200 bg-base-100">
-          <h3 class="font-semibold">{props.title}</h3>
-          <p class="text-xs text-base-content/60 truncate">
-            現在: {props.currentSummary}
-          </p>
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <h3 class="font-semibold">{props.title}</h3>
+              <p class="text-xs text-base-content/60 truncate">
+                現在: {props.currentSummary}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm btn-circle shrink-0"
+              aria-label="閉じる"
+              onClick={props.onClose}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
         {/* フィルター */}

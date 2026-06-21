@@ -38,6 +38,48 @@ import { getMasterShip } from "@/features/simulator/simulator-selectors";
 import { STYPE_NAMES } from "@/features/simulator/constants";
 import type { MstSlotItemData } from "@/features/simulator/types";
 
+export function StatPill(props: {
+  label: string;
+  value: number | null | undefined;
+  tone: "fire" | "torpedo" | "aa" | "armor";
+  showLabel?: boolean;
+  hideLabelOnTiny?: boolean;
+}): JSX.Element {
+  const toneClass = () => {
+    switch (props.tone) {
+      case "fire":
+        return "border-rose-500/25 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+      case "torpedo":
+        return "border-sky-500/25 bg-sky-500/10 text-sky-700 dark:text-sky-300";
+      case "aa":
+        return "border-orange-600/30 bg-orange-500/12 text-orange-800 dark:text-orange-200";
+      case "armor":
+        return "border-yellow-500/35 bg-yellow-400/12 text-yellow-800 dark:text-yellow-200";
+    }
+  };
+
+  const displayValue = () => {
+    if (props.value == null || props.value === 0) return null;
+    return `${props.value > 0 ? "+" : ""}${props.value}`;
+  };
+
+  return (
+    <Show when={displayValue()}>
+      {(value) => (
+        <span
+          class={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-mono font-semibold leading-none whitespace-nowrap border ${toneClass()}`}
+          title={`${props.label} ${value()}`}
+        >
+          <Show when={props.showLabel ?? true}>
+            <span class={props.hideLabelOnTiny ? "max-[360px]:hidden" : undefined}>{props.label}</span>
+          </Show>
+          <span>{value()}</span>
+        </span>
+      )}
+    </Show>
+  );
+}
+
 // ── LazyRender ───────────────────────────────────────────────────────
 
 export function LazyRender(props: { children: JSX.Element }) {
@@ -390,16 +432,19 @@ export function EquipListRow(props: {
   equip: MstSlotItemData;
   active: boolean;
   onSelect: () => void;
+  showStatLabels?: boolean;
+  showStats?: boolean;
 }): JSX.Element {
   const iconNum = props.equip.type?.[3] ?? 0;
 
   return (
     <button
-      class={`w-full flex items-center gap-2 px-2.5 py-2 rounded-lg transition border ${
+      class={`w-full h-[52px] flex items-center gap-2 px-2.5 py-2 rounded-lg transition border overflow-hidden ${
         props.active
           ? "bg-accent/12 border-accent/35"
           : "hover:bg-primary/8 active:bg-primary/15 border-transparent"
       }`}
+      aria-label={`${props.equip.name} ID ${props.equip.id}`}
       onClick={props.onSelect}
     >
       <span class="w-7 h-7 inline-flex items-center justify-center rounded bg-base-200/70 shrink-0">
@@ -412,10 +457,31 @@ export function EquipListRow(props: {
         >
           {props.equip.name}
         </p>
-        <p class="text-[11px] text-base-content/45 leading-tight mt-0.5">
-          ID {props.equip.id} / {equipDisplayTypeName(props.equip)}
-        </p>
+          <div class="text-[11px] text-base-content/45 leading-tight mt-0.5 min-w-0 flex items-center gap-1.5 whitespace-nowrap">
+            <span class="truncate min-w-0 inline flex-1 md:hidden">
+              {equipDisplayTypeName(props.equip)} ID {props.equip.id}
+            </span>
+            <span class="hidden md:inline truncate min-w-0 flex-1">
+            ID {props.equip.id} / {equipDisplayTypeName(props.equip)}
+          </span>
+            <Show when={props.showStats ?? true}>
+              <span class="inline-flex items-center gap-1 shrink-0 md:hidden">
+                <StatPill label="火" value={props.equip.houg} tone="fire" showLabel={props.showStatLabels ?? true} hideLabelOnTiny />
+                <StatPill label="雷" value={props.equip.raig} tone="torpedo" showLabel={props.showStatLabels ?? true} hideLabelOnTiny />
+                <StatPill label="空" value={props.equip.tyku} tone="aa" showLabel={props.showStatLabels ?? true} hideLabelOnTiny />
+                <StatPill label="装" value={props.equip.souk} tone="armor" showLabel={props.showStatLabels ?? true} hideLabelOnTiny />
+            </span>
+            </Show>
+        </div>
       </div>
+      <Show when={props.showStats ?? true}>
+        <div class="ml-auto hidden shrink-0 items-center justify-end gap-1 whitespace-nowrap overflow-hidden text-right min-w-0 max-w-48 md:flex">
+            <StatPill label="火" value={props.equip.houg} tone="fire" showLabel={props.showStatLabels ?? true} />
+            <StatPill label="雷" value={props.equip.raig} tone="torpedo" showLabel={props.showStatLabels ?? true} />
+            <StatPill label="空" value={props.equip.tyku} tone="aa" showLabel={props.showStatLabels ?? true} />
+            <StatPill label="装" value={props.equip.souk} tone="armor" showLabel={props.showStatLabels ?? true} />
+        </div>
+      </Show>
     </button>
   );
 }
