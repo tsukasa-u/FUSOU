@@ -121,15 +121,6 @@ async fn bootstrap_tokens_on_startup(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
-    // Load environment variable for MEMBER_ID_SALT at compile time (required)
-    if let Some(salt) = option_env!("FUSOU_MEMBER_ID_SALT") {
-        kc_api::interface_adapter::set_member_id_salt(salt.to_string());
-        tracing::info!("MEMBER_ID_SALT loaded from environment");
-    } else {
-        // セキュリティ上、ソルト未設定は許可しない（早期失敗）
-        panic!("FUSOU_MEMBER_ID_SALT is not set at build-time. Define it in the build environment or .cargo/config.toml.");
-    }
-
     let ctx = tauri::generate_context!();
 
     let mut builder = tauri::Builder::default()
@@ -154,6 +145,7 @@ pub async fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(
             move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
                 builder_setup::single_instance::single_instance_init(app, argv)
@@ -187,6 +179,8 @@ pub async fn run() {
             cmd::tauri_cmd::force_local_sign_out,
             cmd::tauri_cmd::perform_snapshot_sync,
             cmd::tauri_cmd::retry_pending_uploads_now,
+            cmd::tauri_cmd::retry_pending_upload_item_now,
+            cmd::tauri_cmd::delete_pending_upload_item,
             cmd::tauri_cmd::get_pending_upload_retry_status,
             cmd::tauri_cmd::get_ship_growth_suppression_status,
             cmd::tauri_cmd::get_quest_tree_suppression_status,
@@ -213,6 +207,25 @@ pub async fn run() {
 
             // Set dataset_token persistent storage path
             auth_manager.set_dataset_token_path(Some(dataset_token_path));
+
+            // Bridge app-specific capabilities into fusou-storage runtime hooks.
+            // Keep dataset_id semantics aligned with pre-extraction behavior by
+            // resolving through AuthManager.
+            let auth_manager_for_storage_hooks = Arc::new(auth_manager.clone());
+            if let Err(err) = crate::storage::set_dataset_id_resolver({
+                let auth_manager = auth_manager_for_storage_hooks.clone();
+                move || {
+                    let auth_manager = auth_manager.clone();
+                    async move {
+                        auth_manager
+                            .resolve_dataset_id_for_upload(None)
+                            .await
+                            .unwrap_or_default()
+                    }
+                }
+            }) {
+                tracing::debug!(%err, "storage dataset_id resolver hook already initialized");
+            }
 
             let auth_manager_for_retry = Arc::new(auth_manager.clone());
             let auth_manager_state = Arc::new(Mutex::new(auth_manager.clone()));

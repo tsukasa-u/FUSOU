@@ -179,6 +179,7 @@ $$
 - 1ステージ内では同じスプライトは1回しか処理されない
 - Stage2はStage1で減った `power` をそのまま使う（持ち越し）
 - Stage2でも新しいスプライト再生成は行わない
+- Stage2の `count` も `count_stage1` や `api_stage2.api_f/e_count` ではなく、元の `count`（`api_stage1.api_f/e_count`）を使う
 
 ### 5-4. Stage適用順
 

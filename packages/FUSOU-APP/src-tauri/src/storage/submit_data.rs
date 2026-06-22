@@ -6,30 +6,41 @@ use kc_api::{
 use crate::{
     auth::supabase,
     storage::service::{acquire_port_table_guard, StorageService},
-    util::get_user_member_id,
+    util::get_local_fallback_id,
 };
 
 use fusou_upload::{PendingStore, UploadRetryService};
-use std::sync::Arc;
 use once_cell::sync::Lazy;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
-static STORAGE_DEPS: Lazy<Mutex<Option<(Arc<PendingStore>, Arc<UploadRetryService>)>>> = Lazy::new(|| Mutex::new(None));
+type StorageDeps = (Arc<PendingStore>, Arc<UploadRetryService>);
 
-pub async fn initialize_storage_deps(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) {
+static STORAGE_DEPS: Lazy<Mutex<Option<StorageDeps>>> = Lazy::new(|| Mutex::new(None));
+
+pub async fn initialize_storage_deps(
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>,
+) {
     let mut deps = STORAGE_DEPS.lock().await;
     *deps = Some((pending_store, retry_service));
 }
 
 pub fn submit_get_data_table() {
-    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
-    let Some((pending_store, retry_service)) = deps_opt else {
-        tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
-        return;
-    };
-
     tokio::task::spawn(async move {
-        let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+        let deps_opt = {
+            let deps = STORAGE_DEPS.lock().await;
+            deps.clone()
+        };
+
+        let Some((pending_store, retry_service)) = deps_opt else {
+            tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
+            return;
+        };
+
+        let Some(storage_service) =
+            StorageService::get_instance(pending_store, retry_service).await
+        else {
             return;
         };
 
@@ -49,12 +60,6 @@ pub fn submit_get_data_table() {
 }
 
 pub fn submit_port_table() {
-    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
-    let Some((pending_store, retry_service)) = deps_opt else {
-        tracing::warn!("Storage dependencies not initialized for submit_port_table");
-        return;
-    };
-
     if !Cells::reset_flag() {
         let cells = Cells::load();
         let maparea_id = cells.maparea_id;
@@ -68,13 +73,34 @@ pub fn submit_port_table() {
             cells.event_map.is_some()
         );
         tokio::task::spawn(async move {
-            let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+            let deps_opt = {
+                let deps = STORAGE_DEPS.lock().await;
+                deps.clone()
+            };
+
+            let Some((pending_store, retry_service)) = deps_opt else {
+                tracing::warn!("Storage dependencies not initialized for submit_port_table");
+                return;
+            };
+
+            let Some(storage_service) =
+                StorageService::get_instance(pending_store, retry_service.clone()).await
+            else {
                 return;
             };
 
             let _guard = acquire_port_table_guard().await;
 
-            let user_env = get_user_member_id().await;
+            let user_env = retry_service
+                .auth_manager()
+                .resolve_dataset_id_for_upload(None)
+                .await
+                .unwrap_or_default();
+            let user_env = if user_env.trim().is_empty() {
+                get_local_fallback_id().await
+            } else {
+                user_env
+            };
             let timestamp = chrono::Utc::now().timestamp();
             let port_table = PortTable::new(cells, user_env, timestamp);
 

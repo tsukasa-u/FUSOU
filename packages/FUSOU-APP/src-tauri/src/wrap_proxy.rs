@@ -35,9 +35,11 @@ where
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn serve_proxy<R>(
     proxy_target: String,
     save_path: String,
+    asset_sync_save_path: String,
     pac_path: String,
     ca_path: String,
     app: &tauri::AppHandle<R>,
@@ -68,7 +70,7 @@ where
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
     // let proxy_addr = proxy::proxy_server_http::serve_proxy(proxy_target, 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
-    
+
     let auth_manager_for_proxy = {
         let guard = auth_manager.lock().unwrap_or_else(|e| e.into_inner());
         Arc::new(guard.clone())
@@ -79,6 +81,7 @@ where
         proxy_bidirectional_channel_slave,
         proxy_log_bidirectional_channel_master,
         save_path,
+        asset_sync_save_path,
         ca_path,
         file_prefix.unwrap_or("".to_string()),
         auth_manager_for_proxy,
@@ -113,7 +116,10 @@ where
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
     if let Ok(pac_socket) = pac_addr {
-        native_cmd::add_pac(format!("http://localhost:{}/proxy.pac", pac_socket.port()), app);
+        native_cmd::add_pac(
+            format!("http://localhost:{}/proxy.pac", pac_socket.port()),
+            app,
+        );
     } else {
         return Err("Failed to start pac server".into());
     }

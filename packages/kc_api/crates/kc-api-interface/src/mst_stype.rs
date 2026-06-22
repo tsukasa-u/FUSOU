@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::TS;
 
@@ -20,28 +21,33 @@ pub struct MstStypes {
     pub mst_stypes: HashMap<i32, MstStype>,
 }
 
-#[derive(
-    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
-)]
+#[derive(Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstStype {
     pub id: i32,
     pub sortno: i32,
     pub name: String,
-    #[serde(serialize_with = "serialize_sorted_string_i32_map")]
     pub equip_type: HashMap<String, i32>,
 }
 
-fn serialize_sorted_string_i32_map<S>(
-    value: &HashMap<String, i32>,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
+fn sorted_string_i32_map(value: &HashMap<String, i32>) -> std::collections::BTreeMap<&str, i32> {
     let ordered: std::collections::BTreeMap<&str, &i32> =
         value.iter().map(|(k, v)| (k.as_str(), v)).collect();
-    ordered.serialize(serializer)
+    ordered.into_iter().map(|(k, v)| (k, *v)).collect()
+}
+
+impl Serialize for MstStype {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("MstStype", 4)?;
+        state.serialize_field("id", &self.id)?;
+        state.serialize_field("sortno", &self.sortno)?;
+        state.serialize_field("name", &self.name)?;
+        state.serialize_field("equip_type", &sorted_string_i32_map(&self.equip_type))?;
+        state.end()
+    }
 }
 
 impl MstStypes {

@@ -31,9 +31,17 @@ export type Bindings = {
   MASTER_DATA_SIGNING_SECRET: string;
   QUEST_TREE_SIGNING_SECRET?: string;
   SHIP_GROWTH_SIGNING_SECRET?: string;
+  SOKU_SPEED_SIGNING_SECRET?: string;
   REMODEL_DATA_SIGNING_SECRET?: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
-  DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
+  DATASET_TOKEN_SECRET: string; // For dataset token signing (anonymous sync)
+  // pepper 秘密と運用状態は Supabase Vault + public.anon_sync_pepper_runtime に
+  // 移管済み (Worker 環境変数では保持しない)。詳細手順・ローテーション・運用は
+  //   docs/operations/web/ANON_SYNC_V2_PEPPER_SUPABASE_RUNTIME_GUIDE.md
+  // を参照。Worker は service_role 権限の Supabase クライアントから
+  // `get_anon_sync_pepper_bundle` RPC を呼び出して bundle を取得する。
+  // §4.2 register/refresh で利用する stateless challenge HMAC キー (32 文字以上)。
+  CHALLENGE_HMAC_SECRET: string;
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
   PUBLIC_SITE_URL?: string; // Canonical public origin for the web app
@@ -51,6 +59,7 @@ export type Bindings = {
   SHORTENER_SERVICE: Fetcher;
 
   // KV for caching (optional)
+  ASSET_SYNC_INDEX_KV?: KVNamespace;
   DATA_LOADER_CACHE_KV?: KVNamespace;
 };
 

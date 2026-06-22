@@ -52,19 +52,38 @@ else
     echo "✅ Rust toolchain found."
 fi
 
-# Check for wasm-pack
-WASM_PACK="wasm-pack"
-if ! command -v wasm-pack &> /dev/null; then
-    # Helper to find node_modules bin
-    if [ -f "./node_modules/.bin/wasm-pack" ]; then
-        WASM_PACK="./node_modules/.bin/wasm-pack"
-        echo "✅ Using local wasm-pack from node_modules."
-    elif [ -f "../../node_modules/.bin/wasm-pack" ]; then
-        WASM_PACK="../../node_modules/.bin/wasm-pack"
-        echo "✅ Using root wasm-pack from node_modules."
+# Check for a usable wasm-pack binary.
+# In CI, npm-installed wasm-pack can exist but fail at runtime when postinstall scripts are blocked.
+WASM_PACK=""
+WASM_CANDIDATES=()
+
+if command -v wasm-pack &> /dev/null; then
+    WASM_CANDIDATES+=("$(command -v wasm-pack)")
+fi
+if [ -f "./node_modules/.bin/wasm-pack" ]; then
+    WASM_CANDIDATES+=("./node_modules/.bin/wasm-pack")
+fi
+if [ -f "../../node_modules/.bin/wasm-pack" ]; then
+    WASM_CANDIDATES+=("../../node_modules/.bin/wasm-pack")
+fi
+
+for candidate in "${WASM_CANDIDATES[@]}"; do
+    if "$candidate" --version > /dev/null 2>&1; then
+        WASM_PACK="$candidate"
+        echo "✅ Using wasm-pack: $WASM_PACK"
+        break
+    fi
+done
+
+if [ -z "$WASM_PACK" ]; then
+    echo "⚠️  No usable wasm-pack found. Installing via cargo..."
+    cargo install wasm-pack --locked --force
+    if command -v wasm-pack > /dev/null 2>&1; then
+        WASM_PACK="$(command -v wasm-pack)"
+        echo "✅ Installed wasm-pack via cargo: $WASM_PACK"
     else
-        echo "⚠️  wasm-pack not found. Installing via curl..."
-        curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        echo "❌ wasm-pack installation failed."
+        exit 1
     fi
 fi
 

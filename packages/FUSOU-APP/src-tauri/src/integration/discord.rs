@@ -2,11 +2,9 @@
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{LazyLock, Mutex};
-use tracing_unwrap::OptionExt;
 
-static DISCORD_CLIENT: LazyLock<
-    Mutex<Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>>>,
-> = LazyLock::new(|| Mutex::new(init_client()));
+static DISCORD_CLIENT: LazyLock<Mutex<Option<DiscordIpcClient>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 fn get_enable_integration() -> bool {
     configs::get_user_configs_for_app()
@@ -14,43 +12,72 @@ fn get_enable_integration() -> bool {
         .get_enable_discord_integration()
 }
 
-pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
-    if get_enable_integration() {
-        let client_id = std::option_env!("DISCORD_CLIENT_ID")
-            .expect_or_log("failed to get DISCORD_CLIENT_ID env variable");
+fn create_client() -> Result<DiscordIpcClient, String> {
+    let Some(client_id) = std::option_env!("DISCORD_CLIENT_ID") else {
+        return Err("failed to get DISCORD_CLIENT_ID env variable".to_string());
+    };
 
-        let client = DiscordIpcClient::new(client_id);
-        match client {
-            Ok(client) => Ok(client),
-            Err(e) => Err(e.to_string().into()),
+    Ok(DiscordIpcClient::new(client_id))
+}
+
+fn ensure_client_initialized(client_slot: &mut Option<DiscordIpcClient>) -> bool {
+    if client_slot.is_some() {
+        return true;
+    }
+
+    match create_client() {
+        Ok(client) => {
+            *client_slot = Some(client);
+            true
         }
-    } else {
-        Err("Discord integration is disabled".into())
+        Err(e) => {
+            tracing::error!("Failed to initialize Discord client: {}", e);
+            false
+        }
+    }
+}
+
+pub fn connect() {
+    if !get_enable_integration() {
+        return;
+    }
+
+    let mut guard = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    if !ensure_client_initialized(&mut guard) {
+        return;
+    }
+
+    if let Some(client) = guard.as_mut() {
+        match client.connect() {
+            Ok(_) => tracing::info!("Connected to Discord"),
+            Err(e) => tracing::error!("Failed to connect to Discord: {}", e),
+        }
     }
 }
 
 pub fn set_activity(state: &str, details: &str) {
-    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
+    if !get_enable_integration() {
         return;
     }
 
-    if get_enable_integration() {
-        let _ = DISCORD_CLIENT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-            .unwrap()
-            .set_activity(
-                activity::Activity::new()
-                    .state(state)
-                    .details(details)
-                    .timestamps(activity::Timestamps::new().start(0)),
-            );
+    let mut guard = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(client) = guard.as_mut() else {
+        tracing::debug!("Skipping Discord activity update because client is not initialized");
+        return;
+    };
+
+    if let Err(e) = client.set_activity(
+        activity::Activity::new()
+            .state(state)
+            .details(details)
+            .timestamps(activity::Timestamps::new().start(0)),
+    ) {
+        tracing::error!("Failed to set Discord activity: {}", e);
     }
 }
 
 pub fn set_activity_button(state: &str, details: &str, label: &str, url: &str) {
-    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
+    if !get_enable_integration() {
         return;
     }
 
@@ -99,34 +126,31 @@ pub fn set_activity_button(state: &str, details: &str, label: &str, url: &str) {
             .buttons(buttons)
     };
 
-    let _ = DISCORD_CLIENT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_mut()
-        .unwrap()
-        .set_activity(activity_payload);
-}
-
-pub fn connect() {
-    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
+    let mut guard = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(client) = guard.as_mut() else {
+        tracing::debug!("Skipping Discord activity update because client is not initialized");
         return;
-    }
-    let result = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).as_mut().unwrap().connect();
+    };
 
-    match result {
-        Ok(_) => tracing::info!("Connected to Discord"),
-        Err(e) => tracing::error!("Failed to connect to Discord: {}", e),
+    if let Err(e) = client.set_activity(activity_payload) {
+        tracing::error!("Failed to set Discord activity: {}", e);
     }
 }
 
 pub fn close() {
-    if DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).is_err() || !get_enable_integration() {
+    let mut guard = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(client) = guard.as_mut() else {
         return;
-    }
-    let result = DISCORD_CLIENT.lock().unwrap_or_else(|e| e.into_inner()).as_mut().unwrap().close();
+    };
 
-    match result {
+    if let Err(e) = client.clear_activity() {
+        tracing::debug!("Failed to clear Discord activity before close: {}", e);
+    }
+
+    match client.close() {
         Ok(_) => tracing::info!("Disconnected from Discord"),
         Err(e) => tracing::error!("Failed to disconnect from Discord: {}", e),
     }
+
+    *guard = None;
 }

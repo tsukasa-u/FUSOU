@@ -92,14 +92,16 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
 
     const f_fly = assault.f_sprite_fly_count;
     const e_fly = assault.e_sprite_fly_count;
-    const f_crash1 = assault.f_sprite_crash_stage1_count;
-    const f_crash2 = assault.f_sprite_crash_stage2_count;
-    const e_crash1 = assault.e_sprite_crash_stage1_count;
-    const e_crash2 = assault.e_sprite_crash_stage2_count;
+    const f_crash = assault.f_sprite_crash_count ?? "?";
+    const e_crash = assault.e_sprite_crash_count ?? "?";
+    const f_damage = assault.f_sprite_damage_count ?? "?";
+    const e_damage = assault.e_sprite_damage_count ?? "?";
+    const f_non_normal = assault.f_sprite_non_normal_count ?? "?";
+    const e_non_normal = assault.e_sprite_non_normal_count ?? "?";
 
     return (
       <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"}/{e_crash1 ?? "?"}+{e_crash2 ?? "?"}
+        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash}/{e_crash}, Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
       </div>
     );
   };

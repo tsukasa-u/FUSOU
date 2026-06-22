@@ -116,6 +116,7 @@ app.post("/google/refresh_token", async (c) => {
         .eq("provider_name", "google");
       if (updateErr) {
         console.error("[auth/google/refresh_token] Failed to persist refresh_token:", updateErr);
+        return c.json({ error: "Failed to save refresh token" }, 500);
       }
     }
 

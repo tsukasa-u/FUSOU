@@ -29,6 +29,7 @@ serde = { version = "1.0", features = ["derive"] }
 rand = "0.8"
 fusou-auth = { path = "../../fusou-auth" }
 fusou-upload = { path = "../../fusou-upload" }
+fusou-storage = { path = "../../fusou-storage" }
 
 # optional grpc feature
 tonic = { version = "0.9", optional = true, features = ["transport"] }

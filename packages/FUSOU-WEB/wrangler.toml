@@ -67,6 +67,7 @@ bucket_name = "dev-kc-ship-growth-archive"
 binding = "ASSET_INDEX_DB"
 database_name = "dev-kc-asset-index"
 database_id = "c625d190-44b7-4a80-85fe-6fddbba64248"
+migrations_dir = "migrations/asset-index"
 
 [[d1_databases]]
 binding = "BATTLE_INDEX_DB"
@@ -105,6 +106,10 @@ database_id = "7da1ac34-ec76-42eb-b272-6288a522de98"
 migrations_dir = "migrations/remodel-index"
 
 # ===== KV Namespace Bindings =====
+[[kv_namespaces]]
+binding = "ASSET_SYNC_INDEX_KV"
+id = "123af9744cda4d7687eebc3de211cba0"
+
 [[kv_namespaces]]
 binding = "DATA_LOADER_CACHE_KV"
 id = "e1073037618c4cfba9c7e082e23db959"

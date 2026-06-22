@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
-} from "@/utility/security";
+} from "@/utils/security";
 
 // Use consistent cookie options with supabaseServer.ts
 // const COOKIE_OPTIONS = {
@@ -18,16 +18,6 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
   const appOriginParam = url.searchParams.get("app_origin");
-  // Read member_id_hash from the HttpOnly cookie set by signin.ts.
-  // It must NOT come from the URL to avoid exposure in Google logs / browser history.
-  const rawMemberIdHashCookie = cookies.get("mih-hint")?.value;
-  // Sanitize: member_id_hash must be a hex string (SHA-256 = 64 chars)
-  const memberIdHashParam =
-    rawMemberIdHashCookie && /^[0-9a-fA-F]{64}$/.test(rawMemberIdHashCookie)
-      ? rawMemberIdHashCookie
-      : null;
-  // Consume the cookie immediately so it cannot be replayed.
-  cookies.delete("mih-hint", { path: "/" });
   const provider = cookies.get("sb-local-provider")?.value;
 
   if (!authCode) {
@@ -130,18 +120,6 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const target = new URL("/auth/local/callback", url.origin);
   if (appOriginParam) {
     target.searchParams.set("app_origin", appOriginParam);
-  }
-  // Pass member_id_hash via a short-lived HttpOnly cookie to /auth/local/callback.
-  // We intentionally do NOT add it to the redirect URL to prevent exposure in
-  // browser history and Cloudflare access logs.
-  if (memberIdHashParam) {
-    cookies.set("mih-hint", memberIdHashParam, {
-      path: "/auth/local/callback",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "strict",
-      maxAge: 60 * 5, // 5 minutes — enough for the page load
-    });
   }
   return redirect(target.toString());
 };

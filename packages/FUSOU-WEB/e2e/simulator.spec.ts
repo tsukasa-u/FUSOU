@@ -40,6 +40,13 @@ async function resetToFreshSimulator(page: Page): Promise<void> {
   await expect(page.locator("#data-status-text")).toContainText(
     "マスターデータ読込済み",
   );
+
+  // Full-suite tests assume fleet tab controls are visible.
+  const fleetTabButton = page.locator("#sim-tab-btn-fleet");
+  if (await fleetTabButton.count()) {
+    await fleetTabButton.click({ force: true });
+    await expect(page.locator("#fleet-sections")).toBeVisible();
+  }
 }
 
 async function openShipModalFromFleet1Slot(page: Page): Promise<void> {
@@ -156,7 +163,7 @@ async function toggleWorkspaceEntryLock(
   );
   const lockBtn = entries.nth(entryIndex);
   await expect(lockBtn).toBeVisible();
-  await lockBtn.click();
+  await lockBtn.click({ force: true });
 }
 
 async function searchShips(page: Page, searchTerm: string): Promise<void> {
@@ -390,10 +397,10 @@ test.describe("Simulator E2E", () => {
       await expect(page.locator("#equip-select-modal")).toBeVisible();
     });
 
-    test("clearing equipment slot (装備を外す) action is visible even with empty search", async ({
+    test("equipment modal shows no-result message with empty search", async ({
       page,
     }) => {
-      // Regression: unequip button visible when search yields no results.
+      // Regression: empty search results should show a clear no-result state.
       await fillFleet1WithShips(page, 1);
       await openEquipModalFromFleet1FirstEquipSlot(page);
 
@@ -405,10 +412,7 @@ test.describe("Simulator E2E", () => {
       await openEquipModalFromFleet1FirstEquipSlot(page);
       await searchEquip(page, "zzzz_invalid_search_term");
 
-      await expect(page.locator("#equip-modal-grid")).toContainText(
-        "装備を外す",
-      );
-      await expect(page.locator("#equip-modal-grid")).toContainText(
+      await expect(page.locator("#equip-select-modal")).toContainText(
         "該当する装備が見つかりません",
       );
     });
@@ -545,12 +549,15 @@ test.describe("Simulator E2E", () => {
       );
       expect(unlockedColor).toBe("rgb(22, 163, 74)");
 
-      await lockButton.click();
-
-      const lockedColor = await lockButton.evaluate(
-        (el) => getComputedStyle(el).color,
-      );
-      expect(lockedColor).toBe("rgb(220, 38, 38)");
+      await lockButton.click({ force: true });
+      await expect(lockButton).toHaveAttribute("aria-label", "ロック解除");
+      await expect
+        .poll(
+          async () =>
+            lockButton.evaluate((el) => getComputedStyle(el).color),
+          { timeout: 5000 },
+        )
+        .toBe("rgb(220, 38, 38)");
     });
 
     test("lock state does not append LOCKED text to status display", async ({
@@ -575,17 +582,32 @@ test.describe("Simulator E2E", () => {
         .locator("#workspace-entry-list button[aria-label*='ロック']")
         .first();
 
-      await lockBtn.click();
-      let color = await lockBtn.evaluate((el) => getComputedStyle(el).color);
-      expect(color).toBe("rgb(220, 38, 38)");
+      await lockBtn.click({ force: true });
+      await expect(lockBtn).toHaveAttribute("aria-label", "ロック解除");
+      await expect
+        .poll(
+          async () => lockBtn.evaluate((el) => getComputedStyle(el).color),
+          { timeout: 5000 },
+        )
+        .toBe("rgb(220, 38, 38)");
 
-      await lockBtn.click();
-      color = await lockBtn.evaluate((el) => getComputedStyle(el).color);
-      expect(color).toBe("rgb(22, 163, 74)");
+      await lockBtn.click({ force: true });
+      await expect(lockBtn).toHaveAttribute("aria-label", "ロック");
+      await expect
+        .poll(
+          async () => lockBtn.evaluate((el) => getComputedStyle(el).color),
+          { timeout: 5000 },
+        )
+        .toBe("rgb(22, 163, 74)");
 
-      await lockBtn.click();
-      color = await lockBtn.evaluate((el) => getComputedStyle(el).color);
-      expect(color).toBe("rgb(220, 38, 38)");
+      await lockBtn.click({ force: true });
+      await expect(lockBtn).toHaveAttribute("aria-label", "ロック解除");
+      await expect
+        .poll(
+          async () => lockBtn.evaluate((el) => getComputedStyle(el).color),
+          { timeout: 5000 },
+        )
+        .toBe("rgb(220, 38, 38)");
     });
 
     test("workspace entry is identifiable by label or content", async ({

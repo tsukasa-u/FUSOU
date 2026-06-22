@@ -13,19 +13,19 @@ import {
   normalizeEpochMs,
   parseOfficialMapThemeMode,
   resolveRouteCellsWithPort,
-} from "../src/components/solid/map-flow/battle-map-flow/dataUtils.ts";
+} from "../src/components/features/map-flow/solid/battle-map-flow/dataUtils.ts";
 
 // ── geometry ─────────────────────────────────────────────────────────────────
 import {
   circleIntersectsRect,
   rectsOverlap,
-} from "../src/components/solid/map-flow/battle-map-flow/geometry.ts";
+} from "../src/components/features/map-flow/solid/battle-map-flow/geometry.ts";
 
 // ── labelLayout ───────────────────────────────────────────────────────────────
-import { estimateLabelWidth } from "../src/components/solid/map-flow/battle-map-flow/labelLayout.ts";
+import { estimateLabelWidth } from "../src/components/features/map-flow/solid/battle-map-flow/labelLayout.ts";
 
 // ── constants ─────────────────────────────────────────────────────────────────
-import { WIN_RANK_BADGES } from "../src/components/solid/map-flow/battle-map-flow/constants.ts";
+import { WIN_RANK_BADGES } from "../src/components/features/map-flow/solid/battle-map-flow/constants.ts";
 
 // ─────────────────────────────────────────────────────────────────────────────
 

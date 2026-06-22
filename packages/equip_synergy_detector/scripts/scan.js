@@ -16,6 +16,7 @@ const path = require("path");
 const fs = require("fs");
 const zlib = require("zlib");
 const { createHash } = require("crypto");
+const { compressWithZDD } = require("./zdd");
 const {
   ROOT,
   findMasterData,
@@ -58,6 +59,7 @@ for (let i = 0; i < args.length; i += 1) {
 
 const useMain = args.includes("--main");
 const deterministic = !args.includes("--volatile-generated");
+const pruneInvisible = !args.includes("--no-prune-invisible");
 const outputIdx = args.indexOf("--output");
 const outputPath =
   outputIdx >= 0
@@ -238,6 +240,19 @@ function statsSub(a, b) {
     }
   }
   return any ? out : null;
+}
+
+function isMeaninglessSynergy(delta) {
+  if (!delta) return true;
+  let hasVisible = false;
+  for (const [k, v] of Object.entries(delta)) {
+    if (v === 0) continue;
+    // For Speed (soku), values < 5 don't change the UI tier.
+    if (k === "soku" && Math.abs(v) < 5) continue;
+    hasVisible = true;
+    break;
+  }
+  return !hasVisible;
 }
 
 // Pre-build slot objects
@@ -456,7 +471,7 @@ for (let si = 0; si < mstShips.length; si++) {
     // Backward-compact path: only ★10 differs -> keep legacy `l`.
     let l;
     let i;
-    if (
+    if(
       improvementTransitions.length === 1 &&
       improvementTransitions[0][0] === 10
     ) {
@@ -513,7 +528,7 @@ for (let si = 0; si < mstShips.length; si++) {
     nonZeroCount++;
   }
 
-  if ((si + 1) % 200 === 0 || si === mstShips.length - 1) {
+  if ((si + 1) % 1 === 0 || si === mstShips.length - 1) {
     const e = ((Date.now() - t0) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${si + 1}/${mstShips.length} ships | ${nonZeroCount} bonuses | ${e}s`,
@@ -587,6 +602,7 @@ for (let ai = 0; ai < bonusItemIds.length; ai++) {
       // Synergy detected!
       const synDelta = statsSub(comb, expected);
       if (!synDelta) continue;
+      if (pruneInvisible && isMeaninglessSynergy(synDelta)) continue;
 
       const pairKey = `${Math.min(itemA, itemB)}:${Math.max(itemA, itemB)}`;
       const profileKey = bkey({
@@ -611,7 +627,7 @@ for (let ai = 0; ai < bonusItemIds.length; ai++) {
     }
   }
 
-  if ((ai + 1) % 10 === 0 || ai === bonusItemIds.length - 1) {
+  if ((ai + 1) % 1 === 0 || ai === bonusItemIds.length - 1) {
     const e = ((Date.now() - t1) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${ai + 1}/${bonusItemIds.length} trigger items | ${synergyCount} synergies | ${pairsTested} tests | ${e}s`,
@@ -753,10 +769,19 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
         // Residual = combined - expected (true 3-item exclusive bonus)
         const residual = statsSub(combined, expected);
         if (!residual) continue;
+        if (pruneInvisible && isMeaninglessSynergy(residual)) continue;
+
+        let isCancel = false;
+        const invA = statsSub(null, aloneA);
+        const invB = statsSub(null, aloneB);
+        const invC = statsSub(null, aloneC);
+        if (statsEqual(residual, invA) || statsEqual(residual, invB) || statsEqual(residual, invC)) {
+          isCancel = true;
+        }
 
         tripleCount++;
         const tripleKey = `${itemA}:${itemB}:${itemC}`; // a < b < c
-        const profileKey = bkey(residual);
+        const profileKey = bkey(residual) + (isCancel ? "|C" : "");
 
         if (!tripleSynergies.has(tripleKey))
           tripleSynergies.set(tripleKey, new Map());
@@ -766,6 +791,7 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
             ships: [],
             items: [itemA, itemB, itemC],
             synergy: residual,
+            cancels_single: isCancel,
           });
         }
         const entry = pm.get(profileKey);
@@ -774,7 +800,7 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
     }
   }
 
-  if ((si + 1) % 50 === 0 || si === shipIdsWithBonuses.length - 1) {
+  if ((si + 1) % 1 === 0 || si === shipIdsWithBonuses.length - 1) {
     const e = ((Date.now() - t3) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${si + 1}/${shipIdsWithBonuses.length} ships | ${tripleCount} synergies | ${triplesTested} tests | ${e}s`,
@@ -893,6 +919,7 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
 
           const residual = statsSub(combined, expected);
           if (!residual) continue;
+          if (pruneInvisible && isMeaninglessSynergy(residual)) continue;
 
           quadCount++;
           const quadKey = `${A}:${B}:${C}:${D}`;
@@ -915,7 +942,7 @@ for (let si = 0; si < shipIdsWithBonuses.length; si++) {
     }
   }
 
-  if ((si + 1) % 50 === 0 || si === shipIdsWithBonuses.length - 1) {
+  if ((si + 1) % 1 === 0 || si === shipIdsWithBonuses.length - 1) {
     const e = ((Date.now() - t4) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${si + 1}/${shipIdsWithBonuses.length} ships | ${quadCount} corrections | ${quadsTested} tests | ${e}s`,
@@ -1051,6 +1078,7 @@ for (let si = 0; si < shipIdsForPenta.length; si++) {
               }
               const residual = statsSub(combined, expected);
               if (!residual) continue;
+              if (pruneInvisible && isMeaninglessSynergy(residual)) continue;
               pentaCount++;
               const pentaKey = `${A}:${B}:${C}:${D}:${E}`;
               const profileKey5 = bkey(residual);
@@ -1071,7 +1099,7 @@ for (let si = 0; si < shipIdsForPenta.length; si++) {
       }
     }
   }
-  if ((si + 1) % 50 === 0 || si === shipIdsForPenta.length - 1) {
+  if ((si + 1) % 1 === 0 || si === shipIdsForPenta.length - 1) {
     const e = ((Date.now() - t5) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${si + 1}/${shipIdsForPenta.length} ships | ${pentaCount} corrections | ${pentasTested} tests | ${e}s`,
@@ -1248,6 +1276,7 @@ for (let si = 0; si < shipIdsForHexa.length; si++) {
                 }
                 const residual = statsSub(combined, expected);
                 if (!residual) continue;
+                if (pruneInvisible && isMeaninglessSynergy(residual)) continue;
                 hexaCount++;
                 const hexaKey = `${A}:${B}:${C}:${D}:${E}:${F}`;
                 const profileKey6 = bkey(residual);
@@ -1269,7 +1298,7 @@ for (let si = 0; si < shipIdsForHexa.length; si++) {
       }
     }
   }
-  if ((si + 1) % 50 === 0 || si === shipIdsForHexa.length - 1) {
+  if ((si + 1) % 1 === 0 || si === shipIdsForHexa.length - 1) {
     const e = ((Date.now() - t6) / 1000).toFixed(1);
     process.stdout.write(
       `\r  ${si + 1}/${shipIdsForHexa.length} ships | ${hexaCount} corrections | ${hexasTested} tests | ${e}s`,
@@ -1371,8 +1400,14 @@ function buildCrossRules(synergiesMap) {
     }
   }
   const rules = [...rulesMap.values()];
-  for (const rule of rules)
+  for (const rule of rules) {
+    const uniquePairs = new Map();
+    for (const p of rule.pairs) {
+      uniquePairs.set(`${p[0]}:${p[1]}`, p);
+    }
+    rule.pairs = [...uniquePairs.values()];
     rule.pairs.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  }
   rules.sort((a, b) => a.ships[0] - b.ships[0]);
   return rules;
 }
@@ -1387,14 +1422,15 @@ function buildRules(synergyMap, comboSize) {
   const rulesMap = new Map();
   for (const [key, profileMap] of synergyMap) {
     const items = key.split(":").map(Number);
-    for (const { ships, synergy } of profileMap.values()) {
+    for (const { ships, synergy, cancels_single } of profileMap.values()) {
       const shipsSorted = [...ships].sort((a, b) => a - b);
       const synSorted = Object.fromEntries(Object.entries(synergy).sort());
-      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted);
+      const groupKey = shipsSorted.join(",") + "|" + JSON.stringify(synSorted) + (cancels_single ? "|C" : "");
       if (!rulesMap.has(groupKey)) {
         rulesMap.set(groupKey, {
           ships: shipsSorted,
           synergy: synSorted,
+          cancels_single,
           combos: [],
           _allItems: new Set(),
         });
@@ -1405,7 +1441,9 @@ function buildRules(synergyMap, comboSize) {
     }
   }
   const rules = [...rulesMap.values()];
-  for (const rule of rules) {
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    process.stdout.write(`\r  [Building Size ${comboSize}] Group ${i + 1}/${rules.length}... `);
     rule.combos.sort((a, b) => {
       for (let i = 0; i < a.length; i++) {
         if (a[i] !== b[i]) return a[i] - b[i];
@@ -1414,6 +1452,117 @@ function buildRules(synergyMap, comboSize) {
     });
     const pool = [...rule._allItems].sort((a, b) => a - b);
     delete rule._allItems;
+
+
+    function findCategoryPools(combos, pool, comboSize) {
+      if (combos.length === 0 || pool.length === 0) return null;
+      const appearTogether = new Map();
+      for (const id of pool) appearTogether.set(id, new Set());
+      for (const combo of combos) {
+        for (let i = 0; i < combo.length; i++) {
+          for (let j = i + 1; j < combo.length; j++) {
+            appearTogether.get(combo[i]).add(combo[j]);
+            appearTogether.get(combo[j]).add(combo[i]);
+          }
+        }
+      }
+      const visited = new Set();
+      const components = [];
+      for (const id of pool) {
+        if (visited.has(id)) continue;
+        const comp = [];
+        const queue = [id];
+        visited.add(id);
+        while (queue.length > 0) {
+          const curr = queue.shift();
+          comp.push(curr);
+          for (const neighbor of pool) {
+            if (curr === neighbor) continue;
+            if (!visited.has(neighbor) && !appearTogether.get(curr).has(neighbor)) {
+              visited.add(neighbor);
+              queue.push(neighbor);
+            }
+          }
+        }
+        comp.sort((a, b) => a - b);
+        components.push(comp);
+      }
+      if (components.length !== comboSize) return null;
+      for (const comp of components) {
+        for (let i = 0; i < comp.length; i++) {
+          for (let j = i + 1; j < comp.length; j++) {
+            if (appearTogether.get(comp[i]).has(comp[j])) return null;
+          }
+        }
+      }
+      let expectedCombos = 1;
+      for (const comp of components) expectedCombos *= comp.length;
+      if (combos.length !== expectedCombos) return null;
+      return components;
+    }
+
+    function findRepeatedCategoryPools(combos, pool, comboSize) {
+      if (combos.length === 0 || pool.length === 0) return null;
+      const freq = new Map();
+      for (const combo of combos) {
+        for (const id of combo) freq.set(id, (freq.get(id) || 0) + 1);
+      }
+      
+      const byFreq = new Map();
+      for (const [id, f] of freq) {
+        if (!byFreq.has(f)) byFreq.set(f, []);
+        byFreq.get(f).push(id);
+      }
+      
+      const components = [];
+      const counts = [];
+      let expectedCombos = 1;
+      let totalAssignedSize = 0;
+      
+      for (const [f, ids] of byFreq) {
+        const poolSize = ids.length;
+        // The frequency f of an item in a pool of size N that is picked K times out of M combinations is:
+        // f = M * K / N. So K = f * N / M.
+        const kFloat = (f * poolSize) / combos.length;
+        const k = Math.round(kFloat);
+        if (Math.abs(k - kFloat) > 0.0001) return null; // Not a perfect integer pick
+        if (k === 0) return null;
+        
+        components.push(ids.sort((a,b)=>a-b));
+        counts.push(k);
+        totalAssignedSize += k;
+        expectedCombos *= choose(poolSize, k);
+      }
+      
+      if (totalAssignedSize !== comboSize) return null;
+      if (expectedCombos !== combos.length) return null;
+      
+      // Verification: Check if every combo exactly satisfies the counts
+      const compSets = components.map(c => new Set(c));
+      for (const combo of combos) {
+        const matchCounts = new Array(components.length).fill(0);
+        for (const id of combo) {
+          for (let i = 0; i < compSets.length; i++) {
+            if (compSets[i].has(id)) {
+              matchCounts[i]++;
+              break;
+            }
+          }
+        }
+        for (let i = 0; i < components.length; i++) {
+          if (matchCounts[i] !== counts[i]) return null;
+        }
+      }
+      
+      const result = [];
+      for (let i = 0; i < components.length; i++) {
+        for (let j = 0; j < counts[i]; j++) {
+          result.push(components[i]);
+        }
+      }
+      return result;
+    }
+
     if (
       pool.length >= comboSize &&
       choose(pool.length, comboSize) === rule.combos.length
@@ -1443,16 +1592,53 @@ function buildRules(synergyMap, comboSize) {
         }
       }
       if (!usedFixed) {
-        // Fall back to compact base64 encoding.
-        Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
-        delete rule.combos;
+        const catPools = findCategoryPools(rule.combos, pool, comboSize);
+        if (catPools) {
+          rule.category_pools = catPools;
+          delete rule.combos;
+        } else {
+          const repPools = findRepeatedCategoryPools(rule.combos, pool, comboSize);
+          if (repPools) {
+            rule.category_pools = repPools;
+            delete rule.combos;
+          } else {
+            const implicants = compressWithZDD(rule.combos);
+            if (implicants) {
+              rule.implicants = implicants;
+              delete rule.combos;
+            } else {
+              // Fall back to compact base64 encoding.
+              Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
+              delete rule.combos;
+            }
+          }
+        }
       }
     } else {
-      // Compact encoding with dynamic index width (u8/u16/u32), then base64.
-      Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
-      delete rule.combos;
+      const catPools = findCategoryPools(rule.combos, pool, comboSize);
+      if (catPools) {
+        rule.category_pools = catPools;
+        delete rule.combos;
+      } else {
+        const repPools = findRepeatedCategoryPools(rule.combos, pool, comboSize);
+        if (repPools) {
+          rule.category_pools = repPools;
+          delete rule.combos;
+        } else {
+          const implicants = findQuineMcCluskeyImplicants(rule.combos, rule.ships, comboSize);
+          if (implicants) {
+            rule.implicants = implicants;
+            delete rule.combos;
+          } else {
+            // Compact encoding with dynamic index width (u8/u16/u32), then base64.
+            Object.assign(rule, encodeCombosB64(rule.combos, pool, comboSize));
+            delete rule.combos;
+          }
+        }
+      }
     }
   }
+  console.log(""); // newline after progress bar
   rules.sort((a, b) => a.ships[0] - b.ships[0]);
   return rules;
 }
@@ -1466,6 +1652,46 @@ const tripleRules = buildRules(tripleSynergies, 3);
 const quadRules = buildRules(quadSynergies, 4);
 const pentaRules = buildRules(pentaSynergies, 5);
 const hexaRules = buildRules(hexaSynergies, 6);
+
+function buildEquipIndex(rules) {
+  const index = {};
+  for (let i = 0; i < rules.length; i++) {
+    const rule = rules[i];
+    const items = new Set();
+    if (rule.items) rule.items.forEach(id => items.add(id));
+    if (rule.item_pool) rule.item_pool.forEach(id => items.add(id));
+    if (rule.fixed_items) rule.fixed_items.forEach(id => items.add(id));
+    if (rule.free_pool) rule.free_pool.forEach(id => items.add(id));
+    if (rule.category_pools) {
+      for (const pool of rule.category_pools) {
+        pool.forEach(id => items.add(id));
+      }
+    }
+    if (rule.pairs) {
+      for (const pair of rule.pairs) {
+        pair.forEach(id => items.add(id));
+      }
+    }
+    if (rule.combos) {
+      for (const combo of rule.combos) {
+        combo.forEach(id => items.add(id));
+      }
+    }
+    if (rule.implicants) {
+      for (const imp of rule.implicants) {
+        for (const term of imp) {
+          term.forEach(id => items.add(id));
+        }
+      }
+    }
+    for (const id of items) {
+      if (!index[id]) index[id] = [];
+      index[id].push(i);
+    }
+  }
+  return index;
+}
+
 const pkgVersion = (() => {
   try {
     return (
@@ -1527,6 +1753,12 @@ const output = {
   quad_rules: quadRules,
   penta_rules: pentaRules,
   hexa_rules: hexaRules,
+  effect_rules_equip_index: buildEquipIndex(effectRules),
+  cross_rules_equip_index: buildEquipIndex(crossRules),
+  triple_rules_equip_index: buildEquipIndex(tripleRules),
+  quad_rules_equip_index: buildEquipIndex(quadRules),
+  penta_rules_equip_index: buildEquipIndex(pentaRules),
+  hexa_rules_equip_index: buildEquipIndex(hexaRules),
 };
 
 const dir = path.dirname(outputPath);

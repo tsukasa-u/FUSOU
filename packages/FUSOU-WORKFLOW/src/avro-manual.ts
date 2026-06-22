@@ -19,6 +19,11 @@ function decodeLong(
   let b: number;
   let pos = offset;
   do {
+    if (pos >= buffer.length) {
+      throw new Error(
+        `Avro buffer overrun at offset ${offset}: varint extends past buffer end (length=${buffer.length})`,
+      );
+    }
     b = buffer[pos++];
     n |= (b & 0x7f) << shift;
     shift += 7;
@@ -171,6 +176,11 @@ function decodeString(
   const lenInfo = decodeLong(buffer, offset);
   const start = lenInfo.offset;
   const end = start + lenInfo.value;
+  if (end > buffer.length) {
+    throw new Error(
+      `Avro buffer overrun: string extends past buffer (start=${start}, end=${end}, length=${buffer.length})`,
+    );
+  }
   const value = new TextDecoder().decode(buffer.slice(start, end));
   return { value, offset: end };
 }

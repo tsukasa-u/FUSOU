@@ -1,12 +1,12 @@
 import type { APIRoute } from "astro";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
 import {
   validateOriginDetailed,
   validateRedirectUrl,
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
-} from "@/utility/security";
+} from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
@@ -84,7 +84,6 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Get app_origin from form data (passed from signin page)
   const appOriginFormParam =
     formData.get("app_origin")?.toString() || appOriginParam;
-  const memberIdHash = formData.get("member_id_hash")?.toString();
 
   const validProviders = ["google"];
 
@@ -98,25 +97,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   const supabase = createSupabaseServerClient(cookies);
 
-  // Store member_id_hash in a short-lived HttpOnly cookie instead of passing it
-  // in the OAuth redirect URL (which would be visible to Google and in browser history).
-  if (memberIdHash && /^[0-9a-fA-F]{64}$/.test(memberIdHash)) {
-    cookies.set("mih-hint", memberIdHash, {
-      ...TEMPORARY_COOKIE_OPTIONS,
-      // sameSite=lax is required: Google redirects back cross-site, so strict would
-      // drop the cookie before /api/local_auth/callback can read it.
-      sameSite: "lax",
-      path: "/",
-    });
-  }
-
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
   }
-  // member_id_hash is intentionally NOT added to the callback URL.
-  // It is passed via the mih-hint HttpOnly cookie set above.
 
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {

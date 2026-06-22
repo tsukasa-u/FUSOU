@@ -15,6 +15,7 @@ apache-avro = { workspace = true }
 kc-api-interface = { workspace = true }
 kc-api-dto = { workspace = true }
 sha2 = { workspace = true }
+rand = "0.8"
 
 [features]
 default = [ "from20250627" ]

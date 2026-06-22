@@ -168,10 +168,12 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   const display_sprite_counts = () => {
     const f_fly = airattack()?.f_sprite_fly_count;
     const e_fly = airattack()?.e_sprite_fly_count;
-    const f_crash1 = airattack()?.f_sprite_crash_count_stage1;
-    const f_crash2 = airattack()?.f_sprite_crash_count_stage2;
-    const e_crash1 = airattack()?.e_sprite_crash_count_stage1;
-    const e_crash2 = airattack()?.e_sprite_crash_count_stage2;
+    const f_crash = airattack()?.f_sprite_crash_count ?? "?";
+    const e_crash = airattack()?.e_sprite_crash_count ?? "?";
+    const f_damage = airattack()?.f_sprite_damage_count ?? "?";
+    const e_damage = airattack()?.e_sprite_damage_count ?? "?";
+    const f_non_normal = airattack()?.f_sprite_non_normal_count ?? "?";
+    const e_non_normal = airattack()?.e_sprite_non_normal_count ?? "?";
 
     return (
       <>
@@ -180,10 +182,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
           when={
             f_fly != null ||
             e_fly != null ||
-            f_crash1 != null ||
-            f_crash2 != null ||
-            e_crash1 != null ||
-            e_crash2 != null
+            airattack()?.f_sprite_crash_count != null ||
+            airattack()?.e_sprite_crash_count != null ||
+            airattack()?.f_sprite_damage_count != null ||
+            airattack()?.e_sprite_damage_count != null
           }
           fallback={<span class="pl-1 text-gray-500">_</span>}
         >
@@ -191,7 +193,13 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             Fly: {f_fly ?? "?"}/{e_fly ?? "?"}
           </span>
           <span class="pl-2">
-            Crash: {f_crash1 ?? "?"}+{f_crash2 ?? "?"} / {e_crash1 ?? "?"}+{e_crash2 ?? "?"}
+            Crash: {f_crash} / {e_crash}
+          </span>
+          <span class="pl-2">
+            Damage: {f_damage} / {e_damage}
+          </span>
+          <span class="pl-2">
+            Non-Normal: {f_non_normal} / {e_non_normal}
           </span>
         </Show>
       </>

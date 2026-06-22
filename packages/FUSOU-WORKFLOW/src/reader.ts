@@ -632,7 +632,7 @@ export async function handleRead(
     );
   } catch (err) {
     console.error("Read error:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });

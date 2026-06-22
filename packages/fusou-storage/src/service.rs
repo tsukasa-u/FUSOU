@@ -1,0 +1,339 @@
+use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
+use std::{future::Future, pin::Pin, sync::Arc};
+use tokio::sync::{Mutex, OnceCell};
+
+use crate::providers::{LocalFileSystemProvider, R2StorageProvider};
+#[cfg(feature = "gdrive")]
+use crate::providers::CloudTableStorageProvider;
+#[cfg(feature = "gdrive")]
+use crate::{
+    cloud_provider_trait::{CloudProviderFactory, GOOGLE_PROVIDER_KEY},
+    constants::GOOGLE_DRIVE_PROVIDER_NAME,
+};
+use fusou_upload::{PendingStore, UploadRetryService};
+
+// Global singleton for StorageService to avoid repeated initialization
+static STORAGE_SERVICE_INSTANCE: OnceCell<StorageService> = OnceCell::const_new();
+static STORAGE_SERVICE_INIT_LOCK: OnceCell<Mutex<()>> = OnceCell::const_new();
+
+pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+#[derive(Debug)]
+pub enum StorageError {
+    Io(std::io::Error),
+    Operation(String),
+    #[allow(dead_code)]
+    Authentication,
+}
+
+impl std::fmt::Display for StorageError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorageError::Io(err) => write!(f, "io error: {err}"),
+            StorageError::Operation(reason) => write!(f, "{reason}"),
+            StorageError::Authentication => write!(f, "authentication failed"),
+        }
+    }
+}
+
+impl std::error::Error for StorageError {}
+
+impl From<std::io::Error> for StorageError {
+    fn from(value: std::io::Error) -> Self {
+        StorageError::Io(value)
+    }
+}
+
+pub trait StorageProvider: Send + Sync {
+    fn name(&self) -> &'static str;
+
+    /// Whether this provider participates in integration jobs.
+    /// Providers should consider both their own capabilities (feature flags)
+    /// and user config (e.g., allow_* gates) when deciding.
+    fn supports_integration(&self) -> bool {
+        true
+    }
+
+    fn write_get_data_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a GetDataTableEncode,
+    ) -> StorageFuture<'a, Result<(), StorageError>>;
+
+    fn write_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
+    ) -> StorageFuture<'a, Result<(), StorageError>>;
+
+    fn integrate_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+    ) -> StorageFuture<'a, Result<(), StorageError>>;
+}
+
+static PORT_TABLE_ACCESS_GUARD: OnceCell<Mutex<()>> = OnceCell::const_new();
+
+pub async fn acquire_port_table_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    PORT_TABLE_ACCESS_GUARD
+        .get_or_init(|| async { Mutex::new(()) })
+        .await
+        .lock()
+        .await
+}
+
+#[derive(Clone)]
+pub struct StorageService {
+    providers: Arc<Vec<Arc<dyn StorageProvider>>>,
+}
+
+impl StorageService {
+    #[cfg(feature = "gdrive")]
+    fn provider_display_name(provider_key: &str) -> &'static str {
+        match provider_key {
+            GOOGLE_PROVIDER_KEY => GOOGLE_DRIVE_PROVIDER_NAME,
+            _ => "cloud",
+        }
+    }
+
+    /// Get or initialize the singleton StorageService instance.
+    /// This ensures initialization happens only once, avoiding redundant logs and provider creation.
+    pub async fn get_instance(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<&'static StorageService> {
+        if let Some(instance) = STORAGE_SERVICE_INSTANCE.get() {
+            return Some(instance);
+        }
+
+        let _guard = STORAGE_SERVICE_INIT_LOCK
+            .get_or_init(|| async { Mutex::new(()) })
+            .await
+            .lock()
+            .await;
+
+        if let Some(instance) = STORAGE_SERVICE_INSTANCE.get() {
+            return Some(instance);
+        }
+
+        let service = Self::initialize(pending_store, retry_service)?;
+        match STORAGE_SERVICE_INSTANCE.set(service) {
+            Ok(()) => STORAGE_SERVICE_INSTANCE.get(),
+            Err(_) => STORAGE_SERVICE_INSTANCE.get(),
+        }
+    }
+
+    /// Internal initialization - called only once by get_instance
+    fn initialize(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<StorageService> {
+        let app_configs = configs::get_user_configs_for_app();
+        let database_config = app_configs.database;
+        let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
+
+        tracing::info!("Initializing storage service: cloud={}, local={}, shared_cloud={}", 
+            database_config.get_allow_data_to_cloud(),
+            database_config.get_allow_data_to_local(),
+            database_config.get_allow_data_to_shared_cloud()
+        );
+
+        if database_config.get_allow_data_to_cloud() {
+            #[cfg(feature = "gdrive")]
+            {
+                for provider_key in CloudProviderFactory::supported_providers() {
+                    tracing::debug!(provider_key, "Attempting to initialize cloud storage provider");
+                    let provider_name = Self::provider_display_name(provider_key);
+                    match CloudTableStorageProvider::try_new_cloud_provider(
+                        provider_key,
+                        provider_name,
+                        pending_store.clone(),
+                        retry_service.clone(),
+                    ) {
+                        Ok(provider) => {
+                            tracing::info!(provider_key, "Cloud storage provider initialized");
+                            providers.push(Arc::new(provider));
+                        }
+                        Err(err) => tracing::error!(provider_key, "Failed to initialize cloud storage provider: {err}"),
+                    }
+                }
+            }
+        }
+
+        if database_config.get_allow_data_to_local() {
+            tracing::debug!("Attempting to initialize local filesystem storage provider");
+            match LocalFileSystemProvider::try_new(
+                database_config.local.get_output_directory(),
+                pending_store.clone(),
+                retry_service.clone(),
+            ) {
+                Ok(provider) => {
+                    tracing::info!("Local filesystem storage provider initialized");
+                    providers.push(Arc::new(provider));
+                },
+                Err(err) => {
+                    tracing::error!("Failed to initialize local storage provider: {err}");
+                }
+            }
+        }
+
+        // Add R2 storage provider when shared cloud sync is enabled
+        if database_config.get_allow_data_to_shared_cloud() {
+            tracing::debug!("Attempting to initialize R2 storage provider");
+            providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
+            tracing::info!("R2 storage provider initialized");
+        }
+
+        if providers.is_empty() {
+            tracing::warn!("No storage providers initialized - storage disabled");
+            None
+        } else {
+            tracing::info!("Storage service initialized with {} provider(s)", providers.len());
+            Some(StorageService {
+                providers: Arc::new(providers),
+            })
+        }
+    }
+    
+    /// Legacy compatibility method - deprecated, use get_instance instead
+    #[deprecated(note = "Use get_instance() for singleton pattern to avoid repeated initialization")]
+    pub fn resolve(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<StorageService> {
+        Self::initialize(pending_store, retry_service)
+    }
+
+    /// Returns true if at least one initialized provider supports integration jobs.
+    pub fn any_provider_supports_integration(&self) -> bool {
+        self.providers.iter().any(|p| p.supports_integration())
+    }
+
+    pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {
+        let mut handles = Vec::new();
+        for provider in self.providers.iter().cloned() {
+            let table_clone = table.clone();
+            let period_clone = period_tag.to_string();
+            let provider_name = provider.name().to_string();
+            let handle = tokio::spawn(async move {
+                if let Err(err) = provider
+                    .write_get_data_table(&period_clone, &table_clone)
+                    .await
+                {
+                    tracing::warn!(
+                        "{} storage failed to write get_data_table: {}",
+                        provider_name,
+                        err
+                    );
+                }
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
+
+    pub async fn write_port_table(
+        &self,
+        period_tag: &str,
+        table: PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
+    ) -> bool {
+        tracing::info!(
+            "StorageService::write_port_table called: period={}, map={}-{}, provider_count={}",
+            period_tag, maparea_id, mapinfo_no, self.providers.len()
+        );
+        
+        let mut handles = Vec::new();
+        for provider in self.providers.iter().cloned() {
+            let table_clone = table.clone();
+            let period_clone = period_tag.to_string();
+            let provider_name = provider.name().to_string();
+            
+            tracing::info!(
+                "Dispatching write_port_table to provider: {} for map {}-{}",
+                provider_name, maparea_id, mapinfo_no
+            );
+            
+            let handle = tokio::spawn(async move {
+                if let Err(err) = provider
+                    .write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no)
+                    .await
+                {
+                    tracing::warn!(
+                        "{} storage failed to write port_table: {}",
+                        provider_name,
+                        err
+                    );
+                    false
+                } else {
+                    tracing::info!(
+                        "{} storage successfully wrote port_table for map {}-{}",
+                        provider_name, maparea_id, mapinfo_no
+                    );
+                    true
+                }
+            });
+            handles.push(handle);
+        }
+        let mut any_success = false;
+        for handle in handles {
+            match handle.await {
+                Ok(success) => {
+                    any_success |= success;
+                }
+                Err(e) => {
+                    tracing::error!("write_port_table task join error: {}", e);
+                }
+            }
+        }
+        if !any_success {
+            tracing::error!(
+                "StorageService::write_port_table failed for all providers: period={}, map={}-{}",
+                period_tag,
+                maparea_id,
+                mapinfo_no
+            );
+        }
+        any_success
+    }
+
+    pub async fn integrate_port_table(&self, period_tag: &str) {
+        let mut handles = Vec::new();
+        for provider in self.providers.iter().cloned() {
+            let period_clone = period_tag.to_string();
+            let provider_name = provider.name().to_string();
+
+            // Enable integration only when the provider indicates support
+            // (provider internally considers feature flags and config gates).
+            if !provider.supports_integration() {
+                tracing::debug!(
+                    "Skipping integration for provider {} (supports_integration=false)",
+                    provider_name,
+                );
+                continue;
+            }
+
+            let handle = tokio::spawn(async move {
+                if let Err(err) = provider
+                    .integrate_port_table(&period_clone)
+                    .await
+                {
+                    tracing::warn!(
+                        "{} storage failed to integrate port_table: {}",
+                        provider_name,
+                        err
+                    );
+                }
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
+}

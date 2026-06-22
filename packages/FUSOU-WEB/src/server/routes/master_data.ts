@@ -7,7 +7,9 @@ import {
   validateJWT,
   extractBearer,
   timingSafeEqual,
+  safeWaitUntil,
 } from "../utils";
+import { validateCachedPeriodTag, listAllowedPeriodTags, getLatestMasterPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 
@@ -134,36 +136,14 @@ app.post("/upload", async (c) => {
           ? body.table_offsets.trim()
           : "";
 
-      // Validate period_tag
-      const MAX_PERIOD_TAG_LENGTH = 64;
-      if (!periodTag || periodTag.length === 0) {
-        return c.json({ error: "kc_period_tag is required" }, 400);
-      }
-      if (periodTag.length > MAX_PERIOD_TAG_LENGTH) {
+      const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
+        fieldName: "kc_period_tag",
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+      if (!periodTagValidation.ok) {
         return c.json(
-          {
-            error: `kc_period_tag must be 1-${MAX_PERIOD_TAG_LENGTH} characters`,
-          },
-          400,
-        );
-      }
-      if (!/^[a-zA-Z0-9_\-]+$/.test(periodTag)) {
-        return c.json(
-          {
-            error:
-              "kc_period_tag must contain only ASCII alphanumeric characters, underscores, and hyphens",
-          },
-          400,
-        );
-      }
-      if (
-        periodTag.startsWith(".") ||
-        periodTag.startsWith("/") ||
-        periodTag.includes("..")
-      ) {
-        return c.json(
-          { error: "kc_period_tag cannot start with . or / or contain .." },
-          400,
+          { error: periodTagValidation.error },
+          periodTagValidation.status,
         );
       }
 
@@ -864,6 +844,29 @@ app.post("/upload", async (c) => {
             },
           );
         }
+        // Cache Warming (Write-Through)
+        const kv = env.runtime.DATA_LOADER_CACHE_KV;
+        if (kv) {
+          safeWaitUntil(c, (async () => {
+            console.info(`[master-data] Starting cache warming for ${tableOffsets.length} tables`);
+            for (let i = 0; i < tableOffsets.length; i++) {
+              const offset = tableOffsets[i];
+              const tableData = data.slice(offset.start, offset.end);
+              try {
+                const bytes =
+                  tableData.buffer instanceof ArrayBuffer && tableData.byteOffset === 0
+                    ? tableData
+                    : new Uint8Array(tableData);
+                const decodedRecords = decodeAvroOcfToJson(bytes as Uint8Array) as Array<Record<string, unknown>>;
+                const cacheKey = `master-data:json:${offset.table_name}:${tableVersion}:${periodTag}:${periodRevision}`;
+                await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
+                console.info(`[master-data] Warmed cache for ${cacheKey}`);
+              } catch (e) {
+                console.warn(`[master-data] Failed to warm cache for ${offset.table_name}:`, e);
+              }
+            }
+          })());
+        }
 
         return {
           response: {
@@ -921,12 +924,14 @@ app.get("/json", async (c) => {
   const env = createEnvContext(c);
   const db = env.runtime.MASTER_DATA_INDEX_DB;
   const bucket = env.runtime.MASTER_DATA_BUCKET;
+  const kv = env.runtime.DATA_LOADER_CACHE_KV;
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
   }
 
   const tableName = c.req.query("table_name");
+  const requestedPeriodTag = c.req.query("period_tag")?.trim();
   const requestedVersion = c.req.query("table_version");
   const requestedRecordIdRaw = c.req.query("record_id");
   const requestedRecordId = parsePositiveRecordId(requestedRecordIdRaw);
@@ -954,6 +959,16 @@ app.get("/json", async (c) => {
     );
   }
 
+  if (requestedPeriodTag) {
+    const periodTagValidation = await validateCachedPeriodTag(c, requestedPeriodTag, {
+      fieldName: "period_tag",
+      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+    });
+    if (!periodTagValidation.ok) {
+      return c.json({ error: periodTagValidation.error }, periodTagValidation.status);
+    }
+  }
+
   if (requestedRecordIdRaw && requestedRecordId == null) {
     return c.json(
       {
@@ -964,22 +979,49 @@ app.get("/json", async (c) => {
   }
 
   try {
-    let sql = `
+    const baseSql = `
       SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
       FROM master_data_tables t
       JOIN master_data_index i ON i.id = t.master_data_id
       WHERE i.upload_status = 'completed' AND t.table_name = ?
     `;
     const params: unknown[] = [tableName];
+    if (requestedPeriodTag) {
+      params.push(requestedPeriodTag);
+    }
     if (requestedVersion) {
-      sql += " AND i.table_version = ?";
       params.push(requestedVersion);
     }
-    sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
 
-    const record = (await db
-      .prepare(sql)
-      .bind(...params)
+    const whereWithFilters = `${baseSql}${requestedPeriodTag ? " AND i.period_tag = ?" : ""}${requestedVersion ? " AND i.table_version = ?" : ""}`;
+
+    let effectiveSql = whereWithFilters;
+    let effectiveParams = [...params];
+
+    if (!requestedPeriodTag) {
+      const latestMaster = await getLatestMasterPeriodTag(db, env.runtime.DATA_LOADER_CACHE_KV);
+      const latestPeriodTag = latestMaster?.period_tag;
+
+      if (!latestPeriodTag) {
+        return c.json(
+          {
+            table_name: tableName,
+            table_version: null,
+            period_tag: null,
+            count: 0,
+            records: [],
+          },
+          200,
+          { ...CORS_HEADERS },
+        );
+      }
+      effectiveSql += ` AND i.period_tag = ?`;
+      effectiveParams.push(latestPeriodTag);
+    }
+
+    let record = (await db
+      .prepare(`${effectiveSql} ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1`)
+      .bind(...effectiveParams)
       .first()) as {
       period_tag: string;
       table_version: string;
@@ -1007,6 +1049,51 @@ app.get("/json", async (c) => {
       period_revision,
       r2_key: r2Key,
     } = record;
+
+    const cacheKey = `master-data:json:${tableName}:${table_version}:${period_tag}:${period_revision}`;
+    const cacheControl = requestedVersion
+      ? "public, max-age=86400, stale-while-revalidate=604800"
+      : "public, max-age=60, stale-while-revalidate=300";
+
+    // Attempt to read from KV first
+    if (kv) {
+      try {
+        const cachedStr = await kv.get(cacheKey);
+        if (cachedStr) {
+          const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
+          const records =
+            requestedRecordId == null
+              ? decodedRecords
+              : decodedRecords.filter((row) => {
+                  const rowId =
+                    typeof row.id === "number"
+                      ? row.id
+                      : typeof row.api_id === "number"
+                        ? row.api_id
+                        : null;
+                  return rowId === requestedRecordId;
+                });
+          
+          return c.json(
+            {
+              table_name: tableName,
+              table_version,
+              period_tag,
+              period_revision,
+              count: records.length,
+              records,
+            },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
+      } catch (kvErr) {
+        console.warn(`[master-data] KV read failed for ${cacheKey}:`, kvErr);
+      }
+    }
 
     // Fetch Avro binary from R2
     const r2Object = await bucket.get(r2Key);
@@ -1056,12 +1143,13 @@ app.get("/json", async (c) => {
             return rowId === requestedRecordId;
           });
 
-    // When an explicit version is requested the data is immutable — cache aggressively.
-    // When serving the latest version the key changes after each upload, so use a short
-    // TTL to avoid CDN/clients staying on stale "latest" data.
-    const cacheControl = requestedVersion
-      ? "public, max-age=86400, stale-while-revalidate=604800"
-      : "public, max-age=60, stale-while-revalidate=300";
+    if (kv) {
+      try {
+        await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
+      } catch (kvErr) {
+        console.warn(`[master-data] KV write failed for ${cacheKey}:`, kvErr);
+      }
+    }
 
     return c.json(
       {

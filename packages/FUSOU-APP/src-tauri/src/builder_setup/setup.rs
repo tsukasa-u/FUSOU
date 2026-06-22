@@ -3,10 +3,13 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager,
 };
-use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
@@ -19,12 +22,18 @@ use crate::{
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    }, notify, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth}, window::{app, external}
+    },
+    cmd::{native_cmd, tauri_cmd},
+    integration::discord,
+    notify, scheduler,
+    storage::integrate,
+    util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth},
+    window::{app, external},
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
-use fusou_upload::{PendingStore, UploadRetryService};
 use fusou_auth::{AuthManager, FileStorage};
+use fusou_upload::{PendingStore, UploadRetryService};
 use std::sync::Arc;
 
 #[cfg(any(not(dev), check_release))]
@@ -152,18 +161,27 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
+    let external_force_refresh = MenuItemBuilder::with_id(
+        "external-force-refresh".to_string(),
+        "External WebView: Force Repaint",
+    )
+    .build(app)?;
+
+    let external_screenshot = MenuItemBuilder::with_id(
+        "external-screenshot".to_string(),
+        "External WebView: Screenshot",
+    )
+    .build(app)?;
+
     let sync_snapshot =
         MenuItemBuilder::with_id("sync-snapshot".to_string(), "Sync snapshot").build(app)?;
 
     let launch_at_startup = if autostart_allowed {
         let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
         Some(
-            CheckMenuItemBuilder::with_id(
-                "toggle-autostart".to_string(),
-                "Launch at Startup",
-            )
-            .checked(autostart_enabled)
-            .build(app)?,
+            CheckMenuItemBuilder::with_id("toggle-autostart".to_string(), "Launch at Startup")
+                .checked(autostart_enabled)
+                .build(app)?,
         )
     } else {
         None
@@ -186,8 +204,7 @@ fn setup_tray(
 
     #[cfg(dev)]
     let open_auth_page_menu =
-        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page")
-            .build(app)?;
+        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page").build(app)?;
 
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
@@ -196,9 +213,7 @@ fn setup_tray(
         .item(&delete_registry);
 
     #[cfg(dev)]
-    let danger_ope_sub_menu = danger_ope_sub_menu
-        .separator()
-        .item(&open_debug_window);
+    let danger_ope_sub_menu = danger_ope_sub_menu.separator().item(&open_debug_window);
 
     let danger_ope_sub_menu = danger_ope_sub_menu.build()?;
 
@@ -215,6 +230,8 @@ fn setup_tray(
     let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
+        .item(&external_force_refresh)
+        .item(&external_screenshot)
         .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
@@ -448,6 +465,32 @@ fn setup_tray(
                         let path_str = log_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
                     }
+                    "external-force-refresh" => {
+                        external::force_refresh_focused_external_window(tray.app_handle());
+                        notify::show(
+                            tray.app_handle(),
+                            "External WebView",
+                            "Force repaint has been requested.",
+                        );
+                    }
+                    "external-screenshot" => {
+                        match external::capture_focused_external_window_screenshot(tray.app_handle()) {
+                            Some(path) => {
+                                notify::show(
+                                    tray.app_handle(),
+                                    "External Screenshot",
+                                    &format!("Saving screenshot to:\n{}", path.display()),
+                                );
+                            }
+                            None => {
+                                notify::show(
+                                    tray.app_handle(),
+                                    "External Screenshot",
+                                    "Failed to capture screenshot. Check whether the external WebView is visible and the screenshot directory is writable.",
+                                );
+                            }
+                        }
+                    }
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
@@ -458,15 +501,29 @@ fn setup_tray(
                         let auth_manager_clone = auth_manager.inner().clone();
 
                         tauri::async_runtime::spawn(async move {
-                            if !manager.is_authenticated().await {
-                                tracing::warn!("Snapshot sync requires authentication; trying background anonymous auth instead of opening browser.");
+                            let mut has_dataset_token =
+                                manager.resolve_dataset_id_for_upload(None).await.is_some();
+
+                            if !has_dataset_token {
+                                tracing::warn!("Snapshot sync requires dataset token; trying background anonymous auth instead of opening browser.");
                                 try_anonymous_auth(&app_handle_clone).await;
 
-                                if !manager.is_authenticated().await {
+                                let refreshed_manager = {
+                                    auth_manager_clone
+                                        .lock()
+                                        .unwrap_or_else(|e| e.into_inner())
+                                        .clone()
+                                };
+                                has_dataset_token = refreshed_manager
+                                    .resolve_dataset_id_for_upload(None)
+                                    .await
+                                    .is_some();
+
+                                if !has_dataset_token {
                                     notify::show(
                                         &app_handle_clone,
                                         "Snapshot Sync Skipped",
-                                        "Session not available. Background anonymous sign-in did not succeed."
+                                        "Dataset token not available. Background anonymous sign-in did not succeed."
                                     );
                                     return;
                                 }
@@ -755,6 +812,78 @@ fn configure_channel_transport() {
     }
 }
 
+fn register_external_window_shortcuts(app: &mut tauri::App) {
+    let shortcut_manager = app.global_shortcut();
+
+    if let Err(e) = shortcut_manager.on_shortcut("F5", |app, _shortcut, event| {
+        if event.state != ShortcutState::Pressed {
+            return;
+        }
+
+        tracing::warn!("global shortcut pressed: F5 (external reload)");
+
+        external::reload_focused_external_window(app);
+    }) {
+        tracing::warn!("failed to register global shortcut F5: {}", e);
+    }
+
+    let register_force_refresh = |accelerator: &str| {
+        let accelerator_label = accelerator.to_string();
+
+        if let Err(e) =
+            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+            if event.state != ShortcutState::Pressed {
+                return;
+            }
+
+            tracing::warn!(
+                "global shortcut pressed: {} (external force refresh)",
+                accelerator_label
+            );
+
+            external::force_refresh_focused_external_window(app);
+        })
+        {
+            tracing::warn!(
+                "failed to register global shortcut {} for forced render refresh: {}",
+                accelerator,
+                e
+            );
+        }
+    };
+
+    register_force_refresh("Ctrl+R");
+    register_force_refresh("Super+R");
+
+    let register_external_screenshot = |accelerator: &str| {
+        let accelerator_label = accelerator.to_string();
+
+        if let Err(e) =
+            shortcut_manager.on_shortcut(accelerator, move |app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+
+                tracing::warn!(
+                    "global shortcut pressed: {} (external screenshot)",
+                    accelerator_label
+                );
+
+                let _ = external::capture_focused_external_window_screenshot(app);
+            })
+        {
+            tracing::warn!(
+                "failed to register global shortcut {} for external screenshot: {}",
+                accelerator,
+                e
+            );
+        }
+    };
+
+    register_external_screenshot("Ctrl+S");
+    register_external_screenshot("Super+S");
+}
+
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
 
@@ -774,10 +903,16 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         .get_enable_autostart();
     configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
+    register_external_window_shortcuts(app);
     configure_channel_transport();
-    setup_discord()?;
+    if configs::get_user_configs_for_app()
+        .discord
+        .get_enable_discord_integration()
+    {
+        setup_discord()?;
+    }
     notify_startup(app);
-    
+
     let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
     let retry_service = app.state::<Arc<UploadRetryService>>().inner().clone();
     scheduler::integrate_file::start_scheduler(pending_store, retry_service);
@@ -813,6 +948,8 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             request_shutdown(response_parse_channel_master_clone),
             request_shutdown(scheduler_integrate_channel_master_clone),
         );
+
+        discord::close();
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.cleanup_before_exit();

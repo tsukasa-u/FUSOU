@@ -1,9 +1,9 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
-import { SECURE_COOKIE_OPTIONS } from "@/utility/security";
+import { SECURE_COOKIE_OPTIONS } from "@/utils/security";
 
 const createUserScopedClient = (
   accessToken: string,

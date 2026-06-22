@@ -1,10 +1,7 @@
-#[cfg(feature = "gdrive")]
-use crate::storage::providers::gdrive;
-use tauri::{Manager, Url};
 use fusou_auth::{AuthManager, FileStorage};
-use std::sync::{Arc, Mutex};
-use kc_api::interface::deck_port::Basic;
 use serde_json::json;
+use std::sync::{Arc, Mutex};
+use tauri::{Manager, Url};
 use uuid::Uuid;
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
@@ -21,15 +18,9 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         };
 
         // Check if this is a Realtime-based member_id_hash sync request
-        // fusou://sync?token=xxx&return_url=yyy
+        // fusou://sync?token=xxx
         if url.scheme() == "fusou" && url.host_str() == Some("sync") {
             handle_realtime_member_id_sync(&url, app);
-            return;
-        }
-
-        // Check if this is a request for member_id_hash (legacy, for backward compatibility)
-        if url.scheme() == "fusou" && url.host_str() == Some("request-member-id") {
-            handle_member_id_request(&url);
             return;
         }
 
@@ -50,81 +41,37 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
     };
 
     if let Err(e) = singleton_window.show() {
-        tracing::warn!("failed to show main window in single instance handler: {}", e);
+        tracing::warn!(
+            "failed to show main window in single instance handler: {}",
+            e
+        );
     }
 
     if singleton_window.is_minimized().unwrap_or(false) {
         if let Err(e) = singleton_window.unminimize() {
-            tracing::warn!("failed to unminimize main window in single instance handler: {}", e);
+            tracing::warn!(
+                "failed to unminimize main window in single instance handler: {}",
+                e
+            );
         }
     }
 
     if !singleton_window.is_focused().unwrap_or(false) {
         if let Err(e) = singleton_window.set_focus() {
-            tracing::warn!("failed to focus main window in single instance handler: {}", e);
+            tracing::warn!(
+                "failed to focus main window in single instance handler: {}",
+                e
+            );
         }
     }
 
     tracing::debug!("single instance arg: {:?}", argv.get(1));
 }
 
-/// Handle fusou://request-member-id?return_url=xxx
-/// This allows WEB page to request member_id_hash from the app via hidden iframe
-fn handle_member_id_request(url: &Url) {
-    // Get return_url from query parameters
-    let return_url = url
-        .query_pairs()
-        .find(|(key, _)| key == "return_url")
-        .map(|(_, value)| value.to_string());
-
-    let Some(return_url) = return_url else {
-        tracing::warn!("request-member-id called without return_url parameter");
-        return;
-    };
-
-    if !is_allowed_return_url(&return_url) {
-        tracing::warn!("request-member-id called with untrusted return_url");
-        return;
-    }
-
-    // Get member_id_hash from game data
-    let basic = Basic::load();
-    let member_id_hash = basic.member_id;
-
-    if member_id_hash.is_empty() {
-        tracing::warn!("member_id_hash not available; user should launch the game first");
-        // Construct error response
-        let error_url = format!("{}{}error=member_id_not_available", 
-            return_url, 
-            if return_url.contains('?') { "&" } else { "?" });
-        // Open in browser window, which will update the existing page via JavaScript
-        let _ = webbrowser::open(&error_url);
-        return;
-    }
-
-    // Save to cache for future use
-    use crate::auth::member_id_cache::MemberIdCache;
-    if let Err(e) = MemberIdCache::save(&member_id_hash) {
-        tracing::warn!("Failed to cache member_id_hash: {}", e);
-    }
-
-    // Construct return URL with member_id_hash
-    // The WEB page will receive this via URLSearchParams and process it with JavaScript
-    let separator = if return_url.contains('?') { "&" } else { "?" };
-    let callback_url = format!("{}{}member_id_hash={}", return_url, separator, member_id_hash);
-
-
-    tracing::info!("Sending member_id_hash to browser (hash redacted)");
-    
-    // This will cause the browser to navigate, updating the existing page
-    // The WEB page JavaScript will read the parameter and continue the flow
-    let _ = webbrowser::open(&callback_url);
-}
-
-/// Handle fusou://sync?token=xxx&return_url=yyy
-/// 
+/// Handle fusou://sync?token=xxx
+///
 /// Realtime-based member_id_hash sync handler
-/// 
+///
 /// Flow:
 /// 1. WEB generates passphrase token and launches fusou://sync?token=xxx
 /// 2. APP reaches here
@@ -150,14 +97,13 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
 
     // 2. Generate APP instance ID (for handling multiple APP instances on same machine)
     let app_instance_id = get_or_create_app_instance_id();
+    let app_handle = app.clone();
 
     // 3. Execute Supabase update in async task
     tauri::async_runtime::spawn(async move {
-        match handle_realtime_sync_async(&token, &app_instance_id).await {
+        match handle_realtime_sync_async(&token, &app_instance_id, &app_handle).await {
             Ok(_) => {
-                tracing::info!(
-                    "[Realtime Sync] Successfully synced"
-                );
+                tracing::info!("[Realtime Sync] Successfully synced");
             }
             Err(e) => {
                 tracing::error!("[Realtime Sync] Failed to sync: {}", e);
@@ -170,31 +116,14 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
 async fn handle_realtime_sync_async(
     token: &str,
     app_instance_id: &str,
+    app: &tauri::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash from game data or cache
-    use crate::auth::member_id_cache::MemberIdCache;
-    
-    // Try cache first
-    let member_id_hash = MemberIdCache::load()
-        .map(|cache| cache.member_id_hash)
-        .unwrap_or_else(|| {
-            // Fall back to loading from game data
-            let basic = Basic::load();
-            basic.member_id
-        });
-
-    if member_id_hash.is_empty() {
-        return Err(
-            "member_id_hash not available; user should launch the game first".into()
-        );
-    }
+    // 1. Load member_id_hash: prefer AuthManager dataset_id (v2), then legacy fallback.
+    let member_id_hash = resolve_member_id_hash_for_sync(app)
+        .await
+        .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
     tracing::info!("[Realtime Sync] Loaded member_id_hash");
-
-    // Save to cache for future use
-    if let Err(e) = MemberIdCache::save(&member_id_hash) {
-        tracing::warn!("[Realtime Sync] Failed to cache member_id_hash: {}", e);
-    }
 
     // 2. Get Supabase configuration (with clear error messages)
     // Try compile-time embedded values first (set via option_env! during build with dotenvx),
@@ -204,7 +133,7 @@ async fn handle_realtime_sync_async(
         .or_else(|| std::env::var("SUPABASE_URL").ok())
         .or_else(|| std::env::var("PUBLIC_SUPABASE_URL").ok())
         .ok_or("Environment variable SUPABASE_URL or PUBLIC_SUPABASE_URL is not set (compile-time or runtime)")?;
-    
+
     // Support multiple variable names for API key (ANON_KEY for legacy, PUBLISHABLE_KEY for new)
     let supabase_anon_key = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
         .map(|s| s.to_string())
@@ -240,7 +169,7 @@ async fn handle_realtime_sync_async(
             }
             Err(e) => {
                 last_error = Some(e.clone());
-                
+
                 if attempt < max_retries - 1 {
                     // Exponential backoff: 100ms, 200ms, 400ms
                     let backoff_ms = 100 * (1 << attempt);
@@ -262,24 +191,43 @@ async fn handle_realtime_sync_async(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| "Unknown error".to_string()).into())
+    Err(last_error
+        .unwrap_or_else(|| "Unknown error".to_string())
+        .into())
 }
 
-fn is_allowed_return_url(return_url: &str) -> bool {
-    let return_parsed = match Url::parse(return_url) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
+fn normalize_member_id_hash(value: &str) -> Option<String> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if normalized.len() == 64 && normalized.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
+        Some(normalized)
+    } else {
+        None
+    }
+}
 
-    let auth_page_url = configs::get_user_configs_for_app().auth.get_auth_page_url();
-    let auth_page_parsed = match Url::parse(auth_page_url.as_str()) {
-        Ok(v) => v,
-        Err(_) => return false,
-    };
+async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<String, String> {
+    if let Some(auth_manager_state) = app.try_state::<Arc<Mutex<AuthManager<FileStorage>>>>() {
+        // Clone to avoid holding the lock across await.
+        let auth_manager_clone = {
+            let manager = auth_manager_state
+                .lock()
+                .map_err(|_| "failed to lock AuthManager state".to_string())?;
+            manager.clone()
+        };
 
-    return_parsed.scheme() == auth_page_parsed.scheme()
-        && return_parsed.host_str() == auth_page_parsed.host_str()
-        && return_parsed.port_or_known_default() == auth_page_parsed.port_or_known_default()
+        if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
+            if let Some(normalized) = normalize_member_id_hash(&dataset_id) {
+                tracing::info!("[Realtime Sync] Using AuthManager dataset_id as member_id_hash");
+                return Ok(normalized);
+            }
+
+            tracing::warn!(
+                "[Realtime Sync] AuthManager dataset_id has invalid hash format; falling back to legacy source"
+            );
+        }
+    }
+
+    crate::auth::auth_server::get_member_id_hash_with_cache()
 }
 
 /// Send PATCH request to Supabase
@@ -307,9 +255,7 @@ async fn send_supabase_update(
     });
 
     tracing::debug!(
-        "[Realtime Sync] Sending PATCH to {} with body: {}",
-        update_url,
-        update_body
+        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/member_id_hash redacted)"
     );
 
     let response = client
@@ -324,13 +270,13 @@ async fn send_supabase_update(
         .map_err(|e| format!("Network error: {}", e))?;
 
     let status = response.status();
-    
+
     if status.is_success() {
         return Ok(());
     }
 
     let error_body = response.text().await.unwrap_or_default();
-    
+
     // Detailed error message per HTTP status code
     let error_msg = match status.as_u16() {
         400 => format!("Bad request (invalid token or data format): {}", error_body),
@@ -348,22 +294,14 @@ async fn send_supabase_update(
 }
 
 /// Get or create APP instance ID
-/// 
-/// Generates a machine-specific ID to prevent conflicts when multiple APPs are running
-/// Saves to file so the same ID is used on the same machine
+///
+/// Generates a machine-specific ID to prevent conflicts when multiple APPs are running.
+/// Persists the ID under the Tauri-managed app data directory (`ROAMING_DIR`) so the
+/// same ID is reused on the same machine. Avoid raw `APPDATA`/`HOME` lookups, which
+/// would create files outside the app's data directory.
 fn get_or_create_app_instance_id() -> String {
-    let instance_id_path = if let Ok(roaming_dir) = std::env::var("APPDATA") {
-        std::path::PathBuf::from(&roaming_dir)
-            .join("FUSOU")
-            .join("app_instance_id.txt")
-    } else if let Ok(home_dir) = std::env::var("HOME") {
-        std::path::PathBuf::from(&home_dir)
-            .join(".fusou")
-            .join("app_instance_id.txt")
-    } else {
-        // Fallback: use session-specific ID
-        return Uuid::new_v4().to_string();
-    };
+    let app_data_dir = crate::util::get_ROAMING_DIR();
+    let instance_id_path = app_data_dir.join("app_instance_id.txt");
 
     // Read ID from file
     if let Ok(content) = std::fs::read_to_string(&instance_id_path) {
@@ -375,8 +313,23 @@ fn get_or_create_app_instance_id() -> String {
 
     // Create new ID if file doesn't exist or is empty
     let instance_id = Uuid::new_v4().to_string();
-    let _ = std::fs::create_dir_all(instance_id_path.parent().unwrap());
-    let _ = std::fs::write(&instance_id_path, &instance_id);
+    if let Some(parent) = instance_id_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(
+                "Failed to create app data directory for app_instance_id at {:?}: {}",
+                parent,
+                e
+            );
+            return instance_id;
+        }
+    }
+    if let Err(e) = std::fs::write(&instance_id_path, &instance_id) {
+        tracing::warn!(
+            "Failed to persist app_instance_id at {:?}: {}",
+            instance_id_path,
+            e
+        );
+    }
 
     instance_id
 }

@@ -1,4 +1,4 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalize text files to LF across platforms
+* text=auto eol=lf
 
 *.ipynb linguist-detectable=false

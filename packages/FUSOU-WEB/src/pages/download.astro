@@ -1,403 +1,412 @@
 ---
 import "@/assets/app.css";
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/Navigation.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import PageShell from "@/components/common/astro/ui/PageShell.astro";
 
 const releaseBase =
   "https://github.com/tsukasa-u/FUSOU/releases/latest/download";
 const releasePage = "https://github.com/tsukasa-u/FUSOU/releases/latest";
 
-type DownloadEntry = {
-  label: string;
-  url?: string;
-  description: string;
-  recommended?: boolean;
-  available: boolean;
-};
-
-type Architecture = {
-  id: string;
-  label: string;
-  recommended?: boolean;
-  downloads: DownloadEntry[];
-};
-
-type Platform = {
-  id: string;
-  name: string;
-  summary: string;
-  guide: string;
-  architectures: Architecture[];
-};
-
-const platforms: Platform[] = [
-  {
-    id: "windows",
+// Pass the release data to the client
+const downloadData = {
+  windows: {
     name: "Windows",
-    summary: "Supported on Windows 11 (64-bit).",
-    guide: "Most users should choose the MSI installer for x64.",
-    architectures: [
-      {
-        id: "win-x64",
-        label: "x64 (64-bit)",
-        recommended: true,
-        downloads: [
-          {
-            label: "MSI installer (.msi)",
-            url: `${releaseBase}/fusou-windows-x64.msi`,
-            description: "Includes automatic updates. For most users.",
-            recommended: true,
-            available: true,
-          },
-          {
-            label: "EXE installer (.exe)",
-            url: `${releaseBase}/fusou-windows-x64.exe`,
-            description: "not includes auto-updates. need to update manually.",
-            available: true,
-          },
-        ],
-      },
-      {
-        id: "win-arm64",
-        label: "ARM64 (preview)",
-        downloads: [
-          {
-            label: "MSI installer (.msi)",
-            url: `${releaseBase}/fusou-windows-arm64.msi`,
-            description:
-              "For ARM-based Windows devices like Surface Pro X. includes automatic updates.",
-            available: true,
-          },
-          {
-            label: "EXE installer (.exe)",
-            url: `${releaseBase}/fusou-windows-arm64.exe`,
-            description:
-              "For ARM-based Windows devices like Surface Pro X. not includes auto-updates. need to update manually.",
-            available: true,
-          },
-        ],
-      },
-    ],
+    label: "Download for Windows",
+    sub: "MSI Installer (x64) • Auto-updates included",
+    url: `${releaseBase}/fusou-windows-x64.msi`,
+    color: "from-primary/30 to-accent/30",
   },
-  {
-    id: "macos",
+  macos: {
     name: "macOS",
-    summary: "Supports macOS 12 Monterey or later.",
-    guide: "Choose the universal DMG unless you prefer the manual ZIP.",
-    architectures: [
-      {
-        id: "mac-universal",
-        label: "Universal (Intel & Apple Silicon)",
-        recommended: true,
-        downloads: [
-          {
-            label: "DMG installer (recommended)",
-            url: `${releaseBase}/fusou-darwin.dmg`,
-            description: "Future macOS builds will appear here once available.",
-            recommended: true,
-            available: false,
-          },
-        ],
-      },
-    ],
+    label: "Download for macOS",
+    sub: "Universal DMG (Intel & Apple Silicon)",
+    url: `${releaseBase}/fusou-darwin.dmg`,
+    color: "from-base-300 to-base-100",
   },
-  {
-    id: "linux",
+  linux: {
     name: "Linux",
-    summary: "Tested on Ubuntu 24.04 LTS. Other distributions may work.",
-    guide:
-      "AppImage works almost everywhere. Debian/Ubuntu users can pick the DEB.",
-    architectures: [
-      {
-        id: "linux-amd64",
-        label: "x86_64 / amd64",
-        recommended: true,
-        downloads: [
-          {
-            label: "AppImage (.AppImage)",
-            url: `${releaseBase}/fusou-linux-amd64.AppImage`,
-            description:
-              "For most desktop Linux distributions (Ubuntu, Fedora, etc.). includes automatic updates.",
-            recommended: true,
-            available: true,
-          },
-          {
-            label: "Debian package (.deb)",
-            url: `${releaseBase}/fusou-linux-amd64.deb`,
-            description:
-              "Ubuntu / Debian installer. not includes automatic updates; update manually if needed.",
-            available: true,
-          },
-          {
-            label: "rpm package (.rpm)",
-            url: `${releaseBase}/fusou-linux-x86_64.rpm`,
-            description:
-              "For Fedora, CentOS, openSUSE, and other RPM-based distros. not includes automatic updates; update manually if needed.",
-            available: true,
-          },
-        ],
-      },
-      {
-        id: "linux-arm64",
-        label: "ARM64 / aarch64",
-        downloads: [
-          {
-            label: "AppImage (.AppImage)",
-            url: `${releaseBase}/fusou-linux-aarch64.AppImage`,
-            description: "For ARM boards and servers (Raspberry Pi 4+, etc.).",
-            available: true,
-          },
-          {
-            label: "Debian package (.deb)",
-            url: `${releaseBase}/fusou-linux-arm64.deb`,
-            description:
-              "For ARM-based Ubuntu / Debian systems (Raspberry Pi OS, etc.).",
-            available: true,
-          },
-          {
-            label: "rpm package (.rpm)",
-            url: `${releaseBase}/fusou-linux-aarch64.rpm `,
-            description:
-              "For ARM-based Fedora, CentOS, openSUSE, and other RPM-based distros.",
-            available: true,
-          },
-        ],
-      },
-    ],
+    label: "Download for Linux",
+    sub: "AppImage (x64) • Works on most distributions",
+    url: `${releaseBase}/fusou-linux-amd64.AppImage`,
+    color: "from-warning/30 to-error/30",
   },
-  {
-    id: "ios",
-    name: "iOS",
-    summary: "Currently not distributed via App Store.",
-    guide:
-      "Native iOS builds are not yet available. Follow GitHub for updates.",
-    architectures: [
-      {
-        id: "ios",
-        label: "iOS",
-        downloads: [
-          {
-            label: "Visit GitHub Releases",
-            url: releasePage,
-            description: "Future iOS builds will appear here once available.",
-            available: false,
-          },
-        ],
-      },
-    ],
+  unknown: {
+    name: "Operating System",
+    label: "Go to GitHub Releases",
+    sub: "View all available platforms and architectures",
+    url: releasePage,
+    color: "from-primary/30 to-info/30",
   },
-  {
-    id: "android",
-    name: "Android",
-    summary: "APK distribution is not ready yet.",
-    guide:
-      "No Android packages are published yet. Keep an eye on release notes.",
-    architectures: [
-      {
-        id: "android",
-        label: "Android",
-        downloads: [
-          {
-            label: "Visit GitHub Releases",
-            url: releasePage,
-            description: "Future APK builds will appear here once available.",
-            available: false,
-          },
-        ],
-      },
-    ],
-  },
-];
+};
 ---
 
-<Layout title="Download FUSOU" />
-<div class="h-16"></div>
-<div class="bg-base-100 flex flex-col items-center py-6 px-6">
-  <div class="w-full max-w-3xl flex flex-col gap-8">
-    <header class="flex flex-col gap-3">
-      <h1 class="text-4xl sm:text-5xl font-semibold">Download FUSOU</h1>
-      <p class="text-base-content">
-        Pick your operating system, choose the right architecture, and grab the
-        installer that matches your setup. Every download points to the latest
-        GitHub release.
-      </p>
-      <a
-        class="text-sm text-primary underline hover:no-underline"
-        href={releasePage}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        View all release assets on GitHub
-      </a>
-    </header>
-
-    <section class="flex flex-col gap-4">
-      <div class="flex flex-wrap gap-2" id="platform-tabs">
-        {
-          platforms.map((platform, index) => (
-            <button
-              type="button"
-              class={`btn shadow-none border ${
-                index === 0
-                  ? "btn-primary border-primary-content"
-                  : "btn-outline border-base-300"
-              }`}
-              data-platform={platform.id}
-              data-active={index === 0}
-            >
-              {platform.name}
-            </button>
-          ))
-        }
+<Layout title="Download FUSOU">
+  <Navigation />
+  <div class="h-16"></div>
+  <PageShell container="default">
+    <!-- Hero Auto-Detect Section -->
+    <section
+      class="flex flex-col items-center justify-center pb-4 text-center gap-8 relative"
+    >
+      <div class="flex flex-col gap-4 z-10 max-w-2xl">
+        <h1
+          class="text-5xl md:text-6xl font-bold tracking-tight text-base-content"
+        >
+          Get FUSOU
+        </h1>
+        <p class="text-lg text-base-content/80">
+          The data-dense analytics and simulation platform. We've detected your operating
+          system to provide the best installer for your machine.
+        </p>
       </div>
 
-      {
-        platforms.map((platform, platformIndex) => (
-          <article
-            class={`rounded-xl border border-base-300 p-6 flex flex-col gap-6 ${platformIndex === 0 ? "" : "hidden"}`}
-            data-platform-panel={platform.id}
-          >
-            <div class="flex flex-col gap-2">
-              <h2 class="text-2xl font-semibold">{platform.name}</h2>
-              <p>{platform.summary}</p>
-              <p class="text-sm text-base-content">{platform.guide}</p>
-            </div>
-
-            <div class="flex flex-wrap gap-2" data-arch-tabs>
-              {platform.architectures.map((arch, archIndex) => (
-                <button
-                  type="button"
-                  class={`btn shadow-none border ${
-                    archIndex === 0
-                      ? "btn-accent border-accent-content"
-                      : "btn-outline border-base-300"
-                  }`}
-                  data-arch={arch.id}
-                  data-active={archIndex === 0}
-                >
-                  {arch.label}
-                  {arch.recommended && (
-                    <span class="ml-2 text-xs uppercase tracking-wide">
-                      Recommended
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {platform.architectures.map((arch, archIndex) => (
-              <div
-                class={`${archIndex === 0 ? "" : "hidden"} flex flex-col gap-4`}
-                data-arch-panel={arch.id}
+      <!-- Dynamic Download Card -->
+      <div class="relative group mt-2 z-10 w-full max-w-lg">
+        <div
+          class="relative bg-base-100/90 backdrop-blur-xl rounded-xl p-8 md:p-10 flex flex-col gap-6 transition-colors duration-500"
+        >
+          <div class="flex items-center gap-5 w-full">
+            <div
+              class="p-0 bg-base-200 rounded-full flex items-center justify-center shrink-0 min-w-20 min-h-20"
+            >
+            <div id="hero-icon-windows" class="hidden">
+              <svg
+                class="w-12 h-12 text-info"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 448 512"
+                fill="currentColor"
               >
-                {arch.downloads.map((entry) => (
-                  <div class="rounded-xl border border-base-300 p-4 flex flex-col gap-2">
-                    <div class="flex flex-wrap items-baseline gap-2">
-                      <span class="text-lg font-semibold">{entry.label}</span>
-                      {entry.recommended && (
-                        <span class="text-xs uppercase text-primary">
-                          Recommended
-                        </span>
-                      )}
-                    </div>
-                    <p class="text-sm text-base-content">{entry.description}</p>
-                    {entry.available && entry.url ? (
-                      <a
-                        class="btn btn-primary border border-primary-content shadow-none w-full sm:w-auto"
-                        href={entry.url}
-                      >
-                        Download
-                      </a>
-                    ) : (
-                      <a
-                        class="btn btn-outline border border-base-300 shadow-none w-full sm:w-auto"
-                        href={releasePage}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Check availability on GitHub
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ))}
-          </article>
-        ))
-      }
+                <path
+                  d="M0 93.7l183.6-25.3v177.4H0V93.7zm0 324.6l183.6 25.3V268.4H0v149.9zm203.8 28L448 480V268.4H203.8v177.9zm0-380.6v180.1H448V32L203.8 65.7z"
+                ></path>
+              </svg>
+            </div>
+            <div id="hero-icon-macos" class="hidden">
+              <svg
+                class="w-12 h-12 text-base-content"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 384 512"
+                fill="currentColor"
+              >
+                <path
+                  d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+                ></path>
+              </svg>
+            </div>
+            <div id="hero-icon-linux" class="hidden">
+              <svg
+                class="w-12 h-12 text-warning"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path
+                  d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"
+                ></path>
+              </svg>
+            </div>
+            <div id="hero-icon-unknown" class="hidden">
+              <svg
+                class="w-12 h-12 text-base-content"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="1.5"
+                  d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                ></path>
+              </svg>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-1.5 w-full text-left">
+            <h2
+              id="hero-title"
+              class="text-2xl font-semibold text-base-content"
+            >
+              Detecting OS...
+            </h2>
+            <p id="hero-sub" class="text-sm text-base-content/70">
+              Please wait while we find the best installer.
+            </p>
+          </div>
+        </div>
+
+          <a
+            id="hero-btn"
+            href={releasePage}
+            class="btn btn-lg w-full bg-primary hover:bg-primary/90 text-primary-content border border-primary-content/45 transition-all flex items-center justify-center gap-2 font-semibold text-base rounded-lg h-14"
+          >
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+              ></path>
+            </svg>
+            <span id="hero-btn-text">Go to Releases</span>
+          </a>
+        </div>
+      </div>
     </section>
-  </div>
-</div>
-<Navigation />
 
-<script>
-  const platformTabs =
-    document.querySelectorAll<HTMLButtonElement>("[data-platform]");
-  const platformPanels = document.querySelectorAll<HTMLElement>(
-    "[data-platform-panel]",
-  );
+    <!-- Flat List of All Platforms (No tabs/clicks needed) -->
+    <section
+      class="flex flex-col gap-6 mt-12 pb-24 relative z-10 border-t border-base-300 pt-16 max-w-5xl mx-auto w-full px-4 xl:px-0"
+    >
+      <div
+        class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2"
+      >
+        <div class="text-left">
+          <h3 class="text-2xl font-semibold text-base-content">
+            Other Platforms & Architectures
+          </h3>
+          <p class="text-sm text-base-content/70 mt-2">
+            Looking for a different version? Download installers for all
+            supported operating systems below.
+          </p>
+        </div>
+        <a
+          href={releasePage}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="btn btn-outline border-base-300 hover:border-base-content/50 gap-2 shrink-0"
+        >
+          <svg
+            class="w-5 h-5"
+            fill="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              fill-rule="evenodd"
+              clip-rule="evenodd"
+              d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+            ></path>
+          </svg>
+          View GitHub Releases
+        </a>
+      </div>
 
-  platformTabs.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const target = btn.dataset.platform;
-      platformTabs.forEach((tab) =>
-        tab.classList.replace("btn-primary", "btn-outline"),
-      );
-      platformTabs.forEach((tab) =>
-        tab.classList.replace("border-primary-content", "border-base-300"),
-      );
-      btn.classList.replace("btn-outline", "btn-primary");
-      btn.classList.replace("border-base-300", "border-primary-content");
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Windows Flat Card -->
+        <div
+          class="fusou-card bg-base-100/60 border border-base-300 hover:border-base-content/20 transition-colors rounded-xl p-6 flex flex-col gap-4"
+        >
+          <div class="flex items-center gap-3 border-b border-base-300 pb-4">
+            <svg
+              class="w-6 h-6 text-info"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 448 512"
+              fill="currentColor"
+            >
+              <path
+                d="M0 93.7l183.6-25.3v177.4H0V93.7zm0 324.6l183.6 25.3V268.4H0v149.9zm203.8 28L448 480V268.4H203.8v177.9zm0-380.6v180.1H448V32L203.8 65.7z"
+              ></path>
+            </svg>
+            <h4 class="text-lg font-semibold text-base-content">Windows</h4>
+          </div>
+          <div class="flex flex-col gap-3 pt-2">
+            <a
+              href={`${releaseBase}/fusou-windows-x64.msi`}
+              class="flex items-start gap-2 group"
+            >
+              <div
+                class="w-1.5 h-1.5 rounded-full bg-primary mt-2 group-hover:scale-150 transition-transform"
+              >
+              </div>
+              <div class="flex flex-col">
+                <span
+                  class="text-sm font-medium text-base-content group-hover:text-primary transition-colors"
+                  >MSI Installer (x64)</span
+                >
+                <span class="text-xs text-base-content/60"
+                  >Recommended. Auto-updates.</span
+                >
+              </div>
+            </a>
+            <a
+              href={`${releaseBase}/fusou-windows-x64.exe`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >EXE Installer (x64)</a
+            >
+            <a
+              href={`${releaseBase}/fusou-windows-arm64.msi`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >MSI Installer (ARM64)</a
+            >
+            <a
+              href={`${releaseBase}/fusou-windows-arm64.exe`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >EXE Installer (ARM64)</a
+            >
+          </div>
+        </div>
 
-      platformPanels.forEach((panel) => {
-        const isActive = panel.dataset.platformPanel === target;
-        panel.classList.toggle("hidden", !isActive);
+        <!-- macOS Flat Card -->
+        <div
+          class="fusou-card bg-base-100/60 border border-base-300 hover:border-base-content/20 transition-colors rounded-xl p-6 flex flex-col gap-4"
+        >
+          <div class="flex items-center gap-3 border-b border-base-300 pb-4">
+            <svg
+              class="w-6 h-6 text-base-content"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 384 512"
+              fill="currentColor"
+            >
+              <path
+                d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"
+              ></path>
+            </svg>
+            <h4 class="text-lg font-semibold text-base-content">macOS</h4>
+          </div>
+          <div class="flex flex-col gap-3 pt-2">
+            <div class="p-3 bg-base-200/50 border border-base-300 rounded-lg">
+              <span class="text-xs text-base-content/80 block leading-relaxed">
+                macOS builds are not yet available. Future universal DMG builds
+                will be distributed on GitHub Releases.
+              </span>
+            </div>
+            <a
+              href={releasePage}
+              class="text-sm text-info hover:text-base-content transition-colors pl-1"
+              >Check GitHub Releases</a
+            >
+          </div>
+        </div>
 
-        if (isActive) {
-          const archTabs =
-            panel.querySelectorAll<HTMLButtonElement>("[data-arch]");
-          const archPanels =
-            panel.querySelectorAll<HTMLElement>("[data-arch-panel]");
-          archTabs.forEach((archBtn, index) => {
-            const active = index === 0;
-            archBtn.classList.toggle("btn-accent", active);
-            archBtn.classList.toggle("border-accent-content", active);
-            archBtn.classList.toggle("btn-outline", !active);
-            archBtn.classList.toggle("border-base-300", !active);
-            archBtn.dataset.active = active.toString();
-          });
-          archPanels.forEach((archPanel, index) => {
-            archPanel.classList.toggle("hidden", index !== 0);
-          });
-        }
-      });
-    });
-  });
+        <!-- Linux Flat Card -->
+        <div
+          class="fusou-card bg-base-100/60 border border-base-300 hover:border-base-content/20 transition-colors rounded-xl p-6 flex flex-col gap-4"
+        >
+          <div class="flex items-center gap-3 border-b border-base-300 pb-4">
+            <svg
+              class="w-6 h-6 text-warning"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path
+                d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"
+              ></path>
+            </svg>
+            <h4 class="text-lg font-semibold text-base-content">Linux</h4>
+          </div>
+          <div class="flex flex-col gap-3 pt-2">
+            <a
+              href={`${releaseBase}/fusou-linux-amd64.AppImage`}
+              class="flex items-start gap-2 group"
+            >
+              <div
+                class="w-1.5 h-1.5 rounded-full bg-primary mt-2 group-hover:scale-150 transition-transform"
+              >
+              </div>
+              <div class="flex flex-col">
+                <span
+                  class="text-sm font-medium text-base-content group-hover:text-primary transition-colors"
+                  >AppImage (x64)</span
+                >
+                <span class="text-xs text-base-content/60"
+                  >Recommended. Auto-updates.</span
+                >
+              </div>
+            </a>
+            <a
+              href={`${releaseBase}/fusou-linux-amd64.deb`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >Debian Package (x64)</a
+            >
+            <a
+              href={`${releaseBase}/fusou-linux-x86_64.rpm`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >RPM Package (x64)</a
+            >
+            <a
+              href={`${releaseBase}/fusou-linux-aarch64.AppImage`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >AppImage (ARM64)</a
+            >
+            <a
+              href={`${releaseBase}/fusou-linux-arm64.deb`}
+              class="text-sm text-base-content/70 hover:text-base-content transition-colors pl-3.5"
+              >Debian Package (ARM64)</a
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+  </PageShell>
 
-  const archTabContainers =
-    document.querySelectorAll<HTMLElement>("[data-arch-tabs]");
-  archTabContainers.forEach((container: HTMLElement) => {
-    const archTabs =
-      container.querySelectorAll<HTMLButtonElement>("[data-arch]");
-    const archPanels =
-      container.parentElement?.querySelectorAll<HTMLElement>(
-        "[data-arch-panel]",
-      ) ?? [];
-    archTabs.forEach((archBtn: HTMLButtonElement) => {
-      archBtn.addEventListener("click", () => {
-        const target = archBtn.dataset.arch;
-        archTabs.forEach((tab) => {
-          const active = tab === archBtn;
-          tab.classList.toggle("btn-accent", active);
-          tab.classList.toggle("border-accent-content", active);
-          tab.classList.toggle("btn-outline", !active);
-          tab.classList.toggle("border-base-300", !active);
-          tab.dataset.active = active.toString();
-        });
-        archPanels.forEach((panel: HTMLElement) => {
-          panel.classList.toggle("hidden", panel.dataset.archPanel !== target);
-        });
-      });
-    });
-  });
-</script>
+  <script define:vars={{ downloadData }}>
+    // Auto-detect OS logic
+    function detectOS() {
+      const platform = navigator.platform.toLowerCase();
+      const userAgent = navigator.userAgent.toLowerCase();
+
+      if (platform.includes("win") || userAgent.includes("windows"))
+        return "windows";
+      if (platform.includes("mac") || userAgent.includes("mac os"))
+        return "macos";
+      if (
+        platform.includes("linux") ||
+        userAgent.includes("ubuntu") ||
+        userAgent.includes("debian")
+      )
+        return "linux";
+      return "unknown";
+    }
+
+    const osKey = detectOS();
+    const osInfo = downloadData[osKey] || downloadData.unknown;
+
+    // Update Hero UI
+    const title = document.getElementById("hero-title");
+    const sub = document.getElementById("hero-sub");
+    const btnText = document.getElementById("hero-btn-text");
+    const btn = document.getElementById("hero-btn");
+
+    // Toggle exact OS SVG
+    const iWin = document.getElementById("hero-icon-windows");
+    const iMac = document.getElementById("hero-icon-macos");
+    const iLin = document.getElementById("hero-icon-linux");
+    const iUnk = document.getElementById("hero-icon-unknown");
+
+    if (iWin) iWin.classList.add("hidden");
+    if (iMac) iMac.classList.add("hidden");
+    if (iLin) iLin.classList.add("hidden");
+    if (iUnk) iUnk.classList.add("hidden");
+
+    if (osKey === "windows" && iWin) iWin.classList.remove("hidden");
+    else if (osKey === "macos" && iMac) iMac.classList.remove("hidden");
+    else if (osKey === "linux" && iLin) iLin.classList.remove("hidden");
+    else if (iUnk) iUnk.classList.remove("hidden");
+
+    if (title) title.textContent = osInfo.name;
+    if (sub) sub.textContent = osInfo.sub;
+    if (btnText) btnText.textContent = osInfo.label;
+
+    if (btn) {
+      btn.href = osInfo.url;
+      // If macOS is not available yet, change btn style to secondary
+      if (osKey === "macos") {
+        btn.classList.remove("bg-primary", "text-primary-content");
+        btn.classList.add(
+          "btn-outline",
+          "text-base-content",
+          "border-base-300",
+        );
+        btnText.textContent = "Check GitHub Releases";
+      }
+    }
+  </script>
+</Layout>

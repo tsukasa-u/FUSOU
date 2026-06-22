@@ -1,4 +1,202 @@
 {
+  "diffs": {
+    "v0_4_to_v0_5": {
+      "airbase_airattack": {
+        "addedFields": [
+          "e_sprite_crash_stage1_count",
+          "e_sprite_crash_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "e_sprite_fly_count",
+          "e_sprite_non_normal_count",
+          "f_sprite_crash_stage1_count",
+          "f_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "f_sprite_fly_count",
+          "f_sprite_non_normal_count"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "airbase_assult": {
+        "addedFields": [
+          "e_sprite_crash_stage1_count",
+          "e_sprite_crash_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "e_sprite_fly_count",
+          "e_sprite_non_normal_count",
+          "f_sprite_crash_stage1_count",
+          "f_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "f_sprite_fly_count",
+          "f_sprite_non_normal_count"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "battle": {
+        "addedFields": [
+          "battle_result",
+          "night_support_airattack",
+          "night_support_hourai"
+        ],
+        "changedFields": [],
+        "removedFields": [
+          "f_deck_id"
+        ],
+        "status": "changed"
+      },
+      "battle_result": {
+        "addedFields": [
+          "drop_ship_id",
+          "env_uuid",
+          "landing_hp_max",
+          "landing_hp_now",
+          "landing_sub_value",
+          "uuid",
+          "win_rank"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "added"
+      },
+      "carrierbase_assault": {
+        "addedFields": [
+          "e_sprite_crash_stage1_count",
+          "e_sprite_crash_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "e_sprite_fly_count",
+          "e_sprite_non_normal_count",
+          "f_sprite_crash_stage1_count",
+          "f_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "f_sprite_fly_count",
+          "f_sprite_non_normal_count"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "cells": {
+        "addedFields": [
+          "event_map_dmg",
+          "event_map_gauge_num",
+          "event_map_gauge_type",
+          "event_map_max_maphp",
+          "event_map_now_maphp",
+          "event_map_selected_rank",
+          "event_map_state",
+          "f_deck_after_id",
+          "f_deck_before_id",
+          "happening_counts",
+          "happening_dentans",
+          "happening_mst_ids",
+          "itemget_counts",
+          "itemget_ids"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "enemy_deck": {
+        "addedFields": [
+          "combined_flag"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "opening_airattack": {
+        "addedFields": [
+          "e_sprite_crash_stage1_count",
+          "e_sprite_crash_stage2_count",
+          "e_sprite_damage_stage1_count",
+          "e_sprite_damage_stage2_count",
+          "e_sprite_fly_count",
+          "e_sprite_non_normal_count",
+          "f_sprite_crash_stage1_count",
+          "f_sprite_crash_stage2_count",
+          "f_sprite_damage_stage1_count",
+          "f_sprite_damage_stage2_count",
+          "f_sprite_fly_count",
+          "f_sprite_non_normal_count"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "own_deck": {
+        "addedFields": [
+          "chart_seiku_value",
+          "chart_tp_value"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "own_ship": {
+        "addedFields": [
+          "cond_state"
+        ],
+        "changedFields": [
+          "kaihi",
+          "karyoku",
+          "lucky",
+          "raisou",
+          "sakuteki",
+          "soukou",
+          "taiku",
+          "taisen"
+        ],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "support_airattack": {
+        "addedFields": [
+          "e_sprite_crash_count",
+          "e_sprite_damage_count",
+          "e_sprite_fly_count",
+          "e_sprite_non_normal_count",
+          "f_sprite_crash_count",
+          "f_sprite_damage_count",
+          "f_sprite_fly_count",
+          "f_sprite_non_normal_count"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "support_deck": {
+        "addedFields": [
+          "chart_seiku_value",
+          "chart_tp_value"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      }
+    }
+  },
+  "majorVersions": {
+    "v0": {
+      "latest": "v0_5",
+      "versions": [
+        "v0_4",
+        "v0_5"
+      ]
+    }
+  },
+  "sortedVersions": [
+    "v0_4",
+    "v0_5"
+  ],
   "versions": {
     "v0_4": {
       "tableCount": 46,
@@ -7,174 +205,6 @@
     "v0_5": {
       "tableCount": 47,
       "version": "0.5"
-    }
-  },
-  "sortedVersions": [
-    "v0_4",
-    "v0_5"
-  ],
-  "majorVersions": {
-    "v0": {
-      "versions": [
-        "v0_4",
-        "v0_5"
-      ],
-      "latest": "v0_5"
-    }
-  },
-  "diffs": {
-    "v0_4_to_v0_5": {
-      "battle_result": {
-        "status": "added",
-        "addedFields": [
-          "env_uuid",
-          "uuid",
-          "win_rank",
-          "drop_ship_id",
-          "landing_hp_now",
-          "landing_hp_max",
-          "landing_sub_value"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "airbase_airattack": {
-        "status": "changed",
-        "addedFields": [
-          "f_sprite_fly_count",
-          "e_sprite_fly_count",
-          "f_sprite_crash_stage1_count",
-          "f_sprite_crash_stage2_count",
-          "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "airbase_assult": {
-        "status": "changed",
-        "addedFields": [
-          "f_sprite_fly_count",
-          "e_sprite_fly_count",
-          "f_sprite_crash_stage1_count",
-          "f_sprite_crash_stage2_count",
-          "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "battle": {
-        "status": "changed",
-        "addedFields": [
-          "battle_result"
-        ],
-        "removedFields": [
-          "f_deck_id"
-        ],
-        "changedFields": []
-      },
-      "carrierbase_assault": {
-        "status": "changed",
-        "addedFields": [
-          "f_sprite_fly_count",
-          "e_sprite_fly_count",
-          "f_sprite_crash_stage1_count",
-          "f_sprite_crash_stage2_count",
-          "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "cells": {
-        "status": "changed",
-        "addedFields": [
-          "event_map_max_maphp",
-          "event_map_now_maphp",
-          "event_map_dmg",
-          "event_map_gauge_type",
-          "event_map_gauge_num",
-          "event_map_state",
-          "event_map_selected_rank",
-          "happening_counts",
-          "happening_mst_ids",
-          "happening_dentans",
-          "itemget_ids",
-          "itemget_counts",
-          "f_deck_before_id",
-          "f_deck_after_id"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "enemy_deck": {
-        "status": "changed",
-        "addedFields": [
-          "combined_flag"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "opening_airattack": {
-        "status": "changed",
-        "addedFields": [
-          "f_sprite_fly_count",
-          "e_sprite_fly_count",
-          "f_sprite_crash_stage1_count",
-          "f_sprite_crash_stage2_count",
-          "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "own_deck": {
-        "status": "changed",
-        "addedFields": [
-          "chart_seiku_value",
-          "chart_tp_value"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "own_ship": {
-        "status": "changed",
-        "addedFields": [
-          "cond_state"
-        ],
-        "removedFields": [],
-        "changedFields": [
-          "karyoku",
-          "raisou",
-          "taiku",
-          "soukou",
-          "kaihi",
-          "taisen",
-          "sakuteki",
-          "lucky"
-        ]
-      },
-      "support_airattack": {
-        "status": "changed",
-        "addedFields": [
-          "f_sprite_fly_count",
-          "e_sprite_fly_count",
-          "f_sprite_crash_count",
-          "e_sprite_crash_count"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      },
-      "support_deck": {
-        "status": "changed",
-        "addedFields": [
-          "chart_seiku_value",
-          "chart_tp_value"
-        ],
-        "removedFields": [],
-        "changedFields": []
-      }
     }
   }
 }

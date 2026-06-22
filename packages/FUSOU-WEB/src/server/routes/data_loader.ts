@@ -22,6 +22,11 @@ import {
   supabaseRestRequest,
   resolveMemberIdHashForUser,
 } from "../utils/supabase-rest";
+import {
+  getLatestAllowedPeriodTag,
+  getLatestMasterPeriodTag,
+  listAllowedPeriodTags,
+} from "../utils/period-tags";
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -274,34 +279,9 @@ app.get("/period-tags", async (c) => {
       );
     }
 
-    // Get period tags from Supabase
-    const { url, key } = getSupabaseRestConfig(c);
-
-    if (!url || !key) {
-      return jsonResponse({ error: "Supabase configuration missing" }, 500);
-    }
-
-    const response = await fetch(
-      `${url}/rest/v1/kc_period_tag?select=tag&order=tag.desc&limit=100`,
-      {
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          Accept: "application/json",
-        },
-      },
-    );
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch period tags");
-    }
-
-    const rows = (await response.json()) as Array<{ tag: string }>;
-
-    // Convert ISO8601 to YYYY-MM-DD in Tokyo timezone (matching Rust/D1 format)
-    const periodTags = rows.map((r) => {
-      const parsed = new Date(r.tag);
-      return parsed.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+    const periodTags = await listAllowedPeriodTags(c, {
+      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      limit: 100,
     });
 
     // Get latest period tag (already converted to YYYY-MM-DD)
@@ -470,16 +450,9 @@ app.get("/data/:table", async (c) => {
       // For master-data, ignore scope parameter (always "all")
       let periodTag: string | null = null;
       if (periodTagParam === "latest") {
-        // Get latest period_tag from master_data_index
-        const latestStmt = masterDb.prepare(
-          `SELECT mdi.period_tag FROM master_data_tables mdt
-           JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
-           WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'
-            ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1`,
-        );
-        const latestResult = await latestStmt.bind(tableName).first();
-        const latestPeriodTag = (latestResult as { period_tag?: string } | null)
-          ?.period_tag;
+        const latestMaster = await getLatestMasterPeriodTag(masterDb, env.runtime.DATA_LOADER_CACHE_KV);
+        const latestPeriodTag = latestMaster?.period_tag;
+
         if (latestPeriodTag) {
           periodTag = latestPeriodTag;
         } else {
@@ -571,10 +544,19 @@ app.get("/data/:table", async (c) => {
     // Resolve period tag
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
-      periodTag = await getLatestPeriodTag(
-        getSupabaseRestConfig(c),
-        env.runtime.DATA_LOADER_CACHE_KV,
-      );
+      periodTag = await getLatestAllowedPeriodTag(c, {
+        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      });
+      if (!periodTag) {
+        return jsonResponse(
+          {
+            error: "DATASET_NOT_FOUND",
+            message: "No period tag is currently available",
+          },
+          404,
+          ruStatus,
+        );
+      }
     } else if (periodTagParam !== "all") {
       periodTag = periodTagParam;
     }
@@ -690,7 +672,7 @@ app.get("/data/:table", async (c) => {
       {
         success: true,
         table: tableName,
-        period_tag: periodTag || "all",
+        period_tag: periodTagParam === "all" ? "all" : periodTag,
         scope: scopeParam,
         count: files.length,
         files,
@@ -865,6 +847,18 @@ app.get("/download", async (c) => {
         return jsonResponse(
           { error: "BLOCK_NOT_FOUND", message: "Block not found" },
           404,
+        );
+      }
+
+      // Ownership check: verify this block belongs to the authenticated user
+      const userDatasetId = await resolveMemberIdHashForUser(
+        getSupabaseRestConfig(c),
+        apiKeyData.user_id,
+      );
+      if (!userDatasetId || blockInfo.dataset_id !== userDatasetId) {
+        return jsonResponse(
+          { error: "FORBIDDEN", message: "Access to this block is not authorized" },
+          403,
         );
       }
 
@@ -1205,79 +1199,6 @@ async function sendVerificationEmail(
     console.error("Resend API error:", await response.text());
     throw new Error("Failed to send verification email");
   }
-}
-
-/**
- * Get latest period tag from Supabase with optional KV caching
- * Cache TTL: 5 minutes
- */
-const PERIOD_TAG_CACHE_KEY = "data_loader:latest_period_tag";
-const PERIOD_TAG_CACHE_TTL = 300; // 5 minutes
-
-async function getLatestPeriodTag(
-  config: SupabaseRestConfig,
-  cacheKV?: KVNamespace,
-): Promise<string | null> {
-  // Try cache first (cache stores already-converted YYYY-MM-DD format)
-  if (cacheKV) {
-    try {
-      const cached = await cacheKV.get(PERIOD_TAG_CACHE_KEY);
-      if (cached) {
-        return cached;
-      }
-    } catch (e) {
-      console.warn("[data_loader] KV cache read failed:", e);
-    }
-  }
-
-  const { url, key } = config;
-
-  if (!url || !key) {
-    throw new Error("Supabase configuration missing");
-  }
-
-  const nowIso = new Date(Date.now() - 5000).toISOString();
-  const queryUrl = `${url}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=1`;
-
-  const response = await fetch(queryUrl, {
-    headers: {
-      apikey: key,
-      Authorization: `Bearer ${key}`,
-      Accept: "application/json",
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch period tag");
-  }
-
-  const rows = (await response.json()) as Array<{ tag: string | null }>;
-  const rawTag =
-    Array.isArray(rows) && rows.length > 0 ? (rows[0].tag ?? null) : null;
-
-  if (!rawTag) {
-    return null;
-  }
-
-  // Convert ISO8601 to YYYY-MM-DD in Tokyo timezone (matching Rust behavior)
-  // Rust: parsed_tag.with_timezone(&chrono_tz::Asia::Tokyo).date_naive().to_string()
-  const parsedDate = new Date(rawTag);
-  const tokyoDate = parsedDate.toLocaleDateString("sv-SE", {
-    timeZone: "Asia/Tokyo",
-  }); // "sv-SE" locale gives YYYY-MM-DD format
-
-  // Store in cache (store converted format)
-  if (cacheKV && tokyoDate) {
-    try {
-      await cacheKV.put(PERIOD_TAG_CACHE_KEY, tokyoDate, {
-        expirationTtl: PERIOD_TAG_CACHE_TTL,
-      });
-    } catch (e) {
-      console.warn("[data_loader] KV cache write failed:", e);
-    }
-  }
-
-  return tokyoDate;
 }
 
 /**

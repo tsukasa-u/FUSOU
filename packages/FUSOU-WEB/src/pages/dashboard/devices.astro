@@ -1,0 +1,325 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import { createSupabaseServerClient } from "@/lib/supabaseServer";
+import type { User } from "@supabase/supabase-js";
+import { env as cfEnv } from "cloudflare:workers";
+
+const cookies = Astro.cookies;
+const runtimeEnv = cfEnv as Record<string, any>;
+const supabase = createSupabaseServerClient(cookies, runtimeEnv);
+
+const accessToken = cookies.get("sb-access-token");
+const refreshToken = cookies.get("sb-refresh-token");
+
+if (!accessToken || !refreshToken) {
+  return Astro.redirect("/auth/signin");
+}
+
+let user: User | null = null;
+try {
+  const session = await supabase.auth.setSession({
+    refresh_token: refreshToken.value,
+    access_token: accessToken.value,
+  });
+  if (session.error) {
+    return Astro.redirect("/auth/signin");
+  }
+
+  user = session.data.user;
+} catch (_error) {
+  return Astro.redirect("/auth/signin");
+}
+
+if (!user) {
+  return Astro.redirect("/auth/signin");
+}
+
+function providerInitial(provider?: string): string {
+  return (provider?.trim()?.charAt(0) || "?").toUpperCase();
+}
+---
+
+<Layout
+  title="Device Management - FUSOU"
+  tutorial={{
+    id: "dashboard-devices",
+    title: "端末管理ページの使い方",
+    summary: "anonymous-sync v2 の端末状態確認と失効操作を行います。",
+    controls: [
+      {
+        sourceSelector: "#refresh-devices-btn",
+        description: "端末一覧を再読み込みします。",
+        tone: "outline",
+      },
+      {
+        sourceSelector: "#back-to-dashboard-btn",
+        description: "ダッシュボードへ戻ります。",
+        tone: "outline",
+      },
+    ],
+    steps: [
+      "現在の端末一覧と失効済み端末を確認します。",
+      "不要な active 端末は Revoke で失効できます。",
+      "失効した端末は次回同期時に再登録が必要です。",
+    ],
+  }}
+>
+  <div class="min-h-screen flex flex-col">
+    <div class="flex justify-center flex-1 pt-24 sm:pt-28 pb-8">
+      <div class="w-full max-w-2xl px-4">
+        <div class="bg-base-100 rounded-md px-6 py-5">
+          <h1 class="text-2xl font-bold text-center py-2">Device Management</h1>
+          <p class="text-center text-sm text-base-content/70">
+            Anonymous sync v2 の端末一覧と失効操作
+          </p>
+        </div>
+
+        <div
+          class="mt-5 mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
+        >
+          <div class="flex items-center gap-3">
+            <span
+              class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
+              title={user.app_metadata.provider || "provider"}
+            >
+              {providerInitial(user.app_metadata.provider)}
+            </span>
+            <div>
+              <div class="font-bold text-sm">
+                {user.user_metadata?.name || "User"}
+              </div>
+              <div class="text-xs opacity-60 font-mono">{user.email}</div>
+            </div>
+          </div>
+
+          <button
+            id="refresh-devices-btn"
+            class="btn btn-sm btn-ghost border border-base-300"
+            type="button"
+          >
+            Refresh
+          </button>
+        </div>
+
+        <div class="mb-6">
+          <h2 class="text-lg font-semibold mb-3">Anonymous Sync Devices</h2>
+          <p class="text-sm text-base-content/60 mb-3">
+            active
+            端末は失効できます。失効すると次回同期時に再登録が必要になります。
+          </p>
+
+          <div id="anon-devices-list" class="space-y-2">
+            <div class="text-center py-4 text-base-content/60">Loading...</div>
+          </div>
+        </div>
+
+        <div class="divider my-5"></div>
+
+        <div class="text-center">
+          <a
+            id="back-to-dashboard-btn"
+            href="/dashboard"
+            class="btn btn-ghost border border-base-300"
+          >
+            ← Back to Dashboard
+          </a>
+        </div>
+      </div>
+    </div>
+    <Navigation />
+  </div>
+</Layout>
+
+<dialog id="revoke-modal" class="modal">
+  <div class="modal-box">
+    <h3 class="font-bold text-lg">Confirm Revoke</h3>
+    <p class="py-4" id="revoke-modal-message">
+      この端末を失効します。よろしいですか？
+    </p>
+    <div class="modal-action">
+      <button class="btn border border-base-300" id="revoke-modal-cancel"
+        >Cancel</button
+      >
+      <button
+        class="btn btn-error bg-error-content text-error border border-error hover:bg-error hover:text-error-content"
+        id="revoke-modal-confirm">Revoke</button
+      >
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop">
+    <button>close</button>
+  </form>
+</dialog>
+
+<script>
+  // @ts-nocheck
+  const ANON_V2_BASE = "/api/auth/anonymous-sync/v2/devices";
+  let pendingRevokeAction = null;
+
+  function showRevokeModal(message, onConfirm) {
+    const modal = document.getElementById("revoke-modal");
+    document.getElementById("revoke-modal-message").textContent = message;
+    pendingRevokeAction = onConfirm;
+    modal.showModal();
+  }
+
+  function setContainerMessage(
+    containerId,
+    message,
+    className = "text-center py-4 text-base-content/60",
+  ) {
+    const container = document.getElementById(containerId);
+    const div = document.createElement("div");
+    div.className = className;
+    div.textContent = message;
+    container.replaceChildren(div);
+  }
+
+  function createDangerButton(title, onClick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      "btn btn-sm btn-ghost btn-error border border-error-content";
+    button.title = title;
+    button.textContent = "Revoke";
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function formatDate(dateStr) {
+    if (!dateStr) return "N/A";
+    const date = new Date(dateStr);
+    return date.toLocaleDateString("ja-JP", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function renderAnonymousDevices(devices) {
+    const container = document.getElementById("anon-devices-list");
+    if (devices.length === 0) {
+      setContainerMessage(
+        "anon-devices-list",
+        "No anonymous sync devices found.",
+      );
+      return;
+    }
+
+    container.replaceChildren();
+
+    devices.forEach((device) => {
+      const row = document.createElement("div");
+      row.className =
+        "flex items-center justify-between p-3 bg-base-200 rounded-md";
+      row.dataset.deviceId = String(device.device_id ?? "");
+
+      const content = document.createElement("div");
+      content.className = "flex-1 min-w-0";
+
+      const title = document.createElement("div");
+      title.className = "font-medium font-mono text-sm";
+      title.textContent = String(device.device_id ?? "");
+
+      const pid = document.createElement("div");
+      pid.className = "text-sm text-base-content/60 font-mono";
+      pid.textContent = `PID: ${String(device.pid_masked ?? "")}`;
+
+      const active = !device.revoked_at;
+      const meta = document.createElement("div");
+      meta.className = "text-xs text-base-content/40";
+      meta.textContent = active
+        ? `Active · Added ${formatDate(device.created_at)}${device.last_seen_at ? ` · Last seen ${formatDate(device.last_seen_at)}` : ""}`
+        : `Revoked ${formatDate(device.revoked_at)}${device.revoked_reason ? ` · ${String(device.revoked_reason)}` : ""}`;
+
+      content.appendChild(title);
+      content.appendChild(pid);
+      content.appendChild(meta);
+      row.appendChild(content);
+
+      if (active) {
+        const deviceId = String(device.device_id ?? "");
+        const button = createDangerButton(
+          "Revoke Anonymous Sync Device",
+          () => {
+            showRevokeModal(
+              "この端末を失効します。次回同期時に再登録が必要になります。よろしいですか？",
+              () => revokeAnonymousDevice(deviceId),
+            );
+          },
+        );
+        row.appendChild(button);
+      }
+
+      container.appendChild(row);
+    });
+  }
+
+  async function fetchAnonymousDevices() {
+    try {
+      const response = await fetch(`${ANON_V2_BASE}?include_revoked=true`);
+
+      if (response.status === 204) {
+        renderAnonymousDevices([]);
+        return;
+      }
+
+      const data = await response.json();
+      if (response.ok && Array.isArray(data.devices)) {
+        renderAnonymousDevices(data.devices);
+      } else {
+        setContainerMessage(
+          "anon-devices-list",
+          "Failed to load anonymous sync devices",
+          "text-center py-4 text-error",
+        );
+      }
+    } catch (error) {
+      setContainerMessage(
+        "anon-devices-list",
+        "Failed to load anonymous sync devices",
+        "text-center py-4 text-error",
+      );
+    }
+  }
+
+  async function revokeAnonymousDevice(deviceId) {
+    try {
+      const response = await fetch(`${ANON_V2_BASE}/${deviceId}`, {
+        method: "DELETE",
+      });
+
+      if (response.ok || response.status === 204) {
+        await fetchAnonymousDevices();
+      }
+    } catch (error) {
+      console.error("Failed to revoke anonymous sync device", error);
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    fetchAnonymousDevices();
+
+    document
+      .getElementById("refresh-devices-btn")
+      .addEventListener("click", fetchAnonymousDevices);
+
+    document
+      .getElementById("revoke-modal-cancel")
+      .addEventListener("click", () => {
+        document.getElementById("revoke-modal").close();
+        pendingRevokeAction = null;
+      });
+
+    document
+      .getElementById("revoke-modal-confirm")
+      .addEventListener("click", async () => {
+        document.getElementById("revoke-modal").close();
+        if (pendingRevokeAction) {
+          await pendingRevokeAction();
+          pendingRevokeAction = null;
+        }
+      });
+  });
+</script>

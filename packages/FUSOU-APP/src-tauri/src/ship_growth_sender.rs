@@ -148,9 +148,11 @@ impl ShipGrowthSender {
                 .then(a.kaihi_observed.cmp(&b.kaihi_observed))
                 .then(a.taisen_observed.cmp(&b.taisen_observed))
                 .then(a.sakuteki_observed.cmp(&b.sakuteki_observed))
+                .then(a.lucky_observed.cmp(&b.lucky_observed))
                 .then(a.kaihi_naked.cmp(&b.kaihi_naked))
                 .then(a.taisen_naked.cmp(&b.taisen_naked))
                 .then(a.sakuteki_naked.cmp(&b.sakuteki_naked))
+                .then(a.lucky_naked.cmp(&b.lucky_naked))
                 .then(a.kaihi_max.cmp(&b.kaihi_max))
                 .then(a.taisen_max.cmp(&b.taisen_max))
                 .then(a.sakuteki_max.cmp(&b.sakuteki_max))
@@ -219,9 +221,10 @@ impl ShipGrowthSender {
     async fn resolve_dataset_id(&self) -> Option<String> {
         let mut attempts = 0;
         while attempts < 15 {
-            let dataset_id = crate::util::get_user_member_id().await;
-            if !dataset_id.trim().is_empty() {
-                return Some(dataset_id);
+            if let Some(dataset_id) = self.auth_manager.resolve_dataset_id_for_upload(None).await {
+                if !dataset_id.trim().is_empty() {
+                    return Some(dataset_id);
+                }
             }
             attempts += 1;
             tokio::time::sleep(Duration::from_millis(200)).await;

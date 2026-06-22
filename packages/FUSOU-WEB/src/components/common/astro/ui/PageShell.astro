@@ -1,0 +1,24 @@
+---
+interface Props {
+  container?: "narrow" | "default" | "wide";
+  paddingY?: "6" | "8" | "12";
+}
+
+const { container = "default", paddingY = "8" } = Astro.props as Props;
+
+const containerClass =
+  container === "narrow"
+    ? "max-w-2xl"
+    : container === "wide"
+      ? "max-w-[1500px]"
+      : "max-w-[1440px]";
+
+const paddingClass =
+  paddingY === "6" ? "py-6" : paddingY === "12" ? "py-12" : "py-8";
+---
+
+<main class="fusou-page">
+  <div class:list={["fusou-page-container", containerClass, paddingClass]}>
+    <slot />
+  </div>
+</main>

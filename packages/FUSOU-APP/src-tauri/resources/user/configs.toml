@@ -117,6 +117,13 @@ save_file_location = ""
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
+
+    # The directory used to save external WebView screenshots.
+    # Leave empty to use the default path: Pictures/FUSOU/screenshots
+    # Examples:
+    #   Linux: "/home/yourname/Pictures/FUSOU/custom-screenshots"
+    #   Windows: "C:/Users/yourname/Pictures/FUSOU/custom-screenshots"
+    external_screenshot_directory = ""
     
 
     [app.theme]
@@ -184,6 +191,20 @@ save_file_location = ""
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = true
+
+    # Authentication page URL
+    # The URL to open when authentication is required
+    auth_page_url = "https://fusou.dev/auth/local/signin"
+
+    # v2 anonymous-sync endpoints (pepper + Ed25519 device key)
+    # Standard path for current builds.
+    # On first launch, the client calls register to obtain device_id.
+    # After registration, it uses challenge -> refresh to renew dataset_token.
+    # If a device is lost, another trusted device can call revoke.
+    anonymous_sync_v2_register_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/register"
+    anonymous_sync_v2_challenge_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/challenge"
+    anonymous_sync_v2_refresh_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/refresh"
+    anonymous_sync_v2_revoke_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/revoke"
 
 
     [app.kc_window]

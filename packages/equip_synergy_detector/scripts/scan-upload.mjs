@@ -22,11 +22,12 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = join(__dirname, "..");
 
-const args = process.argv.slice(2);
-const knownFlags = new Set(["--period-tag", "--env", "--dry-run"]);
+// pnpm forwards "--" as an argv separator; ignore it so users can pass extra flags normally.
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+const knownFlags = new Set(["--period-tag", "--env", "--dry-run", "--force"]);
 
 function readFlagValue(flag) {
-  const idx = args.indexOf(flag);
+  const idx = args.lastIndexOf(flag);
   if (idx < 0) return null;
   const value = args[idx + 1];
   if (!value || value.startsWith("--")) {
@@ -46,7 +47,7 @@ for (let i = 0; i < args.length; i += 1) {
     console.error(`Error: unknown option: ${arg}`);
     process.exit(1);
   }
-  if (arg !== "--dry-run") i += 1;
+  if (arg !== "--dry-run" && arg !== "--force") i += 1;
 }
 
 const periodTag = readFlagValue("--period-tag");
@@ -194,6 +195,10 @@ const uploadArgs = [
   periodTag,
 ];
 if (isDryRun) uploadArgs.push("--dry-run");
+if (args.includes("--force")) uploadArgs.push("--force");
 
-const uploadResult = runNodeScript(uploadArgs[0], uploadArgs.slice(1));
+const uploadResult = spawnSync(process.execPath, uploadArgs, {
+  stdio: "inherit",
+  cwd: join(root, "..", "FUSOU-WEB"),
+});
 process.exit(uploadResult.status ?? 0);

@@ -143,7 +143,10 @@ pub fn merge_battle_order(
             }
             for phase in incoming {
                 let key = i64::from(phase.clone());
-                if !merged.iter().any(|current| i64::from(current.clone()) == key) {
+                if !merged
+                    .iter()
+                    .any(|current| i64::from(current.clone()) == key)
+                {
                     merged.push(phase);
                 }
             }
@@ -250,9 +253,7 @@ impl Battle {
                     f_params: battle.f_params.clone().or(self.f_params.clone()),
                     e_slot: battle.e_slot.clone().or(self.e_slot.clone()),
                     e_hp_max: battle.e_hp_max.clone().or(self.e_hp_max.clone()),
-                    e_combined_flag: battle
-                        .e_combined_flag
-                        .or(self.e_combined_flag),
+                    e_combined_flag: battle.e_combined_flag.or(self.e_combined_flag),
                     f_total_damages: battle
                         .f_total_damages
                         .clone()
@@ -344,17 +345,13 @@ impl Battle {
                         .midnight_e_nowhps
                         .clone()
                         .or(self.midnight_e_nowhps.clone()),
-                    battle_result: battle
-                        .battle_result
-                        .clone()
-                        .or(self.battle_result.clone()),
+                    battle_result: battle.battle_result.clone().or(self.battle_result.clone()),
                 };
                 battles.battles.insert(self.cell_id, battle_or);
             }
             None => {
                 let mut normalized = self.clone();
-                normalized.battle_order =
-                    merge_battle_order(None, normalized.battle_order.clone());
+                normalized.battle_order = merge_battle_order(None, normalized.battle_order.clone());
                 battles.battles.insert(self.cell_id, normalized);
             }
         }
@@ -363,7 +360,9 @@ impl Battle {
 
 #[cfg(test)]
 mod tests {
-    use super::{battle_order_phase_kind_consistent, merge_battle_order, BattlePhaseKind, BattleType};
+    use super::{
+        battle_order_phase_kind_consistent, merge_battle_order, BattlePhaseKind, BattleType,
+    };
 
     fn representative_types() -> Vec<BattleType> {
         vec![
@@ -414,12 +413,22 @@ mod tests {
     #[test]
     fn merge_battle_order_appends_only_new_phases() {
         let existing = Some(vec![BattleType::Hougeki(0), BattleType::ClosingRaigeki(())]);
-        let incoming = Some(vec![BattleType::NightSupportAttack(()), BattleType::Hougeki(0)]);
+        let incoming = Some(vec![
+            BattleType::NightSupportAttack(()),
+            BattleType::Hougeki(0),
+        ]);
 
         let merged = merge_battle_order(existing, incoming).unwrap();
         let keys: Vec<i64> = merged.into_iter().map(i64::from).collect();
 
-        assert_eq!(keys, vec![i64::from(BattleType::Hougeki(0)), i64::from(BattleType::ClosingRaigeki(())), i64::from(BattleType::NightSupportAttack(()))]);
+        assert_eq!(
+            keys,
+            vec![
+                i64::from(BattleType::Hougeki(0)),
+                i64::from(BattleType::ClosingRaigeki(())),
+                i64::from(BattleType::NightSupportAttack(()))
+            ]
+        );
     }
 
     #[test]
@@ -484,7 +493,6 @@ pub struct BattleResult {
     pub landing_sub_value: Option<i64>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct CarrierBaseAssault {
@@ -492,10 +500,25 @@ pub struct CarrierBaseAssault {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -507,10 +530,25 @@ pub struct AirBaseAssult {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -530,10 +568,25 @@ pub struct AirBaseAirAttack {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_stage1_count: Option<i64>,
     pub f_sprite_crash_stage2_count: Option<i64>,
     pub e_sprite_crash_stage1_count: Option<i64>,
     pub e_sprite_crash_stage2_count: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
+    pub f_sprite_damage_stage1_count: Option<i64>,
+    pub f_sprite_damage_stage2_count: Option<i64>,
+    pub e_sprite_damage_stage1_count: Option<i64>,
+    pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -545,10 +598,25 @@ pub struct OpeningAirAttack {
     pub e_damage: AirDamage,
     pub f_sprite_fly_count: Option<i64>,
     pub e_sprite_fly_count: Option<i64>,
+    /// Unique count of sprites completely destroyed (power == 0)
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    /// Unique count of sprites with partial damage (0 < power < 1)
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    /// All sprites affected by motion (crashed + damaged)
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
+    /// Deprecated: stage-specific crash counts. Use f_sprite_crash_count instead.
     pub f_sprite_crash_count_stage1: Option<i64>,
     pub f_sprite_crash_count_stage2: Option<i64>,
     pub e_sprite_crash_count_stage1: Option<i64>,
     pub e_sprite_crash_count_stage2: Option<i64>,
+    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
+    pub f_sprite_damage_count_stage1: Option<i64>,
+    pub f_sprite_damage_count_stage2: Option<i64>,
+    pub e_sprite_damage_count_stage1: Option<i64>,
+    pub e_sprite_damage_count_stage2: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -556,7 +624,17 @@ pub struct OpeningAirAttack {
 pub struct AirDamage {
     pub plane_from: Option<Vec<i64>>,
     pub touch_plane: Option<i64>,
+    /// Raw stage1 aircraft count from the API (`api_stage1.api_f/e_count`).
+    /// main.js sprite crash simulation uses this value as the shared `count`
+    /// denominator for both stage1 and stage2 damage distribution.
+    /// 0 when stage1 data is unavailable.
+    pub total_plane1: i64,
     pub loss_plane1: i64,
+    /// Raw stage2 aircraft count from the API (`api_stage2.api_f/e_count`).
+    /// This is kept for inspection/debugging, but main.js sprite crash simulation
+    /// does not use it as the stage2 denominator.
+    /// 0 when unavailable.
+    pub total_plane2: i64,
     pub loss_plane2: i64,
     pub damages: Option<Vec<f32>>,
     pub cl: Option<Vec<i64>>,
@@ -689,6 +767,10 @@ pub struct SupportAiratack {
     pub e_sprite_fly_count: Option<i64>,
     pub f_sprite_crash_count: Option<i64>,
     pub e_sprite_crash_count: Option<i64>,
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

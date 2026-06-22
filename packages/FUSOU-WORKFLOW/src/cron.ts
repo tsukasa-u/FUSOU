@@ -288,30 +288,35 @@ async function insertBlockIndexes(
       .run();
   }
 
-  // Insert new indexes
-  const sql = `
-    INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-    VALUES ${rows.map(() => "(?,?,?,?,?,?,?,?,?,?)").join(",")}
-  `;
-  const params: (string | number)[] = [];
-  for (const r of rows) {
-    params.push(
-      r.dataset_id,
-      r.table_name,
-      r.table_version,
-      r.period_tag,
-      r.file_id,
-      r.start_byte,
-      r.length,
-      r.record_count,
-      r.start_timestamp,
-      r.end_timestamp,
-    );
+  // Insert new indexes in chunks to stay within D1's 999-parameter bind limit.
+  // Each row uses 10 parameters; floor(999/10) = 99 rows per chunk.
+  const CHUNK_SIZE = 99;
+  for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + CHUNK_SIZE);
+    const sql = `
+      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
+      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?)").join(",")}
+    `;
+    const params: (string | number)[] = [];
+    for (const r of chunk) {
+      params.push(
+        r.dataset_id,
+        r.table_name,
+        r.table_version,
+        r.period_tag,
+        r.file_id,
+        r.start_byte,
+        r.length,
+        r.record_count,
+        r.start_timestamp,
+        r.end_timestamp,
+      );
+    }
+    await db
+      .prepare(sql)
+      .bind(...params)
+      .run();
   }
-  await db
-    .prepare(sql)
-    .bind(...params)
-    .run();
 }
 
 // Note: cleanupBuffer moved to cleanupBufferD1 above for D1 fallback

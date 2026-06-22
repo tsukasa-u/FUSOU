@@ -1,0 +1,219 @@
+
+> fusou-web@0.0.1 astro C:\Users\ogu-h\Documents\Github\FUSOU\packages\FUSOU-WEB
+> astro "check"
+
+[2m09:41:54[22m [34m[@astrojs/cloudflare][39m Enabling sessions with Cloudflare KV with the "SESSION" KV binding.
+Using secrets defined in .env
+[2m09:41:57[22m [34m[vite][39m Re-optimizing dependencies because vite config has changed
+[2m09:41:57[22m [34m[vite][39m Re-optimizing dependencies because vite config has changed
+[2m09:41:59[22m [34m[content][39m Syncing content
+[2m09:41:59[22m [34m[content][39m Synced content
+[2m09:41:59[22m [34m[types][39m Generated [2m5.44s[22m
+[2m09:41:59[22m [34m[check][39m Getting diagnostics for Astro files in C:\Users\ogu-h\Documents\Github\FUSOU\packages\FUSOU-WEB...
+[96mscripts/convert-schema-to-reactflow.mjs[0m:[93m384[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'resolveMasterTarget' is declared but its value is never read.
+
+[7m384[0m function resolveMasterTarget(fieldName, sourceTable = "") {
+[7m   [0m [93m         ~~~~~~~~~~~~~~~~~~~[0m
+[96mscripts/convert-schema-to-reactflow.mjs[0m:[93m186[0m:[93m9[0m - [93mwarning[0m[90m ts(6133): [0m'tableNameSet' is declared but its value is never read.
+
+[7m186[0m   const tableNameSet = new Set(tables.map((t) => t.table_name));
+[7m   [0m [93m        ~~~~~~~~~~~~[0m
+
+[96mscripts/seed-local-battle-data.mjs[0m:[93m63[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'runQuiet' is declared but its value is never read.
+
+[7m63[0m function runQuiet(cmd) {
+[7m  [0m [93m         ~~~~~~~~[0m
+
+[96mscripts/seed-local-fleet-data.mjs[0m:[93m39[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'listRemoteObjects' is declared but its value is never read.
+
+[7m39[0m function listRemoteObjects(prefix) {
+[7m  [0m [93m         ~~~~~~~~~~~~~~~~~[0m
+[96mscripts/seed-local-fleet-data.mjs[0m:[93m25[0m:[93m41[0m - [93mwarning[0m[90m ts(6133): [0m'writeFileSync' is declared but its value is never read.
+
+[7m25[0m import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs";
+[7m  [0m [93m                                        ~~~~~~~~~~~~~[0m
+
+[96msrc/content.config.ts[0m:[93m22[0m:[93m28[0m - [93mwarning[0m[90m ts(6385): [0m'(params?: string | { normalize?: boolean | undefined; abort?: boolean | undefined; pattern?: RegExp | undefined; hostname?: RegExp | undefined; protocol?: RegExp | undefined; error?: string | ... 1 more ... | undefined; message?: string | undefined; } | undefined): ZodString' is deprecated.
+
+[7m22[0m     github_url: z.string().url().optional(),
+[7m  [0m [93m                           ~~~[0m
+[96msrc/content.config.ts[0m:[93m21[0m:[93m31[0m - [93mwarning[0m[90m ts(6385): [0m'(params?: string | { normalize?: boolean | undefined; abort?: boolean | undefined; pattern?: RegExp | undefined; hostname?: RegExp | undefined; protocol?: RegExp | undefined; error?: string | ... 1 more ... | undefined; message?: string | undefined; } | undefined): ZodString' is deprecated.
+
+[7m21[0m     github_avatar: z.string().url().optional(),
+[7m  [0m [93m                              ~~~[0m
+
+[96msrc/components/react/SchemaTableNode.tsx[0m:[93m110[0m:[93m31[0m - [93mwarning[0m[90m ts(6133): [0m'idx' is declared but its value is never read.
+
+[7m110[0m         {d.fields.map((field, idx) => {
+[7m   [0m [93m                              ~~~[0m
+
+[96msrc/components/solid/QuestTreePanel.tsx[0m:[93m127[0m:[93m9[0m - [93mwarning[0m[90m ts(6133): [0m'NODE_W' is declared but its value is never read.
+
+[7m127[0m   const NODE_W = 60;
+[7m   [0m [93m        ~~~~~~[0m
+
+[96msrc/components/solid/map-flow/battle-map-flow/routeInference.ts[0m:[93m2[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'ACTIVE_CELL_RING_RADIUS' is declared but its value is never read.
+
+[7m2[0m import { ACTIVE_CELL_RING_RADIUS, INFERRED_ROUTE_NODE_PADDING } from "./constants";
+[7m [0m [93m         ~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/components/solid/simulator/simulator-details-catalog.tsx[0m:[93m958[0m:[93m9[0m - [93mwarning[0m[90m ts(6133): [0m'usesShipGrowthFallback' is declared but its value is never read.
+
+[7m958[0m   const usesShipGrowthFallback = createMemo(() => {
+[7m   [0m [93m        ~~~~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/components/solid/simulator/simulator-details-catalog.tsx[0m:[93m906[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'shipGrowthCapUpdatedAtIso' is declared but its value is never read.
+
+[7m906[0m   const [shipGrowthCapUpdatedAtIso, setShipGrowthCapUpdatedAtIso] =
+[7m   [0m [93m         ~~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/components/solid/simulator/simulator-renderer.tsx[0m:[93m815[0m:[93m17[0m - [93mwarning[0m[90m ts(6133): [0m'editableStats' is declared but its value is never read.
+
+[7m815[0m           const editableStats = createMemo(() => {
+[7m   [0m [93m                ~~~~~~~~~~~~~[0m
+[96msrc/components/solid/simulator/simulator-renderer.tsx[0m:[93m397[0m:[93m10[0m - [93mwarning[0m[90m ts(6133): [0m'useShipCardContext' is declared but its value is never read.
+
+[7m397[0m function useShipCardContext(): ShipCardContextValue {
+[7m   [0m [93m         ~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/db/googleDrive.ts[0m:[93m167[0m:[93m10[0m - [93mwarning[0m[90m ts(6387): [0mThe signature '(accessToken: string, folder_name: string, parent?: string, mime_type?: string): Promise<any[]>' of 'check_file' is deprecated.
+
+[7m167[0m   return check_file(
+[7m   [0m [93m         ~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m142[0m:[93m43[0m - [93mwarning[0m[90m ts(6385): [0m'GoogleDriveResponse' is deprecated.
+
+[7m142[0m     const data = await response.json() as GoogleDriveResponse;
+[7m   [0m [93m                                          ~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m106[0m:[93m43[0m - [93mwarning[0m[90m ts(6385): [0m'GoogleDriveResponse' is deprecated.
+
+[7m106[0m     const data = await response.json() as GoogleDriveResponse;
+[7m   [0m [93m                                          ~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m76[0m:[93m52[0m - [93mwarning[0m[90m ts(6385): [0m'RefreshTokenResponse' is deprecated.
+
+[7m76[0m   }).then((response) => response.json() as Promise<RefreshTokenResponse>);
+[7m  [0m [93m                                                   ~~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m67[0m:[93m67[0m - [93mwarning[0m[90m ts(6385): [0m'RefreshTokenResponse' is deprecated.
+
+[7m67[0m export async function refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
+[7m  [0m [93m                                                                  ~~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m45[0m:[93m43[0m - [93mwarning[0m[90m ts(6385): [0m'GoogleDriveResponse' is deprecated.
+
+[7m45[0m     const data = await response.json() as GoogleDriveResponse;
+[7m  [0m [93m                                          ~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/db/googleDrive.ts[0m:[93m19[0m:[93m10[0m - [93mwarning[0m[90m ts(6385): [0m'GoogleDriveFile' is deprecated.
+
+[7m19[0m   files: GoogleDriveFile[];
+[7m  [0m [93m         ~~~~~~~~~~~~~~~[0m
+
+[96msrc/lib/realtime-sync.ts[0m:[93m13[0m:[93m30[0m - [93mwarning[0m[90m ts(7016): [0mCould not find a declaration file for module 'uuid'. 'C:/Users/ogu-h/Documents/Github/FUSOU/node_modules/.pnpm/uuid@9.0.1/node_modules/uuid/dist/esm-browser/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/uuid` if it exists or add a new declaration (.d.ts) file containing `declare module 'uuid';`
+
+[7m13[0m import { v4 as uuidv4 } from "uuid";
+[7m  [0m [93m                             ~~~~~~[0m
+
+[96msrc/pages/auth/local/callback.astro[0m:[93m120[0m:[93m23[0m - [93mwarning[0m[90m ts(6133): [0m'upsertData' is declared but its value is never read.
+
+[7m120[0m                 const upsertData = (await upsertResponse.json()) as any;
+[7m   [0m [93m                      ~~~~~~~~~~[0m
+
+[96msrc/pages/auth/local/signin.astro[0m:[93m447[0m:[93m9[0m - [93mwarning[0m[90m ts(6133): [0m'memberIdHashSynced' is declared but its value is never read.
+
+[7m447[0m     let memberIdHashSynced = false;
+[7m   [0m [93m        ~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m704[0m:[93m12[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m704[0m   function formatDate(dateStr) {
+[7m   [0m [93m           ~~~~~~~~~~[0m
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m689[0m:[93m18[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m689[0m   async function revokeDevice(deviceId) {
+[7m   [0m [93m                 ~~~~~~~~~~~~[0m
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m673[0m:[93m18[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m673[0m   async function deleteApiKey(keyId) {
+[7m   [0m [93m                 ~~~~~~~~~~~~[0m
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m584[0m:[93m12[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m584[0m   function renderDevices(devices) {
+[7m   [0m [93m           ~~~~~~~~~~~~~[0m
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m532[0m:[93m12[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m532[0m   function renderApiKeys(keys) {
+[7m   [0m [93m           ~~~~~~~~~~~~~[0m
+[96msrc/pages/dashboard/api-keys.astro[0m:[93m402[0m:[93m7[0m - [93mwarning[0m[90m ts(80004): [0mJSDoc types may be moved to TypeScript types.
+
+[7m402[0m   let pendingDeleteAction = null;
+[7m   [0m [93m      ~~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/server/routes/anonymous-sync-v2.ts[0m:[93m1074[0m:[93m41[0m - [93mwarning[0m[90m ts(6387): [0mThe signature '(): PostgrestTransformBuilder<any, any, any, DeviceRow[], "user_devices", unknown, "GET">' of 'query.returns' is deprecated.
+
+[7m1074[0m     const { data, error } = await query.returns<DeviceRow[]>();
+[7m    [0m [93m                                        ~~~~~~~[0m
+
+[96msrc/server/routes/api_keys.ts[0m:[93m13[0m:[93m8[0m - [93mwarning[0m[90m ts(6133): [0m'SupabaseRestConfig' is declared but its value is never read.
+
+[7m13[0m   type SupabaseRestConfig,
+[7m  [0m [93m       ~~~~~~~~~~~~~~~~~~[0m
+
+[96msrc/server/routes/compact.ts[0m:[93m215[0m:[93m17[0m - [93mwarning[0m[90m ts(7044): [0mParameter 'err' implicitly has an 'any' type, but a better type may be inferred from usage.
+
+[7m215[0m         .catch((err) => {
+[7m   [0m [93m                ~~~[0m
+
+[96msrc/server/routes/member-lookup.ts[0m:[93m167[0m:[93m38[0m - [93mwarning[0m[90m ts(6133): [0m'c' is declared but its value is never read.
+
+[7m167[0m app.post("/verify-ownership", async (c) => {
+[7m   [0m [93m                                     ~[0m
+
+[96msrc/server/routes/quest_tree.ts[0m:[93m599[0m:[93m16[0m - [93mwarning[0m[90m ts(6133): [0m'upsertQuestStateLatest' is declared but its value is never read.
+
+[7m599[0m async function upsertQuestStateLatest(
+[7m   [0m [93m               ~~~~~~~~~~~~~~~~~~~~~~[0m
+[96msrc/server/routes/quest_tree.ts[0m:[93m32[0m:[93m7[0m - [93mwarning[0m[90m ts(6133): [0m'MIN_CONF_PAIR' is declared but its value is never read.
+
+[7m32[0m const MIN_CONF_PAIR = 0.65;
+[7m  [0m [93m      ~~~~~~~~~~~~~[0m
+[96msrc/server/routes/quest_tree.ts[0m:[93m31[0m:[93m7[0m - [93mwarning[0m[90m ts(6133): [0m'MIN_CONF_SINGLE' is declared but its value is never read.
+
+[7m31[0m const MIN_CONF_SINGLE = 0.55;
+[7m  [0m [93m      ~~~~~~~~~~~~~~~[0m
+[96msrc/server/routes/quest_tree.ts[0m:[93m30[0m:[93m7[0m - [93mwarning[0m[90m ts(6133): [0m'MIN_OBS_PAIR' is declared but its value is never read.
+
+[7m30[0m const MIN_OBS_PAIR = 6;
+[7m  [0m [93m      ~~~~~~~~~~~~[0m
+[96msrc/server/routes/quest_tree.ts[0m:[93m29[0m:[93m7[0m - [93mwarning[0m[90m ts(6133): [0m'MIN_OBS_SINGLE' is declared but its value is never read.
+
+[7m29[0m const MIN_OBS_SINGLE = 8;
+[7m  [0m [93m      ~~~~~~~~~~~~~~[0m
+
+[96msrc/server/utils/upload.ts[0m:[93m228[0m:[93m3[0m - [93mwarning[0m[90m ts(6133): [0m'url' is declared but its value is never read.
+
+[7m228[0m   url: URL,
+[7m   [0m [93m  ~~~[0m
+
+[96msrc/utility/fetchCache.ts[0m:[93m145[0m:[93m17[0m - [93mwarning[0m[90m ts(80006): [0mThis may be converted to an async function.
+
+[7m145[0m export function cachedFetch(
+[7m   [0m [93m                ~~~~~~~~~~~[0m
+
+[96msrc/utils/realtime-sync.ts[0m:[93m13[0m:[93m30[0m - [93mwarning[0m[90m ts(7016): [0mCould not find a declaration file for module 'uuid'. 'C:/Users/ogu-h/Documents/Github/FUSOU/node_modules/.pnpm/uuid@9.0.1/node_modules/uuid/dist/esm-browser/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/uuid` if it exists or add a new declaration (.d.ts) file containing `declare module 'uuid';`
+
+[7m13[0m import { v4 as uuidv4 } from "uuid";
+[7m  [0m [93m                             ~~~~~~[0m
+
+[96mtest/master-data-integration.mjs[0m:[93m261[0m:[93m7[0m - [93mwarning[0m[90m ts(6133): [0m'passed' is declared but its value is never read.
+
+[7m261[0m const passed = results.filter(r => r).length;
+[7m   [0m [93m      ~~~~~~[0m
+
+[96mtest/wasm-validator.mjs[0m:[93m2[0m:[93m1[0m - [93mwarning[0m[90m ts(6133): [0m'path' is declared but its value is never read.
+
+[7m2[0m import path from 'path';
+[7m [0m [93m~~~~~~~~~~~~~~~~~~~~~~~~[0m
+
+Result (217 files): 
+- 0 errors
+- 0 warnings
+- 44 hints
+

@@ -134,6 +134,13 @@ save_file_location = ""
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
 
+    # The directory used to save external WebView screenshots.
+    # Leave empty to use the default path: Pictures/FUSOU/screenshots
+    # Examples:
+    #   Linux: "/home/yourname/Pictures/FUSOU/custom-screenshots"
+    #   Windows: "C:/Users/yourname/Pictures/FUSOU/custom-screenshots"
+    external_screenshot_directory = ""
+
 
     [app.autostart]
     # Whether to enable the Tauri autostart integration
@@ -276,11 +283,15 @@ save_file_location = ""
     # The URL to open when authentication is required
     auth_page_url = "https://fusou.dev/auth/local/signin"
 
-    # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
-    member_map_endpoint = "https://fusou.dev/api/user/member-map/upsert"
-
-    # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
-    anonymous_sync_endpoint = "https://fusou.dev/api/auth/anonymous-sync"
+    # v2 anonymous-sync endpoints (pepper + Ed25519 device key)
+    # Standard path for current builds.
+    # On first launch, the client calls register to obtain device_id.
+    # After registration, it uses challenge -> refresh to renew dataset_token.
+    # If a device is lost, another trusted device can call revoke.
+    anonymous_sync_v2_register_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/register"
+    anonymous_sync_v2_challenge_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/challenge"
+    anonymous_sync_v2_refresh_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/refresh"
+    anonymous_sync_v2_revoke_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/revoke"
 
     [app.quest_tree_sender]
     # Whether to enable quest tree data ingestion
@@ -303,7 +314,7 @@ save_file_location = ""
     [app.soku_speed_sender]
     # Whether to enable speed observed data collection
     # default is false
-    enable = false
+    enable = true
 
     # Endpoint to ingest soku_speed observed data
     ingest_endpoint = "https://fusou.dev/api/soku-speed-observed/ingest"

@@ -9,7 +9,6 @@ import {
   CORS_HEADERS,
   SIGNED_URL_TTL_SECONDS,
   SAFE_MIME_BY_EXTENSION,
-  CACHE_TTL_SECONDS,
 } from "../constants";
 import {
   extractBearer,
@@ -24,15 +23,17 @@ import {
   timingSafeEqual,
 } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
+import {
+  bumpAssetIndexRevision,
+  getAssetSyncKeysResponse,
+} from "../utils/asset-index-cache";
 
 const app = new Hono<{ Bindings: Bindings }>();
-const BROTLI_DECOMPRESSION_FORMAT = "brotli" as unknown as CompressionFormat;
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
-  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-  0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137,
-  0, 0, 0, 11, 73, 68, 65, 84, 120, 156, 99, 0, 1, 0, 0, 5,
-  0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66,
-  96, 130,
+  137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0,
+  0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 11, 73, 68, 65, 84, 120,
+  156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68,
+  174, 66, 96, 130,
 ]);
 
 // OPTIONS（CORS）
@@ -141,6 +142,12 @@ app.post("/upload", async (c) => {
         );
       }
 
+      const cachesToClear: string[] = [];
+      if (key.includes("/ship/banner/")) cachesToClear.push("cache:ship-banner-map");
+      if (key.includes("/ship/card/")) cachesToClear.push("cache:ship-card-map");
+      if (key.includes("/ship/reward_icon/")) cachesToClear.push("cache:ship-icon-map");
+      if (key.includes("/slot/card/") || key.includes("/slot/item_on/") || key.includes("/slot/item_up/")) cachesToClear.push("cache:equip-image-map");
+
       return {
         tokenPayload: {
           key,
@@ -148,6 +155,7 @@ app.post("/upload", async (c) => {
           declared_size: declaredSize,
           file_name: fileName,
           content_hash: contentHash,
+          caches_to_clear: JSON.stringify(cachesToClear),
         },
         fields: {
           key,
@@ -226,6 +234,21 @@ app.post("/upload", async (c) => {
         )
         .run();
 
+      await bumpAssetIndexRevision(db, uploadedAt);
+
+      const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+      if (kv && typeof tokenPayload.caches_to_clear === "string") {
+        try {
+          const cachesToClear = JSON.parse(tokenPayload.caches_to_clear) as string[];
+          for (const cacheKey of cachesToClear) {
+            await kv.delete(cacheKey);
+            console.info(`[asset-sync] Cleared KV cache: ${cacheKey}`);
+          }
+        } catch (kvErr) {
+          console.warn("[asset-sync] Failed to clear KV caches:", kvErr);
+        }
+      }
+
       return {
         response: { key, size: storedSize },
       };
@@ -254,9 +277,14 @@ app.get("/keys", async (c) => {
 
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
 
   if (!db) {
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
+  }
+
+  if (!kv) {
+    return c.json({ error: "ASSET_SYNC_INDEX_KV is not configured" }, 503);
   }
 
   // Parse optional 'since' parameter for incremental sync
@@ -271,75 +299,17 @@ app.get("/keys", async (c) => {
   }
 
   try {
-    const keys: string[] = [];
-    const items: {
-      key: string;
-      contentHash: string | null;
-      size: number;
-      uploadedAt: number | null;
-    }[] = [];
-    let cursor = 0;
-    const BATCH_SIZE = 1000;
-
-    while (true) {
-      // Use conditional query based on whether 'since' is provided
-      let stmt: D1PreparedStatement;
-      if (sinceMs) {
-        stmt = db
-          .prepare(
-            "SELECT key, content_hash, size, uploaded_at FROM files WHERE uploaded_at > ? ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
-          )
-          .bind(sinceMs, BATCH_SIZE, cursor);
-      } else {
-        stmt = db
-          .prepare(
-            "SELECT key, content_hash, size, uploaded_at FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
-          )
-          .bind(BATCH_SIZE, cursor);
-      }
-
-      const res = await stmt.all?.();
-      const batch = (res?.results || []) as Array<{
-        key?: unknown;
-        content_hash?: unknown;
-        size?: unknown;
-        uploaded_at?: unknown;
-      }>;
-
-      const filtered = batch.filter((r) => typeof r.key === "string");
-      for (const r of filtered) {
-        const key = r.key as string;
-        keys.push(key);
-        items.push({
-          key,
-          contentHash:
-            typeof r.content_hash === "string" ? r.content_hash : null,
-          size: typeof r.size === "number" ? r.size : 0,
-          uploadedAt: typeof r.uploaded_at === "number" ? r.uploaded_at : null,
-        });
-      }
-
-      if (batch.length === 0) break;
-      cursor += batch.length;
-      if (batch.length < BATCH_SIZE) break;
-    }
-
-    const refreshedAt = Date.now();
-    const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
+    const payload = await getAssetSyncKeysResponse({
+      db,
+      kv,
+      sinceMs,
+    });
 
     console.log(
-      `GET /keys: returning ${items.length} items (incremental=${!!sinceMs})`,
+      `GET /keys: returning ${payload.items.length} items (incremental=${payload.incremental}, cached=${payload.cached}, degraded=${payload.degraded === true})`,
     );
 
-    return c.json({
-      keys,
-      items,
-      total: items.length,
-      refreshedAt: new Date(refreshedAt).toISOString(),
-      cacheExpiresAt: new Date(expiresAt).toISOString(),
-      cached: false,
-      incremental: !!sinceMs, // Indicates whether this is a partial or full sync
-    });
+    return c.json(payload);
   } catch (e) {
     console.error("GET /keys: error", e);
     return c.json({ error: "Failed to list assets" }, 502);
@@ -413,7 +383,28 @@ app.get("/ship-banner-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-banner-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -461,11 +452,17 @@ app.get("/ship-banner-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+    const resultObj = { base_url: assetBaseUrl, banners };
 
-    return c.json({ base_url: assetBaseUrl, banners }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-banner-map", JSON.stringify({ banners }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -485,7 +482,28 @@ app.get("/ship-card-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-card-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -530,11 +548,17 @@ app.get("/ship-card-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+    const resultObj = { base_url: assetBaseUrl, cards };
 
-    return c.json({ base_url: assetBaseUrl, cards }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-card-map", JSON.stringify({ cards }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -554,7 +578,28 @@ app.get("/ship-icon-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
   const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:ship-icon-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db && !bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -598,11 +643,17 @@ app.get("/ship-icon-map", async (c) => {
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+    const resultObj = { base_url: assetBaseUrl, icons };
 
-    return c.json({ base_url: assetBaseUrl, icons }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:ship-icon-map", JSON.stringify({ icons }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -615,13 +666,34 @@ app.get("/ship-icon-map", async (c) => {
 /**
  * GET /equip-image-map - Bulk mapping of equipment IDs to R2 keys
  *
- * Returns { base_url, card: { [equipId]: r2Key }, item_up: { [equipId]: r2Key } }
+ * Returns { base_url, card: { [equipId]: r2Key }, item_on: { [equipId]: r2Key }, item_up: { [equipId]: r2Key } }
  * so the client can build CDN URLs for equipment images.
  */
 app.get("/equip-image-map", async (c) => {
   const envCtx = createEnvContext(c);
   const db = envCtx.runtime.ASSET_INDEX_DB;
+  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
+
+  const cacheControl = envCtx.isDev
+    ? "public, max-age=600, stale-while-revalidate=3600"
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
+
+  if (kv) {
+    try {
+      const cached = await kv.get("cache:equip-image-map");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        parsed.base_url = assetBaseUrl;
+        return c.json(parsed, 200, {
+          "Cache-Control": cacheControl,
+          ...CORS_HEADERS,
+        });
+      }
+    } catch (e) {
+      console.warn("[asset-sync] KV get error:", e);
+    }
+  }
 
   if (!db) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -629,30 +701,37 @@ app.get("/equip-image-map", async (c) => {
 
   try {
     const card: Record<string, string> = {};
+    const itemOn: Record<string, string> = {};
     const itemUp: Record<string, string> = {};
 
     const rows = await db
       .prepare(
-        "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/slot/card/%' OR key LIKE 'assets/kcs2/resources/slot/item_up/%'",
+        "SELECT key FROM files WHERE key LIKE 'assets/kcs2/resources/slot/card/%' OR key LIKE 'assets/kcs2/resources/slot/item_on/%' OR key LIKE 'assets/kcs2/resources/slot/item_up/%'",
       )
       .all();
 
     if (rows.results) {
       for (const row of rows.results as { key: string }[]) {
-        const match = row.key.match(/\/slot\/(card|item_up)\/(\d{4})_/);
+        const match = row.key.match(/\/slot\/(card|item_on|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
         const equipId = String(parseInt(padded, 10));
-        const target = type === "card" ? card : itemUp;
+        const target = type === "card" ? card : type === "item_on" ? itemOn : itemUp;
         if (!target[equipId]) target[equipId] = row.key;
       }
     }
 
-    const cacheControl = envCtx.isDev
-      ? "no-store"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+    const resultObj = { base_url: assetBaseUrl, card, item_on: itemOn, item_up: itemUp };
 
-    return c.json({ base_url: assetBaseUrl, card, item_up: itemUp }, 200, {
+    if (kv) {
+      try {
+        await kv.put("cache:equip-image-map", JSON.stringify({ card, item_on: itemOn, item_up: itemUp }), { expirationTtl: 86400 * 7 });
+      } catch (e) {
+        console.warn("[asset-sync] KV put error:", e);
+      }
+    }
+
+    return c.json(resultObj, 200, {
       "Cache-Control": cacheControl,
       ...CORS_HEADERS,
     });
@@ -662,7 +741,7 @@ app.get("/equip-image-map", async (c) => {
       err instanceof Error &&
       /no such table:\s*files/i.test(err.message)
     ) {
-      return c.json({ base_url: assetBaseUrl, card: {}, item_up: {} }, 200, {
+      return c.json({ base_url: assetBaseUrl, card: {}, item_on: {}, item_up: {} }, 200, {
         "Cache-Control": "no-store",
         ...CORS_HEADERS,
       });
@@ -749,7 +828,7 @@ app.get("/ship-banner/:shipId", async (c) => {
       headers: {
         "Content-Type": "image/png",
         "Content-Length": String(body.byteLength),
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
+        "Cache-Control": "public, max-age=2592000, stale-while-revalidate=2592000",
         ETag: etag,
         ...CORS_HEADERS,
       },
@@ -833,11 +912,16 @@ app.get("/ship-type-icons", async (c) => {
     return c.json({ error: "Asset storage not configured" }, 503);
   }
 
-  const r2Key = "assets/kcs2/img/organize/organize_ship.png";
+  const candidateKeys = [
+    "assets/kcs2/img/port/port_ships.png",
+    "assets/kcs2/img/organize/organize_ship.png",
+  ] as const;
 
   try {
     const ifNoneMatch = c.req.header("If-None-Match");
-    const r2Object = await bucket.get(r2Key);
+    const r2Object =
+      (await bucket.get(candidateKeys[0])) ??
+      (await bucket.get(candidateKeys[1]));
 
     if (!r2Object) {
       if (envCtx.isDev) {
@@ -912,7 +996,7 @@ app.get("/weapon-icon-frames", async (c) => {
 
     const cacheControl = envCtx.isDev
       ? "public, max-age=600, stale-while-revalidate=3600"
-      : "public, max-age=86400, stale-while-revalidate=604800";
+      : "public, max-age=2592000, stale-while-revalidate=2592000";
 
     // Always return plain JSON. Some clients do not transparently decode
     // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
@@ -958,8 +1042,13 @@ app.get("/ship-type-icon-frames", async (c) => {
   }
 
   try {
-    const jsonKey = "assets/kcs2/img/organize/organize_ship.json";
-    const r2Object = await bucket.get(jsonKey);
+    const candidateKeys = [
+      "assets/kcs2/img/port/port_ships.json",
+      "assets/kcs2/img/organize/organize_ship.json",
+    ] as const;
+    const r2Object =
+      (await bucket.get(candidateKeys[0])) ??
+      (await bucket.get(candidateKeys[1]));
     if (!r2Object) {
       if (envCtx.isDev) {
         return c.json({ frames: {}, meta: { size: { w: 0, h: 0 } } }, 200, {
@@ -971,17 +1060,13 @@ app.get("/ship-type-icon-frames", async (c) => {
     }
 
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
-    let decodedJson: string;
-    const isBrotli =
-      atlasRaw.length > 2 && atlasRaw[0] === 0x8b && atlasRaw[1] === 0x10;
-    if (isBrotli) {
-      const ds = new DecompressionStream(BROTLI_DECOMPRESSION_FORMAT);
-      const decompressed = new Response(
-        new Blob([atlasRaw]).stream().pipeThrough(ds),
-      );
-      decodedJson = await decompressed.text();
-    } else {
-      decodedJson = new TextDecoder().decode(atlasRaw);
+    let decodedJson = new TextDecoder().decode(atlasRaw);
+    try {
+      JSON.parse(decodedJson);
+    } catch {
+      const decompressed = await brotliDecompressAsync(atlasRaw);
+      decodedJson = decompressed.toString("utf8");
+      JSON.parse(decodedJson);
     }
 
     return new Response(decodedJson, {
@@ -1046,7 +1131,7 @@ app.get("/image-proxy", async (c) => {
 
   const cacheControl = envCtx.isDev
     ? "no-store"
-    : "public, max-age=86400, stale-while-revalidate=604800";
+    : "public, max-age=2592000, stale-while-revalidate=2592000";
 
   // ── R2 direct access (primary path on Cloudflare Workers) ────────────────
   // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.

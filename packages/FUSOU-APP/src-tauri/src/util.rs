@@ -10,7 +10,7 @@ use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
 use kc_api::interface::deck_port::Basic;
 use tauri::Manager;
-use fusou_auth::types;
+use fusou_auth::DeviceKey;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -18,8 +18,7 @@ use crate::ROAMING_DIR;
 /// Anonymous-only mode: social session state is permanently disabled.
 /// Deprecated: Environment-scoped ID cache (ENV_UNIQ_ID). Do not use for user identification.
 ///
-/// Use [`get_user_member_id()`] instead for a user-scoped, salted SHA-256 identifier
-/// that enables secure cross-device data consolidation.
+/// Use [`get_user_member_id()`] instead for the game-provided `api_member_id`.
 #[allow(deprecated)]
 #[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
@@ -83,9 +82,8 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
 
 /// Deprecated: Returns an environment-scoped ID (ENV_UNIQ_ID). Do not use for user identification.
 ///
-/// Use [`get_user_member_id()`] instead. It uses the server-provided user ID
-/// hashed with a fixed salt (SHA-256), enabling cross-device data consolidation
-/// and meeting security requirements.
+/// Use [`get_user_member_id()`] instead. It returns the game-provided `api_member_id`
+/// and user ownership is verified by the v2 anonymous-sync protocol (device key + challenge).
 ///
 /// Tracking issue: <https://github.com/tsukasa-u/FUSOU/issues/TBD>
 #[allow(dead_code)]
@@ -128,9 +126,25 @@ pub async fn get_user_member_id() -> String {
     basic.member_id
 }
 
+/// Non-sensitive local fallback identity used only when dataset_id is unavailable.
+/// This value is environment-scoped (per app install), not account-scoped.
+pub async fn get_local_fallback_id() -> String {
+    #[allow(deprecated)]
+    {
+        get_user_env_id().await
+    }
+}
+
+async fn load_or_create_device_key() -> Result<DeviceKey, String> {
+    let path = get_ROAMING_DIR().join("fusou-auth-device-key.json");
+    DeviceKey::load_or_create(path)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Check if the local session and dataset_token are still usable.
-/// Returns false if session is missing/expired or dataset_token is missing/expired.
-async fn check_session_usable(app: &tauri::AppHandle, member_id_hash: &str) -> bool {
+/// Returns false if no non-expired dataset_token exists.
+async fn check_session_usable(app: &tauri::AppHandle) -> bool {
     let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
     let Some(auth_manager_state) = auth_manager_state else {
         return false;
@@ -139,14 +153,11 @@ async fn check_session_usable(app: &tauri::AppHandle, member_id_hash: &str) -> b
         auth_manager_state.lock().unwrap().clone()
     };
 
-    // Check session: try to get access token (refreshes if needed)
-    let session_ok = auth_manager.get_access_token().await.is_ok();
-    if !session_ok {
+    let Some(dataset_id) = auth_manager.resolve_dataset_id_for_upload(None).await else {
         return false;
-    }
+    };
 
-    // Check dataset_token: must exist and not be expired (within 1 day margin)
-    match auth_manager.load_dataset_token_for_dataset(member_id_hash).await {
+    match auth_manager.load_dataset_token_for_dataset(&dataset_id).await {
         Ok(Some(token)) => {
             let one_day = chrono::Duration::days(1);
             token.expires_at > chrono::Utc::now() + one_day
@@ -162,9 +173,9 @@ async fn check_session_usable(app: &tauri::AppHandle, member_id_hash: &str) -> b
 /// across multiple device launches of the same app instance.
 /// If the existing session is expired or missing, the flag is ignored and re-auth is allowed.
 pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
-    // member_id_hashを取得
-    let member_id_hash = get_user_member_id().await;
-    if member_id_hash.is_empty() {
+    // api_member_id を取得
+    let api_member_id = get_user_member_id().await;
+    if api_member_id.is_empty() {
         tracing::warn!("member_id is empty, skipping anonymous auth");
         return;
     }
@@ -172,27 +183,31 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     // Load persisted flag from disk (multi-device consistency)
     let (disk_attempted, disk_last_member_id) = load_auth_attempt_flag();
 
-    // Check if already attempted for THIS member_id_hash
+    // Check if already attempted for THIS api_member_id
     // If member_id changed (game switch), reset flag and allow retry
     let last_member_id = {
         let guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
         guard.clone().or(disk_last_member_id)
     };
+    let member_id_changed = last_member_id
+        .as_deref()
+        .map(|last| last != api_member_id)
+        .unwrap_or(false);
 
     // Use disk state for first check (multi-device consistency)
     if disk_attempted {
         if let Some(last_id) = last_member_id.clone() {
-            if last_id == member_id_hash {
-                // Flag says already attempted for this member_id, but verify the session is
-                // actually usable. If the session is expired or missing, allow re-auth.
-                let session_still_valid = check_session_usable(app, &member_id_hash).await;
+            if last_id == api_member_id {
+                // Flag says already attempted for this member_id, but verify the dataset_token is
+                // actually usable. If token is expired or missing, allow re-auth.
+                let session_still_valid = check_session_usable(app).await;
                 if session_still_valid {
-                    tracing::debug!("anonymous auth already attempted for this member_id_hash (from disk) and session is valid, skipping");
+                    tracing::debug!("anonymous auth already attempted for this member_id (from disk) and token is valid, skipping");
                     return;
                 }
                 tracing::info!("session expired or missing despite auth flag; allowing re-auth");
                 ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-                save_auth_attempt_flag(false, &Some(member_id_hash.clone()));
+                save_auth_attempt_flag(false, &Some(api_member_id.clone()));
             } else {
                 tracing::info!("member_id changed, resetting anonymous auth flag for new game");
                 ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
@@ -208,7 +223,7 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     // Mark as attempted (will update member_id if successful)
     if ANONYMOUS_AUTH_ATTEMPTED.swap(true, Ordering::SeqCst) {
-        tracing::debug!("anonymous auth already in progress for this member_id_hash, skipping");
+        tracing::debug!("anonymous auth already in progress for this member_id, skipping");
         return;
     }
 
@@ -231,44 +246,56 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         manager.clone()
     };
 
-    // 匿名認証を実行してセッションとdataset_tokenを取得
-    match auth_manager_clone.get_or_refresh_anonymous_session(&member_id_hash).await {
-        Ok((anon_session_opt, dataset_token_str)) => {
+    if member_id_changed {
+        tracing::info!("member_id changed; clearing cached dataset tokens before v2 auth");
+        if let Err(e) = auth_manager_clone.clear_dataset_tokens().await {
+            tracing::warn!("failed to clear cached dataset tokens on member switch: {}", e);
+        }
+    }
+
+    let mut device_key = match load_or_create_device_key().await {
+        Ok(k) => k,
+        Err(e) => {
+            tracing::error!("Failed to load/create device key: {}", e);
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
+            return;
+        }
+    };
+
+    // 既存 token があれば refresh 判定に利用する。
+    let current_token = if member_id_changed {
+        None
+    } else if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
+        auth_manager_clone
+            .load_dataset_token_for_dataset(&dataset_id)
+            .await
+            .ok()
+            .flatten()
+    } else {
+        None
+    };
+
+    // 匿名認証 v2 を実行して dataset_token を取得
+    match auth_manager_clone
+        .ensure_dataset_token_v2(&api_member_id, &mut device_key, current_token.as_ref())
+        .await
+    {
+        Ok(dataset_token) => {
             tracing::info!("Anonymous authentication successful");
-            
-            // Anonymous-only mode: always persist anonymous session if returned.
-            if let Some(anon_session) = anon_session_opt {
-                if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
-                    tracing::error!("Failed to save anonymous session: {}", e);
-                    ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-                    save_auth_attempt_flag(false, &None);
-                    return;
-                }
-            } else {
-                tracing::info!(
-                    "Anonymous auth completed without session tokens (likely existing mapping on another device); dataset_token-only mode"
-                );
-            }
 
             {
                 let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-                *guard = Some(member_id_hash.clone());
+                *guard = Some(api_member_id.clone());
             }
             
             // Persist flag to disk for multi-device consistency
-            save_auth_attempt_flag(true, &Some(member_id_hash.clone()));
-            
-            // dataset_tokenを保存（7日間有効期限）
-            let dataset_token = types::DatasetToken {
-                token: dataset_token_str,
-                expires_at: chrono::Utc::now() + chrono::Duration::days(7),
-                dataset_id: Some(member_id_hash.clone()),
-            };
+            save_auth_attempt_flag(true, &Some(api_member_id.clone()));
             
             if let Err(e) = auth_manager_clone.save_dataset_token(&dataset_token).await {
                 tracing::error!("Failed to save dataset_token: {}", e);
             } else {
-                tracing::info!("dataset_token obtained and stored (expires in 7 days)");
+                tracing::info!("dataset_token obtained and stored");
             }
         }
         Err(e) => {

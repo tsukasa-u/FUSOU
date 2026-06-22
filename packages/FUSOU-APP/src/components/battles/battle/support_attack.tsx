@@ -335,10 +335,25 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     const e_fly = support_airatack.e_sprite_fly_count;
     const f_crash = support_airatack.f_sprite_crash_count;
     const e_crash = support_airatack.e_sprite_crash_count;
+    const f_damage = support_airatack.f_sprite_damage_count;
+    const e_damage = support_airatack.e_sprite_damage_count;
+    const f_non_normal = support_airatack.f_sprite_non_normal_count ?? "?";
+    const e_non_normal = support_airatack.e_sprite_non_normal_count ?? "?";
 
     return (
-      <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash ?? "?"}/{e_crash ?? "?"}
+      <div class="pl-2 text-xs font-mono">
+        <div>Sprite Motion (F / E)</div>
+        <div>Fly: {f_fly ?? "?"} / {e_fly ?? "?"}</div>
+        <div>Crash: {f_crash ?? "?"} / {e_crash ?? "?"}</div>
+        <div>Damage: {f_damage ?? "?"} / {e_damage ?? "?"}</div>
+        <div>Non-Normal (Unique): {f_non_normal} / {e_non_normal}</div>
+        <div>
+          Loss Plane (S1+S2):
+          {" "}
+          {support_airatack.f_damage.loss_plane1}+{support_airatack.f_damage.loss_plane2}
+          {" / "}
+          {support_airatack.e_damage.loss_plane1}+{support_airatack.e_damage.loss_plane2}
+        </div>
       </div>
     );
   };

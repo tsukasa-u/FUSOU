@@ -4,6 +4,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -11,7 +12,16 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
 } from "../utils";
+import {
+  getLatestMasterPeriodTag,
+  isValidPeriodTagDate,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
+
+const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
+
 const app = new Hono<{ Bindings: Bindings }>();
 interface SlotEntry {
   slotitem_id: number;
@@ -72,14 +82,17 @@ function validateSokuSpeedIngestBody(
   if (eventType !== "snapshot") {
     return { ok: false, error: 'event_type must be "snapshot"' };
   }
-  if (
-    !body.period_tag ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(String(body.period_tag))
-  ) {
+  if (!body.period_tag || !isValidPeriodTagDate(String(body.period_tag))) {
     return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
   }
   if (!body.table_version) {
     return { ok: false, error: "table_version is required" };
+  }
+  if (!/^\d+\.\d+$/.test(String(body.table_version))) {
+    return {
+      ok: false,
+      error: "table_version must be in MAJOR.MINOR format (e.g. '0.5')",
+    };
   }
   if (!Array.isArray(body.ships) || body.ships.length === 0) {
     return {
@@ -96,12 +109,28 @@ function validateSokuSpeedIngestBody(
     ) {
       return { ok: false, error: `ships[${index}] has invalid numeric fields` };
     }
+    if (![5, 10, 15, 20].includes(s.soku_observed as number)) {
+      return {
+        ok: false,
+        error: `ships[${index}].soku_observed must be one of 5, 10, 15, 20`,
+      };
+    }
+    if ((s.master_id as number) <= 0) {
+      return { ok: false, error: `ships[${index}].master_id must be > 0` };
+    }
+    if ((s.lv as number) < 1 || (s.lv as number) > 300) {
+      return {
+        ok: false,
+        error: `ships[${index}].lv must be between 1 and 300`,
+      };
+    }
     if (
       !Array.isArray(s.slots) ||
       (s.slots as unknown[]).some((slot) => {
         const sl = slot as Record<string, unknown>;
         return (
           !isValidInt(sl.slotitem_id) ||
+          (sl.slotitem_id as number) <= 0 ||
           typeof sl.locked !== "boolean" ||
           !isValidInt(sl.level) ||
           !isValidInt(sl.alv)
@@ -110,19 +139,34 @@ function validateSokuSpeedIngestBody(
     ) {
       return { ok: false, error: `ships[${index}].slots has invalid fields` };
     }
+    if (s.exslot !== undefined && s.exslot !== null) {
+      const ex = s.exslot as Record<string, unknown>;
+      if (
+        !isValidInt(ex.slotitem_id) ||
+        (ex.slotitem_id as number) <= 0 ||
+        typeof ex.locked !== "boolean" ||
+        !isValidInt(ex.level) ||
+        !isValidInt(ex.alv)
+      ) {
+        return {
+          ok: false,
+          error: `ships[${index}].exslot has invalid fields`,
+        };
+      }
+    }
+    // At least one slot must be present (speed synergy requires equipment).
+    const hasSlots = (s.slots as unknown[]).length > 0;
+    const hasExslot = s.exslot !== undefined && s.exslot !== null;
+    if (!hasSlots && !hasExslot) {
+      return {
+        ok: false,
+        error: `ships[${index}] has no slots or exslot (speed synergy requires at least one item)`,
+      };
+    }
   }
   return { ok: true, datasetId, requestId, eventType };
 }
-async function resolveLatestMasterPeriod(
-  masterDb: D1Database,
-): Promise<{ period_tag: string; table_version: string } | null> {
-  const latest = (await masterDb
-    .prepare(
-      `SELECT period_tag, table_version       FROM master_data_index       WHERE upload_status = 'completed'       ORDER BY completed_at DESC, period_revision DESC       LIMIT 1`,
-    )
-    .first()) as { period_tag: string; table_version: string } | null;
-  return latest;
-}
+
 app.post("/ingest", async (c) => {
   const db = c.env.SOKU_SPEED_OBSERVED_DB;
   if (!db)
@@ -130,10 +174,32 @@ app.post("/ingest", async (c) => {
   const masterDb = c.env.MASTER_DATA_INDEX_DB;
   if (!masterDb)
     return c.json({ error: "MASTER_DATA_INDEX_DB not configured" }, 503);
+  // kill switch
   const env = createEnvContext(c);
-  const signingSecret = getEnv(env, "SHIP_GROWTH_SIGNING_SECRET");
+  let collectionEnabled = false;
+  try {
+    collectionEnabled = parseStrictBoolean(
+      getEnv(env, SOKU_SPEED_COLLECTION_SWITCH_ENV),
+      SOKU_SPEED_COLLECTION_SWITCH_ENV,
+    );
+  } catch (err) {
+    return c.json(
+      {
+        error:
+          err instanceof Error
+            ? err.message
+            : `${SOKU_SPEED_COLLECTION_SWITCH_ENV} is invalid`,
+      },
+      500,
+    );
+  }
+  if (!collectionEnabled) {
+    return c.json({ error: "Soku speed collection is disabled" }, 503);
+  }
+
+  const signingSecret = getEnv(env, "SOKU_SPEED_SIGNING_SECRET");
   if (!signingSecret) {
-    return c.json({ error: "SHIP_GROWTH_SIGNING_SECRET is required" }, 500);
+    return c.json({ error: "SOKU_SPEED_SIGNING_SECRET is required" }, 500);
   }
   const uploadToken = c.req.header("X-Upload-Token");
   if (!uploadToken) {
@@ -151,10 +217,23 @@ app.post("/ingest", async (c) => {
     const validated = validateSokuSpeedIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const bodyPeriodTag = String(handshakeBody?.period_tag ?? "").trim();
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      bodyPeriodTag,
+      {
+        cacheKV: c.env.DATA_LOADER_CACHE_KV,
+      },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
     const bodyTableVersion = String(handshakeBody?.table_version ?? "").trim();
-    const latestMaster = await resolveLatestMasterPeriod(masterDb);
+    const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
     if (!latestMaster) {
-      return c.json({ error: "No completed master data period found" }, 503);
+      return c.json({ error: "No master data available" }, 404);
     }
     if (
       latestMaster.period_tag !== bodyPeriodTag ||
@@ -291,9 +370,18 @@ app.post("/ingest", async (c) => {
     period_tag: string;
     table_version: string;
   };
-  const latestMaster = await resolveLatestMasterPeriod(masterDb);
+  const periodTagValidation = await validateCachedPeriodTag(c, period_tag, {
+    cacheKV: c.env.DATA_LOADER_CACHE_KV,
+  });
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
+  const latestMaster = await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV);
   if (!latestMaster) {
-    return c.json({ error: "No completed master data period found" }, 503);
+    return c.json({ error: "No master data available" }, 404);
   }
   if (
     latestMaster.period_tag !== period_tag ||
@@ -346,11 +434,13 @@ app.post("/ingest", async (c) => {
   );
   for (const ship of ships) {
     const slotsJson = JSON.stringify(ship.slots);
-    const exslotJson = ship.exslot ? JSON.stringify(ship.exslot) : null;
+    // Use empty string (not null) for no exslot so it can participate in the PRIMARY KEY.
+    // Migration 0005 changed exslot_json to NOT NULL DEFAULT '' for this reason.
+    const exslotJson = ship.exslot ? JSON.stringify(ship.exslot) : "";
     stmts.push(
       db
         .prepare(
-          `INSERT INTO soku_speed_observations           (period_tag, master_id, lv, soku_observed, slots_json, exslot_json, table_version, updated_at)         VALUES (?, ?, ?, ?, ?, ?, ?, ?)         ON CONFLICT(period_tag, table_version, master_id, slots_json) DO UPDATE SET           soku_observed = excluded.soku_observed,           lv = excluded.lv,           exslot_json = excluded.exslot_json,           updated_at = excluded.updated_at`,
+          `INSERT INTO soku_speed_observations           (period_tag, master_id, lv, soku_observed, slots_json, exslot_json, table_version, updated_at)         VALUES (?, ?, ?, ?, ?, ?, ?, ?)         ON CONFLICT(period_tag, table_version, master_id, slots_json, exslot_json) DO UPDATE SET           soku_observed = MAX(soku_speed_observations.soku_observed, excluded.soku_observed),           lv = excluded.lv,           updated_at = excluded.updated_at`,
         )
         .bind(
           period_tag,
@@ -368,6 +458,93 @@ app.post("/ingest", async (c) => {
   try {
     for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
       await db.batch(stmts.slice(i, i + BATCH_SIZE));
+    }
+
+    // Invalidate and pre-warm KV cache since D1 data changed
+    const cacheKV = c.env.DATA_LOADER_CACHE_KV;
+    if (cacheKV) {
+      const cacheKey = `soku-speed-upgrade:v1:${period_tag}:${table_version}`;
+      const prewarmTask = (async () => {
+        try {
+          await cacheKV.delete(cacheKey);
+          const result = await db
+            .prepare(
+              `SELECT master_id, soku_observed, slots_json, exslot_json FROM soku_speed_observations WHERE period_tag = ? AND table_version = ?`
+              )
+              .bind(period_tag, table_version)
+              .all();
+            const rows = (result.results ?? []) as {
+              master_id: number;
+              soku_observed: number;
+              slots_json: string;
+              exslot_json: string | null;
+            }[];
+            const byMaster = new Map<
+              number,
+              Map<string, { soku_observed: number; item_ids: number[] }>
+            >();
+            for (const row of rows) {
+              let slots: Array<{ slotitem_id: number }>;
+              try {
+                slots = JSON.parse(row.slots_json) as Array<{
+                  slotitem_id: number;
+                }>;
+              } catch {
+                continue;
+              }
+              const itemIds: number[] = [];
+              for (const s of slots) {
+                if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
+              }
+              if (row.exslot_json) {
+                try {
+                  const ex = JSON.parse(row.exslot_json) as {
+                    slotitem_id: number;
+                  } | null;
+                  if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+                } catch {
+                  /* skip malformed */
+                }
+              }
+              itemIds.sort((a, b) => a - b);
+              if (!byMaster.has(row.master_id))
+                byMaster.set(row.master_id, new Map());
+              const comboKey = itemIds.join(",");
+              const masterMap = byMaster.get(row.master_id)!;
+              const existing = masterMap.get(comboKey);
+              if (!existing) {
+                masterMap.set(comboKey, {
+                  soku_observed: row.soku_observed,
+                  item_ids: itemIds,
+                });
+              } else {
+                existing.soku_observed = Math.max(
+                  existing.soku_observed,
+                  row.soku_observed,
+                );
+              }
+            }
+            const data: Record<
+              number,
+              { soku_observed: number; item_ids: number[] }[]
+            > = {};
+            for (const [masterId, comboMap] of byMaster) {
+              data[masterId] = Array.from(comboMap.values());
+            }
+            const responseString = JSON.stringify({
+              ok: true,
+              period_tag: period_tag,
+              table_version: table_version,
+              data,
+            });
+            await cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 });
+            await cacheKV.put(`soku-speed-upgrade:v1:latest`, responseString, { expirationTtl: 86400 * 30 });
+          } catch (e) {
+            console.error("[soku-speed] pre-warm error:", e);
+          }
+      })();
+
+      safeWaitUntil(c, prewarmTask);
     }
   } catch (error) {
     return c.json(
@@ -403,16 +580,37 @@ app.get("/speed-upgrade", async (c) => {
   };
   let periodTag = requestedPeriodTag;
   let tableVersion = requestedTableVersion;
+  const cacheKV = c.env.DATA_LOADER_CACHE_KV;
+
   if (!periodTag || !tableVersion) {
+    if (cacheKV) {
+      try {
+        const cachedString = await cacheKV.get("soku-speed-upgrade:v1:latest", "text");
+        if (cachedString) {
+          const response = new Response(cachedString, {
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+              "X-FUSOU-Cache": "HIT",
+            }
+          });
+          return response;
+        }
+      } catch (e) {
+        console.warn("[soku-speed] KV latest cache read error:", e);
+      }
+    }
+
     try {
       const masterDb = c.env.MASTER_DATA_INDEX_DB;
       const latest = masterDb
-        ? await resolveLatestMasterPeriod(masterDb)
-        : ((await db
+        ? (await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)) ??
+          ((await db
             .prepare(
               `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
             )
-            .first()) as { period_tag: string; table_version: string } | null);
+            .first()) as { period_tag: string; table_version: string } | null)
+        : null;
       if (!latest) {
         const empty = c.json({
           ok: true,
@@ -433,6 +631,28 @@ app.get("/speed-upgrade", async (c) => {
       return c.json({ error: "Failed to resolve speed upgrade period" }, 500);
     }
   }
+
+  type AggEntry = { soku_observed: number; item_ids: number[] };
+
+  const cacheKey = `soku-speed-upgrade:v1:${periodTag}:${tableVersion}`;
+
+  if (cacheKV) {
+    try {
+      const cachedString = await cacheKV.get(cacheKey, "text");
+      if (cachedString) {
+        const response = new Response(cachedString, {
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            "X-FUSOU-Cache": "HIT",
+          }
+        });
+        return response;
+      }
+    } catch (e) {
+      console.warn("[soku-speed] KV cache read error:", e);
+    }
+  }
   let rows: ObsRow[];
   try {
     const result = await db
@@ -443,13 +663,42 @@ app.get("/speed-upgrade", async (c) => {
       .all();
     rows = (result.results ?? []) as ObsRow[];
   } catch (err) {
+    const message = [
+      String(err),
+      typeof err === "object" && err !== null && "message" in err
+        ? String((err as { message?: unknown }).message)
+        : "",
+      typeof err === "object" &&
+      err !== null &&
+      "cause" in err &&
+      typeof (err as { cause?: unknown }).cause === "object" &&
+      (err as { cause?: unknown }).cause !== null &&
+      "message" in ((err as { cause?: { message?: unknown } }).cause ?? {})
+        ? String((err as { cause?: { message?: unknown } }).cause?.message)
+        : "",
+    ]
+      .join(" | ")
+      .toLowerCase();
+
+    if (message.includes("no such table: soku_speed_observations")) {
+      const empty = c.json({
+        ok: true,
+        period_tag: periodTag,
+        table_version: tableVersion,
+        data: {},
+      });
+      empty.headers.set(
+        "Cache-Control",
+        "public, max-age=60, stale-while-revalidate=300",
+      );
+      return empty;
+    }
     console.error(
       "[soku-speed] Failed to query speed-upgrade observations:",
       err,
     );
     return c.json({ error: "Failed to query speed upgrade observations" }, 500);
   }
-  type AggEntry = { soku_observed: number; item_ids: number[] };
   const byMaster = new Map<number, Map<string, AggEntry>>();
   for (const row of rows) {
     let slots: Array<{ slotitem_id: number }>;
@@ -493,16 +742,35 @@ app.get("/speed-upgrade", async (c) => {
   for (const [masterId, comboMap] of byMaster) {
     data[masterId] = Array.from(comboMap.values());
   }
-  const response = c.json({
+
+  const responseString = JSON.stringify({
     ok: true,
     period_tag: periodTag,
     table_version: tableVersion,
     data,
   });
-  response.headers.set(
-    "Cache-Control",
-    "public, max-age=3600, stale-while-revalidate=86400",
-  );
+
+  if (cacheKV) {
+    const writeTask = (async () => {
+      try {
+        await cacheKV.put(cacheKey, responseString, { expirationTtl: 86400 * 30 });
+        if (!requestedPeriodTag || !requestedTableVersion) {
+          await cacheKV.put("soku-speed-upgrade:v1:latest", responseString, { expirationTtl: 86400 * 30 });
+        }
+      } catch (e) {
+        console.error("[soku-speed] KV cache write error:", e);
+      }
+    })();
+    safeWaitUntil(c, writeTask);
+  }
+
+  const response = new Response(responseString, {
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+      "X-FUSOU-Cache": "MISS",
+    }
+  });
   return response;
 });
 export default app;

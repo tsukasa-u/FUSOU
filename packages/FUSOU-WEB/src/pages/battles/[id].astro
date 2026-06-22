@@ -1,55 +1,7 @@
 ---
-import PageLayout from "@/layouts/Layout.astro";
-import Navigation from "@/components/Navigation.astro";
-import BattleDetailPanel from "@/components/solid/battle-detail/BattleDetailPanel";
-
 export const prerender = false;
-
 const { id } = Astro.params;
+const queryParams = Astro.url.search;
+const newUrl = `/battles?tab=detail&detail_id=${id}${queryParams ? '&' + queryParams.substring(1) : ''}`;
+return Astro.redirect(newUrl);
 ---
-
-<PageLayout
-  title="FUSOU - Battle Detail"
-  description="戦闘詳細をフェーズ表示とタイムライン表示で確認し、現在の表示状態を共有できます。"
-  tutorial={{
-    id: "battles-detail",
-    title: "戦闘詳細ページの使い方",
-    summary: "フェーズ表示とタイムライン表示で戦闘の流れを確認できます。",
-    controls: [
-      {
-        label: "フェーズ",
-        sourceSelector: "#battle-view-mode-phase",
-        description: "攻撃艦→対象艦の詳細を段階ごとに表示します。",
-        tone: "outline",
-      },
-      {
-        label: "タイムライン",
-        sourceSelector: "#battle-view-mode-timeline",
-        description: "時系列で戦闘イベントを追跡表示します。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#battle-detail-share-url-btn",
-        description:
-          "現在の表示モードとタイムライン表示設定を含めた共有URLを発行します。同じ見え方で戦闘詳細を共有したいときに利用します。",
-        tone: "primary",
-      },
-      {
-        sourceSelector: "#tutorial-open-btn",
-        description: "この説明モーダルを再表示します。",
-        tone: "primary",
-      },
-    ],
-    steps: [
-      "「フェーズ / タイムライン」で表示形式を切り替えます。",
-      "フェーズ表示では攻撃艦→対象艦と結果ラベルを確認します。",
-      "タイムライン表示では時系列で与ダメ・被ダメの推移を追います。",
-      "共有URLを使うと、フェーズ表示かタイムライン表示かを含めた現在の閲覧状態をそのまま共有できます。",
-    ],
-  }}
->
-  <Navigation filled={true} />
-  <div class="pt-16 min-h-screen bg-base-200">
-    <BattleDetailPanel client:only="solid-js" battleId={id ?? ""} />
-  </div>
-</PageLayout>

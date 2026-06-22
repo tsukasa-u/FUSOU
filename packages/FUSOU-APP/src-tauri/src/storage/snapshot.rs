@@ -1,15 +1,14 @@
-use kc_api::interface::{ship, slot_item, use_items, deck_port};
+use crate::notify;
+use fusou_auth::{AuthManager, FileStorage};
+use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
 use kc_api::fleet_snapshot::fleet::FleetSnapshot;
+use kc_api::interface::{deck_port, ship, slot_item, use_items};
 use reqwest::Client;
 use serde_json::json;
-use tauri::AppHandle;
-use crate::notify;
-use uuid::Uuid;
-use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
+use tauri::AppHandle;
 use tauri::Manager;
-use fusou_upload::{PendingStore, UploadContext, Uploader, UploadRequest, UploadResult};
-use crate::auth::auth_server;
+use uuid::Uuid;
 
 fn get_payload_data() -> serde_json::Value {
     let use_items = use_items::UseItems::load();
@@ -30,7 +29,8 @@ fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
     use serde_json::{Map, Value};
     match value {
         Value::Object(map) => {
-            let mut btree: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+            let mut btree: std::collections::BTreeMap<String, Value> =
+                std::collections::BTreeMap::new();
             for (k, v) in map.iter() {
                 btree.insert(k.clone(), canonicalize_json(v));
             }
@@ -52,7 +52,7 @@ pub async fn perform_snapshot_sync_app(
     tracing::info!("Starting snapshot sync");
 
     let app_configs = configs::get_user_configs_for_app();
-    
+
     let snapshot_url = if let Some(explicit) = app_configs.asset_sync.get_snapshot_endpoint() {
         explicit
     } else {
@@ -76,8 +76,17 @@ pub async fn perform_snapshot_sync_app(
         "Prepared snapshot data"
     );
 
+    let manager = auth_manager
+        .lock()
+        .map_err(|e| format!("auth_manager lock poisoned: {e}"))?
+        .clone();
+
     // Build handshake request body via common helper (include dataset_id)
-    let dataset_id = crate::util::get_user_member_id().await;
+    let Some(dataset_id) = manager.resolve_dataset_id_for_upload(None).await else {
+        let msg = "dataset_id is not ready (no valid dataset_token)".to_string();
+        tracing::warn!("{}", msg);
+        return Err(msg);
+    };
     let handshake_body = fusou_upload::Uploader::build_snapshot_handshake("latest", &dataset_id);
 
     let mut headers = std::collections::HashMap::new();
@@ -94,11 +103,17 @@ pub async fn perform_snapshot_sync_app(
     };
 
     let client = Client::new();
-    let manager = auth_manager.lock().unwrap().clone();
     let pending_store = app.try_state::<Arc<PendingStore>>();
 
     tracing::info!(endpoint = %snapshot_url, "Starting snapshot upload via Uploader");
-    match Uploader::upload(&client, &manager, request, pending_store.as_deref().map(|s| s.as_ref())).await {
+    match Uploader::upload(
+        &client,
+        &manager,
+        request,
+        pending_store.as_deref().map(|s| s.as_ref()),
+    )
+    .await
+    {
         Ok(UploadResult::Success) => {
             tracing::info!("Snapshot upload successful");
             notify::show(app, "Snapshot sync", "Snapshot sync completed");
@@ -112,8 +127,11 @@ pub async fn perform_snapshot_sync_app(
         Err(e) => {
             // Check for authentication errors
             if e.contains("Authentication error") {
-                notify::show(app, "Sign-in Required", "Session expired. Please sign in again.");
-                let _ = auth_server::open_auth_page();
+                notify::show(
+                    app,
+                    "Sign-in Required",
+                    "Session expired. Please continue authentication from FUSOU-WEB.",
+                );
             } else {
                 notify::show(app, "Snapshot sync failed", &format!("Upload error: {}", e));
             }

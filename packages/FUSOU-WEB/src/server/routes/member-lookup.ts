@@ -10,7 +10,7 @@ import { Hono } from "hono";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { createEnvContext, resolveSupabaseConfig } from "@/server/utils";
+import { createEnvContext, resolveSupabaseConfig } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -61,7 +61,9 @@ app.post("/check-hash", async (c) => {
       );
     }
 
-    if (!/^[a-f0-9]{64}$/i.test(member_id_hash)) {
+    const normalizedMemberIdHash = member_id_hash.trim().toLowerCase();
+
+    if (!/^[a-f0-9]{64}$/.test(normalizedMemberIdHash)) {
       return jsonResponse(
         {
           error: "INVALID_FORMAT",
@@ -100,7 +102,7 @@ app.post("/check-hash", async (c) => {
       await supabaseAdmin
         .from("user_member_map")
         .select("user_id")
-        .eq("member_id_hash", member_id_hash)
+        .eq("member_id_hash", normalizedMemberIdHash)
         .maybeSingle();
 
     if (canonicalLinkError) {
@@ -154,23 +156,6 @@ app.post("/check-hash", async (c) => {
       500,
     );
   }
-});
-
-/**
- * POST /member-lookup/verify-ownership
- *
- * DEPRECATED: Social authentication is no longer supported.
- * This endpoint is disabled to maintain anonymous-only architecture.
- */
-app.post("/verify-ownership", async (c) => {
-  return jsonResponse(
-    {
-      error: "FEATURE_DISABLED",
-      message:
-        "Social authentication is no longer supported. Please use anonymous sign-in.",
-    },
-    410,
-  ); // 410 Gone
 });
 
 export default app;

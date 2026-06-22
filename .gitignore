@@ -85,8 +85,15 @@ packages/fusou-datasets/venv/
 
 packages/FUSOU-WEB/.seed-assets-tmp/
 
-packages/FUSOU-WEB/supabase/
+packages/FUSOU-WEB/supabase/*
+!packages/FUSOU-WEB/supabase/migrations/
+!packages/FUSOU-WEB/supabase/migrations/*.sql
+packages/FUSOU-WEB/supabase/.temp/
 
 packages/FUSOU-WEB/.seed-battle-tmp/
 /packages/FUSOU-APP/src-tauri/target-copilot-check-2
 /packages/FUSOU-WEB/.tmp
+/packages/fusou-storage/target_verify
+/packages/FUSOU-PROXY/proxy-https/target_verify
+
+packages/equip_synergy_detector/.wrangler/

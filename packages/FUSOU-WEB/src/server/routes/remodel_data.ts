@@ -4,6 +4,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -11,11 +12,17 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
+  safeGetExecutionCtx,
 } from "../utils";
 import {
   invalidateCanonicalSnapshots,
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
+import {
+  isValidPeriodTagDate,
+  validateCachedPeriodTag,
+} from "../utils/period-tags";
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
@@ -42,6 +49,13 @@ function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
   const s = v as Record<string, unknown>;
   return (
     Array.isArray(s.periods) &&
+    s.periods.every(
+      (p) =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as Record<string, unknown>).period_tag === "string" &&
+        typeof (p as Record<string, unknown>).table_version === "string",
+    ) &&
     typeof s.refreshed_at === "number" &&
     typeof s.db_synced_at === "number"
   );
@@ -57,18 +71,6 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function parseStrictBoolean(
-  value: string | undefined,
-  envKey: string,
-): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(
-    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
-  );
 }
 
 function isValidInt(v: unknown): v is number {
@@ -117,14 +119,7 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
   }
 
   const periodTag = String(body.period_tag ?? "").trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodTag)) {
-    return { ok: false, error: "period_tag must match YYYY-MM-DD format" };
-  }
-  const parsedDate = new Date(periodTag + "T00:00:00Z");
-  if (
-    isNaN(parsedDate.getTime()) ||
-    parsedDate.toISOString().slice(0, 10) !== periodTag
-  ) {
+  if (!isValidPeriodTagDate(periodTag)) {
     return { ok: false, error: "period_tag must be a valid calendar date" };
   }
 
@@ -256,24 +251,10 @@ async function invalidateRemodelCaches(
 }
 
 function scheduleRemodelTask(
-  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  c: any,
   task: Promise<unknown>,
 ): void {
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, task);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[remodel] ExecutionContext unavailable", err);
-    }
-  }
-
-  void task.catch((err) => {
-    console.warn("[remodel] async task failed", err);
-  });
+  safeWaitUntil(c, task);
 }
 
 // ── Public READ endpoint ───────────────────────────────────────────
@@ -479,6 +460,17 @@ app.post("/ingest", async (c) => {
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      String(handshakeBody?.period_tag ?? "").trim(),
+      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
 
     // Require dataset_token to prove ownership of dataset_id
     const datasetToken = resolveDatasetToken(
@@ -622,6 +614,17 @@ app.post("/ingest", async (c) => {
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
+  const periodTagValidation = await validateCachedPeriodTag(
+    c,
+    String(body.period_tag ?? "").trim(),
+    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+  );
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
 
   // Verify claims match payload
   if (
@@ -720,9 +723,16 @@ app.post("/ingest", async (c) => {
 
   scheduleRemodelTask(
     c,
-    invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-      "remodel:summary",
-    ]),
+    (async () => {
+      await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+        "remodel:summary",
+      ]);
+      try {
+        await app.request(`/summary`, {}, c.env, safeGetExecutionCtx(c));
+      } catch (err) {
+        console.warn("[remodel-data] Failed to pre-warm caches:", err);
+      }
+    })()
   );
 
   // Best-effort cache invalidation after successful ingest

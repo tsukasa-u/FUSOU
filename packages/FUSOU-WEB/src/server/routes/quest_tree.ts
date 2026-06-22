@@ -5,6 +5,7 @@ import {
   createEnvContext,
   generateSignedToken,
   getEnv,
+  parseStrictBoolean,
   resolveDatasetToken,
   timingSafeEqual,
   validateDatasetTokenSecret,
@@ -12,11 +13,14 @@ import {
   validateJWT,
   validateTokenPayload,
   verifySignedToken,
+  safeWaitUntil,
+  safeGetExecutionCtx,
 } from "../utils";
 import {
   invalidateCanonicalSnapshots,
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
+import { validateCachedPeriodTag } from "../utils/period-tags";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -148,24 +152,10 @@ async function invalidateQuestTreeCaches(
 }
 
 function scheduleQuestTreeTask(
-  c: { executionCtx?: { waitUntil?: (promise: Promise<unknown>) => void } },
+  c: any,
   task: Promise<unknown>,
 ): void {
-  try {
-    const waitUntil = c.executionCtx?.waitUntil;
-    if (typeof waitUntil === "function") {
-      waitUntil.call(c.executionCtx, task);
-      return;
-    }
-  } catch (err) {
-    if (!(err instanceof Error && /no executioncontext/i.test(err.message))) {
-      console.warn("[quest-tree] ExecutionContext unavailable", err);
-    }
-  }
-
-  void task.catch((err) => {
-    console.warn("[quest-tree] async task failed", err);
-  });
+  safeWaitUntil(c, task);
 }
 
 function toInt(value: unknown): number | null {
@@ -184,18 +174,6 @@ function toInt(value: unknown): number | null {
 function makeId(prefix: string): string {
   const random = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
   return `${prefix}-${Date.now()}-${random}`;
-}
-
-function parseStrictBoolean(
-  value: string | undefined,
-  envKey: string,
-): boolean {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (normalized === "true" || normalized === "1") return true;
-  if (normalized === "false" || normalized === "0") return false;
-  throw new Error(
-    `${envKey} must be explicitly set to one of: true, false, 1, 0`,
-  );
 }
 
 function isQuestTreeCollectionEnabled(
@@ -980,6 +958,17 @@ app.post("/ingest", async (c) => {
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
+    const periodTagValidation = await validateCachedPeriodTag(
+      c,
+      validated.periodTag,
+      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    );
+    if (!periodTagValidation.ok) {
+      return c.json(
+        { error: periodTagValidation.error },
+        periodTagValidation.status,
+      );
+    }
 
     // Require dataset_token to prove ownership of dataset_id
     const datasetToken = resolveDatasetToken(
@@ -1115,6 +1104,17 @@ app.post("/ingest", async (c) => {
   }
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
+  const periodTagValidation = await validateCachedPeriodTag(
+    c,
+    verified.periodTag,
+    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+  );
+  if (!periodTagValidation.ok) {
+    return c.json(
+      { error: periodTagValidation.error },
+      periodTagValidation.status,
+    );
+  }
 
   if (
     verified.datasetId !== String(tokenPayload.dataset_id) ||
@@ -1136,9 +1136,21 @@ app.post("/ingest", async (c) => {
     if (periodTag && tableVersion) {
       scheduleQuestTreeTask(
         c,
-        invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
-          `qtree:graph:${periodTag}:${tableVersion}`,
-        ]),
+        (async () => {
+          await invalidateCanonicalSnapshots(c.env.DATA_LOADER_CACHE_KV, [
+            `qtree:graph:${periodTag}:${tableVersion}`,
+          ]);
+          try {
+            await app.request(
+              `/graph?period_tag=${periodTag}&table_version=${tableVersion}`,
+              {},
+              c.env,
+              safeGetExecutionCtx(c),
+            );
+          } catch (err) {
+            console.warn("[quest-tree] Failed to pre-warm caches:", err);
+          }
+        })()
       );
     }
 

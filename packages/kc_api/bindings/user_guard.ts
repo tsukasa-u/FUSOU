@@ -78,3 +78,4 @@ export function implementsMidnightHougeki(
 ): arg is MidnightHougeki {
   return typeof arg === "object" && arg !== null && "MidnightHougeki" in arg;
 }
+

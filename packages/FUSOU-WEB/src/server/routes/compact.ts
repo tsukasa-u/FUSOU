@@ -125,8 +125,7 @@ app.post('/sanitize-state', async (c) => {
         error: String(queueError),
         errorMessage: (queueError as any)?.message,
       });
-      // Log failure but continue - will retry in next scheduled compaction
-      console.warn(`[compact-sanitize] Continuing despite queue failure`);
+      return c.json({ error: 'Failed to enqueue dataset for compaction. Please try again.' }, 500);
     }
 
     return c.json({

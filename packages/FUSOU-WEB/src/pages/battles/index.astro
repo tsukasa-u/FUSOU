@@ -1,9 +1,7 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
-import Navigation from "@/components/Navigation.astro";
-import BattlesListPanel from "@/components/solid/BattlesListPanel";
-import PageShell from "@/components/ui/PageShell.astro";
-import PageHeader from "@/components/ui/PageHeader.astro";
+import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import BattlesDashboard from "@/components/features/battles/solid/BattlesDashboard";
 
 export const prerender = false;
 ---
@@ -36,16 +34,6 @@ export const prerender = false;
         tone: "primary",
       },
       {
-        sourceSelector: "#battles-map-flow-link",
-        description: "進軍ルート表示ページへ移動します。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#battles-stats-link",
-        description: "統計ダッシュボードへ移動します。",
-        tone: "outline",
-      },
-      {
         sourceSelector: "#battles-detail-link",
         description: "選択した行の戦闘詳細ページへ移動します。",
         tone: "ghost",
@@ -59,30 +47,10 @@ export const prerender = false;
     steps: [
       "フィルタで期間・海域・勝敗を絞り込みます。",
       "行をクリックして戦闘詳細へ遷移します。",
-      "右上導線からマップ進行・統計に切り替えて分析します。",
+      "タブからマップ進行・統計に切り替えて分析します。",
     ],
   }}
 >
   <Navigation filled={true} />
-  <PageShell>
-    <PageHeader
-      title="戦闘データ"
-      subtitle="R2に保存された戦闘履歴を閲覧・分析"
-    >
-      <Fragment slot="actions">
-        <a
-          id="battles-map-flow-link"
-          href="/battles/map-flow"
-          class="fusou-btn-secondary">マップ進行</a
-        >
-        <a
-          id="battles-stats-link"
-          href="/battles/stats"
-          class="fusou-btn-secondary">統計</a
-        >
-      </Fragment>
-    </PageHeader>
-
-    <BattlesListPanel client:only="solid-js" />
-  </PageShell>
+  <BattlesDashboard client:only="solid-js" />
 </PageLayout>
