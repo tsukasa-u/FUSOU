@@ -632,8 +632,7 @@ export async function handleRead(
     );
   } catch (err) {
     console.error("Read error:", err);
-    const message = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error: message }), {
+    return new Response(JSON.stringify({ error: "Internal server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
