@@ -170,10 +170,10 @@ importers:
     dependencies:
       '@hono/zod-validator':
         specifier: ^0.5.0
-        version: 0.5.0(hono@4.12.9)(zod@3.25.76)
+        version: 0.5.0(hono@4.12.25)(zod@3.25.76)
       hono:
         specifier: '>=4.12.7'
-        version: 4.12.9
+        version: 4.12.25
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -231,7 +231,7 @@ importers:
         version: 0.11.0
       hono:
         specifier: '>=4.12.7'
-        version: 4.12.9
+        version: 4.12.25
       html-to-image:
         specifier: ^1.11.13
         version: 1.11.13
@@ -4232,8 +4232,8 @@ packages:
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
 
-  hono@4.12.9:
-    resolution: {integrity: sha512-wy3T8Zm2bsEvxKZM5w21VdHDDcwVS1yUFFY6i8UobSsKfFceT7TOwhbhfKsDyx7tYQlmRM5FLpIuYvNFyjctiA==}
+  hono@4.12.25:
+    resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@4.0.0:
@@ -7452,9 +7452,9 @@ snapshots:
 
   '@github/catalyst@1.7.0': {}
 
-  '@hono/zod-validator@0.5.0(hono@4.12.9)(zod@3.25.76)':
+  '@hono/zod-validator@0.5.0(hono@4.12.25)(zod@3.25.76)':
     dependencies:
-      hono: 4.12.9
+      hono: 4.12.25
       zod: 3.25.76
 
   '@humanfs/core@0.19.1': {}
@@ -10490,7 +10490,7 @@ snapshots:
       property-information: 7.1.0
       space-separated-tokens: 2.0.2
 
-  hono@4.12.9: {}
+  hono@4.12.25: {}
 
   html-encoding-sniffer@4.0.0:
     dependencies:
