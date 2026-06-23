@@ -1,7 +1,7 @@
 #[cfg(feature = "graphviz")]
 use dot_writer::{Attributes, Color, DotWriter, Node, NodeId, PortId, Scope, Shape, Style};
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::HashMap,
     fs::{self, File},
     io::Write,
     path::{self, PathBuf},
@@ -120,39 +120,121 @@ fn extract_serde_rename(attrs: &[syn::Attribute]) -> Option<String> {
     None
 }
 
-fn extract_cfg_condition(attrs: &[syn::Attribute]) -> CfgCondition {
+fn extract_cfg_predicate(attrs: &[syn::Attribute]) -> CfgPredicate {
     for attr in attrs {
         if attr.path().is_ident("cfg") {
             if let Ok(meta) = attr.parse_args::<Meta>() {
-                match &meta {
-                    Meta::NameValue(nv) if nv.path.is_ident("feature") => {
-                        if let Expr::Lit(ExprLit {
-                            lit: Lit::Str(s), ..
-                        }) = &nv.value
-                        {
-                            return Some((s.value(), true));
-                        }
-                    }
-                    Meta::List(ml) if ml.path.is_ident("not") => {
-                        if let Ok(inner) = ml.parse_args::<Meta>() {
-                            if let Meta::NameValue(nv) = inner {
-                                if nv.path.is_ident("feature") {
-                                    if let Expr::Lit(ExprLit {
-                                        lit: Lit::Str(s), ..
-                                    }) = &nv.value
-                                    {
-                                        return Some((s.value(), false));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
-                }
+                return parse_cfg_meta(&meta);
             }
         }
     }
-    None
+    CfgPredicate::Always
+}
+
+fn parse_cfg_meta(meta: &Meta) -> CfgPredicate {
+    match meta {
+        Meta::NameValue(nv) if nv.path.is_ident("feature") => {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value
+            {
+                CfgPredicate::Feature(s.value())
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        Meta::NameValue(nv) if nv.path.is_ident("since") => {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value
+            {
+                CfgPredicate::Since(s.value())
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        Meta::NameValue(nv) if nv.path.is_ident("until") => {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value
+            {
+                CfgPredicate::Until(s.value())
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        Meta::List(ml) if ml.path.is_ident("not") => {
+            if let Ok(inner) = ml.parse_args::<Meta>() {
+                CfgPredicate::Not(Box::new(parse_cfg_meta(&inner)))
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        Meta::List(ml) if ml.path.is_ident("all") => {
+            let parsed = ml.parse_args_with(
+                syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+            );
+            if let Ok(items) = parsed {
+                CfgPredicate::All(items.iter().map(parse_cfg_meta).collect())
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        Meta::List(ml) if ml.path.is_ident("any") => {
+            let parsed = ml.parse_args_with(
+                syn::punctuated::Punctuated::<Meta, syn::Token![,]>::parse_terminated,
+            );
+            if let Ok(items) = parsed {
+                CfgPredicate::Any(items.iter().map(parse_cfg_meta).collect())
+            } else {
+                CfgPredicate::Always
+            }
+        }
+        _ => CfgPredicate::Always,
+    }
+}
+
+fn date_to_unix_or_panic(date_str: &str) -> i64 {
+    kc_api_build_config::date_to_unix(date_str)
+        .unwrap_or_else(|| panic!("unknown epoch date: {date_str}"))
+}
+
+fn feature_to_unix_or_panic(feature_name: &str) -> i64 {
+    kc_api_build_config::feature_to_unix(feature_name)
+        .unwrap_or_else(|| panic!("unknown epoch feature: {feature_name}"))
+}
+
+fn eval_predicate(pred: &CfgPredicate, selected: &SelectedEpoch) -> bool {
+    let selected_unix = feature_to_unix_or_panic(&selected.feature_name);
+    match pred {
+        CfgPredicate::Always => true,
+        CfgPredicate::Feature(name) => selected.feature_name == *name,
+        CfgPredicate::Since(date_str) => selected_unix >= date_to_unix_or_panic(date_str),
+        CfgPredicate::Until(date_str) => selected_unix < date_to_unix_or_panic(date_str),
+        CfgPredicate::Not(inner) => !eval_predicate(inner, selected),
+        CfgPredicate::All(items) => items.iter().all(|p| eval_predicate(p, selected)),
+        CfgPredicate::Any(items) => items.iter().any(|p| eval_predicate(p, selected)),
+    }
+}
+
+fn resolve_selected_epoch() -> SelectedEpoch {
+    let feature_name = option_env!("SELECTED_EPOCH")
+        .unwrap_or_else(|| panic!("SELECTED_EPOCH is not set by build.rs"));
+
+    if kc_api_build_config::feature_to_unix(feature_name).is_none() {
+        panic!("Unknown selected epoch feature: {feature_name}");
+    }
+
+    SelectedEpoch {
+        feature_name: feature_name.to_string(),
+    }
+}
+
+fn known_epochs() -> Vec<SelectedEpoch> {
+    kc_api_build_config::all_epoch_features()
+        .into_iter()
+        .map(|feature_name| SelectedEpoch { feature_name })
+        .collect()
 }
 
 // ---- Main function ----
@@ -163,7 +245,8 @@ pub fn check_struct_dependency_syn() {
 
     let mut file_path_list: Vec<PathBuf> = Vec::new();
     let mut books_ext: ApiFieldTypeInfoExt = ApiFieldTypeInfoExt::new();
-    let mut all_cfg_features: BTreeSet<String> = BTreeSet::new();
+    let selected_epoch = resolve_selected_epoch();
+    let all_epochs = known_epochs();
 
     let sub_target = path::PathBuf::from(sub_target_path);
     let sub_folders = sub_target.read_dir().expect("read_dir call failed");
@@ -229,11 +312,7 @@ pub fn check_struct_dependency_syn() {
 
                             let field_type = type_to_string(&field.ty);
                             let type_name = extract_innermost_type_name(&field.ty);
-                            let cfg_cond = extract_cfg_condition(&field.attrs);
-
-                            if let Some((ref feat, _)) = cfg_cond {
-                                all_cfg_features.insert(feat.clone());
-                            }
+                            let cfg_cond = extract_cfg_predicate(&field.attrs);
 
                             let field_type_location = use_book
                                 .get(&type_name)
@@ -256,11 +335,8 @@ pub fn check_struct_dependency_syn() {
         }
     }
 
-    // Detect active features by resolving default features from Cargo.toml
-    let active_features = resolve_default_features(&all_cfg_features);
-
-    // Build default books from books_ext filtered for active features
-    let mut books = filter_books_for_features(&books_ext, &active_features);
+    // Build books filtered by selected epoch predicate evaluation
+    let mut books = filter_books_for_epoch(&books_ext, &selected_epoch);
 
     for ((api_name_1, api_name_2), fieldm) in books.clone().iter() {
         for (struct_name, field) in fieldm.iter() {
@@ -295,61 +371,37 @@ pub fn check_struct_dependency_syn() {
     file.write_all(format!("{books:#?}").as_bytes())
         .expect("write failed");
 
-    // Output feature_variants.json metadata
+    // Output epoch_variants.json metadata for visualization tooling.
     {
-        use serde_json::{json, Value};
+        use serde_json::json;
 
-        let mut field_diffs: HashMap<String, HashMap<String, HashMap<String, Value>>> =
-            HashMap::new();
-        for feat in &all_cfg_features {
-            let mut feat_diffs: HashMap<String, HashMap<String, Value>> = HashMap::new();
-            for ((api_name_1, api_name_2), struct_fields_ext) in books_ext.iter() {
-                for (struct_name, fields) in struct_fields_ext.iter() {
-                    for (field_rename, _loc, field_type, _type_name, cfg_cond) in fields.iter() {
-                        if let Some((f, is_positive)) = cfg_cond {
-                            if f == feat {
-                                let key =
-                                    format!("{api_name_1}__{api_name_2}__{struct_name}");
-                                let struct_entry =
-                                    feat_diffs.entry(key).or_default();
-                                let field_entry =
-                                    struct_entry.entry(field_rename.clone()).or_insert_with(|| {
-                                        json!({"with_feature": null, "without_feature": null})
-                                    });
-                                if let Value::Object(ref mut map) = field_entry {
-                                    if *is_positive {
-                                        map.insert(
-                                            "with_feature".to_string(),
-                                            json!(field_type),
-                                        );
-                                    } else {
-                                        map.insert(
-                                            "without_feature".to_string(),
-                                            json!(field_type),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !feat_diffs.is_empty() {
-                field_diffs.insert(feat.clone(), feat_diffs);
-            }
-        }
+        let base_epoch = all_epochs
+            .iter()
+            .find(|epoch| epoch.feature_name == "genesis")
+            .cloned()
+            .unwrap_or_else(|| {
+                all_epochs
+                    .first()
+                    .cloned()
+                    .expect("known epochs must not be empty")
+            });
+        let field_diffs = compute_field_diffs_by_epoch(&books_ext, &base_epoch, &all_epochs);
 
-        let feature_variants = json!({
-            "all_features": all_cfg_features.iter().collect::<Vec<_>>(),
-            "active_features": active_features.iter().collect::<Vec<_>>(),
-            "field_diffs": field_diffs,
+        let epoch_variants = json!({
+            "selected_epoch": selected_epoch.feature_name,
+            "selected_unix": feature_to_unix_or_panic(&selected_epoch.feature_name),
+            "all_features": all_epochs
+                .iter()
+                .map(|epoch| epoch.feature_name.clone())
+                .collect::<Vec<_>>(),
+            "field_diffs_by_epoch": field_diffs,
         });
 
         std::fs::create_dir_all("../../tests/struct_dependency_dot").expect("create dir failed");
         let mut file =
-            File::create("../../tests/struct_dependency_dot/feature_variants.json").unwrap();
+            File::create("../../tests/struct_dependency_dot/epoch_variants.json").unwrap();
         file.write_all(
-            serde_json::to_string_pretty(&feature_variants)
+            serde_json::to_string_pretty(&epoch_variants)
                 .unwrap()
                 .as_bytes(),
         )
@@ -368,7 +420,7 @@ pub fn check_struct_dependency_syn() {
             let mut writer: DotWriter = create_writer(&mut output_bytes);
             let mut deps_graph: Scope = create_deps_graph(&mut writer);
 
-            for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+            for ((api_name_1, api_name_2), fieldm) in books_vec_clone.iter() {
                 let mut cluster: Scope<'_, '_> = deps_graph.cluster();
                 set_cluster(&mut cluster, api_name_1, api_name_2);
 
@@ -453,7 +505,7 @@ pub fn check_struct_dependency_syn() {
         let mut field_list: Vec<(String, String, String, String)> = Vec::new();
         // id source target
         let mut edge_list: Vec<(String, String, String)> = Vec::new();
-        for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+        for ((api_name_1, api_name_2), fieldm) in books_vec_clone.iter() {
             let mod_name_id = format!("{}__{}", api_name_1, api_name_2);
             let mod_name = format!("{} / {}", api_name_1, api_name_2);
             mod_list.push((mod_name_id.clone(), mod_name));
@@ -927,15 +979,31 @@ type ApiFieldTypeInfo = HashMap<ApiNamePair, StructFieldTypeInfo>;
 type ApiFieldTypeInfoVec<'a> = Vec<(&'a ApiNamePair, &'a StructFieldTypeInfo)>;
 
 // Extended types for cfg-aware field tracking
-type CfgCondition = Option<(String, bool)>;
+#[derive(Debug, Clone)]
+enum CfgPredicate {
+    Always,
+    Feature(String),
+    Since(String),
+    Until(String),
+    Not(Box<CfgPredicate>),
+    All(Vec<CfgPredicate>),
+    Any(Vec<CfgPredicate>),
+}
+
+#[derive(Debug, Clone)]
+struct SelectedEpoch {
+    feature_name: String,
+}
+
+type CfgCondition = CfgPredicate;
 // (field_rename, field_type_location, field_type, type_name, cfg_condition)
 type FieldEntryExt = (String, String, String, String, CfgCondition);
 type StructFieldTypeInfoExt = HashMap<String, Vec<FieldEntryExt>>;
 type ApiFieldTypeInfoExt = HashMap<ApiNamePair, StructFieldTypeInfoExt>;
 
-fn filter_books_for_features(
+fn filter_books_for_epoch(
     books_ext: &ApiFieldTypeInfoExt,
-    active_features: &BTreeSet<String>,
+    selected: &SelectedEpoch,
 ) -> ApiFieldTypeInfo {
     let mut result = ApiFieldTypeInfo::new();
     for (key, struct_fields_ext) in books_ext.iter() {
@@ -945,11 +1013,7 @@ fn filter_books_for_features(
             for (field_rename, field_type_location, field_type, type_name, cfg_cond) in
                 fields.iter()
             {
-                let include = match cfg_cond {
-                    None => true,
-                    Some((feat, true)) => active_features.contains(feat),
-                    Some((feat, false)) => !active_features.contains(feat),
-                };
+                let include = eval_predicate(cfg_cond, selected);
                 if include {
                     field_info.insert(
                         field_rename.clone(),
@@ -968,55 +1032,79 @@ fn filter_books_for_features(
     result
 }
 
-/// Resolve default features from Cargo.toml and intersect with discovered cfg features.
-fn resolve_default_features(all_cfg_features: &BTreeSet<String>) -> BTreeSet<String> {
-    let cargo_toml = fs::read_to_string("Cargo.toml").expect("failed to read Cargo.toml");
+fn compute_field_diffs_by_epoch(
+    books_ext: &ApiFieldTypeInfoExt,
+    base_epoch: &SelectedEpoch,
+    epochs: &[SelectedEpoch],
+) -> HashMap<String, HashMap<String, HashMap<String, serde_json::Value>>> {
+    use serde_json::json;
 
-    let re_feature_line =
-        regex::Regex::new(r#"^([A-Za-z0-9_]+)\s*=\s*\[([^\]]*)\]"#).unwrap();
-
-    let mut features_map: HashMap<String, Vec<String>> = HashMap::new();
-    let mut in_features = false;
-
-    for line in cargo_toml.lines() {
-        let trimmed = line.trim();
-        if trimmed == "[features]" {
-            in_features = true;
-            continue;
-        }
-        if trimmed.starts_with('[') {
-            in_features = false;
-            continue;
-        }
-        if in_features {
-            if let Some(cap) = re_feature_line.captures(trimmed) {
-                let feat_name = cap.get(1).unwrap().as_str().to_string();
-                let deps_str = cap.get(2).unwrap().as_str();
-                let deps: Vec<String> = deps_str
-                    .split(',')
-                    .map(|s| s.trim().trim_matches('"').trim_matches('\'').trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-                features_map.insert(feat_name, deps);
-            }
-        }
+    #[derive(Default)]
+    struct EpochFieldDiff {
+        with_epoch: Option<String>,
+        without_epoch: Option<String>,
     }
 
-    // Resolve default features recursively
-    let mut resolved = BTreeSet::new();
-    let mut queue: Vec<String> = features_map.get("default").cloned().unwrap_or_default();
-    while let Some(feat) = queue.pop() {
-        if resolved.insert(feat.clone()) {
-            if let Some(deps) = features_map.get(&feat) {
-                for dep in deps {
-                    queue.push(dep.clone());
+    let mut result: HashMap<String, HashMap<String, HashMap<String, serde_json::Value>>> =
+        HashMap::new();
+
+    for epoch in epochs {
+        if epoch.feature_name == base_epoch.feature_name {
+            continue;
+        }
+
+        let mut raw_epoch_diffs: HashMap<String, HashMap<String, EpochFieldDiff>> = HashMap::new();
+
+        for ((api_name_1, api_name_2), struct_fields_ext) in books_ext.iter() {
+            for (struct_name, fields) in struct_fields_ext.iter() {
+                let struct_key = format!("{api_name_1}__{api_name_2}__{struct_name}");
+                let struct_entry = raw_epoch_diffs.entry(struct_key).or_default();
+
+                for (field_rename, _loc, field_type, _type_name, cfg_cond) in fields.iter() {
+                    let with_epoch = eval_predicate(cfg_cond, epoch);
+                    let without_epoch = eval_predicate(cfg_cond, base_epoch);
+                    if !with_epoch && !without_epoch {
+                        continue;
+                    }
+
+                    let field_entry = struct_entry.entry(field_rename.clone()).or_default();
+                    if with_epoch {
+                        field_entry.with_epoch = Some(field_type.clone());
+                    }
+                    if without_epoch {
+                        field_entry.without_epoch = Some(field_type.clone());
+                    }
                 }
             }
         }
+
+        let mut epoch_diffs: HashMap<String, HashMap<String, serde_json::Value>> = HashMap::new();
+        for (struct_key, field_diffs) in raw_epoch_diffs {
+            let mut serialized_fields = HashMap::new();
+            for (field_name, diff) in field_diffs {
+                if diff.with_epoch == diff.without_epoch {
+                    continue;
+                }
+
+                serialized_fields.insert(
+                    field_name,
+                    json!({
+                        "with_feature": diff.with_epoch,
+                        "without_feature": diff.without_epoch,
+                    }),
+                );
+            }
+            if !serialized_fields.is_empty() {
+                epoch_diffs.insert(struct_key, serialized_fields);
+            }
+        }
+
+        if !epoch_diffs.is_empty() {
+            result.insert(epoch.feature_name.clone(), epoch_diffs);
+        }
     }
 
-    // Return only features that appear in cfg annotations
-    resolved.intersection(all_cfg_features).cloned().collect()
+    result
 }
 
 #[cfg(feature = "cytoscape")]

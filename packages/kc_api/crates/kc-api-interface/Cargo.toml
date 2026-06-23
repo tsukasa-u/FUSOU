@@ -3,6 +3,7 @@ name = "kc-api-interface"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 chrono = { workspace = true }
@@ -14,10 +15,13 @@ ts-rs = { workspace = true }
 # zstandard can be enabled via feature flag for native builds
 apache-avro = { version = "0.19", default-features = false, features = ["snappy", "derive"] }
 
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
+
 [features]
-default = [ "from20250627" ]
-from20250627 = ["20250627"]
-20250627 = []
+default = [ "genesis" ]
+genesis = []
+epoch_20250627 = []
 # Enable zstandard for native builds
 zstandard = ["apache-avro/zstandard"]
 

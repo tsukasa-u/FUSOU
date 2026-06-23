@@ -5,10 +5,23 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-kc-api-interface = { workspace = true }
-kc-api-interface-adapter = { workspace = true }
-kc-api-dto = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
+kc-api-interface-adapter = { workspace = true, default-features = false }
+kc-api-dto = { workspace = true, default-features = false }
 register_trait = { workspace = true }
 serde_json = { workspace = true }
 serde_qs = { workspace = true }
 tracing = { workspace = true }
+
+[features]
+default = ["genesis"]
+genesis = [
+	"kc-api-interface/genesis",
+	"kc-api-interface-adapter/genesis",
+	"kc-api-dto/genesis",
+]
+epoch_20250627 = [
+	"kc-api-interface/epoch_20250627",
+	"kc-api-interface-adapter/epoch_20250627",
+	"kc-api-dto/epoch_20250627",
+]

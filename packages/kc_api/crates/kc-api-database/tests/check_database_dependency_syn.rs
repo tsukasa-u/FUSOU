@@ -199,7 +199,7 @@ pub fn check_database_dependency_syn() {
             let mut writer: DotWriter = create_writer(&mut output_bytes);
             let mut deps_graph: Scope = create_deps_graph(&mut writer);
 
-            for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+            for ((api_name_1, api_name_2), fieldm) in books_vec_clone.iter() {
                 let mut cluster: Scope<'_, '_> = deps_graph.cluster();
                 set_cluster(&mut cluster, api_name_1, api_name_2);
 
@@ -288,7 +288,7 @@ pub fn check_database_dependency_syn() {
         let mut field_list: Vec<(String, String, String, String)> = Vec::new();
         // id source target
         let mut edge_list: Vec<(String, String, String)> = Vec::new();
-        for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+        for ((api_name_1, api_name_2), fieldm) in books_vec_clone.iter() {
             let mod_name_id = format!("{}__{}", api_name_1, api_name_2);
             let mod_name = api_name_2.to_string();
             mod_list.push((mod_name_id.clone(), mod_name));
