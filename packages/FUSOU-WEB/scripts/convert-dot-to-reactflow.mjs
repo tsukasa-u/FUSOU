@@ -139,11 +139,36 @@ function parseDotFile(content, nodeType) {
 // ---- Feature variant processing ----
 
 function readFeatureVariants() {
+  const epochVariantsPath = resolve(STRUCT_DOT_DIR, "epoch_variants.json");
+  if (existsSync(epochVariantsPath)) {
+    const parsed = JSON.parse(readFileSync(epochVariantsPath, "utf-8"));
+    return {
+      all_features: Array.isArray(parsed.all_features) ? parsed.all_features : [],
+      active_features:
+        typeof parsed.selected_epoch === "string" ? [parsed.selected_epoch] : [],
+      field_diffs:
+        parsed.field_diffs_by_epoch && typeof parsed.field_diffs_by_epoch === "object"
+          ? parsed.field_diffs_by_epoch
+          : {},
+    };
+  }
+
   const variantsPath = resolve(STRUCT_DOT_DIR, "feature_variants.json");
   if (!existsSync(variantsPath)) {
     return { all_features: [], active_features: [], field_diffs: {} };
   }
-  return JSON.parse(readFileSync(variantsPath, "utf-8"));
+
+  const parsed = JSON.parse(readFileSync(variantsPath, "utf-8"));
+  return {
+    all_features: Array.isArray(parsed.all_features) ? parsed.all_features : [],
+    active_features: Array.isArray(parsed.active_features)
+      ? parsed.active_features
+      : [],
+    field_diffs:
+      parsed.field_diffs && typeof parsed.field_diffs === "object"
+        ? parsed.field_diffs
+        : {},
+  };
 }
 
 /**

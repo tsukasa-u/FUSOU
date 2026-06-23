@@ -1,13 +1,14 @@
 {
   "featureVariants": {
     "activeFeatures": [
-      "20250627"
+      "epoch_20250627"
     ],
     "allFeatures": [
-      "20250627"
+      "epoch_20250627",
+      "genesis"
     ],
     "fieldDiffs": {
-      "20250627": {
+      "epoch_20250627": {
         "api_start2__get_data__ApiData": {
           "api_mst_equip_ship": {
             "with_feature": "HashMap<i64, ApiMstEquipShip>",
@@ -27145,7 +27146,7 @@
                   },
                   {
                     "diffDetail": {
-                      "feature": "20250627",
+                      "feature": "epoch_20250627",
                       "withFeature": "HashMap<i64, ApiMstEquipShip>",
                       "withoutFeature": "Vec<ApiMstEquipShip>"
                     },
@@ -27339,7 +27340,7 @@
                 "fields": [
                   {
                     "diffDetail": {
-                      "feature": "20250627",
+                      "feature": "epoch_20250627",
                       "withFeature": "HashMap<i64, Option<Vec<i64>>>",
                       "withoutFeature": "Vec<i64>"
                     },
@@ -27349,7 +27350,7 @@
                   },
                   {
                     "diffDetail": {
-                      "feature": "20250627",
+                      "feature": "epoch_20250627",
                       "withFeature": null,
                       "withoutFeature": "i64"
                     },

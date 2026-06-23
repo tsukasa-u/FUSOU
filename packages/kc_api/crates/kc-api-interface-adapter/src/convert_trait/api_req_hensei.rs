@@ -11,6 +11,7 @@ register_trait!(
         combined,
         lock,
         preset_delete,
+        preset_expand,
         preset_lock,
         preset_register,
         preset_select
@@ -23,6 +24,7 @@ register_trait!(
         combined,
         lock,
         preset_delete,
+        preset_expand,
         preset_lock,
         preset_register,
         preset_select

@@ -4,7 +4,6 @@ use dotenvy::dotenv;
 use std::env;
 
 mod check_struct_defined;
-mod check_struct_dependency;
 mod check_struct_dependency_syn;
 
 fn target_path() -> String {
@@ -25,11 +24,6 @@ fn test_struct_defined() {
     let target_path = target_path();
 
     check_struct_defined::check_struct_defined(target_path);
-}
-
-#[test]
-fn test_struct_dependency() {
-    check_struct_dependency::check_struct_dependency();
 }
 
 #[test]

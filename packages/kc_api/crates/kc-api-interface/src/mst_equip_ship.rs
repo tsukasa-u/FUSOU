@@ -21,7 +21,7 @@ pub struct MstEquipShips {
     pub mst_equip_ships: HashMap<i32, MstEquipShip>,
 }
 
-#[cfg(not(feature = "20250627"))]
+#[cfg(until = "20250627")]
 #[derive(
     Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
 )]
@@ -31,7 +31,7 @@ pub struct MstEquipShip {
     pub equip_type: Vec<i32>,
 }
 
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 #[derive(Debug, Clone, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShip {
@@ -39,7 +39,7 @@ pub struct MstEquipShip {
     pub equip_type: HashMap<String, Option<Vec<i32>>>,
 }
 
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 fn sorted_string_option_vec_map(
     value: &HashMap<String, Option<Vec<i32>>>,
 ) -> std::collections::BTreeMap<&str, &Option<Vec<i32>>> {
@@ -48,7 +48,7 @@ fn sorted_string_option_vec_map(
     ordered
 }
 
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 impl Serialize for MstEquipShip {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -76,7 +76,7 @@ impl MstEquipShips {
     }
 }
 
-#[cfg(all(test, feature = "20250627"))]
+#[cfg(all(test, since = "20250627"))]
 mod tests {
     use super::MstEquipShip;
     use std::collections::HashMap;

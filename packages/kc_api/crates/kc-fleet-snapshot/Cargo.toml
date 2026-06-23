@@ -8,4 +8,9 @@ license.workspace = true
 serde = { workspace = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-kc-api-interface = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
+
+[features]
+default = ["genesis"]
+genesis = ["kc-api-interface/genesis"]
+epoch_20250627 = ["kc-api-interface/epoch_20250627"]

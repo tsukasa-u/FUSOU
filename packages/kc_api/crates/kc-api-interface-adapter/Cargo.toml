@@ -3,6 +3,7 @@ name = "kc-api-interface-adapter"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 chrono = { workspace = true }
@@ -12,13 +13,22 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 ts-rs = { workspace = true }
 apache-avro = { workspace = true }
-kc-api-interface = { workspace = true }
-kc-api-dto = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
+kc-api-dto = { workspace = true, default-features = false }
 sha2 = { workspace = true }
 rand = "0.8"
 
-[features]
-default = [ "from20250627" ]
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
 
-from20250627 = ["20250627"]
-20250627 = []
+[features]
+default = [ "genesis" ]
+
+genesis = [
+	"kc-api-interface/genesis",
+	"kc-api-dto/genesis",
+]
+epoch_20250627 = [
+	"kc-api-interface/epoch_20250627",
+	"kc-api-dto/epoch_20250627",
+]

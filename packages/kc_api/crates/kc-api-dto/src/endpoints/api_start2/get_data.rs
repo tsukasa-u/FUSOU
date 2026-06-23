@@ -82,10 +82,10 @@ pub struct ApiData {
     pub api_mst_shipupgrade: Vec<ApiMstShipupgrade>,
     #[serde(rename = "api_mst_bgm")]
     pub api_mst_bgm: Vec<ApiMstBgm>,
-    #[cfg(not(feature = "20250627"))]
+    #[cfg(until = "20250627")]
     #[serde(rename = "api_mst_equip_ship")]
     pub api_mst_equip_ship: Vec<ApiMstEquipShip>,
-    #[cfg(feature = "20250627")]
+    #[cfg(since = "20250627")]
     #[serde(rename = "api_mst_equip_ship")]
     pub api_mst_equip_ship: HashMap<i64, ApiMstEquipShip>,
     // 20250627
@@ -617,13 +617,13 @@ pub struct ApiMstBgm {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipShip {
-    #[cfg(not(feature = "20250627"))]
+    #[cfg(until = "20250627")]
     #[serde(rename = "api_ship_id")]
     pub api_ship_id: i64,
-    #[cfg(not(feature = "20250627"))]
+    #[cfg(until = "20250627")]
     #[serde(rename = "api_equip_type")]
     pub api_equip_type: Vec<i64>,
-    #[cfg(feature = "20250627")]
+    #[cfg(since = "20250627")]
     #[serde(rename = "api_equip_type")]
     pub api_equip_type: HashMap<i64, Option<Vec<i64>>>,
 }
@@ -667,15 +667,34 @@ mod tests {
     use register_trait::simple_root_test_with_range;
 
     use super::*;
+
+    fn get_epoch_transition_unix() -> i64 {
+        kc_api_build_config::first_epoch_unix()
+            .expect("epoch transition unix is not defined in build-config")
+    }
+
+    fn range_for_get_data() -> (Option<i64>, Option<i64>) {
+        let epoch_unix = get_epoch_transition_unix();
+        #[cfg(since = "20250627")]
+        {
+            (Some(epoch_unix), None)
+        }
+        #[cfg(until = "20250627")]
+        {
+            (None, Some(epoch_unix))
+        }
+        #[cfg(not(any(since = "20250627", until = "20250627")))]
+        {
+            (None, None)
+        }
+    }
+
     #[test]
     fn test_deserialize() {
         dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
-        #[cfg(feature = "from20250627")]
-        let (range_start, range_end) = (Some(1750993200), None);
-        #[cfg(not(feature = "from20250627"))]
-        let (range_start, range_end) = (None, Some(1750993200));
+        let (range_start, range_end) = range_for_get_data();
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/endpoints/api_start2/get_data@S.log";
@@ -704,10 +723,7 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
         let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
 
-        #[cfg(feature = "from20250627")]
-        let (range_start, range_end) = (Some(1750993200), None);
-        #[cfg(not(feature = "from20250627"))]
-        let (range_start, range_end) = (None, Some(1750993200));
+        let (range_start, range_end) = range_for_get_data();
 
         let req_and_res_pattern_str = "@api_start2@getData";
         let snap_path = format!("{snap_file_path}/kcsapi");

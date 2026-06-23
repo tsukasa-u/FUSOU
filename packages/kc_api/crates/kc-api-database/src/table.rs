@@ -604,6 +604,32 @@ mod schema_invariants {
     use std::collections::{HashMap, HashSet};
     use std::str::FromStr;
 
+    #[cfg(until = "20250627")]
+    fn equip_type_order_a() -> Vec<i32> {
+        vec![1, 2]
+    }
+
+    #[cfg(until = "20250627")]
+    fn equip_type_order_b() -> Vec<i32> {
+        vec![1, 2]
+    }
+
+    #[cfg(since = "20250627")]
+    fn equip_type_order_a() -> HashMap<String, Option<Vec<i32>>> {
+        HashMap::from([
+            ("2".to_string(), Some(vec![2])),
+            ("1".to_string(), Some(vec![1])),
+        ])
+    }
+
+    #[cfg(since = "20250627")]
+    fn equip_type_order_b() -> HashMap<String, Option<Vec<i32>>> {
+        HashMap::from([
+            ("1".to_string(), Some(vec![1])),
+            ("2".to_string(), Some(vec![2])),
+        ])
+    }
+
     #[test]
     fn port_table_names_are_unique_and_nonempty() {
         let mut seen = HashSet::new();
@@ -821,14 +847,8 @@ mod schema_invariants {
             },
         );
 
-        let equip_type_a: HashMap<String, Option<Vec<i32>>> = HashMap::from([
-            ("2".to_string(), Some(vec![2])),
-            ("1".to_string(), Some(vec![1])),
-        ]);
-        let equip_type_b: HashMap<String, Option<Vec<i32>>> = HashMap::from([
-            ("1".to_string(), Some(vec![1])),
-            ("2".to_string(), Some(vec![2])),
-        ]);
+        let equip_type_a = equip_type_order_a();
+        let equip_type_b = equip_type_order_b();
 
         let mut equip_ship_map_a = HashMap::new();
         equip_ship_map_a.insert(

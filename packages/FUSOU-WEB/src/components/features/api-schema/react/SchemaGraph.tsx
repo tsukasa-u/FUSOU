@@ -222,15 +222,15 @@ function enrichEdges(edges: Edge[], edgeStyle: EdgeStyle): Edge[] {
 
 /** Compute endpoint node view for a given version.
  *
- * "base": revert to the state WITHOUT any features.
- *   - Remove fields where diffStatus === "added" (only exist with feature)
- *   - Keep fields where diffStatus === "removed", clear annotations (exist in base)
+ * "genesis": revert to the state WITHOUT any epoch feature.
+ *   - Remove fields where diffStatus === "added" (only exist with epoch feature)
+ *   - Keep fields where diffStatus === "removed", clear annotations
  *   - Revert "changed" fields to diffDetail.withoutFeature type
  *
- * Any non-"base" version: keep data as-is (baked-in annotations show changes from base).
+ * Any non-genesis version: keep data as-is.
  */
 function computeEndpointVersionView(nodes: Node[], version: string): Node[] {
-  if (version !== "base") return nodes;
+  if (version !== "genesis") return nodes;
 
   return nodes.map((node) => {
     const data = { ...(node.data as any) };
@@ -364,7 +364,7 @@ export default function SchemaGraph({
   const [endpointVersion, setEndpointVersion] = useState<string>(() => {
     const features =
       (endpointData as any).featureVariants?.activeFeatures || [];
-    return features.length > 0 ? features[features.length - 1] : "base";
+    return features.length > 0 ? features[features.length - 1] : "";
   });
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [selectedEndpoint, setSelectedEndpoint] = useState<string>("");
@@ -404,17 +404,27 @@ export default function SchemaGraph({
 
   const endpointVersionList = useMemo(() => {
     const features = (endpointData as any).featureVariants?.allFeatures || [];
-    if (features.length === 0) return [];
-    return ["base", ...features];
+    return features;
   }, []);
 
   const endpointVersionLabels = useMemo((): Record<string, string> => {
-    const labels: Record<string, string> = { base: "Base" };
+    const labels: Record<string, string> = {};
     for (const f of (endpointData as any).featureVariants?.allFeatures || []) {
       labels[f] = f;
     }
     return labels;
   }, []);
+
+  useEffect(() => {
+    if (mode !== "endpoints") return;
+    if (endpointVersionList.length === 0) {
+      if (endpointVersion !== "") setEndpointVersion("");
+      return;
+    }
+    if (!endpointVersionList.includes(endpointVersion)) {
+      setEndpointVersion(endpointVersionList[0]);
+    }
+  }, [mode, endpointVersion, endpointVersionList]);
 
   // Load + layout graph data
   useEffect(() => {
@@ -877,7 +887,7 @@ export default function SchemaGraph({
               Data type
             </span>
             <span>Arrow: field type → nested struct</span>
-            {endpointVersion !== "base" && endpointVersionList.length > 0 && (
+            {endpointVersion !== "genesis" && endpointVersionList.length > 0 && (
               <>
                 <span className="border-l border-base-300 pl-3">
                   <span className="inline-block w-2 h-2 rounded bg-success/30 mr-1"></span>
@@ -891,7 +901,7 @@ export default function SchemaGraph({
                   <span className="inline-block w-2 h-2 rounded bg-warning/30 mr-1"></span>
                   ~ Changed
                 </span>
-                <span className="text-base-content/35">changes from Base</span>
+                <span className="text-base-content/35">changes from genesis</span>
               </>
             )}
           </>

@@ -100,14 +100,129 @@ function detectVersions() {
   return versions;
 }
 
-function generateSchema(cargoCommand, version, binName, outputPath) {
+function detectAvailableEpochFeatures(cargoToml) {
+  const features = [];
+  if (/^genesis\s*=/m.test(cargoToml)) {
+    features.push("genesis");
+  }
+
+  const dates = [];
+  const pattern = /^epoch_([0-9]{8})\s*=/gm;
+  let match = pattern.exec(cargoToml);
+  while (match) {
+    dates.push(Number(match[1]));
+    match = pattern.exec(cargoToml);
+  }
+
+  dates.sort((a, b) => a - b);
+  for (const date of dates) {
+    features.push(`epoch_${date}`);
+  }
+
+  return features;
+}
+
+function parseDefaultFeatures(cargoToml) {
+  const defaultMatch = cargoToml.match(/^default\s*=\s*\[([\s\S]*?)\]/m);
+  if (!defaultMatch) {
+    return [];
+  }
+
+  const features = [];
+  const featurePattern = /"([^"]+)"/g;
+  let match = featurePattern.exec(defaultMatch[1]);
+  while (match) {
+    features.push(match[1]);
+    match = featurePattern.exec(defaultMatch[1]);
+  }
+
+  return features;
+}
+
+function normalizeEpochFeature(rawValue) {
+  const value = rawValue.trim();
+  if (value === "genesis") {
+    return "genesis";
+  }
+  if (/^epoch_[0-9]{8}$/.test(value)) {
+    return value;
+  }
+  if (/^[0-9]{8}$/.test(value)) {
+    return `epoch_${value}`;
+  }
+  return null;
+}
+
+function resolveEpochFeature() {
+  const cargoTomlPath = resolve(KC_API_DB_CRATE, "Cargo.toml");
+  const cargoToml = readFileSync(cargoTomlPath, "utf8");
+  const availableEpochFeatures = detectAvailableEpochFeatures(cargoToml);
+
+  if (!availableEpochFeatures.length) {
+    fail("No epoch features found in kc-api-database Cargo.toml");
+  }
+
+  const requestedRaw =
+    process.env.KC_API_EPOCH_FEATURE || process.env.KC_API_EPOCH;
+  if (requestedRaw) {
+    const normalized = normalizeEpochFeature(requestedRaw);
+    if (!normalized) {
+      fail(
+        `Invalid KC_API_EPOCH value '${requestedRaw}'. Use genesis, epoch_YYYYMMDD, or YYYYMMDD.`,
+      );
+    }
+    if (!availableEpochFeatures.includes(normalized)) {
+      fail(
+        `Unknown epoch feature '${normalized}'. Available: ${availableEpochFeatures.join(", ")}`,
+      );
+    }
+    return normalized;
+  }
+
+  const defaultFeatures = parseDefaultFeatures(cargoToml);
+  const defaultEpochFeatures = defaultFeatures.filter(
+    (feature) =>
+      feature === "genesis" || /^epoch_[0-9]{8}$/.test(feature),
+  );
+
+  if (defaultEpochFeatures.length > 1) {
+    fail(
+      `Multiple epoch features in default feature list: ${defaultEpochFeatures.join(", ")}`,
+    );
+  }
+
+  if (defaultEpochFeatures.length === 1) {
+    const [feature] = defaultEpochFeatures;
+    if (!availableEpochFeatures.includes(feature)) {
+      fail(
+        `Default epoch feature '${feature}' is not defined. Available: ${availableEpochFeatures.join(", ")}`,
+      );
+    }
+    return feature;
+  }
+
+  const datedFeatures = availableEpochFeatures.filter((feature) =>
+    /^epoch_[0-9]{8}$/.test(feature),
+  );
+  if (datedFeatures.length > 0) {
+    return datedFeatures[datedFeatures.length - 1];
+  }
+
+  if (availableEpochFeatures.includes("genesis")) {
+    return "genesis";
+  }
+
+  fail("Unable to resolve epoch feature");
+}
+
+function generateSchema(cargoCommand, version, binName, outputPath, epochFeature) {
   const args = [
     "run",
     "--bin",
     binName,
     "--no-default-features",
     "--features",
-    `schema_${version},full`,
+    `schema_${version},full,${epochFeature}`,
   ];
   const result = runCapture(cargoCommand, args, { cwd: KC_API_DB_CRATE });
 
@@ -165,6 +280,9 @@ function main() {
   const versions = detectVersions();
   console.log(`Detected schema versions: ${versions.join(" ")}`);
 
+  const epochFeature = resolveEpochFeature();
+  console.log(`Using kc-api epoch feature: ${epochFeature}`);
+
   const generatedSchemaFiles = [];
 
   for (const version of versions) {
@@ -180,6 +298,7 @@ function main() {
       version,
       "print_schema",
       schemaPath,
+      epochFeature,
     );
     if (schemaOk) {
       generatedSchemaFiles.push(schemaPath);
@@ -194,6 +313,7 @@ function main() {
       version,
       "print_master_schema",
       masterSchemaPath,
+      epochFeature,
     );
     if (masterOk) {
       console.log(`  OK ${masterSchemaPath}`);
