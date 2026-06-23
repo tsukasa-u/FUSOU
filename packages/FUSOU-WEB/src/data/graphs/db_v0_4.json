@@ -2743,7 +2743,7 @@
             "isKey": false,
             "isUuid": false,
             "name": "equip_type",
-            "type": "{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}"
+            "type": "int[]"
           },
           {
             "isFk": false,

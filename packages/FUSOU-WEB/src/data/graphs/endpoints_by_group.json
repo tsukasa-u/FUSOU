@@ -1,7 +1,7 @@
 {
   "featureVariants": {
     "activeFeatures": [
-      "epoch_20250627"
+      "genesis"
     ],
     "allFeatures": [
       "epoch_20250627",
@@ -16134,6 +16134,53 @@
         },
         {
           "edges": [],
+          "label": "api_req_hensei / preset_expand",
+          "name": "preset_expand",
+          "nodes": [
+            {
+              "data": {
+                "fields": [],
+                "isDataType": false,
+                "isReq": true,
+                "isRes": false,
+                "structName": "Req"
+              },
+              "id": "api_req_hensei__preset_expand__Req",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            },
+            {
+              "data": {
+                "fields": [
+                  {
+                    "name": "api_result",
+                    "type": "i64"
+                  },
+                  {
+                    "name": "api_result_msg",
+                    "type": "String"
+                  }
+                ],
+                "isDataType": false,
+                "isReq": false,
+                "isRes": true,
+                "structName": "Res"
+              },
+              "id": "api_req_hensei__preset_expand__Res",
+              "position": {
+                "x": 0,
+                "y": 0
+              },
+              "type": "endpointNode"
+            }
+          ],
+          "path": "api_req_hensei/preset_expand"
+        },
+        {
+          "edges": [],
           "label": "api_req_hensei / preset_lock",
           "name": "preset_lock",
           "nodes": [
@@ -27152,7 +27199,7 @@
                     },
                     "diffStatus": "changed",
                     "name": "api_mst_equip_ship",
-                    "type": "HashMap<i64, ApiMstEquipShip>"
+                    "type": "Vec<ApiMstEquipShip>"
                   },
                   {
                     "name": "api_mst_furniture",
@@ -27346,7 +27393,16 @@
                     },
                     "diffStatus": "changed",
                     "name": "api_equip_type",
-                    "type": "HashMap<i64, Option<Vec<i64>>>"
+                    "type": "Vec<i64>"
+                  },
+                  {
+                    "diffDetail": {
+                      "feature": "epoch_20250627",
+                      "withFeature": null,
+                      "withoutFeature": "i64"
+                    },
+                    "name": "api_ship_id",
+                    "type": "i64"
                   },
                   {
                     "diffDetail": {
@@ -30153,6 +30209,6 @@
       "groupName": "common"
     }
   },
-  "totalEndpoints": 119,
+  "totalEndpoints": 120,
   "totalGroups": 21
 }

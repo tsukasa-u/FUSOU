@@ -97,3 +97,9 @@ packages/FUSOU-WEB/.seed-battle-tmp/
 /packages/FUSOU-PROXY/proxy-https/target_verify
 
 packages/equip_synergy_detector/.wrangler/
+
+packages/kc_api/tests/database_dependency_json/
+
+packages/kc_api/tests/struct_dependency_dot/
+
+packages/kc_api/tests/struct_dependency_json/
