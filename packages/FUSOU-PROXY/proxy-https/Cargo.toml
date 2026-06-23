@@ -29,7 +29,7 @@ serde = { version = "1.0", features = ["derive"] }
 rand = "0.8"
 fusou-auth = { path = "../../fusou-auth" }
 fusou-upload = { path = "../../fusou-upload" }
-fusou-storage = { path = "../../fusou-storage" }
+fusou-storage = { path = "../../fusou-storage", default-features = false }
 
 # optional grpc feature
 tonic = { version = "0.9", optional = true, features = ["transport"] }
@@ -44,10 +44,12 @@ tonic-build = "0.9"
 protoc-bin-vendored = "3"
 
 [features]
-# default uses mpsc implementation (no feature)
-default = []
+# default uses current production epoch feature
+default = ["kc-api-epoch-20250627"]
 # enable grpc-based channel
 grpc = ["tonic", "prost", "tokio-stream"]
+kc-api-epoch-genesis = ["fusou-storage/kc-api-epoch-genesis"]
+kc-api-epoch-20250627 = ["fusou-storage/kc-api-epoch-20250627"]
 
 [dev-dependencies]
 tracing = { version = "0.1.35", features = ["log"] }
