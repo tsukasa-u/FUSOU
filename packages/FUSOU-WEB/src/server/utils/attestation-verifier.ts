@@ -107,6 +107,30 @@ function isValidSoftwareFingerprint(report: AttestationReport): boolean {
   return true;
 }
 
+function hasValidAttestationEnvelope(report: AttestationReport): boolean {
+  if (report.attestation_level === "none") {
+    return true;
+  }
+
+  if (report.attestation_level === "software_fingerprint") {
+    return isValidSoftwareFingerprint(report);
+  }
+
+  if (
+    typeof report.attestation_data !== "string" ||
+    report.attestation_data.length < 16
+  ) {
+    return false;
+  }
+  if (typeof report.public_key !== "string" || report.public_key.length < 16) {
+    return false;
+  }
+
+  // Hardware-backed levels should always carry a software fingerprint payload too
+  // so policy checks have stable metadata when attestation verification fails closed.
+  return isValidSoftwareFingerprint(report);
+}
+
 function toEnvironmentFlags(report: AttestationReport | null): TrustInput["environment_flags"] {
   return {
     emulator_detected:
@@ -130,18 +154,39 @@ export async function verifyAttestation(
     };
   }
 
+  const schemaFingerprintValid = hasValidAttestationEnvelope(report);
+  if (!schemaFingerprintValid) {
+    return {
+      attestation_level: report.attestation_level,
+      attestation_valid: false,
+      environment_flags: toEnvironmentFlags(report),
+      schema_fingerprint_valid: false,
+    };
+  }
+
   let attestationValid = false;
 
-  if (
-    report.attestation_level === "secure_enclave" &&
-    typeof report.attestation_data === "string" &&
-    typeof report.public_key === "string"
-  ) {
-    attestationValid = await verifyEnclaveSignature(
-      report.attestation_data,
-      report.public_key,
-      nonce,
-    );
+  if (report.attestation_level === "secure_enclave") {
+    // NOTE:
+    // A client-provided public key + signature only proves message possession,
+    // not Secure Enclave provenance. Until we validate the full platform
+    // attestation chain on the server, this path must fail closed.
+    if (
+      typeof report.attestation_data === "string" &&
+      typeof report.public_key === "string"
+    ) {
+      const signatureMatchedClientKey = await verifyEnclaveSignature(
+        report.attestation_data,
+        report.public_key,
+        nonce,
+      );
+      if (signatureMatchedClientKey) {
+        console.warn(
+          "[attestation] secure_enclave signature matched client key, but hardware chain verification is unavailable; failing closed",
+        );
+      }
+    }
+    attestationValid = false;
   } else if (report.attestation_level === "software_fingerprint") {
     attestationValid = isValidSoftwareFingerprint(report);
   } else if (report.attestation_level === "tpm") {
@@ -154,6 +199,6 @@ export async function verifyAttestation(
     attestation_level: report.attestation_level,
     attestation_valid: attestationValid,
     environment_flags: toEnvironmentFlags(report),
-    schema_fingerprint_valid: true,
+    schema_fingerprint_valid: schemaFingerprintValid,
   };
 }

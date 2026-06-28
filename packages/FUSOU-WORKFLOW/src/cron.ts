@@ -338,7 +338,7 @@ async function insertBlockIndexes(
 
 export async function handleCron(env: Env): Promise<void> {
   let maxId: number | null = null;
-  let fetchSource: "tidb" | "d1" = "d1";
+  let fetchSource: "tidb" | "d1" | "both" = "d1";
   let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
 
   try {

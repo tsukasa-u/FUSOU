@@ -84,6 +84,74 @@ export interface BufferLogRecord {
   trust_tag: string | null;
 }
 
+type BinaryLike = ArrayBuffer | Uint8Array;
+
+function toArrayBuffer(data: BinaryLike): ArrayBuffer {
+  if (data instanceof ArrayBuffer) {
+    return data;
+  }
+  return data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
+}
+
+function toUint8Array(data: BinaryLike): Uint8Array {
+  return data instanceof Uint8Array ? data : new Uint8Array(data);
+}
+
+function toHex(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function buildRecordDedupKey(record: BufferLogRecord): string {
+  const bytes = toUint8Array(record.data);
+  const head = bytes.subarray(0, Math.min(bytes.byteLength, 8));
+  const tail = bytes.subarray(Math.max(0, bytes.byteLength - 8));
+  return [
+    record.dataset_id,
+    record.table_name,
+    record.period_tag,
+    record.table_version,
+    String(record.timestamp),
+    record.uploaded_by ?? "",
+    record.trust_tag ?? "",
+    String(bytes.byteLength),
+    toHex(head),
+    toHex(tail),
+  ].join("|");
+}
+
+function normalizeRecord(record: BufferLogRecord): BufferLogRecord {
+  return {
+    ...record,
+    data: toArrayBuffer(record.data),
+  };
+}
+
+function mergeUniqueRecords(
+  primaryRows: BufferLogRecord[],
+  secondaryRows: BufferLogRecord[],
+): BufferLogRecord[] {
+  const seen = new Set<string>();
+  const merged: BufferLogRecord[] = [];
+
+  const pushRecord = (row: BufferLogRecord) => {
+    const normalized = normalizeRecord(row);
+    const key = buildRecordDedupKey(normalized);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(normalized);
+  };
+
+  primaryRows.forEach(pushRecord);
+  secondaryRows.forEach(pushRecord);
+
+  return merged;
+}
+
 /**
  * Unified fetch buffered data with TiDB -> D1 fallback on error
  *
@@ -97,7 +165,7 @@ export async function fetchBufferedDataWithFallback(
   env: UnifiedDbEnv,
 ): Promise<{
   rows: BufferLogRecord[];
-  source: "tidb" | "d1";
+  source: "tidb" | "d1" | "both";
   rateLimited?: boolean;
   rateLimitInfo?: RateLimitInfo;
 }> {
@@ -108,19 +176,45 @@ export async function fetchBufferedDataWithFallback(
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
       const tidbRows = await _tidbFetchBufferedData(conn);
-      console.log(`[DB] Fetched ${tidbRows.length} rows from TiDB`);
-      return {
-        rows: tidbRows.map((r) => ({
-          ...r,
-          // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
-          data: r.data.buffer.slice(
-            r.data.byteOffset,
-            r.data.byteOffset + r.data.byteLength,
-          ) as ArrayBuffer,
-        })),
-        source: "tidb",
-        rateLimited: false,
-      };
+      const tidbNormalized = tidbRows.map((r) =>
+        normalizeRecord({ ...r, data: r.data }),
+      );
+
+      try {
+        // Keep D1 as a shadow read source so fallback writes remain visible after
+        // TiDB recovery. We merge and deduplicate to avoid duplicate archiving.
+        const d1Rows = (await _d1FetchBufferedData(
+          env.BATTLE_INDEX_DB,
+        )) as BufferLogRecord[];
+        if (d1Rows.length === 0) {
+          console.log(`[DB] Fetched ${tidbNormalized.length} rows from TiDB`);
+          return {
+            rows: tidbNormalized,
+            source: "tidb",
+            rateLimited: false,
+          };
+        }
+
+        const mergedRows = mergeUniqueRecords(tidbNormalized, d1Rows);
+        console.log(
+          `[DB] Fetched ${tidbNormalized.length} rows from TiDB + ${d1Rows.length} rows from D1 shadow (merged=${mergedRows.length})`,
+        );
+        return {
+          rows: mergedRows,
+          source: "both",
+          rateLimited: false,
+        };
+      } catch (d1Err) {
+        console.error(
+          "[DB] D1 shadow fetch failed; continuing with TiDB rows only:",
+          d1Err instanceof Error ? d1Err.message : String(d1Err),
+        );
+        return {
+          rows: tidbNormalized,
+          source: "tidb",
+          rateLimited: false,
+        };
+      }
     } catch (err) {
       // Check if this is a rate limit error
       rateLimitInfo = _isRateLimitError(err);
@@ -148,7 +242,7 @@ export async function fetchBufferedDataWithFallback(
     `[DB] Fetched ${d1Rows.length} rows from D1${rateLimitDetected ? " (TiDB rate limited)" : ""}`,
   );
   return {
-    rows: d1Rows as BufferLogRecord[],
+    rows: (d1Rows as BufferLogRecord[]).map(normalizeRecord),
     source: "d1",
     rateLimited: rateLimitDetected,
     rateLimitInfo,
@@ -163,12 +257,47 @@ export async function fetchBufferedDataWithFallback(
 export async function cleanupBufferWithFallback(
   env: UnifiedDbEnv,
   maxId: number,
-  preferredSource: "tidb" | "d1",
+  preferredSource: "tidb" | "d1" | "both",
 ): Promise<{
-  source: "tidb" | "d1";
+  source: "tidb" | "d1" | "both";
   rowsAffected: number;
   rateLimited?: boolean;
 }> {
+  if (preferredSource === "both" && env.TIDB_KC_DB_URL) {
+    let tidbRowsAffected = 0;
+    let rateLimited = false;
+
+    try {
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const result = await _tidbCleanupBuffer(conn, maxId);
+      tidbRowsAffected = result.rowsAffected;
+      console.log(`[DB] Cleaned up ${tidbRowsAffected} rows from TiDB`);
+    } catch (err) {
+      const rateLimitInfo = _isRateLimitError(err);
+      rateLimited = rateLimitInfo.isRateLimited;
+      if (rateLimitInfo.isRateLimited) {
+        _recordRateLimitEvent(rateLimitInfo);
+        console.warn(
+          `[DB] TiDB cleanup rate limit detected (${rateLimitInfo.limitType}) during dual-source cleanup`,
+        );
+      } else {
+        console.error(
+          "[DB] TiDB cleanup failed during dual-source cleanup:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
+    const d1Result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
+    console.log(`[DB] Cleaned up ${d1Result.rowsAffected} rows from D1`);
+
+    return {
+      source: "both",
+      rowsAffected: tidbRowsAffected + d1Result.rowsAffected,
+      rateLimited,
+    };
+  }
+
   if (preferredSource === "tidb" && env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
@@ -337,26 +466,51 @@ export async function fetchHotDataWithFallback(
   },
 ): Promise<{
   rows: BufferLogRecord[];
-  source: "tidb" | "d1";
+  source: "tidb" | "d1" | "both";
   rateLimited?: boolean;
 }> {
   if (env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
       const tidbRows = await _tidbFetchHotData(conn, params);
-      console.log(`[DB] Fetched ${tidbRows.length} hot rows from TiDB`);
-      return {
-        rows: tidbRows.map((r) => ({
-          ...r,
-          // Use proper slice to avoid byteOffset issues when Uint8Array is a view
-          data: r.data.buffer.slice(
-            r.data.byteOffset,
-            r.data.byteOffset + r.data.byteLength,
-          ) as ArrayBuffer,
-        })),
-        source: "tidb",
-        rateLimited: false,
-      };
+      const tidbNormalized = tidbRows.map((r) =>
+        normalizeRecord({ ...r, data: r.data }),
+      );
+
+      try {
+        const d1Rows = (await _d1FetchHotData(
+          env.BATTLE_INDEX_DB,
+          params,
+        )) as BufferLogRecord[];
+        if (d1Rows.length === 0) {
+          console.log(`[DB] Fetched ${tidbNormalized.length} hot rows from TiDB`);
+          return {
+            rows: tidbNormalized,
+            source: "tidb",
+            rateLimited: false,
+          };
+        }
+
+        const mergedRows = mergeUniqueRecords(tidbNormalized, d1Rows);
+        console.log(
+          `[DB] Fetched ${tidbNormalized.length} hot rows from TiDB + ${d1Rows.length} hot rows from D1 shadow (merged=${mergedRows.length})`,
+        );
+        return {
+          rows: mergedRows,
+          source: "both",
+          rateLimited: false,
+        };
+      } catch (d1Err) {
+        console.error(
+          "[DB] D1 hot shadow fetch failed; continuing with TiDB hot rows only:",
+          d1Err instanceof Error ? d1Err.message : String(d1Err),
+        );
+        return {
+          rows: tidbNormalized,
+          source: "tidb",
+          rateLimited: false,
+        };
+      }
     } catch (err) {
       // Check if this is a rate limit error
       const rateLimitInfo = _isRateLimitError(err);
@@ -379,7 +533,7 @@ export async function fetchHotDataWithFallback(
         `[DB] Fetched ${d1Rows.length} hot rows from D1${rateLimitInfo.isRateLimited ? " (TiDB rate limited)" : ""}`,
       );
       return {
-        rows: d1Rows as BufferLogRecord[],
+        rows: (d1Rows as BufferLogRecord[]).map(normalizeRecord),
         source: "d1",
         rateLimited: rateLimitInfo.isRateLimited,
       };
@@ -390,7 +544,7 @@ export async function fetchHotDataWithFallback(
   const d1Rows = await _d1FetchHotData(env.BATTLE_INDEX_DB, params);
   console.log(`[DB] Fetched ${d1Rows.length} hot rows from D1`);
   return {
-    rows: d1Rows as BufferLogRecord[],
+    rows: (d1Rows as BufferLogRecord[]).map(normalizeRecord),
     source: "d1",
     rateLimited: false,
   };
