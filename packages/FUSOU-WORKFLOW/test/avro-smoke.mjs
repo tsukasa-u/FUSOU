@@ -1,4 +1,4 @@
-import { buildAvroContainer } from '../dist/avro-manual.js';
+import { buildAvroContainer } from '../dist/FUSOU-WORKFLOW/src/avro-manual.js';
 
 const records = [
   { id: 1, name: 'alpha', score: 12.5, active: true },

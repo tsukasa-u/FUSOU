@@ -4,6 +4,393 @@
  * Implements a subset of Avro sufficient for battle data
  */
 
+const AVRO_MAGIC = new Uint8Array([0x4f, 0x62, 0x6a, 0x01]);
+const textEncoder = new TextEncoder();
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+function createSyncMarker(): Uint8Array {
+  const marker = new Uint8Array(16);
+  crypto.getRandomValues(marker);
+  return marker;
+}
+
+function encodeLong(value: number): Uint8Array {
+  let n = BigInt(Math.trunc(value));
+  n = (n << 1n) ^ (n >> 63n); // zig-zag encode signed integer
+
+  const out: number[] = [];
+  while ((n & ~0x7fn) !== 0n) {
+    out.push(Number((n & 0x7fn) | 0x80n));
+    n >>= 7n;
+  }
+  out.push(Number(n));
+  return Uint8Array.from(out);
+}
+
+function encodeString(value: string): Uint8Array {
+  const bytes = textEncoder.encode(value);
+  return concatBytes([encodeLong(bytes.byteLength), bytes]);
+}
+
+function encodeBytes(value: Uint8Array): Uint8Array {
+  return concatBytes([encodeLong(value.byteLength), value]);
+}
+
+function inferTypeFromValue(value: unknown): any {
+  if (value == null) return "null";
+  if (typeof value === "boolean") return "boolean";
+  if (typeof value === "number") return Number.isInteger(value) ? "long" : "double";
+  if (typeof value === "string") return "string";
+  if (value instanceof Uint8Array || value instanceof ArrayBuffer) return "bytes";
+  if (Array.isArray(value)) {
+    const firstNonNull = value.find((v) => v != null);
+    return {
+      type: "array",
+      items: firstNonNull == null ? "string" : inferTypeFromValue(firstNonNull),
+    };
+  }
+  return "string";
+}
+
+function isTypeCompatible(value: unknown, type: any): boolean {
+  if (type === "null") return value == null;
+  if (typeof type === "string") {
+    switch (type) {
+      case "boolean":
+        return typeof value === "boolean";
+      case "int":
+      case "long":
+      case "float":
+      case "double":
+        return typeof value === "number";
+      case "string":
+        return typeof value === "string" || typeof value === "object";
+      case "bytes":
+        return value instanceof Uint8Array || value instanceof ArrayBuffer;
+      default:
+        return true;
+    }
+  }
+  if (Array.isArray(type)) {
+    return type.some((t) => isTypeCompatible(value, t));
+  }
+  if (type && typeof type === "object") {
+    if (type.type === "array") return Array.isArray(value);
+    if (type.type === "record") return value != null && typeof value === "object";
+    if (typeof type.type === "string") return isTypeCompatible(value, type.type);
+  }
+  return true;
+}
+
+function inferSchemaFromRecords(records: any[]): any {
+  const fieldOrder: string[] = [];
+  const seen = new Set<string>();
+
+  for (const record of records) {
+    if (!record || typeof record !== "object") continue;
+    for (const key of Object.keys(record)) {
+      if (!seen.has(key)) {
+        seen.add(key);
+        fieldOrder.push(key);
+      }
+    }
+  }
+
+  const fields = fieldOrder.map((name) => {
+    const values = records.map((r) => (r && typeof r === "object" ? r[name] : undefined));
+    const nonNull = values.find((v) => v != null);
+    const hasNull = values.some((v) => v == null);
+
+    let inferred = nonNull == null ? "string" : inferTypeFromValue(nonNull);
+    if (nonNull != null) {
+      for (const value of values) {
+        if (value == null) continue;
+        if (!isTypeCompatible(value, inferred)) {
+          inferred = "string";
+          break;
+        }
+      }
+    }
+
+    const type = hasNull ? ["null", inferred] : inferred;
+    return { name, type };
+  });
+
+  return {
+    type: "record",
+    name: "AutoRecord",
+    namespace: "com.fusou.workflow",
+    fields,
+  };
+}
+
+function encodeArrayWithSchema(itemsType: any, value: unknown): Uint8Array {
+  const items = Array.isArray(value) ? value : [];
+  if (items.length === 0) {
+    return encodeLong(0);
+  }
+
+  const encodedItems = items.map((item) => encodeValueWithSchema(itemsType, item));
+  return concatBytes([encodeLong(items.length), ...encodedItems, encodeLong(0)]);
+}
+
+function encodeUnionWithSchema(types: any[], value: unknown): Uint8Array {
+  let branch = types.findIndex((t) => t === "null" && value == null);
+  if (branch < 0) {
+    branch = types.findIndex((t) => t !== "null" && isTypeCompatible(value, t));
+  }
+  if (branch < 0) {
+    branch = types.findIndex((t) => t !== "null");
+  }
+  if (branch < 0) {
+    throw new Error("Union schema has no encodable branch");
+  }
+
+  const selected = types[branch];
+  if (selected === "null") {
+    return encodeLong(branch);
+  }
+
+  return concatBytes([
+    encodeLong(branch),
+    encodeValueWithSchema(selected, value),
+  ]);
+}
+
+function encodeRecordFields(
+  schema: { fields: { name: string; type: any }[] },
+  record: Record<string, any>,
+): Uint8Array {
+  const chunks: Uint8Array[] = [];
+  for (const field of schema.fields) {
+    const value = record[field.name];
+    chunks.push(encodeValueWithSchema(field.type, value));
+  }
+  return concatBytes(chunks);
+}
+
+function encodeValueWithSchema(type: any, value: unknown): Uint8Array {
+  if (Array.isArray(type)) {
+    return encodeUnionWithSchema(type, value);
+  }
+
+  if (typeof type === "string") {
+    switch (type) {
+      case "null":
+        return new Uint8Array(0);
+      case "boolean":
+        return new Uint8Array([value ? 1 : 0]);
+      case "int":
+      case "long":
+        return encodeLong(Number(value ?? 0));
+      case "float": {
+        const out = new Uint8Array(4);
+        new DataView(out.buffer).setFloat32(0, Number(value ?? 0), true);
+        return out;
+      }
+      case "double": {
+        const out = new Uint8Array(8);
+        new DataView(out.buffer).setFloat64(0, Number(value ?? 0), true);
+        return out;
+      }
+      case "bytes": {
+        if (value instanceof Uint8Array) {
+          return encodeBytes(value);
+        }
+        if (value instanceof ArrayBuffer) {
+          return encodeBytes(new Uint8Array(value));
+        }
+        return encodeBytes(textEncoder.encode(String(value ?? "")));
+      }
+      case "string":
+      default:
+        return encodeString(
+          typeof value === "string" ? value : JSON.stringify(value ?? null),
+        );
+    }
+  }
+
+  if (type && typeof type === "object") {
+    if (type.type === "array") {
+      return encodeArrayWithSchema(type.items, value);
+    }
+    if (type.type === "record") {
+      const recordValue =
+        value && typeof value === "object" ? (value as Record<string, any>) : {};
+      return encodeRecordFields(type, recordValue);
+    }
+    if (type.type === "enum") {
+      const symbols: unknown[] = Array.isArray(type.symbols)
+        ? type.symbols
+        : [];
+      const index = Math.max(
+        0,
+        symbols.findIndex((s: unknown) => s === value),
+      );
+      return encodeLong(index);
+    }
+    if (typeof type.type === "string") {
+      return encodeValueWithSchema(type.type, value);
+    }
+  }
+
+  return encodeString(JSON.stringify(value ?? null));
+}
+
+async function deflateRawAsync(data: Uint8Array): Promise<Uint8Array> {
+  const stream = new CompressionStream("deflate-raw");
+  const writer = stream.writable.getWriter();
+  const reader = stream.readable.getReader();
+
+  writer.write(data);
+  writer.close();
+
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLength += value.length;
+  }
+
+  const out = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+function encodeMetadataMap(entries: Array<{ key: string; value: Uint8Array }>): Uint8Array {
+  const pairs: Uint8Array[] = [];
+  for (const entry of entries) {
+    pairs.push(encodeString(entry.key));
+    pairs.push(encodeBytes(entry.value));
+  }
+  return concatBytes([encodeLong(entries.length), ...pairs, encodeLong(0)]);
+}
+
+export function ensureSchemaNamespace(schema: any): any {
+  if (!schema || typeof schema !== "object") {
+    return schema;
+  }
+  if (schema.type === "record" && typeof schema.namespace !== "string") {
+    return { ...schema, namespace: "com.fusou.workflow" };
+  }
+  return schema;
+}
+
+export function encodeRecordWithSchema(schema: any, record: any): Uint8Array {
+  const normalizedSchema = ensureSchemaNamespace(schema);
+  if (!normalizedSchema || normalizedSchema.type !== "record") {
+    throw new Error("encodeRecordWithSchema requires a record schema");
+  }
+  const recordValue =
+    record && typeof record === "object" ? (record as Record<string, any>) : {};
+  return encodeRecordFields(normalizedSchema, recordValue);
+}
+
+export function buildHeaderWithSchema(
+  schema: any,
+  codec: "null" | "deflate" = "null",
+  syncMarker: Uint8Array = createSyncMarker(),
+  schemaVersion?: string,
+): Uint8Array {
+  const normalizedSchema = ensureSchemaNamespace(schema);
+  const schemaJson = JSON.stringify(normalizedSchema);
+  const metadataEntries: Array<{ key: string; value: Uint8Array }> = [
+    { key: "avro.schema", value: textEncoder.encode(schemaJson) },
+    { key: "avro.codec", value: textEncoder.encode(codec) },
+  ];
+  if (schemaVersion) {
+    metadataEntries.push({
+      key: "fusou.schema_version",
+      value: textEncoder.encode(schemaVersion),
+    });
+  }
+
+  const safeSyncMarker =
+    syncMarker.byteLength === 16 ? syncMarker : createSyncMarker();
+  return concatBytes([
+    AVRO_MAGIC,
+    encodeMetadataMap(metadataEntries),
+    safeSyncMarker,
+  ]);
+}
+
+export function buildNullBlock(
+  schema: any,
+  records: any[],
+  syncMarker: Uint8Array,
+): Uint8Array {
+  const payloadChunks = records.map((record) =>
+    encodeRecordWithSchema(schema, record),
+  );
+  const payload = concatBytes(payloadChunks);
+
+  return concatBytes([
+    encodeLong(records.length),
+    encodeLong(payload.byteLength),
+    payload,
+    syncMarker,
+  ]);
+}
+
+async function buildDeflateBlock(
+  schema: any,
+  records: any[],
+  syncMarker: Uint8Array,
+): Promise<Uint8Array> {
+  const payloadChunks = records.map((record) =>
+    encodeRecordWithSchema(schema, record),
+  );
+  const payload = concatBytes(payloadChunks);
+  const compressed = await deflateRawAsync(payload);
+
+  return concatBytes([
+    encodeLong(records.length),
+    encodeLong(compressed.byteLength),
+    compressed,
+    syncMarker,
+  ]);
+}
+
+export async function buildOCFWithSchema(
+  schema: any,
+  records: any[],
+  codec: "null" | "deflate" = "null",
+  schemaVersion?: string,
+): Promise<Uint8Array> {
+  const syncMarker = createSyncMarker();
+  const header = buildHeaderWithSchema(schema, codec, syncMarker, schemaVersion);
+  const block =
+    codec === "deflate"
+      ? await buildDeflateBlock(schema, records, syncMarker)
+      : buildNullBlock(schema, records, syncMarker);
+  return concatBytes([header, block]);
+}
+
+export function buildAvroContainer(records: any[]): Uint8Array {
+  const safeRecords = Array.isArray(records) ? records : [];
+  const schema = inferSchemaFromRecords(safeRecords);
+  const syncMarker = createSyncMarker();
+  const header = buildHeaderWithSchema(schema, "null", syncMarker);
+  const block = buildNullBlock(schema, safeRecords, syncMarker);
+  return concatBytes([header, block]);
+}
+
 // Avro primitive type encoders removed (unused)
 
 function decodeZigzag(n: number): number {
