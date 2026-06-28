@@ -119,7 +119,7 @@ async function runTests() {
     log('  📦 Compression: ✓ Available', 'success');
     
     log('\n🎯 Next: Apply D1 schema and test with wrangler dev', 'info');
-    log('  Command: npx wrangler d1 execute dev_kc_battle_index --local --file=../../docs/sql/d1/hot-cold-schema.sql', 'info');
+    log('  Command: npx wrangler d1 execute dev_kc_battle_index --local --file=../../docs/sql/d1/schema.sql', 'info');
     
   } catch (err) {
     log(`\n❌ Test suite failed: ${err.message}`, 'error');

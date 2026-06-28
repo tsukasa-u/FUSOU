@@ -4,7 +4,7 @@
 
 ### 1. D1 Schema
 
-- **File:** `docs/sql/workflow/schema.sql`
+- **File:** `docs/sql/d1/schema.sql`
 - **Tables:** `buffer_logs`, `archived_files`, `block_indexes`
 - **Views:** `hot_cold_summary`, `archive_efficiency`
 
@@ -51,11 +51,11 @@ cd packages/FUSOU-WORKFLOW
 
 # Local環境
 npx wrangler d1 execute dev_kc_battle_index --local \
-  --file=../../docs/sql/workflow/schema.sql
+  --file=../../docs/sql/d1/schema.sql
 
 # Remote環境
 npx wrangler d1 execute dev_kc_battle_index --remote \
-  --file=../../docs/sql/workflow/schema.sql
+  --file=../../docs/sql/d1/schema.sql
 ```
 
 ### Step 2: wrangler.toml 設定
@@ -268,7 +268,7 @@ WHERE created_at < (strftime('%s', 'now') * 1000) - (2 * 60 * 60 * 1000);
 ## 📖 参考資料
 
 - [Architecture Design](../ARCHITECTURE_HOT_COLD.md)
-- [D1 Schema](../docs/sql/d1/hot-cold-schema.sql)
+- [D1 Schema](../sql/d1/schema.sql)
 - [Avro Manual Construction](./src/avro-manual.ts)
 - [Compression Utilities](./src/utils/compression.ts)
 

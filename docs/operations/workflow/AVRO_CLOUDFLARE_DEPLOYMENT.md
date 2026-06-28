@@ -252,17 +252,17 @@ wrangler d1 list
 
 ```bash
 # 既存のスキーマファイル
-cat docs/sql/d1/hot-cold-schema.sql
+cat docs/sql/d1/schema.sql
 ```
 
 スキーマ適用コマンド：
 
 ```bash
 # ローカル D1 で実行（テスト）
-wrangler d1 execute battle-index --local --file docs/sql/d1/hot-cold-schema.sql
+wrangler d1 execute battle-index --local --file docs/sql/d1/schema.sql
 
 # 本番環境に適用
-wrangler d1 execute battle-index --file docs/sql/d1/hot-cold-schema.sql
+wrangler d1 execute battle-index --file docs/sql/d1/schema.sql
 
 # テーブル確認
 wrangler d1 execute battle-index "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
@@ -649,7 +649,7 @@ ANALYZE;
 
 | ファイル | 説明 |
 |---------|------|
-| [docs/sql/d1/hot-cold-schema.sql](../../docs/sql/d1/hot-cold-schema.sql) | **D1 スキーマ定義**（buffer_logs, archived_files, block_indexes） |
+| [docs/sql/d1/schema.sql](../../sql/d1/schema.sql) | **D1 スキーマ定義**（buffer_logs, archived_files, block_indexes） |
 | `src/avro-manual.ts` | 手動 Avro OCF 実装（エンコード・デコード） |
 | `src/utils/avro.ts` | Avro ヘッダー・ブロックビルダー |
 | `src/buffer-consumer.ts` | Hot ストレージ (D1) ライター |

@@ -2,17 +2,15 @@
 
 This directory contains SQL schemas for Cloudflare D1 databases.
 
-## Active Schemas
+## Active Schema
 
-- `asset-index.sql`: Schema for `dev_kc_asset_index` (Active). Used by `FUSOU-WEB` and asset services.
-- `hot-cold-schema.sql` (Deprecated/Merged): This file has been consolidated into `../workflow/schema.sql`. Please use the workflow schema for the Hot/Cold architecture.
+- `schema.sql`: Canonical D1 schema used by workflow-related setup and documentation.
 
-## Deprecated/Reference
+## Notes
 
-- `deprecated_asset_index_ref.sql` (formerly `schema.sql`): Old schema for asset index, kept for reference.
-- `deprecated_parquet_battle_index.sql` (formerly `battle-index.sql`): Old Parquet-based schema. Replaced by Avro architecture.
-- `avro-schema.sql`: Early Avro schema. The active Avro schema (with Hot/Cold support) is in `../workflow/schema.sql`.
+- The previously referenced files `avro-schema.sql`, `hot-cold-schema.sql`, and `../workflow/schema.sql` are no longer maintained in this repository layout.
+- Use `docs/sql/d1/schema.sql` as the source of truth for D1 schema bootstrap commands.
 
-## Note
+## Battle Index Note
 
-The main Battle Index database (`dev_kc_battle_index`) schema is located in `../workflow/schema.sql` as it is managed by the FUSOU-WORKFLOW package.
+The main Battle Index database (`dev_kc_battle_index`) schema bootstrap is executed from `docs/sql/d1/schema.sql` by FUSOU-WORKFLOW scripts.

@@ -1,7 +1,7 @@
 /**
  * Type definitions for Avro schema D1 database tables
  * 
- * These types correspond to the schema defined in docs/sql/d1/avro-schema.sql
+ * These types correspond to the schema historically documented under docs/sql/d1/schema.sql
  */
 
 /**

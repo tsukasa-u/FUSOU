@@ -12,9 +12,9 @@
     "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
     "generate:schemas": "node ../kc_api/scripts/generate-schemas.mjs",
     "generate:fingerprints": "node scripts/compute-kc-api-fingerprints.mjs ../kc_api/generated-schemas/schema_v*.json > ../configs/fingerprints.json",
-    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file ../../docs/sql/workflow/schema.sql",
+    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file ../../docs/sql/d1/schema.sql",
     "schema:list:local": "wrangler d1 execute dev_kc_battle_index --local --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'",
-    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file ../../docs/sql/workflow/schema.sql",
+    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file ../../docs/sql/d1/schema.sql",
     "schema:list:remote": "wrangler d1 execute dev_kc_battle_index --remote --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'"
   },
   "keywords": [

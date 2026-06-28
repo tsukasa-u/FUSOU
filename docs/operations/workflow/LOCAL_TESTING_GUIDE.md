@@ -222,7 +222,7 @@ npx tsc --outDir dist
 ```bash
 # スキーマ再適用
 npx wrangler d1 execute dev_kc_battle_index --local \
-  --file=../../docs/sql/d1/hot-cold-schema.sql
+  --file=../../docs/sql/d1/schema.sql
 ```
 
 ### R2オブジェクト未作成

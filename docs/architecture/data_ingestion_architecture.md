@@ -200,8 +200,7 @@ packages/FUSOU-WORKFLOW/
 └── docs/
     └── sql/
         └── d1/
-            ├── avro-schema.sql           # 既存
-            └── hot-cold-schema.sql       # 新規: Buffer + Index
+            └── schema.sql          # D1 canonical schema (Buffer + Index)
 ```
 
 ---
@@ -209,7 +208,7 @@ packages/FUSOU-WORKFLOW/
 ## Next Steps
 
 1. ✅ Design Document (this file)
-2. ⏳ Create `hot-cold-schema.sql`
+2. ⏳ Update `docs/sql/d1/schema.sql`
 3. ⏳ Implement Buffer Consumer
 4. ⏳ Implement Archiver
 5. ⏳ Implement Reader API
@@ -273,10 +272,10 @@ npx wrangler d1 execute dev_kc_battle_index --remote --command="ALTER TABLE batt
 
 ```bash
 # Local environment
-npx wrangler d1 execute dev_kc_battle_index --local --file=../../docs/sql/d1/avro-schema.sql
+npx wrangler d1 execute dev_kc_battle_index --local --file=../../docs/sql/d1/schema.sql
 
 # Remote environment (production)
-npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/avro-schema.sql
+npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/schema.sql
 ```
 
 ### Step 3: Verify Schema
@@ -442,7 +441,7 @@ npx wrangler d1 execute dev_kc_battle_index --remote --command="DROP TABLE battl
 
 ## References
 
-- Schema definition: [docs/sql/d1/avro-schema.sql](../sql/d1/avro-schema.sql)
+- Schema definition: [docs/sql/d1/schema.sql](../sql/d1/schema.sql)
 - Type definitions: [packages/FUSOU-WORKFLOW/src/avro-schema-types.ts](../../packages/FUSOU-WORKFLOW/src/avro-schema-types.ts)
 - Workflow consumer: [packages/FUSOU-WORKFLOW/src/index.ts](../../packages/FUSOU-WORKFLOW/src/index.ts)
 

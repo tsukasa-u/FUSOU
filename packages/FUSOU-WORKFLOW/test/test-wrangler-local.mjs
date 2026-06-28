@@ -47,13 +47,13 @@ async function setupD1Local() {
   logSection('📊 D1 Local Database Setup');
   
   const workflowDir = path.join(__dirname, '..');
-  const schemaFile = path.join(__dirname, '../../../docs/sql/d1/hot-cold-schema.sql');
+  const schemaFile = path.join(__dirname, '../../../docs/sql/d1/schema.sql');
   
   if (!fs.existsSync(schemaFile)) {
     throw new Error(`Schema file not found: ${schemaFile}`);
   }
   
-  log('  📄 Applying hot-cold-schema.sql...', 'yellow');
+  log('  📄 Applying schema.sql...', 'yellow');
   
   try {
     exec(
