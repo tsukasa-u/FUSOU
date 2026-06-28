@@ -14,6 +14,7 @@ use fusou_auth::{AuthManager, FileStorage, Storage};
 use tauri::AppHandle;
 
 mod auth;
+mod attestation;
 mod builder_setup;
 mod cmd;
 mod integration;

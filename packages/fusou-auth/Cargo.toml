@@ -21,6 +21,8 @@ configs = { path = "../configs" }
 ed25519-dalek = { version = "2.1", features = ["std", "rand_core"] }
 rand = "0.8"
 base64 = "0.22"
+secrecy = { version = "0.8", features = ["serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
 
 [features]
 default = []

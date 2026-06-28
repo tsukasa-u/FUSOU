@@ -83,7 +83,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https://*.supabase.co https://*.workers.dev http://localhost:5173 ws://localhost:5173"
     }
   }
 }

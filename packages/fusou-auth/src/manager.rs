@@ -690,13 +690,13 @@ impl<S: Storage> AuthManager<S> {
             "anonymous-sync v2 register completed"
         );
 
-        Ok(DatasetToken {
-            token: parsed.dataset_token,
+        Ok(DatasetToken::new(
+            parsed.dataset_token,
             // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
             // クライアント側は 1 日前に refresh するので大きな問題にはならない。
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
-        })
+            Utc::now() + Duration::days(7),
+            Some(parsed.pid),
+        ))
     }
 
     /// /v2/challenge を呼んで nonce を取得する。
@@ -743,6 +743,7 @@ impl<S: Storage> AuthManager<S> {
         &self,
         api_member_id: &str,
         device_key: &DeviceKey,
+        attestation_report: Option<serde_json::Value>,
     ) -> Result<DatasetToken, AuthError> {
         let api_member_id = api_member_id.trim();
         validate_api_member_id(api_member_id)?;
@@ -764,12 +765,15 @@ impl<S: Storage> AuthManager<S> {
                 AuthError::Other("anonymous_sync_v2_refresh_endpoint not configured".to_string())
             })?;
 
-        let body = serde_json::json!({
+        let mut body = serde_json::json!({
             "device_id": device_id,
             "api_member_id": api_member_id,
             "nonce": challenge.nonce,
             "sig": sig_b64,
         });
+        if let Some(report) = attestation_report {
+            body["attestation_report"] = report;
+        }
 
         let resp = self
             .client
@@ -803,11 +807,11 @@ impl<S: Storage> AuthManager<S> {
             );
         }
 
-        Ok(DatasetToken {
-            token: parsed.dataset_token,
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
-        })
+        Ok(DatasetToken::new(
+            parsed.dataset_token,
+            Utc::now() + Duration::days(7),
+            Some(parsed.pid),
+        ))
     }
 
     /// 別の自端末から target_device_id を失効させる。
@@ -884,6 +888,7 @@ impl<S: Storage> AuthManager<S> {
         api_member_id: &str,
         device_key: &mut DeviceKey,
         current_token: Option<&DatasetToken>,
+        attestation_report: Option<serde_json::Value>,
     ) -> Result<DatasetToken, AuthError> {
         let api_member_id = api_member_id.trim();
         validate_api_member_id(api_member_id)?;
@@ -903,7 +908,7 @@ impl<S: Storage> AuthManager<S> {
             self.register_device_v2(api_member_id, device_key).await
         } else {
             tracing::info!("anonymous-sync v2: device already registered, calling /v2/refresh");
-            self.refresh_dataset_token_v2(api_member_id, device_key)
+            self.refresh_dataset_token_v2(api_member_id, device_key, attestation_report)
                 .await
         }
     }

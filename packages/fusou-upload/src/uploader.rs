@@ -355,7 +355,8 @@ impl Uploader {
             None
         };
         if let Some(dataset_token) = &dataset_token_opt {
-            handshake_req = handshake_req.header("X-Dataset-Token", &dataset_token.token);
+            handshake_req =
+                handshake_req.header("X-Dataset-Token", dataset_token.expose_token());
         }
 
         let access_token = auth_manager.get_access_token().await.ok();

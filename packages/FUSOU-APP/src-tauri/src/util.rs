@@ -11,6 +11,7 @@ use uuid::Uuid;
 use kc_api::interface::deck_port::Basic;
 use tauri::Manager;
 use fusou_auth::DeviceKey;
+use crate::attestation;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -277,8 +278,14 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     };
 
     // 匿名認証 v2 を実行して dataset_token を取得
+    let attestation_report = attestation::collect_attestation_report(None);
     match auth_manager_clone
-        .ensure_dataset_token_v2(&api_member_id, &mut device_key, current_token.as_ref())
+        .ensure_dataset_token_v2(
+            &api_member_id,
+            &mut device_key,
+            current_token.as_ref(),
+            Some(attestation_report),
+        )
         .await
     {
         Ok(dataset_token) => {

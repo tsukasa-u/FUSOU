@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use secrecy::{ExposeSecret, SecretString};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use zeroize::Zeroize;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -32,15 +34,67 @@ pub struct MultiSession {
 }
 
 /// データセット投稿用のトークン
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct DatasetToken {
     /// JWT形式のトークン
-    pub token: String,
+    token: SecretString,
     /// トークンの有効期限
     pub expires_at: DateTime<Utc>,
     /// このトークンが紐づく dataset_id (member_id_hash)
-    #[serde(default)]
     pub dataset_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct DatasetTokenWire {
+    token: String,
+    expires_at: DateTime<Utc>,
+    #[serde(default)]
+    dataset_id: Option<String>,
+}
+
+impl DatasetToken {
+    pub fn new(token: String, expires_at: DateTime<Utc>, dataset_id: Option<String>) -> Self {
+        Self {
+            token: SecretString::new(token),
+            expires_at,
+            dataset_id,
+        }
+    }
+
+    pub fn expose_token(&self) -> &str {
+        self.token.expose_secret()
+    }
+}
+
+impl Serialize for DatasetToken {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let wire = DatasetTokenWire {
+            token: self.token.expose_secret().to_string(),
+            expires_at: self.expires_at,
+            dataset_id: self.dataset_id.clone(),
+        };
+        wire.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for DatasetToken {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = DatasetTokenWire::deserialize(deserializer)?;
+        let mut token = wire.token;
+        let secret = SecretString::new(std::mem::take(&mut token));
+        token.zeroize();
+        Ok(Self {
+            token: secret,
+            expires_at: wire.expires_at,
+            dataset_id: wire.dataset_id,
+        })
+    }
 }
 
 /// 端末ローカルに保持する dataset_token 群。
