@@ -81,6 +81,7 @@ export interface BufferLogRecord {
   timestamp: number;
   data: ArrayBuffer | Uint8Array;
   uploaded_by: string | null;
+  trust_tag: string | null;
 }
 
 /**
@@ -232,6 +233,7 @@ export async function insertBufferLogsWithFallback(
     timestamp: number;
     data: ArrayBuffer | Uint8Array;
     uploaded_by?: string;
+    trust_tag?: string;
   }>,
 ): Promise<{
   source: "tidb" | "d1";

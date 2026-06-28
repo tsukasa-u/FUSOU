@@ -43,6 +43,7 @@ import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
+import TrustTagBadge from "@/components/common/solid/TrustTagBadge";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
@@ -234,6 +235,13 @@ export default function BattleDetailPanel(props: {
     const b = battle();
     if (!b) return "-";
     return String((b.battle_result as any)?.win_rank ?? "-");
+  });
+
+  const trustTag = createMemo(() => {
+    const b = battle();
+    if (!b) return "unverified";
+    const tag = b.trust_tag;
+    return typeof tag === "string" ? tag : "unverified";
   });
 
   const rankCls = createMemo(() => RANK_COLORS[rank()] ?? "");
@@ -586,6 +594,10 @@ export default function BattleDetailPanel(props: {
                   </span>
                   <span>
                     デッキ: <strong>{String(b().deck_id ?? "-")}</strong>
+                  </span>
+                  <span class="inline-flex items-center gap-2">
+                    信頼度:
+                    <TrustTagBadge tag={trustTag()} small />
                   </span>
                 </div>
               </div>

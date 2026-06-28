@@ -71,6 +71,7 @@ interface BlockIndex {
   record_count: number;
   start_timestamp: number;
   end_timestamp: number;
+  trust_tag: string | null;
   file_path: string; // Joined from archived_files
   compression_codec: string | null;
 }
@@ -141,11 +142,21 @@ async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
       if (codec === "deflate") {
         // FIXED: Parse ALL deflate-compressed blocks (not just the first one)
         const records = await parseAllDeflateAvroBlocks(header, body);
-        allRecords.push(...records);
+        allRecords.push(
+          ...records.map((record) => ({
+            ...record,
+            trust_tag: row.trust_tag ?? "unverified",
+          })),
+        );
       } else {
         // FIXED: Parse ALL uncompressed blocks (not just the first one)
         const records = parseAllNullAvroBlocks(header, body);
-        allRecords.push(...records);
+        allRecords.push(
+          ...records.map((record) => ({
+            ...record,
+            trust_tag: row.trust_tag ?? "unverified",
+          })),
+        );
       }
     } catch (err) {
       console.error(
@@ -172,7 +183,7 @@ async function fetchColdIndexes(
     SELECT 
       bi.id, bi.dataset_id, bi.table_name, bi.table_version, bi.file_id,
       bi.start_byte, bi.length, bi.record_count,
-      bi.start_timestamp, bi.end_timestamp,
+      bi.start_timestamp, bi.end_timestamp, bi.trust_tag,
       af.file_path, af.compression_codec
     FROM block_indexes bi
     JOIN archived_files af ON bi.file_id = af.id
@@ -438,9 +449,14 @@ async function fetchColdData(
 
     const blockBuffers = await Promise.all(blockPromises);
     // Deserialize each block (codec-aware)
-    const parsePromises = blockBuffers.map((buf) =>
-      deserializeAvroBlock(header, buf),
-    );
+    const parsePromises = blockBuffers.map(async (buf, idx) => {
+      const records = await deserializeAvroBlock(header, buf);
+      const trustTag = blocks[idx]?.trust_tag ?? "unverified";
+      return records.map((record) => ({
+        ...record,
+        trust_tag: trustTag,
+      }));
+    });
     const parsedBlocks = await Promise.all(parsePromises);
     for (const recs of parsedBlocks) {
       allRecords.push(...recs);

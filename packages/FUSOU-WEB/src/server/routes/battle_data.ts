@@ -521,6 +521,14 @@ app.post("/upload", async (c) => {
       const periodTag = (tokenPayload as any).period_tag as string;
       let tableOffsets = (tokenPayload as any).table_offsets as string | null;
       const tableVersion = (tokenPayload as any).table_version as string;
+      const trustTagRaw = (tokenPayload as any).trust_tag;
+      const trustTag =
+        trustTagRaw === "hw_verified" ||
+        trustTagRaw === "sw_verified" ||
+        trustTagRaw === "suspicious" ||
+        trustTagRaw === "unverified"
+          ? trustTagRaw
+          : "unverified";
       const detectedTableVersions = new Set<string>();
 
       const triggeredAt = new Date().toISOString();
@@ -750,6 +758,7 @@ app.post("/upload", async (c) => {
               tableVersion,
               triggeredAt,
               userId: user.id,
+              trust_tag: trustTag,
               // Full payload (base64 encoded)
               payload_base64: b64,
               // Table offsets for splitting at consumer
@@ -1286,7 +1295,7 @@ app.get("/global/records", async (c) => {
       resolvedPeriodTag = periodTagParam;
     }
 
-    let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
+    let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.trust_tag, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
                WHERE bi.table_name = ?`;
@@ -1344,6 +1353,7 @@ app.get("/global/records", async (c) => {
       start_timestamp: number | null;
       end_timestamp: number | null;
       period_tag: string | null;
+      trust_tag: string | null;
       file_path: string;
     }>;
 
@@ -1398,7 +1408,10 @@ app.get("/global/records", async (c) => {
           if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
             continue;
           }
-          decodedRecords.push(rec);
+          decodedRecords.push({
+            ...rec,
+            trust_tag: row.trust_tag ?? "unverified",
+          });
           if (decodedRecords.length >= limitRecords) {
             break;
           }

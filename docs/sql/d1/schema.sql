@@ -15,6 +15,7 @@ CREATE TABLE buffer_logs (
   timestamp INTEGER NOT NULL,
   data BLOB NOT NULL,
   uploaded_by TEXT,
+  trust_tag TEXT DEFAULT NULL,
   created_at INTEGER DEFAULT (unixepoch() * 1000),
   period_tag TEXT,
   table_version TEXT NOT NULL DEFAULT 'v1'
@@ -56,6 +57,7 @@ CREATE TABLE block_indexes (
   end_timestamp INTEGER NOT NULL,
   table_version TEXT NOT NULL DEFAULT 'v1',
   period_tag TEXT NOT NULL DEFAULT '2025-12-18',
+  trust_tag TEXT DEFAULT NULL,
   FOREIGN KEY(file_id) REFERENCES archived_files(id)
 );
 

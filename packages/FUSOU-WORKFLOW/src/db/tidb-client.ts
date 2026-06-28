@@ -203,6 +203,7 @@ export interface BufferLogRow {
   timestamp: number;
   data: Uint8Array;
   uploaded_by: string | null;
+  trust_tag: string | null;
 }
 
 export interface InsertBufferLogParams {
@@ -213,6 +214,7 @@ export interface InsertBufferLogParams {
   timestamp: number;
   data: Uint8Array;
   uploaded_by?: string;
+  trust_tag?: string;
 }
 
 /**
@@ -224,8 +226,8 @@ export async function insertBufferLog(
 ): Promise<{ insertId: number }> {
   const result = await conn.execute(
     `INSERT INTO buffer_logs 
-      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       params.dataset_id,
       params.table_name,
@@ -234,6 +236,7 @@ export async function insertBufferLog(
       params.timestamp,
       params.data,
       params.uploaded_by || null,
+      params.trust_tag || null,
     ],
   );
 
@@ -264,7 +267,7 @@ export async function bulkInsertBufferLogs(
 
   for (let i = 0; i < records.length; i += TIDB_BULK_CHUNK_SIZE) {
     const chunk = records.slice(i, i + TIDB_BULK_CHUNK_SIZE);
-    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(", ");
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
     const values = chunk.flatMap((r) => [
       r.dataset_id,
       r.table_name,
@@ -273,11 +276,12 @@ export async function bulkInsertBufferLogs(
       r.timestamp,
       r.data,
       r.uploaded_by || null,
+      r.trust_tag || null,
     ]);
 
     await conn.execute(
       `INSERT INTO buffer_logs
-        (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
+        (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag)
        VALUES ${placeholders}`,
       values,
     );
@@ -296,6 +300,7 @@ export async function fetchBufferedData(
 ): Promise<BufferLogRow[]> {
   const result = await conn.execute(
     `SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
+      , trust_tag
      FROM buffer_logs
      ORDER BY table_version, table_name, period_tag, dataset_id, id ASC`,
   );
@@ -325,6 +330,7 @@ export async function fetchHotData(
 ): Promise<BufferLogRow[]> {
   let sql = `
     SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
+      , trust_tag
     FROM buffer_logs
     WHERE dataset_id = ? AND table_name = ?
   `;

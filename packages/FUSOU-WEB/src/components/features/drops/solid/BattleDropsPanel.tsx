@@ -5,6 +5,10 @@ import { getBattleMapAsset, resolveBattleMapSpriteUrl, type BattleMapTheme } fro
 import { mapKeyOf, cellLabel as pureCellLabel } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { ShipBanner } from "../../battle-detail/solid/ui";
 import { STYPE_NAMES } from "@/features/simulator/constants";
+import TrustTagFilter, {
+  matchesTrustFilter,
+  type TrustFilterValue,
+} from "@/components/common/solid/TrustTagFilter";
 
 type MapSpot = { cellId: number; x: number; y: number };
 
@@ -13,6 +17,7 @@ import { ShipDropCard } from "./ShipDropCard";
 
 export default function BattleDropsPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
+  const [trustFilter, setTrustFilter] = createSignal<TrustFilterValue>("all");
 
   const [mapSpots, setMapSpots] = createSignal<MapSpot[]>([]);
   const [mapLabels, setMapLabels] = createSignal<Record<number, string>>({});
@@ -106,6 +111,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const allDrops = createMemo(() => {
     return d.battleRecords()
+      .filter((r) => matchesTrustFilter(r.trust_tag, trustFilter()))
       .filter((r) => r.battle_result?.drop_ship_id)
       .map((r) => {
         const shipId = r.battle_result.drop_ship_id;
@@ -319,6 +325,10 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                 艦から探す
               </div>
             </div>
+          </div>
+
+          <div class="mb-4 flex items-center justify-end">
+            <TrustTagFilter value={trustFilter()} onChange={setTrustFilter} />
           </div>
 
           <Show when={viewMode() === "ship"}>

@@ -78,6 +78,10 @@ import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
 import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
+import TrustTagFilter, {
+  matchesTrustFilter,
+  type TrustFilterValue,
+} from "@/components/common/solid/TrustTagFilter";
 import {
   MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
@@ -107,6 +111,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     createSignal<OfficialMapThemeMode>("auto");
   const [detectedTheme, setDetectedTheme] =
     createSignal<BattleMapTheme>("light");
+  const [trustFilter, setTrustFilter] = createSignal<TrustFilterValue>("all");
 
   let displaySettingsModalRef!: HTMLDialogElement;
 
@@ -336,6 +341,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const filteredBattles = createMemo(() => {
     const selected = d.mapFilter();
     return d.battleRecords()
+      .filter((r) => matchesTrustFilter(r.trust_tag, trustFilter()))
       .filter((r) => !selected || mapKeyOf(r) === selected)
       .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
   });
@@ -973,6 +979,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                     </div>
                   </div>
                   <div class="flex flex-wrap items-center gap-2">
+                    <TrustTagFilter value={trustFilter()} onChange={setTrustFilter} />
                     <Show when={selectedCellFilter()}>
                       {(selected) => (
                         <button

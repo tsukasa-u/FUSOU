@@ -41,6 +41,7 @@ interface BufferRow {
   timestamp: number;
   data: ArrayBuffer; // Already Avro OCF binary
   uploaded_by: string | null;
+  trust_tag: string | null;
 }
 
 interface DatasetBlock {
@@ -49,6 +50,7 @@ interface DatasetBlock {
   recordCount: number;
   startTimestamp: number;
   endTimestamp: number;
+  trust_tag: string | null;
 }
 
 interface GroupKey {
@@ -73,6 +75,7 @@ interface BlockIndexRow {
   record_count: number;
   start_timestamp: number;
   end_timestamp: number;
+  trust_tag: string | null;
 }
 
 // Convert BufferLogRecord to internal BufferRow format
@@ -93,7 +96,16 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
             record.data.byteOffset + record.data.byteLength,
           ) as ArrayBuffer),
     uploaded_by: record.uploaded_by,
+    trust_tag: record.trust_tag,
   };
+}
+
+function resolveTrustTag(tags: Array<string | null | undefined>): string | null {
+  if (tags.includes("suspicious")) return "suspicious";
+  if (tags.includes("unverified")) return "unverified";
+  if (tags.includes("sw_verified")) return "sw_verified";
+  if (tags.includes("hw_verified")) return "hw_verified";
+  return null;
 }
 
 /**
@@ -180,6 +192,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
         recordCount: rows.length, // Number of source OCF files merged
         startTimestamp: Math.min(...timestamps),
         endTimestamp: Math.max(...timestamps),
+        trust_tag: resolveTrustTag(rows.map((r) => r.trust_tag)),
       });
     }
 
@@ -289,13 +302,13 @@ async function insertBlockIndexes(
   }
 
   // Insert new indexes in chunks to stay within D1's 999-parameter bind limit.
-  // Each row uses 10 parameters; floor(999/10) = 99 rows per chunk.
-  const CHUNK_SIZE = 99;
+  // Each row uses 11 parameters; floor(999/11) = 90 rows per chunk.
+  const CHUNK_SIZE = 90;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
     const sql = `
-      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?)").join(",")}
+      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp, trust_tag)
+      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?,?)").join(",")}
     `;
     const params: (string | number)[] = [];
     for (const r of chunk) {
@@ -310,6 +323,7 @@ async function insertBlockIndexes(
         r.record_count,
         r.start_timestamp,
         r.end_timestamp,
+        r.trust_tag ?? "unverified",
       );
     }
     await db
@@ -460,6 +474,9 @@ export async function handleCron(env: Env): Promise<void> {
             period: group.key.period_tag,
             "file-index": String(fileIndex + 1),
             "total-files": String(fileChunks.length),
+            "trust-tag":
+              resolveTrustTag(chunk.blocks.map((b) => b.trust_tag)) ??
+              "unverified",
           },
         });
 
@@ -492,6 +509,7 @@ export async function handleCron(env: Env): Promise<void> {
               record_count: block.recordCount,
               start_timestamp: block.startTimestamp,
               end_timestamp: block.endTimestamp,
+              trust_tag: block.trust_tag,
             });
           }
 

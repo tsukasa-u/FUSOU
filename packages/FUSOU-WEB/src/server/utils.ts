@@ -242,6 +242,8 @@ export function injectEnv(_locals?: unknown): Bindings {
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
     CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
+    GOOGLE_SHEETS_ADMIN_LOG_ID: getEnv(ctx, "GOOGLE_SHEETS_ADMIN_LOG_ID"),
+    GOOGLE_SERVICE_ACCOUNT_KEY: getEnv(ctx, "GOOGLE_SERVICE_ACCOUNT_KEY"),
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
     COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
@@ -556,6 +558,7 @@ export async function validateDatasetToken(
 ): Promise<{
   dataset_id: string;
   user_id: string;
+  trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
 } | null> {
   try {
     if (!secret) {
@@ -575,9 +578,19 @@ export async function validateDatasetToken(
     if (payload.aud !== "fusou-upload") return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
+    const trustTagRaw = payload.trust_tag;
+    const trustTag =
+      trustTagRaw === "hw_verified" ||
+      trustTagRaw === "sw_verified" ||
+      trustTagRaw === "unverified" ||
+      trustTagRaw === "suspicious"
+        ? trustTagRaw
+        : undefined;
+
     return {
       dataset_id: payload.dataset_id,
       user_id: payload.sub,
+      ...(trustTag ? { trust_tag: trustTag } : {}),
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
@@ -599,6 +612,7 @@ export interface DatasetTokenValidationResult {
   token?: {
     dataset_id: string;
     user_id: string;
+    trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
   };
 }
 

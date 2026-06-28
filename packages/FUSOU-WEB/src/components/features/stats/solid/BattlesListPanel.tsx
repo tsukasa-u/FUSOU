@@ -3,6 +3,11 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { bannerUrl } from "@/features/simulator/equip-calc";
+import TrustTagBadge from "@/components/common/solid/TrustTagBadge";
+import TrustTagFilter, {
+  matchesTrustFilter,
+  type TrustFilterValue,
+} from "@/components/common/solid/TrustTagFilter";
 
 const WIN_RANK_BADGES: Record<string, string> = {
   S: "badge-success",
@@ -44,6 +49,7 @@ function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null
 export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
+  const [trustFilter, setTrustFilter] = createSignal<TrustFilterValue>("all");
 
   const masterShipNameById = createMemo(() => {
     return new Map(d.mstShips().map((s) => [s.id, s.name]));
@@ -131,6 +137,9 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     if (d.mapFilter()) {
       list = list.filter((b) => mapKeyOf(b) === d.mapFilter());
     }
+    if (trustFilter() !== "all") {
+      list = list.filter((b) => matchesTrustFilter(b.trust_tag, trustFilter()));
+    }
     return list;
   });
 
@@ -187,6 +196,10 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
 
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body p-0">
+          <div class="flex items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
+            <div class="text-sm text-base-content/70">信頼度フィルタ</div>
+            <TrustTagFilter value={trustFilter()} onChange={setTrustFilter} />
+          </div>
           <div class="overflow-x-auto">
             <table class="table table-zebra table-sm">
               <thead>
@@ -198,17 +211,18 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                   <th>制空</th>
                   <th>結果</th>
                   <th>ドロップ</th>
+                  <th>信頼度</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
                 <Show
                   when={!d.loading()}
-                  fallback={<tr><td colspan={8} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}
+                  fallback={<tr><td colspan={9} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}
                 >
                   <Show
                     when={pagedBattles().length > 0}
-                    fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
+                    fallback={<tr><td colspan={9} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
                   >
                     <For each={pagedBattles()}>
                       {(b, i) => {
@@ -241,6 +255,9 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                                   </span>
                                 </div>
                               ) : "-"}
+                            </td>
+                            <td>
+                              <TrustTagBadge tag={b.trust_tag} small />
                             </td>
                             <td>
                               <button class="btn btn-ghost btn-xs" onClick={(e) => {

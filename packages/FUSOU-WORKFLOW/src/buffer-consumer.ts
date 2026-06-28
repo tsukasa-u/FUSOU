@@ -40,6 +40,7 @@ interface BufferLogRecord {
   timestamp: number; // milliseconds
   data: ArrayBuffer; // Avro binary BLOB
   uploaded_by?: string;
+  trust_tag?: string;
 }
 
 // Legacy queue message format (single table per message)
@@ -52,6 +53,7 @@ interface LegacyQueueMessage {
   tableVersion: string; // 0.4, 0.5, etc.
   triggeredAt?: string;
   userId?: string;
+  trust_tag?: string;
 }
 
 // Table offset info for batched messages
@@ -72,10 +74,20 @@ interface BatchedQueueMessage {
   userId?: string;
   payload_base64: string; // Full concatenated payload
   table_offsets: TableOffset[]; // Offsets for each table
+  trust_tag?: string;
 }
 
 // Union type for queue messages
 type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
+
+function normalizeTrustTag(value: unknown): string {
+  return value === "hw_verified" ||
+    value === "sw_verified" ||
+    value === "unverified" ||
+    value === "suspicious"
+    ? value
+    : "unverified";
+}
 
 // Note: buildBulkInsertSQL and flattenRecords have been removed.
 // buffer_logs inserts now use insertBufferLogsWithFallback from ./db
@@ -134,6 +146,7 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
           slice.byteOffset + slice.byteLength,
         ),
         uploaded_by: msg.userId,
+        trust_tag: normalizeTrustTag(msg.trust_tag),
       });
     }
 
@@ -170,6 +183,7 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
         avroBytes.byteOffset + avroBytes.byteLength,
       ),
       uploaded_by: legacyMsg.userId,
+      trust_tag: normalizeTrustTag(legacyMsg.trust_tag),
     },
   ];
 }
@@ -225,6 +239,7 @@ export async function handleBufferConsumer(
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,
+      trust_tag: r.trust_tag,
     }));
 
     const { source, insertedCount } = await insertBufferLogsWithFallback(
@@ -287,6 +302,7 @@ export async function handleBufferConsumerChunked(
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,
+      trust_tag: r.trust_tag,
     }));
 
     const { source, insertedCount } = await insertBufferLogsWithFallback(

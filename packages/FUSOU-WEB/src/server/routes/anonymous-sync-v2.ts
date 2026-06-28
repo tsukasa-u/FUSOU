@@ -31,7 +31,22 @@
 import { Hono } from "hono";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
-import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  resolveSupabaseConfig,
+  safeWaitUntil,
+} from "../utils";
+import type { TrustTag } from "../types";
+import {
+  determineTrustTag,
+  normalizeTrustTag,
+} from "../utils/trust-tag";
+import {
+  verifyAttestation,
+  type AttestationReport,
+} from "../utils/attestation-verifier";
+import { logToAdminSpreadsheet } from "../utils/admin-logger";
 import {
   CHALLENGE_BUCKET_SECONDS,
   computePid,
@@ -116,6 +131,110 @@ function normalizePubkey(value: unknown): {
   return { raw: bytes, base64: encodeBytesToBase64(bytes) };
 }
 
+function parseAttestationReport(
+  value: unknown,
+): { report: AttestationReport | null; malformed: boolean } {
+  if (value == null) {
+    return { report: null, malformed: false };
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    return { report: null, malformed: true };
+  }
+
+  const raw = value as Record<string, unknown>;
+  const level = raw.attestation_level;
+  if (
+    level !== "tpm" &&
+    level !== "secure_enclave" &&
+    level !== "software_fingerprint" &&
+    level !== "none"
+  ) {
+    return { report: null, malformed: true };
+  }
+
+  const report: AttestationReport = {
+    attestation_level: level,
+    ...(typeof raw.attestation_data === "string"
+      ? { attestation_data: raw.attestation_data }
+      : {}),
+    ...(typeof raw.public_key === "string"
+      ? { public_key: raw.public_key }
+      : {}),
+  };
+
+  if (raw.fingerprint && typeof raw.fingerprint === "object") {
+    const fp = raw.fingerprint as Record<string, unknown>;
+    report.fingerprint = {
+      cpu_brand: String(fp.cpu_brand ?? ""),
+      cpu_cores: Number(fp.cpu_cores ?? 0),
+      total_memory_mb: Number(fp.total_memory_mb ?? 0),
+      os_name: String(fp.os_name ?? ""),
+      os_version: String(fp.os_version ?? ""),
+      hostname_hash: String(fp.hostname_hash ?? ""),
+      machine_id_hash: String(fp.machine_id_hash ?? ""),
+    };
+  }
+
+  if (raw.environment && typeof raw.environment === "object") {
+    const env = raw.environment as Record<string, unknown>;
+    report.environment = {
+      environment_type:
+        typeof env.environment_type === "string"
+          ? env.environment_type
+          : undefined,
+      debugger_attached:
+        typeof env.debugger_attached === "boolean"
+          ? env.debugger_attached
+          : undefined,
+      hooks_detected: Array.isArray(env.hooks_detected)
+        ? env.hooks_detected.filter((item): item is string => typeof item === "string")
+        : undefined,
+    };
+  }
+
+  return { report, malformed: false };
+}
+
+function scheduleSuspiciousAdminLog(
+  c: any,
+  options: {
+    envCtx: ReturnType<typeof createEnvContext>;
+    datasetId: string;
+    trustTag: TrustTag;
+    attestationLevel: string;
+    details: Record<string, unknown>;
+  },
+): void {
+  if (options.trustTag !== "suspicious") {
+    return;
+  }
+
+  const spreadsheetId = getEnv(options.envCtx, "GOOGLE_SHEETS_ADMIN_LOG_ID");
+  const serviceAccountKey = getEnv(options.envCtx, "GOOGLE_SERVICE_ACCOUNT_KEY");
+  if (!spreadsheetId || !serviceAccountKey) {
+    return;
+  }
+
+  safeWaitUntil(
+    c,
+    logToAdminSpreadsheet({
+      spreadsheetId,
+      sheetName: "security_log",
+      googleServiceAccountKey: serviceAccountKey,
+      row: {
+        timestamp: new Date().toISOString(),
+        event_type: "suspicious_upload",
+        dataset_id: options.datasetId,
+        trust_tag: options.trustTag,
+        attestation_level: options.attestationLevel,
+        details: JSON.stringify(options.details),
+      },
+    }).catch((err) => {
+      console.warn("[anonymous-sync-v2] failed to write admin spreadsheet log", err);
+    }),
+  );
+}
+
 function extractAccessToken(c: {
   req: { header: (name: string) => string | undefined };
 }): string | null {
@@ -197,6 +316,7 @@ async function issueDatasetToken(options: {
   canonicalUserId: string;
   pid: string;
   now: number;
+  trustTag?: TrustTag;
 }): Promise<{ token: string; expiresAt: number }> {
   const secretKey = new TextEncoder().encode(options.secret);
   const expiresAt = options.now + DATASET_TOKEN_TTL_SECONDS;
@@ -205,6 +325,7 @@ async function issueDatasetToken(options: {
     dataset_id: options.pid,
     typ: "dataset",
     aud: "fusou-upload",
+    trust_tag: options.trustTag ?? "unverified",
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt(options.now)
@@ -1155,6 +1276,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       canonicalUserId,
       pid,
       now,
+      trustTag: "unverified",
     });
 
     console.log(
@@ -1166,6 +1288,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       pid,
       dataset_token: token,
       dataset_token_expires_at: expiresAt,
+      trust_tag: "unverified",
       salt_version: config.pepperConfig.current.version,
     });
   } catch (err) {
@@ -1287,6 +1410,7 @@ app.get("/anonymous-sync/v2/challenge", async (c) => {
       nonce,
       expires_at: expiresAt,
       window_seconds: CHALLENGE_BUCKET_SECONDS,
+      attestation_required: true,
     });
   } catch (err) {
     console.error("[anonymous-sync-v2/challenge] unexpected error:", err);
@@ -1304,6 +1428,7 @@ type RefreshCachedResult = {
   pid: string;
   dataset_token: string;
   dataset_token_expires_at: number;
+  trust_tag: TrustTag;
   salt_version: string;
 };
 
@@ -1341,6 +1466,10 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     if (typeof sig !== "string" || sig.length === 0) {
       return c.json({ error: "sig is required" }, 400);
     }
+
+    const parsedAttestation = parseAttestationReport(
+      (body as any).attestation_report,
+    );
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -1440,14 +1569,17 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
           typeof parsed.pid === "string" &&
           typeof parsed.dataset_token === "string" &&
           typeof parsed.dataset_token_expires_at === "number" &&
+          normalizeTrustTag(parsed.trust_tag) !== null &&
           typeof parsed.salt_version === "string"
         ) {
+          const trustTag = normalizeTrustTag(parsed.trust_tag)!;
           const replay: RefreshCachedResult = {
             status: "ok",
             device_id: parsed.device_id,
             pid: parsed.pid,
             dataset_token: parsed.dataset_token,
             dataset_token_expires_at: parsed.dataset_token_expires_at,
+            trust_tag: trustTag,
             salt_version: parsed.salt_version,
           };
           return c.json(replay);
@@ -1677,6 +1809,20 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       }
     }
 
+    let trustTag: TrustTag = "unverified";
+    let attestationLevelForLog = "none";
+    let attestationValidForLog = false;
+
+    if (parsedAttestation.malformed) {
+      trustTag = "suspicious";
+      attestationLevelForLog = "malformed";
+    } else if (parsedAttestation.report) {
+      const trustInput = await verifyAttestation(parsedAttestation.report, nonce);
+      trustTag = determineTrustTag(trustInput);
+      attestationLevelForLog = trustInput.attestation_level;
+      attestationValidForLog = trustInput.attestation_valid;
+    }
+
     // last_seen_at 更新 (失敗しても致命的ではない)
     await supabaseAdmin
       .from("user_devices")
@@ -1689,6 +1835,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       canonicalUserId,
       pid: pidNew,
       now,
+      trustTag,
     });
 
     const result: RefreshCachedResult = {
@@ -1697,6 +1844,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       pid: pidNew,
       dataset_token: token,
       dataset_token_expires_at: expiresAt,
+      trust_tag: trustTag,
       salt_version: config.pepperConfig.current.version,
     };
 
@@ -1719,6 +1867,18 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
         },
       });
     }
+
+    scheduleSuspiciousAdminLog(c, {
+      envCtx: base.config.envCtx,
+      datasetId: pidNew,
+      trustTag,
+      attestationLevel: attestationLevelForLog,
+      details: {
+        device_id: deviceId,
+        attestation_valid: attestationValidForLog,
+        malformed_attestation_report: parsedAttestation.malformed,
+      },
+    });
 
     console.log(
       `[anonymous-sync-v2/refresh] ok device=${deviceId} pid=${maskPid(pidNew)}` +

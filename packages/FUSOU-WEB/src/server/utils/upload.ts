@@ -23,6 +23,7 @@ export interface UploadAuthContext {
   datasetToken?: {
     dataset_id: string;
     user_id: string;
+    trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
   };
 }
 
@@ -165,6 +166,12 @@ async function handlePreparation(
   }
 
   const { tokenPayload = {}, fields } = validationResult;
+  const effectiveTokenPayload: Record<string, any> = {
+    ...tokenPayload,
+    ...(authContext.datasetToken?.trust_tag
+      ? { trust_tag: authContext.datasetToken.trust_tag }
+      : {}),
+  };
 
   // [Issue #15] UPDATED: Dynamic TTL based on expected file size
   // Large files need more time to upload to R2 and process
@@ -177,10 +184,10 @@ async function handlePreparation(
 
   // If declared_size is provided in tokenPayload, calculate dynamic TTL
   if (
-    tokenPayload.declared_size &&
-    typeof tokenPayload.declared_size === "number"
+    effectiveTokenPayload.declared_size &&
+    typeof effectiveTokenPayload.declared_size === "number"
   ) {
-    const expectedSizeMB = tokenPayload.declared_size / (1024 * 1024);
+    const expectedSizeMB = effectiveTokenPayload.declared_size / (1024 * 1024);
     const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
     effectiveTTL = Math.min(
       3600, // max 1 hour
@@ -194,7 +201,7 @@ async function handlePreparation(
   // Generate signed token with user_id binding
   const { generateSignedToken } = await import("../utils");
   const signedToken = await generateSignedToken(
-    { ...tokenPayload, user_id: actingUserId },
+    { ...effectiveTokenPayload, user_id: actingUserId },
     signingSecret,
     effectiveTTL,
   );

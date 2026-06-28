@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
   timestamp BIGINT NOT NULL,
   data LONGBLOB NOT NULL,
   uploaded_by VARCHAR(255),
+  trust_tag VARCHAR(20) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_buffer_dataset_table (dataset_id, table_name),
   INDEX idx_buffer_timestamp (timestamp),

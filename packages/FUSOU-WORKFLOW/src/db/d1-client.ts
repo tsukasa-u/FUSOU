@@ -25,6 +25,7 @@ export interface BufferLogRow {
   timestamp: number;
   data: ArrayBuffer; // D1 returns ArrayBuffer for BLOB
   uploaded_by: string | null;
+  trust_tag: string | null;
 }
 
 export interface InsertBufferLogParams {
@@ -35,6 +36,7 @@ export interface InsertBufferLogParams {
   timestamp: number;
   data: ArrayBuffer;
   uploaded_by?: string;
+  trust_tag?: string;
 }
 
 // ============================================================
@@ -52,8 +54,8 @@ export async function insertBufferLog(
     .prepare(
       `
     INSERT INTO buffer_logs 
-    (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `,
     )
     .bind(
@@ -64,6 +66,7 @@ export async function insertBufferLog(
       params.timestamp,
       params.data,
       params.uploaded_by || null,
+      params.trust_tag || null,
     )
     .run();
 
@@ -81,7 +84,7 @@ export async function fetchBufferedData(
   const result = await db
     .prepare(
       `
-    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
     FROM buffer_logs
     ORDER BY table_version, table_name, period_tag, dataset_id, id ASC
   `,
@@ -105,7 +108,7 @@ export async function fetchHotData(
   },
 ): Promise<BufferLogRow[]> {
   let sql = `
-    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
     FROM buffer_logs
     WHERE dataset_id = ? AND table_name = ?
   `;
@@ -166,17 +169,17 @@ export async function bulkInsertBufferLogs(
 
   // D1 has limits on SQL statement size and parameter count
   // Chunk into smaller batches to avoid exceeding limits
-  const CHUNK_SIZE = 100; // 100 records * 7 params = 700 params per statement (well under limit)
+  const CHUNK_SIZE = 100; // 100 records * 8 params = 800 params per statement (well under limit)
   let totalInserted = 0;
 
   for (let i = 0; i < records.length; i += CHUNK_SIZE) {
     const chunk = records.slice(i, i + CHUNK_SIZE);
 
     // Build bulk insert SQL for this chunk
-    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?)").join(",");
+    const placeholders = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(",");
     const sql = `
       INSERT INTO buffer_logs 
-      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
+      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag)
       VALUES ${placeholders}
     `;
 
@@ -190,6 +193,7 @@ export async function bulkInsertBufferLogs(
         record.timestamp,
         record.data,
         record.uploaded_by || null,
+        record.trust_tag || null,
       );
     }
 

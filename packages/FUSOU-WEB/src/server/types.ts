@@ -4,6 +4,18 @@ import type { Context } from "hono";
 // 型定義
 // ========================
 
+export type TrustTag =
+  | "hw_verified"
+  | "sw_verified"
+  | "unverified"
+  | "suspicious";
+
+export type AttestationLevel =
+  | "tpm"
+  | "secure_enclave"
+  | "software_fingerprint"
+  | "none";
+
 // Cloudflare bindings and app environment
 export type Bindings = {
   // R2 Buckets
@@ -43,6 +55,8 @@ export type Bindings = {
   // §4.2 register/refresh で利用する stateless challenge HMAC キー (32 文字以上)。
   CHALLENGE_HMAC_SECRET: string;
   RESEND_API_KEY?: string; // For sending verification emails
+  GOOGLE_SHEETS_ADMIN_LOG_ID?: string; // Spreadsheet ID for security audit logs
+  GOOGLE_SERVICE_ACCOUNT_KEY?: string; // JSON string of Google service account key
   ADMIN_TOKEN?: string; // For securing admin endpoints
   PUBLIC_SITE_URL?: string; // Canonical public origin for the web app
   PUBLIC_SITE_ALLOWED_HOSTS?: string; // Comma-separated host allowlist for simulator share URLs
