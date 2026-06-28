@@ -569,6 +569,47 @@ async function insertRecoveryRelinkAudit(options: {
   });
 }
 
+async function insertSuspiciousTrustAudit(options: {
+  supabaseAdmin: any;
+  canonicalUserId: string;
+  deviceId: string;
+  datasetId: string;
+  trustTag: TrustTag;
+  attestationLevel: string;
+  details?: Record<string, unknown>;
+}): Promise<void> {
+  if (options.trustTag !== "suspicious") {
+    return;
+  }
+
+  const { error } = await options.supabaseAdmin
+    .from("suspicious_trust_audit")
+    .insert({
+      canonical_user_id: options.canonicalUserId,
+      device_id: options.deviceId,
+      dataset_id: options.datasetId,
+      trust_tag: options.trustTag,
+      attestation_level: options.attestationLevel,
+      details: options.details ?? null,
+    });
+
+  if (!error) {
+    return;
+  }
+
+  if (isSchemaObjectMissingError(error)) {
+    console.warn(
+      "[anonymous-sync-v2] suspicious_trust_audit unavailable; skipping durable audit insert",
+    );
+    return;
+  }
+
+  console.warn("[anonymous-sync-v2] suspicious trust audit insert failed:", {
+    message: (error as { message?: unknown })?.message,
+    code: (error as { code?: unknown })?.code,
+  });
+}
+
 // ========================
 // POST /anonymous-sync/v2/register
 // ========================
@@ -1868,16 +1909,28 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       });
     }
 
+    const suspiciousDetails = {
+      device_id: deviceId,
+      attestation_valid: attestationValidForLog,
+      malformed_attestation_report: parsedAttestation.malformed,
+    };
+
+    await insertSuspiciousTrustAudit({
+      supabaseAdmin,
+      canonicalUserId,
+      deviceId,
+      datasetId: pidNew,
+      trustTag,
+      attestationLevel: attestationLevelForLog,
+      details: suspiciousDetails,
+    });
+
     scheduleSuspiciousAdminLog(c, {
       envCtx: base.config.envCtx,
       datasetId: pidNew,
       trustTag,
       attestationLevel: attestationLevelForLog,
-      details: {
-        device_id: deviceId,
-        attestation_valid: attestationValidForLog,
-        malformed_attestation_report: parsedAttestation.malformed,
-      },
+      details: suspiciousDetails,
     });
 
     console.log(
