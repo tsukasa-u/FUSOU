@@ -337,7 +337,13 @@ async function insertBlockIndexes(
 // TiDB cleanup uses cleanupBufferFromTiDB from tidb-client.ts
 
 export async function handleCron(env: Env): Promise<void> {
-  let maxId: number | null = null;
+  let cleanupCheckpoints: {
+    tidbMaxId: number | null;
+    d1MaxId: number | null;
+  } = {
+    tidbMaxId: null,
+    d1MaxId: null,
+  };
   let fetchSource: "tidb" | "d1" | "both" = "d1";
   let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
 
@@ -345,17 +351,20 @@ export async function handleCron(env: Env): Promise<void> {
     const runTimestamp = Date.now();
 
     // Fetch buffered data with automatic TiDB -> D1 fallback on error
-    const { rows: fetchedRows, source } =
+    const {
+      rows: fetchedRows,
+      source,
+      cleanupCheckpoints: fetchedCheckpoints,
+    } =
       await fetchBufferedDataWithFallback(env);
     fetchSource = source;
+    cleanupCheckpoints = fetchedCheckpoints;
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
 
     if (!rows.length) {
       return; // Silent: no data to archive
     }
 
-    // IMPORTANT: Track maxId early so cleanup can happen even if later steps fail
-    maxId = Math.max(...rows.map((r) => r.id));
     const groups = groupByDataset(rows);
 
     let totalFiles = 0;
@@ -552,12 +561,33 @@ export async function handleCron(env: Env): Promise<void> {
   } finally {
     // FIXED: Only cleanup buffer_logs if archival was successful
     // This prevents data loss when R2 upload or index registration fails
-    if (maxId !== null && archiveSuccess) {
+    const hasCleanupTarget =
+      cleanupCheckpoints.tidbMaxId !== null ||
+      cleanupCheckpoints.d1MaxId !== null;
+
+    if (hasCleanupTarget && archiveSuccess) {
       try {
-        const { source: cleanupSource, rowsAffected } =
-          await cleanupBufferWithFallback(env, maxId, fetchSource);
+        const {
+          source: cleanupSource,
+          rowsAffected,
+          tidbRowsAffected,
+          d1RowsAffected,
+        } = await cleanupBufferWithFallback(
+          env,
+          cleanupCheckpoints,
+          fetchSource,
+        );
+
+        const checkpointLabel =
+          cleanupCheckpoints.tidbMaxId !== null &&
+          cleanupCheckpoints.d1MaxId !== null
+            ? `tidb<=${cleanupCheckpoints.tidbMaxId}, d1<=${cleanupCheckpoints.d1MaxId}`
+            : cleanupCheckpoints.tidbMaxId !== null
+              ? `tidb<=${cleanupCheckpoints.tidbMaxId}`
+              : `d1<=${cleanupCheckpoints.d1MaxId}`;
+
         console.log(
-          `[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs up to id ${maxId}`,
+          `[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs (${checkpointLabel}; tidb=${tidbRowsAffected}, d1=${d1RowsAffected})`,
         );
       } catch (cleanupErr) {
         console.error(
@@ -565,9 +595,16 @@ export async function handleCron(env: Env): Promise<void> {
           cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         );
       }
-    } else if (maxId !== null && !archiveSuccess) {
+    } else if (hasCleanupTarget && !archiveSuccess) {
+      const checkpointLabel =
+        cleanupCheckpoints.tidbMaxId !== null &&
+        cleanupCheckpoints.d1MaxId !== null
+          ? `tidb<=${cleanupCheckpoints.tidbMaxId}, d1<=${cleanupCheckpoints.d1MaxId}`
+          : cleanupCheckpoints.tidbMaxId !== null
+            ? `tidb<=${cleanupCheckpoints.tidbMaxId}`
+            : `d1<=${cleanupCheckpoints.d1MaxId}`;
       console.warn(
-        `[Archival] Skipped cleanup due to archival error - ${maxId} records preserved for retry`,
+        `[Archival] Skipped cleanup due to archival error - ${checkpointLabel} preserved for retry`,
       );
     }
   }

@@ -84,6 +84,11 @@ export interface BufferLogRecord {
   trust_tag: string | null;
 }
 
+export interface CleanupCheckpoints {
+  tidbMaxId: number | null;
+  d1MaxId: number | null;
+}
+
 type BinaryLike = ArrayBuffer | Uint8Array;
 
 function toArrayBuffer(data: BinaryLike): ArrayBuffer {
@@ -106,10 +111,22 @@ function toHex(bytes: Uint8Array): string {
     .join("");
 }
 
-function buildRecordDedupKey(record: BufferLogRecord): string {
-  const bytes = toUint8Array(record.data);
-  const head = bytes.subarray(0, Math.min(bytes.byteLength, 8));
-  const tail = bytes.subarray(Math.max(0, bytes.byteLength - 8));
+function maxRecordId(rows: Array<{ id: number }>): number | null {
+  if (rows.length === 0) return null;
+  let maxId = rows[0].id;
+  for (let i = 1; i < rows.length; i += 1) {
+    if (rows[i].id > maxId) maxId = rows[i].id;
+  }
+  return maxId;
+}
+
+async function sha256Hex(data: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return toHex(new Uint8Array(digest));
+}
+
+async function buildRecordDedupKey(record: BufferLogRecord): Promise<string> {
+  const payloadHash = await sha256Hex(toArrayBuffer(record.data));
   return [
     record.dataset_id,
     record.table_name,
@@ -118,9 +135,7 @@ function buildRecordDedupKey(record: BufferLogRecord): string {
     String(record.timestamp),
     record.uploaded_by ?? "",
     record.trust_tag ?? "",
-    String(bytes.byteLength),
-    toHex(head),
-    toHex(tail),
+    payloadHash,
   ].join("|");
 }
 
@@ -131,23 +146,27 @@ function normalizeRecord(record: BufferLogRecord): BufferLogRecord {
   };
 }
 
-function mergeUniqueRecords(
+async function mergeUniqueRecords(
   primaryRows: BufferLogRecord[],
   secondaryRows: BufferLogRecord[],
-): BufferLogRecord[] {
+): Promise<BufferLogRecord[]> {
   const seen = new Set<string>();
   const merged: BufferLogRecord[] = [];
 
-  const pushRecord = (row: BufferLogRecord) => {
+  const pushRecord = async (row: BufferLogRecord) => {
     const normalized = normalizeRecord(row);
-    const key = buildRecordDedupKey(normalized);
+    const key = await buildRecordDedupKey(normalized);
     if (seen.has(key)) return;
     seen.add(key);
     merged.push(normalized);
   };
 
-  primaryRows.forEach(pushRecord);
-  secondaryRows.forEach(pushRecord);
+  for (const row of primaryRows) {
+    await pushRecord(row);
+  }
+  for (const row of secondaryRows) {
+    await pushRecord(row);
+  }
 
   return merged;
 }
@@ -166,6 +185,7 @@ export async function fetchBufferedDataWithFallback(
 ): Promise<{
   rows: BufferLogRecord[];
   source: "tidb" | "d1" | "both";
+  cleanupCheckpoints: CleanupCheckpoints;
   rateLimited?: boolean;
   rateLimitInfo?: RateLimitInfo;
 }> {
@@ -179,6 +199,7 @@ export async function fetchBufferedDataWithFallback(
       const tidbNormalized = tidbRows.map((r) =>
         normalizeRecord({ ...r, data: r.data }),
       );
+      const tidbMaxId = maxRecordId(tidbRows);
 
       try {
         // Keep D1 as a shadow read source so fallback writes remain visible after
@@ -186,22 +207,31 @@ export async function fetchBufferedDataWithFallback(
         const d1Rows = (await _d1FetchBufferedData(
           env.BATTLE_INDEX_DB,
         )) as BufferLogRecord[];
+        const d1MaxId = maxRecordId(d1Rows);
         if (d1Rows.length === 0) {
           console.log(`[DB] Fetched ${tidbNormalized.length} rows from TiDB`);
           return {
             rows: tidbNormalized,
             source: "tidb",
+            cleanupCheckpoints: {
+              tidbMaxId,
+              d1MaxId: null,
+            },
             rateLimited: false,
           };
         }
 
-        const mergedRows = mergeUniqueRecords(tidbNormalized, d1Rows);
+        const mergedRows = await mergeUniqueRecords(tidbNormalized, d1Rows);
         console.log(
           `[DB] Fetched ${tidbNormalized.length} rows from TiDB + ${d1Rows.length} rows from D1 shadow (merged=${mergedRows.length})`,
         );
         return {
           rows: mergedRows,
           source: "both",
+          cleanupCheckpoints: {
+            tidbMaxId,
+            d1MaxId,
+          },
           rateLimited: false,
         };
       } catch (d1Err) {
@@ -212,6 +242,10 @@ export async function fetchBufferedDataWithFallback(
         return {
           rows: tidbNormalized,
           source: "tidb",
+          cleanupCheckpoints: {
+            tidbMaxId,
+            d1MaxId: null,
+          },
           rateLimited: false,
         };
       }
@@ -238,112 +272,105 @@ export async function fetchBufferedDataWithFallback(
 
   // D1 fallback
   const d1Rows = await _d1FetchBufferedData(env.BATTLE_INDEX_DB);
+  const d1MaxId = maxRecordId(d1Rows as Array<{ id: number }>);
   console.log(
     `[DB] Fetched ${d1Rows.length} rows from D1${rateLimitDetected ? " (TiDB rate limited)" : ""}`,
   );
   return {
     rows: (d1Rows as BufferLogRecord[]).map(normalizeRecord),
     source: "d1",
+    cleanupCheckpoints: {
+      tidbMaxId: null,
+      d1MaxId,
+    },
     rateLimited: rateLimitDetected,
     rateLimitInfo,
   };
 }
 
 /**
- * Unified cleanup buffer with TiDB -> D1 fallback on error
+ * Cleanup buffered rows using source-specific checkpoints.
  *
- * Returns rateLimited: true if the fallback was due to a rate limit error
+ * NOTE:
+ * TiDB and D1 use independent auto-increment sequences, so IDs are not
+ * comparable across databases. Cleanup must use per-source max IDs.
+ *
+ * Returns rateLimited: true if TiDB cleanup was rate-limited.
  */
 export async function cleanupBufferWithFallback(
   env: UnifiedDbEnv,
-  maxId: number,
+  checkpoints: CleanupCheckpoints,
   preferredSource: "tidb" | "d1" | "both",
 ): Promise<{
   source: "tidb" | "d1" | "both";
   rowsAffected: number;
+  tidbRowsAffected: number;
+  d1RowsAffected: number;
   rateLimited?: boolean;
 }> {
-  if (preferredSource === "both" && env.TIDB_KC_DB_URL) {
-    let tidbRowsAffected = 0;
-    let rateLimited = false;
+  let tidbRowsAffected = 0;
+  let d1RowsAffected = 0;
+  let rateLimited = false;
 
+  const shouldCleanupTiDB =
+    (preferredSource === "tidb" || preferredSource === "both") &&
+    env.TIDB_KC_DB_URL &&
+    checkpoints.tidbMaxId !== null;
+
+  const shouldCleanupD1 =
+    (preferredSource === "d1" || preferredSource === "both") &&
+    checkpoints.d1MaxId !== null;
+
+  if (shouldCleanupTiDB) {
     try {
-      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const result = await _tidbCleanupBuffer(conn, maxId);
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL!);
+      const result = await _tidbCleanupBuffer(conn, checkpoints.tidbMaxId!);
       tidbRowsAffected = result.rowsAffected;
-      console.log(`[DB] Cleaned up ${tidbRowsAffected} rows from TiDB`);
+      console.log(
+        `[DB] Cleaned up ${tidbRowsAffected} rows from TiDB (<= ${checkpoints.tidbMaxId})`,
+      );
     } catch (err) {
       const rateLimitInfo = _isRateLimitError(err);
       rateLimited = rateLimitInfo.isRateLimited;
-      if (rateLimitInfo.isRateLimited) {
-        _recordRateLimitEvent(rateLimitInfo);
-        console.warn(
-          `[DB] TiDB cleanup rate limit detected (${rateLimitInfo.limitType}) during dual-source cleanup`,
-        );
-      } else {
-        console.error(
-          "[DB] TiDB cleanup failed during dual-source cleanup:",
-          err instanceof Error ? err.message : String(err),
-        );
-      }
-    }
-
-    const d1Result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
-    console.log(`[DB] Cleaned up ${d1Result.rowsAffected} rows from D1`);
-
-    return {
-      source: "both",
-      rowsAffected: tidbRowsAffected + d1Result.rowsAffected,
-      rateLimited,
-    };
-  }
-
-  if (preferredSource === "tidb" && env.TIDB_KC_DB_URL) {
-    try {
-      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const result = await _tidbCleanupBuffer(conn, maxId);
-      console.log(`[DB] Cleaned up ${result.rowsAffected} rows from TiDB`);
-      return {
-        source: "tidb",
-        rowsAffected: result.rowsAffected,
-        rateLimited: false,
-      };
-    } catch (err) {
-      // Check if this is a rate limit error
-      const rateLimitInfo = _isRateLimitError(err);
 
       if (rateLimitInfo.isRateLimited) {
         _recordRateLimitEvent(rateLimitInfo);
         console.warn(
-          `[DB] TiDB cleanup rate limit detected (${rateLimitInfo.limitType}), falling back to D1`,
+          `[DB] TiDB cleanup rate limit detected (${rateLimitInfo.limitType}), keeping TiDB rows for retry`,
         );
       } else {
         console.error(
-          "[DB] TiDB cleanup failed, falling back to D1:",
+          "[DB] TiDB cleanup failed, keeping TiDB rows for retry:",
           err instanceof Error ? err.message : String(err),
         );
       }
-
-      // D1 fallback
-      const result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
-      console.log(
-        `[DB] Cleaned up ${result.rowsAffected} rows from D1${rateLimitInfo.isRateLimited ? " (TiDB rate limited)" : ""}`,
-      );
-      return {
-        source: "d1",
-        rowsAffected: result.rowsAffected,
-        rateLimited: rateLimitInfo.isRateLimited,
-      };
     }
   }
 
-  // D1 directly (no TiDB configured or preferredSource is D1)
-  const result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
-  console.log(`[DB] Cleaned up ${result.rowsAffected} rows from D1`);
+  if (shouldCleanupD1) {
+    const result = await _d1CleanupBuffer(
+      env.BATTLE_INDEX_DB,
+      checkpoints.d1MaxId!,
+    );
+    d1RowsAffected = result.rowsAffected;
+    console.log(
+      `[DB] Cleaned up ${d1RowsAffected} rows from D1 (<= ${checkpoints.d1MaxId})`,
+    );
+  }
+
+  const effectiveSource =
+    shouldCleanupTiDB && shouldCleanupD1
+      ? "both"
+      : shouldCleanupTiDB
+        ? "tidb"
+        : "d1";
+
   return {
-    source: "d1",
-    rowsAffected: result.rowsAffected,
-    rateLimited: false,
+    source: effectiveSource,
+    rowsAffected: tidbRowsAffected + d1RowsAffected,
+    tidbRowsAffected,
+    d1RowsAffected,
+    rateLimited,
   };
 }
 
@@ -491,7 +518,7 @@ export async function fetchHotDataWithFallback(
           };
         }
 
-        const mergedRows = mergeUniqueRecords(tidbNormalized, d1Rows);
+        const mergedRows = await mergeUniqueRecords(tidbNormalized, d1Rows);
         console.log(
           `[DB] Fetched ${tidbNormalized.length} hot rows from TiDB + ${d1Rows.length} hot rows from D1 shadow (merged=${mergedRows.length})`,
         );
