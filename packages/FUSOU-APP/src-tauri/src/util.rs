@@ -278,13 +278,13 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     };
 
     // 匿名認証 v2 を実行して dataset_token を取得
-    let attestation_report = attestation::collect_attestation_report(None);
+    // challenge nonce を使って毎回 attestation_report を再構築する。
     match auth_manager_clone
         .ensure_dataset_token_v2(
             &api_member_id,
             &mut device_key,
             current_token.as_ref(),
-            Some(attestation_report),
+            Some(|nonce| attestation::collect_attestation_report(Some(nonce))),
         )
         .await
     {

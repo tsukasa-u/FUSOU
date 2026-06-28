@@ -57,6 +57,7 @@ export type Bindings = {
   RESEND_API_KEY?: string; // For sending verification emails
   GOOGLE_SHEETS_ADMIN_LOG_ID?: string; // Spreadsheet ID for security audit logs
   GOOGLE_SERVICE_ACCOUNT_KEY?: string; // JSON string of Google service account key
+  INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256?: string; // JSON array or CSV of trusted root cert SHA-256 hashes
   ADMIN_TOKEN?: string; // For securing admin endpoints
   PUBLIC_SITE_URL?: string; // Canonical public origin for the web app
   PUBLIC_SITE_ALLOWED_HOSTS?: string; // Comma-separated host allowlist for simulator share URLs

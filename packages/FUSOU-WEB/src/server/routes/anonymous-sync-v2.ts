@@ -157,8 +157,21 @@ function parseAttestationReport(
     ...(typeof raw.attestation_data === "string"
       ? { attestation_data: raw.attestation_data }
       : {}),
+    ...(typeof raw.attestation_signature === "string"
+      ? { attestation_signature: raw.attestation_signature }
+      : {}),
     ...(typeof raw.public_key === "string"
       ? { public_key: raw.public_key }
+      : {}),
+    ...(typeof raw.attestation_format === "string"
+      ? { attestation_format: raw.attestation_format }
+      : {}),
+    ...(Array.isArray(raw.certificate_chain)
+      ? {
+          certificate_chain: raw.certificate_chain.filter(
+            (item): item is string => typeof item === "string",
+          ),
+        }
       : {}),
   };
 
@@ -193,6 +206,33 @@ function parseAttestationReport(
   }
 
   return { report, malformed: false };
+}
+
+function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
+  const envCtx = createEnvContext({ env: c.env });
+  const raw = getEnv(envCtx, "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256");
+  if (!raw) return [];
+
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(
+          (item): item is string => typeof item === "string" && item.trim().length > 0,
+        );
+      }
+    } catch {
+      // Fallback to delimiter-based parsing.
+    }
+  }
+
+  return trimmed
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
 }
 
 function scheduleSuspiciousAdminLog(
@@ -1858,7 +1898,9 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       trustTag = "suspicious";
       attestationLevelForLog = "malformed";
     } else if (parsedAttestation.report) {
-      const trustInput = await verifyAttestation(parsedAttestation.report, nonce);
+      const trustInput = await verifyAttestation(parsedAttestation.report, nonce, {
+        secureEnclaveTrustedRootSha256: resolveSecureEnclaveTrustedRoots(c),
+      });
       trustTag = determineTrustTag(trustInput);
       attestationLevelForLog = trustInput.attestation_level;
       attestationValidForLog = trustInput.attestation_valid;
