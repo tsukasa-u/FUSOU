@@ -72,6 +72,7 @@ sysinfo = "0.31"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
+linux-tpm-attestation = ["dep:tss-esapi", "dep:rsa"]
 
 default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
@@ -105,6 +106,8 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_Syste
 webkit2gtk = "2.0.1"
 gtk = "0.18"
 gdk = "0.18"
+tss-esapi = { version = "7.7.0", optional = true }
+rsa = { version = "0.9", optional = true }
 
 [profile.release]
 strip = "symbols"
