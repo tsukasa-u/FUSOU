@@ -50,13 +50,18 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
     }
 
     #[cfg(target_os = "macos")]
-    if let Ok((attestation_data, public_key)) =
-        secure_enclave_macos::collect_enclave_attestation(nonce)
-    {
+    if let Ok(attestation) = secure_enclave_macos::collect_enclave_attestation(nonce) {
         return json!({
             "attestation_level": "secure_enclave",
-            "attestation_data": B64.encode(attestation_data),
-            "public_key": B64.encode(public_key),
+            "attestation_data": B64.encode(attestation.attestation_data),
+            "attestation_signature": B64.encode(attestation.attestation_signature),
+            "public_key": B64.encode(attestation.public_key),
+            "certificate_chain": attestation
+                .certificate_chain
+                .iter()
+                .map(|certificate| B64.encode(certificate))
+                .collect::<Vec<String>>(),
+            "attestation_format": attestation.attestation_format,
             "fingerprint": fingerprint::collect_fingerprint(),
             "environment": environment_check::detect_environment(),
         });
