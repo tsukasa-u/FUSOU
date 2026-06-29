@@ -28,8 +28,44 @@ static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 /// NOTE: This is stored in memory AND persisted to disk for multi-device consistency.
 /// See: load_auth_attempt_flag(), save_auth_attempt_flag()
 static ANONYMOUS_AUTH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+static ATTESTATION_PREFLIGHT_REPORTED: AtomicBool = AtomicBool::new(false);
 static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(Mutex::default);
+
+fn report_attestation_preflight_once(app: &tauri::AppHandle) {
+    if ATTESTATION_PREFLIGHT_REPORTED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let warnings = attestation::runtime_preflight_warnings();
+    if warnings.is_empty() {
+        return;
+    }
+
+    for warning in &warnings {
+        tracing::warn!(
+            code = warning.code,
+            message = %warning.message,
+            "attestation preflight warning"
+        );
+    }
+
+    let body = if warnings.len() == 1 {
+        warnings[0].message.clone()
+    } else {
+        format!(
+            "{} (and {} more checks). See logs for details.",
+            warnings[0].message,
+            warnings.len() - 1
+        )
+    };
+
+    crate::notify::show(
+        app,
+        "Hardware Attestation Check",
+        &body,
+    );
+}
 
 /// Load the auth attempt flag from disk if available (multi-device consistency).
 /// Returns (attempted_before, last_member_id)
@@ -174,6 +210,8 @@ async fn check_session_usable(app: &tauri::AppHandle) -> bool {
 /// across multiple device launches of the same app instance.
 /// If the existing session is expired or missing, the flag is ignored and re-auth is allowed.
 pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
+    report_attestation_preflight_once(app);
+
     // api_member_id を取得
     let api_member_id = get_user_member_id().await;
     if api_member_id.is_empty() {
