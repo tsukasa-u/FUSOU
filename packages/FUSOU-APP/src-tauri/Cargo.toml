@@ -73,6 +73,7 @@ sysinfo = "0.31"
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
 linux-tpm-attestation = ["dep:tss-esapi", "dep:rsa"]
+windows-tpm-attestation = ["dep:tss-esapi", "dep:rsa"]
 
 default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
@@ -101,6 +102,8 @@ tauri-plugin-updater = "2.9.0"
 webview2-com = "0.38"
 winreg = "0.52"
 windows-sys = { version = "0.59.0", features = ["Win32_Foundation", "Win32_System_Console"] }
+tss-esapi = { version = "7.7.0", optional = true }
+rsa = { version = "0.9", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = "2.0.1"

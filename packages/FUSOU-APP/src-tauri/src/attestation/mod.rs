@@ -20,10 +20,14 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
     let nonce = nonce_hint.unwrap_or_default().as_bytes();
 
     #[cfg(target_os = "windows")]
-    if let Ok((attestation_data, public_key)) = tpm_windows::collect_tpm_attestation(nonce) {
+    if let Ok((attestation_data, attestation_signature, public_key)) =
+        tpm_windows::collect_tpm_attestation(nonce)
+    {
         return json!({
             "attestation_level": "tpm",
             "attestation_data": B64.encode(attestation_data),
+            "attestation_signature": B64.encode(attestation_signature),
+            "attestation_format": "tpm2_quote_rsassa_sha256_v1",
             "public_key": B64.encode(public_key),
             "fingerprint": fingerprint::collect_fingerprint(),
             "environment": environment_check::detect_environment(),
