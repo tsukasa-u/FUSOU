@@ -41,6 +41,7 @@ import type { TrustTag } from "../types";
 import {
   determineTrustTag,
   normalizeTrustTag,
+  type TrustInput,
 } from "../utils/trust-tag";
 import {
   verifyAttestation,
@@ -80,6 +81,17 @@ let lastNonceCleanupAt = 0;
 const API_MEMBER_ID_PATTERN = /^[0-9]{1,16}$/;
 const DEVICE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const MAX_ATTESTATION_FIELD_LENGTH = 16 * 1024;
+const MAX_ATTESTATION_FORMAT_LENGTH = 128;
+const MAX_ATTESTATION_CERT_CHAIN_LENGTH = 6;
+const MAX_ATTESTATION_CERT_B64_LENGTH = 12 * 1024;
+export const DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256 = [
+  "c2b9b042dd57830e7d117dac55ac8ae19407d38e41d88f3215bc3a890444a050",
+  "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179",
+];
+export const DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256 = [
+  "ceee658bdd5591cb707444f6c50a810c3ecf85c40d591f015e5e2f0e4b1f13d3",
+];
 
 type RateLimitContext = {
   kv?: KVNamespace;
@@ -131,6 +143,18 @@ function normalizePubkey(value: unknown): {
   return { raw: bytes, base64: encodeBytesToBase64(bytes) };
 }
 
+function normalizeBoundedString(
+  value: unknown,
+  maxLength: number,
+): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || trimmed.length > maxLength) {
+    return null;
+  }
+  return trimmed;
+}
+
 function parseAttestationReport(
   value: unknown,
 ): { report: AttestationReport | null; malformed: boolean } {
@@ -152,27 +176,80 @@ function parseAttestationReport(
     return { report: null, malformed: true };
   }
 
+  const attestationData =
+    raw.attestation_data === undefined
+      ? undefined
+      : normalizeBoundedString(
+          raw.attestation_data,
+          MAX_ATTESTATION_FIELD_LENGTH,
+        );
+  if (raw.attestation_data !== undefined && attestationData == null) {
+    return { report: null, malformed: true };
+  }
+
+  const attestationSignature =
+    raw.attestation_signature === undefined
+      ? undefined
+      : normalizeBoundedString(
+          raw.attestation_signature,
+          MAX_ATTESTATION_FIELD_LENGTH,
+        );
+  if (raw.attestation_signature !== undefined && attestationSignature == null) {
+    return { report: null, malformed: true };
+  }
+
+  const publicKey =
+    raw.public_key === undefined
+      ? undefined
+      : normalizeBoundedString(raw.public_key, MAX_ATTESTATION_FIELD_LENGTH);
+  if (raw.public_key !== undefined && publicKey == null) {
+    return { report: null, malformed: true };
+  }
+
+  const attestationFormat =
+    raw.attestation_format === undefined
+      ? undefined
+      : normalizeBoundedString(
+          raw.attestation_format,
+          MAX_ATTESTATION_FORMAT_LENGTH,
+        );
+  if (raw.attestation_format !== undefined && attestationFormat == null) {
+    return { report: null, malformed: true };
+  }
+
+  let certificateChain: string[] | undefined;
+  if (raw.certificate_chain !== undefined) {
+    if (!Array.isArray(raw.certificate_chain)) {
+      return { report: null, malformed: true };
+    }
+    if (raw.certificate_chain.length > MAX_ATTESTATION_CERT_CHAIN_LENGTH) {
+      return { report: null, malformed: true };
+    }
+
+    const normalizedChain: string[] = [];
+    for (const item of raw.certificate_chain) {
+      const normalized = normalizeBoundedString(
+        item,
+        MAX_ATTESTATION_CERT_B64_LENGTH,
+      );
+      if (!normalized) {
+        return { report: null, malformed: true };
+      }
+      normalizedChain.push(normalized);
+    }
+
+    certificateChain = normalizedChain;
+  }
+
   const report: AttestationReport = {
     attestation_level: level,
-    ...(typeof raw.attestation_data === "string"
-      ? { attestation_data: raw.attestation_data }
+    ...(attestationData ? { attestation_data: attestationData } : {}),
+    ...(attestationSignature
+      ? { attestation_signature: attestationSignature }
       : {}),
-    ...(typeof raw.attestation_signature === "string"
-      ? { attestation_signature: raw.attestation_signature }
-      : {}),
-    ...(typeof raw.public_key === "string"
-      ? { public_key: raw.public_key }
-      : {}),
-    ...(typeof raw.attestation_format === "string"
-      ? { attestation_format: raw.attestation_format }
-      : {}),
-    ...(Array.isArray(raw.certificate_chain)
-      ? {
-          certificate_chain: raw.certificate_chain.filter(
-            (item): item is string => typeof item === "string",
-          ),
-        }
-      : {}),
+    ...(publicKey ? { public_key: publicKey } : {}),
+    ...(attestationFormat ? { attestation_format: attestationFormat } : {}),
+    ...(certificateChain ? { certificate_chain: certificateChain } : {}),
   };
 
   if (raw.fingerprint && typeof raw.fingerprint === "object") {
@@ -208,9 +285,7 @@ function parseAttestationReport(
   return { report, malformed: false };
 }
 
-function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
-  const envCtx = createEnvContext({ env: c.env });
-  const raw = getEnv(envCtx, "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256");
+export function parseTrustedRootList(raw: string | undefined): string[] {
   if (!raw) return [];
 
   const trimmed = raw.trim();
@@ -233,6 +308,94 @@ function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
     .split(/[\s,]+/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
+}
+
+function isHardwareAttestationLevel(level: string): boolean {
+  return level === "tpm" || level === "secure_enclave";
+}
+
+export type RefreshAttestationPolicyDecision =
+  | {
+      allow: true;
+      trustTag: TrustTag;
+      attestationLevelForLog: string;
+      attestationValidForLog: boolean;
+    }
+  | {
+      allow: false;
+      status: 400 | 401;
+      error: string;
+      attestationLevelForLog: string;
+      attestationValidForLog: boolean;
+    };
+
+export function decideRefreshAttestationPolicy(options: {
+  parsedAttestationMalformed: boolean;
+  hasAttestationReport: boolean;
+  trustInput: TrustInput | null;
+}): RefreshAttestationPolicyDecision {
+  if (options.parsedAttestationMalformed) {
+    return {
+      allow: false,
+      status: 400,
+      error: "attestation_report_malformed",
+      attestationLevelForLog: "malformed",
+      attestationValidForLog: false,
+    };
+  }
+
+  if (!options.hasAttestationReport || !options.trustInput) {
+    return {
+      allow: true,
+      trustTag: "unverified",
+      attestationLevelForLog: "none",
+      attestationValidForLog: false,
+    };
+  }
+
+  const { trustInput } = options;
+  const hardwareLevel = isHardwareAttestationLevel(trustInput.attestation_level);
+
+  if (!trustInput.schema_fingerprint_valid) {
+    return {
+      allow: false,
+      status: 400,
+      error: "attestation_report_invalid",
+      attestationLevelForLog: trustInput.attestation_level,
+      attestationValidForLog: trustInput.attestation_valid,
+    };
+  }
+
+  if (hardwareLevel && !trustInput.attestation_valid) {
+    return {
+      allow: false,
+      status: 401,
+      error: "attestation_verification_failed",
+      attestationLevelForLog: trustInput.attestation_level,
+      attestationValidForLog: false,
+    };
+  }
+
+  return {
+    allow: true,
+    trustTag: determineTrustTag(trustInput),
+    attestationLevelForLog: trustInput.attestation_level,
+    attestationValidForLog: trustInput.attestation_valid,
+  };
+}
+
+function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
+  const envCtx = createEnvContext({ env: c.env });
+  const raw = getEnv(envCtx, "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256");
+  const parsed = parseTrustedRootList(raw);
+  return parsed.length > 0 ? parsed : DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256;
+}
+
+function resolveTpmAkTrustedRoots(c: { env: Bindings }): string[] {
+  const envCtx = createEnvContext({ env: c.env });
+  const raw = getEnv(envCtx, "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256");
+  const parsed = parseTrustedRootList(raw);
+  return parsed.length > 0 ? parsed : DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256;
 }
 
 function scheduleSuspiciousAdminLog(
@@ -1680,6 +1843,43 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       return c.json({ error: nonceConsume.error }, nonceConsume.status);
     }
 
+    const trustInput = parsedAttestation.report
+      ? await verifyAttestation(parsedAttestation.report, nonce, {
+          secureEnclaveTrustedRootSha256: resolveSecureEnclaveTrustedRoots(c),
+          tpmAkTrustedRootSha256: resolveTpmAkTrustedRoots(c),
+        })
+      : null;
+
+    const attestationPolicyDecision = decideRefreshAttestationPolicy({
+      parsedAttestationMalformed: parsedAttestation.malformed,
+      hasAttestationReport: parsedAttestation.report != null,
+      trustInput,
+    });
+
+    if (!attestationPolicyDecision.allow) {
+      console.warn(
+        "[anonymous-sync-v2/refresh] rejected by attestation policy",
+        {
+          device_id: deviceId,
+          reason: attestationPolicyDecision.error,
+          status: attestationPolicyDecision.status,
+          attestation_level: attestationPolicyDecision.attestationLevelForLog,
+          attestation_valid: attestationPolicyDecision.attestationValidForLog,
+          malformed_attestation_report: parsedAttestation.malformed,
+        },
+      );
+      return c.json(
+        { error: attestationPolicyDecision.error },
+        attestationPolicyDecision.status,
+      );
+    }
+
+    const trustTag: TrustTag = attestationPolicyDecision.trustTag;
+    const attestationLevelForLog =
+      attestationPolicyDecision.attestationLevelForLog;
+    const attestationValidForLog =
+      attestationPolicyDecision.attestationValidForLog;
+
     // ここで初めて Vault RPC を叩く (nonce/署名が無効なリクエストで Vault を消費しない)
     const pepperResolved = await resolvePepperBundle({
       base: base.config,
@@ -1888,22 +2088,6 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
           return c.json({ error: "Database error" }, 500);
         }
       }
-    }
-
-    let trustTag: TrustTag = "unverified";
-    let attestationLevelForLog = "none";
-    let attestationValidForLog = false;
-
-    if (parsedAttestation.malformed) {
-      trustTag = "suspicious";
-      attestationLevelForLog = "malformed";
-    } else if (parsedAttestation.report) {
-      const trustInput = await verifyAttestation(parsedAttestation.report, nonce, {
-        secureEnclaveTrustedRootSha256: resolveSecureEnclaveTrustedRoots(c),
-      });
-      trustTag = determineTrustTag(trustInput);
-      attestationLevelForLog = trustInput.attestation_level;
-      attestationValidForLog = trustInput.attestation_valid;
     }
 
     // last_seen_at 更新 (失敗しても致命的ではない)
