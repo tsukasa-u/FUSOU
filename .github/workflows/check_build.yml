@@ -51,11 +51,11 @@ jobs:
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
           - platform: "windows-latest"
-            args: ""
+            args: "--features windows-tpm-attestation"
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
           - platform: "windows-11-arm"
-            args: ""
+            args: "--features windows-tpm-attestation"
             SCCACHE_GHA_ENABLED: "false"
             RUSTC_WRAPPER: ""
 
