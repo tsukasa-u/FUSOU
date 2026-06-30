@@ -460,6 +460,14 @@ npx wrangler deploy
 ### FUSOU-WEB
 - `PUBLIC_SUPABASE_URL`: Your Supabase project URL
 - `SUPABASE_SECRET_KEY`: Supabase service role key
+- `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`: Secure Enclave trusted root SHA-256 list (JSON/CSV)
+- `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`: TPM AK trusted root SHA-256 list (JSON/CSV)
+
+### trusted root 運用ルール
+- source of truth は Worker 環境変数（`INTEGRITY_*`）
+- 環境変数未設定時のみ `packages/FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts` のデフォルト値が使われる
+- 本番ではデフォルト依存を避け、`INTEGRITY_*` を明示設定する
+- ローテーションは「新旧併記 -> 監視 -> 旧削除」の順で段階的に実施する
 
 ## Troubleshooting
 

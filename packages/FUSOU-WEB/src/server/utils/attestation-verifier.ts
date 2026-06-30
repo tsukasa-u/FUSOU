@@ -1,5 +1,30 @@
 import "reflect-metadata";
-import { X509Certificate } from "@peculiar/x509";
+import { AsnParser, AsnSerializer, OctetString } from "@peculiar/asn1-schema";
+import {
+  AlgorithmIdentifier,
+  Certificate as AsnX509Certificate,
+} from "@peculiar/asn1-x509";
+import {
+  BasicOCSPResponse,
+  CertID,
+  OCSPRequest,
+  OCSPResponse,
+  OCSPResponseStatus,
+  Request,
+  TBSRequest,
+  id_kp_OCSPSigning,
+  id_pkix_ocsp_basic,
+} from "@peculiar/asn1-ocsp";
+import {
+  AuthorityInfoAccessExtension,
+  BasicConstraintsExtension,
+  CRLDistributionPointsExtension,
+  ExtendedKeyUsageExtension,
+  KeyUsageFlags,
+  KeyUsagesExtension,
+  X509Certificate,
+  X509Crl,
+} from "@peculiar/x509";
 import type { AttestationLevel } from "../types";
 import type { TrustInput } from "./trust-tag";
 
@@ -28,6 +53,7 @@ export interface AttestationReport {
 
 export interface AttestationVerifierOptions {
   secureEnclaveTrustedRootSha256?: string[];
+  tpmAkTrustedRootSha256?: string[];
   now?: Date;
 }
 
@@ -36,6 +62,36 @@ const BASE64_MIN_LENGTH = 16;
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const TPM_GENERATED_VALUE = 0xff54_4347;
 const TPM_ST_ATTEST_QUOTE = 0x8018;
+const TPM_AIK_EKU_OID = "2.23.133.8.3";
+const TPM_AK_ALLOWED_EKU_OIDS = new Set<string>([TPM_AIK_EKU_OID]);
+const OCSP_REQUEST_HASH_OID = "1.3.14.3.2.26";
+const HASH_OID_SHA1 = "1.3.14.3.2.26";
+const HASH_OID_SHA256 = "2.16.840.1.101.3.4.2.1";
+const HASH_OID_SHA384 = "2.16.840.1.101.3.4.2.2";
+const HASH_OID_SHA512 = "2.16.840.1.101.3.4.2.3";
+const SIG_OID_ECDSA_SHA256 = "1.2.840.10045.4.3.2";
+const SIG_OID_ECDSA_SHA384 = "1.2.840.10045.4.3.3";
+const SIG_OID_ECDSA_SHA512 = "1.2.840.10045.4.3.4";
+const SIG_OID_RSA_SHA1 = "1.2.840.113549.1.1.5";
+const SIG_OID_RSA_SHA256 = "1.2.840.113549.1.1.11";
+const SIG_OID_RSA_SHA384 = "1.2.840.113549.1.1.12";
+const SIG_OID_RSA_SHA512 = "1.2.840.113549.1.1.13";
+const REVOCATION_FETCH_TIMEOUT_MS = 3000;
+const REVOCATION_MAX_RESPONSE_BYTES = 256 * 1024;
+const REVOCATION_MAX_URLS = 4;
+const MAX_CERTIFICATE_CHAIN_LENGTH = 8;
+const REVOCATION_BLOCKED_HOSTNAMES = new Set<string>([
+  "localhost",
+  "localhost.localdomain",
+]);
+const REVOCATION_BLOCKED_HOST_SUFFIXES = [
+  ".localhost",
+  ".local",
+  ".localdomain",
+  ".internal",
+  ".home",
+  ".lan",
+];
 
 type SecureEnclaveEnvelope = {
   signatureB64: string;
@@ -47,7 +103,20 @@ type TpmEnvelope = {
   quoteB64: string;
   signatureB64: string;
   publicKeyB64: string;
+  certificateChainB64?: string[];
 };
+
+type DecodedTpmEnvelope = {
+  quoteBytes: Uint8Array;
+  signatureBytes: Uint8Array;
+  publicKeyBytes: Uint8Array;
+};
+
+type HashName = "SHA-1" | "SHA-256" | "SHA-384" | "SHA-512";
+type RevocationStatus = "good" | "revoked" | "unknown";
+type OcspSignatureAlgorithm =
+  | { name: "ECDSA"; hash: HashName }
+  | { name: "RSASSA-PKCS1-v1_5"; hash: HashName };
 
 function normalizeBase64(value: string): string {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -86,8 +155,29 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
+function hexToBytes(hex: string): Uint8Array {
+  const normalized = hex.trim().toLowerCase().replace(/[^0-9a-f]/g, "");
+  if (normalized.length === 0) return new Uint8Array();
+  const even = normalized.length % 2 === 0 ? normalized : `0${normalized}`;
+  const out = new Uint8Array(even.length / 2);
+  for (let i = 0; i < out.length; i += 1) {
+    out[i] = parseInt(even.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+function normalizeSerialHex(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/^0+/, "");
+  return normalized.length > 0 ? normalized : "0";
+}
+
 async function sha256Bytes(data: Uint8Array): Promise<Uint8Array> {
   const digest = await crypto.subtle.digest("SHA-256", toArrayBuffer(data));
+  return new Uint8Array(digest);
+}
+
+async function digestBytes(data: Uint8Array, hash: HashName): Promise<Uint8Array> {
+  const digest = await crypto.subtle.digest(hash, toArrayBuffer(data));
   return new Uint8Array(digest);
 }
 
@@ -106,6 +196,188 @@ function normalizeTrustedRootSet(values: string[] | undefined): Set<string> {
     }
   }
   return out;
+}
+
+function resolveHashNameFromOid(oid: string): HashName | null {
+  if (oid === HASH_OID_SHA1) return "SHA-1";
+  if (oid === HASH_OID_SHA256) return "SHA-256";
+  if (oid === HASH_OID_SHA384) return "SHA-384";
+  if (oid === HASH_OID_SHA512) return "SHA-512";
+  return null;
+}
+
+function resolveOcspSignatureAlgorithm(oid: string): OcspSignatureAlgorithm | null {
+  if (oid === SIG_OID_ECDSA_SHA256) return { name: "ECDSA", hash: "SHA-256" };
+  if (oid === SIG_OID_ECDSA_SHA384) return { name: "ECDSA", hash: "SHA-384" };
+  if (oid === SIG_OID_ECDSA_SHA512) return { name: "ECDSA", hash: "SHA-512" };
+  if (oid === SIG_OID_RSA_SHA1) {
+    return { name: "RSASSA-PKCS1-v1_5", hash: "SHA-1" };
+  }
+  if (oid === SIG_OID_RSA_SHA256) {
+    return { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" };
+  }
+  if (oid === SIG_OID_RSA_SHA384) {
+    return { name: "RSASSA-PKCS1-v1_5", hash: "SHA-384" };
+  }
+  if (oid === SIG_OID_RSA_SHA512) {
+    return { name: "RSASSA-PKCS1-v1_5", hash: "SHA-512" };
+  }
+  return null;
+}
+
+function parseIpv4Octets(hostname: string): number[] | null {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+
+  const octets: number[] = [];
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) {
+      return null;
+    }
+
+    const value = Number.parseInt(part, 10);
+    if (!Number.isInteger(value) || value < 0 || value > 255) {
+      return null;
+    }
+    octets.push(value);
+  }
+
+  return octets;
+}
+
+function isBlockedIpv4(octets: number[]): boolean {
+  const [first, second] = octets;
+
+  if (first === 10) return true;
+  if (first === 127) return true;
+  if (first === 0) return true;
+  if (first === 169 && second === 254) return true;
+  if (first === 192 && second === 168) return true;
+  if (first === 172 && second >= 16 && second <= 31) return true;
+  if (first === 100 && second >= 64 && second <= 127) return true;
+  if (first === 198 && (second === 18 || second === 19)) return true;
+
+  return false;
+}
+
+function isBlockedIpv6(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+  if (!normalized.includes(":")) {
+    return false;
+  }
+
+  if (normalized === "::" || normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") {
+    return true;
+  }
+
+  if (normalized.startsWith("::ffff:")) {
+    const mappedIpv4 = normalized.slice("::ffff:".length);
+    const octets = parseIpv4Octets(mappedIpv4);
+    return octets ? isBlockedIpv4(octets) : false;
+  }
+
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) {
+    return true;
+  }
+
+  if (
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function isBlockedRevocationHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+  if (normalized.length === 0) {
+    return true;
+  }
+
+  if (REVOCATION_BLOCKED_HOSTNAMES.has(normalized)) {
+    return true;
+  }
+
+  if (
+    REVOCATION_BLOCKED_HOST_SUFFIXES.some((suffix) =>
+      normalized.endsWith(suffix),
+    )
+  ) {
+    return true;
+  }
+
+  const ipv4Octets = parseIpv4Octets(normalized);
+  if (ipv4Octets) {
+    return isBlockedIpv4(ipv4Octets);
+  }
+
+  return isBlockedIpv6(normalized);
+}
+
+function normalizeRevocationUrl(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  const protocol = parsed.protocol.toLowerCase();
+  if (protocol !== "https:" && protocol !== "data:") {
+    return null;
+  }
+
+  if (parsed.username || parsed.password) {
+    return null;
+  }
+
+  if (protocol === "data:") {
+    return parsed.toString();
+  }
+
+  if (isBlockedRevocationHostname(parsed.hostname)) {
+    return null;
+  }
+
+  return parsed.toString();
+}
+
+function sanitizeRevocationUrls(urls: string[]): string[] {
+  const out = new Set<string>();
+  for (const value of urls) {
+    const normalized = normalizeRevocationUrl(value);
+    if (!normalized) {
+      continue;
+    }
+
+    out.add(normalized);
+    if (out.size >= REVOCATION_MAX_URLS) {
+      break;
+    }
+  }
+
+  return Array.from(out);
+}
+
+function parseAsnCertificate(
+  certificate: X509Certificate,
+): AsnX509Certificate | null {
+  try {
+    return AsnParser.parse(certificate.rawData, AsnX509Certificate);
+  } catch {
+    return null;
+  }
 }
 
 function parseEmbeddedEnvelope(
@@ -205,6 +477,12 @@ function resolveTpmEnvelope(report: AttestationReport): TpmEnvelope | null {
     report.public_key?.trim() ||
     readEnvelopeString(embedded, "public_key_b64") ||
     readEnvelopeString(embedded, "public_key");
+  const certificateChainB64 =
+    report.certificate_chain?.filter((item) => item.trim().length > 0) ||
+    readEnvelopeStringArray(embedded, "ak_certificate_chain_b64") ||
+    readEnvelopeStringArray(embedded, "ak_certificate_chain") ||
+    readEnvelopeStringArray(embedded, "certificate_chain_b64") ||
+    readEnvelopeStringArray(embedded, "certificate_chain");
 
   if (
     !quoteB64 ||
@@ -221,6 +499,7 @@ function resolveTpmEnvelope(report: AttestationReport): TpmEnvelope | null {
     quoteB64,
     signatureB64,
     publicKeyB64,
+    certificateChainB64,
   };
 }
 
@@ -319,6 +598,13 @@ async function verifyEnclaveSignature(
 async function parseCertificateChain(
   certificateChainB64: string[],
 ): Promise<X509Certificate[] | null> {
+  if (
+    certificateChainB64.length < 2 ||
+    certificateChainB64.length > MAX_CERTIFICATE_CHAIN_LENGTH
+  ) {
+    return null;
+  }
+
   try {
     return certificateChainB64.map(
       (certificateB64) =>
@@ -329,7 +615,592 @@ async function parseCertificateChain(
   }
 }
 
-async function verifySecureEnclaveCertificateChain(
+function extractOcspResponderUrls(certificate: X509Certificate): string[] {
+  const extension = certificate.getExtension(AuthorityInfoAccessExtension);
+  if (!extension || extension.ocsp.length === 0) {
+    return [];
+  }
+
+  return sanitizeRevocationUrls(
+    extension.ocsp
+      .filter((name) => name.type === "url")
+      .map((name) => name.value),
+  );
+}
+
+function extractCrlDistributionPointUrls(certificate: X509Certificate): string[] {
+  const extension = certificate.getExtension(CRLDistributionPointsExtension);
+  if (!extension || extension.distributionPoints.length === 0) {
+    return [];
+  }
+
+  const urls: string[] = [];
+  for (const distributionPoint of extension.distributionPoints) {
+    const fullName = distributionPoint.distributionPoint?.fullName;
+    if (!fullName || fullName.length === 0) {
+      continue;
+    }
+    for (const generalName of fullName) {
+      const uri = generalName.uniformResourceIdentifier;
+      if (typeof uri === "string" && uri.trim().length > 0) {
+        urls.push(uri);
+      }
+    }
+  }
+
+  return sanitizeRevocationUrls(urls);
+}
+
+async function fetchBinaryResource(options: {
+  url: string;
+  method: "GET" | "POST";
+  headers?: Record<string, string>;
+  body?: Uint8Array;
+}): Promise<Uint8Array | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REVOCATION_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(options.url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body ? toArrayBuffer(options.body) : undefined,
+      signal: controller.signal,
+      redirect: "error",
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const contentLengthHeader = response.headers.get("content-length");
+    if (contentLengthHeader) {
+      const contentLength = Number.parseInt(contentLengthHeader, 10);
+      if (Number.isFinite(contentLength) && contentLength > REVOCATION_MAX_RESPONSE_BYTES) {
+        return null;
+      }
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength === 0 || bytes.byteLength > REVOCATION_MAX_RESPONSE_BYTES) {
+      return null;
+    }
+    return bytes;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function buildOcspRequestBody(
+  certificate: X509Certificate,
+  issuerCertificate: X509Certificate,
+): Promise<Uint8Array | null> {
+  const serialNumber = hexToBytes(certificate.serialNumber);
+  if (serialNumber.byteLength === 0) {
+    return null;
+  }
+
+  const issuerAsn = parseAsnCertificate(issuerCertificate);
+  if (!issuerAsn) {
+    return null;
+  }
+  const issuerNameDer = new Uint8Array(
+    AsnSerializer.serialize(issuerAsn.tbsCertificate.subject),
+  );
+
+  const issuerNameHash = await digestBytes(
+    issuerNameDer,
+    "SHA-1",
+  );
+  const issuerKeyHash = new Uint8Array(
+    await issuerCertificate.publicKey.getKeyIdentifier("SHA-1"),
+  );
+
+  const certId = new CertID({
+    hashAlgorithm: new AlgorithmIdentifier({
+      algorithm: OCSP_REQUEST_HASH_OID,
+      parameters: null,
+    }),
+    issuerNameHash: new OctetString(issuerNameHash),
+    issuerKeyHash: new OctetString(issuerKeyHash),
+    serialNumber: toArrayBuffer(serialNumber),
+  });
+  const ocspRequest = new OCSPRequest({
+    tbsRequest: new TBSRequest({
+      requestList: [new Request({ reqCert: certId })],
+    }),
+  });
+
+  return new Uint8Array(AsnSerializer.serialize(ocspRequest));
+}
+
+async function ocspCertIdMatchesCertificate(options: {
+  certId: CertID;
+  certificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+}): Promise<boolean> {
+  const hashName = resolveHashNameFromOid(options.certId.hashAlgorithm.algorithm);
+  if (!hashName) {
+    return false;
+  }
+
+  const issuerAsn = parseAsnCertificate(options.issuerCertificate);
+  if (!issuerAsn) {
+    return false;
+  }
+  const issuerNameDer = new Uint8Array(
+    AsnSerializer.serialize(issuerAsn.tbsCertificate.subject),
+  );
+
+  const expectedIssuerNameHash = await digestBytes(
+    issuerNameDer,
+    hashName,
+  );
+  const expectedIssuerKeyHash = new Uint8Array(
+    await options.issuerCertificate.publicKey.getKeyIdentifier(hashName),
+  );
+  const responseIssuerNameHash = new Uint8Array(options.certId.issuerNameHash.buffer);
+  const responseIssuerKeyHash = new Uint8Array(options.certId.issuerKeyHash.buffer);
+
+  if (!bytesEqual(expectedIssuerNameHash, responseIssuerNameHash)) {
+    return false;
+  }
+  if (!bytesEqual(expectedIssuerKeyHash, responseIssuerKeyHash)) {
+    return false;
+  }
+
+  const expectedSerial = normalizeSerialHex(options.certificate.serialNumber);
+  const responseSerial = normalizeSerialHex(
+    bytesToHex(new Uint8Array(options.certId.serialNumber)),
+  );
+  return expectedSerial === responseSerial;
+}
+
+function parseOcspEmbeddedCertificates(
+  basicResponse: BasicOCSPResponse,
+): X509Certificate[] {
+  if (!basicResponse.certs || basicResponse.certs.length === 0) {
+    return [];
+  }
+
+  try {
+    return basicResponse.certs.map(
+      (certificate) => new X509Certificate(AsnSerializer.serialize(certificate)),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function ocspResponderIdMatchesCertificate(
+  basicResponse: BasicOCSPResponse,
+  certificate: X509Certificate,
+): Promise<boolean> {
+  const responderId = basicResponse.tbsResponseData.responderID;
+  if (responderId.byName) {
+    const responderName = new Uint8Array(AsnSerializer.serialize(responderId.byName));
+    const certificateAsn = parseAsnCertificate(certificate);
+    if (!certificateAsn) {
+      return false;
+    }
+    const certificateSubject = new Uint8Array(
+      AsnSerializer.serialize(certificateAsn.tbsCertificate.subject),
+    );
+    return bytesEqual(responderName, certificateSubject);
+  }
+
+  if (responderId.byKey) {
+    const responderKeyHash = new Uint8Array(responderId.byKey.buffer);
+    const certificateKeyHash = new Uint8Array(
+      await certificate.publicKey.getKeyIdentifier("SHA-1"),
+    );
+    return bytesEqual(responderKeyHash, certificateKeyHash);
+  }
+
+  return false;
+}
+
+async function isAuthorizedOcspSigner(options: {
+  signerCertificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+  now: Date;
+}): Promise<boolean> {
+  const signerEqualsIssuer = bytesEqual(
+    new Uint8Array(options.signerCertificate.rawData),
+    new Uint8Array(options.issuerCertificate.rawData),
+  );
+  if (signerEqualsIssuer) {
+    return true;
+  }
+
+  if (
+    options.now < options.signerCertificate.notBefore ||
+    options.now > options.signerCertificate.notAfter
+  ) {
+    return false;
+  }
+
+  const signerIssuedByIssuer = await options.signerCertificate.verify({
+    publicKey: options.issuerCertificate.publicKey,
+  });
+  if (!signerIssuedByIssuer) {
+    return false;
+  }
+
+  const signerEku = options.signerCertificate.getExtension(ExtendedKeyUsageExtension);
+  if (!signerEku || signerEku.usages.length === 0) {
+    return false;
+  }
+
+  return signerEku.usages.some(
+    (usage) => String(usage).trim() === id_kp_OCSPSigning,
+  );
+}
+
+async function exportOcspVerifierKey(
+  certificate: X509Certificate,
+  algorithm: OcspSignatureAlgorithm,
+): Promise<CryptoKey | null> {
+  try {
+    if (algorithm.name === "ECDSA") {
+      const keyAlgorithm = certificate.publicKey.algorithm as EcKeyAlgorithm;
+      if (
+        keyAlgorithm.name !== "ECDSA" ||
+        typeof keyAlgorithm.namedCurve !== "string"
+      ) {
+        return null;
+      }
+      return await certificate.publicKey.export(
+        {
+          name: "ECDSA",
+          namedCurve: keyAlgorithm.namedCurve,
+        },
+        ["verify"],
+      );
+    }
+
+    return await certificate.publicKey.export(
+      {
+        name: "RSASSA-PKCS1-v1_5",
+        hash: algorithm.hash,
+      },
+      ["verify"],
+    );
+  } catch {
+    return null;
+  }
+}
+
+async function verifyOcspResponseSignature(options: {
+  basicResponse: BasicOCSPResponse;
+  signerCertificate: X509Certificate;
+}): Promise<boolean> {
+  const signatureAlgorithm = resolveOcspSignatureAlgorithm(
+    options.basicResponse.signatureAlgorithm.algorithm,
+  );
+  if (!signatureAlgorithm) {
+    return false;
+  }
+
+  const verifierKey = await exportOcspVerifierKey(
+    options.signerCertificate,
+    signatureAlgorithm,
+  );
+  if (!verifierKey) {
+    return false;
+  }
+
+  const tbsResponseData = options.basicResponse.tbsResponseDataRaw
+    ? new Uint8Array(options.basicResponse.tbsResponseDataRaw)
+    : new Uint8Array(AsnSerializer.serialize(options.basicResponse.tbsResponseData));
+  const signature = new Uint8Array(options.basicResponse.signature);
+
+  try {
+    if (signatureAlgorithm.name === "ECDSA") {
+      return await crypto.subtle.verify(
+        {
+          name: "ECDSA",
+          hash: signatureAlgorithm.hash,
+        },
+        verifierKey,
+        toArrayBuffer(signature),
+        toArrayBuffer(tbsResponseData),
+      );
+    }
+
+    return await crypto.subtle.verify(
+      { name: "RSASSA-PKCS1-v1_5" },
+      verifierKey,
+      toArrayBuffer(signature),
+      toArrayBuffer(tbsResponseData),
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function checkOcspStatusFromUrl(options: {
+  url: string;
+  certificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+  now: Date;
+}): Promise<RevocationStatus> {
+  const requestBody = await buildOcspRequestBody(
+    options.certificate,
+    options.issuerCertificate,
+  );
+  if (!requestBody) {
+    return "unknown";
+  }
+
+  const responseBytes = await fetchBinaryResource({
+    url: options.url,
+    method: "POST",
+    headers: {
+      "content-type": "application/ocsp-request",
+      accept: "application/ocsp-response",
+    },
+    body: requestBody,
+  });
+  if (!responseBytes) {
+    return "unknown";
+  }
+
+  try {
+    const ocspResponse = AsnParser.parse(responseBytes, OCSPResponse);
+    if (ocspResponse.responseStatus !== OCSPResponseStatus.successful) {
+      return "unknown";
+    }
+    if (
+      !ocspResponse.responseBytes ||
+      ocspResponse.responseBytes.responseType !== id_pkix_ocsp_basic
+    ) {
+      return "unknown";
+    }
+
+    const basicResponse = AsnParser.parse(
+      ocspResponse.responseBytes.response.buffer,
+      BasicOCSPResponse,
+    );
+
+    const signerCandidates = [
+      options.issuerCertificate,
+      ...parseOcspEmbeddedCertificates(basicResponse),
+    ];
+    let responseSignatureVerified = false;
+    for (const signerCandidate of signerCandidates) {
+      if (
+        !(await ocspResponderIdMatchesCertificate(basicResponse, signerCandidate))
+      ) {
+        continue;
+      }
+      const signerAuthorized = await isAuthorizedOcspSigner({
+        signerCertificate: signerCandidate,
+        issuerCertificate: options.issuerCertificate,
+        now: options.now,
+      });
+      if (!signerAuthorized) {
+        continue;
+      }
+      const signatureVerified = await verifyOcspResponseSignature({
+        basicResponse,
+        signerCertificate: signerCandidate,
+      });
+      if (!signatureVerified) {
+        continue;
+      }
+      responseSignatureVerified = true;
+      break;
+    }
+    if (!responseSignatureVerified) {
+      return "unknown";
+    }
+
+    for (const singleResponse of basicResponse.tbsResponseData.responses) {
+      const certIdMatched = await ocspCertIdMatchesCertificate({
+        certId: singleResponse.certID,
+        certificate: options.certificate,
+        issuerCertificate: options.issuerCertificate,
+      });
+      if (!certIdMatched) {
+        continue;
+      }
+
+      if (options.now < singleResponse.thisUpdate) {
+        return "unknown";
+      }
+      if (singleResponse.nextUpdate && options.now > singleResponse.nextUpdate) {
+        return "unknown";
+      }
+
+      if (singleResponse.certStatus.revoked) {
+        if (options.now >= singleResponse.certStatus.revoked.revocationTime) {
+          return "revoked";
+        }
+        return "unknown";
+      }
+
+      if (singleResponse.certStatus.good !== undefined) {
+        return "good";
+      }
+
+      return "unknown";
+    }
+
+    return "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+async function checkOcspStatus(options: {
+  urls: string[];
+  certificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+  now: Date;
+}): Promise<RevocationStatus> {
+  let hasGood = false;
+  for (const url of options.urls) {
+    const status = await checkOcspStatusFromUrl({
+      url,
+      certificate: options.certificate,
+      issuerCertificate: options.issuerCertificate,
+      now: options.now,
+    });
+    if (status === "revoked") {
+      return "revoked";
+    }
+    if (status === "good") {
+      hasGood = true;
+    }
+  }
+  return hasGood ? "good" : "unknown";
+}
+
+async function checkCrlStatusFromUrl(options: {
+  url: string;
+  certificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+  now: Date;
+}): Promise<RevocationStatus> {
+  const crlBytes = await fetchBinaryResource({
+    url: options.url,
+    method: "GET",
+    headers: {
+      accept: "application/pkix-crl, application/x-pkcs7-crl, */*",
+    },
+  });
+  if (!crlBytes) {
+    return "unknown";
+  }
+
+  let crl: X509Crl;
+  try {
+    crl = new X509Crl(toArrayBuffer(crlBytes));
+  } catch {
+    return "unknown";
+  }
+
+  if (options.now < crl.thisUpdate) {
+    return "unknown";
+  }
+  if (crl.nextUpdate && options.now > crl.nextUpdate) {
+    return "unknown";
+  }
+
+  const signatureVerified = await crl.verify({
+    publicKey: options.issuerCertificate,
+  });
+  if (!signatureVerified) {
+    return "unknown";
+  }
+
+  const revoked = crl.findRevoked(options.certificate);
+  if (revoked) {
+    if (options.now >= revoked.revocationDate) {
+      return "revoked";
+    }
+    return "unknown";
+  }
+
+  return "good";
+}
+
+async function checkCrlStatus(options: {
+  urls: string[];
+  certificate: X509Certificate;
+  issuerCertificate: X509Certificate;
+  now: Date;
+}): Promise<RevocationStatus> {
+  let hasGood = false;
+  for (const url of options.urls) {
+    const status = await checkCrlStatusFromUrl({
+      url,
+      certificate: options.certificate,
+      issuerCertificate: options.issuerCertificate,
+      now: options.now,
+    });
+    if (status === "revoked") {
+      return "revoked";
+    }
+    if (status === "good") {
+      hasGood = true;
+    }
+  }
+  return hasGood ? "good" : "unknown";
+}
+
+async function verifyLeafCertificateRevocation(
+  certificateChain: X509Certificate[],
+  now: Date,
+): Promise<boolean> {
+  if (certificateChain.length < 2) {
+    return false;
+  }
+
+  const leaf = certificateChain[0];
+  const issuer = certificateChain[1];
+  const ocspUrls = extractOcspResponderUrls(leaf);
+  const crlUrls = extractCrlDistributionPointUrls(leaf);
+  if (ocspUrls.length === 0 && crlUrls.length === 0) {
+    return false;
+  }
+
+  if (ocspUrls.length > 0) {
+    const ocspStatus = await checkOcspStatus({
+      urls: ocspUrls,
+      certificate: leaf,
+      issuerCertificate: issuer,
+      now,
+    });
+    if (ocspStatus === "good") {
+      return true;
+    }
+    if (ocspStatus === "revoked") {
+      return false;
+    }
+  }
+
+  if (crlUrls.length > 0) {
+    const crlStatus = await checkCrlStatus({
+      urls: crlUrls,
+      certificate: leaf,
+      issuerCertificate: issuer,
+      now,
+    });
+    if (crlStatus === "good") {
+      return true;
+    }
+    if (crlStatus === "revoked") {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+async function verifyCertificateChainAgainstTrustedRoot(
   certificateChain: X509Certificate[],
   trustedRootSet: Set<string>,
   now: Date,
@@ -359,8 +1230,21 @@ async function verifySecureEnclaveCertificateChain(
     return false;
   }
 
+  // Avoid revocation network calls for chains that are not anchored to trusted roots.
   const rootHash = bytesToHex(await sha256Bytes(new Uint8Array(root.rawData)));
-  return trustedRootSet.has(rootHash);
+  if (!trustedRootSet.has(rootHash)) {
+    return false;
+  }
+
+  const leafRevocationValid = await verifyLeafCertificateRevocation(
+    certificateChain,
+    now,
+  );
+  if (!leafRevocationValid) {
+    return false;
+  }
+
+  return true;
 }
 
 async function verifySecureEnclaveAttestation(
@@ -391,7 +1275,7 @@ async function verifySecureEnclaveAttestation(
     return false;
   }
 
-  const chainTrusted = await verifySecureEnclaveCertificateChain(
+  const chainTrusted = await verifyCertificateChainAgainstTrustedRoot(
     certificateChain,
     trustedRootSet,
     now,
@@ -409,6 +1293,253 @@ async function verifySecureEnclaveAttestation(
   }
 
   return verifyEcdsaSignatureWithKey(envelope.signatureB64, leafKey, nonce);
+}
+
+function decodeTpmEnvelopePayload(
+  envelope: TpmEnvelope,
+): DecodedTpmEnvelope | null {
+  try {
+    return {
+      quoteBytes: base64ToBytes(envelope.quoteB64),
+      signatureBytes: base64ToBytes(envelope.signatureB64),
+      publicKeyBytes: base64ToBytes(envelope.publicKeyB64),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function verifyWithCryptoKey(
+  key: CryptoKey,
+  quoteBytes: Uint8Array,
+  signatureBytes: Uint8Array,
+): Promise<boolean> {
+  const keyAlgorithm = key.algorithm.name;
+  const quoteData = toArrayBuffer(quoteBytes);
+  const signatureData = toArrayBuffer(signatureBytes);
+
+  if (keyAlgorithm === "ECDSA") {
+    try {
+      return await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        key,
+        signatureData,
+        quoteData,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  if (keyAlgorithm === "RSA-PSS") {
+    try {
+      if (
+        await crypto.subtle.verify(
+          { name: "RSA-PSS", saltLength: 32 },
+          key,
+          signatureData,
+          quoteData,
+        )
+      ) {
+        return true;
+      }
+    } catch {
+      // Try PKCS1 as a fallback for certificate-exported keys.
+    }
+    try {
+      return await crypto.subtle.verify(
+        { name: "RSASSA-PKCS1-v1_5" },
+        key,
+        signatureData,
+        quoteData,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  if (keyAlgorithm === "RSASSA-PKCS1-v1_5") {
+    try {
+      if (
+        await crypto.subtle.verify(
+          { name: "RSASSA-PKCS1-v1_5" },
+          key,
+          signatureData,
+          quoteData,
+        )
+      ) {
+        return true;
+      }
+    } catch {
+      // Try RSA-PSS as a fallback for certificate-exported keys.
+    }
+    try {
+      return await crypto.subtle.verify(
+        { name: "RSA-PSS", saltLength: 32 },
+        key,
+        signatureData,
+        quoteData,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  return false;
+}
+
+async function verifyTpmQuoteSignatureWithPublicKey(
+  decoded: DecodedTpmEnvelope,
+): Promise<boolean> {
+  const quoteData = toArrayBuffer(decoded.quoteBytes);
+  const signatureData = toArrayBuffer(decoded.signatureBytes);
+
+  const rsaPssKey = await importRsaPublicKey(decoded.publicKeyBytes, "RSA-PSS");
+  if (rsaPssKey) {
+    const rsaPssVerified = await crypto.subtle.verify(
+      { name: "RSA-PSS", saltLength: 32 },
+      rsaPssKey,
+      signatureData,
+      quoteData,
+    );
+    if (rsaPssVerified) {
+      return true;
+    }
+  }
+
+  const rsaPkcs1Key = await importRsaPublicKey(
+    decoded.publicKeyBytes,
+    "RSASSA-PKCS1-v1_5",
+  );
+  if (rsaPkcs1Key) {
+    const rsaPkcs1Verified = await crypto.subtle.verify(
+      { name: "RSASSA-PKCS1-v1_5" },
+      rsaPkcs1Key,
+      signatureData,
+      quoteData,
+    );
+    if (rsaPkcs1Verified) {
+      return true;
+    }
+  }
+
+  const ecdsaKey = await importEcdsaPublicKey(decoded.publicKeyBytes);
+  if (ecdsaKey) {
+    return crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      ecdsaKey,
+      signatureData,
+      quoteData,
+    );
+  }
+
+  return false;
+}
+
+async function verifyTpmQuoteSignatureWithLeafCertificate(
+  decoded: DecodedTpmEnvelope,
+  leafCertificate: X509Certificate,
+): Promise<boolean> {
+  let leafKey: CryptoKey;
+  try {
+    leafKey = await leafCertificate.publicKey.export();
+  } catch {
+    return false;
+  }
+
+  return verifyWithCryptoKey(leafKey, decoded.quoteBytes, decoded.signatureBytes);
+}
+
+function hasKeyUsageFlag(usages: KeyUsageFlags, flag: KeyUsageFlags): boolean {
+  return (usages & flag) === flag;
+}
+
+function verifyTpmAkCertificatePolicy(certificateChain: X509Certificate[]): boolean {
+  if (certificateChain.length < 2) {
+    return false;
+  }
+
+  const leaf = certificateChain[0];
+  const leafBasicConstraints = leaf.getExtension(BasicConstraintsExtension);
+  if (!leafBasicConstraints || leafBasicConstraints.ca) {
+    return false;
+  }
+
+  const leafKeyUsage = leaf.getExtension(KeyUsagesExtension);
+  if (
+    !leafKeyUsage ||
+    !hasKeyUsageFlag(leafKeyUsage.usages, KeyUsageFlags.digitalSignature)
+  ) {
+    return false;
+  }
+
+  const leafExtendedKeyUsage = leaf.getExtension(ExtendedKeyUsageExtension);
+  if (!leafExtendedKeyUsage || leafExtendedKeyUsage.usages.length === 0) {
+    return false;
+  }
+  const hasAllowedLeafEku = leafExtendedKeyUsage.usages.some((usage) =>
+    TPM_AK_ALLOWED_EKU_OIDS.has(String(usage).trim()),
+  );
+  if (!hasAllowedLeafEku) {
+    return false;
+  }
+
+  for (let i = 1; i < certificateChain.length; i += 1) {
+    const certificate = certificateChain[i];
+    const isIntermediate = i < certificateChain.length - 1;
+    const basicConstraints = certificate.getExtension(BasicConstraintsExtension);
+
+    if (isIntermediate && (!basicConstraints || !basicConstraints.ca)) {
+      return false;
+    }
+    if (basicConstraints && !basicConstraints.ca) {
+      return false;
+    }
+
+    const keyUsage = certificate.getExtension(KeyUsagesExtension);
+    if (keyUsage && !hasKeyUsageFlag(keyUsage.usages, KeyUsageFlags.keyCertSign)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+async function verifyTpmAkCertificateChain(
+  envelope: TpmEnvelope,
+  decoded: DecodedTpmEnvelope,
+  options: AttestationVerifierOptions,
+): Promise<boolean> {
+  const trustedRootSet = normalizeTrustedRootSet(options.tpmAkTrustedRootSha256);
+  if (trustedRootSet.size === 0) {
+    // Fail closed: TPM trust must be anchored to configured AK roots.
+    return false;
+  }
+
+  if (!envelope.certificateChainB64 || envelope.certificateChainB64.length < 2) {
+    return false;
+  }
+
+  const certificateChain = await parseCertificateChain(envelope.certificateChainB64);
+  if (!certificateChain) {
+    return false;
+  }
+
+  const tpmAkPolicyValid = verifyTpmAkCertificatePolicy(certificateChain);
+  if (!tpmAkPolicyValid) {
+    return false;
+  }
+
+  const chainTrusted = await verifyCertificateChainAgainstTrustedRoot(
+    certificateChain,
+    trustedRootSet,
+    options.now ?? new Date(),
+  );
+  if (!chainTrusted) {
+    return false;
+  }
+
+  return verifyTpmQuoteSignatureWithLeafCertificate(decoded, certificateChain[0]);
 }
 
 class ByteReader {
@@ -513,79 +1644,20 @@ async function verifyNonceBinding(
   return bytesEqual(extraData, nonceDigest);
 }
 
-async function verifyTpmQuoteSignature(envelope: TpmEnvelope): Promise<boolean> {
-  let quoteBytes: Uint8Array;
-  let signatureBytes: Uint8Array;
-  let publicKeyBytes: Uint8Array;
-
-  try {
-    quoteBytes = base64ToBytes(envelope.quoteB64);
-    signatureBytes = base64ToBytes(envelope.signatureB64);
-    publicKeyBytes = base64ToBytes(envelope.publicKeyB64);
-  } catch {
-    return false;
-  }
-
-  const quoteData = toArrayBuffer(quoteBytes);
-  const signatureData = toArrayBuffer(signatureBytes);
-
-  const rsaPssKey = await importRsaPublicKey(publicKeyBytes, "RSA-PSS");
-  if (rsaPssKey) {
-    const rsaPssVerified = await crypto.subtle.verify(
-      { name: "RSA-PSS", saltLength: 32 },
-      rsaPssKey,
-      signatureData,
-      quoteData,
-    );
-    if (rsaPssVerified) {
-      return true;
-    }
-  }
-
-  const rsaPkcs1Key = await importRsaPublicKey(
-    publicKeyBytes,
-    "RSASSA-PKCS1-v1_5",
-  );
-  if (rsaPkcs1Key) {
-    const rsaPkcs1Verified = await crypto.subtle.verify(
-      { name: "RSASSA-PKCS1-v1_5" },
-      rsaPkcs1Key,
-      signatureData,
-      quoteData,
-    );
-    if (rsaPkcs1Verified) {
-      return true;
-    }
-  }
-
-  const ecdsaKey = await importEcdsaPublicKey(publicKeyBytes);
-  if (ecdsaKey) {
-    return crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      ecdsaKey,
-      signatureData,
-      quoteData,
-    );
-  }
-
-  return false;
-}
-
 async function verifyTpmAttestation(
   report: AttestationReport,
   nonce: string,
+  options: AttestationVerifierOptions,
 ): Promise<boolean> {
   const envelope = resolveTpmEnvelope(report);
   if (!envelope) return false;
 
-  let quoteBytes: Uint8Array;
-  try {
-    quoteBytes = base64ToBytes(envelope.quoteB64);
-  } catch {
+  const decoded = decodeTpmEnvelopePayload(envelope);
+  if (!decoded) {
     return false;
   }
 
-  const extraData = parseTpmsAttestExtraData(quoteBytes);
+  const extraData = parseTpmsAttestExtraData(decoded.quoteBytes);
   if (!extraData) {
     return false;
   }
@@ -595,7 +1667,12 @@ async function verifyTpmAttestation(
     return false;
   }
 
-  return verifyTpmQuoteSignature(envelope);
+  const signatureValid = await verifyTpmQuoteSignatureWithPublicKey(decoded);
+  if (!signatureValid) {
+    return false;
+  }
+
+  return verifyTpmAkCertificateChain(envelope, decoded, options);
 }
 
 function isValidSoftwareFingerprint(report: AttestationReport): boolean {
@@ -681,7 +1758,7 @@ export async function verifyAttestation(
   } else if (report.attestation_level === "software_fingerprint") {
     attestationValid = isValidSoftwareFingerprint(report);
   } else if (report.attestation_level === "tpm") {
-    attestationValid = await verifyTpmAttestation(report, nonce);
+    attestationValid = await verifyTpmAttestation(report, nonce, options);
   }
 
   return {

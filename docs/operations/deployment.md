@@ -18,6 +18,19 @@
   - 値: Supabase Project Settings → API Keys → Service Role Key
   - スコープ: Production
 
+- [ ] **INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256**
+  - 値: Secure Enclave trusted root SHA-256 配列/CSV
+  - スコープ: Production
+
+- [ ] **INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256**
+  - 値: TPM AK trusted root SHA-256 配列/CSV
+  - スコープ: Production
+
+- [ ] **trusted root ローテーション手順が実施されている**
+  - 新旧ルートを併記した状態で一度デプロイ
+  - `suspicious` 監査ログ増加がないことを確認
+  - 旧ルート削除後に再デプロイ
+
 ### サービスバインディング確認
 
 - [ ] **COMPACTION_WORKFLOW** バインディング
