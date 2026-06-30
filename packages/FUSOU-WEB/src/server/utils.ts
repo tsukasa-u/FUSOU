@@ -558,7 +558,7 @@ export async function validateDatasetToken(
 ): Promise<{
   dataset_id: string;
   user_id: string;
-  trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
+  trust_tag: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
 } | null> {
   try {
     if (!secret) {
@@ -585,12 +585,15 @@ export async function validateDatasetToken(
       trustTagRaw === "unverified" ||
       trustTagRaw === "suspicious"
         ? trustTagRaw
-        : undefined;
+        : null;
+    if (!trustTag) {
+      return null;
+    }
 
     return {
       dataset_id: payload.dataset_id,
       user_id: payload.sub,
-      ...(trustTag ? { trust_tag: trustTag } : {}),
+      trust_tag: trustTag,
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
@@ -612,7 +615,7 @@ export interface DatasetTokenValidationResult {
   token?: {
     dataset_id: string;
     user_id: string;
-    trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
+    trust_tag: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
   };
 }
 

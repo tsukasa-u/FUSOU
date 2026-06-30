@@ -183,7 +183,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: datasetId, user_id: "user-1" },
+      token: {
+        dataset_id: datasetId,
+        user_id: "user-1",
+        trust_tag: "unverified",
+      },
     });
 
     const bucket = createBucketMock({
@@ -237,7 +241,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-rotation" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-rotation",
+        trust_tag: "unverified",
+      },
     });
 
     mockCreateClient.mockImplementation(() =>
@@ -316,7 +324,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-fallback" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-fallback",
+        trust_tag: "unverified",
+      },
     });
 
     mockCreateClient.mockImplementation(() =>
@@ -373,7 +385,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-paged" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-paged",
+        trust_tag: "unverified",
+      },
     });
 
     const firstPage = Array.from({ length: 128 }, () => ({
@@ -452,7 +468,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-list" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-list",
+        trust_tag: "unverified",
+      },
     });
 
     mockCreateClient.mockImplementation(() =>
@@ -535,7 +555,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-delete" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-delete",
+        trust_tag: "unverified",
+      },
     });
 
     mockCreateClient.mockImplementation(() =>
@@ -629,7 +653,11 @@ describe("fleet route rotation fallback", () => {
 
     mockValidateDatasetTokenWithConstraints.mockResolvedValue({
       ok: true,
-      token: { dataset_id: currentDatasetId, user_id: "user-delete-empty" },
+      token: {
+        dataset_id: currentDatasetId,
+        user_id: "user-delete-empty",
+        trust_tag: "unverified",
+      },
     });
 
     mockCreateClient.mockImplementation(() =>

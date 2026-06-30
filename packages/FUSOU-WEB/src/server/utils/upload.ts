@@ -23,7 +23,7 @@ export interface UploadAuthContext {
   datasetToken?: {
     dataset_id: string;
     user_id: string;
-    trust_tag?: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
+    trust_tag: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
   };
 }
 
