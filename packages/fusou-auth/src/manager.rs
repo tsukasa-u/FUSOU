@@ -1,6 +1,8 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
 use crate::types::{DatasetToken, DatasetTokenStore, Session};
+use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::Deserialize;
@@ -600,7 +602,6 @@ use crate::device_key::DeviceKey;
 #[derive(Debug, Deserialize)]
 struct RegisterV2Response {
     device_id: String,
-    pid: String,
     dataset_token: String,
 }
 
@@ -617,13 +618,18 @@ struct ChallengeV2Response {
 #[derive(Debug, Deserialize)]
 struct RefreshV2Response {
     dataset_token: String,
-    pid: String,
     /// 現行 pepper のバージョンタグ ("v1", "v2" ...)。
     /// 直前の refresh と比較してローテーション検知に使う想定だが、
     /// クライアントは旧値を保持していないので情報用ログ出力のみ。
     #[serde(default)]
     #[allow(dead_code)]
     salt_version: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DatasetTokenClaims {
+    #[serde(default)]
+    dataset_id: Option<String>,
 }
 
 impl<S: Storage> AuthManager<S> {
@@ -681,6 +687,13 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let parsed: RegisterV2Response = resp.json().await?;
+        let dataset_id = extract_dataset_id_from_dataset_token(&parsed.dataset_token)
+            .ok_or_else(|| {
+                AuthError::RefreshFailed(
+                    "anonymous-sync v2 register returned dataset_token without dataset_id claim"
+                        .to_string(),
+                )
+            })?;
 
         // device_id を端末に確定書き込み。これ以降の refresh はこの値を使う。
         device_key.set_device_id(parsed.device_id.clone()).await?;
@@ -695,7 +708,7 @@ impl<S: Storage> AuthManager<S> {
             // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
             // クライアント側は 1 日前に refresh するので大きな問題にはならない。
             Utc::now() + Duration::days(7),
-            Some(parsed.pid),
+            Some(dataset_id),
         ))
     }
 
@@ -799,6 +812,13 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let parsed: RefreshV2Response = resp.json().await?;
+        let dataset_id = extract_dataset_id_from_dataset_token(&parsed.dataset_token)
+            .ok_or_else(|| {
+                AuthError::RefreshFailed(
+                    "anonymous-sync v2 refresh returned dataset_token without dataset_id claim"
+                        .to_string(),
+                )
+            })?;
 
         if let Some(version) = parsed.salt_version.as_deref() {
             tracing::debug!(
@@ -811,7 +831,7 @@ impl<S: Storage> AuthManager<S> {
         Ok(DatasetToken::new(
             parsed.dataset_token,
             Utc::now() + Duration::days(7),
-            Some(parsed.pid),
+            Some(dataset_id),
         ))
     }
 
@@ -933,4 +953,24 @@ fn validate_api_member_id(value: &str) -> Result<(), AuthError> {
         ));
     }
     Ok(())
+}
+
+fn extract_dataset_id_from_dataset_token(token: &str) -> Option<String> {
+    let mut segments = token.split('.');
+    let _header = segments.next()?;
+    let payload = segments.next()?;
+    let _signature = segments.next()?;
+
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| URL_SAFE.decode(payload))
+        .ok()?;
+
+    let claims: DatasetTokenClaims = serde_json::from_slice(&payload_bytes).ok()?;
+    let dataset_id = claims.dataset_id?.trim().to_string();
+    if dataset_id.is_empty() {
+        return None;
+    }
+
+    Some(dataset_id)
 }

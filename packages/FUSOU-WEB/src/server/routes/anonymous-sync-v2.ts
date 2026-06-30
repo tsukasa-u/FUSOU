@@ -1542,7 +1542,6 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     return c.json({
       device_id: deviceId,
-      pid,
       dataset_token: token,
       dataset_token_expires_at: expiresAt,
       trust_tag: "unverified",
@@ -1682,7 +1681,6 @@ app.get("/anonymous-sync/v2/challenge", async (c) => {
 type RefreshCachedResult = {
   status: "ok";
   device_id: string;
-  pid: string;
   dataset_token: string;
   dataset_token_expires_at: number;
   trust_tag: TrustTag;
@@ -1823,7 +1821,6 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
         const parsed = cached as Partial<RefreshCachedResult>;
         if (
           typeof parsed.device_id === "string" &&
-          typeof parsed.pid === "string" &&
           typeof parsed.dataset_token === "string" &&
           typeof parsed.dataset_token_expires_at === "number" &&
           normalizeTrustTag(parsed.trust_tag) !== null &&
@@ -1833,7 +1830,6 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
           const replay: RefreshCachedResult = {
             status: "ok",
             device_id: parsed.device_id,
-            pid: parsed.pid,
             dataset_token: parsed.dataset_token,
             dataset_token_expires_at: parsed.dataset_token_expires_at,
             trust_tag: trustTag,
@@ -2141,7 +2137,6 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
     const result: RefreshCachedResult = {
       status: "ok",
       device_id: deviceId,
-      pid: pidNew,
       dataset_token: token,
       dataset_token_expires_at: expiresAt,
       trust_tag: trustTag,
