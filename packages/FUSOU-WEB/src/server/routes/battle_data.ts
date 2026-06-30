@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
-import { CORS_HEADERS } from "../constants";
+import { CORS_HEADERS, MAX_UPLOAD_BYTES } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
 import {
   getAllowedPeriodTagSet,
@@ -362,6 +362,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
@@ -431,8 +432,13 @@ app.post("/upload", async (c) => {
           periodTagValidation.status,
         );
       }
-      if (declaredSize <= 0) {
-        return c.json({ error: "file_size must be > 0" }, 400);
+      if (declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
+        return c.json(
+          {
+            error: `file_size must be > 0 and <= ${MAX_UPLOAD_BYTES} bytes`,
+          },
+          400,
+        );
       }
 
       // Get content_hash from body (computed by client)
@@ -492,6 +498,21 @@ app.post("/upload", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
+      const declaredSize = Number((tokenPayload as any).declared_size);
+      if (!Number.isInteger(declaredSize) || declaredSize <= 0) {
+        return c.json({ error: "Invalid token payload" }, 400);
+      }
+      if (data.byteLength !== declaredSize) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: declaredSize,
+            actual: data.byteLength,
+          },
+          400,
+        );
+      }
+
       // Content hash verification
       const expectedContentHash = tokenPayload.content_hash as string;
       if (expectedContentHash) {

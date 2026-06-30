@@ -85,13 +85,9 @@ const MAX_ATTESTATION_FIELD_LENGTH = 16 * 1024;
 const MAX_ATTESTATION_FORMAT_LENGTH = 128;
 const MAX_ATTESTATION_CERT_CHAIN_LENGTH = 6;
 const MAX_ATTESTATION_CERT_B64_LENGTH = 12 * 1024;
-export const DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256 = [
-  "c2b9b042dd57830e7d117dac55ac8ae19407d38e41d88f3215bc3a890444a050",
-  "63343abfb89a6a03ebb57e9b3f5fa7be7c4f5c756f3017b3a8c488c3653e9179",
-];
-export const DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256 = [
-  "ceee658bdd5591cb707444f6c50a810c3ecf85c40d591f015e5e2f0e4b1f13d3",
-];
+const SECURE_ENCLAVE_TRUSTED_ROOT_ENV =
+  "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256";
+const TPM_AK_TRUSTED_ROOT_ENV = "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256";
 
 type RateLimitContext = {
   kv?: KVNamespace;
@@ -386,16 +382,33 @@ export function decideRefreshAttestationPolicy(options: {
 
 function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
   const envCtx = createEnvContext({ env: c.env });
-  const raw = getEnv(envCtx, "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256");
-  const parsed = parseTrustedRootList(raw);
-  return parsed.length > 0 ? parsed : DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256;
+  const raw = getEnv(envCtx, SECURE_ENCLAVE_TRUSTED_ROOT_ENV);
+  return parseTrustedRootList(raw);
 }
 
 function resolveTpmAkTrustedRoots(c: { env: Bindings }): string[] {
   const envCtx = createEnvContext({ env: c.env });
-  const raw = getEnv(envCtx, "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256");
-  const parsed = parseTrustedRootList(raw);
-  return parsed.length > 0 ? parsed : DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256;
+  const raw = getEnv(envCtx, TPM_AK_TRUSTED_ROOT_ENV);
+  return parseTrustedRootList(raw);
+}
+
+export function resolveRequiredTrustedRootEnv(options: {
+  attestationLevel: string;
+  secureEnclaveTrustedRoots: string[];
+  tpmAkTrustedRoots: string[];
+}): string | null {
+  if (
+    options.attestationLevel === "secure_enclave" &&
+    options.secureEnclaveTrustedRoots.length === 0
+  ) {
+    return SECURE_ENCLAVE_TRUSTED_ROOT_ENV;
+  }
+
+  if (options.attestationLevel === "tpm" && options.tpmAkTrustedRoots.length === 0) {
+    return TPM_AK_TRUSTED_ROOT_ENV;
+  }
+
+  return null;
 }
 
 function scheduleSuspiciousAdminLog(
@@ -1843,12 +1856,32 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       return c.json({ error: nonceConsume.error }, nonceConsume.status);
     }
 
-    const trustInput = parsedAttestation.report
-      ? await verifyAttestation(parsedAttestation.report, nonce, {
-          secureEnclaveTrustedRootSha256: resolveSecureEnclaveTrustedRoots(c),
-          tpmAkTrustedRootSha256: resolveTpmAkTrustedRoots(c),
-        })
-      : null;
+    let trustInput: TrustInput | null = null;
+    if (parsedAttestation.report) {
+      const secureEnclaveTrustedRoots = resolveSecureEnclaveTrustedRoots(c);
+      const tpmAkTrustedRoots = resolveTpmAkTrustedRoots(c);
+
+      const requiredEnv = resolveRequiredTrustedRootEnv({
+        attestationLevel: parsedAttestation.report.attestation_level,
+        secureEnclaveTrustedRoots,
+        tpmAkTrustedRoots,
+      });
+      if (requiredEnv) {
+        console.error(
+          `[anonymous-sync-v2/refresh] missing trusted root env for hardware attestation: ${requiredEnv}`,
+          {
+            device_id: deviceId,
+            attestation_level: parsedAttestation.report.attestation_level,
+          },
+        );
+        return c.json({ error: "attestation_trusted_root_unconfigured" }, 503);
+      }
+
+      trustInput = await verifyAttestation(parsedAttestation.report, nonce, {
+        secureEnclaveTrustedRootSha256: secureEnclaveTrustedRoots,
+        tpmAkTrustedRootSha256: tpmAkTrustedRoots,
+      });
+    }
 
     const attestationPolicyDecision = decideRefreshAttestationPolicy({
       parsedAttestationMalformed: parsedAttestation.malformed,

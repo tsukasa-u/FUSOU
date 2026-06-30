@@ -133,21 +133,16 @@ pnpm exec dotenvx set INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256 \
   -f packages/FUSOU-WEB/.env -fk packages/.env.keys
 ```
 
-この変更では、上記 trusted root は FUSOU-WEB 側でデフォルト値としても組み込んでいます。環境変数で値を与えた場合は、その設定値が優先されます。
+この変更では、trusted root の source of truth は Worker 環境変数のみです。ハードウェア証明（`secure_enclave` / `tpm`）が送られた際に対応する `INTEGRITY_*` が未設定だと、サーバーは fail-closed（`attestation_trusted_root_unconfigured`）で拒否します。
 
 ### 6.2.1 trusted root の source of truth と更新手順
 
-source of truth は次の優先順位です。
+source of truth は Worker 環境変数です。
 
-1. Worker 環境変数
-  - `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`
-  - `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`
-1. FUSOU-WEB のデフォルト定数
-  - `src/server/routes/anonymous-sync-v2.ts` の
-    - `DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`
-    - `DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256`
+1. `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`
+1. `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`
 
-本番運用では、デフォルトに依存せず環境変数を明示設定してください。
+本番運用では、上記 2 つを常に明示設定してください。
 
 ローテーション時の推奨手順:
 
@@ -155,6 +150,47 @@ source of truth は次の優先順位です。
 1. `attestation-verifier` テストと本番ログで `suspicious` 増加がないことを確認
 1. 旧ルートを削除して再デプロイ
 1. 監査ログ (suspicious_trust_audit / 管理スプレッドシート) を一定期間監視
+
+運用ミスを減らすため、`packages/FUSOU-WEB` には trusted root 更新スクリプトを追加しています。
+
+```bash
+cd packages/FUSOU-WEB
+
+# dry-run（デフォルト）
+pnpm run manage-attestation-trusted-roots -- apply \
+  --env production \
+  --secure @./trusted-roots/secure-enclave.next.json \
+  --tpm @./trusted-roots/tpm-ak.next.json
+
+# 反映
+pnpm run manage-attestation-trusted-roots -- apply \
+  --env production \
+  --secure @./trusted-roots/secure-enclave.next.json \
+  --tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+```
+
+漏えいインシデント時（信頼している root の切替が必要なとき）は、次の 2 段階で実施してください。
+
+```bash
+cd packages/FUSOU-WEB
+
+# 1) stage: 新旧併記
+pnpm run manage-attestation-trusted-roots -- rotate-stage \
+  --env production \
+  --current-secure @./trusted-roots/secure-enclave.current.json \
+  --next-secure @./trusted-roots/secure-enclave.next.json \
+  --current-tpm @./trusted-roots/tpm-ak.current.json \
+  --next-tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+
+# 2) final: 旧 root 除去
+pnpm run manage-attestation-trusted-roots -- rotate-final \
+  --env production \
+  --next-secure @./trusted-roots/secure-enclave.next.json \
+  --next-tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+```
 
 ## 6.3 FUSOU-APP (TPM 収集) 側
 

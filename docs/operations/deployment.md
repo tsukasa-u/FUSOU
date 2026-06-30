@@ -31,6 +31,56 @@
   - `suspicious` 監査ログ増加がないことを確認
   - 旧ルート削除後に再デプロイ
 
+### trusted root 運用メモ
+
+- SHA-256 root hash は公開可能な trust anchor 値であり、秘密鍵そのものではありません
+- ただし「どの root を信頼するか」はセキュリティポリシーなので、変更手順は厳密運用してください
+- 本番では `INTEGRITY_*` を Worker 環境変数/secret で管理し、trusted root をコードへハードコードしないこと
+
+### trusted root 更新スクリプト（ミス防止）
+
+```bash
+cd packages/FUSOU-WEB
+
+# 現在の登録有無を確認
+pnpm run manage-attestation-trusted-roots -- status --env production
+
+# 変更内容を dry-run 確認（反映されない）
+pnpm run manage-attestation-trusted-roots -- apply \
+  --env production \
+  --secure @./trusted-roots/secure-enclave.next.json \
+  --tpm @./trusted-roots/tpm-ak.next.json
+
+# 問題なければ反映
+pnpm run manage-attestation-trusted-roots -- apply \
+  --env production \
+  --secure @./trusted-roots/secure-enclave.next.json \
+  --tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+```
+
+### インシデント時ローテーション（漏えい対応）
+
+```bash
+cd packages/FUSOU-WEB
+
+# 1) stage: 新旧併記（union）で一度反映
+pnpm run manage-attestation-trusted-roots -- rotate-stage \
+  --env production \
+  --current-secure @./trusted-roots/secure-enclave.current.json \
+  --next-secure @./trusted-roots/secure-enclave.next.json \
+  --current-tpm @./trusted-roots/tpm-ak.current.json \
+  --next-tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+
+# 2) 監査ログ確認後、final: 旧 root を除去
+pnpm run manage-attestation-trusted-roots -- rotate-final \
+  --env production \
+  --next-secure @./trusted-roots/secure-enclave.next.json \
+  --next-tpm @./trusted-roots/tpm-ak.next.json \
+  --confirm
+```
+
 ### サービスバインディング確認
 
 - [ ] **COMPACTION_WORKFLOW** バインディング

@@ -45,9 +45,82 @@ export interface UploadConfig {
   ) => Promise<ExecuteResult | Response>;
 }
 
+class BodyTooLargeError extends Error {
+  constructor(
+    public readonly limit: number,
+    public readonly actual: number,
+  ) {
+    super("Upload payload exceeds configured maxBodySize");
+    this.name = "BodyTooLargeError";
+  }
+}
+
 function extractBearerToken(request: Request): string | null {
   const authHeader = request.headers.get("Authorization");
   return authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
+}
+
+function resolveMaxBodySize(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+  return Math.floor(value);
+}
+
+function parseRequestContentLength(value: string | null): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
+  }
+  return parsed;
+}
+
+async function readRequestBodyWithLimit(
+  bodyStream: ReadableStream<Uint8Array>,
+  maxBodySize: number | null,
+): Promise<Uint8Array> {
+  if (maxBodySize == null) {
+    const arrayBuf = await new Response(bodyStream).arrayBuffer();
+    return new Uint8Array(arrayBuf);
+  }
+
+  const reader = bodyStream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    if (!value || value.byteLength === 0) {
+      continue;
+    }
+
+    total += value.byteLength;
+    if (total > maxBodySize) {
+      try {
+        await reader.cancel("max body size exceeded");
+      } catch {
+        // Ignore cancellation errors.
+      }
+      throw new BodyTooLargeError(maxBodySize, total);
+    }
+
+    chunks.push(value);
+  }
+
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return merged;
 }
 
 /**
@@ -236,6 +309,7 @@ async function handleExecution(
   config: UploadConfig,
 ): Promise<Response> {
   const { signingSecret, executionProcessor } = config;
+  const maxBodySize = resolveMaxBodySize(config.maxBodySize);
 
   const { verifySignedToken, validateJWT } = await import("../utils");
   const jwtToken = extractBearerToken(request);
@@ -301,10 +375,24 @@ async function handleExecution(
     return c.json({ error: "Upload payload is missing" }, 400);
   }
 
+  const contentLength = parseRequestContentLength(
+    request.headers.get("Content-Length"),
+  );
+  if (maxBodySize != null && contentLength != null && contentLength > maxBodySize) {
+    return c.json(
+      {
+        error: "Upload payload too large",
+        code: "UPLOAD_TOO_LARGE",
+        limit: maxBodySize,
+        actual: contentLength,
+      },
+      413,
+    );
+  }
+
   try {
-    // Read body into memory for processing
-    const arrayBuf = await new Response(bodyStream).arrayBuffer();
-    const data = new Uint8Array(arrayBuf);
+    // Read body into memory for processing with optional max size enforcement.
+    const data = await readRequestBodyWithLimit(bodyStream, maxBodySize);
 
     // Hash verification is performed inside executionProcessor (e.g. master_data.ts)
     // where actual vs. token-embedded expected hash is compared.
@@ -323,6 +411,18 @@ async function handleExecution(
 
     return c.json(response);
   } catch (error) {
+    if (error instanceof BodyTooLargeError) {
+      return c.json(
+        {
+          error: "Upload payload too large",
+          code: "UPLOAD_TOO_LARGE",
+          limit: error.limit,
+          actual: error.actual,
+        },
+        413,
+      );
+    }
+
     console.error("[Upload] Upload error:", error);
     return c.json({ error: "Upload failed" }, 500);
   }

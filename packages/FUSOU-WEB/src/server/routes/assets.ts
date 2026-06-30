@@ -169,10 +169,21 @@ app.post("/upload", async (c) => {
     // Execution processing - validate size, upload to R2, record to D1
     executionProcessor: async (tokenPayload, data, user) => {
       const key = tokenPayload.key;
-      const declaredSize = tokenPayload.declared_size;
+      const declaredSize = Number(tokenPayload.declared_size);
 
-      if (!key || !declaredSize) {
+      if (!key || !Number.isInteger(declaredSize) || declaredSize <= 0) {
         return c.json({ error: "Invalid token payload" }, 400);
+      }
+
+      if (data.byteLength !== declaredSize) {
+        return c.json(
+          {
+            error: "Data size mismatch",
+            expected: declaredSize,
+            actual: data.byteLength,
+          },
+          400,
+        );
       }
 
       // Verify content_hash of uploaded data against the hash committed in Stage 1.

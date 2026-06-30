@@ -1,41 +1,55 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256,
-  DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256,
   parseTrustedRootList,
+  resolveRequiredTrustedRootEnv,
 } from "../anonymous-sync-v2";
 
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 
-describe("anonymous-sync-v2 trusted root defaults", () => {
-  it("uses valid SHA-256 hex values without duplicates", () => {
-    const secureRoots = DEFAULT_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256;
-    const tpmRoots = DEFAULT_TPM_AK_TRUSTED_ROOT_SHA256;
+describe("anonymous-sync-v2 trusted roots", () => {
+  it("parses trusted root env values from JSON and delimiter formats", () => {
+    const parsedJson = parseTrustedRootList(
+      '["' + "a".repeat(64) + '","' + "b".repeat(64) + '"]',
+    );
+    const parsedDelimited = parseTrustedRootList(
+      `${"c".repeat(64)}, ${"d".repeat(64)} ${"e".repeat(64)}`,
+    );
 
-    expect(secureRoots.length).toBeGreaterThan(0);
-    expect(tpmRoots.length).toBeGreaterThan(0);
+    expect(parsedJson).toEqual(["a".repeat(64), "b".repeat(64)]);
+    expect(parsedDelimited).toEqual([
+      "c".repeat(64),
+      "d".repeat(64),
+      "e".repeat(64),
+    ]);
 
-    for (const hash of [...secureRoots, ...tpmRoots]) {
+    for (const hash of [...parsedJson, ...parsedDelimited]) {
       expect(SHA256_HEX_PATTERN.test(hash)).toBe(true);
     }
-
-    expect(new Set(secureRoots).size).toBe(secureRoots.length);
-    expect(new Set(tpmRoots).size).toBe(tpmRoots.length);
   });
 
-  it("parses trusted root env values from JSON and delimiter formats", () => {
+  it("requires hardware attestation trusted roots to be configured via env", () => {
     expect(
-      parseTrustedRootList(
-        '["' +
-          "a".repeat(64) +
-          '","' +
-          "b".repeat(64) +
-          '"]',
-      ),
-    ).toEqual(["a".repeat(64), "b".repeat(64)]);
+      resolveRequiredTrustedRootEnv({
+        attestationLevel: "secure_enclave",
+        secureEnclaveTrustedRoots: [],
+        tpmAkTrustedRoots: ["a".repeat(64)],
+      }),
+    ).toBe("INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256");
 
     expect(
-      parseTrustedRootList(`${"c".repeat(64)}, ${"d".repeat(64)} ${"e".repeat(64)}`),
-    ).toEqual(["c".repeat(64), "d".repeat(64), "e".repeat(64)]);
+      resolveRequiredTrustedRootEnv({
+        attestationLevel: "tpm",
+        secureEnclaveTrustedRoots: ["a".repeat(64)],
+        tpmAkTrustedRoots: [],
+      }),
+    ).toBe("INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256");
+
+    expect(
+      resolveRequiredTrustedRootEnv({
+        attestationLevel: "software_fingerprint",
+        secureEnclaveTrustedRoots: [],
+        tpmAkTrustedRoots: [],
+      }),
+    ).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 # kc_api: カスタム cfg(since/until) 時系列レイアウト再現 実装計画
 
 - 作成日: 2026-06-22
+- 最終更新: 2026-07-01（現行実装同期）
 - 対象: `packages/kc_api`（workspace 全体）
 - 目的: 日付ターゲット指定により、当時未実装/廃止済みフィールドをコンパイル時に完全除去し、仕様時点の構造体を再現する
 
@@ -43,6 +44,15 @@
 - `--features genesis`
 - `--features epoch_20250627`
 - 将来 `2026-01-15` が境界になるなら `--features epoch_20260115`
+
+## 0.2 現在の実装状況（2026-07-01）
+
+- `kc-api-build-config` と各対象 crate の `build.rs` は導入済み（`emit_epoch_cfg()` を使用）
+- `genesis` / `epoch_20250627` の単一 epoch 制約は build.rs で有効（複数 epoch は panic）
+- 現状の互換運用として、複数 crate の default feature に `genesis` が含まれている
+  - そのため、`epoch_20250627` を明示指定する検証は `--no-default-features` 前提
+- `kc-api-database` の仕様により schema feature は必須
+  - `kc-api` 検証では `schema_v0_5` 併記を必須とする
 
 ## 1. 結論（実装可能性の検証結果）
 
@@ -295,8 +305,8 @@ feature 解析ロジック（実装必須）:
 - 各対象 crate の `Cargo.toml`:
   - `build = "build.rs"`
   - `features` に `genesis`, `epoch_YYYYMMDD` 追加
-  - `genesis` / `epoch_YYYYMMDD` は default feature に含めない（単一指定を強制するため）
-  - 既存 default feature は日付targetを含まない形に整理
+  - 現状は互換性維持のため default feature に `genesis` を含む crate がある（段階的移行中）
+  - `epoch_*` 検証時は `--no-default-features` で default の `genesis` を無効化して実行する
 - 日付条件分岐を持つ Rust ファイル:
   - `#[cfg(feature = "20250627")]` などを `#[cfg(since = "...")]` / `#[cfg(until = "...")]` へ段階移行
 
@@ -390,23 +400,25 @@ feature 解析ロジック（実装必須）:
 - `genesis`
 - `epoch_20250627`
 - 複数指定時にコンパイルエラーになること
-- target 未指定時にコンパイルエラーになること
+- `--no-default-features` で target 未指定時にコンパイルエラーになること
 
 推奨コマンド:
 
 ```bash
 cd /home/ogu-h/Documents/GitHub/FUSOU/packages/kc_api
-cargo check -p kc-api --no-default-features --features genesis
-cargo check -p kc-api --no-default-features --features epoch_20250627
-cargo check -p kc-api --no-default-features --features genesis,epoch_20250627
-cargo check -p kc-api --no-default-features
+cargo check -p kc-api --no-default-features --features genesis,schema_v0_5
+cargo check -p kc-api --no-default-features --features epoch_20250627,schema_v0_5
+cargo check -p kc-api --no-default-features --features genesis,epoch_20250627,schema_v0_5
+cargo check -p kc-api --no-default-features --features schema_v0_5
+cargo check -p kc-api
 ```
 
 確認観点:
 
 - 単一指定の2パターンは成功すること
 - 複数指定は build.rs の panic で失敗すること
-- target 未指定は build.rs の panic で失敗すること
+- `--no-default-features` + schema のみ指定時は build.rs の panic で失敗すること
+- default feature では `genesis + schema_v0_5` で成功すること
 - `build.rs` の `SELECTED_DATE` が単一指定に追従すること
 
 ## 8.2 構造体検証
@@ -421,8 +433,8 @@ cargo check -p kc-api --no-default-features
 
 ```bash
 cd /home/ogu-h/Documents/GitHub/FUSOU/packages/kc_api
-cargo test -p kc-api --no-default-features --features genesis
-cargo test -p kc-api --no-default-features --features epoch_20250627
+cargo test -p kc-api --no-default-features --features genesis,schema_v0_5
+cargo test -p kc-api --no-default-features --features epoch_20250627,schema_v0_5
 ```
 
 確認観点:
@@ -441,7 +453,7 @@ cargo test -p kc-api --no-default-features --features epoch_20250627
 
 ```bash
 cd /home/ogu-h/Documents/GitHub/FUSOU/packages/kc_api
-cargo test -p kc-api deserialize_and_verify
+cargo test -p kc-api --no-default-features --features genesis,schema_v0_5 deserialize_and_verify
 ```
 
 確認観点:
@@ -483,7 +495,7 @@ cargo test -p kc-api-dto check_struct_dependency --features graphviz,cytoscape,e
 1. 代表構造体で epoch ごとのフィールド消去が期待通りに働く
 1. `SELECTED_DATE` がビルド時に埋め込まれ、`data_version` に反映される
 1. `deserialize_and_verify` が version mismatch を確実に拒否する
-1. epoch 複数指定と epoch 未指定で、意図したコンパイルエラーが出る
+1. epoch 複数指定と `--no-default-features` での epoch 未指定で、意図したコンパイルエラーが出る
 1. 構造可視化テスト（DOT/JSON 生成）が `since/until` 解釈後も成功する
 1. 旧 `20250627` 系の既存回帰テストが移行範囲で壊れない
 1. docs に実装手順と確認コマンドが残る
@@ -500,7 +512,7 @@ cargo test -p kc-api-dto check_struct_dependency --features graphviz,cytoscape,e
 ## 11. 受け入れ基準（Definition of Done）
 
 - 単一 epoch 指定時のみ workspace 主要 crate がビルド成功
-- epoch 複数指定 / 未指定は明示的にビルド失敗
+- epoch 複数指定 / `--no-default-features` での未指定は明示的にビルド失敗
 - 代表構造体でフィールド存在条件が期待通り
 - `deserialize_and_verify` が不一致を確実に拒否
 - 既存回帰テストが epoch 移行後に安定

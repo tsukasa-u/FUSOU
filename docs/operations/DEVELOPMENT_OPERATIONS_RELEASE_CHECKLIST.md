@@ -397,6 +397,7 @@ pnpm --dir packages/FUSOU-APP run tauri build
 | Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts`                                                                                                                                                                                                                                                                      |
 | schema/fingerprint 連動変更              | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas`                                                                                                                                                                                                                                                   |
 | 匿名同期ローテーション                   | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
+| Attestation trusted root ローテーション  | `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- status --env production` で事前確認し、`rotate-stage`（新旧併記）→ 監視 → `rotate-final`（旧削除）の順で実行。既定は dry-run、反映は `--confirm` 必須。詳細は `docs/operations/deployment.md` と `docs/contents/guide/hardware_attestation.md` |
 | Workflow 本番反映                        | `pnpm --dir packages/FUSOU-WORKFLOW run test && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                              |
 | Workflow スキーマ反映あり                | `pnpm --dir packages/FUSOU-WORKFLOW run schema:remote && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                     |
 | APP タグ付き公開リリース                 | `GitHub Actions: publish_and_create_version_tag を workflow_dispatch`                                                                                                                                                                                                                                       |
@@ -407,6 +408,7 @@ pnpm --dir packages/FUSOU-APP run tauri build
 ## 10. 関連文書
 
 - `docs/operations/deployment.md`
+- `docs/contents/guide/hardware_attestation.md`
 - `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md`
 - `docs/operations/web/ANON_SYNC_V2_PEPPER_SUPABASE_RUNTIME_GUIDE.md`
 - `docs/operations/workflow/AVRO_CLOUDFLARE_DEPLOYMENT.md`
@@ -464,6 +466,7 @@ pnpm --dir packages/FUSOU-APP run tauri build
 安全注意:
 
 - `manage-anon-sync-vault` は `--secret` / `--service-role-key` 引数を受け付けない。機密は必ず環境変数で渡す。
+- ローテーション対象はサーバー側 secret（pepper/recovery）であり、Rust クライアントの `device-key.json`（端末 Ed25519 秘密鍵）は対象外。
 - `bootstrap-*` は `--initial-version v<N>` の明示指定が必須。
 - `--secret-env <ENV_NAME>` を明示指定した場合、対象環境変数が未設定だと CLI は fail-fast で停止する（自動生成へフォールバックしない）。
 - refresh/revoke の nonce 消費は DB テーブルで原子的に確定し、アプリ側が 30 分より古い行を定期クリーンアップする。

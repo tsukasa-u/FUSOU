@@ -465,8 +465,8 @@ npx wrangler deploy
 
 ### trusted root 運用ルール
 - source of truth は Worker 環境変数（`INTEGRITY_*`）
-- 環境変数未設定時のみ `packages/FUSOU-WEB/src/server/routes/anonymous-sync-v2.ts` のデフォルト値が使われる
-- 本番ではデフォルト依存を避け、`INTEGRITY_*` を明示設定する
+- ハードウェア証明（`secure_enclave` / `tpm`）を検証する経路では、対応する `INTEGRITY_*` 未設定時は fail-closed（`attestation_trusted_root_unconfigured`）になる
+- 本番では `INTEGRITY_*` を必ず明示設定する
 - ローテーションは「新旧併記 -> 監視 -> 旧削除」の順で段階的に実施する
 
 ## Troubleshooting
