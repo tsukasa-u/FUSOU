@@ -77,6 +77,7 @@ const NONCE_CLEANUP_RETENTION_MS = 30 * 60 * 1000;
 const NONCE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 let lastNonceCleanupAt = 0;
+let missingSuspiciousAdminLogConfigAlerted = false;
 
 const API_MEMBER_ID_PATTERN = /^[0-9]{1,16}$/;
 const DEVICE_ID_PATTERN =
@@ -411,6 +412,34 @@ export function resolveRequiredTrustedRootEnv(options: {
   return null;
 }
 
+export function shouldFailClosedForSuspiciousAudit(options: {
+  trustTag: TrustTag;
+  auditInsertOk: boolean;
+}): boolean {
+  return options.trustTag === "suspicious" && !options.auditInsertOk;
+}
+
+function emitSecurityAlert(
+  options: {
+    eventType: string;
+    severity: "warning" | "error" | "critical";
+    details: Record<string, unknown>;
+  },
+): void {
+  const payload = {
+    timestamp: new Date().toISOString(),
+    component: "anonymous-sync-v2",
+    event_type: options.eventType,
+    severity: options.severity,
+    details: options.details,
+  };
+
+  console.error(
+    "[anonymous-sync-v2/security-alert]",
+    JSON.stringify(payload),
+  );
+}
+
 function scheduleSuspiciousAdminLog(
   c: any,
   options: {
@@ -428,6 +457,17 @@ function scheduleSuspiciousAdminLog(
   const spreadsheetId = getEnv(options.envCtx, "GOOGLE_SHEETS_ADMIN_LOG_ID");
   const serviceAccountKey = getEnv(options.envCtx, "GOOGLE_SERVICE_ACCOUNT_KEY");
   if (!spreadsheetId || !serviceAccountKey) {
+    if (!missingSuspiciousAdminLogConfigAlerted) {
+      missingSuspiciousAdminLogConfigAlerted = true;
+      emitSecurityAlert({
+        eventType: "suspicious_admin_log_unconfigured",
+        severity: "error",
+        details: {
+          has_spreadsheet_id: Boolean(spreadsheetId),
+          has_service_account_key: Boolean(serviceAccountKey),
+        },
+      });
+    }
     return;
   }
 
@@ -447,6 +487,21 @@ function scheduleSuspiciousAdminLog(
       },
     }).catch((err) => {
       console.warn("[anonymous-sync-v2] failed to write admin spreadsheet log", err);
+      emitSecurityAlert({
+        eventType: "suspicious_admin_log_write_failed",
+        severity: "error",
+        details: {
+          dataset_id: options.datasetId,
+          trust_tag: options.trustTag,
+          attestation_level: options.attestationLevel,
+          error:
+            err instanceof Error
+              ? err.message
+              : typeof err === "string"
+                ? err
+                : "unknown",
+        },
+      });
     }),
   );
 }
@@ -785,6 +840,15 @@ async function insertRecoveryRelinkAudit(options: {
   });
 }
 
+type SuspiciousTrustAuditInsertResult =
+  | { ok: true }
+  | {
+      ok: false;
+      failureType: "table_missing" | "insert_failed";
+      message?: string;
+      code?: string;
+    };
+
 async function insertSuspiciousTrustAudit(options: {
   supabaseAdmin: any;
   canonicalUserId: string;
@@ -793,9 +857,9 @@ async function insertSuspiciousTrustAudit(options: {
   trustTag: TrustTag;
   attestationLevel: string;
   details?: Record<string, unknown>;
-}): Promise<void> {
+}): Promise<SuspiciousTrustAuditInsertResult> {
   if (options.trustTag !== "suspicious") {
-    return;
+    return { ok: true };
   }
 
   const { error } = await options.supabaseAdmin
@@ -810,20 +874,30 @@ async function insertSuspiciousTrustAudit(options: {
     });
 
   if (!error) {
-    return;
+    return { ok: true };
   }
 
   if (isSchemaObjectMissingError(error)) {
-    console.warn(
-      "[anonymous-sync-v2] suspicious_trust_audit unavailable; skipping durable audit insert",
-    );
-    return;
+    return {
+      ok: false,
+      failureType: "table_missing",
+      message:
+        "suspicious_trust_audit unavailable; durable audit insert is required",
+    };
   }
 
-  console.warn("[anonymous-sync-v2] suspicious trust audit insert failed:", {
-    message: (error as { message?: unknown })?.message,
-    code: (error as { code?: unknown })?.code,
-  });
+  return {
+    ok: false,
+    failureType: "insert_failed",
+    message:
+      typeof (error as { message?: unknown })?.message === "string"
+        ? ((error as { message?: string }).message ?? undefined)
+        : undefined,
+    code:
+      typeof (error as { code?: unknown })?.code === "string"
+        ? ((error as { code?: string }).code ?? undefined)
+        : undefined,
+  };
 }
 
 // ========================
@@ -2169,7 +2243,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       malformed_attestation_report: parsedAttestation.malformed,
     };
 
-    await insertSuspiciousTrustAudit({
+    const suspiciousAuditInsert = await insertSuspiciousTrustAudit({
       supabaseAdmin,
       canonicalUserId,
       deviceId,
@@ -2178,6 +2252,28 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       attestationLevel: attestationLevelForLog,
       details: suspiciousDetails,
     });
+
+    if (
+      !suspiciousAuditInsert.ok &&
+      shouldFailClosedForSuspiciousAudit({
+        trustTag,
+        auditInsertOk: suspiciousAuditInsert.ok,
+      })
+    ) {
+      emitSecurityAlert({
+        eventType: "suspicious_trust_audit_write_failed",
+        severity: "critical",
+        details: {
+          device_id: deviceId,
+          dataset_id: pidNew,
+          attestation_level: attestationLevelForLog,
+          failure_type: suspiciousAuditInsert.failureType,
+          failure_code: suspiciousAuditInsert.code,
+          failure_message: suspiciousAuditInsert.message,
+        },
+      });
+      return c.json({ error: "suspicious_audit_logging_failed" }, 503);
+    }
 
     scheduleSuspiciousAdminLog(c, {
       envCtx: base.config.envCtx,

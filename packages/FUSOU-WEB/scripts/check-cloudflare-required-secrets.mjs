@@ -9,7 +9,16 @@ const WEB_ROOT = resolve(__dirname, "..");
 const WRANGLER_COMMAND =
   process.platform === "win32" ? "wrangler.cmd" : "wrangler";
 
-const REQUIRED_SECRET_NAMES = ["DATASET_TOKEN_SECRET", "CHALLENGE_HMAC_SECRET"];
+const REQUIRED_SECRET_NAMES = [
+  "DATASET_TOKEN_SECRET",
+  "CHALLENGE_HMAC_SECRET",
+  "GOOGLE_SERVICE_ACCOUNT_KEY",
+];
+
+const RECOMMENDED_SECRET_NAMES = [
+  "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256",
+  "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256",
+];
 
 function fail(message) {
   console.error(`[check-cloudflare-required-secrets] ${message}`);
@@ -94,6 +103,18 @@ function main() {
       "[check-cloudflare-required-secrets] Register them in Cloudflare Workers secrets (wrangler secret put or Dashboard).",
     );
     process.exit(2);
+  }
+
+  const missingRecommended = RECOMMENDED_SECRET_NAMES.filter(
+    (name) => !registeredNames.has(name),
+  );
+  if (missingRecommended.length > 0) {
+    console.warn(
+      "[check-cloudflare-required-secrets] Recommended trust-related secrets are not registered:",
+    );
+    for (const name of missingRecommended) {
+      console.warn(`- ${name}`);
+    }
   }
 
   console.log(

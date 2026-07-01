@@ -3,6 +3,7 @@ import {
   assertCsrfSafe,
   decideRefreshAttestationPolicy,
   isSupabaseUserNotFoundError,
+  shouldFailClosedForSuspiciousAudit,
 } from "../anonymous-sync-v2";
 
 describe("assertCsrfSafe", () => {
@@ -177,5 +178,34 @@ describe("decideRefreshAttestationPolicy", () => {
     if (result.allow) {
       expect(result.trustTag).toBe("hw_verified");
     }
+  });
+});
+
+describe("shouldFailClosedForSuspiciousAudit", () => {
+  it("fails closed when suspicious audit insert failed", () => {
+    expect(
+      shouldFailClosedForSuspiciousAudit({
+        trustTag: "suspicious",
+        auditInsertOk: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not fail closed when suspicious audit insert succeeded", () => {
+    expect(
+      shouldFailClosedForSuspiciousAudit({
+        trustTag: "suspicious",
+        auditInsertOk: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not fail closed for non-suspicious trust tags", () => {
+    expect(
+      shouldFailClosedForSuspiciousAudit({
+        trustTag: "hw_verified",
+        auditInsertOk: false,
+      }),
+    ).toBe(false);
   });
 });
