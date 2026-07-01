@@ -172,7 +172,7 @@ function setupRequireIntercept(window) {
  * @param {boolean} [opts.useMain=false]  Use main.js instead of deobfuscated.js
  * @param {function} [opts.getMst]        Mock getMst for App singleton (module 18622)
  * @param {boolean} [opts.silent=false]   Suppress log output
- * @returns {{ kcsRequire: function, kcsCache: object, exports: any }}
+ * @returns {{ kcsRequire: function, kcsCache: object, kcsModules: object, exports: any }}
  */
 function loadBundle(opts = {}) {
   const { useMain = false, getMst, silent = false } = opts;
@@ -192,6 +192,10 @@ function loadBundle(opts = {}) {
   if (getMst) {
     global.__kcs_getMst = getMst;
   }
+  // Reset captured references to avoid stale values from prior loads.
+  global.__kcs_require = undefined;
+  global.__kcs_cache = undefined;
+  global.__kcs_modules = undefined;
 
   // Intercept _compile to capture webpack internals + inject mock App
   const origCompile = Module.prototype._compile;
@@ -202,6 +206,11 @@ function loadBundle(opts = {}) {
       );
       if (match) {
         const reqFn = match[1];
+        const mm = content.match(
+          new RegExp(
+            `function\\s+${reqFn}\\s*\\((\\w+)\\)[\\s\\S]{0,2000}?return\\s+(\\w+)\\s*\\[\\s*\\1\\s*\\]`,
+          ),
+        );
         const cacheRe = new RegExp(
           `(?:var\\s+)?(\\w+)\\s*=\\s*\\{\\};\\s*function\\s+${reqFn}\\b`,
         );
@@ -212,6 +221,10 @@ function loadBundle(opts = {}) {
           );
 
         let inj = `global.__kcs_require = ${reqFn};\n`;
+        if (mm) {
+          const modulesName = mm[2];
+          inj += `global.__kcs_modules = ${modulesName};\n`;
+        }
         if (cm) {
           const cacheName = cm[1];
           inj += `global.__kcs_cache = ${cacheName};\n`;
@@ -238,6 +251,7 @@ function loadBundle(opts = {}) {
   return {
     kcsRequire: global.__kcs_require,
     kcsCache: global.__kcs_cache || {},
+    kcsModules: global.__kcs_modules || {},
     exports,
   };
 }

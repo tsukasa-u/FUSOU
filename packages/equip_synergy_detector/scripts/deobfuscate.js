@@ -57,13 +57,38 @@ async function main() {
 
   console.log("[deobfuscate] Running webcrack ...");
   const t0 = Date.now();
-  const result = await webcrack(code, {
-    // webcrack defaults to a Node sandbox implementation backed by isolated-vm.
-    // On some Windows setups the native isolated-vm binary is unavailable, so
-    // we provide a lightweight VM sandbox to keep deobfuscation functional.
-    sandbox: async (snippet) =>
-      vm.runInNewContext(snippet, {}, { timeout: 1000 }),
-  });
+  let result;
+  try {
+    // Prefer webcrack's default sandbox first (best compatibility for modern bundles).
+    result = await webcrack(code);
+  } catch (defaultErr) {
+    const reason = defaultErr?.message || String(defaultErr);
+    console.warn(
+      `[deobfuscate] Default sandbox failed (${reason}); retrying with VM sandbox ...`,
+    );
+    try {
+      const sharedVmContext = vm.createContext({});
+      result = await webcrack(code, {
+        // Fallback for environments where webcrack's default sandbox backend is unavailable.
+        sandbox: async (snippet) =>
+          vm.runInContext(snippet, sharedVmContext, { timeout: 1000 }),
+      });
+    } catch (vmErr) {
+      const vmReason = vmErr?.message || String(vmErr);
+      console.warn(
+        `[deobfuscate] VM sandbox failed (${vmReason}); retrying with deobfuscate=false ...`,
+      );
+      // Last resort for newly-obfuscated bundles: keep unpack/unminify but skip
+      // deobfuscation transforms that rely on fragile sandbox evaluation.
+      result = await webcrack(code, {
+        deobfuscate: false,
+        unpack: true,
+        unminify: true,
+        jsx: false,
+        mangle: false,
+      });
+    }
+  }
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   console.log(`[deobfuscate] Done in ${elapsed}s`);
 

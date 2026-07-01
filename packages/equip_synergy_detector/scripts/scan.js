@@ -117,8 +117,159 @@ console.log(`[scan] Ships: ${mstShips.length}, Items: ${mstSlotitems.length}`);
 // ── Build mstDict and load bundle ──────────────────────────────────
 const mstDict = buildMstDict(mstSlotitems);
 const getMst = createGetMst(mstDict);
-const { kcsRequire } = loadBundle({ useMain, getMst, silent: false });
-const { SlotItemEffectUtil } = kcsRequire(82692);
+
+function extractSlotItemEffectUtil(mod) {
+  if (!mod || (typeof mod !== "object" && typeof mod !== "function")) {
+    return null;
+  }
+  if (typeof mod.getSlotitemEffect === "function") return mod;
+  if (mod.SlotItemEffectUtil) {
+    const util = mod.SlotItemEffectUtil;
+    if (util && typeof util.getSlotitemEffect === "function") return util;
+  }
+  if (mod.default) {
+    const d = mod.default;
+    if (d && typeof d.getSlotitemEffect === "function") return d;
+    if (d?.SlotItemEffectUtil) {
+      const util = d.SlotItemEffectUtil;
+      if (util && typeof util.getSlotitemEffect === "function") return util;
+    }
+  }
+  return null;
+}
+
+function patchGetMstInCache(kcsCache, getMstFn) {
+  if (!getMstFn) return 0;
+  let patched = 0;
+  const visitedNodes = new Set();
+
+  function patchNode(root) {
+    const stack = [root];
+    while (stack.length > 0) {
+      const node = stack.pop();
+      if (!node || (typeof node !== "object" && typeof node !== "function")) {
+        continue;
+      }
+      if (visitedNodes.has(node)) continue;
+      visitedNodes.add(node);
+
+      let propNames;
+      try {
+        propNames = Object.getOwnPropertyNames(node);
+      } catch {
+        continue;
+      }
+
+      for (const name of propNames) {
+        let desc;
+        try {
+          desc = Object.getOwnPropertyDescriptor(node, name);
+        } catch {
+          continue;
+        }
+        if (!desc || !("value" in desc)) continue;
+
+        const value = desc.value;
+        if (name === "getMst" && typeof value === "function") {
+          try {
+            node[name] = getMstFn;
+            patched += 1;
+          } catch {
+            // Ignore read-only properties.
+          }
+          continue;
+        }
+
+        if (value && (typeof value === "object" || typeof value === "function")) {
+          stack.push(value);
+        }
+      }
+    }
+  }
+
+  for (const mod of Object.values(kcsCache || {})) {
+    if (!mod || typeof mod !== "object") continue;
+    patchNode(mod.exports);
+    patchNode(mod.exports?.default);
+  }
+  return patched;
+}
+
+function resolveSlotItemEffectUtil({ kcsRequire, kcsCache, kcsModules, getMstFn }) {
+  const finalizeResolvedUtil = (util, sourceLabel, patchedCount) => {
+    if (sourceLabel) {
+      console.log(`[scan] SlotItemEffectUtil resolved from ${sourceLabel}`);
+    }
+    if (patchedCount === 0 && getMstFn) {
+      console.warn(
+        "[scan] WARNING: getMst patch target was not found; using bundle default getMst.",
+      );
+    }
+    return util;
+  };
+
+  let patchedGetMstCount = patchGetMstInCache(kcsCache, getMstFn);
+
+  // Fast path for already-known module ID in previously deobfuscated bundles.
+  for (const moduleId of [82692]) {
+    try {
+      const util = extractSlotItemEffectUtil(kcsRequire(moduleId));
+      if (util) {
+        return finalizeResolvedUtil(util, `known module ${moduleId}`, patchedGetMstCount);
+      }
+    } catch {
+      // Continue dynamic search below.
+    }
+  }
+
+  // Check already loaded modules first.
+  for (const mod of Object.values(kcsCache || {})) {
+    const util = extractSlotItemEffectUtil(mod?.exports);
+    if (util) return finalizeResolvedUtil(util, "loaded module cache", patchedGetMstCount);
+  }
+
+  // Fallback: search every module in the bundle registry.
+  const moduleIds = Object.keys(kcsModules || {})
+    .map((id) => Number(id))
+    .filter((id) => Number.isInteger(id) && id >= 0)
+    .sort((a, b) => a - b);
+
+  for (const moduleId of moduleIds) {
+    let mod;
+    try {
+      mod = kcsRequire(moduleId);
+    } catch {
+      continue;
+    }
+
+    if (patchedGetMstCount === 0) {
+      patchedGetMstCount += patchGetMstInCache(kcsCache, getMstFn);
+    }
+
+    const util = extractSlotItemEffectUtil(mod);
+    if (util) {
+      return finalizeResolvedUtil(
+        util,
+        `dynamic module ${moduleId}`,
+        patchedGetMstCount,
+      );
+    }
+  }
+
+  throw new Error("[scan] Failed to resolve SlotItemEffectUtil module in bundle");
+}
+
+const { kcsRequire, kcsCache, kcsModules } = loadBundle({
+  useMain,
+  getMst,
+  silent: false,
+});
+const SlotItemEffectUtil = resolveSlotItemEffectUtil({
+  kcsRequire,
+  kcsCache,
+  kcsModules,
+  getMstFn: getMst,
+});
 
 // ── Helpers ────────────────────────────────────────────────────────
 const STAT_KEYS = [

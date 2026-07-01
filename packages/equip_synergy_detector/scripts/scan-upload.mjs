@@ -8,6 +8,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import {
@@ -17,6 +18,8 @@ import {
   mkdirSync,
   readdirSync,
   statSync,
+  readFileSync,
+  writeFileSync,
 } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +80,19 @@ function runNodeScript(scriptPath, scriptArgs = []) {
     stdio: "inherit",
     cwd: root,
   });
+}
+
+function sha256File(filePath) {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function readTextFileOrNull(filePath) {
+  if (!existsSync(filePath)) return null;
+  try {
+    return readFileSync(filePath, "utf-8").trim();
+  } catch {
+    return null;
+  }
 }
 
 function findLatestApiStart2GetData(kcsapiDir) {
@@ -158,31 +174,71 @@ function prepareInputsFromProxyData(periodTagValue) {
   copyFileSync(latestApiStart2, targetApiStart2);
   console.log(`[prep] master_data synced: ${latestApiStart2}`);
 
-  // 3) Deobfuscate only when needed (missing or older than main.js).
+  // 3) Deobfuscate when output is missing or main.js content has changed.
   const deobfuscatedPath = join(root, "output", "deobfuscated.js");
+  const deobfuscatedMainHashPath = join(
+    root,
+    "output",
+    "deobfuscated.source-main.sha256",
+  );
+  const currentMainHash = sha256File(targetMain);
+  const previousMainHash = readTextFileOrNull(deobfuscatedMainHashPath);
   const needDeobfuscate =
     !existsSync(deobfuscatedPath) ||
-    statSync(sourceMain).mtimeMs > statSync(deobfuscatedPath).mtimeMs;
+    previousMainHash !== currentMainHash;
+
+  let scanWithMain = false;
 
   if (needDeobfuscate) {
-    console.log("[prep] Running deobfuscate (output missing/stale)...");
+    console.log("[prep] Running deobfuscate (output missing/input changed)...");
     const deobfResult = runNodeScript(join(__dirname, "deobfuscate.js"));
-    if (deobfResult.status !== 0) process.exit(deobfResult.status ?? 1);
+    if (deobfResult.error) {
+      console.warn(
+        `[prep] Deobfuscate launch error (${deobfResult.error.message}); fallback to main.js for scan.`,
+      );
+      scanWithMain = true;
+    } else if (deobfResult.status !== 0) {
+      const reason =
+        deobfResult.status != null
+          ? `exit=${deobfResult.status}`
+          : deobfResult.signal
+            ? `signal=${deobfResult.signal}`
+            : "unknown";
+      console.warn(
+        `[prep] Deobfuscate failed (${reason}); fallback to main.js for scan.`,
+      );
+      scanWithMain = true;
+    } else {
+      mkdirSync(join(root, "output"), { recursive: true });
+      writeFileSync(deobfuscatedMainHashPath, `${currentMainHash}\n`, "utf-8");
+    }
   } else {
-    console.log("[prep] deobfuscated.js is up-to-date; skip deobfuscate.");
+    console.log(
+      "[prep] deobfuscated.js is up-to-date for current main.js hash; skip deobfuscate.",
+    );
   }
+
+  if (scanWithMain) {
+    console.warn("[prep] scan.js will run with --main for this period.");
+  }
+
+  return {
+    scanWithMain,
+  };
 }
 
 console.log(`[prep] Resolving inputs for period-tag=${periodTag}...`);
-prepareInputsFromProxyData(periodTag);
+const prep = prepareInputsFromProxyData(periodTag);
 
 // Step 1: scan
 console.log(`[1/2] Scanning with period-tag=${periodTag}...`);
-const scanResult = runNodeScript(join(__dirname, "scan.js"), [
+const scanArgs = [
   "--volatile-generated",
   "--period-tag",
   periodTag,
-]);
+];
+if (prep.scanWithMain) scanArgs.unshift("--main");
+const scanResult = runNodeScript(join(__dirname, "scan.js"), scanArgs);
 if (scanResult.status !== 0) process.exit(scanResult.status ?? 1);
 
 // Step 2: upload
