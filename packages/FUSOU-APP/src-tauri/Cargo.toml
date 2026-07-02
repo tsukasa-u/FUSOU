@@ -76,7 +76,11 @@ custom-protocol = [ "tauri/custom-protocol" ]
 linux-tpm-attestation = ["dep:tss-esapi", "dep:rsa"]
 windows-tpm-attestation = ["dep:tss-esapi", "dep:rsa"]
 
-default = ["kc-api-epoch-20250627"]
+default = [
+	"kc-api-epoch-20250627",
+	"linux-tpm-attestation",
+	"windows-tpm-attestation",
+]
 grpc-channel = ["proxy-https/grpc"]
 kc-api-epoch-genesis = [
 	"kc_api/genesis",

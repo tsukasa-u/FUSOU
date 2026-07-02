@@ -51,11 +51,11 @@ jobs:
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
           - platform: "windows-latest"
-            args: "--features windows-tpm-attestation"
+            args: ""
             SCCACHE_GHA_ENABLED: "true"
             RUSTC_WRAPPER: "sccache"
           - platform: "windows-11-arm"
-            args: "--features windows-tpm-attestation"
+            args: ""
             SCCACHE_GHA_ENABLED: "false"
             RUSTC_WRAPPER: ""
 
@@ -72,7 +72,7 @@ jobs:
         if: matrix.platform == 'ubuntu-24.04' || matrix.platform == 'ubuntu-24.04-arm'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libtss2-dev pkg-config
 
       - name: install dependencies (ubuntu arm only)
         if: matrix.platform == 'ubuntu-24.04-arm'
