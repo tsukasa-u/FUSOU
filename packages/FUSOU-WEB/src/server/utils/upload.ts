@@ -27,6 +27,100 @@ export interface UploadAuthContext {
   };
 }
 
+const SECURE_ENCLAVE_TRUSTED_ROOT_ENV =
+  "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256";
+const TPM_AK_TRUSTED_ROOT_ENV = "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256";
+
+function parseTrustedRootList(raw: string | undefined): string[] {
+  if (!raw) return [];
+
+  const trimmed = raw.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter((item): item is string => typeof item === "string")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+      }
+    } catch {
+      // Fallback to delimiter-based parsing below.
+    }
+  }
+
+  return trimmed
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+async function resolveUploadTrustTag(options: {
+  c: any;
+  body: any;
+}): Promise<{
+  trustTag: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
+  attestationLevel: string;
+  attestationValid: boolean;
+}> {
+  const rawReport = options.body?.attestation_report;
+  if (!rawReport || typeof rawReport !== "object") {
+    return {
+      trustTag: "unverified",
+      attestationLevel: "none",
+      attestationValid: false,
+    };
+  }
+
+  const report = rawReport as {
+    attestation_level?: string;
+  };
+  const level =
+    typeof report.attestation_level === "string"
+      ? report.attestation_level
+      : "none";
+
+  // Hardware attestation verification is nonce-bound. If upload nonce is not
+  // provided, we keep behavior lenient and downgrade to unverified.
+  const nonce =
+    typeof options.body?.attestation_nonce === "string"
+      ? options.body.attestation_nonce.trim()
+      : "";
+  if ((level === "tpm" || level === "secure_enclave") && !nonce) {
+    console.warn(
+      "[upload] attestation_report provided without attestation_nonce; falling back to unverified",
+    );
+    return {
+      trustTag: "unverified",
+      attestationLevel: level,
+      attestationValid: false,
+    };
+  }
+
+  const { createEnvContext, getEnv } = await import("../utils");
+  const { verifyAttestation } = await import("./attestation-verifier");
+  const { determineTrustTag } = await import("./trust-tag");
+
+  const env = createEnvContext(options.c);
+  const secureEnclaveRoots = parseTrustedRootList(
+    getEnv(env, SECURE_ENCLAVE_TRUSTED_ROOT_ENV),
+  );
+  const tpmAkRoots = parseTrustedRootList(getEnv(env, TPM_AK_TRUSTED_ROOT_ENV));
+
+  const trustInput = await verifyAttestation(report as any, nonce, {
+    secureEnclaveTrustedRootSha256: secureEnclaveRoots,
+    tpmAkTrustedRootSha256: tpmAkRoots,
+  });
+
+  return {
+    trustTag: determineTrustTag(trustInput),
+    attestationLevel: trustInput.attestation_level,
+    attestationValid: trustInput.attestation_valid,
+  };
+}
+
 export interface UploadConfig {
   bucket: R2BucketBinding;
   signingSecret: string;
@@ -239,11 +333,14 @@ async function handlePreparation(
   }
 
   const { tokenPayload = {}, fields } = validationResult;
+  const uploadTrust = await resolveUploadTrustTag({ c, body });
   const effectiveTokenPayload: Record<string, any> = {
     ...tokenPayload,
-    ...(authContext.datasetToken?.trust_tag
-      ? { trust_tag: authContext.datasetToken.trust_tag }
-      : {}),
+    trust_tag: uploadTrust.trustTag,
+    attestation_level: uploadTrust.attestationLevel,
+    attestation_valid: uploadTrust.attestationValid,
+    // Dataset token trust is retained for audit only.
+    token_trust_tag_audit: authContext.datasetToken?.trust_tag ?? null,
   };
 
   // [Issue #15] UPDATED: Dynamic TTL based on expected file size

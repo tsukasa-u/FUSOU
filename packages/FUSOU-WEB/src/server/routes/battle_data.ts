@@ -550,6 +550,14 @@ app.post("/upload", async (c) => {
         trustTagRaw === "unverified"
           ? trustTagRaw
           : "unverified";
+      const tokenTrustTagAuditRaw = (tokenPayload as any).token_trust_tag_audit;
+      const tokenTrustTagAudit =
+        tokenTrustTagAuditRaw === "hw_verified" ||
+        tokenTrustTagAuditRaw === "sw_verified" ||
+        tokenTrustTagAuditRaw === "suspicious" ||
+        tokenTrustTagAuditRaw === "unverified"
+          ? tokenTrustTagAuditRaw
+          : null;
       const detectedTableVersions = new Set<string>();
 
       const triggeredAt = new Date().toISOString();
@@ -779,7 +787,10 @@ app.post("/upload", async (c) => {
               tableVersion,
               triggeredAt,
               userId: user.id,
+              // Determined by server-side per-upload attestation verification.
               trust_tag: trustTag,
+              // Kept for audit only; not used as decision source.
+              token_trust_tag_audit: tokenTrustTagAudit,
               // Full payload (base64 encoded)
               payload_base64: b64,
               // Table offsets for splitting at consumer
