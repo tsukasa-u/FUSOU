@@ -48,12 +48,22 @@ tags: [guide, security, attestation]
 6. ルートハッシュが `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256` と一致するか検証
 7. trust_tag を決定
 
+受理ポリシー:
+
+- アップロードの受理可否はハードウェア証明の有無で拒否しない
+- ハードウェア証明の成否は `trust_tag`（`hw_verified` / `sw_verified` / `unverified` / `suspicious`）へ反映して運用する
+
 ### 4.1 TPM の fail-closed 動作
 
 `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256` が未設定の場合、TPM 検証は fail-closed で不成立になります。
 
 - 期待値: 設定漏れで暗黙に緩い判定へ落ちない
 - 結果: TPM としては有効化されず、信頼判定は `suspicious` 側へ寄る
+
+注意:
+
+- fail-closed は「TPM を `hw_verified` として扱わない」ための挙動であり、アップロード自体を必ず拒否する意味ではありません
+- ハードウェア非対応端末は `sw_verified` または `unverified` で送信可能です
 
 ### 4.2 AK 証明書ポリシー
 
@@ -192,6 +202,21 @@ pnpm run manage-attestation-trusted-roots -- rotate-final \
   --confirm
 ```
 
+### 6.2.2 環境変数の正確な用途
+
+| 変数名 | 使用箇所 | 何を制御するか | 推奨運用 |
+| --- | --- | --- | --- |
+| `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256` | FUSOU-WEB verifier | TPM AK チェーンの信頼ルート集合 | 本番は必ず明示設定。ローテーション時は新旧併記期間を設ける |
+| `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256` | FUSOU-WEB verifier | Secure Enclave チェーンの信頼ルート集合 | 本番は必ず明示設定。TPM と同様に段階ローテーション |
+| `FUSOU_TPM_AK_CERT_CHAIN_B64` | FUSOU-APP attestation | クライアントが添付する AK チェーンを固定指定 | 本番は配布・管理された固定チェーンのみ許可 |
+| `FUSOU_TPM_AK_PERSISTENT_HANDLE` | FUSOU-APP attestation | TPM の永続 AK ハンドル固定 | TPM キー再生成揺れを避けたい場合に設定 |
+
+重要:
+
+- `INTEGRITY_*` はサーバーの信頼判断を決める設定
+- `FUSOU_*` はクライアントが送る証明データの構成を決める設定
+- 役割が逆ではないため、両者を混同しないこと
+
 ## 6.3 FUSOU-APP (TPM 収集) 側
 
 1. パッケージへ移動
@@ -246,10 +271,10 @@ PKG_CONFIG_PATH="$PWD/extracted/usr/lib/x86_64-linux-gnu/pkgconfig" \
   - Base64 DER 証明書を配列で設定
   - JSON 配列形式または改行/カンマ区切りで設定可能
   - この値が設定されている場合は最優先で使用される
-- 未設定時の自動供給
-  - `roaming/ca/fusou_ca_cert.pem` と `roaming/ca/fusou_ca_key.pem` から
-    TPM AK 公開鍵向け leaf 証明書 + CA ルートを自動生成して `certificate_chain` に付与
-  - 追加のユーザー手作業なしで chain 付与までは実行される
+- 未設定時の挙動
+  - 署名検証済みの attestation config (`/api/attestation/config`) に
+    `tpm.ak_cert_chain_b64` があればそれを使用
+  - どちらにも無い場合は TPM チェーンなしで送信し、`hw_verified` は付与されない
 - `FUSOU_TPM_AK_PERSISTENT_HANDLE`
   - 永続 AK ハンドルを固定したい場合に指定
 
@@ -275,7 +300,8 @@ cargo check --features linux-tpm-attestation
 ## 7. 運用チェックリスト
 
 - TPM ルート (`INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`) が設定済み
-- Secure Enclave ルート (`INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`) が設定済み
+- Secure Enclave を受理する構成では
+  `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256` が設定済み
 - challenge nonce と refresh で時刻同期が大きくズレていない
 - attestation_report がサイズ上限に収まっている
 - 証明書の OCSP / CRL エンドポイントへサーバーから到達できる
@@ -302,3 +328,10 @@ cargo check --features linux-tpm-attestation
 
 - ルートハッシュ設定は段階的ローテーションを行い、旧ルートを短期間のみ併存させる
 - 失効情報配信 (OCSP/CRL) の可用性を監視し、期限切れレスポンスを放置しない
+
+## 10. 関連 Runbook
+
+- `docs/operations/web/ATTESTATION_CONFIG_SIGNING_KEY_RUNBOOK.md`
+  - 署名鍵運用、`manage-attestation-config-signing-key` の詳細手順
+- `pnpm run manage-attestation-trusted-roots -- <command>`
+  - trust root（TPM/Secure Enclave）管理
