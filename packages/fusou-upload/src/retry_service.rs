@@ -526,6 +526,7 @@ impl UploadRetryService {
                         dataset_id: resolved_dataset_id,
                         content_type,
                     },
+                    attestation_report_builder: None,
                 };
 
                 Uploader::upload(client, auth_manager, request, None)
@@ -544,6 +545,7 @@ impl UploadRetryService {
                     data,
                     headers: meta.headers.clone(),
                     context: UploadContext::Snapshot { is_snapshot: true },
+                    attestation_report_builder: None,
                 };
 
                 Uploader::upload(client, auth_manager, request, None)

@@ -140,6 +140,7 @@ impl R2StorageProvider {
                 "table_offsets": table_offsets,
                 "table_version": DATABASE_TABLE_VERSION,
             })),
+            attestation_report_builder: None,
         };
 
         let client = reqwest::Client::new();
@@ -722,6 +723,7 @@ impl R2StorageProvider {
                 "table_offsets": table_offsets_json,
                 "table_version": DATABASE_TABLE_VERSION,
             })),
+            attestation_report_builder: None,
         };
 
         let client = reqwest::Client::new();

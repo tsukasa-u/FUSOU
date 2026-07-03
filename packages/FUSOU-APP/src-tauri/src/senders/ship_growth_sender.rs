@@ -1,4 +1,5 @@
 use fusou_auth::{AuthManager, FileStorage};
+use crate::attestation;
 use fusou_upload::{
     LocalRequestSuppressionCache, PendingStore, SuppressionCacheEntryStatus,
     SuppressionCacheStatus, UploadContext, UploadRequest, UploadRetryService, Uploader,
@@ -407,6 +408,7 @@ impl ShipGrowthSender {
                 "endpoint": self.ingest_endpoint,
                 "payload_hash": payload_hash,
             })),
+            attestation_report_builder: Some(attestation::collect_upload_attestation_report),
         };
 
         match Uploader::upload(

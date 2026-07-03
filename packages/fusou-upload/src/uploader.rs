@@ -4,6 +4,12 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
+
+type AttestationReportBuilder = fn(&str) -> serde_json::Value;
+
+static DEFAULT_ATTESTATION_REPORT_BUILDER: OnceLock<RwLock<Option<AttestationReportBuilder>>> =
+    OnceLock::new();
 
 #[derive(Deserialize)]
 struct HandshakeResponse {
@@ -88,6 +94,7 @@ pub struct UploadRequest<'a> {
     pub data: Vec<u8>,
     pub headers: HashMap<String, String>,
     pub context: UploadContext,
+    pub attestation_report_builder: Option<AttestationReportBuilder>,
 }
 
 pub enum UploadResult {
@@ -98,6 +105,18 @@ pub enum UploadResult {
 pub struct Uploader;
 
 impl Uploader {
+    pub fn set_default_attestation_report_builder(builder: Option<AttestationReportBuilder>) {
+        let lock = DEFAULT_ATTESTATION_REPORT_BUILDER.get_or_init(|| RwLock::new(None));
+        if let Ok(mut guard) = lock.write() {
+            *guard = builder;
+        }
+    }
+
+    fn default_attestation_report_builder() -> Option<AttestationReportBuilder> {
+        let lock = DEFAULT_ATTESTATION_REPORT_BUILDER.get_or_init(|| RwLock::new(None));
+        lock.read().ok().and_then(|guard| *guard)
+    }
+
     fn mask_identifier(input: &str) -> String {
         if cfg!(debug_assertions) {
             return input.to_string();
@@ -287,8 +306,30 @@ impl Uploader {
         if let Some(obj) = handshake_body.as_object_mut() {
             obj.insert(
                 "content_hash".to_string(),
-                serde_json::Value::String(content_hash),
+                serde_json::Value::String(content_hash.clone()),
             );
+
+            // Attach per-upload attestation report when caller provides a builder.
+            // This keeps attestation tied to each submitted payload instead of
+            // only to anonymous auth refresh.
+            let attestation_builder = request
+                .attestation_report_builder
+                .or_else(Self::default_attestation_report_builder);
+
+            if let Some(builder) = attestation_builder {
+                if !obj.contains_key("attestation_report") {
+                    let nonce = format!(
+                        "upload:{}:{}",
+                        chrono::Utc::now().timestamp_millis(),
+                        content_hash
+                    );
+                    obj.insert(
+                        "attestation_nonce".to_string(),
+                        serde_json::Value::String(nonce.clone()),
+                    );
+                    obj.insert("attestation_report".to_string(), builder(&nonce));
+                }
+            }
         }
 
         // 1. Handshake (JSON body)
@@ -414,6 +455,12 @@ impl Uploader {
             if k.to_lowercase() != "content-type" {
                 upload_req = upload_req.header(k, v);
             }
+        }
+
+        // Keep dataset token bound through execution phase too so server can
+        // validate dataset ownership for the same upload token.
+        if let Some(dataset_token) = &dataset_token_opt {
+            upload_req = upload_req.header("X-Dataset-Token", dataset_token.expose_token());
         }
 
         // Determine Content-Type based on context or fall back to application/octet-stream

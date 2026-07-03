@@ -1,4 +1,5 @@
 use crate::notify;
+use crate::attestation;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
 use kc_api::fleet_snapshot::fleet::FleetSnapshot;
@@ -100,6 +101,7 @@ pub async fn perform_snapshot_sync_app(
         data: payload_bytes,
         headers,
         context: UploadContext::Snapshot { is_snapshot: true },
+        attestation_report_builder: Some(attestation::collect_upload_attestation_report),
     };
 
     let client = Client::new();

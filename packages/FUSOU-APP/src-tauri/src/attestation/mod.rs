@@ -118,6 +118,10 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
     build_software_report()
 }
 
+pub fn collect_upload_attestation_report(nonce: &str) -> serde_json::Value {
+    collect_attestation_report(Some(nonce))
+}
+
 pub fn runtime_preflight_warnings() -> Vec<AttestationPreflightWarning> {
     let mut warnings = Vec::new();
 

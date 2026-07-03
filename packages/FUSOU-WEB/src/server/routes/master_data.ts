@@ -114,6 +114,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    attestationRequirement: "require_report",
     tokenTTL: 300, // 5 minutes is enough for ~240kB (no dynamic TTL needed)
     maxBodySize: MAX_UPLOAD_BYTES,
 

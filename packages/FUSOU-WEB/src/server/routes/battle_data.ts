@@ -362,6 +362,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    attestationRequirement: "require_report",
     maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
       const datasetIdFromToken =

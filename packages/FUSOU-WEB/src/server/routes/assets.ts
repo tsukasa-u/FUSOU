@@ -67,6 +67,7 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    attestationRequirement: "require_report",
     tokenTTL: SIGNED_URL_TTL_SECONDS,
     maxBodySize: MAX_UPLOAD_BYTES,
 

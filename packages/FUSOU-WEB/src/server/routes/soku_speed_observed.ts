@@ -19,6 +19,11 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import {
+  enforceUploadExecutionSecurityGuards,
+  readUploadRequestBodyWithLimit,
+  resolveUploadTrustDecision,
+} from "../utils/upload";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
 
@@ -283,9 +288,24 @@ app.post("/ingest", async (c) => {
       300,
       Math.min(3600, 30 + Math.ceil(declaredSize / (10 * 1024 * 1024)) * 10),
     );
+
+    const uploadTrust = await resolveUploadTrustDecision({
+      c,
+      body: handshakeBody,
+      requirement: "require_report",
+      datasetId: validated.datasetId,
+    });
+    if (!uploadTrust.allow) {
+      return c.json(
+        { error: uploadTrust.error ?? "attestation_policy_rejected" },
+        uploadTrust.status,
+      );
+    }
+
     const token = await generateSignedToken(
       {
         user_id: actingUserId,
+        upload_jti: crypto.randomUUID(),
         content_hash: contentHash,
         declared_size: declaredSize,
         dataset_id: validated.datasetId,
@@ -293,6 +313,10 @@ app.post("/ingest", async (c) => {
         event_type: validated.eventType,
         period_tag: bodyPeriodTag,
         table_version: bodyTableVersion,
+        trust_tag: uploadTrust.trustTag,
+        attestation_level: uploadTrust.attestationLevel,
+        attestation_valid: uploadTrust.attestationValid,
+        token_trust_tag_audit: tokenValidation.token?.trust_tag ?? null,
       },
       signingSecret,
       tokenTtl,
@@ -323,10 +347,38 @@ app.post("/ingest", async (c) => {
     return c.json({ error: "Invalid or expired upload token" }, 401);
   const validated = validateTokenPayload(tokenPayload);
   if (!validated.valid) return c.json({ error: validated.error }, 400);
+  const securityGuards = await enforceUploadExecutionSecurityGuards({
+    c,
+    request: c.req.raw,
+    tokenPayload,
+    requireDatasetToken: true,
+  });
+  if (!securityGuards.ok) {
+    return c.json({ error: securityGuards.error }, securityGuards.status);
+  }
   const contentHashHeader = c.req.header("content-hash");
-  const rawBody = await c.req.arrayBuffer().catch(() => null);
-  if (!rawBody) return c.json({ error: "Missing request body" }, 400);
-  const digest = await crypto.subtle.digest("SHA-256", rawBody);
+  const declaredSize = Number(tokenPayload.declared_size);
+  if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+    return c.json({ error: "Invalid token payload (declared_size)" }, 400);
+  }
+  const uploadedBody = await readUploadRequestBodyWithLimit({
+    request: c.req.raw,
+    maxBodySize: declaredSize,
+  });
+  if (!uploadedBody.ok) {
+    return c.json(
+      {
+        error: uploadedBody.error,
+        ...(uploadedBody.limit != null ? { limit: uploadedBody.limit } : {}),
+        ...(uploadedBody.actual != null ? { actual: uploadedBody.actual } : {}),
+      },
+      uploadedBody.status,
+    );
+  }
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    uploadedBody.data as unknown as BufferSource,
+  );
   const actualContentHash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -339,12 +391,12 @@ app.post("/ingest", async (c) => {
   ) {
     return c.json({ error: "content-hash header mismatch" }, 400);
   }
-  if (rawBody.byteLength !== tokenPayload.declared_size) {
+  if (uploadedBody.data.byteLength !== declaredSize) {
     return c.json({ error: "file_size mismatch" }, 400);
   }
   let body: SokuSpeedIngestBody;
   try {
-    body = JSON.parse(new TextDecoder().decode(rawBody)) as SokuSpeedIngestBody;
+    body = JSON.parse(new TextDecoder().decode(uploadedBody.data)) as SokuSpeedIngestBody;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }

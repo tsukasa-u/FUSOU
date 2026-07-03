@@ -27,6 +27,11 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
+import {
+  enforceUploadExecutionSecurityGuards,
+  readUploadRequestBodyWithLimit,
+  resolveUploadTrustDecision,
+} from "../utils/upload";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 
@@ -3141,14 +3146,32 @@ app.post("/ingest", async (c) => {
       Math.min(3600, 30 + Math.ceil(declaredSize / (10 * 1024 * 1024)) * 10),
     );
 
+    const uploadTrust = await resolveUploadTrustDecision({
+      c,
+      body: handshakeBody,
+      requirement: "require_report",
+      datasetId: validated.datasetId,
+    });
+    if (!uploadTrust.allow) {
+      return c.json(
+        { error: uploadTrust.error ?? "attestation_policy_rejected" },
+        uploadTrust.status,
+      );
+    }
+
     const token = await generateSignedToken(
       {
         user_id: actingUserId,
+        upload_jti: crypto.randomUUID(),
         content_hash: contentHash,
         declared_size: declaredSize,
         dataset_id: validated.datasetId,
         request_id: validated.requestId,
         event_type: validated.eventType,
+        trust_tag: uploadTrust.trustTag,
+        attestation_level: uploadTrust.attestationLevel,
+        attestation_valid: uploadTrust.attestationValid,
+        token_trust_tag_audit: tokenValidation.token?.trust_tag ?? null,
       },
       signingSecret,
       tokenTtl,
@@ -3196,17 +3219,40 @@ app.post("/ingest", async (c) => {
       400,
     );
   }
+  const securityGuards = await enforceUploadExecutionSecurityGuards({
+    c,
+    request: c.req.raw,
+    tokenPayload,
+    requireDatasetToken: true,
+  });
+  if (!securityGuards.ok) {
+    return c.json({ error: securityGuards.error }, securityGuards.status);
+  }
   // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
-  // Read binary body
-  const bodyStream = c.req.raw.body;
-  if (!bodyStream) return c.json({ error: "Upload payload is missing" }, 400);
-  const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
-
-  // Size check
   const declaredSize = Number(tokenPayload.declared_size);
-  if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
+  if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+    return c.json({ error: "Invalid token payload (declared_size)" }, 400);
+  }
+
+  const uploadedBody = await readUploadRequestBodyWithLimit({
+    request: c.req.raw,
+    maxBodySize: declaredSize,
+  });
+  if (!uploadedBody.ok) {
+    return c.json(
+      {
+        error: uploadedBody.error,
+        ...(uploadedBody.limit != null ? { limit: uploadedBody.limit } : {}),
+        ...(uploadedBody.actual != null ? { actual: uploadedBody.actual } : {}),
+      },
+      uploadedBody.status,
+    );
+  }
+  const uploaded = uploadedBody.data;
+
+  if (uploaded.byteLength !== declaredSize) {
     return c.json(
       {
         error: "Data size mismatch",

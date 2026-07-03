@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::attestation;
 use crate::storage::root_validator;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::retry_service::RetryHandler;
@@ -67,6 +68,7 @@ impl AppUploadRetryHandler {
             data: data.to_vec(),
             headers,
             context: UploadContext::Custom(context.clone()),
+            attestation_report_builder: Some(attestation::collect_upload_attestation_report),
         }
     }
 

@@ -850,6 +850,7 @@ pub async fn upload_via_api(
             dataset_id: resolved_dataset_id,
             content_type: Some(content_type),
         },
+        attestation_report_builder: None,
     };
 
     match Uploader::upload(client, auth_manager, request, pending_store).await {

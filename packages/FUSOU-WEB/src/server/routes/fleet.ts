@@ -438,6 +438,7 @@ app.post("/snapshot", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
+    attestationRequirement: "require_report",
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _user, authContext) => {
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";

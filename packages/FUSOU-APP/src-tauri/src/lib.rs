@@ -250,6 +250,12 @@ pub async fn run() {
             app.manage(pending_store.clone());
             app.manage(retry_service.clone());
 
+            // Enforce per-upload attestation for every uploader path, including
+            // fusou-storage / retry-service paths that do not pass a request-level builder.
+            fusou_upload::set_default_attestation_report_builder(Some(
+                attestation::collect_upload_attestation_report,
+            ));
+
             // Ensure user config file path is initialized before reading retry settings.
             builder_setup::setup::setup_configs()?;
 
