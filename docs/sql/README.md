@@ -6,6 +6,9 @@ This directory consolidates all SQL files for the FUSOU project.
 
 - `d1/`: Cloudflare D1 schema definitions.
   - `schema.sql`: Canonical D1 schema used for workflow/battle/quest/master-data setup.
+- `turso/`: Turso (libSQL) schema definitions.
+  - `schema.sql`: Canonical Turso schema for hot buffer tables (`buffer_logs_active`, `buffer_logs_processing`).
+  - `migration_0001_create_buffer_tables.sql`: Initial migration for hot buffer tables.
 - `tidb/`: TiDB schema definitions.
   - `schema.sql`: TiDB table definition for hot buffer (`buffer_logs`).
   - `migration_0001_rename_schema_version.sql`: TiDB migration script.
@@ -16,5 +19,6 @@ This directory consolidates all SQL files for the FUSOU project.
 ## Workflow Integration
 
 - **FUSOU-WORKFLOW**: Uses `docs/sql/d1/schema.sql` for `schema:local` and `schema:remote` execution.
-- **TiDB setups**: Use `docs/sql/tidb/schema.sql` in TiDB Console for `buffer_logs`.
+- **FUSOU-WORKFLOW hot buffer**: Uses `docs/sql/turso/schema.sql` on Turso.
+- **TiDB setups**: Kept as legacy reference only.
 - **FUSOU-WEB**: Uses per-database migrations in `packages/FUSOU-WEB/migrations/*` via `migrations_dir` in `wrangler.toml`.

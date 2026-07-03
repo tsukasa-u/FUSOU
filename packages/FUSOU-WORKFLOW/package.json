@@ -31,6 +31,6 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
-    "@tidbcloud/serverless": "^0.2.0"
+    "@tursodatabase/serverless": "^1.2.3"
   }
 }
