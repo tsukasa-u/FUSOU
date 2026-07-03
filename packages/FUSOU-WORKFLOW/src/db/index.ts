@@ -74,6 +74,7 @@ export async function fetchHotData(
     from?: number;
     to?: number;
     table_version?: string;
+    includeProcessing?: boolean;
   },
 ): Promise<{ rows: BufferLogRecord[]; source: "turso" }> {
   const client = createTursoClientFromEnv(env);

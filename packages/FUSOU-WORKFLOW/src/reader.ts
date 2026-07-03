@@ -4,7 +4,8 @@
  * Role: Unified query interface for recent (Hot) and historical (Cold) data
  *
  * Access Pattern:
- * 1. Query Hot: Turso buffer_logs_active + buffer_logs_processing
+ * 1. Query Hot: Turso buffer_logs_active (default)
+ *    - During cron processing window only, also include buffer_logs_processing
  * 2. Query Cold: D1 block_indexes → R2 Range Request (efficient, historical)
  * 3. Merge: Combine and deduplicate results
  * 4. Cache: Aggressive caching for Cold data (immutable)
@@ -37,9 +38,29 @@ import bundledFingerprints from "../../configs/fingerprints.json";
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  WORKFLOW_STATE_KV?: KVNamespace;
   TABLE_FINGERPRINTS_JSON?: string; // map: { "0.4": { "table": ["<sha256>", ...] }, ... }
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
+}
+
+const KV_PROCESSING_ACTIVE_KEY = "buffer_processing_active";
+
+async function shouldIncludeProcessingTable(env: Env): Promise<boolean> {
+  if (!env.WORKFLOW_STATE_KV) {
+    // Safe default when KV is not configured.
+    return true;
+  }
+  try {
+    const state = await env.WORKFLOW_STATE_KV.get(KV_PROCESSING_ACTIVE_KEY);
+    return state === "1";
+  } catch (error) {
+    console.warn(
+      "[Reader] Failed to read KV processing state; falling back to include processing table:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return true;
+  }
 }
 
 interface QueryParams {
@@ -82,12 +103,14 @@ interface BlockIndex {
  * Must deserialize using Avro parser.
  */
 async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
+  const includeProcessing = await shouldIncludeProcessingTable(env);
   const { rows } = await fetchTursoHotData(env, {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
     from: params.from,
     to: params.to,
     table_version: params.table_version,
+    includeProcessing,
   });
 
   // FIXED: Deserialize Avro OCF binary data (not JSON text)

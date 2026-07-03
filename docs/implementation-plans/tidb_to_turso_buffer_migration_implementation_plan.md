@@ -130,7 +130,12 @@ flowchart TD
     I --> J[(D1 archived_files + block_indexes)]
     J --> K[Drop & recreate processing table]
 
-    L[/read] --> M[Hot query from active + processing]
+   L[/read] --> M[Hot query from active only]
+   E --> P[Set KV flag processing_active=1]
+   K --> Q[Clear KV flag processing_active]
+   P --> M2[During processing only: active + processing]
+   Q --> M
+   M2 --> O
     L --> N[Cold query D1 index -> R2 range]
     M --> O[merge + dedupe]
     N --> O
@@ -230,6 +235,20 @@ COMMIT;
 
 ### 5.1 hot read（reader 用）
 
+通常時（コスト最適化）:
+
+```sql
+SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
+FROM buffer_logs_active
+WHERE dataset_id = ? AND table_name = ?
+   AND (? IS NULL OR table_version = ?)
+   AND (? IS NULL OR timestamp >= ?)
+   AND (? IS NULL OR timestamp <= ?)
+ORDER BY timestamp ASC, id ASC;
+```
+
+cron 処理中のみ（KV フラグ `buffer_processing_active=1` の間）:
+
 ```sql
 SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
 FROM buffer_logs_active
@@ -248,6 +267,10 @@ WHERE dataset_id = ? AND table_name = ?
   AND (? IS NULL OR timestamp <= ?)
 ORDER BY timestamp ASC, id ASC;
 ```
+
+補足:
+- KV は「read 側が processing を含める必要がある短時間のみ」を示すために使用する。
+- KV 未設定または取得失敗時は安全側で active+processing を読む。
 
 ### 5.2 snapshot fetch（cron 用）
 
