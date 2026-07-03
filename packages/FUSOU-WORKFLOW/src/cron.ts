@@ -1,13 +1,13 @@
 /**
  * Archiver Cron Worker for Avro OCF merging
- * - Reads Avro OCF files from TiDB buffer_logs (or D1 fallback on error)
+ * - Reads Avro OCF files from Turso buffer tables
  * - Groups by table_name + period_tag + dataset_id
  * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
  * - Records byte offsets in D1 block_indexes for Range reads
  *
- * Hybrid Architecture:
- * - TiDB: buffer_logs (high-volume writes) - primary
- * - D1: buffer_logs (fallback on TiDB error), archived_files, block_indexes (metadata)
+ * Architecture:
+ * - Turso: buffer_logs_active + buffer_logs_processing (hot buffer)
+ * - D1: archived_files, block_indexes (metadata)
  * - R2: Avro OCF archives (long-term storage)
  */
 
@@ -18,17 +18,16 @@ import {
 } from "./avro-merger";
 import { getAvroHeaderLengthFromPrefix } from "./avro-manual";
 import {
-  fetchBufferedDataWithFallback,
-  cleanupBufferWithFallback,
+  fetchProcessingBufferedData,
+  cleanupProcessingBuffer,
   BufferLogRecord,
-  UnifiedDbEnv,
 } from "./db";
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  // TiDB Cloud Serverless connection URL (optional - falls back to D1 if not set)
-  TIDB_KC_DB_URL?: string;
+  TURSO_DATABASE_URL: string;
+  TURSO_AUTH_TOKEN: string;
 }
 
 // Unified BufferRow interface (used internally in cron.ts)
@@ -41,6 +40,7 @@ interface BufferRow {
   timestamp: number;
   data: ArrayBuffer; // Already Avro OCF binary
   uploaded_by: string | null;
+  trust_tag: string | null;
 }
 
 interface DatasetBlock {
@@ -49,6 +49,7 @@ interface DatasetBlock {
   recordCount: number;
   startTimestamp: number;
   endTimestamp: number;
+  trust_tag: string | null;
 }
 
 interface GroupKey {
@@ -73,6 +74,7 @@ interface BlockIndexRow {
   record_count: number;
   start_timestamp: number;
   end_timestamp: number;
+  trust_tag: string | null;
 }
 
 // Convert BufferLogRecord to internal BufferRow format
@@ -93,7 +95,16 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
             record.data.byteOffset + record.data.byteLength,
           ) as ArrayBuffer),
     uploaded_by: record.uploaded_by,
+    trust_tag: record.trust_tag,
   };
+}
+
+function resolveTrustTag(tags: Array<string | null | undefined>): string | null {
+  if (tags.includes("suspicious")) return "suspicious";
+  if (tags.includes("unverified")) return "unverified";
+  if (tags.includes("sw_verified")) return "sw_verified";
+  if (tags.includes("hw_verified")) return "hw_verified";
+  return null;
 }
 
 /**
@@ -180,6 +191,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
         recordCount: rows.length, // Number of source OCF files merged
         startTimestamp: Math.min(...timestamps),
         endTimestamp: Math.max(...timestamps),
+        trust_tag: resolveTrustTag(rows.map((r) => r.trust_tag)),
       });
     }
 
@@ -289,13 +301,13 @@ async function insertBlockIndexes(
   }
 
   // Insert new indexes in chunks to stay within D1's 999-parameter bind limit.
-  // Each row uses 10 parameters; floor(999/10) = 99 rows per chunk.
-  const CHUNK_SIZE = 99;
+  // Each row uses 11 parameters; floor(999/11) = 90 rows per chunk.
+  const CHUNK_SIZE = 90;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
     const sql = `
-      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?)").join(",")}
+      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp, trust_tag)
+      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?,?)").join(",")}
     `;
     const params: (string | number)[] = [];
     for (const r of chunk) {
@@ -310,6 +322,7 @@ async function insertBlockIndexes(
         r.record_count,
         r.start_timestamp,
         r.end_timestamp,
+        r.trust_tag ?? "unverified",
       );
     }
     await db
@@ -319,29 +332,22 @@ async function insertBlockIndexes(
   }
 }
 
-// Note: cleanupBuffer moved to cleanupBufferD1 above for D1 fallback
-// TiDB cleanup uses cleanupBufferFromTiDB from tidb-client.ts
-
 export async function handleCron(env: Env): Promise<void> {
-  let maxId: number | null = null;
-  let fetchSource: "tidb" | "d1" = "d1";
   let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
+  let hadRows = false;
 
   try {
     const runTimestamp = Date.now();
 
-    // Fetch buffered data with automatic TiDB -> D1 fallback on error
-    const { rows: fetchedRows, source } =
-      await fetchBufferedDataWithFallback(env);
-    fetchSource = source;
+    // Fetch processing rows. If processing is empty, db layer swaps active->processing.
+    const { rows: fetchedRows } = await fetchProcessingBufferedData(env);
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
 
     if (!rows.length) {
       return; // Silent: no data to archive
     }
+    hadRows = true;
 
-    // IMPORTANT: Track maxId early so cleanup can happen even if later steps fail
-    maxId = Math.max(...rows.map((r) => r.id));
     const groups = groupByDataset(rows);
 
     let totalFiles = 0;
@@ -460,6 +466,9 @@ export async function handleCron(env: Env): Promise<void> {
             period: group.key.period_tag,
             "file-index": String(fileIndex + 1),
             "total-files": String(fileChunks.length),
+            "trust-tag":
+              resolveTrustTag(chunk.blocks.map((b) => b.trust_tag)) ??
+              "unverified",
           },
         });
 
@@ -492,6 +501,7 @@ export async function handleCron(env: Env): Promise<void> {
               record_count: block.recordCount,
               start_timestamp: block.startTimestamp,
               end_timestamp: block.endTimestamp,
+              trust_tag: block.trust_tag,
             });
           }
 
@@ -532,14 +542,15 @@ export async function handleCron(env: Env): Promise<void> {
     console.error("[Archival Error]", errorMsg);
     // archiveSuccess remains false - DO NOT cleanup to prevent data loss
   } finally {
-    // FIXED: Only cleanup buffer_logs if archival was successful
+    // FIXED: Only cleanup processing table if archival was successful
     // This prevents data loss when R2 upload or index registration fails
-    if (maxId !== null && archiveSuccess) {
+    if (hadRows && archiveSuccess) {
       try {
         const { source: cleanupSource, rowsAffected } =
-          await cleanupBufferWithFallback(env, maxId, fetchSource);
+          await cleanupProcessingBuffer(env);
+
         console.log(
-          `[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs up to id ${maxId}`,
+          `[Archival] Cleaned up ${rowsAffected} rows from ${cleanupSource} buffer_logs_processing`,
         );
       } catch (cleanupErr) {
         console.error(
@@ -547,9 +558,9 @@ export async function handleCron(env: Env): Promise<void> {
           cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         );
       }
-    } else if (maxId !== null && !archiveSuccess) {
+    } else if (hadRows && !archiveSuccess) {
       console.warn(
-        `[Archival] Skipped cleanup due to archival error - ${maxId} records preserved for retry`,
+        "[Archival] Skipped cleanup due to archival error - processing rows preserved for retry",
       );
     }
   }
