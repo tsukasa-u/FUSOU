@@ -80,11 +80,8 @@ type = "CompiledWasm"
 globs = ["**/*.wasm"]
 fallthrough = true
 
-# ===== TiDB Cloud Configuration =====
-# TiDB Cloud Serverless for buffer_logs (high-volume writes)
-# Official integration guide: https://docs.pingcap.com/tidbcloud/integrate-tidbcloud-with-cloudflare/
-#
-# Secret configured as TIDB_KC_DB_URL:
-#   wrangler secret put TIDB_KC_DB_URL
-#
-# Format: mysql://username:password@host:4000/database
+# ===== Turso Configuration =====
+# Turso serverless for hot buffer tables
+# Secrets required:
+#   wrangler secret put TURSO_DATABASE_URL
+#   wrangler secret put TURSO_AUTH_TOKEN

@@ -1,13 +1,13 @@
 /**
  * Archiver Cron Worker for Avro OCF merging
- * - Reads Avro OCF files from TiDB buffer_logs (or D1 fallback on error)
+ * - Reads Avro OCF files from Turso buffer tables
  * - Groups by table_name + period_tag + dataset_id
  * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
  * - Records byte offsets in D1 block_indexes for Range reads
  *
- * Hybrid Architecture:
- * - TiDB: buffer_logs (high-volume writes) - primary
- * - D1: buffer_logs (fallback on TiDB error), archived_files, block_indexes (metadata)
+ * Architecture:
+ * - Turso: buffer_logs_active + buffer_logs_processing (hot buffer)
+ * - D1: archived_files, block_indexes (metadata)
  * - R2: Avro OCF archives (long-term storage)
  */
 
@@ -18,17 +18,16 @@ import {
 } from "./avro-merger";
 import { getAvroHeaderLengthFromPrefix } from "./avro-manual";
 import {
-  fetchBufferedDataWithFallback,
-  cleanupBufferWithFallback,
+  fetchProcessingBufferedData,
+  cleanupProcessingBuffer,
   BufferLogRecord,
-  UnifiedDbEnv,
 } from "./db";
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  // TiDB Cloud Serverless connection URL (optional - falls back to D1 if not set)
-  TIDB_KC_DB_URL?: string;
+  TURSO_DATABASE_URL: string;
+  TURSO_AUTH_TOKEN: string;
 }
 
 // Unified BufferRow interface (used internally in cron.ts)
@@ -333,37 +332,21 @@ async function insertBlockIndexes(
   }
 }
 
-// Note: cleanupBuffer moved to cleanupBufferD1 above for D1 fallback
-// TiDB cleanup uses cleanupBufferFromTiDB from tidb-client.ts
-
 export async function handleCron(env: Env): Promise<void> {
-  let cleanupCheckpoints: {
-    tidbMaxId: number | null;
-    d1MaxId: number | null;
-  } = {
-    tidbMaxId: null,
-    d1MaxId: null,
-  };
-  let fetchSource: "tidb" | "d1" | "both" = "d1";
   let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
+  let hadRows = false;
 
   try {
     const runTimestamp = Date.now();
 
-    // Fetch buffered data with automatic TiDB -> D1 fallback on error
-    const {
-      rows: fetchedRows,
-      source,
-      cleanupCheckpoints: fetchedCheckpoints,
-    } =
-      await fetchBufferedDataWithFallback(env);
-    fetchSource = source;
-    cleanupCheckpoints = fetchedCheckpoints;
+    // Fetch processing rows. If processing is empty, db layer swaps active->processing.
+    const { rows: fetchedRows } = await fetchProcessingBufferedData(env);
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
 
     if (!rows.length) {
       return; // Silent: no data to archive
     }
+    hadRows = true;
 
     const groups = groupByDataset(rows);
 
@@ -559,35 +542,15 @@ export async function handleCron(env: Env): Promise<void> {
     console.error("[Archival Error]", errorMsg);
     // archiveSuccess remains false - DO NOT cleanup to prevent data loss
   } finally {
-    // FIXED: Only cleanup buffer_logs if archival was successful
+    // FIXED: Only cleanup processing table if archival was successful
     // This prevents data loss when R2 upload or index registration fails
-    const hasCleanupTarget =
-      cleanupCheckpoints.tidbMaxId !== null ||
-      cleanupCheckpoints.d1MaxId !== null;
-
-    if (hasCleanupTarget && archiveSuccess) {
+    if (hadRows && archiveSuccess) {
       try {
-        const {
-          source: cleanupSource,
-          rowsAffected,
-          tidbRowsAffected,
-          d1RowsAffected,
-        } = await cleanupBufferWithFallback(
-          env,
-          cleanupCheckpoints,
-          fetchSource,
-        );
-
-        const checkpointLabel =
-          cleanupCheckpoints.tidbMaxId !== null &&
-          cleanupCheckpoints.d1MaxId !== null
-            ? `tidb<=${cleanupCheckpoints.tidbMaxId}, d1<=${cleanupCheckpoints.d1MaxId}`
-            : cleanupCheckpoints.tidbMaxId !== null
-              ? `tidb<=${cleanupCheckpoints.tidbMaxId}`
-              : `d1<=${cleanupCheckpoints.d1MaxId}`;
+        const { source: cleanupSource, rowsAffected } =
+          await cleanupProcessingBuffer(env);
 
         console.log(
-          `[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs (${checkpointLabel}; tidb=${tidbRowsAffected}, d1=${d1RowsAffected})`,
+          `[Archival] Cleaned up ${rowsAffected} rows from ${cleanupSource} buffer_logs_processing`,
         );
       } catch (cleanupErr) {
         console.error(
@@ -595,16 +558,9 @@ export async function handleCron(env: Env): Promise<void> {
           cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
         );
       }
-    } else if (hasCleanupTarget && !archiveSuccess) {
-      const checkpointLabel =
-        cleanupCheckpoints.tidbMaxId !== null &&
-        cleanupCheckpoints.d1MaxId !== null
-          ? `tidb<=${cleanupCheckpoints.tidbMaxId}, d1<=${cleanupCheckpoints.d1MaxId}`
-          : cleanupCheckpoints.tidbMaxId !== null
-            ? `tidb<=${cleanupCheckpoints.tidbMaxId}`
-            : `d1<=${cleanupCheckpoints.d1MaxId}`;
+    } else if (hadRows && !archiveSuccess) {
       console.warn(
-        `[Archival] Skipped cleanup due to archival error - ${checkpointLabel} preserved for retry`,
+        "[Archival] Skipped cleanup due to archival error - processing rows preserved for retry",
       );
     }
   }
