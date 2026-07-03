@@ -10,6 +10,7 @@ import {
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  WORKFLOW_STATE_KV?: KVNamespace;
   QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;

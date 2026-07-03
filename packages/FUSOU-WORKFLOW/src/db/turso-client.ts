@@ -170,6 +170,7 @@ export async function fetchHotRows(
     from?: number;
     to?: number;
     table_version?: string;
+    includeProcessing?: boolean;
   },
 ): Promise<BufferLogRecord[]> {
   let sql = `
@@ -193,26 +194,28 @@ export async function fetchHotRows(
     args.push(params.to);
   }
 
-  sql += `
-    UNION ALL
-    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
-    FROM buffer_logs_processing
-    WHERE dataset_id = ? AND table_name = ?
-  `;
+  if (params.includeProcessing !== false) {
+    sql += `
+      UNION ALL
+      SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by, trust_tag
+      FROM buffer_logs_processing
+      WHERE dataset_id = ? AND table_name = ?
+    `;
 
-  args.push(params.dataset_id, params.table_name);
+    args.push(params.dataset_id, params.table_name);
 
-  if (params.table_version !== undefined) {
-    sql += " AND table_version = ?";
-    args.push(params.table_version);
-  }
-  if (params.from !== undefined) {
-    sql += " AND timestamp >= ?";
-    args.push(params.from);
-  }
-  if (params.to !== undefined) {
-    sql += " AND timestamp <= ?";
-    args.push(params.to);
+    if (params.table_version !== undefined) {
+      sql += " AND table_version = ?";
+      args.push(params.table_version);
+    }
+    if (params.from !== undefined) {
+      sql += " AND timestamp >= ?";
+      args.push(params.from);
+    }
+    if (params.to !== undefined) {
+      sql += " AND timestamp <= ?";
+      args.push(params.to);
+    }
   }
 
   sql += " ORDER BY timestamp ASC, id ASC";

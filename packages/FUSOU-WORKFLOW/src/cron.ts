@@ -26,9 +26,13 @@ import {
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  WORKFLOW_STATE_KV?: KVNamespace;
   TURSO_DATABASE_URL: string;
   TURSO_AUTH_TOKEN: string;
 }
+
+const KV_PROCESSING_ACTIVE_KEY = "buffer_processing_active";
+const KV_PROCESSING_ACTIVE_TTL_SECONDS = 10 * 60;
 
 // Unified BufferRow interface (used internally in cron.ts)
 interface BufferRow {
@@ -335,6 +339,7 @@ async function insertBlockIndexes(
 export async function handleCron(env: Env): Promise<void> {
   let archiveSuccess = false; // FIXED: Track success to prevent data loss on error
   let hadRows = false;
+  let processingFlagSet = false;
 
   try {
     const runTimestamp = Date.now();
@@ -347,6 +352,13 @@ export async function handleCron(env: Env): Promise<void> {
       return; // Silent: no data to archive
     }
     hadRows = true;
+
+    if (env.WORKFLOW_STATE_KV) {
+      await env.WORKFLOW_STATE_KV.put(KV_PROCESSING_ACTIVE_KEY, "1", {
+        expirationTtl: KV_PROCESSING_ACTIVE_TTL_SECONDS,
+      });
+      processingFlagSet = true;
+    }
 
     const groups = groupByDataset(rows);
 
@@ -562,6 +574,17 @@ export async function handleCron(env: Env): Promise<void> {
       console.warn(
         "[Archival] Skipped cleanup due to archival error - processing rows preserved for retry",
       );
+    }
+
+    if (processingFlagSet && env.WORKFLOW_STATE_KV) {
+      try {
+        await env.WORKFLOW_STATE_KV.delete(KV_PROCESSING_ACTIVE_KEY);
+      } catch (error) {
+        console.warn(
+          "[Archival] Failed to clear processing KV flag:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
     }
   }
 }
