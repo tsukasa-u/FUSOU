@@ -65,7 +65,7 @@ import battleDataApp from "../battle_data";
 
 describe("battle_data upload trust tag derivation", () => {
   it("uses per-upload trust_tag and keeps dataset token trust only for audit", async () => {
-    const send = vi.fn(async () => undefined);
+    const send = vi.fn(async (_payload: unknown) => undefined);
 
     const response = await battleDataApp.request(
       "http://localhost/upload",
