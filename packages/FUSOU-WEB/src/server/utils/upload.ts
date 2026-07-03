@@ -42,9 +42,11 @@ export type UploadTrustDecision = {
   allow: boolean;
   status: UploadGuardStatus;
   error?: string;
+  reason?: string;
   trustTag: "hw_verified" | "sw_verified" | "unverified" | "suspicious";
   attestationLevel: string;
   attestationValid: boolean;
+  diagnostics?: Record<string, unknown>;
 };
 
 const MAX_ATTESTATION_FIELD_LENGTH = 8 * 1024;
@@ -54,6 +56,95 @@ const MAX_ATTESTATION_CERT_B64_LENGTH = 12 * 1024;
 const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const UPLOAD_ATTESTATION_NONCE_MAX_AGE_MS = 10 * 60 * 1000;
 const REPLAY_GUARD_MIN_TTL_SECONDS = 120;
+const DATASET_ID_PATTERN = /^[a-f0-9]{64}$/;
+
+function isSchemaObjectMissingError(error: unknown): boolean {
+  const code =
+    typeof (error as { code?: unknown })?.code === "string"
+      ? ((error as { code?: string }).code ?? "")
+      : "";
+  const message =
+    typeof (error as { message?: unknown })?.message === "string"
+      ? ((error as { message?: string }).message ?? "")
+      : "";
+  return (
+    code === "42P01" ||
+    /relation\s+"[^"]+"\s+does\s+not\s+exist/i.test(message)
+  );
+}
+
+function normalizeUuid(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(
+    normalized,
+  )
+    ? normalized
+    : null;
+}
+
+async function insertSuspiciousUploadAudit(options: {
+  c: any;
+  datasetId: string | null;
+  canonicalUserId?: string | null;
+  attestationLevel: string;
+  details: Record<string, unknown>;
+}): Promise<void> {
+  if (!options.datasetId || !DATASET_ID_PATTERN.test(options.datasetId)) {
+    return;
+  }
+
+  try {
+    const [{ createClient }, utils] = await Promise.all([
+      import("@supabase/supabase-js"),
+      import("../utils"),
+    ]);
+    const envCtx = utils.createEnvContext(options.c);
+    const { url, serviceRoleKey } = utils.resolveSupabaseConfig(envCtx);
+    if (!url || !serviceRoleKey) {
+      return;
+    }
+
+    const supabaseAdmin = createClient(url, serviceRoleKey);
+    const { error } = await supabaseAdmin.from("suspicious_trust_audit").insert({
+      canonical_user_id: normalizeUuid(options.canonicalUserId) ?? null,
+      device_id: null,
+      dataset_id: options.datasetId,
+      trust_tag: "suspicious",
+      attestation_level: options.attestationLevel,
+      details: {
+        source: "upload_prepare",
+        ...options.details,
+      },
+    });
+
+    if (!error) {
+      return;
+    }
+
+    if (isSchemaObjectMissingError(error)) {
+      console.warn(
+        "[upload] suspicious_trust_audit unavailable; skipping durable audit insert",
+      );
+      return;
+    }
+
+    console.warn("[upload] failed to write suspicious_trust_audit:", {
+      code:
+        typeof (error as { code?: unknown })?.code === "string"
+          ? (error as { code?: string }).code
+          : undefined,
+      message:
+        typeof (error as { message?: unknown })?.message === "string"
+          ? (error as { message?: string }).message
+          : undefined,
+    });
+  } catch (error) {
+    console.warn("[upload] suspicious trust audit write threw:", {
+      error: String(error),
+    });
+  }
+}
 
 function normalizeSha256Hex(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -255,9 +346,11 @@ async function resolveUploadTrustTag(options: {
       allow: false,
       status: 400,
       error: "attestation_report_malformed",
+      reason: "attestation_report_malformed",
       trustTag: "suspicious",
       attestationLevel: "malformed",
       attestationValid: false,
+      diagnostics: { stage: "parse" },
     };
   }
 
@@ -272,9 +365,14 @@ async function resolveUploadTrustTag(options: {
       ...(reportRequired
         ? { error: "attestation_report_required" }
         : {}),
+      ...(reportRequired ? { reason: "attestation_report_required" } : {}),
       trustTag: "unverified",
       attestationLevel: "none",
       attestationValid: false,
+      diagnostics: {
+        stage: "presence",
+        requirement: options.requirement,
+      },
     };
   }
 
@@ -300,9 +398,14 @@ async function resolveUploadTrustTag(options: {
         ...(hardwareRequired
           ? { error: "attestation_nonce_required" }
           : {}),
+        ...(hardwareRequired ? { reason: "attestation_nonce_required" } : {}),
         trustTag: hardwareRequired ? "suspicious" : "unverified",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: {
+          stage: "nonce",
+          requirement: options.requirement,
+        },
       };
     }
 
@@ -311,9 +414,11 @@ async function resolveUploadTrustTag(options: {
         allow: false,
         status: 400,
         error: "content_hash_required_for_hardware_attestation",
+        reason: "content_hash_required_for_hardware_attestation",
         trustTag: "suspicious",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: { stage: "nonce" },
       };
     }
 
@@ -323,9 +428,11 @@ async function resolveUploadTrustTag(options: {
         allow: false,
         status: 401,
         error: "attestation_nonce_content_hash_mismatch",
+        reason: "attestation_nonce_content_hash_mismatch",
         trustTag: "suspicious",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: { stage: "nonce" },
       };
     }
 
@@ -335,9 +442,11 @@ async function resolveUploadTrustTag(options: {
         allow: false,
         status: 401,
         error: "attestation_nonce_malformed",
+        reason: "attestation_nonce_malformed",
         trustTag: "suspicious",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: { stage: "nonce" },
       };
     }
 
@@ -347,9 +456,14 @@ async function resolveUploadTrustTag(options: {
         allow: false,
         status: 401,
         error: "attestation_nonce_expired",
+        reason: "attestation_nonce_expired",
         trustTag: "suspicious",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: {
+          stage: "nonce",
+          nonce_age_ms: nonceAgeMs,
+        },
       };
     }
 
@@ -364,9 +478,11 @@ async function resolveUploadTrustTag(options: {
         allow: false,
         status: nonceConsume.status,
         error: nonceConsume.error,
+        reason: nonceConsume.error,
         trustTag: "suspicious",
         attestationLevel: level,
         attestationValid: false,
+        diagnostics: { stage: "nonce_replay" },
       };
     }
   }
@@ -396,9 +512,14 @@ async function resolveUploadTrustTag(options: {
       allow: false,
       status: 503,
       error: "attestation_trusted_root_unconfigured",
+      reason: "attestation_trusted_root_unconfigured",
       trustTag: "suspicious",
       attestationLevel: level,
       attestationValid: false,
+      diagnostics: {
+        stage: "trusted_roots",
+        trusted_roots_source: trustedRootsSource,
+      },
     };
   }
 
@@ -418,9 +539,15 @@ async function resolveUploadTrustTag(options: {
       allow: false,
       status: 403,
       error: "hardware_attestation_required",
+      reason: "hardware_attestation_required",
       trustTag,
       attestationLevel: trustInput.attestation_level,
       attestationValid: trustInput.attestation_valid,
+      diagnostics: {
+        stage: "policy",
+        schema_fingerprint_valid: trustInput.schema_fingerprint_valid,
+        environment_flags: trustInput.environment_flags,
+      },
     };
   }
 
@@ -430,9 +557,11 @@ async function resolveUploadTrustTag(options: {
       allow: false,
       status: 401,
       error: "attestation_report_required",
+      reason: "attestation_report_required",
       trustTag,
       attestationLevel: trustInput.attestation_level,
       attestationValid: trustInput.attestation_valid,
+      diagnostics: { stage: "policy" },
     };
   }
 
@@ -442,6 +571,11 @@ async function resolveUploadTrustTag(options: {
     trustTag,
     attestationLevel: trustInput.attestation_level,
     attestationValid: trustInput.attestation_valid,
+    diagnostics: {
+      stage: "verify",
+      schema_fingerprint_valid: trustInput.schema_fingerprint_valid,
+      environment_flags: trustInput.environment_flags,
+    },
   };
 }
 
@@ -809,11 +943,43 @@ async function handlePreparation(
     datasetId: authContext.datasetToken?.dataset_id,
   });
   if (!uploadTrust.allow) {
+    if (uploadTrust.trustTag === "suspicious") {
+      await insertSuspiciousUploadAudit({
+        c,
+        datasetId: authContext.datasetToken?.dataset_id ?? null,
+        canonicalUserId: authContext.datasetToken?.user_id ?? null,
+        attestationLevel: uploadTrust.attestationLevel,
+        details: {
+          status: uploadTrust.status,
+          error: uploadTrust.error ?? null,
+          reason: uploadTrust.reason ?? null,
+          diagnostics: uploadTrust.diagnostics ?? null,
+          requirement: config.attestationRequirement ?? "optional",
+        },
+      });
+    }
     return c.json(
       { error: uploadTrust.error ?? "attestation_policy_rejected" },
       uploadTrust.status,
     );
   }
+
+  if (uploadTrust.trustTag === "suspicious") {
+    await insertSuspiciousUploadAudit({
+      c,
+      datasetId: authContext.datasetToken?.dataset_id ?? null,
+      canonicalUserId: authContext.datasetToken?.user_id ?? null,
+      attestationLevel: uploadTrust.attestationLevel,
+      details: {
+        status: uploadTrust.status,
+        error: uploadTrust.error ?? null,
+        reason: uploadTrust.reason ?? null,
+        diagnostics: uploadTrust.diagnostics ?? null,
+        requirement: config.attestationRequirement ?? "optional",
+      },
+    });
+  }
+
   const effectiveTokenPayload: Record<string, any> = {
     ...tokenPayload,
     upload_jti: crypto.randomUUID(),

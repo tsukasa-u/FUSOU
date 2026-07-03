@@ -241,8 +241,10 @@ export async function resetProcessingTable(client: TursoClient): Promise<void> {
           trust_tag TEXT,
           created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
         )`,
-        "CREATE INDEX idx_blp_ordering ON buffer_logs_processing(table_version, table_name, period_tag, dataset_id, id)",
-        "CREATE INDEX idx_blp_hot ON buffer_logs_processing(dataset_id, table_name, timestamp)",
+        // Index names must be globally unique in SQLite/libSQL. Use table-scoped names
+        // and IF NOT EXISTS so repeated cleanup/reset calls are always idempotent.
+        "CREATE INDEX IF NOT EXISTS idx_blp_processing_ordering ON buffer_logs_processing(table_version, table_name, period_tag, dataset_id, id)",
+        "CREATE INDEX IF NOT EXISTS idx_blp_processing_hot ON buffer_logs_processing(dataset_id, table_name, timestamp)",
       ],
       "write",
     );
