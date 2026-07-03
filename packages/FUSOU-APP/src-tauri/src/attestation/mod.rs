@@ -7,9 +7,18 @@ pub mod tpm_windows;
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde_json::json;
+#[cfg(target_os = "linux")]
+use std::fs::OpenOptions;
+#[cfg(target_os = "linux")]
+use std::process::Command;
+#[cfg(target_os = "linux")]
+use std::sync::{LazyLock, Mutex};
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(target_os = "linux")]
+use std::sync::atomic::AtomicU8;
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use rcgen::{
@@ -40,10 +49,33 @@ const TPM_AK_EKU_OID: &[u64] = &[2, 23, 133, 8, 3];
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 static AUTO_TPM_AK_CHAIN_WARNED: AtomicBool = AtomicBool::new(false);
 
+#[cfg(target_os = "linux")]
+const LINUX_TPM_USABLE_UNKNOWN: u8 = 0;
+#[cfg(target_os = "linux")]
+const LINUX_TPM_USABLE_YES: u8 = 1;
+#[cfg(target_os = "linux")]
+const LINUX_TPM_USABLE_NO: u8 = 2;
+#[cfg(target_os = "linux")]
+static LINUX_TPM_RUNTIME_USABLE: AtomicU8 = AtomicU8::new(LINUX_TPM_USABLE_UNKNOWN);
+#[cfg(target_os = "linux")]
+static LINUX_TPM_RUNTIME_LAST_ERROR: LazyLock<Mutex<Option<String>>> =
+    LazyLock::new(|| Mutex::new(None));
+
 #[derive(Debug, Clone)]
 pub struct AttestationPreflightWarning {
     pub code: &'static str,
     pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct HardwareAttestationRuntimeStatus {
+    pub available: bool,
+    pub attestation_level: &'static str,
+    pub detail: Option<String>,
+    pub platform: &'static str,
+    pub distribution: Option<String>,
+    pub diagnostics: Vec<String>,
+    pub remediation_steps: Vec<String>,
 }
 
 fn build_software_report() -> serde_json::Value {
@@ -52,6 +84,187 @@ fn build_software_report() -> serde_json::Value {
         "fingerprint": fingerprint::collect_fingerprint(),
         "environment": environment_check::detect_environment(),
     })
+}
+
+pub fn initialize_hardware_attestation_runtime() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        return probe_linux_tpm_runtime(true);
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+pub fn get_hardware_attestation_runtime_status() -> HardwareAttestationRuntimeStatus {
+    #[cfg(target_os = "linux")]
+    {
+        let available = probe_linux_tpm_runtime(false);
+        let diagnostics = linux_tpm_diagnostics();
+        let remediation_steps = linux_tpm_remediation_steps(available, &diagnostics);
+        return HardwareAttestationRuntimeStatus {
+            available,
+            attestation_level: if available {
+                "tpm"
+            } else {
+                "software_fingerprint"
+            },
+            detail: linux_tpm_last_error(),
+            platform: "linux",
+            distribution: linux_distribution_name(),
+            diagnostics,
+            remediation_steps,
+        };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "windows",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        };
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "macos",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        };
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "unknown",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        }
+    }
+}
+
+pub fn run_hardware_attestation_runtime_check() -> HardwareAttestationRuntimeStatus {
+    #[cfg(target_os = "linux")]
+    {
+        let available = probe_linux_tpm_runtime(true);
+        let diagnostics = linux_tpm_diagnostics();
+        let remediation_steps = linux_tpm_remediation_steps(available, &diagnostics);
+        return HardwareAttestationRuntimeStatus {
+            available,
+            attestation_level: if available {
+                "tpm"
+            } else {
+                "software_fingerprint"
+            },
+            detail: linux_tpm_last_error(),
+            platform: "linux",
+            distribution: linux_distribution_name(),
+            diagnostics,
+            remediation_steps,
+        };
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "windows",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        };
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "macos",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        };
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+    {
+        HardwareAttestationRuntimeStatus {
+            available: true,
+            attestation_level: "unknown",
+            detail: None,
+            platform: "unknown",
+            distribution: None,
+            diagnostics: Vec::new(),
+            remediation_steps: Vec::new(),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn probe_linux_tpm_runtime(force: bool) -> bool {
+    if force {
+        LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_UNKNOWN, Ordering::SeqCst);
+    }
+
+    match LINUX_TPM_RUNTIME_USABLE.load(Ordering::SeqCst) {
+        LINUX_TPM_USABLE_YES => return true,
+        LINUX_TPM_USABLE_NO => return false,
+        _ => {}
+    }
+
+    #[cfg(not(feature = "linux-tpm-attestation"))]
+    {
+        LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_NO, Ordering::SeqCst);
+        linux_tpm_set_last_error(Some(
+            "linux-tpm-attestation feature is disabled in this build".to_string(),
+        ));
+        tracing::warn!(
+            "linux-tpm-attestation feature is disabled; hardware attestation will remain in software mode"
+        );
+        return false;
+    }
+
+    #[cfg(feature = "linux-tpm-attestation")]
+    {
+        let probe_nonce = b"fusou-tpm-preflight";
+        match tpm_linux::collect_tpm_attestation(probe_nonce) {
+            Ok(_) => {
+                LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_YES, Ordering::SeqCst);
+                linux_tpm_set_last_error(None);
+                tracing::info!("TPM runtime preflight succeeded; hardware attestation is available");
+                true
+            }
+            Err(err) => {
+                LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_NO, Ordering::SeqCst);
+                linux_tpm_set_last_error(Some(err.clone()));
+                tracing::warn!(
+                    error = %err,
+                    "TPM runtime preflight failed; hardware attestation will be downgraded to software mode"
+                );
+                false
+            }
+        }
+    }
 }
 
 pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value {
@@ -78,23 +291,35 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
     }
 
     #[cfg(target_os = "linux")]
-    if let Ok((attestation_data, attestation_signature, public_key)) =
-        tpm_linux::collect_tpm_attestation(nonce)
     {
-        let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64(&public_key);
-        let mut report = json!({
-            "attestation_level": "tpm",
-            "attestation_data": B64.encode(attestation_data),
-            "attestation_signature": B64.encode(attestation_signature),
-            "attestation_format": "tpm2_quote_rsassa_sha256_v1",
-            "public_key": B64.encode(public_key),
-            "fingerprint": fingerprint::collect_fingerprint(),
-            "environment": environment_check::detect_environment(),
-        });
-        if !tpm_certificate_chain.is_empty() {
-            report["certificate_chain"] = json!(tpm_certificate_chain);
+        if probe_linux_tpm_runtime(false) {
+            if let Ok((attestation_data, attestation_signature, public_key)) =
+                tpm_linux::collect_tpm_attestation(nonce)
+            {
+                let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64(&public_key);
+                let mut report = json!({
+                    "attestation_level": "tpm",
+                    "attestation_data": B64.encode(attestation_data),
+                    "attestation_signature": B64.encode(attestation_signature),
+                    "attestation_format": "tpm2_quote_rsassa_sha256_v1",
+                    "public_key": B64.encode(public_key),
+                    "fingerprint": fingerprint::collect_fingerprint(),
+                    "environment": environment_check::detect_environment(),
+                });
+                if !tpm_certificate_chain.is_empty() {
+                    report["certificate_chain"] = json!(tpm_certificate_chain);
+                }
+                return report;
+            }
+
+            LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_NO, Ordering::SeqCst);
+            linux_tpm_set_last_error(Some(
+                "TPM quote failed during attestation collection".to_string(),
+            ));
+            tracing::warn!(
+                "TPM attestation failed at report collection time; disabling further TPM attempts for this process"
+            );
         }
-        return report;
     }
 
     #[cfg(target_os = "macos")]
@@ -120,6 +345,100 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
 
 pub fn collect_upload_attestation_report(nonce: &str) -> serde_json::Value {
     collect_attestation_report(Some(nonce))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tpm_set_last_error(message: Option<String>) {
+    if let Ok(mut guard) = LINUX_TPM_RUNTIME_LAST_ERROR.lock() {
+        *guard = message;
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tpm_last_error() -> Option<String> {
+    LINUX_TPM_RUNTIME_LAST_ERROR
+        .lock()
+        .ok()
+        .and_then(|guard| guard.clone())
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tpm_diagnostics() -> Vec<String> {
+    let mut diagnostics = Vec::new();
+
+    let username = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+    diagnostics.push(format!("user={username}"));
+
+    let current_groups = command_stdout("id", &["-nG"]).unwrap_or_else(|| "unknown".to_string());
+    diagnostics.push(format!("current_session_groups={current_groups}"));
+
+    let tss_group = command_stdout("getent", &["group", "tss"]).unwrap_or_else(|| "missing".to_string());
+    diagnostics.push(format!("system_tss_group={tss_group}"));
+
+    let can_open_tpmrm = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tpmrm0")
+        .is_ok();
+    diagnostics.push(format!("open_/dev/tpmrm0={can_open_tpmrm}"));
+
+    diagnostics
+}
+
+#[cfg(target_os = "linux")]
+fn linux_distribution_name() -> Option<String> {
+    let content = std::fs::read_to_string("/etc/os-release").ok()?;
+    for line in content.lines() {
+        if let Some(raw) = line.strip_prefix("PRETTY_NAME=") {
+            return Some(raw.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tpm_remediation_steps(available: bool, diagnostics: &[String]) -> Vec<String> {
+    if available {
+        return vec!["TPM is usable in the current session.".to_string()];
+    }
+
+    let mut steps = Vec::new();
+    let current_groups = diagnostics
+        .iter()
+        .find_map(|line| line.strip_prefix("current_session_groups="))
+        .unwrap_or_default();
+    let tss_group = diagnostics
+        .iter()
+        .find_map(|line| line.strip_prefix("system_tss_group="))
+        .unwrap_or_default();
+    let username = diagnostics
+        .iter()
+        .find_map(|line| line.strip_prefix("user="))
+        .unwrap_or("$USER");
+
+    if !current_groups.split_whitespace().any(|g| g == "tss") {
+        if !tss_group.contains(username) {
+            steps.push(format!(
+                "Run: sudo usermod -aG tss {username}"
+            ));
+        }
+        steps.push("Log out and log back in (or reboot) so new group membership is applied to the desktop/app session.".to_string());
+    }
+
+    steps.push("After re-login, open FUSOU-APP Settings and press 'Run TPM Check'.".to_string());
+    steps.push("If still unavailable, verify /dev/tpmrm0 exists and tpm2-tss runtime packages are installed.".to_string());
+
+    steps
+}
+
+#[cfg(target_os = "linux")]
+fn command_stdout(program: &str, args: &[&str]) -> Option<String> {
+    let output = Command::new(program).args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    Some(text.trim().to_string())
 }
 
 pub fn runtime_preflight_warnings() -> Vec<AttestationPreflightWarning> {

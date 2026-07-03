@@ -176,6 +176,9 @@ pub async fn run() {
             cmd::tauri_cmd::get_kc_server_name,
             cmd::tauri_cmd::get_access_token,
             cmd::tauri_cmd::get_user_tokens,
+            cmd::tauri_cmd::get_hardware_attestation_status,
+            cmd::tauri_cmd::run_hardware_attestation_check,
+            cmd::tauri_cmd::setup_hardware_attestation,
             cmd::tauri_cmd::check_supabase_session_health,
             cmd::tauri_cmd::force_local_sign_out,
             cmd::tauri_cmd::perform_snapshot_sync,
@@ -255,6 +258,28 @@ pub async fn run() {
             fusou_upload::set_default_attestation_report_builder(Some(
                 attestation::collect_upload_attestation_report,
             ));
+
+            // Probe hardware attestation capability at startup so upload-time
+            // requests do not discover TPM permission/runtime failures too late.
+            let hardware_attestation_ready = attestation::initialize_hardware_attestation_runtime();
+            if !hardware_attestation_ready {
+                let status = attestation::get_hardware_attestation_runtime_status();
+                let next_step = status
+                    .remediation_steps
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "Open Settings > Hardware Attestation (TPM) and run 'Run TPM Check'.".to_string());
+                let detail = status
+                    .detail
+                    .unwrap_or_else(|| "Hardware attestation is currently unavailable.".to_string());
+                notify::show(
+                    app.handle(),
+                    "Hardware Attestation Unavailable",
+                    &format!(
+                        "{detail} Next step: {next_step}"
+                    ),
+                );
+            }
 
             // Ensure user config file path is initialized before reading retry settings.
             builder_setup::setup::setup_configs()?;

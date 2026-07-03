@@ -56,11 +56,9 @@ mod windows_impl {
             .build()
             .map_err(|err| format!("failed to build PCR selection: {err}"))?;
 
-        let quote_result = context.quote(
-            key_handle,
-            qualifying_data,
-            SignatureScheme::Null,
-            pcr_selection,
+        let quote_result = context.execute_with_session(
+            Some(AuthSession::Password),
+            |ctx| ctx.quote(key_handle, qualifying_data, SignatureScheme::Null, pcr_selection),
         );
 
         let mut key_object_handle = key_handle.into();

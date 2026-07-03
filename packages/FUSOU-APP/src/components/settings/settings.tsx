@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { FadeToast, showFadeToast } from "./fade_toast";
 import "../../css/divider.css";
 import { ThemeControllerComponent } from "./theme";
-import { createSignal, Show } from "solid-js";
+import { createSignal, onMount, Show } from "solid-js";
 
 type SessionHealth = {
   has_session: boolean;
@@ -12,12 +12,30 @@ type SessionHealth = {
   reason?: string | null;
 };
 
+type HardwareAttestationHealth = {
+  available: boolean;
+  attestation_level: string;
+  detail?: string | null;
+  platform: string;
+  distribution?: string | null;
+  diagnostics: string[];
+  remediation_steps: string[];
+};
+
 export function SettingsComponent() {
   const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
     null,
   );
   const [checkingHealth, setCheckingHealth] = createSignal<boolean>(false);
   const [signingOut, setSigningOut] = createSignal<boolean>(false);
+  const [attestationHealth, setAttestationHealth] =
+    createSignal<HardwareAttestationHealth | null>(null);
+  const [checkingAttestation, setCheckingAttestation] =
+    createSignal<boolean>(false);
+  const [runningAttestationCheck, setRunningAttestationCheck] =
+    createSignal<boolean>(false);
+  const [configuringAttestation, setConfiguringAttestation] =
+    createSignal<boolean>(false);
 
   const handleCheckSessionHealth = async () => {
     try {
@@ -51,6 +69,63 @@ export function SettingsComponent() {
       setSigningOut(false);
     }
   };
+
+  const handleLoadAttestationStatus = async () => {
+    try {
+      setCheckingAttestation(true);
+      const status = await invoke<HardwareAttestationHealth>(
+        "get_hardware_attestation_status",
+      );
+      setAttestationHealth(status);
+    } catch (e: any) {
+      console.error("Failed to load hardware attestation status:", e);
+      showFadeToast("setting_toast", "Failed to load TPM status");
+    } finally {
+      setCheckingAttestation(false);
+    }
+  };
+
+  const handleRunAttestationCheck = async () => {
+    try {
+      setRunningAttestationCheck(true);
+      const status = await invoke<HardwareAttestationHealth>(
+        "run_hardware_attestation_check",
+      );
+      setAttestationHealth(status);
+      showFadeToast(
+        "setting_toast",
+        status.available
+          ? "TPM hardware attestation is available"
+          : "TPM hardware attestation is unavailable",
+      );
+    } catch (e: any) {
+      console.error("Failed to run hardware attestation check:", e);
+      showFadeToast("setting_toast", "Failed to run TPM check");
+    } finally {
+      setRunningAttestationCheck(false);
+    }
+  };
+
+  const handleSetupAttestation = async () => {
+    try {
+      setConfiguringAttestation(true);
+      const result = await invoke<string>("setup_hardware_attestation");
+      showFadeToast("setting_toast", result);
+      await handleLoadAttestationStatus();
+    } catch (e: any) {
+      console.error("Failed to setup hardware attestation:", e);
+      showFadeToast(
+        "setting_toast",
+        e?.toString?.() ?? "Failed to setup TPM access",
+      );
+    } finally {
+      setConfiguringAttestation(false);
+    }
+  };
+
+  onMount(() => {
+    void handleLoadAttestationStatus();
+  });
 
   return (
     <>
@@ -87,6 +162,85 @@ export function SettingsComponent() {
             Sync snapshot
           </button>
         </div>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Hardware Attestation (TPM)</p>
+        <p class="px-px leading-5">
+          Check whether TPM-based hardware attestation is currently usable on
+          this device.
+        </p>
+        <div class="mt-4 flex items-center justify-end gap-2">
+          <button
+            class="btn btn-accent border-accent-content btn-wide"
+            onClick={handleSetupAttestation}
+            disabled={configuringAttestation()}
+          >
+            {configuringAttestation()
+              ? "Configuring..."
+              : "Auto Configure TPM Access"}
+          </button>
+          <button
+            class="btn btn-secondary border-secondary-content btn-wide"
+            onClick={handleLoadAttestationStatus}
+            disabled={checkingAttestation()}
+          >
+            {checkingAttestation() ? "Refreshing..." : "Refresh TPM Status"}
+          </button>
+          <button
+            class="btn btn-primary border-primary-content btn-wide"
+            onClick={handleRunAttestationCheck}
+            disabled={runningAttestationCheck()}
+          >
+            {runningAttestationCheck() ? "Checking..." : "Run TPM Check"}
+          </button>
+        </div>
+        <Show when={attestationHealth()}>
+          {(h) => (
+            <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
+              <div>
+                TPM availability: {" "}
+                <span class={h().available ? "text-success" : "text-error"}>
+                  {h().available ? "Available" : "Unavailable"}
+                </span>
+              </div>
+              <div>
+                Active attestation level: <span>{h().attestation_level}</span>
+              </div>
+              <div>
+                Platform: <span>{h().platform}</span>
+                <Show when={h().distribution}>
+                  {(distribution) => (
+                    <span> ({distribution()})</span>
+                  )}
+                </Show>
+              </div>
+              <Show when={h().detail}>
+                {(detail) => <div class="text-warning">{detail()}</div>}
+              </Show>
+              <Show when={h().remediation_steps.length > 0}>
+                <div class="mt-2">
+                  <div class="font-semibold">Recommended steps</div>
+                  <div class="mt-1 space-y-1">
+                    {h().remediation_steps.map((step) => (
+                      <div class="text-warning">- {step}</div>
+                    ))}
+                  </div>
+                </div>
+              </Show>
+              <Show when={h().diagnostics.length > 0}>
+                <div class="mt-2">
+                  <div class="font-semibold">Diagnostics</div>
+                  <div class="mt-1 space-y-1">
+                    {h().diagnostics.map((line) => (
+                      <div class="font-mono text-xs opacity-80">{line}</div>
+                    ))}
+                  </div>
+                </div>
+              </Show>
+            </div>
+          )}
+        </Show>
 
         <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 

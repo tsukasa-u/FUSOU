@@ -17,6 +17,8 @@ pub static PATH_DELETE_PROXY_SH: &str = "cmd/delete_proxy.sh";
 pub static PATH_ADD_STORE_SH: &str = "cmd/add_store.sh";
 #[cfg(target_os = "linux")]
 pub static PATH_CHECK_CA_SH: &str = "cmd/check_ca.sh";
+#[cfg(target_os = "linux")]
+pub static PATH_SETUP_TPM_ACCESS_SH: &str = "cmd/setup_tpm_access.sh";
 
 #[cfg(target_os = "linux")]
 use proxy_https::proxy_server_https::CA_CERT_NAME;
@@ -179,4 +181,44 @@ where
         tracing::info!("CA certificate is not installed");
     }
     return status.success();
+}
+
+#[cfg(target_os = "linux")]
+pub async fn setup_tpm_access<R>(app: &tauri::AppHandle<R>, username: &str) -> Result<(), String>
+where
+    R: tauri::Runtime,
+{
+    let app_handle = app.clone();
+    let cmd_path = get_RESOURCES_DIR()
+        .join(PATH_SETUP_TPM_ACCESS_SH)
+        .as_path()
+        .to_str()
+        .expect_or_log("cmd_path not found")
+        .to_string();
+
+    let output = app_handle
+        .shell()
+        .command(cmd_path)
+        .args([username])
+        .output()
+        .await
+        .map_err(|e| format!("failed to launch TPM setup script: {e}"))?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "unknown error".to_string()
+        };
+        Err(format!(
+            "TPM setup script failed: {}",
+            detail
+        ))
+    }
 }

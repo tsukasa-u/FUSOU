@@ -3,21 +3,23 @@ mod linux_impl {
     use rsa::{pkcs8::EncodePublicKey, BigUint, RsaPublicKey};
     use sha2::{Digest, Sha256};
     use std::convert::TryFrom;
+    use std::env;
     use tss_esapi::{
+        attributes::ObjectAttributesBuilder,
         handles::{KeyHandle, PersistentTpmHandle, TpmHandle},
         interface_types::{
-            algorithm::{HashingAlgorithm, RsaSchemeAlgorithm},
+            algorithm::{HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm},
             dynamic_handles::Persistent,
             key_bits::RsaKeyBits,
             resource_handles::{Hierarchy, Provision},
             session_handles::AuthSession,
         },
         structures::{
-            Data, PcrSelectionListBuilder, PcrSlot, Public, RsaExponent, RsaScheme, Signature,
-            SignatureScheme,
+            Data, PcrSelectionListBuilder, PcrSlot, Public, PublicBuilder,
+            PublicKeyRsa, PublicRsaParametersBuilder, RsaExponent, RsaScheme,
+            Signature, SignatureScheme, SymmetricDefinitionObject,
         },
         traits::Marshall,
-        utils::create_unrestricted_signing_rsa_public,
         Context, TctiNameConf,
     };
 
@@ -36,9 +38,7 @@ mod linux_impl {
     ];
 
     pub fn collect_tpm_attestation(nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
-        let tcti = resolve_tcti()?;
-        let mut context =
-            Context::new(tcti).map_err(|err| format!("failed to initialize TPM context: {err}"))?;
+        let mut context = initialize_tpm_context()?;
 
         let key_handle = load_or_create_persistent_attestation_key(&mut context)?;
         let (public_area, _, _) = context
@@ -55,11 +55,9 @@ mod linux_impl {
             .build()
             .map_err(|err| format!("failed to build PCR selection: {err}"))?;
 
-        let quote_result = context.quote(
-            key_handle,
-            qualifying_data,
-            SignatureScheme::Null,
-            pcr_selection,
+        let quote_result = context.execute_with_session(
+            Some(AuthSession::Password),
+            |ctx| ctx.quote(key_handle, qualifying_data, SignatureScheme::Null, pcr_selection),
         );
 
         let mut key_object_handle = key_handle.into();
@@ -80,8 +78,29 @@ mod linux_impl {
         let persistent_handles = resolve_persistent_ak_handles()?;
 
         for &persistent_handle in &persistent_handles {
-            if let Ok(existing_key_handle) = load_persistent_attestation_key(context, persistent_handle) {
-                return Ok(existing_key_handle);
+            match load_persistent_attestation_key(context, persistent_handle) {
+                Ok(existing_key_handle) => {
+                    if is_valid_attestation_key(context, existing_key_handle)? {
+                        return Ok(existing_key_handle);
+                    }
+
+                    let mut object_handle = existing_key_handle.into();
+                    let _ = context.tr_close(&mut object_handle);
+                    tracing::warn!(
+                        handle = format_args!("0x{:08X}", u32::from(persistent_handle)),
+                        "Found invalid persistent TPM object; attempting in-place replacement"
+                    );
+
+                    match replace_persistent_attestation_key(context, persistent_handle) {
+                        Ok(key_handle) => return Ok(key_handle),
+                        Err(err) => tracing::warn!(
+                            handle = format_args!("0x{:08X}", u32::from(persistent_handle)),
+                            error = %err,
+                            "Failed to replace invalid persistent TPM object"
+                        ),
+                    }
+                }
+                Err(_) => {}
             }
         }
 
@@ -142,13 +161,99 @@ mod linux_impl {
     }
 
     fn create_signing_key_public_template() -> Result<Public, String> {
-        create_unrestricted_signing_rsa_public(
-            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
-                .map_err(|err| format!("failed to build RSA scheme: {err}"))?,
-            RsaKeyBits::Rsa2048,
-            RsaExponent::default(),
-        )
-        .map_err(|err| format!("failed to build TPM key template: {err}"))
+        let object_attributes = ObjectAttributesBuilder::new()
+            .with_restricted(true)
+            .with_user_with_auth(true)
+            .with_sign_encrypt(true)
+            .with_decrypt(false)
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .build()
+            .map_err(|err| format!("failed to build TPM object attributes: {err}"))?;
+
+        PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Rsa)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_rsa_parameters(
+                PublicRsaParametersBuilder::new()
+                    .with_scheme(
+                        RsaScheme::create(
+                            RsaSchemeAlgorithm::RsaSsa,
+                            Some(HashingAlgorithm::Sha256),
+                        )
+                        .map_err(|err| format!("failed to build RSA scheme: {err}"))?,
+                    )
+                    .with_key_bits(RsaKeyBits::Rsa2048)
+                    .with_exponent(RsaExponent::default())
+                    .with_is_signing_key(true)
+                    .with_is_decryption_key(false)
+                    .with_restricted(true)
+                    .build()
+                    .map_err(|err| format!("failed to build TPM RSA parameters: {err}"))?,
+            )
+            .with_rsa_unique_identifier(PublicKeyRsa::default())
+            .build()
+            .map_err(|err| format!("failed to build TPM attestation key template: {err}"))
+    }
+
+    fn replace_persistent_attestation_key(
+        context: &mut Context,
+        persistent_handle: PersistentTpmHandle,
+    ) -> Result<KeyHandle, String> {
+        let handle_value: u32 = persistent_handle.into();
+        let mut existing_object_handle = context
+            .execute_without_session(|ctx| {
+                ctx.tr_from_tpm_public(TpmHandle::Persistent(persistent_handle))
+            })
+            .map_err(|err| {
+                format!(
+                    "failed to load persistent object for replacement at handle 0x{handle_value:08X}: {err}"
+                )
+            })?;
+
+        let persistent = Persistent::Persistent(persistent_handle);
+        let mut removed_object_handle = context
+            .execute_with_session(Some(AuthSession::Password), |ctx| {
+                ctx.evict_control(Provision::Owner, existing_object_handle.into(), persistent)
+            })
+            .map_err(|err| {
+                format!(
+                    "failed to evict invalid persistent object at handle 0x{handle_value:08X}: {err}"
+                )
+            })?;
+
+        let _ = context.tr_close(&mut removed_object_handle);
+        let _ = context.tr_close(&mut existing_object_handle);
+
+        create_and_persist_attestation_key(context, persistent_handle)
+    }
+
+    fn is_valid_attestation_key(context: &mut Context, key_handle: KeyHandle) -> Result<bool, String> {
+        let (public_area, _, _) = context
+            .read_public(key_handle)
+            .map_err(|err| format!("failed to inspect TPM attestation key public area: {err}"))?;
+
+        let object_attributes = public_area.object_attributes();
+        let is_valid_attributes = object_attributes.restricted()
+            && object_attributes.sign_encrypt()
+            && !object_attributes.decrypt();
+
+        let is_valid_rsa_template = matches!(
+            public_area,
+            Public::Rsa { parameters, .. }
+                if parameters.key_bits() == RsaKeyBits::Rsa2048
+                    && parameters.rsa_scheme()
+                        == RsaScheme::create(
+                            RsaSchemeAlgorithm::RsaSsa,
+                            Some(HashingAlgorithm::Sha256),
+                        )
+                        .map_err(|err| format!("failed to build RSA scheme for validation: {err}"))?
+                    && parameters.symmetric_definition_object() == SymmetricDefinitionObject::Null
+        );
+
+        Ok(is_valid_attributes && is_valid_rsa_template)
     }
 
     fn load_persistent_attestation_key(
@@ -213,21 +318,62 @@ mod linux_impl {
         })
     }
 
-    fn resolve_tcti() -> Result<TctiNameConf, String> {
-        if let Ok(tcti) = TctiNameConf::from_environment_variable() {
-            return Ok(tcti);
-        }
+    fn initialize_tpm_context() -> Result<Context, String> {
+        let mut candidate_errors = Vec::new();
 
-        for candidate in DEFAULT_TCTI_CANDIDATES {
-            if let Ok(tcti) = candidate.parse::<TctiNameConf>() {
-                return Ok(tcti);
+        if let Some(env_candidate) = read_tcti_env_candidate() {
+            match env_candidate.parse::<TctiNameConf>() {
+                Ok(tcti) => match Context::new(tcti) {
+                    Ok(context) => return Ok(context),
+                    Err(err) => candidate_errors
+                        .push(format!("env TCTI '{env_candidate}' failed: {err}")),
+                },
+                Err(err) => candidate_errors.push(format!(
+                    "env TCTI '{env_candidate}' is invalid: {err}"
+                )),
+            }
+        } else if let Ok(tcti) = TctiNameConf::from_environment_variable() {
+            if let Ok(context) = Context::new(tcti) {
+                return Ok(context);
             }
         }
 
-        Err(
-            "failed to resolve TPM TCTI (set TPM2TOOLS_TCTI/TCTI or provide /dev/tpmrm0)"
-                .to_string(),
-        )
+        for candidate in DEFAULT_TCTI_CANDIDATES {
+            let tcti = candidate.parse::<TctiNameConf>().map_err(|err| {
+                format!("failed to parse TCTI candidate '{candidate}': {err}")
+            })?;
+            match Context::new(tcti) {
+                Ok(context) => {
+                    if !candidate_errors.is_empty() {
+                        tracing::warn!(
+                            previous_failures = %candidate_errors.join(" | "),
+                            selected = candidate,
+                            "TPM TCTI fallback selected after previous failures"
+                        );
+                    }
+                    return Ok(context);
+                }
+                Err(err) => candidate_errors.push(format!("{candidate} failed: {err}")),
+            }
+        }
+
+        Err(format!(
+            "failed to initialize TPM context with all TCTI candidates: {}",
+            candidate_errors.join(" | ")
+        ))
+    }
+
+    fn read_tcti_env_candidate() -> Option<String> {
+        env::var("TPM2TOOLS_TCTI")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                env::var("TCTI")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            })
     }
 
     fn build_qualifying_data(nonce: &[u8]) -> Result<Data, String> {
@@ -278,6 +424,18 @@ mod linux_impl {
 #[cfg(all(target_os = "linux", feature = "linux-tpm-attestation"))]
 pub fn collect_tpm_attestation(nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
     linux_impl::collect_tpm_attestation(nonce)
+}
+
+#[cfg(all(target_os = "linux", feature = "linux-tpm-attestation"))]
+#[cfg(test)]
+mod tests {
+    use super::collect_tpm_attestation;
+
+    #[test]
+    fn linux_tpm_quote_executes_successfully() {
+        let result = collect_tpm_attestation(b"fusou-linux-tpm-test");
+        assert!(result.is_ok(), "TPM attestation should succeed: {result:?}");
+    }
 }
 
 #[cfg(all(target_os = "linux", not(feature = "linux-tpm-attestation")))]

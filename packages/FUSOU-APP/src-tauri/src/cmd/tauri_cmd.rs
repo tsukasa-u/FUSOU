@@ -8,6 +8,7 @@ use proxy_https::bidirectional_channel;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
+use crate::attestation;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
@@ -166,6 +167,71 @@ pub struct SessionHealth {
     pub refresh_token_len: usize,
     pub seems_valid: bool,
     pub reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HardwareAttestationHealth {
+    pub available: bool,
+    pub attestation_level: String,
+    pub detail: Option<String>,
+    pub platform: String,
+    pub distribution: Option<String>,
+    pub diagnostics: Vec<String>,
+    pub remediation_steps: Vec<String>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_hardware_attestation_status() -> Result<HardwareAttestationHealth, String> {
+    let status = attestation::get_hardware_attestation_runtime_status();
+    Ok(HardwareAttestationHealth {
+        available: status.available,
+        attestation_level: status.attestation_level.to_string(),
+        detail: status.detail,
+        platform: status.platform.to_string(),
+        distribution: status.distribution,
+        diagnostics: status.diagnostics,
+        remediation_steps: status.remediation_steps,
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn run_hardware_attestation_check() -> Result<HardwareAttestationHealth, String> {
+    let status = attestation::run_hardware_attestation_runtime_check();
+    Ok(HardwareAttestationHealth {
+        available: status.available,
+        attestation_level: status.attestation_level.to_string(),
+        detail: status.detail,
+        platform: status.platform.to_string(),
+        distribution: status.distribution,
+        diagnostics: status.diagnostics,
+        remediation_steps: status.remediation_steps,
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn setup_hardware_attestation(window: tauri::Window) -> Result<String, String> {
+    #[cfg(target_os = "linux")]
+    {
+        let username = std::env::var("USER").unwrap_or_else(|_| "".to_string());
+        let target_user = if username.trim().is_empty() {
+            "root".to_string()
+        } else {
+            username
+        };
+
+        crate::cmd::native_cmd::setup_tpm_access(window.app_handle(), &target_user).await?;
+        return Ok("TPM access setup started. A terminal window was opened for admin-password input. After completion, log out/in and run TPM Check again.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return Err("Automatic TPM access setup is not required on Windows. Use 'Run TPM Check' to verify hardware attestation state.".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        return Err("Automatic TPM access setup is not available on macOS. Use 'Run TPM Check' to verify Secure Enclave attestation state.".to_string());
+    }
 }
 
 #[tauri::command(rename_all = "snake_case")]
