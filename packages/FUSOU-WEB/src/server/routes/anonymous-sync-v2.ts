@@ -47,6 +47,11 @@ import {
   verifyAttestation,
   type AttestationReport,
 } from "../utils/attestation-verifier";
+import {
+  parseTrustedRootList as parseTrustedRootListFromStore,
+  resolveAttestationTrustedRoots,
+  resolveRequiredTrustedRootEnv,
+} from "../utils/attestation-trusted-roots";
 import { logToAdminSpreadsheet } from "../utils/admin-logger";
 import {
   CHALLENGE_BUCKET_SECONDS,
@@ -86,9 +91,6 @@ const MAX_ATTESTATION_FIELD_LENGTH = 16 * 1024;
 const MAX_ATTESTATION_FORMAT_LENGTH = 128;
 const MAX_ATTESTATION_CERT_CHAIN_LENGTH = 6;
 const MAX_ATTESTATION_CERT_B64_LENGTH = 12 * 1024;
-const SECURE_ENCLAVE_TRUSTED_ROOT_ENV =
-  "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256";
-const TPM_AK_TRUSTED_ROOT_ENV = "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256";
 
 type RateLimitContext = {
   kv?: KVNamespace;
@@ -282,30 +284,8 @@ function parseAttestationReport(
   return { report, malformed: false };
 }
 
-export function parseTrustedRootList(raw: string | undefined): string[] {
-  if (!raw) return [];
-
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-
-  if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed.filter(
-          (item): item is string => typeof item === "string" && item.trim().length > 0,
-        );
-      }
-    } catch {
-      // Fallback to delimiter-based parsing.
-    }
-  }
-
-  return trimmed
-    .split(/[\s,]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-}
+export const parseTrustedRootList = parseTrustedRootListFromStore;
+export { resolveRequiredTrustedRootEnv };
 
 function isHardwareAttestationLevel(level: string): boolean {
   return level === "tpm" || level === "secure_enclave";
@@ -381,36 +361,6 @@ export function decideRefreshAttestationPolicy(options: {
   };
 }
 
-function resolveSecureEnclaveTrustedRoots(c: { env: Bindings }): string[] {
-  const envCtx = createEnvContext({ env: c.env });
-  const raw = getEnv(envCtx, SECURE_ENCLAVE_TRUSTED_ROOT_ENV);
-  return parseTrustedRootList(raw);
-}
-
-function resolveTpmAkTrustedRoots(c: { env: Bindings }): string[] {
-  const envCtx = createEnvContext({ env: c.env });
-  const raw = getEnv(envCtx, TPM_AK_TRUSTED_ROOT_ENV);
-  return parseTrustedRootList(raw);
-}
-
-export function resolveRequiredTrustedRootEnv(options: {
-  attestationLevel: string;
-  secureEnclaveTrustedRoots: string[];
-  tpmAkTrustedRoots: string[];
-}): string | null {
-  if (
-    options.attestationLevel === "secure_enclave" &&
-    options.secureEnclaveTrustedRoots.length === 0
-  ) {
-    return SECURE_ENCLAVE_TRUSTED_ROOT_ENV;
-  }
-
-  if (options.attestationLevel === "tpm" && options.tpmAkTrustedRoots.length === 0) {
-    return TPM_AK_TRUSTED_ROOT_ENV;
-  }
-
-  return null;
-}
 
 export function shouldFailClosedForSuspiciousAudit(options: {
   trustTag: TrustTag;
@@ -1928,8 +1878,11 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
     let trustInput: TrustInput | null = null;
     if (parsedAttestation.report) {
-      const secureEnclaveTrustedRoots = resolveSecureEnclaveTrustedRoots(c);
-      const tpmAkTrustedRoots = resolveTpmAkTrustedRoots(c);
+      const {
+        secureEnclaveTrustedRoots,
+        tpmAkTrustedRoots,
+        source: trustedRootsSource,
+      } = await resolveAttestationTrustedRoots(c);
 
       const requiredEnv = resolveRequiredTrustedRootEnv({
         attestationLevel: parsedAttestation.report.attestation_level,
@@ -1938,10 +1891,11 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       });
       if (requiredEnv) {
         console.error(
-          `[anonymous-sync-v2/refresh] missing trusted root env for hardware attestation: ${requiredEnv}`,
+          `[anonymous-sync-v2/refresh] missing trusted root configuration for hardware attestation: ${requiredEnv}`,
           {
             device_id: deviceId,
             attestation_level: parsedAttestation.report.attestation_level,
+            trusted_roots_source: trustedRootsSource,
           },
         );
         return c.json({ error: "attestation_trusted_root_unconfigured" }, 503);

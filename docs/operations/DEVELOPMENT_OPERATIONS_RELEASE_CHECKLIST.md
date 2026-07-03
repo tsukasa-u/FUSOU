@@ -397,7 +397,7 @@ pnpm --dir packages/FUSOU-APP run tauri build
 | Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts`                                                                                                                                                                                                                                                                      |
 | schema/fingerprint 連動変更              | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas`                                                                                                                                                                                                                                                   |
 | 匿名同期ローテーション                   | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
-| Attestation trusted root ローテーション  | `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- status --env production` で事前確認し、`rotate-stage`（新旧併記）→ 監視 → `rotate-final`（旧削除）の順で実行。既定は dry-run、反映は `--confirm` 必須。詳細は `docs/operations/deployment.md` と `docs/contents/guide/hardware_attestation.md` |
+| Attestation 設定/署名鍵/trusted root ローテーション | `manage-attestation-config-json`（設定JSON）、`manage-attestation-config-signing-key`（署名鍵）、`manage-attestation-trusted-roots`（trust root）を順に実行。既定は dry-run、反映は `--confirm` 必須。APP 側公開鍵は `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` を dotenvx で注入（エンドユーザー手動設定は禁止）。詳細は `docs/operations/deployment.md` と `docs/contents/guide/hardware_attestation.md` と `docs/operations/web/ATTESTATION_CONFIG_SIGNING_KEY_RUNBOOK.md` |
 | Workflow 本番反映                        | `pnpm --dir packages/FUSOU-WORKFLOW run test && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                              |
 | Workflow スキーマ反映あり                | `pnpm --dir packages/FUSOU-WORKFLOW run schema:remote && pnpm --dir packages/FUSOU-WORKFLOW run deploy`                                                                                                                                                                                                     |
 | APP タグ付き公開リリース                 | `GitHub Actions: publish_and_create_version_tag を workflow_dispatch`                                                                                                                                                                                                                                       |
@@ -525,3 +525,51 @@ pnpm --dir packages/FUSOU-APP run tauri build
 - [ ] `create-release` が `fusou-v<version>` の draft を作成したことを確認する。
 - [ ] `build-tauri` と `verify-updater-manifest` が成功したことを確認する。
 - [ ] `publish-release` 成功後に `draft: false` / `prerelease: false` を確認する。
+
+### 11.5 Attestation 設定/署名鍵/trusted root ローテーション
+
+前提:
+
+- エンドユーザーに `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` を手動設定させない。
+- `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` は APP の dotenvx 入力として運用側が更新し、通常の APP 更新フローで配布する。
+- 本チェックリストは運用者向けであり、ユーザー操作を前提にしない。
+
+フェーズ A: 事前確認
+
+- [ ] 現在の `ATTESTATION_CONFIG_JSON` を確認する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- status --env production --json`
+- [ ] 現在の `ATTESTATION_CONFIG_SIGNING_PRIVATE_KEY` を確認する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-signing-key -- status --env production --json`
+- [ ] 現在の trusted roots を確認する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- status --env production --json`
+
+フェーズ B: 入力ファイル検証（ローカル）
+
+- [ ] 設定 JSON を検証する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- validate --config @./attestation-config.next.json`
+- [ ] 注入される canonical 文字列を確認する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- print --config @./attestation-config.next.json`
+- [ ] 署名鍵ペアを生成する（必要時のみ）: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-signing-key -- generate --public-out ../tmp/attestation-config-signing-public.b64 --private-out ../tmp/attestation-config-signing-private.pem`
+
+フェーズ C: APP 側公開鍵配布（先行）
+
+- [ ] APP の dotenvx 入力 `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` を新公開鍵へ更新する。
+	- 例: `pnpm exec dotenvx set APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY "<base64-32byte-ed25519-pubkey>" -f packages/FUSOU-APP/src-tauri/.env -fk packages/.env.keys`
+- [ ] 更新済み APP を段階配布し、採用率が運用閾値に達したことを確認する。
+- [ ] この時点ではサーバー private key は切り替えない。
+
+フェーズ D: サーバー反映
+
+- [ ] 設定 JSON の dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- apply --config @./attestation-config.next.json --env production`
+- [ ] 設定 JSON を本反映する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- apply --config @./attestation-config.next.json --env production --confirm`
+- [ ] 署名 private key の dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-signing-key -- apply --private-pem @../tmp/attestation-config-signing-private.pem --env production`
+- [ ] 署名 private key を本反映する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-signing-key -- apply --private-pem @../tmp/attestation-config-signing-private.pem --env production --confirm`
+
+フェーズ E: trusted root ローテーション
+
+- [ ] stage（新旧併記）dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- rotate-stage --env production --current-secure @./trusted-roots/secure-enclave.current.json --next-secure @./trusted-roots/secure-enclave.next.json --current-tpm @./trusted-roots/tpm-ak.current.json --next-tpm @./trusted-roots/tpm-ak.next.json`
+- [ ] stage（新旧併記）を本反映する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- rotate-stage --env production --current-secure @./trusted-roots/secure-enclave.current.json --next-secure @./trusted-roots/secure-enclave.next.json --current-tpm @./trusted-roots/tpm-ak.current.json --next-tpm @./trusted-roots/tpm-ak.next.json --confirm`
+- [ ] suspicious 監査ログ急増がないことを監視する。
+- [ ] final（旧 root 削除）dry-run を実行する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- rotate-final --env production --next-secure @./trusted-roots/secure-enclave.next.json --next-tpm @./trusted-roots/tpm-ak.next.json`
+- [ ] final（旧 root 削除）を本反映する: `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- rotate-final --env production --next-secure @./trusted-roots/secure-enclave.next.json --next-tpm @./trusted-roots/tpm-ak.next.json --confirm`
+
+フェーズ F: 反映確認
+
+- [ ] `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-json -- status --env production --json` が `ok: true` であることを確認する。
+- [ ] `pnpm --dir packages/FUSOU-WEB run manage-attestation-config-signing-key -- status --env production --json` が `ok: true` であることを確認する。
+- [ ] `pnpm --dir packages/FUSOU-WEB run manage-attestation-trusted-roots -- status --env production --json` で期待値と一致することを確認する。

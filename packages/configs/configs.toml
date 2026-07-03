@@ -293,6 +293,10 @@ save_file_location = ""
     anonymous_sync_v2_refresh_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/refresh"
     anonymous_sync_v2_revoke_endpoint = "https://fusou.dev/api/auth/anonymous-sync/v2/revoke"
 
+    # Signed attestation-config endpoint used by FUSOU-APP.
+    # Keep this URL in central configs.toml; do not override per-process env.
+    attestation_config_endpoint = "https://fusou.dev/api/attestation/config"
+
     [app.quest_tree_sender]
     # Whether to enable quest tree data ingestion
     # default is false

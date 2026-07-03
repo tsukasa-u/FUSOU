@@ -1,5 +1,9 @@
 import type { R2BucketBinding } from "../types";
 import { SIGNED_URL_TTL_SECONDS } from "../constants";
+import {
+  resolveAttestationTrustedRoots,
+  resolveRequiredTrustedRootEnv,
+} from "./attestation-trusted-roots";
 
 /**
  * Common two-stage upload handler for secure, hash-verified uploads
@@ -43,9 +47,6 @@ export type UploadTrustDecision = {
   attestationValid: boolean;
 };
 
-const SECURE_ENCLAVE_TRUSTED_ROOT_ENV =
-  "INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256";
-const TPM_AK_TRUSTED_ROOT_ENV = "INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256";
 const MAX_ATTESTATION_FIELD_LENGTH = 8 * 1024;
 const MAX_ATTESTATION_FORMAT_LENGTH = 128;
 const MAX_ATTESTATION_CERT_CHAIN_LENGTH = 8;
@@ -240,48 +241,6 @@ function parseUploadAttestationReport(
   };
 }
 
-function resolveRequiredTrustedRootEnv(options: {
-  attestationLevel: string;
-  secureEnclaveTrustedRoots: string[];
-  tpmAkTrustedRoots: string[];
-}): string | null {
-  if (
-    options.attestationLevel === "secure_enclave" &&
-    options.secureEnclaveTrustedRoots.length === 0
-  ) {
-    return SECURE_ENCLAVE_TRUSTED_ROOT_ENV;
-  }
-  if (options.attestationLevel === "tpm" && options.tpmAkTrustedRoots.length === 0) {
-    return TPM_AK_TRUSTED_ROOT_ENV;
-  }
-  return null;
-}
-
-function parseTrustedRootList(raw: string | undefined): string[] {
-  if (!raw) return [];
-
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-
-  if (trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter((item): item is string => typeof item === "string")
-          .map((item) => item.trim())
-          .filter((item) => item.length > 0);
-      }
-    } catch {
-      // Fallback to delimiter-based parsing below.
-    }
-  }
-
-  return trimmed
-    .split(/[\s,]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
-}
 
 async function resolveUploadTrustTag(options: {
   c: any;
@@ -412,15 +371,16 @@ async function resolveUploadTrustTag(options: {
     }
   }
 
-  const { createEnvContext, getEnv } = await import("../utils");
+  const { createEnvContext } = await import("../utils");
   const { verifyAttestation } = await import("./attestation-verifier");
   const { determineTrustTag } = await import("./trust-tag");
 
   const env = createEnvContext(options.c);
-  const secureEnclaveRoots = parseTrustedRootList(
-    getEnv(env, SECURE_ENCLAVE_TRUSTED_ROOT_ENV),
-  );
-  const tpmAkRoots = parseTrustedRootList(getEnv(env, TPM_AK_TRUSTED_ROOT_ENV));
+  const {
+    secureEnclaveTrustedRoots: secureEnclaveRoots,
+    tpmAkTrustedRoots: tpmAkRoots,
+    source: trustedRootsSource,
+  } = await resolveAttestationTrustedRoots(options.c);
 
   const missingRootEnv = resolveRequiredTrustedRootEnv({
     attestationLevel: level,
@@ -429,7 +389,8 @@ async function resolveUploadTrustTag(options: {
   });
   if (missingRootEnv) {
     console.error(
-      `[upload] missing trusted root env for hardware attestation: ${missingRootEnv}`,
+      `[upload] missing trusted root configuration for hardware attestation: ${missingRootEnv}`,
+      { trusted_roots_source: trustedRootsSource },
     );
     return {
       allow: false,

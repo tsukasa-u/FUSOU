@@ -45,7 +45,10 @@
     "check:cloudflare:required-secrets": "node scripts/check-cloudflare-required-secrets.mjs",
     "manage-anon-sync-vault": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-anon-sync-vault.js",
     "manage-attestation-trusted-roots": "node scripts/manage-attestation-trusted-roots.mjs",
-    "manage-attestation-config-signing-key": "node scripts/manage-attestation-config-signing-key.mjs"
+    "manage-attestation-trusted-roots-supabase": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-attestation-trusted-roots-supabase.mjs",
+    "manage-attestation-config-signing-key": "node scripts/manage-attestation-config-signing-key.mjs",
+    "manage-attestation-config-json": "node scripts/manage-attestation-config-json.mjs",
+    "manage-attestation-secrets": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/manage-attestation-secrets.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^13.1.5",

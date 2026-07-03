@@ -299,14 +299,68 @@ cargo check --features linux-tpm-attestation
 
 ## 7. 運用チェックリスト
 
-- TPM ルート (`INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`) が設定済み
-- Secure Enclave を受理する構成では
-  `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256` が設定済み
-- challenge nonce と refresh で時刻同期が大きくズレていない
-- attestation_report がサイズ上限に収まっている
-- 証明書の OCSP / CRL エンドポイントへサーバーから到達できる
-- suspicious 監査ログ (DB / 管理スプレッドシート) を監視している
-- `dataset_token` の `trust_tag` claim が常に付与される構成になっている
+- [ ] 署名鍵ペアを生成した
+
+  ```bash
+  cd packages/FUSOU-WEB
+  pnpm run manage-attestation-config-signing-key -- generate \
+    --public-out ../tmp/attestation-config-signing-public.b64 \
+    --private-out ../tmp/attestation-config-signing-private.pem
+  ```
+
+- [ ] `ATTESTATION_CONFIG_JSON` をローカルで検証し、canonical 文字列を確認した
+
+  ```bash
+  cd packages/FUSOU-WEB
+  pnpm run manage-attestation-config-json -- validate --config @./attestation-config.next.json
+  pnpm run manage-attestation-config-json -- print --config @./attestation-config.next.json
+  ```
+
+- [ ] `ATTESTATION_CONFIG_JSON` を対象環境へ反映した
+
+  ```bash
+  cd packages/FUSOU-WEB
+  pnpm run manage-attestation-config-json -- apply \
+    --config @./attestation-config.next.json \
+    --env production \
+    --confirm
+  ```
+
+- [ ] `ATTESTATION_CONFIG_SIGNING_PRIVATE_KEY` を対象環境へ反映した
+
+  ```bash
+  cd packages/FUSOU-WEB
+  pnpm run manage-attestation-config-signing-key -- apply \
+    --private-pem @../tmp/attestation-config-signing-private.pem \
+    --env production \
+    --confirm
+  ```
+
+- [ ] APP 側検証鍵 `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` を dotenvx で更新した
+
+  ```bash
+  cd /repo-root
+  pnpm exec dotenvx set APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY "<base64-32byte-ed25519-pubkey>" \
+    -f packages/FUSOU-APP/src-tauri/.env \
+    -fk packages/.env.keys
+  ```
+
+- [ ] TPM / Secure Enclave trusted roots を対象環境へ反映した
+
+  ```bash
+  cd packages/FUSOU-WEB
+  pnpm run manage-attestation-trusted-roots -- apply \
+    --env production \
+    --secure @./trusted-roots/secure-enclave.next.json \
+    --tpm @./trusted-roots/tpm-ak.next.json \
+    --confirm
+  ```
+
+- [ ] challenge nonce と refresh で時刻同期が大きくズレていない
+- [ ] attestation_report がサイズ上限に収まっている
+- [ ] 証明書の OCSP / CRL エンドポイントへサーバーから到達できる
+- [ ] suspicious 監査ログ (DB / 管理スプレッドシート) を監視している
+- [ ] `dataset_token` の `trust_tag` claim が常に付与される構成になっている
   - `hw_verified` / `sw_verified` / `unverified` / `suspicious` のいずれか
   - ハードウェア非対応端末は `unverified` または `sw_verified` で運用可能
 

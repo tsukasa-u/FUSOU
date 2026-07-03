@@ -6,22 +6,27 @@ This runbook explains how to operate attestation-config signing keys safely.
 
 - Server endpoint: `GET /api/attestation/config`
 - Server secret: `ATTESTATION_CONFIG_SIGNING_PRIVATE_KEY`
-- App-side verifier key: `ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY`
+- App-side verifier key env: `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` (dotenvx managed)
 - Root trust secrets:
   - `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`
   - `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`
 
+Related detailed design/operations note:
+
+- `docs/operations/web/TPM_ATTESTATION_TRUST_MODEL_AND_CA.md`
+- `pnpm run manage-attestation-trusted-roots-supabase -- <command>`
+
 ## Security Model
 
 - Private key is server-only. Never ship it inside app binaries.
-- Public key is not secret and can be embedded in the app build.
-- FUSOU-APP verifies signatures with the embedded public key.
-- In production builds, runtime env override for key/url is disabled in app code.
+- Public key is not secret, but should still be managed as controlled config.
+- FUSOU-APP verifies signatures with `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY`.
+- Endpoint is managed via centralized `configs.toml`; verifier key is injected via dotenvx.
 
-## About "env vars with JSON/PEM"
+## File-First Secret Management
 
-- Cloudflare Workers secrets/config are string bindings, so JSON/PEM as text is normal.
-- Operationally, you can keep source material as files and pass file contents to `wrangler secret put`.
+- Treat JSON/PEM/CSV as managed secret files in your repository-external secret workflow.
+- At deploy time, inject file contents into Cloudflare secret/config bindings.
 - Do not commit raw private keys.
 
 ## When INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256 is Required
@@ -91,11 +96,20 @@ pnpm run manage-attestation-config-signing-key -- apply \
 This procedure assumes no simultaneous acceptance of old/new keys.
 
 1. Generate new keypair.
-2. Build and ship new FUSOU-APP with new `ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` embedded.
+2. Distribute new verifier public key by updating `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` in app dotenvx inputs.
 3. Wait until rollout reaches required adoption threshold.
 4. Apply new server private key via script (`apply --confirm`).
 5. Verify `/api/attestation/config` signature can be validated by updated clients.
 6. Decommission old private key material.
+
+Dotenvx update example (FUSOU-APP):
+
+```bash
+cd /repo-root
+pnpm exec dotenvx set APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY "<base64-32byte-ed25519-pubkey>" \
+  -f packages/FUSOU-APP/src-tauri/.env \
+  -fk packages/.env.keys
+```
 
 ## Related Scripts
 
@@ -103,7 +117,29 @@ Root trust rotation script (different purpose):
 
 - `pnpm run manage-attestation-trusted-roots -- <command>`
 
-Use it to update:
+Attestation config JSON generation/validation/apply script:
+
+- `pnpm run manage-attestation-config-json -- <command>`
+
+Example:
+
+```bash
+cd packages/FUSOU-WEB
+
+# validate local JSON file before injection
+pnpm run manage-attestation-config-json -- validate --config @./attestation-config.next.json
+
+# print canonical JSON (exact string that will be injected)
+pnpm run manage-attestation-config-json -- print --config @./attestation-config.next.json
+
+# apply as Wrangler secret string
+pnpm run manage-attestation-config-json -- apply \
+  --config @./attestation-config.next.json \
+  --env production \
+  --confirm
+```
+
+Use `manage-attestation-trusted-roots` to update:
 
 - `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`
 - `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`

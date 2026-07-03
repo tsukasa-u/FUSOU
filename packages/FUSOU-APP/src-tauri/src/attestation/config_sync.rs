@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use url::Url;
 
-const DEFAULT_CONFIG_URL: &str = "https://fusou.dev/api/attestation/config";
-const CONFIG_URL_ENV: &str = "FUSOU_ATTESTATION_CONFIG_URL";
-const CONFIG_SIGNING_PUBLIC_KEY_ENV: &str = "ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY";
+const CONFIG_SIGNING_PUBLIC_KEY_ENV: &str = "APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY";
 const CONFIG_SIGNATURE_HEADER: &str = "X-FUSOU-Config-Signature";
 const SYNC_INTERVAL_SECS: u64 = 6 * 60 * 60;
 const FAILURE_RETRY_SECS: u64 = 5 * 60;
@@ -20,10 +18,6 @@ const MAX_ISSUED_AT_FUTURE_SKEW_SECS: i64 = 10 * 60;
 
 static SYNC_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 static LAST_SYNC_ATTEMPT_EPOCH_SECS: AtomicU64 = AtomicU64::new(0);
-
-fn allow_runtime_overrides() -> bool {
-    cfg!(debug_assertions)
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncedAttestationConfig {
@@ -158,81 +152,60 @@ fn canonicalize_json(value: &Value) -> Result<String, String> {
     }
 }
 
-fn resolve_config_endpoint() -> String {
-    if allow_runtime_overrides() {
-        if let Ok(explicit) = std::env::var(CONFIG_URL_ENV) {
-            let trimmed = explicit.trim();
-            if !trimmed.is_empty() {
-                if let Ok(url) = Url::parse(trimmed) {
-                    if url.scheme() == "https" {
-                        return url.to_string();
-                    }
-                }
-                tracing::warn!(
-                    "{} is set but is not a valid https:// URL; ignoring override",
-                    CONFIG_URL_ENV
-                );
-            }
-        }
-    }
-
-    if let Some(register_endpoint) = configs::get_user_configs_for_app()
+fn resolve_config_endpoint() -> Result<String, String> {
+    let endpoint = configs::get_user_configs_for_app()
         .auth
-        .get_anonymous_sync_v2_register_endpoint()
-    {
-        if let Ok(mut url) = Url::parse(&register_endpoint) {
-            if url.scheme() != "https" {
-                tracing::warn!(
-                    "anonymous_sync_v2_register_endpoint is not https; refusing to derive attestation config endpoint"
-                );
-                return DEFAULT_CONFIG_URL.to_string();
-            }
-            url.set_path("/api/attestation/config");
-            url.set_query(None);
-            url.set_fragment(None);
-            return url.to_string();
-        }
+        .get_attestation_config_endpoint()
+        .ok_or_else(|| {
+            "app.auth.attestation_config_endpoint is not configured in configs.toml".to_string()
+        })?;
+
+    let url = Url::parse(&endpoint)
+        .map_err(|err| format!("app.auth.attestation_config_endpoint is invalid: {err}"))?;
+    if url.scheme() != "https" {
+        return Err("app.auth.attestation_config_endpoint must use https://".to_string());
     }
 
-    DEFAULT_CONFIG_URL.to_string()
+    Ok(url.to_string())
 }
 
-fn resolve_signing_public_key() -> Option<String> {
-    if let Some(value) = option_env!("ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY") {
+fn resolve_signing_public_key() -> Result<String, String> {
+    if let Ok(value) = std::env::var(CONFIG_SIGNING_PUBLIC_KEY_ENV) {
         let trimmed = value.trim();
         if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
+            return Ok(trimmed.to_string());
         }
     }
 
-    if allow_runtime_overrides() {
-        if let Ok(value) = std::env::var(CONFIG_SIGNING_PUBLIC_KEY_ENV) {
-            let trimmed = value.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-
-    None
+    Err(format!(
+        "{} is not configured (set via dotenvx for tauri build/run)",
+        CONFIG_SIGNING_PUBLIC_KEY_ENV
+    ))
 }
 
-fn verify_signature(canonical_json: &str, signature_b64: &str) -> Result<(), String> {
-    let public_key_b64 = resolve_signing_public_key().ok_or_else(|| {
-        format!(
-            "{} is not configured (compile-time or runtime)",
-            CONFIG_SIGNING_PUBLIC_KEY_ENV
-        )
-    })?;
-
+fn verify_signature_with_public_key(
+    canonical_json: &str,
+    signature_b64: &str,
+    public_key_b64: &str,
+) -> Result<(), String> {
     let key_bytes = B64
         .decode(public_key_b64.trim())
-        .map_err(|err| format!("invalid {}: {}", CONFIG_SIGNING_PUBLIC_KEY_ENV, err))?;
+        .map_err(|err| {
+            format!(
+                "invalid {} (expected base64 32-byte key): {}",
+                CONFIG_SIGNING_PUBLIC_KEY_ENV, err
+            )
+        })?;
 
     let key_array: [u8; 32] = key_bytes
         .as_slice()
         .try_into()
-        .map_err(|_| format!("{} must decode to 32 bytes", CONFIG_SIGNING_PUBLIC_KEY_ENV))?;
+        .map_err(|_| {
+            format!(
+                "{} must decode to 32 bytes",
+                CONFIG_SIGNING_PUBLIC_KEY_ENV
+            )
+        })?;
 
     let verifying_key =
         VerifyingKey::from_bytes(&key_array).map_err(|err| format!("invalid public key: {err}"))?;
@@ -251,6 +224,11 @@ fn verify_signature(canonical_json: &str, signature_b64: &str) -> Result<(), Str
         .map_err(|err| format!("config signature verification failed: {err}"))
 }
 
+fn verify_signature(canonical_json: &str, signature_b64: &str) -> Result<(), String> {
+    let public_key_b64 = resolve_signing_public_key()?;
+    verify_signature_with_public_key(canonical_json, signature_b64, &public_key_b64)
+}
+
 fn save_config(path: &Path, raw_json: &str, signature_b64: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -264,7 +242,7 @@ fn save_config(path: &Path, raw_json: &str, signature_b64: &str) -> Result<(), S
 
 pub fn load_active_attestation_config() -> Option<SyncedAttestationConfig> {
     // Fail closed for cached config usage when verifier key is missing.
-    if resolve_signing_public_key().is_none() {
+    if resolve_signing_public_key().is_err() {
         return None;
     }
 
@@ -313,7 +291,7 @@ pub fn resolve_tpm_persistent_handle_from_cached_config() -> Option<String> {
 }
 
 async fn sync_attestation_config_once() -> Result<(), String> {
-    let endpoint = resolve_config_endpoint();
+    let endpoint = resolve_config_endpoint()?;
     let response = reqwest::Client::new()
         .get(&endpoint)
         .send()
@@ -460,13 +438,12 @@ mod tests {
         let secret = [7_u8; 32];
         let signing_key = SigningKey::from_bytes(&secret);
         let public_key_b64 = B64.encode(signing_key.verifying_key().to_bytes());
-        std::env::set_var(CONFIG_SIGNING_PUBLIC_KEY_ENV, public_key_b64);
 
         let message = "{\"version\":1}";
         let signature = signing_key.sign(message.as_bytes());
         let signature_b64 = B64.encode(signature.to_bytes());
 
-        let verified = verify_signature(message, &signature_b64);
+        let verified = verify_signature_with_public_key(message, &signature_b64, &public_key_b64);
         assert!(verified.is_ok(), "expected signature to verify: {verified:?}");
     }
 
