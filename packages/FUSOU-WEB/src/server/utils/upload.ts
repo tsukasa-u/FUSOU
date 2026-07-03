@@ -330,6 +330,23 @@ async function resolveUploadTrustTag(options: {
   const contentHash = normalizeSha256Hex(options.body?.content_hash);
 
   if (level === "tpm" || level === "secure_enclave") {
+    if (!nonce) {
+      console.warn(
+        "[upload] attestation_report provided without attestation_nonce; falling back to unverified",
+      );
+      const hardwareRequired = options.requirement === "require_hardware";
+      return {
+        allow: !hardwareRequired,
+        status: hardwareRequired ? 401 : 200,
+        ...(hardwareRequired
+          ? { error: "attestation_nonce_required" }
+          : {}),
+        trustTag: hardwareRequired ? "suspicious" : "unverified",
+        attestationLevel: level,
+        attestationValid: false,
+      };
+    }
+
     if (!contentHash) {
       return {
         allow: false,
@@ -393,23 +410,6 @@ async function resolveUploadTrustTag(options: {
         attestationValid: false,
       };
     }
-  }
-
-  if ((level === "tpm" || level === "secure_enclave") && !nonce) {
-    console.warn(
-      "[upload] attestation_report provided without attestation_nonce; falling back to unverified",
-    );
-    const hardwareRequired = options.requirement === "require_hardware";
-    return {
-      allow: !hardwareRequired,
-      status: hardwareRequired ? 401 : 200,
-      ...(hardwareRequired
-        ? { error: "attestation_nonce_required" }
-        : {}),
-      trustTag: hardwareRequired ? "suspicious" : "unverified",
-      attestationLevel: level,
-      attestationValid: false,
-    };
   }
 
   const { createEnvContext, getEnv } = await import("../utils");

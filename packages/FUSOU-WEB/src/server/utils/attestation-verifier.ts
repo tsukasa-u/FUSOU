@@ -1388,54 +1388,6 @@ async function verifyWithCryptoKey(
   return false;
 }
 
-async function verifyTpmQuoteSignatureWithPublicKey(
-  decoded: DecodedTpmEnvelope,
-): Promise<boolean> {
-  const quoteData = toArrayBuffer(decoded.quoteBytes);
-  const signatureData = toArrayBuffer(decoded.signatureBytes);
-
-  const rsaPssKey = await importRsaPublicKey(decoded.publicKeyBytes, "RSA-PSS");
-  if (rsaPssKey) {
-    const rsaPssVerified = await crypto.subtle.verify(
-      { name: "RSA-PSS", saltLength: 32 },
-      rsaPssKey,
-      signatureData,
-      quoteData,
-    );
-    if (rsaPssVerified) {
-      return true;
-    }
-  }
-
-  const rsaPkcs1Key = await importRsaPublicKey(
-    decoded.publicKeyBytes,
-    "RSASSA-PKCS1-v1_5",
-  );
-  if (rsaPkcs1Key) {
-    const rsaPkcs1Verified = await crypto.subtle.verify(
-      { name: "RSASSA-PKCS1-v1_5" },
-      rsaPkcs1Key,
-      signatureData,
-      quoteData,
-    );
-    if (rsaPkcs1Verified) {
-      return true;
-    }
-  }
-
-  const ecdsaKey = await importEcdsaPublicKey(decoded.publicKeyBytes);
-  if (ecdsaKey) {
-    return crypto.subtle.verify(
-      { name: "ECDSA", hash: "SHA-256" },
-      ecdsaKey,
-      signatureData,
-      quoteData,
-    );
-  }
-
-  return false;
-}
-
 async function verifyTpmQuoteSignatureWithLeafCertificate(
   decoded: DecodedTpmEnvelope,
   leafCertificate: X509Certificate,
@@ -1448,6 +1400,26 @@ async function verifyTpmQuoteSignatureWithLeafCertificate(
   }
 
   return verifyWithCryptoKey(leafKey, decoded.quoteBytes, decoded.signatureBytes);
+}
+
+async function verifyReportedTpmPublicKeyMatchesLeafCertificate(
+  decoded: DecodedTpmEnvelope,
+  leafCertificate: X509Certificate,
+): Promise<boolean> {
+  // TPM report public_key must be SPKI DER and must match AK leaf certificate SPKI.
+  if (!isLikelySpkiDer(decoded.publicKeyBytes)) {
+    return false;
+  }
+
+  const leafAsn = parseAsnCertificate(leafCertificate);
+  if (!leafAsn) {
+    return false;
+  }
+
+  const leafSpki = new Uint8Array(
+    AsnSerializer.serialize(leafAsn.tbsCertificate.subjectPublicKeyInfo),
+  );
+  return bytesEqual(decoded.publicKeyBytes, leafSpki);
 }
 
 function hasKeyUsageFlag(usages: KeyUsageFlags, flag: KeyUsageFlags): boolean {
@@ -1536,6 +1508,14 @@ async function verifyTpmAkCertificateChain(
     options.now ?? new Date(),
   );
   if (!chainTrusted) {
+    return false;
+  }
+
+  const keyMatchesLeaf = await verifyReportedTpmPublicKeyMatchesLeafCertificate(
+    decoded,
+    certificateChain[0],
+  );
+  if (!keyMatchesLeaf) {
     return false;
   }
 
@@ -1634,8 +1614,15 @@ function parseTpmsAttestExtraData(quoteBytes: Uint8Array): Uint8Array | null {
 async function verifyNonceBinding(
   extraData: Uint8Array,
   nonce: string,
+  attestationFormat?: string,
 ): Promise<boolean> {
   const nonceBytes = new TextEncoder().encode(nonce);
+
+  if (attestationFormat === "tpm2_quote_rsassa_sha256_v1") {
+    const nonceDigest = await sha256Bytes(nonceBytes);
+    return bytesEqual(extraData, nonceDigest);
+  }
+
   if (bytesEqual(extraData, nonceBytes)) {
     return true;
   }
@@ -1649,6 +1636,14 @@ async function verifyTpmAttestation(
   nonce: string,
   options: AttestationVerifierOptions,
 ): Promise<boolean> {
+  const normalizedFormat = report.attestation_format?.trim();
+  if (
+    normalizedFormat &&
+    normalizedFormat !== "tpm2_quote_rsassa_sha256_v1"
+  ) {
+    return false;
+  }
+
   const envelope = resolveTpmEnvelope(report);
   if (!envelope) return false;
 
@@ -1662,13 +1657,12 @@ async function verifyTpmAttestation(
     return false;
   }
 
-  const nonceBound = await verifyNonceBinding(extraData, nonce);
+  const nonceBound = await verifyNonceBinding(
+    extraData,
+    nonce,
+    report.attestation_format,
+  );
   if (!nonceBound) {
-    return false;
-  }
-
-  const signatureValid = await verifyTpmQuoteSignatureWithPublicKey(decoded);
-  if (!signatureValid) {
     return false;
   }
 

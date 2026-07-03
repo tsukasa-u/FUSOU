@@ -114,7 +114,8 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
-    attestationRequirement: "require_report",
+    // Accept uploads from legacy / non-hardware devices and classify by trust_tag.
+    attestationRequirement: "optional",
     tokenTTL: 300, // 5 minutes is enough for ~240kB (no dynamic TTL needed)
     maxBodySize: MAX_UPLOAD_BYTES,
 

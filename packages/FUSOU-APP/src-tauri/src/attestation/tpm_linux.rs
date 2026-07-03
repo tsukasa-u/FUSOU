@@ -285,6 +285,22 @@ mod linux_impl {
             return Ok(vec![handle]);
         }
 
+        if let Some(raw) = crate::attestation::config_sync::resolve_tpm_persistent_handle_from_cached_config() {
+            let handle_value = parse_persistent_handle_value(raw.trim())
+                .map_err(|err| {
+                    format!(
+                        "invalid cached TPM persistent handle '{}': {}",
+                        raw, err
+                    )
+                })?;
+            let handle = PersistentTpmHandle::new(handle_value).map_err(|err| {
+                format!(
+                    "invalid cached TPM persistent handle 0x{handle_value:08X}: {err}"
+                )
+            })?;
+            return Ok(vec![handle]);
+        }
+
         DEFAULT_AK_PERSISTENT_HANDLES
             .iter()
             .copied()

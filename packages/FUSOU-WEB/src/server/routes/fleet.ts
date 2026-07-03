@@ -438,7 +438,8 @@ app.post("/snapshot", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
-    attestationRequirement: "require_report",
+    // Accept uploads from legacy / non-hardware devices and classify by trust_tag.
+    attestationRequirement: "optional",
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _user, authContext) => {
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";

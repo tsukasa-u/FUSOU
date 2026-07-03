@@ -6,18 +6,18 @@ mod windows_impl {
     use tss_esapi::{
         handles::{KeyHandle, PersistentTpmHandle, TpmHandle},
         interface_types::{
-            algorithm::{HashingAlgorithm, RsaSchemeAlgorithm},
+            algorithm::{HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm},
             dynamic_handles::Persistent,
             key_bits::RsaKeyBits,
             resource_handles::{Hierarchy, Provision},
             session_handles::AuthSession,
         },
         structures::{
-            Data, PcrSelectionListBuilder, PcrSlot, Public, RsaExponent, RsaScheme, Signature,
-            SignatureScheme,
+            Data, ObjectAttributesBuilder, PcrSelectionListBuilder, PcrSlot, Public,
+            PublicBuilder, PublicKeyRsa, PublicRsaParametersBuilder, RsaExponent, RsaScheme,
+            Signature, SignatureScheme, SymmetricDefinitionObject,
         },
         traits::Marshall,
-        utils::create_unrestricted_signing_rsa_public,
         Context, TctiNameConf,
     };
 
@@ -97,7 +97,15 @@ mod windows_impl {
 
         for &persistent_handle in &persistent_handles {
             if let Ok(existing_key_handle) = load_persistent_attestation_key(context, persistent_handle) {
-                return Ok(existing_key_handle);
+                if is_valid_attestation_key(context, existing_key_handle)? {
+                    return Ok(existing_key_handle);
+                }
+
+                let mut invalid_handle = existing_key_handle.into();
+                let _ = context.tr_close(&mut invalid_handle);
+
+                let replaced_key = replace_persistent_attestation_key(context, persistent_handle)?;
+                return Ok(replaced_key);
             }
         }
 
@@ -158,13 +166,99 @@ mod windows_impl {
     }
 
     fn create_signing_key_public_template() -> Result<Public, String> {
-        create_unrestricted_signing_rsa_public(
-            RsaScheme::create(RsaSchemeAlgorithm::RsaSsa, Some(HashingAlgorithm::Sha256))
-                .map_err(|err| format!("failed to build RSA scheme: {err}"))?,
-            RsaKeyBits::Rsa2048,
-            RsaExponent::default(),
-        )
-        .map_err(|err| format!("failed to build TPM key template: {err}"))
+        let object_attributes = ObjectAttributesBuilder::new()
+            .with_restricted(true)
+            .with_user_with_auth(true)
+            .with_sign_encrypt(true)
+            .with_decrypt(false)
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .build()
+            .map_err(|err| format!("failed to build TPM object attributes: {err}"))?;
+
+        PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Rsa)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(object_attributes)
+            .with_rsa_parameters(
+                PublicRsaParametersBuilder::new()
+                    .with_scheme(
+                        RsaScheme::create(
+                            RsaSchemeAlgorithm::RsaSsa,
+                            Some(HashingAlgorithm::Sha256),
+                        )
+                        .map_err(|err| format!("failed to build RSA scheme: {err}"))?,
+                    )
+                    .with_key_bits(RsaKeyBits::Rsa2048)
+                    .with_exponent(RsaExponent::default())
+                    .with_is_signing_key(true)
+                    .with_is_decryption_key(false)
+                    .with_restricted(true)
+                    .build()
+                    .map_err(|err| format!("failed to build TPM RSA parameters: {err}"))?,
+            )
+            .with_rsa_unique_identifier(PublicKeyRsa::default())
+            .build()
+            .map_err(|err| format!("failed to build TPM attestation key template: {err}"))
+    }
+
+    fn replace_persistent_attestation_key(
+        context: &mut Context,
+        persistent_handle: PersistentTpmHandle,
+    ) -> Result<KeyHandle, String> {
+        let handle_value: u32 = persistent_handle.into();
+        let mut existing_object_handle = context
+            .execute_without_session(|ctx| {
+                ctx.tr_from_tpm_public(TpmHandle::Persistent(persistent_handle))
+            })
+            .map_err(|err| {
+                format!(
+                    "failed to load persistent object for replacement at handle 0x{handle_value:08X}: {err}"
+                )
+            })?;
+
+        let persistent = Persistent::Persistent(persistent_handle);
+        let mut removed_object_handle = context
+            .execute_with_session(Some(AuthSession::Password), |ctx| {
+                ctx.evict_control(Provision::Owner, existing_object_handle.into(), persistent)
+            })
+            .map_err(|err| {
+                format!(
+                    "failed to evict invalid persistent object at handle 0x{handle_value:08X}: {err}"
+                )
+            })?;
+
+        let _ = context.tr_close(&mut removed_object_handle);
+        let _ = context.tr_close(&mut existing_object_handle);
+
+        create_and_persist_attestation_key(context, persistent_handle)
+    }
+
+    fn is_valid_attestation_key(context: &mut Context, key_handle: KeyHandle) -> Result<bool, String> {
+        let (public_area, _, _) = context
+            .read_public(key_handle)
+            .map_err(|err| format!("failed to inspect TPM attestation key public area: {err}"))?;
+
+        let object_attributes = public_area.object_attributes();
+        let is_valid_attributes = object_attributes.restricted()
+            && object_attributes.sign_encrypt()
+            && !object_attributes.decrypt();
+
+        let is_valid_rsa_template = matches!(
+            public_area,
+            Public::Rsa { parameters, .. }
+                if parameters.key_bits() == RsaKeyBits::Rsa2048
+                    && parameters.rsa_scheme()
+                        == RsaScheme::create(
+                            RsaSchemeAlgorithm::RsaSsa,
+                            Some(HashingAlgorithm::Sha256),
+                        )
+                        .map_err(|err| format!("failed to build RSA scheme for validation: {err}"))?
+                    && parameters.symmetric_definition_object() == SymmetricDefinitionObject::Null
+        );
+
+        Ok(is_valid_attributes && is_valid_rsa_template)
     }
 
     fn load_persistent_attestation_key(
@@ -191,6 +285,22 @@ mod windows_impl {
             let handle = PersistentTpmHandle::new(handle_value).map_err(|err| {
                 format!(
                     "invalid TPM persistent handle 0x{handle_value:08X} (set {AK_PERSISTENT_HANDLE_ENV} to a valid value): {err}"
+                )
+            })?;
+            return Ok(vec![handle]);
+        }
+
+        if let Some(raw) = crate::attestation::config_sync::resolve_tpm_persistent_handle_from_cached_config() {
+            let handle_value = parse_persistent_handle_value(raw.trim())
+                .map_err(|err| {
+                    format!(
+                        "invalid cached TPM persistent handle '{}': {}",
+                        raw, err
+                    )
+                })?;
+            let handle = PersistentTpmHandle::new(handle_value).map_err(|err| {
+                format!(
+                    "invalid cached TPM persistent handle 0x{handle_value:08X}: {err}"
                 )
             })?;
             return Ok(vec![handle]);
@@ -288,6 +398,7 @@ pub fn collect_tpm_attestation(_nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u
 }
 
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 pub fn collect_tpm_attestation(_nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
     Err("unsupported platform".to_string())
 }

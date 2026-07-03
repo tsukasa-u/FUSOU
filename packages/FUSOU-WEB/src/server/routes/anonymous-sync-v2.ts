@@ -71,7 +71,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 // ========================
 
 const DATASET_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
-const REFRESH_RESULT_TTL_SECONDS = 300;
+const REFRESH_RESULT_TTL_SECONDS = 60;
 const RATE_LIMIT_PER_HOUR = 20;
 const NONCE_CLEANUP_RETENTION_MS = 30 * 60 * 1000;
 const NONCE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;

@@ -1,6 +1,7 @@
 pub mod environment_check;
 pub mod fingerprint;
 pub mod secure_enclave_macos;
+pub mod config_sync;
 pub mod tpm_linux;
 pub mod tpm_windows;
 
@@ -15,39 +16,13 @@ use std::process::Command;
 use std::sync::{LazyLock, Mutex};
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
 #[cfg(target_os = "linux")]
 use std::sync::atomic::AtomicU8;
 
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use rcgen::{
-    CertificateParams,
-    CertificateRevocationListParams,
-    CrlDistributionPoint,
-    DnType,
-    ExtendedKeyUsagePurpose,
-    IsCa,
-    KeyIdMethod,
-    KeyPair,
-    KeyUsagePurpose,
-    SerialNumber,
-    SubjectPublicKeyInfo,
-};
-
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use time::{Duration as TimeDuration, OffsetDateTime};
-
 const TPM_AK_PERSISTENT_HANDLE_ENV: &str = "FUSOU_TPM_AK_PERSISTENT_HANDLE";
 const TPM_AK_CERT_CHAIN_B64_ENV: &str = "FUSOU_TPM_AK_CERT_CHAIN_B64";
-const TPM_AK_AUTO_CA_CERT_PEM_NAME: &str = "fusou_ca_cert.pem";
-const TPM_AK_AUTO_CA_KEY_PEM_NAME: &str = "fusou_ca_key.pem";
-const TPM_AK_CERT_COMMON_NAME: &str = "FUSOU TPM AK";
-const TPM_AK_CERT_ORGANIZATION_NAME: &str = "FUSOU";
-const TPM_AK_EKU_OID: &[u64] = &[2, 23, 133, 8, 3];
-
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-static AUTO_TPM_AK_CHAIN_WARNED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "linux")]
 const LINUX_TPM_USABLE_UNKNOWN: u8 = 0;
@@ -270,11 +245,13 @@ fn probe_linux_tpm_runtime(force: bool) -> bool {
 pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value {
     let nonce = nonce_hint.unwrap_or_default().as_bytes();
 
+    config_sync::maybe_schedule_attestation_config_sync();
+
     #[cfg(target_os = "windows")]
     if let Ok((attestation_data, attestation_signature, public_key)) =
         tpm_windows::collect_tpm_attestation(nonce)
     {
-        let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64(&public_key);
+        let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64();
         let mut report = json!({
             "attestation_level": "tpm",
             "attestation_data": B64.encode(attestation_data),
@@ -296,7 +273,7 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
             if let Ok((attestation_data, attestation_signature, public_key)) =
                 tpm_linux::collect_tpm_attestation(nonce)
             {
-                let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64(&public_key);
+                let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64();
                 let mut report = json!({
                     "attestation_level": "tpm",
                     "attestation_data": B64.encode(attestation_data),
@@ -492,13 +469,13 @@ fn collect_linux_preflight_warnings(warnings: &mut Vec<AttestationPreflightWarni
         });
     }
 
-    if !has_explicit_tpm_ak_certificate_chain_env() {
-        if let Some(message) = validate_auto_tpm_ak_chain_local_ca() {
-            warnings.push(AttestationPreflightWarning {
-                code: "linux_tpm_ak_cert_chain_auto_unavailable",
-                message,
-            });
-        }
+    if !has_explicit_tpm_ak_certificate_chain_env() && !config_sync::has_cached_tpm_ak_chain() {
+        warnings.push(AttestationPreflightWarning {
+            code: "linux_tpm_ak_cert_chain_missing",
+            message: format!(
+                "Neither {TPM_AK_CERT_CHAIN_B64_ENV} nor synced attestation config provides tpm.ak_cert_chain_b64. Hardware trust may be downgraded."
+            ),
+        });
     }
 
     if has_tpm_device {
@@ -580,13 +557,13 @@ fn collect_windows_preflight_warnings(warnings: &mut Vec<AttestationPreflightWar
         });
     }
 
-    if !has_explicit_tpm_ak_certificate_chain_env() {
-        if let Some(message) = validate_auto_tpm_ak_chain_local_ca() {
-            warnings.push(AttestationPreflightWarning {
-                code: "windows_tpm_ak_cert_chain_auto_unavailable",
-                message,
-            });
-        }
+    if !has_explicit_tpm_ak_certificate_chain_env() && !config_sync::has_cached_tpm_ak_chain() {
+        warnings.push(AttestationPreflightWarning {
+            code: "windows_tpm_ak_cert_chain_missing",
+            message: format!(
+                "Neither {TPM_AK_CERT_CHAIN_B64_ENV} nor synced attestation config provides tpm.ak_cert_chain_b64. Hardware trust may be downgraded."
+            ),
+        });
     }
 
     // Windows TPM collector now attempts automatic TBS fallback when TCTI
@@ -645,163 +622,24 @@ fn has_explicit_tpm_ak_certificate_chain_env() -> bool {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-fn resolve_tpm_ak_certificate_chain_b64(ak_public_key_der: &[u8]) -> Vec<String> {
+fn resolve_tpm_ak_certificate_chain_b64() -> Vec<String> {
+    if let Some(configured) = config_sync::resolve_tpm_chain_from_cached_config() {
+        if !configured.is_empty() {
+            return configured;
+        }
+    }
+
     let configured = collect_tpm_ak_certificate_chain_b64();
     if !configured.is_empty() {
         return configured;
     }
 
-    match build_tpm_ak_certificate_chain_from_local_ca(ak_public_key_der) {
-        Ok(chain) => chain,
-        Err(message) => {
-            if !AUTO_TPM_AK_CHAIN_WARNED.swap(true, Ordering::SeqCst) {
-                tracing::warn!(
-                    "Automatic TPM AK certificate chain provisioning failed: {}",
-                    message,
-                );
-            }
-            Vec::new()
-        }
-    }
+    Vec::new()
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
-fn resolve_tpm_ak_certificate_chain_b64(_ak_public_key_der: &[u8]) -> Vec<String> {
+fn resolve_tpm_ak_certificate_chain_b64() -> Vec<String> {
     collect_tpm_ak_certificate_chain_b64()
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-fn validate_auto_tpm_ak_chain_local_ca() -> Option<String> {
-    let ca_dir = crate::util::get_ROAMING_DIR().join("ca");
-    let cert_path = ca_dir.join(TPM_AK_AUTO_CA_CERT_PEM_NAME);
-    let key_path = ca_dir.join(TPM_AK_AUTO_CA_KEY_PEM_NAME);
-
-    if !cert_path.exists() || !key_path.exists() {
-        return Some(format!(
-            "Automatic TPM AK certificate chain provisioning requires local CA files at '{}' and '{}'.",
-            cert_path.display(),
-            key_path.display(),
-        ));
-    }
-
-    let cert_pem = match std::fs::read_to_string(&cert_path) {
-        Ok(value) => value,
-        Err(err) => {
-            return Some(format!(
-                "Failed to read local CA certificate '{}': {}",
-                cert_path.display(),
-                err,
-            ));
-        }
-    };
-
-    let key_pem = match std::fs::read_to_string(&key_path) {
-        Ok(value) => value,
-        Err(err) => {
-            return Some(format!(
-                "Failed to read local CA private key '{}': {}",
-                key_path.display(),
-                err,
-            ));
-        }
-    };
-
-    if let Err(err) = CertificateParams::from_ca_cert_pem(&cert_pem) {
-        return Some(format!(
-            "Local CA certificate '{}' is not parseable: {}",
-            cert_path.display(),
-            err,
-        ));
-    }
-
-    if let Err(err) = KeyPair::from_pem(&key_pem) {
-        return Some(format!(
-            "Local CA private key '{}' is not parseable: {}",
-            key_path.display(),
-            err,
-        ));
-    }
-
-    None
-}
-
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-fn build_tpm_ak_certificate_chain_from_local_ca(
-    ak_public_key_der: &[u8],
-) -> Result<Vec<String>, String> {
-    let ca_dir = crate::util::get_ROAMING_DIR().join("ca");
-    let cert_path = ca_dir.join(TPM_AK_AUTO_CA_CERT_PEM_NAME);
-    let key_path = ca_dir.join(TPM_AK_AUTO_CA_KEY_PEM_NAME);
-
-    let ca_cert_pem = std::fs::read_to_string(&cert_path).map_err(|err| {
-        format!(
-            "failed to read local CA certificate '{}': {}",
-            cert_path.display(),
-            err,
-        )
-    })?;
-    let ca_key_pem = std::fs::read_to_string(&key_path).map_err(|err| {
-        format!(
-            "failed to read local CA private key '{}': {}",
-            key_path.display(),
-            err,
-        )
-    })?;
-
-    let ca_params = CertificateParams::from_ca_cert_pem(&ca_cert_pem)
-        .map_err(|err| format!("failed to parse CA certificate PEM: {}", err))?;
-    let ca_key_pair = KeyPair::from_pem(&ca_key_pem)
-        .map_err(|err| format!("failed to parse CA private key PEM: {}", err))?;
-    let ca_cert = ca_params
-        .self_signed(&ca_key_pair)
-        .map_err(|err| format!("failed to reconstruct CA certificate: {}", err))?;
-
-    let now = OffsetDateTime::now_utc();
-    let crl_params = CertificateRevocationListParams {
-        this_update: now - TimeDuration::minutes(5),
-        next_update: now + TimeDuration::days(365),
-        crl_number: SerialNumber::from(1u64),
-        issuing_distribution_point: None,
-        revoked_certs: Vec::new(),
-        key_identifier_method: KeyIdMethod::Sha256,
-    };
-    let crl = crl_params
-        .signed_by(&ca_cert, &ca_key_pair)
-        .map_err(|err| format!("failed to generate local CRL: {}", err))?;
-
-    let crl_data_url = format!(
-        "data:application/pkix-crl;base64,{}",
-        B64.encode(crl.der().as_ref()),
-    );
-
-    let subject_public_key = SubjectPublicKeyInfo::from_der(ak_public_key_der)
-        .map_err(|err| format!("failed to parse TPM AK public key DER: {}", err))?;
-
-    let mut leaf_params = CertificateParams::default();
-    leaf_params.not_before = now - TimeDuration::minutes(5);
-    leaf_params.not_after = now + TimeDuration::days(90);
-    leaf_params.is_ca = IsCa::NoCa;
-    leaf_params
-        .distinguished_name
-        .push(DnType::OrganizationName, TPM_AK_CERT_ORGANIZATION_NAME);
-    leaf_params
-        .distinguished_name
-        .push(DnType::CommonName, TPM_AK_CERT_COMMON_NAME);
-    leaf_params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
-    leaf_params.extended_key_usages =
-        vec![ExtendedKeyUsagePurpose::Other(TPM_AK_EKU_OID.to_vec())];
-    leaf_params.crl_distribution_points = vec![CrlDistributionPoint {
-        uris: vec![crl_data_url],
-    }];
-
-    let leaf_cert = leaf_params
-        .signed_by(&subject_public_key, &ca_cert, &ca_key_pair)
-        .map_err(|err| format!("failed to sign TPM AK leaf certificate: {}", err))?;
-
-    Ok(vec![
-        B64.encode(leaf_cert.der().as_ref()),
-        B64.encode(ca_cert.der().as_ref()),
-    ])
 }
 
 fn collect_tpm_ak_certificate_chain_b64() -> Vec<String> {

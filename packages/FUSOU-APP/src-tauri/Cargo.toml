@@ -64,6 +64,7 @@ sha2 = "0.10"
 flate2 = "1.1.5"
 hex = "0.4"
 base64 = "0.22"
+ed25519-dalek = { version = "2.1", features = ["std"] }
 urlencoding = "2.1"
 cap-std = "3"
 sysinfo = "0.31"

@@ -362,7 +362,8 @@ app.post("/upload", async (c) => {
     bucket,
     signingSecret,
     requireDatasetToken: true,
-    attestationRequirement: "require_report",
+    // Accept uploads from legacy / non-hardware devices and classify by trust_tag.
+    attestationRequirement: "optional",
     maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
       const datasetIdFromToken =

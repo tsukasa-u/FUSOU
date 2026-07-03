@@ -24,6 +24,7 @@ import anonymousSyncV2App from "./routes/anonymous-sync-v2";
 import shortenerApp from "./routes/shortener";
 import questTreeApp from "./routes/quest_tree";
 import remodelDataApp from "./routes/remodel_data";
+import attestationConfigApp from "./routes/attestation_config";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const SAFE_CORS_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -218,6 +219,7 @@ app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares /anonymou
 app.route("/shorten", shortenerApp); // shortener app declares POST /
 app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest
+app.route("/api/attestation", attestationConfigApp); // attestationConfigApp declares /config
 app.route("/soku-speed-observed", sokuSpeedObserved); // Mount new route for sokuSpeedObserved
 
 // Catch-all 404

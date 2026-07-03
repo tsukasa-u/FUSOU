@@ -201,6 +201,9 @@ pub async fn run() {
             // Initialize ROAMING_DIR global first so all subsequent code can use get_ROAMING_DIR()
             builder_setup::setup::set_paths(app)?;
 
+            // Trigger a background attestation-config sync at startup.
+            attestation::config_sync::maybe_schedule_attestation_config_sync();
+
             // Initialize AuthManager
             let session_path = util::get_ROAMING_DIR().join("fusou-auth-session.json");
             let dataset_token_path = util::get_ROAMING_DIR().join("fusou-auth-dataset-token.json");
