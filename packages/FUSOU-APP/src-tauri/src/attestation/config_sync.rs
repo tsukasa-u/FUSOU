@@ -475,4 +475,44 @@ mod tests {
         let result = validate_config(&cfg, now);
         assert!(result.is_err());
     }
+
+    /// Integration test: syncs the real config from the production server.
+    /// Run: cargo test sync_and_cache_real_config -- --nocapture --ignored
+    #[ignore]
+    #[tokio::test]
+    async fn sync_and_cache_real_config() {
+        use std::path::PathBuf;
+
+        // Initialize ROAMING_DIR to a temp directory for this test.
+        let test_roaming = std::env::temp_dir().join("fusou-test-attestation-sync");
+        let _ = std::fs::create_dir_all(&test_roaming);
+        let _ = crate::ROAMING_DIR.set(std::sync::Mutex::new(test_roaming.clone()));
+
+        // Needs APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY set in env.
+        let key = std::env::var("APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY")
+            .expect("APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY must be set");
+        assert!(!key.trim().is_empty(), "signing key must not be empty");
+
+        let result = sync_attestation_config_once().await;
+        assert!(result.is_ok(), "config sync must succeed: {:?}", result);
+
+        let config = load_active_attestation_config()
+            .expect("cached config must load after sync");
+        println!("cached config version: {}", config.version);
+        let chain_len = config.tpm
+            .as_ref()
+            .and_then(|t| t.ak_cert_chain_b64.as_ref())
+            .map(|c| c.len())
+            .unwrap_or(0);
+        println!("cached chain length: {chain_len}");
+        assert!(chain_len >= 2, "chain must have at least 2 certs");
+
+        let chain = resolve_tpm_chain_from_cached_config()
+            .expect("chain must resolve from cached config");
+        assert!(!chain.is_empty(), "chain must be non-empty");
+        println!("chain resolved OK, len={}", chain.len());
+
+        // Clean up test directory
+        let _ = std::fs::remove_dir_all(&test_roaming);
+    }
 }

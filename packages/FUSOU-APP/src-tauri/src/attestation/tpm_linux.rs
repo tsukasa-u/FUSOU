@@ -1,5 +1,5 @@
 #[cfg(all(target_os = "linux", feature = "linux-tpm-attestation"))]
-mod linux_impl {
+pub(super) mod linux_impl {
     use rsa::{pkcs8::EncodePublicKey, BigUint, RsaPublicKey};
     use sha2::{Digest, Sha256};
     use std::convert::TryFrom;
@@ -334,6 +334,10 @@ mod linux_impl {
         })
     }
 
+    pub(crate) fn initialize_tpm_context_pub() -> Result<Context, String> {
+        initialize_tpm_context()
+    }
+
     fn initialize_tpm_context() -> Result<Context, String> {
         let mut candidate_errors = Vec::new();
 
@@ -410,6 +414,63 @@ mod linux_impl {
         }
     }
 
+    pub(crate) fn tpm_rsa_public_to_spki_der_pub(public: &Public) -> Result<Vec<u8>, String> {
+        tpm_rsa_public_to_spki_der(public)
+    }
+
+    /// Loads or creates the AK at the configured persistent handle.
+    pub(crate) fn load_or_create_attestation_key_pub(
+        context: &mut Context,
+    ) -> Result<KeyHandle, String> {
+        load_or_create_persistent_attestation_key(context)
+    }
+
+    /// Creates the standard RSA-2048 EK public template (TCG EK Credential Profile).
+    pub(crate) fn create_ek_public_template() -> Public {
+        let ek_policy_bytes: [u8; 32] = [
+            0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xB3, 0xF8,
+            0x1A, 0x90, 0xCC, 0x8D, 0x46, 0xA5, 0xD7, 0x24,
+            0xFD, 0x52, 0xD7, 0x6E, 0x06, 0x52, 0x0B, 0x64,
+            0xF2, 0xA1, 0xDA, 0x1B, 0x33, 0x14, 0x69, 0xAA,
+        ];
+        let ek_policy = tss_esapi::structures::Digest::try_from(ek_policy_bytes.as_slice())
+            .expect("EK policy digest");
+
+        let ek_attrs = ObjectAttributesBuilder::new()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .with_admin_with_policy(true)
+            .with_restricted(true)
+            .with_decrypt(true)
+            .build()
+            .expect("EK object attributes");
+
+        PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Rsa)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(ek_attrs)
+            .with_auth_policy(ek_policy)
+            .with_rsa_parameters(
+                PublicRsaParametersBuilder::new()
+                    .with_symmetric(SymmetricDefinitionObject::AES_128_CFB)
+                    .with_scheme(
+                        RsaScheme::create(RsaSchemeAlgorithm::Null, None)
+                            .expect("EK RSA scheme"),
+                    )
+                    .with_key_bits(RsaKeyBits::Rsa2048)
+                    .with_exponent(RsaExponent::default())
+                    .with_is_decryption_key(true)
+                    .with_is_signing_key(false)
+                    .with_restricted(true)
+                    .build()
+                    .expect("EK RSA params"),
+            )
+            .with_rsa_unique_identifier(PublicKeyRsa::default())
+            .build()
+            .expect("EK public template")
+    }
+
     fn tpm_rsa_public_to_spki_der(public: &Public) -> Result<Vec<u8>, String> {
         let (parameters, unique) = match public {
             Public::Rsa {
@@ -446,11 +507,199 @@ pub fn collect_tpm_attestation(nonce: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Vec<u8
 #[cfg(test)]
 mod tests {
     use super::collect_tpm_attestation;
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
 
     #[test]
     fn linux_tpm_quote_executes_successfully() {
         let result = collect_tpm_attestation(b"fusou-linux-tpm-test");
         assert!(result.is_ok(), "TPM attestation should succeed: {result:?}");
+    }
+
+    /// Reads the EK (Endorsement Key) public key using the standard EK template,
+    /// then attempts to fetch the EK certificate from AMD/Intel/manufacturer servers.
+    /// Run: cargo test fetch_ek_certificate -- --nocapture --ignored
+    #[ignore]
+    #[test]
+    fn fetch_ek_certificate() {
+        use tss_esapi::{
+            attributes::ObjectAttributesBuilder,
+            interface_types::{
+                algorithm::{HashingAlgorithm, PublicAlgorithm, RsaSchemeAlgorithm},
+                key_bits::RsaKeyBits,
+                resource_handles::Hierarchy,
+            },
+            structures::{
+                Digest as TssDigest,
+                PublicBuilder, PublicKeyRsa,
+                PublicRsaParametersBuilder, RsaExponent, RsaScheme,
+                SymmetricDefinitionObject,
+            },
+        };
+        use super::linux_impl::initialize_tpm_context_pub;
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine;
+        use sha2::{Digest as Sha2Digest, Sha256};
+
+        let mut context = match super::linux_impl::initialize_tpm_context_pub() {
+            Ok(c) => c,
+            Err(e) => { println!("TPM context init failed: {e}"); return; }
+        };
+
+        // Standard RSA 2048 EK template (TCG EK Credential Profile spec)
+        // PolicySecret(ENDORSEMENT) SHA-256 digest: the standard well-known EK policy
+        let ek_policy_bytes: [u8; 32] = [
+            0x83, 0x71, 0x97, 0x67, 0x44, 0x84, 0xB3, 0xF8,
+            0x1A, 0x90, 0xCC, 0x8D, 0x46, 0xA5, 0xD7, 0x24,
+            0xFD, 0x52, 0xD7, 0x6E, 0x06, 0x52, 0x0B, 0x64,
+            0xF2, 0xA1, 0xDA, 0x1B, 0x33, 0x14, 0x69, 0xAA,
+        ];
+        let ek_policy = TssDigest::try_from(ek_policy_bytes.as_slice()).expect("EK policy digest");
+
+        let ek_object_attributes = ObjectAttributesBuilder::new()
+            .with_fixed_tpm(true)
+            .with_fixed_parent(true)
+            .with_sensitive_data_origin(true)
+            .with_admin_with_policy(true)
+            .with_restricted(true)
+            .with_decrypt(true)
+            .build()
+            .expect("EK object attributes");
+
+        let ek_public = PublicBuilder::new()
+            .with_public_algorithm(PublicAlgorithm::Rsa)
+            .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
+            .with_object_attributes(ek_object_attributes)
+            .with_auth_policy(ek_policy)
+            .with_rsa_parameters(
+                PublicRsaParametersBuilder::new()
+                    .with_symmetric(SymmetricDefinitionObject::AES_128_CFB)
+                    .with_scheme(
+                        RsaScheme::create(RsaSchemeAlgorithm::Null, None)
+                            .expect("EK RSA scheme"),
+                    )
+                    .with_key_bits(RsaKeyBits::Rsa2048)
+                    .with_exponent(RsaExponent::default())
+                    .with_is_decryption_key(true)
+                    .with_is_signing_key(false)
+                    .with_restricted(true)
+                    .build()
+                    .expect("EK RSA parameters"),
+            )
+            .with_rsa_unique_identifier(PublicKeyRsa::default())
+            .build()
+            .expect("EK public template");
+
+        // CreatePrimary with EK template (endorsement hierarchy)
+        let ek_result = context.execute_with_nullauth_session(|ctx| {
+            ctx.create_primary(Hierarchy::Endorsement, ek_public, None, None, None, None)
+        });
+
+        match ek_result {
+            Ok(created) => {
+                let (ek_pub, _, _) = context.read_public(created.key_handle)
+                    .expect("read EK public");
+                let _ = context.flush_context(created.key_handle.into());
+
+                // Extract RSA modulus
+                let ek_der = super::linux_impl::tpm_rsa_public_to_spki_der_pub(&ek_pub).expect("EK DER");
+                let ek_b64 = B64.encode(&ek_der);
+                println!("\nEK public key (SPKI DER base64):\n{ek_b64}");
+
+                // SHA-256 hash of EK modulus (used as identifier for cert lookup)
+                let ek_sha256 = Sha256::digest(&ek_der);
+                let ek_hex = hex::encode(ek_sha256);
+                println!("EK SHA-256: {ek_hex}");
+
+                // Try AMD cert provisioning endpoint
+                // AMD fTPM EK certs may be at: https://ftpm.amd.com/pki/aia/
+                let ek_b64_url = ek_b64.replace('+', "-").replace('/', "_").replace('=', "");
+                println!("\nAMD cert lookup URL (if supported):");
+                println!("https://ftpm.amd.com/pki/aia/{ek_b64_url}.cer");
+                println!("\nAlternative: use tpm2_getekcertificate tool (requires tpm2-tools)");
+                println!("  tpm2_getekcertificate -u ek.pub.pem -o ek.cert.pem");
+            }
+            Err(e) => println!("EK creation failed: {e}"),
+        }
+    }
+
+    fn tpm_rsa_public_to_spki_der_pub(public: &tss_esapi::structures::Public) -> Result<Vec<u8>, String> {
+        super::linux_impl::tpm_rsa_public_to_spki_der_pub(public)
+    }
+
+    #[ignore]
+    #[test]
+    fn read_manufacturer_ek_certs() {
+        use tss_esapi::{
+            handles::NvIndexTpmHandle,
+            interface_types::resource_handles::NvAuth,
+        };
+        use base64::engine::general_purpose::STANDARD as B64;
+
+        // Standard TPM 2.0 EK/IAK NV indices (TCG spec)
+        let nv_candidates: &[(u32, &str)] = &[
+            (0x01C00002, "RSA-2048 EK cert"),
+            (0x01C00004, "RSA-2048 EK cert (intermediate)"),
+            (0x01C00012, "RSA-2048 EK cert (backup)"),
+            (0x01C0000A, "ECC P-256 EK cert"),
+            (0x01C0000C, "ECC P-256 EK cert (intermediate)"),
+            (0x01C0001C, "RSA-3072 EK cert"),
+            (0x01C101D0, "DevID cert (IEEE 802.1AR)"),
+            (0x01C10140, "IAK cert"),
+        ];
+
+        let mut context = match super::linux_impl::initialize_tpm_context_pub() {
+            Ok(c) => c,
+            Err(e) => { println!("TPM context init failed: {e}"); return; }
+        };
+
+        println!("\n=== TPM NV EK Certificate Scan ===");
+        let mut found_any = false;
+        for &(index, label) in nv_candidates {
+            let nv_tpm_handle = NvIndexTpmHandle::new(index).unwrap();
+            let nv_handle = match context.tr_from_tpm_public(nv_tpm_handle.into()) {
+                Ok(h) => tss_esapi::handles::NvIndexHandle::from(h),
+                Err(_) => continue, // NV index doesn't exist
+            };
+            if let Ok((nv_public, _)) = context.nv_read_public(nv_handle) {
+                let size = nv_public.data_size();
+                println!("  0x{index:08X} ({label}): found, size={size} bytes");
+                match context.nv_read(NvAuth::Owner, nv_handle, size as u16, 0) {
+                    Ok(data) => {
+                        let b64_cert = B64.encode(data.as_slice());
+                        println!("  CERT_B64={b64_cert}");
+                        found_any = true;
+                    }
+                    Err(e) => println!("    cannot read: {e}"),
+                }
+            }
+        }
+        if !found_any {
+            println!("  No manufacturer EK certs found in standard NV indices.");
+            println!("  This TPM may not have manufacturer-provisioned EK certs.");
+        }
+    }
+    #[ignore]
+    #[test]
+    fn export_tpm_attestation_json() {
+        use base64::engine::general_purpose::STANDARD as B64;
+        use base64::Engine;
+
+        let nonce = "test-e2e-nonce";
+        let result = collect_tpm_attestation(nonce.as_bytes());
+        let (attest, sig, pub_key) = result.expect("TPM attestation must succeed");
+
+        let json = serde_json::json!({
+            "quote_b64": B64.encode(&attest),
+            "sig_b64": B64.encode(&sig),
+            "pub_key_b64": B64.encode(&pub_key),
+            "nonce": nonce,
+        });
+        // Write to tmp file for E2E test
+        let path = "/tmp/tpm_quote_e2e.json";
+        std::fs::write(path, json.to_string()).expect("failed to write tpm quote");
+        println!("\nTPM quote data written to {path}");
+        println!("pub_key_b64={}", B64.encode(&pub_key));
     }
 }
 

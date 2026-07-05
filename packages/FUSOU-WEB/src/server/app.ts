@@ -219,8 +219,22 @@ app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares /anonymou
 app.route("/shorten", shortenerApp); // shortener app declares POST /
 app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest
-app.route("/api/attestation", attestationConfigApp); // attestationConfigApp declares /config
+app.route("/attestation", attestationConfigApp); // attestationConfigApp declares /config
 app.route("/soku-speed-observed", sokuSpeedObserved); // Mount new route for sokuSpeedObserved
+
+// Privacy CA: AK certificate issuance (two-step: challenge → ActivateCredential → complete)
+app.post("/attestation/ak-cert/challenge", async (c) => {
+  const { handleAttestationAkCertChallenge } = await import("./routes/attestation_ak_cert");
+  return handleAttestationAkCertChallenge(c);
+});
+app.post("/attestation/ak-cert/complete", async (c) => {
+  const { handleAttestationAkCertComplete } = await import("./routes/attestation_ak_cert");
+  return handleAttestationAkCertComplete(c);
+});
+app.post("/attestation/ak-cert", async (c) => {
+  const { handleAttestationAkCert } = await import("./routes/attestation_ak_cert");
+  return handleAttestationAkCert(c);
+});
 
 // Catch-all 404
 app.all("*", (c) => {

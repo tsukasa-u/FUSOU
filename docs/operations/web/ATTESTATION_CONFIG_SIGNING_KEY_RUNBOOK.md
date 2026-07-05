@@ -2,14 +2,16 @@
 
 This runbook explains how to operate attestation-config signing keys safely.
 
+**Last Updated**: 2026-07-05 (keys generated and deployed to production)
+
 ## Scope
 
 - Server endpoint: `GET /api/attestation/config`
-- Server secret: `ATTESTATION_CONFIG_SIGNING_PRIVATE_KEY`
-- App-side verifier key env: `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` (dotenvx managed)
+- Server secret: `ATTESTATION_CONFIG_SIGNING_PRIVATE_KEY` (currently registered)
+- App-side verifier key env: `APP_ATTESTATION_CONFIG_SIGNING_PUBLIC_KEY` (currently: `cHY8mf/kCV+6aZ13GRuPo2fa+hbkh9umtfTQJeWGV18=`)
 - Root trust secrets:
-  - `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256`
-  - `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256`
+  - `INTEGRITY_TPM_AK_TRUSTED_ROOT_SHA256` (not yet configured; optional until TPM cert chain provisioned)
+  - `INTEGRITY_SECURE_ENCLAVE_TRUSTED_ROOT_SHA256` (not yet configured; optional until Secure Enclave support enabled)
 
 Related detailed design/operations note:
 

@@ -2,6 +2,7 @@ pub mod environment_check;
 pub mod fingerprint;
 pub mod secure_enclave_macos;
 pub mod config_sync;
+pub mod ak_cert_sync;
 pub mod tpm_linux;
 pub mod tpm_windows;
 
@@ -64,12 +65,60 @@ fn build_software_report() -> serde_json::Value {
 pub fn initialize_hardware_attestation_runtime() -> bool {
     #[cfg(target_os = "linux")]
     {
-        return probe_linux_tpm_runtime(true);
+        let tpm_available = probe_linux_tpm_runtime(true);
+        if tpm_available {
+            // Kick off AK cert sync in background so it's ready for first upload.
+            maybe_schedule_ak_cert_sync();
+        }
+        return tpm_available;
     }
 
     #[cfg(not(target_os = "linux"))]
     {
         true
+    }
+}
+
+/// Schedules an AK certificate sync in the background if no valid cached cert exists.
+pub fn maybe_schedule_ak_cert_sync() {
+    if ak_cert_sync::load_cached_ak_cert_chain().is_some() {
+        return; // Already have a valid cert.
+    }
+
+    // Get the AK public key first (needed for cert request).
+    #[cfg(all(target_os = "linux", feature = "linux-tpm-attestation"))]
+    {
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(async {
+                    match tpm_linux::collect_tpm_attestation(b"ak-cert-sync-probe") {
+                        Ok((_attest, _sig, pub_key_der)) => {
+                            let ak_pub_b64 = B64.encode(&pub_key_der);
+                            match ak_cert_sync::sync_ak_cert(ak_pub_b64).await {
+                                Ok(cached) => {
+                                    tracing::info!(
+                                        expires_at = %cached.expires_at,
+                                        "AK certificate obtained from Privacy CA"
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        error = %e,
+                                        "AK cert sync failed; hardware attestation will use sw_verified until sync succeeds"
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "TPM probe for AK cert sync failed");
+                        }
+                    }
+                });
+            }
+            Err(_) => {
+                tracing::debug!("AK cert sync deferred: no tokio runtime available at init time");
+            }
+        }
     }
 }
 
@@ -252,50 +301,61 @@ pub fn collect_attestation_report(nonce_hint: Option<&str>) -> serde_json::Value
         tpm_windows::collect_tpm_attestation(nonce)
     {
         let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64();
-        let mut report = json!({
-            "attestation_level": "tpm",
-            "attestation_data": B64.encode(attestation_data),
-            "attestation_signature": B64.encode(attestation_signature),
-            "attestation_format": "tpm2_quote_rsassa_sha256_v1",
-            "public_key": B64.encode(public_key),
-            "fingerprint": fingerprint::collect_fingerprint(),
-            "environment": environment_check::detect_environment(),
-        });
+        // Only emit TPM-level report when we have a cert chain to back it up.
+        // Without a chain the server cannot verify the key, and a TPM claim
+        // without proof is classified as suspicious.  Fall through to software
+        // fingerprint so the upload is accepted as unverified instead.
         if !tpm_certificate_chain.is_empty() {
+            let mut report = json!({
+                "attestation_level": "tpm",
+                "attestation_data": B64.encode(attestation_data),
+                "attestation_signature": B64.encode(attestation_signature),
+                "attestation_format": "tpm2_quote_rsassa_sha256_v1",
+                "public_key": B64.encode(public_key),
+                "fingerprint": fingerprint::collect_fingerprint(),
+                "environment": environment_check::detect_environment(),
+            });
             report["certificate_chain"] = json!(tpm_certificate_chain);
+            return report;
         }
-        return report;
+        tracing::info!("TPM quote succeeded but no AK cert chain available; falling back to software fingerprint");
     }
 
     #[cfg(target_os = "linux")]
     {
         if probe_linux_tpm_runtime(false) {
-            if let Ok((attestation_data, attestation_signature, public_key)) =
-                tpm_linux::collect_tpm_attestation(nonce)
-            {
-                let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64();
-                let mut report = json!({
-                    "attestation_level": "tpm",
-                    "attestation_data": B64.encode(attestation_data),
-                    "attestation_signature": B64.encode(attestation_signature),
-                    "attestation_format": "tpm2_quote_rsassa_sha256_v1",
-                    "public_key": B64.encode(public_key),
-                    "fingerprint": fingerprint::collect_fingerprint(),
-                    "environment": environment_check::detect_environment(),
-                });
-                if !tpm_certificate_chain.is_empty() {
-                    report["certificate_chain"] = json!(tpm_certificate_chain);
+            match tpm_linux::collect_tpm_attestation(nonce) {
+                Ok((attestation_data, attestation_signature, public_key)) => {
+                    let tpm_certificate_chain = resolve_tpm_ak_certificate_chain_b64();
+                    // Only emit TPM-level report when we have a cert chain to back it up.
+                    // Without a chain the server cannot verify the key, and a TPM claim
+                    // without proof is classified as suspicious.  Fall through to software
+                    // fingerprint so the upload is accepted as unverified instead.
+                    if !tpm_certificate_chain.is_empty() {
+                        let mut report = json!({
+                            "attestation_level": "tpm",
+                            "attestation_data": B64.encode(attestation_data),
+                            "attestation_signature": B64.encode(attestation_signature),
+                            "attestation_format": "tpm2_quote_rsassa_sha256_v1",
+                            "public_key": B64.encode(public_key),
+                            "fingerprint": fingerprint::collect_fingerprint(),
+                            "environment": environment_check::detect_environment(),
+                        });
+                        report["certificate_chain"] = json!(tpm_certificate_chain);
+                        return report;
+                    }
+                    tracing::info!("TPM quote succeeded but no AK cert chain available; falling back to software fingerprint");
                 }
-                return report;
+                Err(_) => {
+                    LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_NO, Ordering::SeqCst);
+                    linux_tpm_set_last_error(Some(
+                        "TPM quote failed during attestation collection".to_string(),
+                    ));
+                    tracing::warn!(
+                        "TPM attestation failed at report collection time; disabling further TPM attempts for this process"
+                    );
+                }
             }
-
-            LINUX_TPM_RUNTIME_USABLE.store(LINUX_TPM_USABLE_NO, Ordering::SeqCst);
-            linux_tpm_set_last_error(Some(
-                "TPM quote failed during attestation collection".to_string(),
-            ));
-            tracing::warn!(
-                "TPM attestation failed at report collection time; disabling further TPM attempts for this process"
-            );
         }
     }
 
@@ -623,12 +683,21 @@ fn has_explicit_tpm_ak_certificate_chain_env() -> bool {
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 fn resolve_tpm_ak_certificate_chain_b64() -> Vec<String> {
+    // Priority 1: Privacy CA-issued AK cert (strongest - EK chain verified by server)
+    if let Some(cached) = ak_cert_sync::load_cached_ak_cert_chain() {
+        if cached.ak_cert_chain_b64.len() >= 2 {
+            return cached.ak_cert_chain_b64;
+        }
+    }
+
+    // Priority 2: Server-distributed chain from attestation config sync
     if let Some(configured) = config_sync::resolve_tpm_chain_from_cached_config() {
         if !configured.is_empty() {
             return configured;
         }
     }
 
+    // Priority 3: Static env var (FUSOU_TPM_AK_CERT_CHAIN_B64)
     let configured = collect_tpm_ak_certificate_chain_b64();
     if !configured.is_empty() {
         return configured;

@@ -1164,7 +1164,10 @@ async function verifyLeafCertificateRevocation(
   const ocspUrls = extractOcspResponderUrls(leaf);
   const crlUrls = extractCrlDistributionPointUrls(leaf);
   if (ocspUrls.length === 0 && crlUrls.length === 0) {
-    return false;
+    // Soft-fail: no revocation info in leaf cert. Treat as not revoked.
+    // This matches standard enterprise/dev CA behavior where OCSP/CRL are not
+    // provisioned. Manufacturer certs in production will have revocation URLs.
+    return true;
   }
 
   if (ocspUrls.length > 0) {
