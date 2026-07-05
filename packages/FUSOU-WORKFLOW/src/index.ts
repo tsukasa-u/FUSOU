@@ -10,13 +10,14 @@ import {
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  WORKFLOW_STATE_KV?: KVNamespace;
   QUEST_INDEX_DB?: D1Database;
   MASTER_DATA_BUCKET?: R2Bucket;
   MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
   COMPACTION_QUEUE?: Queue<any>;
-  // TiDB Cloud Serverless connection URL
-  TIDB_KC_DB_URL?: string;
+  TURSO_DATABASE_URL: string;
+  TURSO_AUTH_TOKEN: string;
   // Cleanup job auth token
   MASTER_DATA_CLEANUP_TOKEN?: string;
   // Bearer token required for /battle-data/upload (must be set; endpoint is disabled without it)

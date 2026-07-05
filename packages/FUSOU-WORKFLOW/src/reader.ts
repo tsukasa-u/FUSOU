@@ -4,14 +4,14 @@
  * Role: Unified query interface for recent (Hot) and historical (Cold) data
  *
  * Access Pattern:
- * 1. Query Hot: TiDB buffer_logs (or D1 fallback on error)
+ * 1. Query Hot: Turso buffer_logs_active (default)
+ *    - During cron processing window only, also include buffer_logs_processing
  * 2. Query Cold: D1 block_indexes → R2 Range Request (efficient, historical)
  * 3. Merge: Combine and deduplicate results
  * 4. Cache: Aggressive caching for Cold data (immutable)
  *
  * Data Consistency:
- * - Hot data is stored in TiDB (primary) or D1 (fallback)
- * - Must query TiDB if configured, otherwise data won't be found
+ * - Hot data is stored only in Turso
  *
  * Performance Target:
  * - Hot only: < 50ms
@@ -28,7 +28,7 @@ import {
   parseNullAvroBlock,
 } from "./avro-manual";
 import { computeSchemaFingerprint } from "./avro-manual";
-import { fetchHotDataWithFallback, BufferLogRecord } from "./db";
+import { fetchHotData as fetchTursoHotData, BufferLogRecord } from "./db";
 
 // Bundled fingerprints — kept in sync via: pnpm --filter fusou-workflow run generate:all
 // This import is resolved at build time, so no manual env var setup is needed.
@@ -38,9 +38,29 @@ import bundledFingerprints from "../../configs/fingerprints.json";
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  WORKFLOW_STATE_KV?: KVNamespace;
   TABLE_FINGERPRINTS_JSON?: string; // map: { "0.4": { "table": ["<sha256>", ...] }, ... }
-  // TiDB Cloud Serverless connection URL (required for hot data queries)
-  TIDB_KC_DB_URL?: string;
+  TURSO_DATABASE_URL: string;
+  TURSO_AUTH_TOKEN: string;
+}
+
+const KV_PROCESSING_ACTIVE_KEY = "buffer_processing_active";
+
+async function shouldIncludeProcessingTable(env: Env): Promise<boolean> {
+  if (!env.WORKFLOW_STATE_KV) {
+    // Safe default when KV is not configured.
+    return true;
+  }
+  try {
+    const state = await env.WORKFLOW_STATE_KV.get(KV_PROCESSING_ACTIVE_KEY);
+    return state === "1";
+  } catch (error) {
+    console.warn(
+      "[Reader] Failed to read KV processing state; falling back to include processing table:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return true;
+  }
 }
 
 interface QueryParams {
@@ -76,21 +96,20 @@ interface BlockIndex {
 }
 
 /**
- * Fetch Hot data from TiDB buffer_logs (or D1 fallback on error)
- *
- * CRITICAL: Data is stored in TiDB if TIDB_KC_DB_URL is configured.
- * D1 fallback only happens on TiDB connection/query error.
+ * Fetch Hot data from Turso buffer tables.
  *
  * FIXED: Hot data contains Avro OCF binary, not JSON text.
  * Must deserialize using Avro parser.
  */
 async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
-  const { rows } = await fetchHotDataWithFallback(env, {
+  const includeProcessing = await shouldIncludeProcessingTable(env);
+  const { rows } = await fetchTursoHotData(env, {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
     from: params.from,
     to: params.to,
     table_version: params.table_version,
+    includeProcessing,
   });
 
   // FIXED: Deserialize Avro OCF binary data (not JSON text)

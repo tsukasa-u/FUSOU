@@ -1,7 +1,7 @@
 // Note: Full Avro validation is performed at FUSOU-WEB upload endpoint
 // Here we only do lightweight header check for defense-in-depth
 
-import { insertBufferLogsWithFallback, UnifiedDbEnv } from "./db";
+import { insertBufferLogs } from "./db";
 /**
  * Lightweight Avro header validation (DoS prevention)
  */
@@ -28,8 +28,8 @@ interface Env {
   BATTLE_INDEX_DB: D1Database;
   // Optional tuning: chunk size for bulk inserts (<= 500)
   BUFFER_CHUNK_SIZE?: string;
-  // TiDB Cloud Serverless connection URL (optional - falls back to D1 if not set)
-  TIDB_KC_DB_URL?: string;
+  TURSO_DATABASE_URL: string;
+  TURSO_AUTH_TOKEN: string;
 }
 
 interface BufferLogRecord {
@@ -40,6 +40,7 @@ interface BufferLogRecord {
   timestamp: number; // milliseconds
   data: ArrayBuffer; // Avro binary BLOB
   uploaded_by?: string;
+  trust_tag?: string;
 }
 
 // Legacy queue message format (single table per message)
@@ -52,6 +53,7 @@ interface LegacyQueueMessage {
   tableVersion: string; // 0.4, 0.5, etc.
   triggeredAt?: string;
   userId?: string;
+  trust_tag?: string;
 }
 
 // Table offset info for batched messages
@@ -72,13 +74,30 @@ interface BatchedQueueMessage {
   userId?: string;
   payload_base64: string; // Full concatenated payload
   table_offsets: TableOffset[]; // Offsets for each table
+  trust_tag?: string;
 }
 
 // Union type for queue messages
 type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
 
+function toArrayBuffer(data: Uint8Array): ArrayBuffer {
+  return data.buffer.slice(
+    data.byteOffset,
+    data.byteOffset + data.byteLength,
+  ) as ArrayBuffer;
+}
+
+function normalizeTrustTag(value: unknown): string {
+  return value === "hw_verified" ||
+    value === "sw_verified" ||
+    value === "unverified" ||
+    value === "suspicious"
+    ? value
+    : "unverified";
+}
+
 // Note: buildBulkInsertSQL and flattenRecords have been removed.
-// buffer_logs inserts now use insertBufferLogsWithFallback from ./db
+// buffer_logs inserts now use insertBufferLogs from ./db
 
 /**
  * Normalize queue message to buffer log records
@@ -129,11 +148,9 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
         period_tag: msg.periodTag ?? "latest",
         table_version: tableVersion,
         timestamp,
-        data: slice.buffer.slice(
-          slice.byteOffset,
-          slice.byteOffset + slice.byteLength,
-        ),
+        data: toArrayBuffer(slice),
         uploaded_by: msg.userId,
+        trust_tag: normalizeTrustTag(msg.trust_tag),
       });
     }
 
@@ -164,12 +181,9 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
       period_tag: legacyMsg.periodTag ?? "latest",
       table_version: tableVersion,
       timestamp,
-      // FIXED: Use proper slice to handle Uint8Array buffer offset correctly
-      data: avroBytes.buffer.slice(
-        avroBytes.byteOffset,
-        avroBytes.byteOffset + avroBytes.byteLength,
-      ),
+      data: toArrayBuffer(avroBytes),
       uploaded_by: legacyMsg.userId,
+      trust_tag: normalizeTrustTag(legacyMsg.trust_tag),
     },
   ];
 }
@@ -215,7 +229,7 @@ export async function handleBufferConsumer(
     return;
   }
 
-  // Step 2: Insert with TiDB -> D1 fallback
+  // Step 2: Insert into Turso buffer_logs_active
   try {
     const recordsForInsert = allRecords.map((r) => ({
       dataset_id: r.dataset_id,
@@ -225,9 +239,10 @@ export async function handleBufferConsumer(
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,
+      trust_tag: r.trust_tag,
     }));
 
-    const { source, insertedCount } = await insertBufferLogsWithFallback(
+    const { source, insertedCount } = await insertBufferLogs(
       env,
       recordsForInsert,
     );
@@ -243,7 +258,7 @@ export async function handleBufferConsumer(
       }
     });
   } catch (err) {
-    console.error("❌ Insert failed (both TiDB and D1):", err);
+    console.error("❌ Insert failed (Turso):", err);
     // Retry entire batch (Queue will re-deliver)
     batch.retryAll();
   }
@@ -277,7 +292,7 @@ export async function handleBufferConsumerChunked(
     return;
   }
 
-  // Insert with automatic TiDB -> D1 fallback on error
+  // Insert into Turso buffer_logs_active
   try {
     const recordsForInsert = allRecords.map((r) => ({
       dataset_id: r.dataset_id,
@@ -287,9 +302,10 @@ export async function handleBufferConsumerChunked(
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,
+      trust_tag: r.trust_tag,
     }));
 
-    const { source, insertedCount } = await insertBufferLogsWithFallback(
+    const { source, insertedCount } = await insertBufferLogs(
       env,
       recordsForInsert,
     );
@@ -308,7 +324,7 @@ export async function handleBufferConsumerChunked(
     );
   } catch (err) {
     console.error(
-      "[Buffer Consumer] Insert failed (both TiDB and D1):",
+      "[Buffer Consumer] Insert failed (Turso):",
       err instanceof Error ? err.message : String(err),
     );
     batch.retryAll();
