@@ -45,8 +45,17 @@ export async function decodeSynergyPayload(
     return await decompressBytes(body, "gzip");
   }
 
-  // Try Brotli when payload does not look like plain JSON.
-  if (body.length > 0 && body[0] !== 0x7b && body[0] !== 0x5b) {
+  // Fast-path: plain JSON payload.
+  try {
+    JSON.parse(new TextDecoder().decode(body));
+    return body;
+  } catch {
+    // Not plain JSON; try Brotli fallback next.
+  }
+
+  // Some Brotli payloads can coincidentally start with JSON-like bytes.
+  // Always attempt Brotli fallback when plain JSON parse failed.
+  if (body.length > 0) {
     try {
       return await decompressBytes(body, "br");
     } catch {
