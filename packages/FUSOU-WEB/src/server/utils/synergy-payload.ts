@@ -1,5 +1,3 @@
-import { promisify } from "node:util";
-import { brotliDecompress } from "node:zlib";
 
 export type SynergyPayloadValidationIssue =
   | "decode"
@@ -7,7 +5,41 @@ export type SynergyPayloadValidationIssue =
   | "root_not_object"
   | "hash_mismatch";
 
-const brotliDecompressAsync = promisify(brotliDecompress);
+type SupportedCompressionFormat =
+  | "gzip"
+  | "deflate"
+  | "deflate-raw"
+  | "br";
+
+async function decompressWithStream(
+  body: Uint8Array,
+  format: SupportedCompressionFormat,
+): Promise<Uint8Array> {
+  const DS = (
+    globalThis as unknown as {
+      DecompressionStream?: new (
+        format: SupportedCompressionFormat,
+      ) => DecompressionStream;
+    }
+  ).DecompressionStream;
+
+  if (!DS) {
+    throw new Error("DecompressionStream is not available in this runtime");
+  }
+
+  const ds = new DS(format);
+  const backing = body.buffer;
+  const bytes =
+    body.byteOffset === 0 && body.byteLength === backing.byteLength
+      ? (backing as ArrayBuffer)
+      : (backing.slice(
+          body.byteOffset,
+          body.byteOffset + body.byteLength,
+        ) as ArrayBuffer);
+  const stream = new Blob([bytes]).stream().pipeThrough(ds);
+  const out = await new Response(stream).arrayBuffer();
+  return new Uint8Array(out);
+}
 
 export class SynergyPayloadValidationError extends Error {
   constructor(
@@ -26,16 +58,25 @@ async function decompressBytes(
   body: Uint8Array,
   format: "gzip" | "br",
 ): Promise<Uint8Array> {
-  if (format === "br") {
-    const out = await brotliDecompressAsync(body);
-    return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
+  if (format === "gzip") {
+    return await decompressWithStream(body, "gzip");
   }
 
-  const ds = new DecompressionStream(format as CompressionFormat);
-  const ab = new Uint8Array(body).buffer;
-  const stream = new Blob([ab]).stream().pipeThrough(ds);
-  const out = await new Response(stream).arrayBuffer();
-  return new Uint8Array(out);
+  try {
+    return await decompressWithStream(body, "br");
+  } catch (streamErr) {
+    // Fallback for Node-based environments where DecompressionStream("br") may
+    // be unavailable: try node:zlib dynamically.
+    try {
+      const { promisify } = await import("node:util");
+      const { brotliDecompress } = await import("node:zlib");
+      const brotliDecompressAsync = promisify(brotliDecompress);
+      const out = await brotliDecompressAsync(body);
+      return new Uint8Array(out.buffer, out.byteOffset, out.byteLength);
+    } catch {
+      throw streamErr;
+    }
+  }
 }
 
 export async function decodeSynergyPayload(

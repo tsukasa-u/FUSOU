@@ -34,6 +34,7 @@
  *   --env               "production" or omit for dev
  *   --dry-run           Print plan without executing
  *   --force             Allocate a fresh revision even if the same content already exists
+ *   --br                Force Brotli payload upload (default: off in production)
  *
  * NOTE: --bucket-name must be the actual R2 bucket name (e.g. "kc-master-data"),
  * NOT the wrangler binding name ("MASTER_DATA_BUCKET").
@@ -80,6 +81,7 @@ function parseArgs(argv) {
     "--dry-run",
     "--force",
     "--no-br",
+    "--br",
     "--help",
     "-h",
   ]);
@@ -119,8 +121,15 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--force") opts.force = true;
     else if (arg === "--no-br") opts.noBr = true;
+    else if (arg === "--br") opts.br = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
   }
+
+  if (opts.noBr && opts.br) {
+    console.error("Error: --no-br and --br cannot be used together.");
+    process.exit(1);
+  }
+
   return opts;
 }
 
@@ -142,6 +151,7 @@ Options:
   --dry-run               Print plan without executing
   --force                 Allocate a fresh revision even if the same content already exists
   --no-br                 Upload raw JSON (disable Brotli payload)
+  --br                    Force Brotli payload upload (default: off in production)
   `);
   process.exit(1);
 }
@@ -364,13 +374,22 @@ async function main() {
   const fileBuffer = readFileSync(filePath);
   const fileHash = sha256(fileBuffer);
   const fileSizeKB = (fileBuffer.length / 1024).toFixed(1);
-  const uploadBuffer = opts.noBr
-    ? fileBuffer
-    : brotliCompressSync(fileBuffer, {
+  const useBrotli =
+    opts.br === true
+      ? true
+      : opts.noBr === true
+        ? false
+        : opts.env === "production"
+          ? false
+          : true;
+
+  const uploadBuffer = useBrotli
+    ? brotliCompressSync(fileBuffer, {
         params: {
           [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
         },
-      });
+      })
+    : fileBuffer;
   const uploadSizeKB = (uploadBuffer.length / 1024).toFixed(1);
 
   let meta;
@@ -433,7 +452,7 @@ async function main() {
   console.log("=== Synergy Upload Plan ===");
   console.log(`  File:             ${basename(filePath)} (${fileSizeKB} KB)`);
   console.log(
-    `  Upload Payload:   ${opts.noBr ? "raw json" : "brotli"} (${uploadSizeKB} KB)`,
+    `  Upload Payload:   ${useBrotli ? "brotli" : "raw json"} (${uploadSizeKB} KB)`,
   );
   console.log(`  SHA-256:          ${fileHash}`);
   console.log(`  Period Tag:       ${periodTag}`);
@@ -449,6 +468,13 @@ async function main() {
       : "(missing)";
   console.log(`  Admin Token:      ${adminTokenLabel}`);
   console.log();
+
+  if (opts.env === "production" && !useBrotli) {
+    console.log(
+      "  note: production upload defaults to raw json for compatibility (use --br to override)",
+    );
+    console.log();
+  }
 
   if (opts.dryRun) {
     console.log("[dry-run] Would execute the following steps:");
