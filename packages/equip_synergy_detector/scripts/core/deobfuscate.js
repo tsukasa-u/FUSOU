@@ -13,19 +13,15 @@ const path = require("path");
 const fs = require("fs");
 const vm = require("node:vm");
 
-const ROOT = path.resolve(__dirname, "..");
+const { resolveScript, ROOT } = require("../../lib/loader");
 const args = process.argv.slice(2);
+const periodTagIdx = args.indexOf("--period-tag");
+const periodTag = periodTagIdx >= 0 ? args[periodTagIdx + 1] : null;
 
-function getArg(name, fallback) {
-  const idx = args.indexOf(name);
-  return idx >= 0 && args[idx + 1] ? args[idx + 1] : fallback;
-}
-
-const inputPath = path.resolve(ROOT, getArg("--input", "main.js"));
-const outputPath = path.resolve(
-  ROOT,
-  getArg("--output", "output/deobfuscated.js"),
-);
+// Output configuration
+const inputPath = resolveScript(true, periodTag);
+const outDir = path.join(ROOT, "output");
+const outputPath = path.join(outDir, periodTag ? `deobfuscated_${periodTag}.js` : "deobfuscated.js");
 
 if (!fs.existsSync(inputPath)) {
   console.error(`Error: input file not found: ${inputPath}`);

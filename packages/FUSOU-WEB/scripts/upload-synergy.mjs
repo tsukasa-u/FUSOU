@@ -33,7 +33,8 @@
  *   --admin-token       X-ADMIN-TOKEN value. Default: ADMIN_TOKEN env var
  *   --env               "production" or omit for dev
  *   --dry-run           Print plan without executing
- *   --force             Treat duplicate-manifest 409 as success (idempotent)
+ *   --force             Allocate a fresh revision even if the same content already exists
+ *   --br                Force Brotli payload upload (default: off in production)
  *
  * NOTE: --bucket-name must be the actual R2 bucket name (e.g. "kc-master-data"),
  * NOT the wrangler binding name ("MASTER_DATA_BUCKET").
@@ -47,11 +48,24 @@ import { spawnSync } from "child_process";
 import { brotliCompressSync, constants as zlibConstants } from "zlib";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+import { readdirSync, statSync } from "fs";
+
 // Default file: equip_synergy_detector output lives next to FUSOU-WEB in the monorepo
-const DEFAULT_FILE = resolve(
-  __dirname,
-  "../../equip_synergy_detector/output/slot_item_effects.json",
-);
+function findDefaultFile(periodTag = null) {
+  const dir = resolve(__dirname, "../../equip_synergy_detector/output");
+  if (!existsSync(dir)) return null;
+
+  if (periodTag) {
+    const matched = join(dir, `slot_item_effects_${periodTag}.json`);
+    if (existsSync(matched)) return matched;
+  }
+
+  const files = readdirSync(dir)
+    .filter(f => f.startsWith("slot_item_effects_") && f.endsWith(".json") && f !== "slot_item_effects_ast.json")
+    .map(f => ({ name: f, fullPath: join(dir, f), mtimeMs: statSync(join(dir, f)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return files.length > 0 ? files[0].fullPath : null;
+}
 
 // ── Parse CLI arguments ────────────────────────────────────────────
 function parseArgs(argv) {
@@ -67,6 +81,7 @@ function parseArgs(argv) {
     "--dry-run",
     "--force",
     "--no-br",
+    "--br",
     "--help",
     "-h",
   ]);
@@ -106,8 +121,15 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--force") opts.force = true;
     else if (arg === "--no-br") opts.noBr = true;
+    else if (arg === "--br") opts.br = true;
     else if (arg === "--help" || arg === "-h") opts.help = true;
   }
+
+  if (opts.noBr && opts.br) {
+    console.error("Error: --no-br and --br cannot be used together.");
+    process.exit(1);
+  }
+
   return opts;
 }
 
@@ -127,8 +149,9 @@ Options:
   --admin-token <token>   Default: ADMIN_TOKEN env var
   --env production        Target production (default: dev / localhost:4321)
   --dry-run               Print plan without executing
-  --force                 Treat duplicate-manifest 409 as success (idempotent)
+  --force                 Allocate a fresh revision even if the same content already exists
   --no-br                 Upload raw JSON (disable Brotli payload)
+  --br                    Force Brotli payload upload (default: off in production)
   `);
   process.exit(1);
 }
@@ -212,6 +235,11 @@ function resolveApiBase(env) {
       process.exit(1);
     }
     return siteUrl.replace(/\/$/, "");
+  }
+
+  const devSiteUrl = process.env.PUBLIC_SITE_URL;
+  if (devSiteUrl) {
+    return devSiteUrl.replace(/\/$/, "");
   }
 
   // Default: local dev server
@@ -325,7 +353,15 @@ async function main() {
   }
 
   // ── Resolve file path ─────────────────────────────────────────────
-  const filePath = resolve(opts.file || DEFAULT_FILE);
+  let filePath = opts.file;
+  if (!filePath) {
+    filePath = findDefaultFile(opts.periodTag || null);
+    if (!filePath) {
+      console.error("Error: Could not automatically find the latest slot_item_effects_YYYY-MM-DD.json in equip_synergy_detector/output.");
+      process.exit(1);
+    }
+  }
+  filePath = resolve(filePath);
   if (!existsSync(filePath)) {
     console.error(`Error: File not found: ${filePath}`);
     console.error(
@@ -338,13 +374,22 @@ async function main() {
   const fileBuffer = readFileSync(filePath);
   const fileHash = sha256(fileBuffer);
   const fileSizeKB = (fileBuffer.length / 1024).toFixed(1);
-  const uploadBuffer = opts.noBr
-    ? fileBuffer
-    : brotliCompressSync(fileBuffer, {
+  const useBrotli =
+    opts.br === true
+      ? true
+      : opts.noBr === true
+        ? false
+        : opts.env === "production"
+          ? false
+          : true;
+
+  const uploadBuffer = useBrotli
+    ? brotliCompressSync(fileBuffer, {
         params: {
           [zlibConstants.BROTLI_PARAM_QUALITY]: 11,
         },
-      });
+      })
+    : fileBuffer;
   const uploadSizeKB = (uploadBuffer.length / 1024).toFixed(1);
 
   let meta;
@@ -407,7 +452,7 @@ async function main() {
   console.log("=== Synergy Upload Plan ===");
   console.log(`  File:             ${basename(filePath)} (${fileSizeKB} KB)`);
   console.log(
-    `  Upload Payload:   ${opts.noBr ? "raw json" : "brotli"} (${uploadSizeKB} KB)`,
+    `  Upload Payload:   ${useBrotli ? "brotli" : "raw json"} (${uploadSizeKB} KB)`,
   );
   console.log(`  SHA-256:          ${fileHash}`);
   console.log(`  Period Tag:       ${periodTag}`);
@@ -423,6 +468,13 @@ async function main() {
       : "(missing)";
   console.log(`  Admin Token:      ${adminTokenLabel}`);
   console.log();
+
+  if (opts.env === "production" && !useBrotli) {
+    console.log(
+      "  note: production upload defaults to raw json for compatibility (use --br to override)",
+    );
+    console.log();
+  }
 
   if (opts.dryRun) {
     console.log("[dry-run] Would execute the following steps:");
@@ -441,7 +493,6 @@ async function main() {
   // Step 1: Allocate manifest
   console.log("[1/3] Allocating synergy manifest...");
   let manifest;
-  let reuseExistingManifest = false;
   try {
     manifest = await allocateSynergyManifest(
       apiBase,
@@ -451,6 +502,7 @@ async function main() {
         api_start2_batch_hash: apiStart2Hash,
         generator_version: generatorVersion,
         generated_at: meta.generated,
+        allow_duplicate_content: opts.force === true,
       },
       adminToken,
     );
@@ -461,48 +513,17 @@ async function main() {
       typeof err.body?.error === "string" &&
       err.body.error.includes("Duplicate");
 
-    if (isDuplicate && opts.force) {
-      const existingRevision = Number(err.body?.existing_period_revision);
-      if (!Number.isInteger(existingRevision) || existingRevision <= 0) {
-        throw new Error(
-          `${err.message}\nHint: duplicate response did not include a valid existing_period_revision.`,
-        );
-      }
-
-      reuseExistingManifest = true;
-      manifest = {
-        id: `existing-${existingRevision}`,
-        period_revision: existingRevision,
-        r2_keys: getSynergyManifestR2Keys(
-          periodTag,
-          existingRevision,
-          fileHash,
-        ),
-      };
-
-      console.warn(
-        `[force] Duplicate manifest already exists for period_tag=${periodTag} (existing_revision=${existingRevision}).`,
-      );
-      console.warn(
-        "[force] Reusing existing revision and continuing upload/complete steps.",
-      );
-    } else if (isDuplicate) {
+    if (isDuplicate) {
       throw new Error(
-        `${err.message}\nHint: If this is expected, retry with --force to treat duplicate as success.`,
+        `${err.message}\nHint: Retry with --force to allocate a fresh latest revision for the same content.`,
       );
     } else {
       throw err;
     }
   }
-  if (reuseExistingManifest) {
-    console.log(
-      `  ✓ Reusing existing manifest: period_revision=${manifest.period_revision}`,
-    );
-  } else {
-    console.log(
-      `  ✓ Allocated: period_revision=${manifest.period_revision}, id=${manifest.id}`,
-    );
-  }
+  console.log(
+    `  ✓ Allocated: period_revision=${manifest.period_revision}, id=${manifest.id}`,
+  );
   console.log(`  R2 key: ${manifest.r2_keys.sp_effect_json}`);
   console.log();
 
@@ -524,36 +545,30 @@ async function main() {
     `  ✓ sp_effect_item uploaded: ${manifest.r2_keys.sp_effect_json}`,
   );
 
-  if (reuseExistingManifest) {
-    console.log(
-      "  [force] Skip manifest sidecar overwrite for existing revision to keep completed state consistent.",
+  // Create and upload the manifest sidecar JSON for the allocated revision.
+  const manifestSidecar = JSON.stringify({
+    period_tag: periodTag,
+    period_revision: manifest.period_revision,
+    sp_effect_sha256: fileHash,
+    api_start2_batch_hash: apiStart2Hash,
+    generator_version: generatorVersion,
+    generated_at: meta.generated,
+    upload_status: "pending",
+  });
+  const sidecarTmp = resolve(filePath + ".manifest.json");
+  writeFileSync(sidecarTmp, manifestSidecar, "utf-8");
+  try {
+    wranglerR2Put(
+      manifest.r2_keys.manifest,
+      sidecarTmp,
+      opts.env,
+      bucketName,
     );
-  } else {
-    // Create and upload the manifest sidecar JSON for newly allocated revisions.
-    const manifestSidecar = JSON.stringify({
-      period_tag: periodTag,
-      period_revision: manifest.period_revision,
-      sp_effect_sha256: fileHash,
-      api_start2_batch_hash: apiStart2Hash,
-      generator_version: generatorVersion,
-      generated_at: meta.generated,
-      upload_status: "pending",
-    });
-    const sidecarTmp = resolve(filePath + ".manifest.json");
-    writeFileSync(sidecarTmp, manifestSidecar, "utf-8");
-    try {
-      wranglerR2Put(
-        manifest.r2_keys.manifest,
-        sidecarTmp,
-        opts.env,
-        bucketName,
-      );
-      console.log(
-        `  ✓ manifest sidecar uploaded: ${manifest.r2_keys.manifest}`,
-      );
-    } finally {
-      unlinkSync(sidecarTmp);
-    }
+    console.log(
+      `  ✓ manifest sidecar uploaded: ${manifest.r2_keys.manifest}`,
+    );
+  } finally {
+    unlinkSync(sidecarTmp);
   }
   console.log();
 
@@ -572,21 +587,7 @@ async function main() {
       `  ✓ ${completed.message} (status: ${completed.upload_status})`,
     );
   } catch (err) {
-    const isNoPendingAfterForce =
-      reuseExistingManifest &&
-      err instanceof ApiError &&
-      err.status === 404 &&
-      typeof err.body?.error === "string" &&
-      err.body.error.includes("No pending manifest found");
-
-    if (!isNoPendingAfterForce) {
-      throw err;
-    }
-
-    finalUploadStatus = "already-completed";
-    console.warn(
-      "  [force] Manifest was not pending (likely already completed). Treating as success.",
-    );
+    throw err;
   }
   console.log();
 

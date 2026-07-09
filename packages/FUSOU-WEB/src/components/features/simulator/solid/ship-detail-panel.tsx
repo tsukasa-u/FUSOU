@@ -23,6 +23,7 @@ import {
 import type {
   MstShipData,
   MstSlotItemData,
+  CrossRule,
   TripleRule,
   QuadRule,
   PentaRule,
@@ -34,7 +35,6 @@ import {
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
-  needsStatFallback,
 } from "@/features/simulator/ship-growth-utils";
 import {
   statRangeLabel,
@@ -45,19 +45,16 @@ import {
   groupBy,
 } from "@/features/simulator/display-utils";
 import {
-  normalizeEffects,
   normalizeCrossEffects,
-  getSingleEntriesForEquip,
-  getCrossEntriesForEquip,
   scoreSynergy,
-  synergySignature,
   stackingSynergyRows,
+  improvementSynergyRows,
+  mergeMultiEntries,
   groupByMultiStat,
   groupByGenericStat,
   groupByEquipType,
   getCompatibilityMeta,
   decodeCombosForDisplay,
-  comboBaseBonus,
   type MultiEntry,
   type MultiGroup,
   type MobilitySynergyRow,
@@ -70,7 +67,6 @@ import {
   SpecTable,
   SynergyStatInline,
   CompatibilityBadges,
-  EquipSlotGroup,
   MultiEntryDisplay,
 } from "./shared-ui";
 
@@ -85,13 +81,10 @@ function ShipDetailPanel(props: {
 }): JSX.Element {
   const [shipGrowthCap, setShipGrowthCap] =
     createSignal<NormalizedShipGrowthCaps | null>(null);
-  const [shipGrowthCapUpdatedAtIso, setShipGrowthCapUpdatedAtIso] =
-    createSignal<string | null>(null);
 
   createEffect(() => {
     const shipId = props.ship.id;
     setShipGrowthCap(null);
-    setShipGrowthCapUpdatedAtIso(null);
 
     let alive = true;
     (async () => {
@@ -121,11 +114,6 @@ function ShipDetailPanel(props: {
 
         if (alive) {
           setShipGrowthCap(cap);
-          setShipGrowthCapUpdatedAtIso(
-            typeof boundsJson.updated_at_iso === "string"
-              ? boundsJson.updated_at_iso
-              : null,
-          );
         }
       } catch {
         // Non-critical: keep master-data original display when ship-growth lookup fails.
@@ -137,16 +125,6 @@ function ShipDetailPanel(props: {
     };
   });
 
-  const usesShipGrowthFallback = createMemo(() => {
-    const cap = shipGrowthCap();
-    if (!cap) return false;
-    return (
-      (needsStatFallback(props.ship.tais) && cap.taisen_max > 0) ||
-      (needsStatFallback(props.ship.kaih) && cap.kaihi_max > 0) ||
-      (needsStatFallback(props.ship.saku) && cap.sakuteki_max > 0)
-    );
-  });
-
   const shipSynergy = createMemo(() => {
     const effects = getSlotItemEffects();
     if (!effects)
@@ -155,6 +133,7 @@ function ShipDetailPanel(props: {
         pair: [],
         speedSynergies: [],
         rangeSynergies: [],
+        double: [] as MultiGroup[],
         triple: [] as MultiGroup[],
         quad: [] as MultiGroup[],
         penta: [] as MultiGroup[],
@@ -164,16 +143,20 @@ function ShipDetailPanel(props: {
       if (!Array.isArray(ships) || ships.length === 0) return true;
       return ships.includes(props.ship.id);
     };
+    const isEquipUsableByShip = (equip: MstSlotItemData): boolean => {
+      const compat = getCompatibilityMeta(props.ship, equip);
+      return compat.normalSlots.length > 0 || compat.exslot != null;
+    };
 
     const single: Array<{
       equip: MstSlotItemData;
       base: Record<string, number>;
       star10: Record<string, number> | null;
+      transitions: Array<[number, Record<string, number>]> | null;
       c2: Record<string, number> | null;
       c3: Record<string, number> | null;
     }> = [];
     const singleDedupe = new Set<string>();
-    const _em = normalizeEffects(effects);
     const _cm = normalizeCrossEffects(effects);
 
     for (const rule of effects.effect_rules || []) {
@@ -191,11 +174,13 @@ function ShipDetailPanel(props: {
         if (singleDedupe.has(key)) continue;
         const equip = getMasterSlotItem(itemId);
         if (!equip || equip.id >= ENEMY_ID_THRESHOLD) continue;
+        if (!isEquipUsableByShip(equip)) continue;
         singleDedupe.add(key);
         single.push({
           equip,
           base: rule.b,
           star10: rule.l ?? null,
+          transitions: rule.i ?? null,
           c2: rule.c2 ?? null,
           c3: rule.c3 ?? null,
         });
@@ -209,27 +194,32 @@ function ShipDetailPanel(props: {
     }> = [];
     const pairDedupe = new Set<string>();
 
-    for (const rule of effects.cross_rules || []) {
-      if (!appliesToShip(rule.ships)) continue;
-      if (scoreSynergy(rule.synergy) === 0) continue;
+    const pairEntries = Object.values(_cm)
+      .flat()
+      .filter(
+        (entry) =>
+          appliesToShip(entry.ships) &&
+          scoreSynergy(entry.synergy) > 0 &&
+          !entry.cancels_single,
+      );
 
-      for (const p of rule.pairs) {
-        let a = getMasterSlotItem(p[0]);
-        let b = getMasterSlotItem(p[1]);
-        if (!a || !b || a.id >= ENEMY_ID_THRESHOLD || b.id >= ENEMY_ID_THRESHOLD) continue;
+    for (const entry of pairEntries) {
+      let a = getMasterSlotItem(entry.items[0]);
+      let b = getMasterSlotItem(entry.items[1]);
+      if (!a || !b || a.id >= ENEMY_ID_THRESHOLD || b.id >= ENEMY_ID_THRESHOLD) continue;
+      if (!isEquipUsableByShip(a) || !isEquipUsableByShip(b)) continue;
 
-        if (a.sortno > b.sortno || (a.sortno === b.sortno && a.id > b.id)) {
-          const tmp = a;
-          a = b;
-          b = tmp;
-        }
-
-        const dedupeKey = `${a.id}:${b.id}:${JSON.stringify(rule.synergy)}`;
-        if (pairDedupe.has(dedupeKey)) continue;
-        pairDedupe.add(dedupeKey);
-
-        pair.push({ a, b, stats: rule.synergy });
+      if (a.sortno > b.sortno || (a.sortno === b.sortno && a.id > b.id)) {
+        const tmp = a;
+        a = b;
+        b = tmp;
       }
+
+      const dedupeKey = `${a.id}:${b.id}:${JSON.stringify(entry.synergy)}`;
+      if (pairDedupe.has(dedupeKey)) continue;
+      pairDedupe.add(dedupeKey);
+
+      pair.push({ a, b, stats: entry.synergy });
     }
 
     single.sort((x, y) => scoreSynergy(y.base) - scoreSynergy(x.base));
@@ -478,13 +468,11 @@ function ShipDetailPanel(props: {
     // Grouped by primary stat key for subcategory display.
 
     const buildMultiEntries = (
-      rules: Array<TripleRule | QuadRule | PentaRule> | undefined,
+      rules: Array<CrossRule | TripleRule | QuadRule | PentaRule> | undefined,
       comboSize: number,
     ): MultiEntry[] => {
       if (!rules) return [];
       const all: MultiEntry[] = [];
-      const _em = normalizeEffects(effects);
-      const _cm = normalizeCrossEffects(effects);
       for (const rule of rules) {
         if (!appliesToShip(rule.ships)) continue;
         if (rule.category_pools) {
@@ -493,7 +481,9 @@ function ShipDetailPanel(props: {
               .map((id) => getMasterSlotItem(id))
               .filter(
                 (it): it is MstSlotItemData =>
-                  it != null && it.id < ENEMY_ID_THRESHOLD,
+                  it != null &&
+                  it.id < ENEMY_ID_THRESHOLD &&
+                  isEquipUsableByShip(it),
               ),
           );
           if (pools.some((p) => p.length === 0)) continue;
@@ -510,23 +500,47 @@ function ShipDetailPanel(props: {
             .map((id) => getMasterSlotItem(id))
             .filter(
               (it): it is MstSlotItemData =>
-                it != null && it.id < ENEMY_ID_THRESHOLD,
+                it != null &&
+                it.id < ENEMY_ID_THRESHOLD &&
+                isEquipUsableByShip(it),
             );
           if (pool.length < comboSize) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
           all.push({ kind: "pool", pool, comboSize, correction: rule.synergy });
         } else if (rule.fixed_items && rule.free_pool) {
-          // Fixed+free rule: fixed items always present, any (comboSize-k) of free_pool
-          const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
-          const pool = allPoolIds
+          // Fixed+free rule: keep structure for display instead of flattening to a single pool.
+          const fixed = rule.fixed_items
             .map((id) => getMasterSlotItem(id))
             .filter(
-              (it): it is MstSlotItemData =>
-                it != null && it.id < ENEMY_ID_THRESHOLD,
+              (it: MstSlotItemData | null | undefined): it is MstSlotItemData =>
+                it != null &&
+                it.id < ENEMY_ID_THRESHOLD &&
+                isEquipUsableByShip(it),
             );
+          const freePool = rule.free_pool
+            .map((id) => getMasterSlotItem(id))
+            .filter(
+              (it: MstSlotItemData | null | undefined): it is MstSlotItemData =>
+                it != null &&
+                it.id < ENEMY_ID_THRESHOLD &&
+                isEquipUsableByShip(it),
+            );
+          const pool = [...fixed, ...freePool];
           if (pool.length < comboSize) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
-          all.push({ kind: "pool", pool, comboSize, correction: rule.synergy });
+          all.push({
+            kind: "pool",
+            pool,
+            comboSize,
+            correction: rule.synergy,
+            fixed,
+            freePool,
+            freePoolWithReplacement: !!rule.free_pool_with_replacement,
+            freePickCount:
+              typeof rule.free_pick_count === "number"
+                ? rule.free_pick_count
+                : undefined,
+          });
         } else if (rule.implicants) {
           for (const implicant of rule.implicants) {
             const pools = implicant.map((p) =>
@@ -534,7 +548,9 @@ function ShipDetailPanel(props: {
                 .map((id) => getMasterSlotItem(id))
                 .filter(
                   (it): it is MstSlotItemData =>
-                    it != null && it.id < ENEMY_ID_THRESHOLD,
+                    it != null &&
+                    it.id < ENEMY_ID_THRESHOLD &&
+                    isEquipUsableByShip(it),
                 ),
             );
             if (pools.some((p) => p.length === 0)) continue;
@@ -544,25 +560,24 @@ function ShipDetailPanel(props: {
               pools,
               cancels_single: !!rule.cancels_single,
               correction: rule.synergy,
+              is_implicant: true,
             });
           }
         } else {
-          // Explicit combos: decode up to 500 to prevent main-thread locking
+          // Explicit combos: show only the multi-item correction delta.
           const combos = decodeCombosForDisplay(rule, comboSize);
 
           for (const comboIds of combos) {
             const items = comboIds.map((id) => getMasterSlotItem(id));
             if (items.some((it) => !it || it.id >= ENEMY_ID_THRESHOLD))
               continue;
-            const base = comboBaseBonus(props.ship.id, comboIds, _em, _cm);
-            for (const [k, v] of Object.entries(rule.synergy)) {
-              if (v) base[k] = (base[k] || 0) + v;
-            }
-            if (scoreSynergy(base) > 0) {
+            if ((items as MstSlotItemData[]).some((it) => !isEquipUsableByShip(it)))
+              continue;
+            if (scoreSynergy(rule.synergy) > 0) {
               all.push({
                 kind: "combo",
                 combo: items as MstSlotItemData[],
-                netStats: base,
+                netStats: rule.synergy,
               });
             }
           }
@@ -571,78 +586,23 @@ function ShipDetailPanel(props: {
       return all;
     };
 
-    const triple = groupByMultiStat(buildMultiEntries(effects.triple_rules, 3));
-    const quad = groupByMultiStat(buildMultiEntries(effects.quad_rules, 4));
-    const penta = groupByMultiStat(buildMultiEntries(effects.penta_rules, 5));
-
-    const initialGroupMap = new Map<
-      string,
-      {
-        a: MstSlotItemData;
-        bGroup: MstSlotItemData[];
-        stats: Record<string, number>;
-      }
-    >();
-    for (const row of pair) {
-      const statHash = synergySignature(row.stats);
-      const key = `${row.a.id}::${statHash}`;
-      let group = initialGroupMap.get(key);
-      if (!group) {
-        group = { a: row.a, bGroup: [], stats: row.stats };
-        initialGroupMap.set(key, group);
-      }
-      group.bGroup.push(row.b);
-    }
-
-    const initialGroups = Array.from(initialGroupMap.values());
-    for (const row of initialGroups) {
-      row.bGroup.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
-    }
-
-    // Pass 2: Group left-hand side (A items) if their B groups and stats match perfectly
-    const finalGroupMap = new Map<
-      string,
-      {
-        aGroup: MstSlotItemData[];
-        bGroup: MstSlotItemData[];
-        stats: Record<string, number>;
-      }
-    >();
-    for (const row of initialGroups) {
-      const bHash = row.bGroup.map((b) => b.id).join(",");
-      const statHash = synergySignature(row.stats);
-      const key = `${bHash}::${statHash}`;
-      let group = finalGroupMap.get(key);
-      if (!group) {
-        group = { aGroup: [], bGroup: row.bGroup, stats: row.stats };
-        finalGroupMap.set(key, group);
-      }
-      group.aGroup.push(row.a);
-    }
-
-    const pairGroups = Array.from(finalGroupMap.values());
-    for (const row of pairGroups) {
-      row.aGroup.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
-    }
-    pairGroups.sort((a, b) => {
-      const aIcon = a.aGroup[0].type?.[3] ?? 0;
-      const bIcon = b.aGroup[0].type?.[3] ?? 0;
-      if (aIcon !== bIcon) return aIcon - bIcon;
-      return (
-        a.aGroup[0].sortno - b.aGroup[0].sortno ||
-        a.aGroup[0].id - b.aGroup[0].id
-      );
-    });
+    const double = groupByMultiStat(
+      mergeMultiEntries(buildMultiEntries(effects.cross_rules, 2)),
+    );
+    const triple = groupByMultiStat(
+      mergeMultiEntries(buildMultiEntries(effects.triple_rules, 3)),
+    );
+    const quad = groupByMultiStat(
+      mergeMultiEntries(buildMultiEntries(effects.quad_rules, 4)),
+    );
+    const penta = groupByMultiStat(
+      mergeMultiEntries(buildMultiEntries(effects.penta_rules, 5)),
+    );
 
     const groupedSingle = groupByGenericStat(
       single,
       (row) => row.base,
       (row) => scoreSynergy(row.base),
-    );
-    const groupedPair = groupByGenericStat(
-      pairGroups,
-      (row) => row.stats,
-      (row) => scoreSynergy(row.stats),
     );
     const groupedSpeed = groupByEquipType(
       speedSynergies,
@@ -657,14 +617,15 @@ function ShipDetailPanel(props: {
 
     return {
       single: groupedSingle,
-      pair: groupedPair,
       speedSynergies: groupedSpeed,
       rangeSynergies: groupedRange,
+      double,
       triple,
       quad,
       penta,
     };
   });
+
 
   let shipSynergyContainerRef!: HTMLElement;
   const [shipMinHeight, setShipMinHeight] = createSignal<number | null>(null);
@@ -874,17 +835,21 @@ function ShipDetailPanel(props: {
                                     基本
                                   </div>
                                   <SynergyStatInline stats={row.base} />
-                                  <Show
-                                    when={
-                                      row.star10 != null &&
-                                      scoreSynergy(row.star10 ?? undefined) > 0
-                                    }
+                                  <For
+                                    each={improvementSynergyRows(
+                                      row.star10,
+                                      row.transitions,
+                                    )}
                                   >
-                                    <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
-                                      改修★10
-                                    </div>
-                                    <SynergyStatInline stats={row.star10!} />
-                                  </Show>
+                                    {(improvementRow) => (
+                                      <>
+                                        <div class="text-xs text-base-content/70 mt-1 inline-flex items-center h-5">
+                                          {improvementRow.label}
+                                        </div>
+                                        <SynergyStatInline stats={improvementRow.stats} />
+                                      </>
+                                    )}
+                                  </For>
                                   <For
                                     each={stackingSynergyRows(row.c2, row.c3)}
                                   >
@@ -914,7 +879,7 @@ function ShipDetailPanel(props: {
                 <section>
                 <h4 class="text-md font-medium mb-2">装備組み合わせシナジー</h4>
                 <Show
-                  when={shipSynergy().pair.length > 0}
+                  when={shipSynergy() && shipSynergy()!.double.length > 0}
                   fallback={
                     <div class="rounded-lg border border-dashed border-base-300 px-3 py-4 text-sm text-base-content/50">
                       この艦に設定された装備組み合わせシナジーはありません
@@ -923,7 +888,7 @@ function ShipDetailPanel(props: {
                 >
                   <div class="rounded-lg border border-base-300/70 p-2">
                     <div id="ship-detail-pair-synergy-list" class={`space-y-3 pr-1 ${props.expandPairSynergy ? "" : "max-h-[30vh] overflow-y-auto"}`}>
-                      <For each={shipSynergy().pair}>
+                      <For each={shipSynergy().double}>
                         {(group) => (
 <LazyRender>
 <div>
@@ -935,25 +900,13 @@ function ShipDetailPanel(props: {
                             </h6>
                             <ProgressiveGrid
                               data={group.entries}
-                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-2"
+                              class="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-2"
                             >
-                              {(row) => (
-                                <div class="rounded border border-base-300/70 p-2 space-y-1">
-                                  <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-                                    <EquipSlotGroup
-                                      slotItems={row.aGroup}
-                                      currentEquipId={undefined}
-                                      onOpenEquip={props.onOpenEquip}
-                                    />
-                                    <span>+</span>
-                                    <EquipSlotGroup
-                                      slotItems={row.bGroup}
-                                      currentEquipId={undefined}
-                                      onOpenEquip={props.onOpenEquip}
-                                    />
-                                  </div>
-                                  <SynergyStatInline stats={row.stats} />
-                                </div>
+                              {(entry) => (
+                                <MultiEntryDisplay
+                                  entry={entry}
+                                  onOpenEquip={props.onOpenEquip}
+                                />
                               )}
                             </ProgressiveGrid>
 </div>
@@ -1162,7 +1115,7 @@ function ShipDetailPanel(props: {
                   <section class="mb-6">
                     <h4 class="font-medium mb-1">多装備シナジー</h4>
                     <p class="text-xs text-base-content/50 mb-4">
-                      3〜5装備の組み合わせ。「コンボ」は合計補正値（単体＋ペア＋多装備補正の合計）。「プール」はその中の任意K個を同時装備した際の補正値を示します。
+                      3〜5装備の組み合わせ。ここに表示される数値は、個別の単体・ペアシナジーに加えて<b>追加で得られるシナジー（差分）</b>を示しています。
                     </p>
                     <div class="space-y-6">
                       <Show when={shipSynergy().triple.length > 0}>

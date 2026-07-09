@@ -19,7 +19,12 @@ const ROOT = path.resolve(__dirname, "..");
 /**
  * Resolve the game script path.
  */
-function resolveScript(useMain) {
+function resolveScript(useMain, periodTag = null) {
+  if (periodTag) {
+    return useMain
+      ? path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcs2", "js", "main.js")
+      : path.join(ROOT, "output", `deobfuscated_${periodTag}.js`);
+  }
   return useMain
     ? path.join(ROOT, "main.js")
     : path.join(ROOT, "output", "deobfuscated.js");
@@ -29,8 +34,13 @@ function resolveScript(useMain) {
  * Find the first master data file in master_data/.
  * Returns the path or null.
  */
-function findMasterData() {
-  const dir = path.join(ROOT, "master_data");
+function findMasterData(periodTag = null) {
+  let dir;
+  if (periodTag) {
+    dir = path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcsapi");
+  } else {
+    dir = path.join(ROOT, "master_data");
+  }
   if (!fs.existsSync(dir)) return null;
   const files = fs
     .readdirSync(dir)
@@ -172,13 +182,14 @@ function setupRequireIntercept(window) {
  * @param {boolean} [opts.useMain=false]  Use main.js instead of deobfuscated.js
  * @param {function} [opts.getMst]        Mock getMst for App singleton (module 18622)
  * @param {boolean} [opts.silent=false]   Suppress log output
+ * @param {string} [opts.periodTag]       Optional period_tag to resolve from FUSOU-PROXY-DATA
  * @returns {{ kcsRequire: function, kcsCache: object, kcsModules: object, exports: any }}
  */
 function loadBundle(opts = {}) {
-  const { useMain = false, getMst, silent = false } = opts;
+  const { useMain = false, getMst, silent = false, periodTag = null } = opts;
   const log = silent ? () => {} : console.log.bind(console);
 
-  const targetScript = resolveScript(useMain);
+  const targetScript = resolveScript(useMain, periodTag);
   if (!fs.existsSync(targetScript)) {
     throw new Error("Target script not found: " + targetScript);
   }

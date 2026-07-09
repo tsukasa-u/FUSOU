@@ -193,9 +193,10 @@ app.get("/synergy-data", async (c) => {
     if (effectivePeriodTag) {
       sql += " AND period_tag = ?";
       params.push(effectivePeriodTag);
+      sql += " ORDER BY period_revision DESC, completed_at DESC LIMIT 1";
+    } else {
+      sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
     }
-
-    sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
 
     let manifest = (await db
       .prepare(sql)
@@ -482,6 +483,9 @@ app.post("/synergy-manifest", async (c) => {
       SELECT id, period_revision FROM synergy_manifest
       WHERE period_tag = ? AND sp_effect_sha256 = ?
         AND upload_status != 'failed'
+      ORDER BY
+        CASE WHEN upload_status = 'completed' THEN 0 ELSE 1 END,
+        period_revision DESC
       LIMIT 1
     `);
 
@@ -492,7 +496,7 @@ app.post("/synergy-manifest", async (c) => {
       period_revision: number;
     } | null;
 
-    if (existing && existing.id) {
+    if (existing && existing.id && body.allow_duplicate_content !== true) {
       return c.json(
         {
           error:
@@ -503,7 +507,8 @@ app.post("/synergy-manifest", async (c) => {
       );
     }
 
-    // Allocate next period_revision
+    // Allocate next period_revision. With allow_duplicate_content, identical
+    // payloads can still be promoted as a newer revision for the same period.
     const revisionStmt = db.prepare(`
       SELECT COALESCE(MAX(period_revision), 0) + 1 as next_revision
       FROM synergy_manifest
