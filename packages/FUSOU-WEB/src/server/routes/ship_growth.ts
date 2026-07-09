@@ -172,11 +172,20 @@ interface SynergySingleRule {
 interface SynergyCrossRule {
   ships?: unknown;
   synergy?: Record<string, unknown>;
+  pairs?: Array<[number, number]>;
+  item_pool?: number[];
+  fixed_items?: number[];
+  free_pool?: number[];
+  free_pool_with_replacement?: boolean;
+  free_pick_count?: number;
+  category_pools?: number[][];
+  implicants?: number[][][];
 }
 
 interface SynergyDataSet {
   singleByItem: Map<number, SynergySingleRule[]>;
   crossByPair: Map<string, SynergyCrossRule[]>;
+  crossRulesNonPair: SynergyCrossRule[];
 }
 
 interface ServerDerivationBreakdown {
@@ -410,6 +419,172 @@ function pickSingleSynergyTotals(
     : scaleTotals(base, count);
 }
 
+function choose(n: number, k: number): number {
+  if (k < 0 || k > n) return 0;
+  if (k === 0 || k === n) return 1;
+  let r = 1;
+  for (let i = 1; i <= k; i++) {
+    r = (r * (n - k + i)) / i;
+  }
+  return Math.round(r);
+}
+
+function hasEnoughItems(
+  itemCounts: Map<number, number>,
+  requiredItems: number[],
+): boolean {
+  const req = new Map<number, number>();
+  for (const id of requiredItems) req.set(id, (req.get(id) || 0) + 1);
+  for (const [id, c] of req.entries()) {
+    if ((itemCounts.get(id) || 0) < c) return false;
+  }
+  return true;
+}
+
+function countBoundedMultisets(available: number[], pick: number): number {
+  if (pick < 0) return 0;
+  if (pick === 0) return 1;
+  const dp = new Array(pick + 1).fill(0);
+  dp[0] = 1;
+  for (const cap of available) {
+    const next = new Array(pick + 1).fill(0);
+    for (let used = 0; used <= pick; used++) {
+      if (dp[used] === 0) continue;
+      const maxTake = Math.min(cap, pick - used);
+      for (let take = 0; take <= maxTake; take++) {
+        next[used + take] += dp[used];
+      }
+    }
+    for (let i = 0; i <= pick; i++) dp[i] = next[i];
+  }
+  return dp[pick];
+}
+
+function countCrossRuleMatchTimes(
+  rule: SynergyCrossRule,
+  itemCountMap: Map<number, number>,
+  equippedSet: Set<number>,
+  comboSize: number,
+): number {
+  if (Array.isArray(rule.pairs) && rule.pairs.length > 0) {
+    let times = 0;
+    for (const pair of rule.pairs) {
+      if (!Array.isArray(pair) || pair.length !== 2) continue;
+      const a = toInt(pair[0]);
+      const b = toInt(pair[1]);
+      if (a <= 0 || b <= 0) continue;
+      if (hasEnoughItems(itemCountMap, [a, b])) times += 1;
+    }
+    return times;
+  }
+
+  if (Array.isArray(rule.category_pools) && rule.category_pools.length > 0) {
+    const poolMap = new Map<string, { pool: number[]; count: number }>();
+    for (const rawPool of rule.category_pools) {
+      if (!Array.isArray(rawPool) || rawPool.length === 0) return 0;
+      const pool = rawPool
+        .map((v) => toInt(v))
+        .filter((v) => Number.isInteger(v) && v > 0);
+      if (pool.length === 0) return 0;
+      const key = [...pool].sort((a, b) => a - b).join(",");
+      if (!poolMap.has(key)) poolMap.set(key, { pool, count: 0 });
+      poolMap.get(key)!.count += 1;
+    }
+    let times = 1;
+    for (const { pool, count } of poolMap.values()) {
+      const overlap = pool.filter((id) => equippedSet.has(id)).length;
+      if (overlap < count) return 0;
+      times *= choose(overlap, count);
+    }
+    return times;
+  }
+
+  if (Array.isArray(rule.implicants) && rule.implicants.length > 0) {
+    let totalTimes = 0;
+    for (const implicant of rule.implicants) {
+      if (!Array.isArray(implicant) || implicant.length === 0) continue;
+      const poolMap = new Map<string, { pool: number[]; count: number }>();
+      let invalidImplicant = false;
+      for (const rawPool of implicant) {
+        if (!Array.isArray(rawPool) || rawPool.length === 0) {
+          invalidImplicant = true;
+          continue;
+        }
+        const pool = rawPool
+          .map((v) => toInt(v))
+          .filter((v) => Number.isInteger(v) && v > 0);
+        if (pool.length === 0) {
+          invalidImplicant = true;
+          continue;
+        }
+        const key = [...pool].sort((a, b) => a - b).join(",");
+        if (!poolMap.has(key)) poolMap.set(key, { pool, count: 0 });
+        poolMap.get(key)!.count += 1;
+      }
+
+      if (invalidImplicant || poolMap.size === 0) continue;
+
+      let times = 1;
+      for (const { pool, count } of poolMap.values()) {
+        const overlap = pool.filter((id) => equippedSet.has(id)).length;
+        if (overlap < count) {
+          times = 0;
+          break;
+        }
+        times *= choose(overlap, count);
+      }
+      if (times > totalTimes) totalTimes = times;
+    }
+    return totalTimes;
+  }
+
+  if (Array.isArray(rule.item_pool) && rule.item_pool.length > 0) {
+    const itemPool = rule.item_pool
+      .map((v) => toInt(v))
+      .filter((v) => Number.isInteger(v) && v > 0);
+    const overlap = itemPool.filter((id) => equippedSet.has(id)).length;
+    return overlap >= comboSize ? choose(overlap, comboSize) : 0;
+  }
+
+  if (
+    Array.isArray(rule.fixed_items) &&
+    rule.fixed_items.length > 0 &&
+    Array.isArray(rule.free_pool) &&
+    rule.free_pool.length > 0
+  ) {
+    const fixedItems = rule.fixed_items
+      .map((v) => toInt(v))
+      .filter((v) => Number.isInteger(v) && v > 0);
+    const freePool = rule.free_pool
+      .map((v) => toInt(v))
+      .filter((v) => Number.isInteger(v) && v > 0);
+    if (!hasEnoughItems(itemCountMap, fixedItems)) return 0;
+
+    const neededFree =
+      typeof rule.free_pick_count === "number"
+        ? Math.max(0, Math.trunc(rule.free_pick_count))
+        : comboSize - fixedItems.length;
+
+    if (rule.free_pool_with_replacement) {
+      const fixedReq = new Map<number, number>();
+      for (const id of fixedItems) {
+        fixedReq.set(id, (fixedReq.get(id) || 0) + 1);
+      }
+      const available = freePool.map((id) => {
+        const total = itemCountMap.get(id) || 0;
+        const consumedByFixed = fixedReq.get(id) || 0;
+        return Math.max(0, total - consumedByFixed);
+      });
+      return countBoundedMultisets(available, neededFree);
+    }
+
+    const freeOverlap = freePool.filter((id) => equippedSet.has(id)).length;
+    return freeOverlap >= neededFree ? choose(freeOverlap, neededFree) : 0;
+  }
+
+  return 0;
+}
+
 async function loadSynergyDataSet(
   env: Bindings,
   periodTag: string,
@@ -457,7 +632,14 @@ async function loadSynergyDataSet(
     cross_rules?: Array<{
       ships: number[];
       synergy: Record<string, number>;
-      pairs: Array<[number, number]>;
+      pairs?: Array<[number, number]>;
+      item_pool?: number[];
+      fixed_items?: number[];
+      free_pool?: number[];
+      free_pool_with_replacement?: boolean;
+      free_pick_count?: number;
+      category_pools?: number[][];
+      implicants?: number[][][];
     }>;
   };
 
@@ -580,24 +762,47 @@ async function loadSynergyDataSet(
   }
 
   const crossByPair = new Map<string, SynergyCrossRule[]>();
+  const crossRulesNonPair: SynergyCrossRule[] = [];
   let droppedCrossCount = 0;
 
   // Prefer new cross_rules format; fall back to legacy cross_effects dict
   if (parsedPayload.cross_rules && Array.isArray(parsedPayload.cross_rules)) {
     for (const rule of parsedPayload.cross_rules) {
-      if (!rule || !Array.isArray(rule.pairs)) continue;
+      if (!rule) continue;
       const synRule: SynergyCrossRule = {
         ships: rule.ships ?? [],
         synergy: rule.synergy ?? {},
+        item_pool: rule.item_pool,
+        fixed_items: rule.fixed_items,
+        free_pool: rule.free_pool,
+        free_pool_with_replacement: rule.free_pool_with_replacement,
+        free_pick_count: rule.free_pick_count,
+        category_pools: rule.category_pools,
+        implicants: rule.implicants,
       };
-      for (const [a, b] of rule.pairs) {
-        const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
-        let list = crossByPair.get(key);
-        if (!list) {
-          list = [];
-          crossByPair.set(key, list);
+      if (Array.isArray(rule.pairs) && rule.pairs.length > 0) {
+        synRule.pairs = rule.pairs;
+        for (const [a, b] of rule.pairs) {
+          const key = `${Math.min(a, b)}:${Math.max(a, b)}`;
+          let list = crossByPair.get(key);
+          if (!list) {
+            list = [];
+            crossByPair.set(key, list);
+          }
+          list.push(synRule);
         }
-        list.push(synRule);
+        continue;
+      }
+
+      if (
+        Array.isArray(rule.category_pools) ||
+        Array.isArray(rule.item_pool) ||
+        (Array.isArray(rule.fixed_items) && Array.isArray(rule.free_pool)) ||
+        Array.isArray(rule.implicants)
+      ) {
+        crossRulesNonPair.push(synRule);
+      } else {
+        droppedCrossCount += 1;
       }
     }
   } else {
@@ -625,6 +830,7 @@ async function loadSynergyDataSet(
   const dataSet: SynergyDataSet = {
     singleByItem,
     crossByPair,
+    crossRulesNonPair,
   };
   const cacheKey = `${selectedManifest.period_tag}:${selectedManifest.period_revision}:${selectedManifest.content_hash}:${selectedManifest.sp_effect_sha256}`;
   synergyDataCache.set(cacheKey, {
@@ -695,6 +901,11 @@ function deriveServerNakedStats(
   }
 
   const equippedItemIds = Array.from(itemCountMap.keys()).sort((a, b) => a - b);
+  const equippedSet = new Set(equippedItemIds);
+  const equippedCountMap = new Map<number, number>();
+  for (const [itemId, state] of itemCountMap.entries()) {
+    equippedCountMap.set(itemId, state.count);
+  }
   let crossSynergyTotals = emptyTotals();
   for (let i = 0; i < equippedItemIds.length; i += 1) {
     for (let j = i + 1; j < equippedItemIds.length; j += 1) {
@@ -708,6 +919,16 @@ function deriveServerNakedStats(
         toShipTotals(matched.synergy),
       );
     }
+  }
+
+  for (const rule of synergyDataSet.crossRulesNonPair) {
+    if (!hasShipRule(rule, ship.master_id)) continue;
+    const times = countCrossRuleMatchTimes(rule, equippedCountMap, equippedSet, 2);
+    if (times <= 0) continue;
+    crossSynergyTotals = addTotals(
+      crossSynergyTotals,
+      scaleTotals(toShipTotals(rule.synergy), times),
+    );
   }
 
   const totalSynergyTotals = addTotals(singleSynergyTotals, crossSynergyTotals);
