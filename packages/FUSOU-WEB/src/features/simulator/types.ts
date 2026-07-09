@@ -64,6 +64,7 @@ export interface EquipEffect {
   ships: number[];
   b: Record<string, number>;
   l?: Record<string, number>;
+  i?: Array<[number, Record<string, number>]>;
   c2?: Record<string, number>;
   c3?: Record<string, number>;
 }
@@ -72,6 +73,14 @@ export interface CrossEffect {
   ships: number[];
   items: [number, number];
   synergy: Record<string, number>;
+  exclusive_group?: number;
+  cancels_single?: boolean;
+  placements?: SlotUsageSummary[];
+}
+
+export interface SlotUsageSummary {
+  normal: number;
+  exslot: number;
 }
 
 /** Single-item bonus rule: many items sharing the same (ships, bonus_profile) grouped together. */
@@ -85,14 +94,29 @@ export interface EffectRule {
   c3?: Record<string, number>;
   /** Item IDs that share this exact (ships, profile) combination. */
   items: number[];
+  exclusive_group?: number;
 }
 
 /** Cross-item (pairwise) synergy rule: many pairs sharing the same (ships, synergy) grouped together. */
 export interface CrossRule {
   ships: number[];
   synergy: Record<string, number>;
-  /** Pairs [[a,b], ...] sharing this ships+synergy (a < b). */
-  pairs: [number, number][];
+  /** Pairs [[a,b], ...] sharing this ships+synergy (a < b). Legacy format. */
+  pairs?: [number, number][];
+  /** AST format: implicants (each implicant is an array of pools). */
+  implicants?: number[][][];
+  /** AST format: category pools. */
+  category_pools?: number[][];
+  /** AST format: item pool. */
+  item_pool?: number[];
+  /** AST format: fixed + free-pool encoding. */
+  fixed_items?: number[];
+  free_pool?: number[];
+  free_pool_with_replacement?: boolean;
+  free_pick_count?: number;
+  cancels_single?: boolean;
+  exclusive_group?: number;
+  placements?: SlotUsageSummary[];
 }
 
 /** Base for triple/quad/penta/hexa rules. Combos are stored either as item_pool
@@ -113,6 +137,12 @@ interface MultiItemRule {
    *  ≥ (combo_size - fixed_items.length); apply synergy × C(overlap, needed) times. */
   fixed_items?: number[];
   free_pool?: number[];
+  /** When true, free_pool picks allow repetition (multiset choose).
+   *  This is used for grouped patterns like [fixed] + any 2 from pool with duplicates allowed.
+   */
+  free_pool_with_replacement?: boolean;
+  /** Number of picks from free_pool. Defaults to combo_size - fixed_items.length. */
+  free_pick_count?: number;
   /** Compact encoding for partial patterns: base64 of Uint8Array where each
    *  group of comboSize bytes is one combo encoded as indices into items[].
    *  items.length must be < 256. Decoded once and cached at runtime. */
@@ -131,6 +161,8 @@ interface MultiItemRule {
   category_pools?: number[][];
   cancels_single?: boolean;
   implicants?: number[][][];
+  exclusive_group?: number;
+  placements?: SlotUsageSummary[];
 }
 
 export interface TripleRule extends MultiItemRule {

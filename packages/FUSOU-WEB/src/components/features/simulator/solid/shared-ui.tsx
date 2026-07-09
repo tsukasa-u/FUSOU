@@ -36,7 +36,7 @@ import { equipDisplayTypeName } from "@/features/simulator/display-utils";
 import type { EquipSelectionRequirement } from "@/features/simulator/equip-filter";
 import { getMasterShip } from "@/features/simulator/simulator-selectors";
 import { STYPE_NAMES } from "@/features/simulator/constants";
-import type { MstSlotItemData } from "@/features/simulator/types";
+import type { MstSlotItemData, SlotUsageSummary } from "@/features/simulator/types";
 
 export function StatPill(props: {
   label: string;
@@ -199,10 +199,8 @@ export function ShipTypeIcon(props: {
   stype: number;
   /** 表示高さ（px）。フレームの縦横比を保持して横幅を自動計算する。 */
   height?: number;
-  /** @deprecated `height` を使用してください（後方互換のため残存） */
-  size?: number;
 }): JSX.Element {
-  const displayH = () => props.height ?? props.size ?? 18;
+  const displayH = () => props.height ?? 18;
   const frame = () => getShipTypeIconFrame(props.stype);
   const spriteSheet = () => getShipTypeSpriteSheetMeta();
 
@@ -426,6 +424,33 @@ export function CompatibilityBadges(props: {
   );
 }
 
+export function SlotUsageBadges(props: {
+  placements: SlotUsageSummary[] | undefined;
+}): JSX.Element {
+  const labels = () => {
+    const placements = props.placements ?? [];
+    return placements
+      .map((placement) => {
+        if (placement.normal > 0 && placement.exslot > 0) {
+          return `通常${placement.normal} / 補強${placement.exslot}`;
+        }
+        if (placement.exslot > 0) return `補強${placement.exslot}`;
+        return `通常${placement.normal}`;
+      })
+      .filter(Boolean);
+  };
+
+  return (
+    <Show when={labels().length > 0}>
+      <span class="inline-flex flex-wrap items-center gap-1">
+        <For each={labels()}>
+          {(label) => <span class="badge badge-outline badge-xs border-warning text-warning">{label}</span>}
+        </For>
+      </span>
+    </Show>
+  );
+}
+
 // ── EquipListRow ─────────────────────────────────────────────────────
 
 export function EquipListRow(props: {
@@ -496,6 +521,8 @@ export function EquipSlotGroup(props: {
   onOpenEquip: (id: number) => void;
   currentEquipId?: number;
 }) {
+  const [expanded, setExpanded] = createSignal(false);
+
   if (props.slotItems.length === 1) {
     const equip = props.slotItems[0];
     return (
@@ -518,33 +545,52 @@ export function EquipSlotGroup(props: {
 
   const iconGroups = groupItemsByIcon(props.slotItems);
 
+  const renderGroup = (group: MstSlotItemData[], limit?: number) => {
+    const items = limit && !expanded() ? group.slice(0, limit) : group;
+    return (
+      <>
+        <For each={items}>
+          {(equip, eIdx) => (
+            <>
+              {eIdx() > 0 && (
+                <span class="text-base-content/30 text-xs font-light">/</span>
+              )}
+              <button
+                class={`hover:underline text-xs truncate max-w-40 transition-colors min-h-6 py-0.5 ${
+                  props.currentEquipId === equip.id
+                    ? "text-primary font-bold"
+                    : ""
+                }`}
+                onClick={() => props.onOpenEquip(equip.id)}
+                title={equip.name}
+              >
+                {equip.name}
+              </button>
+            </>
+          )}
+        </For>
+      </>
+    );
+  };
+
   if (iconGroups.length === 1) {
+    const group = iconGroups[0];
+    const threshold = 4;
     return (
       <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
         <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-300/50 shrink-0">
-          <WeaponIcon iconNum={iconGroups[0][0].type?.[3] ?? 0} />
+          <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
         </span>
         <span class="inline-flex flex-wrap items-center gap-1 min-w-0">
-          <For each={iconGroups[0]}>
-            {(equip, idx) => (
-              <>
-                {idx() > 0 && (
-                  <span class="text-base-content/30 text-sm font-light">/</span>
-                )}
-                <button
-                  class={`hover:underline truncate max-w-40 transition-colors min-h-6 py-0.5 ${
-                    props.currentEquipId === equip.id
-                      ? "text-primary font-bold"
-                      : ""
-                  }`}
-                  onClick={() => props.onOpenEquip(equip.id)}
-                  title={equip.name}
-                >
-                  {equip.name}
-                </button>
-              </>
-            )}
-          </For>
+          {renderGroup(group, threshold)}
+          <Show when={group.length > threshold && !expanded()}>
+            <button
+              class="text-[10px] text-info hover:underline bg-info/10 px-1 rounded"
+              onClick={() => setExpanded(true)}
+            >
+              他{group.length - threshold}件
+            </button>
+          </Show>
         </span>
       </span>
     );
@@ -553,42 +599,32 @@ export function EquipSlotGroup(props: {
   return (
     <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-1">
       <For each={iconGroups}>
-        {(group, idx) => (
-          <>
-            {idx() > 0 && (
-              <span class="text-base-content/60 text-sm font-light">/</span>
-            )}
-            <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300/50 bg-base-100 rounded px-1.5 py-0.5 shadow-sm">
-              <span class="inline-flex w-4 h-4 items-center justify-center rounded bg-base-200/70 shrink-0">
-                <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+        {(group, idx) => {
+          const threshold = 3;
+          return (
+            <>
+              {idx() > 0 && (
+                <span class="text-base-content/60 text-sm font-light">/</span>
+              )}
+              <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300/50 bg-base-100 rounded px-1.5 py-0.5 shadow-sm">
+                <span class="inline-flex w-4 h-4 items-center justify-center rounded bg-base-200/70 shrink-0">
+                  <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+                </span>
+                <span class="inline-flex flex-wrap items-center gap-0.5 min-w-0">
+                  {renderGroup(group, threshold)}
+                  <Show when={group.length > threshold && !expanded()}>
+                    <button
+                      class="text-[10px] text-info hover:underline bg-info/10 px-1 rounded"
+                      onClick={() => setExpanded(true)}
+                    >
+                      他{group.length - threshold}件
+                    </button>
+                  </Show>
+                </span>
               </span>
-              <span class="inline-flex flex-wrap items-center gap-0.5 min-w-0">
-                <For each={group}>
-                  {(equip, eIdx) => (
-                    <>
-                      {eIdx() > 0 && (
-                        <span class="text-base-content/30 text-xs font-light">
-                          /
-                        </span>
-                      )}
-                      <button
-                        class={`hover:underline text-xs truncate max-w-40 transition-colors min-h-6 py-0.5 ${
-                          props.currentEquipId === equip.id
-                            ? "text-primary font-bold"
-                            : ""
-                        }`}
-                        onClick={() => props.onOpenEquip(equip.id)}
-                        title={equip.name}
-                      >
-                        {equip.name}
-                      </button>
-                    </>
-                  )}
-                </For>
-              </span>
-            </span>
-          </>
-        )}
+            </>
+          );
+        }}
       </For>
     </span>
   );
@@ -618,27 +654,67 @@ export function MultiEntryDisplay(props: {
             )}
           </For>
         </div>
+        <SlotUsageBadges placements={(props.entry as MultiComboEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiComboEntry).netStats} />
       </Show>
 
       <Show when={props.entry.kind === "pool"}>
         <div class="flex flex-wrap items-center gap-1.5 text-xs text-base-content/70">
-          <span class="text-[10px] text-info font-bold shrink-0">
-            任意{(props.entry as MultiPoolEntry).comboSize}種
-          </span>
-          <For each={[(props.entry as MultiPoolEntry).pool]}>
-            {(group, idx) => (
+          <Show
+            when={(props.entry as MultiPoolEntry).fixed && (props.entry as MultiPoolEntry).freePool}
+            fallback={
               <>
-                {idx() > 0 && <span class="text-base-content/30">/</span>}
-                <EquipSlotGroup
-                  slotItems={group}
-                  currentEquipId={props.currentEquipId}
-                  onOpenEquip={props.onOpenEquip}
-                />
+                <span class="text-[10px] text-info font-bold shrink-0">
+                  任意{(props.entry as MultiPoolEntry).comboSize}種
+                </span>
+                <For each={[(props.entry as MultiPoolEntry).pool]}>
+                  {(group, idx) => (
+                    <>
+                      {idx() > 0 && <span class="text-base-content/30">/</span>}
+                      <EquipSlotGroup
+                        slotItems={group}
+                        currentEquipId={props.currentEquipId}
+                        onOpenEquip={props.onOpenEquip}
+                      />
+                    </>
+                  )}
+                </For>
               </>
-            )}
-          </For>
+            }
+          >
+            {(() => {
+              const entry = props.entry as MultiPoolEntry;
+              const fixed = entry.fixed ?? [];
+              const free = entry.freePool ?? [];
+              const pickCount =
+                typeof entry.freePickCount === "number"
+                  ? entry.freePickCount
+                  : Math.max(0, entry.comboSize - fixed.length);
+              return (
+                <>
+                  <span class="text-[10px] text-warning font-bold shrink-0">
+                    固定{fixed.length}個
+                  </span>
+                  <EquipSlotGroup
+                    slotItems={fixed}
+                    currentEquipId={props.currentEquipId}
+                    onOpenEquip={props.onOpenEquip}
+                  />
+                  <span class="text-base-content/40">+</span>
+                  <span class="text-[10px] text-info font-bold shrink-0">
+                    任意{pickCount}種{entry.freePoolWithReplacement ? "(重複可)" : ""}
+                  </span>
+                  <EquipSlotGroup
+                    slotItems={free}
+                    currentEquipId={props.currentEquipId}
+                    onOpenEquip={props.onOpenEquip}
+                  />
+                </>
+              );
+            })()}
+          </Show>
         </div>
+        <SlotUsageBadges placements={(props.entry as MultiPoolEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiPoolEntry).correction} />
       </Show>
 
@@ -652,49 +728,80 @@ export function MultiEntryDisplay(props: {
               [単体打消]
             </span>
           </Show>
-          <For
-            each={(() => {
-              const pools = (props.entry as MultiCategoryEntry).pools;
-              const grouped = new Map<
-                string,
-                { pool: (typeof pools)[0]; count: number }
-              >();
-              for (const p of pools) {
-                const k = p.map((i) => i.id).join(",");
-                if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
-                grouped.get(k)!.count++;
-              }
-              return Array.from(grouped.values());
-            })()}
-          >
-            {({ pool, count }, idx) => (
-              <>
-                {idx() > 0 && <span>+</span>}
-                <span class="flex items-center gap-1 bg-base-200/40 px-1 rounded">
-                  <Show when={count > 1}>
-                    <span class="text-[10px] text-info font-bold shrink-0">
-                      {count}個:
-                    </span>
-                  </Show>
-                  <For each={[pool]}>
-                    {(group, gIdx) => (
-                      <>
-                        {gIdx() > 0 && (
-                          <span class="text-base-content/30">/</span>
-                        )}
+          {(() => {
+            const pools = (props.entry as MultiCategoryEntry).pools;
+            const grouped = new Map<
+              string,
+              { pool: (typeof pools)[0]; count: number }
+            >();
+            for (const p of pools) {
+              const k = p.map((i) => i.id).join(",");
+              if (!grouped.has(k)) grouped.set(k, { pool: p, count: 0 });
+              grouped.get(k)!.count++;
+            }
+            const groups = Array.from(grouped.values());
+            const fixedGroups = groups.filter((g) => g.pool.length === 1);
+            const variableGroups = groups.filter((g) => g.pool.length > 1);
+            const canUseStructuredDisplay =
+              fixedGroups.length > 0 &&
+              variableGroups.length > 0 &&
+              variableGroups.every((g) => g.count === 1);
+
+            if (!canUseStructuredDisplay) {
+              return (
+                <For each={groups}>
+                  {({ pool, count }, idx) => (
+                    <>
+                      {idx() > 0 && <span>+</span>}
+                      <span class="flex items-center gap-1 bg-base-200/40 px-1 rounded">
+                        <Show when={count > 1}>
+                          <span class="text-[10px] text-info font-bold shrink-0">
+                            {count}個:
+                          </span>
+                        </Show>
                         <EquipSlotGroup
-                          slotItems={group}
+                          slotItems={pool}
                           currentEquipId={props.currentEquipId}
                           onOpenEquip={props.onOpenEquip}
                         />
-                      </>
-                    )}
-                  </For>
+                      </span>
+                    </>
+                  )}
+                </For>
+              );
+            }
+
+            const fixedItems = fixedGroups.flatMap((g) => Array.from({ length: g.count }, () => g.pool[0]));
+            return (
+              <>
+                <span class="text-[10px] text-warning font-bold shrink-0">
+                  固定{fixedItems.length}個
                 </span>
+                <EquipSlotGroup
+                  slotItems={fixedItems}
+                  currentEquipId={props.currentEquipId}
+                  onOpenEquip={props.onOpenEquip}
+                />
+                <For each={variableGroups}>
+                  {(group) => (
+                    <>
+                      <span class="text-base-content/40">+</span>
+                      <span class="text-[10px] text-info font-bold shrink-0">
+                        任意1種
+                      </span>
+                      <EquipSlotGroup
+                        slotItems={group.pool}
+                        currentEquipId={props.currentEquipId}
+                        onOpenEquip={props.onOpenEquip}
+                      />
+                    </>
+                  )}
+                </For>
               </>
-            )}
-          </For>
+            );
+          })()}
         </div>
+        <SlotUsageBadges placements={(props.entry as MultiCategoryEntry).placements} />
         <SynergyStatInline
           stats={(props.entry as MultiCategoryEntry).correction}
         />
