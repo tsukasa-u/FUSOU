@@ -184,6 +184,60 @@ export function computeEquipBonuses(
   exSlotImprovement: number,
 ): Record<string, number> {
   const bonuses: Record<string, number> = {};
+  const exclusiveGroupBest = new Map<
+    number,
+    { score: number; delta: Record<string, number> }
+  >();
+
+  const buildScaledDelta = (
+    stats: Record<string, number>,
+    times = 1,
+  ): Record<string, number> => {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(stats)) {
+      if (!v) continue;
+      const scaled = v * times;
+      if (scaled) out[k] = scaled;
+    }
+    return out;
+  };
+
+  const deltaScore = (delta: Record<string, number>): number => {
+    let score = 0;
+    for (const v of Object.values(delta)) score += Math.abs(v || 0);
+    return score;
+  };
+
+  const applyDelta = (delta: Record<string, number>) => {
+    for (const [k, v] of Object.entries(delta)) {
+      if (v) bonuses[k] = (bonuses[k] || 0) + v;
+    }
+  };
+
+  const applyRuleContribution = (
+    stats: Record<string, number>,
+    times: number,
+    exclusiveGroup?: number,
+  ) => {
+    if (times <= 0) return;
+    const delta = buildScaledDelta(stats, times);
+    if (Object.keys(delta).length === 0) return;
+    if (typeof exclusiveGroup === "number" && Number.isFinite(exclusiveGroup)) {
+      const nextScore = deltaScore(delta);
+      const prev = exclusiveGroupBest.get(exclusiveGroup);
+      if (!prev || nextScore > prev.score) {
+        exclusiveGroupBest.set(exclusiveGroup, { score: nextScore, delta });
+      }
+      return;
+    }
+    applyDelta(delta);
+  };
+
+  const flushExclusiveGroups = () => {
+    for (const { delta } of exclusiveGroupBest.values()) applyDelta(delta);
+    exclusiveGroupBest.clear();
+  };
+
   const slotItemEffects = getSlotItemEffects();
   if (!slotItemEffects) return bonuses;
 
@@ -270,9 +324,11 @@ export function computeEquipBonuses(
       if (!entries) continue;
       for (const entry of entries) {
         if (!entry.ships.includes(shipId)) continue;
-        for (const [k, v] of Object.entries(entry.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v;
-        }
+        applyRuleContribution(
+          entry.synergy,
+          1,
+          (entry as { exclusive_group?: number }).exclusive_group,
+        );
         break;
       }
     }
@@ -291,6 +347,7 @@ export function computeEquipBonuses(
     rule: {
       ships: number[];
       synergy: Record<string, number>;
+      exclusive_group?: number;
       item_pool?: number[];
       fixed_items?: number[];
       free_pool?: number[];
@@ -329,11 +386,7 @@ export function computeEquipBonuses(
         }
         times *= choose(overlap, count);
       }
-      if (times > 0) {
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
-        }
-      }
+      applyRuleContribution(rule.synergy, times, rule.exclusive_group);
     } else if (rule.implicants) {
       let totalTimes = 0;
       for (const implicant of rule.implicants) {
@@ -360,18 +413,12 @@ export function computeEquipBonuses(
           totalTimes = times;
         }
       }
-      if (totalTimes > 0) {
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v * totalTimes;
-        }
-      }
+      applyRuleContribution(rule.synergy, totalTimes, rule.exclusive_group);
     } else if (rule.item_pool) {
       const overlap = rule.item_pool.filter((id) => equippedSet.has(id)).length;
       if (overlap >= comboSize) {
         const times = choose(overlap, comboSize);
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
-        }
+        applyRuleContribution(rule.synergy, times, rule.exclusive_group);
       }
     } else if (rule.fixed_items && rule.free_pool) {
       if (!hasEnoughItems(itemCountMap, rule.fixed_items)) return;
@@ -389,20 +436,14 @@ export function computeEquipBonuses(
           return Math.max(0, total - consumedByFixed);
         });
         const times = countBoundedMultisets(available, neededFree);
-        if (times > 0) {
-          for (const [k, v] of Object.entries(rule.synergy)) {
-            if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
-          }
-        }
+        applyRuleContribution(rule.synergy, times, rule.exclusive_group);
       } else {
         const freeOverlap = rule.free_pool.filter((id) =>
           equippedSet.has(id),
         ).length;
         if (freeOverlap >= neededFree) {
           const times = choose(freeOverlap, neededFree);
-          for (const [k, v] of Object.entries(rule.synergy)) {
-            if (v) bonuses[k] = (bonuses[k] || 0) + v * times;
-          }
+          applyRuleContribution(rule.synergy, times, rule.exclusive_group);
         }
       }
     } else if (rule.combos_b64 && rule.items) {
@@ -417,9 +458,7 @@ export function computeEquipBonuses(
         const comboIds: number[] = [];
         for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v;
-        }
+        applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
     } else if (rule.combos_u16_b64 && rule.items) {
       let buf = _combosU16B64Cache.get(rule);
@@ -440,9 +479,7 @@ export function computeEquipBonuses(
         const comboIds: number[] = [];
         for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v;
-        }
+        applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
     } else if (rule.combos_u32_b64 && rule.items) {
       let buf = _combosU32B64Cache.get(rule);
@@ -463,16 +500,12 @@ export function computeEquipBonuses(
         const comboIds: number[] = [];
         for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
-        for (const [k, v] of Object.entries(rule.synergy)) {
-          if (v) bonuses[k] = (bonuses[k] || 0) + v;
-        }
+        applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
     } else if (rule.combos) {
       for (const combo of rule.combos) {
         if (hasEnoughItems(itemCountMap, combo)) {
-          for (const [k, v] of Object.entries(rule.synergy)) {
-            if (v) bonuses[k] = (bonuses[k] || 0) + v;
-          }
+          applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
         }
       }
     }
@@ -495,6 +528,8 @@ export function computeEquipBonuses(
   if (slotItemEffects.hexa_rules) {
     for (const rule of slotItemEffects.hexa_rules) applyMultiRule(rule, 6);
   }
+
+  flushExclusiveGroups();
 
   // Speed upgrade bonus from real gameplay observations.
   // No assumptions are made about which item IDs affect speed.
