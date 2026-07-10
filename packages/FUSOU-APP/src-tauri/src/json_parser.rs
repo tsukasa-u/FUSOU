@@ -40,7 +40,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 let _ = handle.emit_to("main", "add-kcs-cell", data);
             }
             Add::QuestEvent(data) => {
-                crate::quest_tree_sender::enqueue(data);
+                crate::senders::quest_tree_sender::enqueue(data);
             }
             Add::Dammy(_) => {
                 let _ = handle.emit_to("main", "add-kcs-dammy", ());
@@ -138,20 +138,20 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::Quests(data) => {
                 data.restore();
-                crate::quest_tree_sender::enqueue_snapshot(data.clone());
+                crate::senders::quest_tree_sender::enqueue_snapshot(data.clone());
                 let _ = handle.emit_to("main", "set-kcs-quests", data);
             }
             Set::ShipGrowthSnapshot(data) => {
-                crate::ship_growth_sender::enqueue_snapshot(data);
+                crate::senders::ship_growth_sender::enqueue_snapshot(data);
             }
             Set::SokuSpeedObservedSnapshot(data) => {
                 crate::senders::soku_speed_sender::enqueue_snapshot(data);
             }
             Set::RemodelSlotList(data) => {
-                crate::remodel_sender::enqueue_slotlist(data);
+                crate::senders::remodel_sender::enqueue_slotlist(data);
             }
             Set::RemodelDetail(data) => {
-                crate::remodel_sender::enqueue_detail(data);
+                crate::senders::remodel_sender::enqueue_detail(data);
             }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());

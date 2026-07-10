@@ -16,6 +16,7 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 static SHIP_GROWTH_SENDER: OnceCell<Arc<ShipGrowthSender>> = OnceCell::new();
+const SHIP_GROWTH_INGEST_SCHEMA_VERSION: i32 = 1;
 
 enum ShipGrowthSendOutcome {
     Sent,
@@ -373,6 +374,7 @@ impl ShipGrowthSender {
             "request_id": request_id,
             "payload_hash": payload_hash,
             "event_type": "snapshot",
+            "schema_version": SHIP_GROWTH_INGEST_SCHEMA_VERSION,
             "timestamp_ms": timestamp_ms,
             "period_tag": period_tag,
             "table_version": kc_api::database::DATABASE_TABLE_VERSION,
