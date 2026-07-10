@@ -535,7 +535,6 @@ pub struct ConfigsAppAssetSync {
     asset_upload_endpoint: Option<String>,
     fleet_snapshot_endpoint: Option<String>,
     r2_upload_endpoint: Option<String>,
-    asset_key_prefix: Option<String>,
     kc_period_endpoint: Option<String>,
     asset_skip_extensions: Option<Vec<String>>,
     asset_existing_keys_endpoint: Option<String>,
@@ -681,18 +680,6 @@ impl ConfigsAppAssetSync {
     // Backward-compatible wrapper
     pub fn get_asset_sync_snapshot_endpoint(&self) -> Option<String> {
         self.get_fleet_snapshot_endpoint()
-    }
-
-    pub fn get_key_prefix(&self) -> Option<String> {
-        // Backward-compatible wrapper to new `asset_key_prefix`
-        self.get_asset_key_prefix()
-    }
-
-    pub fn get_asset_key_prefix(&self) -> Option<String> {
-        match self.asset_key_prefix {
-            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => None,
-        }
     }
 
     pub fn get_period_endpoint(&self) -> Option<String> {
@@ -1532,7 +1519,6 @@ mod tests {
             asset_upload_endpoint: None,
             fleet_snapshot_endpoint: None,
             r2_upload_endpoint: None,
-            asset_key_prefix: None,
             kc_period_endpoint: None,
             asset_skip_extensions: None,
             asset_existing_keys_endpoint: None,

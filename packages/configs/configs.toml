@@ -251,9 +251,6 @@ save_file_location = ""
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     asset_skip_extensions = ["mp3", "woff2", "js"]
 
-    # Optional prefix prepended to stored object keys
-    asset_key_prefix = "assets"
-
 
     [app.asset_sync.retry]
     # Maximum number of retry attempts for failed uploads
