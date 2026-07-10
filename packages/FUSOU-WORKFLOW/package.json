@@ -1,6 +1,6 @@
 {
   "name": "fusou-workflow",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Cloudflare Workflows for FUSOU data compaction",
   "type": "module",
   "main": "src/index.ts",
