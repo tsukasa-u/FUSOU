@@ -17,7 +17,7 @@ kc-fleet-snapshot = { workspace = true, default-features = false }
 kc-api-build-config = { path = "../kc-api-build-config" }
 
 [features]
-default = ["graphviz", "genesis", "schema_v0_5"]
+default = ["graphviz", "genesis", "schema_v0_5_1"]
 full = ["kc-api-database/full"]
 graphviz = [
     "kc-api-database/graphviz",
@@ -47,3 +47,4 @@ epoch_20250627 = [
 # Schema version features - names match table_version values (0.4, 0.5, 0.6)
 schema_v0_4 = ["kc-api-database/schema_v0_4"]
 schema_v0_5 = ["kc-api-database/schema_v0_5"]
+schema_v0_5_1 = ["kc-api-database/schema_v0_5_1"]

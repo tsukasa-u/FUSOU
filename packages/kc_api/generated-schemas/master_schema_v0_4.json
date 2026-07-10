@@ -53,5 +53,5 @@
       "table_name": "mst_ship_upgrades"
     }
   ],
-  "table_version": "0.4"
+  "table_version": "0.4.0"
 }

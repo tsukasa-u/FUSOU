@@ -1,22 +1,20 @@
-#[cfg(feature = "schema_v0_4")]
-pub const DATABASE_TABLE_VERSION: &str = "0.4";
+#[cfg(all(schema_since = "0.4.0", schema_until = "0.5.0"))]
+pub const DATABASE_TABLE_VERSION: &str = "0.4.0";
 
-#[cfg(feature = "schema_v0_5")]
-pub const DATABASE_TABLE_VERSION: &str = "0.5";
+#[cfg(all(schema_since = "0.5.0", schema_until = "0.5.1"))]
+pub const DATABASE_TABLE_VERSION: &str = "0.5.0";
 
-// #[cfg(feature = "schema_v0_6")]
-// pub const DATABASE_TABLE_VERSION: &str = "0.6";
+#[cfg(schema_since = "0.5.1")]
+pub const DATABASE_TABLE_VERSION: &str = "0.5.1";
 
 #[cfg(not(any(
-    feature = "schema_v0_4",
-    feature = "schema_v0_5",
-    // feature = "schema_v0_6"
+    all(schema_since = "0.4.0", schema_until = "0.5.0"),
+    all(schema_since = "0.5.0", schema_until = "0.5.1"),
+    schema_since = "0.5.1",
 )))]
 compile_error!(
-    "At least one schema version feature must be enabled (schema_v0_4, schema_v0_5, or schema_v0_6). \
-     Add e.g. `--features schema_v0_4` or use default features."
+    "At least one schema version must be selected via schema_since/schema_until cfgs."
 );
-// pub const DATABASE_TABLE_VERSION: &str = "0.0";
 
 #[cfg(test)]
 mod tests {
@@ -24,12 +22,12 @@ mod tests {
 
     #[test]
     fn test_database_table_version_format() {
-        // Validate DATABASE_TABLE_VERSION follows Semantic Versioning (MAJOR.MINOR)
+        // Validate DATABASE_TABLE_VERSION follows Semantic Versioning (MAJOR.MINOR.PATCH)
         let parts: Vec<&str> = DATABASE_TABLE_VERSION.split('.').collect();
         assert_eq!(
             parts.len(),
-            2,
-            "DATABASE_TABLE_VERSION must be MAJOR.MINOR format (e.g., '0.4')"
+            3,
+            "DATABASE_TABLE_VERSION must be MAJOR.MINOR.PATCH format (e.g., '0.5.1')"
         );
 
         // Validate MAJOR version
@@ -45,6 +43,13 @@ mod tests {
             "MINOR version must be a number, got '{}'",
             parts[1]
         );
+
+        // Validate PATCH version
+        assert!(
+            parts[2].parse::<u32>().is_ok(),
+            "PATCH version must be a number, got '{}'",
+            parts[2]
+        );
     }
 
     #[test]
@@ -57,7 +62,7 @@ mod tests {
             let parts: Vec<&str> = DATABASE_TABLE_VERSION.split('.').collect();
             assert!(
                 parts.len() >= 1,
-                "DATABASE_TABLE_VERSION must have MAJOR.MINOR format"
+                "DATABASE_TABLE_VERSION must have MAJOR.MINOR.PATCH format"
             );
             let major: u32 = parts[0]
                 .parse()

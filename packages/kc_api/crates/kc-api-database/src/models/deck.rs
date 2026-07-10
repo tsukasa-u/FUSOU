@@ -37,9 +37,9 @@ pub struct OwnDeck {
     pub uuid: OwnDeckId,
     pub ship_ids: Option<OwnShipId>,
     pub combined_flag: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub chart_seiku_value: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub chart_tp_value: Option<i32>,
 }
 
@@ -110,9 +110,9 @@ impl OwnDeck {
             uuid,
             ship_ids: new_ship_ids_wrap,
             combined_flag: decks.combined_flag.map(|flag| flag as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             chart_seiku_value: deck.chart_seiku_value.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             chart_tp_value: deck.chart_tp_value.map(|v| v as i32),
         };
 
@@ -136,9 +136,9 @@ pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
     pub ship_ids: Option<OwnShipId>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub chart_seiku_value: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub chart_tp_value: Option<i32>,
 }
 
@@ -214,9 +214,9 @@ impl SupportDeck {
             env_uuid,
             uuid,
             ship_ids: new_ship_ids_wrap,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             chart_seiku_value: deck.chart_seiku_value.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             chart_tp_value: deck.chart_tp_value.map(|v| v as i32),
         };
 
@@ -240,7 +240,7 @@ pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
     pub ship_ids: Option<EnemyShipId>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub combined_flag: Option<i32>,
 }
 
@@ -306,9 +306,63 @@ impl EnemyDeck {
             env_uuid,
             uuid,
             ship_ids: new_ship_ids_wrap,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             combined_flag: data.e_combined_flag.map(|flag| flag as i32),
         };
+        table.enemy_deck.push(new_data);
+
+        Some(())
+    }
+
+    #[cfg(schema_since = "0.5.1")]
+    pub fn new_ret_option_from_destruction(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: &kc_api_interface::cells::DestructionBattle,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let new_ship_ids = Uuid::new_v7(ts);
+        let result = data
+            .ship_ke
+            .iter()
+            .enumerate()
+            .map(|(ship_id_index, ship_id)| {
+                let props: EnemyShipProps = (
+                    data.ship_lv.get(ship_id_index).copied().map(|value| value as i32),
+                    data.e_nowhps.get(ship_id_index).copied().map(|value| value as i32),
+                    data.e_maxhps.get(ship_id_index).copied().map(|value| value as i32),
+                    data.e_slot.get(ship_id_index).map(|slot| {
+                        slot.iter().map(|value| *value as i32).collect::<Vec<_>>()
+                    }),
+                    None,
+                    *ship_id as i32,
+                );
+                EnemyShip::new_ret_option(
+                    ts,
+                    new_ship_ids,
+                    props,
+                    table,
+                    env_uuid,
+                    ship_id_index,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let new_ship_ids_wrap = if result.iter().any(|x| x.is_some()) {
+            Some(new_ship_ids)
+        } else {
+            None
+        };
+
+        let new_data = EnemyDeck {
+            env_uuid,
+            uuid,
+            ship_ids: new_ship_ids_wrap,
+            #[cfg(schema_since = "0.5.0")]
+            combined_flag: None,
+        };
+
         table.enemy_deck.push(new_data);
 
         Some(())

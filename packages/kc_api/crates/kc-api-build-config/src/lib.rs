@@ -15,6 +15,12 @@ const EPOCH_BOUNDARIES: &[EpochBoundary] = &[EpochBoundary {
     unix: 1750993200, // 2025-06-27T03:00:00Z
 }];
 
+const SCHEMA_FEATURES: &[(&str, &str)] = &[
+    ("schema_v0_4", "0.4.0"),
+    ("schema_v0_5", "0.5.0"),
+    ("schema_v0_5_1", "0.5.1"),
+];
+
 pub fn emit_epoch_cfg() {
     emit_check_cfg();
 
@@ -30,6 +36,41 @@ pub fn emit_epoch_cfg() {
             println!("cargo:rustc-env=SELECTED_EPOCH=epoch_{date}");
             println!("cargo:rustc-env=SELECTED_DATE={date}");
             emit_since_until(*date);
+        }
+    }
+}
+
+pub fn emit_schema_cfg() {
+    emit_schema_check_cfg();
+
+    let selected = parse_selected_schema();
+    let selected_version = schema_feature_to_version(selected)
+        .unwrap_or_else(|| panic!("unknown selected schema feature: {selected}"));
+    println!("cargo:rustc-env=SELECTED_SCHEMA_VERSION={selected_version}");
+
+    let selected_index = SCHEMA_FEATURES
+        .iter()
+        .position(|(feature, _)| *feature == selected)
+        .expect("selected schema feature must exist");
+
+    for (index, (_, version)) in SCHEMA_FEATURES.iter().enumerate() {
+        if index <= selected_index {
+            println!("cargo:rustc-cfg=schema_since=\"{version}\"");
+        } else {
+            println!("cargo:rustc-cfg=schema_until=\"{version}\"");
+        }
+    }
+
+    if env::var_os("CARGO_FEATURE_BREAKING_SCHEMA").is_some() {
+        let major = selected_version
+            .split('.')
+            .next()
+            .and_then(|part| part.parse::<u32>().ok())
+            .unwrap_or(0);
+        if major < 1 {
+            println!(
+                "cargo:warning=breaking_schema is enabled, but DATABASE_TABLE_VERSION is {selected_version}. bump the major version (e.g. 1.0.0) for incompatible schema changes"
+            );
         }
     }
 }
@@ -53,6 +94,17 @@ pub fn feature_to_unix(feature_name: &str) -> Option<i64> {
 
     let date = feature_name.strip_prefix("epoch_")?;
     date_to_unix(date)
+}
+
+pub fn all_schema_features() -> Vec<&'static str> {
+    SCHEMA_FEATURES.iter().map(|(feature, _)| *feature).collect()
+}
+
+pub fn schema_feature_to_version(feature_name: &str) -> Option<&'static str> {
+    SCHEMA_FEATURES
+        .iter()
+        .find(|(feature, _)| *feature == feature_name)
+        .map(|(_, version)| *version)
 }
 
 /// Get all known epoch dates (excluding genesis which is epoch 0).
@@ -107,6 +159,17 @@ fn emit_check_cfg() {
     println!("cargo:rustc-check-cfg=cfg(until, values({values}))");
 }
 
+fn emit_schema_check_cfg() {
+    let values = SCHEMA_FEATURES
+        .iter()
+        .map(|(_, version)| format!("\"{}\"", version))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    println!("cargo:rustc-check-cfg=cfg(schema_since, values({values}))");
+    println!("cargo:rustc-check-cfg=cfg(schema_until, values({values}))");
+}
+
 fn emit_since_until(target_date: u32) {
     for boundary in EPOCH_BOUNDARIES {
         if target_date >= boundary.date {
@@ -156,4 +219,18 @@ fn parse_selected_epoch() -> SelectedEpoch {
     }
 
     selected.pop().expect("selected epoch must exist")
+}
+
+fn parse_selected_schema() -> &'static str {
+    if env::var_os("CARGO_FEATURE_SCHEMA_V0_5_1").is_some() {
+        return "schema_v0_5_1";
+    }
+    if env::var_os("CARGO_FEATURE_SCHEMA_V0_5").is_some() {
+        return "schema_v0_5";
+    }
+    if env::var_os("CARGO_FEATURE_SCHEMA_V0_4").is_some() {
+        return "schema_v0_4";
+    }
+
+    panic!("Exactly one schema version feature must be selected (schema_v0_4, schema_v0_5, or schema_v0_5_1)");
 }
