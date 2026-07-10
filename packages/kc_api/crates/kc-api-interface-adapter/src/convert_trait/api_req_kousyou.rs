@@ -52,6 +52,14 @@ fn weekday_jst() -> i64 {
     now.weekday().num_days_from_monday() as i64
 }
 
+fn req_slot_id_for_epoch(d: &remodel_slotlist::ApiData) -> i64 {
+    d.api_req_slot_id.unwrap_or(0)
+}
+
+fn req_slot_num_for_epoch(d: &remodel_slotlist::ApiData) -> i64 {
+    d.api_req_slot_num.unwrap_or(0)
+}
+
 // --- remodel_slotlist: 改修条件一覧 ---
 
 impl TraitForConvert for remodel_slotlist::Res {
@@ -72,6 +80,8 @@ impl TraitForConvert for remodel_slotlist::Res {
             .iter()
             .map(|d| RemodelSlotListEntry {
                 remodel_id: d.api_id,
+                remodel_step_id: d.api_id,
+                remodel_level: None,
                 slotitem_master_id: d.api_slot_id,
                 sp_type: d.api_sp_type,
                 req_fuel: d.api_req_fuel,
@@ -80,8 +90,8 @@ impl TraitForConvert for remodel_slotlist::Res {
                 req_bauxite: d.api_req_bauxite,
                 req_buildkit: d.api_req_buildkit,
                 req_remodelkit: d.api_req_remodelkit,
-                req_slot_id: d.api_req_slot_id,
-                req_slot_num: d.api_req_slot_num,
+                req_slot_id: req_slot_id_for_epoch(d),
+                req_slot_num: req_slot_num_for_epoch(d),
             })
             .collect();
         let data = RemodelSlotList {
@@ -128,8 +138,12 @@ impl TraitForConvert for remodel_slotlist_detail::Res {
         let detail = RemodelDetail {
             slotitem_master_id: master_id,
             remodel_id: step_id,
+            remodel_step_id: step_id,
+            remodel_level: None,
             certain_buildkit: d.api_certain_buildkit,
             certain_remodelkit: d.api_certain_remodelkit,
+            req_slot_id: d.api_req_slot_id,
+            req_slot_num: d.api_req_slot_num,
             change_flag: d.api_change_flag,
             req_useitem_id: d.api_req_useitem_id,
             req_useitem_id2: d.api_req_useitem_id2,

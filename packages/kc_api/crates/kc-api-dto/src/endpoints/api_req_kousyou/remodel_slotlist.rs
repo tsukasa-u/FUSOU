@@ -60,9 +60,9 @@ pub struct ApiData {
     #[serde(rename = "api_req_remodelkit")]
     pub api_req_remodelkit: i64,
     #[serde(rename = "api_req_slot_id")]
-    pub api_req_slot_id: i64,
+    pub api_req_slot_id: Option<i64>,
     #[serde(rename = "api_req_slot_num")]
-    pub api_req_slot_num: i64,
+    pub api_req_slot_num: Option<i64>,
 }
 
 #[cfg(test)]
