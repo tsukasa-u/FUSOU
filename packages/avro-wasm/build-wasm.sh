@@ -13,7 +13,7 @@ VERSION=${1:-"all"}
 detect_versions() {
     local versions=()
     while IFS= read -r line; do
-        if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+        if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+(_[0-9]+)?)[[:space:]]*= ]]; then
             versions+=("${BASH_REMATCH[1]}")
         fi
     done < "$AVRO_WASM_DIR/Cargo.toml"
@@ -29,10 +29,10 @@ if [ "$VERSION" = "all" ]; then
         FEATURE_PARTS+=("schema_$v")
     done
     FEATURE="$(IFS=,; echo "${FEATURE_PARTS[*]}"),console_error_panic_hook"
-elif [[ "$VERSION" =~ ^v[0-9]+_[0-9]+$ ]]; then
+elif [[ "$VERSION" =~ ^v[0-9]+_[0-9]+(_[0-9]+)?$ ]]; then
     FEATURE="schema_$VERSION,console_error_panic_hook"
 else
-    echo "Usage: $0 [v0_4|v0_5|v0_6|...|all]"
+    echo "Usage: $0 [v0_4|v0_5|v0_5_1|v0_6|...|all]"
     echo ""
     echo "  vN_M  - Build with schema_vN_M only"
     echo "  all   - Build with ALL detected schema versions (default)"
