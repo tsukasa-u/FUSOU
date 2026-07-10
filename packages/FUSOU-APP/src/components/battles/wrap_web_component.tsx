@@ -295,6 +295,7 @@ interface NumberedEnemyShipProps {
   battle_selected: () => Battle | undefined;
   store_data_set_param_ship: () => DataSetParamShip;
   combined_flag?: boolean;
+  destruction_flag?: boolean;
 }
 
 export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
@@ -314,19 +315,35 @@ export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
       <component-ship-masked-modal
         size="xs"
         ship_max_hp={
-          props.store_data_set_param_ship().e_ship_max_hp[props.ship_idx]
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_ship_max_hp[props.ship_idx]
+            : props.store_data_set_param_ship().e_ship_max_hp[props.ship_idx]
         }
         ship_param={
-          props.store_data_set_param_ship().e_ship_param[props.ship_idx]
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_ship_param[props.ship_idx]
+            : props.store_data_set_param_ship().e_ship_param[props.ship_idx]
         }
         ship_slot={
-          props.store_data_set_param_ship().e_ship_slot[props.ship_idx]
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_ship_slot[props.ship_idx]
+            : props.store_data_set_param_ship().e_ship_slot[props.ship_idx]
         }
-        mst_ship={props.store_data_set_param_ship().e_mst_ship[props.ship_idx]}
+        mst_ship={
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_mst_ship[props.ship_idx]
+            : props.store_data_set_param_ship().e_mst_ship[props.ship_idx]
+        }
         mst_slot_items={
-          props.store_data_set_param_ship().e_mst_slot_items[props.ship_idx]
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_mst_slot_items[props.ship_idx]
+            : props.store_data_set_param_ship().e_mst_slot_items[props.ship_idx]
         }
-        color={props.store_data_set_param_ship().e_color[props.ship_idx]}
+        color={
+          props.destruction_flag
+            ? props.store_data_set_param_ship().e_destruction_color[props.ship_idx]
+            : props.store_data_set_param_ship().e_color[props.ship_idx]
+        }
         empty_flag={false}
         name_flag={true}
       />
@@ -495,14 +512,22 @@ interface WrapEnemyShipHPProps {
   store_data_set_param_ship: () => DataSetParamShip;
   idx: number;
   e_now_hps: number[] | undefined;
+  destruction_flag?: boolean;
 }
 
 export function WrapEnemyShipHPComponent(props: WrapEnemyShipHPProps) {
+  let destruction_e_now_hps = props.store_data_set_param_ship().e_destruction_ship_max_hp[props.idx] ?? 0;
   return (
     <component-color-bar-label
       size="xs"
-      v_max={props.store_data_set_param_ship().e_ship_max_hp[props.idx] ?? 0}
-      v_now={props.e_now_hps?.[props.idx] ?? 0}
+      v_max={
+        props.destruction_flag
+          ? destruction_e_now_hps
+          : props.store_data_set_param_ship().e_ship_max_hp[props.idx] ?? 0
+      }
+      v_now={
+        props.e_now_hps?.[props.idx] ?? 0
+      }
     />
   );
 }

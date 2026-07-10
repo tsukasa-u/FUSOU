@@ -205,11 +205,11 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
     //   get_enemy_yomi(e_escort_ship_id);
 
     const friend_ship_id: number[] =
-      battle.friendly_force_attack?.fleet_info.ship_id ?? [];
+      battle?.friendly_force_attack?.fleet_info.ship_id ?? [];
     const friend_nowhps: number[] =
-      battle.friendly_force_attack?.fleet_info.now_hps ?? [];
+      battle?.friendly_force_attack?.fleet_info.now_hps ?? [];
     const friend_maxhps: number[] =
-      battle.friendly_force_attack?.fleet_info.now_hps ?? [];
+      battle?.friendly_force_attack?.fleet_info.now_hps ?? [];
     const friend_damages: number[] = battle.friend_total_damages ?? [];
     // let friend_params: number[][] =
     //   battle.friendly_force_attack?.fleet_info.params ?? [];

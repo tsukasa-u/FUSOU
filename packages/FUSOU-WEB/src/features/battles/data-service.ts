@@ -8,6 +8,18 @@ let mstSlotItemByIdCache: Map<number, Record<string, unknown>> | null = null;
 let weaponIconFramesCache: Record<number, WeaponIconFrame> | null = null;
 let weaponIconMetaCache = { width: 0, height: 0 };
 
+const GLOBAL_RECORD_LIMIT_BLOCKS = 120;
+const BATTLE_RESULT_LOOKUP_LIMIT = 50;
+const UUID_LOOKUP_LIMIT = 200;
+const DEFAULT_FIELD_LOOKUP_LIMIT = 200;
+const DEFAULT_RECENT_LOOKUP_LIMIT = 200;
+const ENV_DECK_LOOKUP_LIMIT = 200;
+const ENV_SHIP_LOOKUP_LIMIT = 2000;
+const ENV_SLOTITEM_LOOKUP_LIMIT = 4000;
+const DIRECT_SLOT_LOOKUP_LIMIT = 64;
+const BATTLE_LOOKUP_LIMIT = 50;
+const WEAPON_ICON_FRAMESET_VERSION = 2;
+
 type BattleDataQueryOptions = {
   tableVersion?: string;
 };
@@ -52,7 +64,7 @@ export async function fetchBattleResultByUuid(
     const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
     const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${BATTLE_RESULT_LOOKUP_LIMIT}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const item = (payload?.records || []).find(
       (r) => r?.uuid === uuid && r?.win_rank,
@@ -80,7 +92,7 @@ export async function fetchRecordsByUuid(
     try {
       const filterJson = encodeURIComponent(JSON.stringify({ [field]: uuid }));
       const payload = (await fetchJson(
-        `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=200&filter_json=${filterJson}`,
+        `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${UUID_LOOKUP_LIMIT}&filter_json=${filterJson}`,
       )) as { records?: Array<Record<string, unknown>> } | null;
       const records = payload?.records || [];
       if (records.length > 0) {
@@ -124,7 +136,7 @@ export async function fetchRecordsByUuids(
     const filterJson = encodeURIComponent(JSON.stringify({ uuid: unique }));
     const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${unique.length * 50}&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${unique.length * BATTLE_RESULT_LOOKUP_LIMIT}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const result = new Map<string, Array<Record<string, unknown>>>();
     for (const id of unique) result.set(id, []);
@@ -162,7 +174,7 @@ export async function fetchRecordsByField(
   table: string,
   field: string,
   value: unknown,
-  limitRecords = 200,
+  limitRecords = DEFAULT_FIELD_LOOKUP_LIMIT,
   options?: BattleDataQueryOptions,
 ): Promise<Array<Record<string, unknown>>> {
   if (!table || !field || value == null) return [];
@@ -170,7 +182,7 @@ export async function fetchRecordsByField(
     const filterJson = encodeURIComponent(JSON.stringify({ [field]: value }));
     const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${limitRecords}&filter_json=${filterJson}`,
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=all${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${limitRecords}&filter_json=${filterJson}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     let records = payload?.records || [];
     const localFallbackFields = new Set([
@@ -197,14 +209,14 @@ export async function fetchRecordsByField(
 export async function fetchRecentRecords(
   table: string,
   periodTag = "latest",
-  limitRecords = 200,
+  limitRecords = DEFAULT_RECENT_LOOKUP_LIMIT,
   options?: BattleDataQueryOptions,
 ): Promise<Array<Record<string, unknown>>> {
   if (!table) return [];
   try {
     const tableVersionQuery = buildTableVersionQuery(options);
     const payload = (await fetchJson(
-      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=120&limit_records=${limitRecords}`,
+      `/api/battle-data/global/records?table=${encodeURIComponent(table)}&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${limitRecords}`,
     )) as { records?: Array<Record<string, unknown>> } | null;
     return payload?.records || [];
   } catch {
@@ -261,7 +273,7 @@ export async function getWeaponIconFrames(): Promise<{
   }
   try {
     const payload = (await fetchJson(
-      `/api/asset-sync/weapon-icon-frames?v=2`,
+      `/api/asset-sync/weapon-icon-frames?v=${WEAPON_ICON_FRAMESET_VERSION}`,
     )) as {
       frames?: Record<string, { frame?: Record<string, unknown> }>;
       meta?: { size?: { w?: number; h?: number } };
@@ -309,7 +321,7 @@ export async function fetchBattleRecordsByUuid(
   const filterJson = encodeURIComponent(JSON.stringify({ uuid }));
   const tableVersionQuery = buildTableVersionQuery(options);
   const payload = (await fetchJson(
-    `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=120&limit_records=50&filter_json=${filterJson}`,
+    `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(periodTag)}${tableVersionQuery}&limit_blocks=${GLOBAL_RECORD_LIMIT_BLOCKS}&limit_records=${BATTLE_LOOKUP_LIMIT}&filter_json=${filterJson}`,
   )) as { records?: Array<Record<string, unknown>> } | null;
   const records = payload?.records || [];
   let filtered = records.filter((r) => String(r?.uuid || "") === uuid);
@@ -327,6 +339,44 @@ export async function fetchBattleRecordsByUuid(
   }
 
   return filtered;
+}
+
+export async function resolveDestructionBattleByBattleUuid(
+  battleUuid: string,
+  battleIndex?: number | null,
+  options?: BattleDataQueryOptions,
+): Promise<Record<string, unknown> | null> {
+  if (!battleUuid) return null;
+
+  const cellRows = await fetchRecordsByField(
+    "cells",
+    "battles",
+    battleUuid,
+    DEFAULT_FIELD_LOOKUP_LIMIT,
+    options,
+  );
+
+  const cellWithDestruction = cellRows.find((row) =>
+    typeof row?.destruction_battles === "string"
+      ? row.destruction_battles.length > 0
+      : false,
+  );
+  if (!cellWithDestruction) return null;
+
+  const destructionUuid = String(cellWithDestruction.destruction_battles ?? "");
+  if (!destructionUuid) return null;
+
+  const rows = await fetchRecordsByUuid("destruction_battle", destructionUuid, options);
+  if (rows.length === 0) return null;
+
+  if (Number.isFinite(Number(battleIndex))) {
+    const byIndex = rows.find(
+      (row) => Number(row?.index ?? Number.NaN) === Number(battleIndex),
+    );
+    if (byIndex) return byIndex;
+  }
+
+  return [...rows].sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))[0] ?? null;
 }
 
 export async function resolveMidnightHougeki(
@@ -422,7 +472,7 @@ export async function resolveFriendlyFleet(
     "own_deck",
     "env_uuid",
     envUuid,
-    200,
+    ENV_DECK_LOOKUP_LIMIT,
     options,
   );
   const hpSnapshot = (battle.f_nowhps ??
@@ -468,7 +518,7 @@ export async function resolveFriendlyFleet(
       "own_ship",
       "env_uuid",
       envUuid,
-      2000,
+      ENV_SHIP_LOOKUP_LIMIT,
       options,
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
@@ -500,7 +550,7 @@ export async function resolveFriendlyFleet(
     const nearbyOwnShipRows = await fetchRecentRecords(
       "own_ship",
       "latest",
-      2000,
+      ENV_SHIP_LOOKUP_LIMIT,
       options,
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
@@ -573,7 +623,7 @@ export async function resolveFriendlyFleet(
       "own_slotitem",
       "env_uuid",
       friendlyEnvUuid,
-      4000,
+      ENV_SLOTITEM_LOOKUP_LIMIT,
       options,
     );
     for (const row of envSlotRows) {
@@ -600,7 +650,7 @@ export async function resolveFriendlyFleet(
         "own_slotitem",
         "uuid",
         slotUuid,
-        64,
+        DIRECT_SLOT_LOOKUP_LIMIT,
         options,
       );
       if (rows.length > 0) {
@@ -621,7 +671,7 @@ export async function resolveFriendlyFleet(
         "own_ship",
         "env_uuid",
         friendlyEnvUuid,
-        2000,
+        ENV_SHIP_LOOKUP_LIMIT,
         options,
       );
       for (const row of envOwnShipRows) {
@@ -752,7 +802,7 @@ export async function resolveEnemyFleet(
       "enemy_ship",
       "env_uuid",
       envUuid,
-      2000,
+      ENV_SHIP_LOOKUP_LIMIT,
       options,
     );
     if (rows.length === 0) return [];
