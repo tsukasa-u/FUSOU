@@ -8,6 +8,7 @@ import type {
   DataSetParamShip,
   DataSetShip,
 } from "../../../utility/get_data_set";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipHPComponent,
@@ -166,44 +167,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = () => {
-    const f_fly = airattack()?.f_sprite_fly_count;
-    const e_fly = airattack()?.e_sprite_fly_count;
-    const f_crash = airattack()?.f_sprite_crash_count ?? "?";
-    const e_crash = airattack()?.e_sprite_crash_count ?? "?";
-    const f_damage = airattack()?.f_sprite_damage_count ?? "?";
-    const e_damage = airattack()?.e_sprite_damage_count ?? "?";
-    const f_non_normal = airattack()?.f_sprite_non_normal_count ?? "?";
-    const e_non_normal = airattack()?.e_sprite_non_normal_count ?? "?";
-
-    return (
-      <>
-        Sprite :{" "}
-        <Show
-          when={
-            f_fly != null ||
-            e_fly != null ||
-            airattack()?.f_sprite_crash_count != null ||
-            airattack()?.e_sprite_crash_count != null ||
-            airattack()?.f_sprite_damage_count != null ||
-            airattack()?.e_sprite_damage_count != null
-          }
-          fallback={<span class="pl-1 text-gray-500">_</span>}
-        >
-          <span class="pl-1">
-            Fly: {f_fly ?? "?"}/{e_fly ?? "?"}
-          </span>
-          <span class="pl-2">
-            Crash: {f_crash} / {e_crash}
-          </span>
-          <span class="pl-2">
-            Damage: {f_damage} / {e_damage}
-          </span>
-          <span class="pl-2">
-            Non-Normal: {f_non_normal} / {e_non_normal}
-          </span>
-        </Show>
-      </>
-    );
+    return <SpriteMotionCounts counts={airattack()} class="pl-1" />;
   };
 
   const show_f_plane_from = () => {

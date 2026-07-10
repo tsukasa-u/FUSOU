@@ -568,7 +568,7 @@ fn classify_by_target(target_url: &str) -> String {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_ship_growth_suppression_status(
 ) -> Result<Option<ShipGrowthSuppressionStatus>, String> {
-    Ok(crate::ship_growth_sender::get_suppression_status().map(|status| ShipGrowthSuppressionStatus {
+    Ok(crate::senders::ship_growth_sender::get_suppression_status().map(|status| ShipGrowthSuppressionStatus {
         scope: status.scope,
         entries: status
             .entries
@@ -598,7 +598,7 @@ pub struct QuestTreeSuppressionStatus {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_quest_tree_suppression_status(
 ) -> Result<Option<QuestTreeSuppressionStatus>, String> {
-    Ok(crate::quest_tree_sender::get_suppression_status().map(|status| QuestTreeSuppressionStatus {
+    Ok(crate::senders::quest_tree_sender::get_suppression_status().map(|status| QuestTreeSuppressionStatus {
         scope: status.scope,
         entries: status
             .entries
@@ -628,7 +628,7 @@ pub struct RemodelSuppressionStatus {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_remodel_suppression_status(
 ) -> Result<Option<RemodelSuppressionStatus>, String> {
-    Ok(crate::remodel_sender::get_suppression_status().map(|status| RemodelSuppressionStatus {
+    Ok(crate::senders::remodel_sender::get_suppression_status().map(|status| RemodelSuppressionStatus {
         scope: status.scope,
         entries: status
             .entries

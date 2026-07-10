@@ -18,6 +18,8 @@ pub const PENDING_DETAIL_REQ_CAP: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemodelSlotListEntry {
     pub remodel_id: i64,
+    pub remodel_step_id: i64,
+    pub remodel_level: Option<i64>,
     pub slotitem_master_id: i64,
     pub sp_type: i64,
     pub req_fuel: i64,
@@ -43,8 +45,12 @@ pub struct RemodelSlotList {
 pub struct RemodelDetail {
     pub slotitem_master_id: i64,
     pub remodel_id: i64,
+    pub remodel_step_id: i64,
+    pub remodel_level: Option<i64>,
     pub certain_buildkit: i64,
     pub certain_remodelkit: i64,
+    pub req_slot_id: i64,
+    pub req_slot_num: i64,
     pub change_flag: i64,
     pub req_useitem_id: Option<i64>,
     pub req_useitem_id2: Option<i64>,

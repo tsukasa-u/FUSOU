@@ -88,10 +88,11 @@ function validateSokuSpeedIngestBody(
   if (!body.table_version) {
     return { ok: false, error: "table_version is required" };
   }
-  if (!/^\d+\.\d+$/.test(String(body.table_version))) {
+  if (!/^\d+\.\d+(?:\.\d+)?$/.test(String(body.table_version))) {
     return {
       ok: false,
-      error: "table_version must be in MAJOR.MINOR format (e.g. '0.5')",
+      error:
+        "table_version must be in MAJOR.MINOR or MAJOR.MINOR.PATCH format (e.g. '0.5.1')",
     };
   }
   if (!Array.isArray(body.ships) || body.ships.length === 0) {

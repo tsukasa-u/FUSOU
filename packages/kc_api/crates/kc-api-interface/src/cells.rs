@@ -183,4 +183,12 @@ pub struct AirBaseAttack {
     pub e_damage: AirDamage,
     pub stage_flag: Vec<i64>,
     pub map_squadron_plane: Option<HashMap<String, Vec<i64>>>,
+    pub f_sprite_fly_count: Option<i64>,
+    pub e_sprite_fly_count: Option<i64>,
+    pub f_sprite_crash_count: Option<i64>,
+    pub e_sprite_crash_count: Option<i64>,
+    pub f_sprite_damage_count: Option<i64>,
+    pub e_sprite_damage_count: Option<i64>,
+    pub f_sprite_non_normal_count: Option<i64>,
+    pub e_sprite_non_normal_count: Option<i64>,
 }

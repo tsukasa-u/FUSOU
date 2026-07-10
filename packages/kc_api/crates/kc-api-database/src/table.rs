@@ -3,9 +3,9 @@
 use std::str::FromStr;
 
 use crate::models::airbase::{AirBase, PlaneInfo};
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 use crate::models::battle::BattleResult;
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 use crate::models::battle::NightSupportHourai;
 use crate::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
@@ -13,6 +13,8 @@ use crate::models::battle::{
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
+#[cfg(schema_since = "0.5.1")]
+use crate::models::battle::DestructionBattle;
 
 use crate::models::cell::Cells;
 use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -367,9 +369,9 @@ define_port_table_schema! {
     HougekiList => hougeki_list: HougekiList => get_table_name => "hougeki_list",
     MidnightHougeki => midnight_hougeki: MidnightHougeki => get_table_name => "midnight_hougeki",
     MidnightHougekiList => midnight_hougeki_list: MidnightHougekiList => get_table_name => "midnight_hougeki_list",
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     NightSupportHourai => night_support_hourai: NightSupportHourai => get_table_name => "night_support_hourai",
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     NightSupportAirattack => night_support_airattack: SupportAirattack => get_night_table_name => "night_support_airattack",
     OpeningAirAttack => opening_airattack: OpeningAirAttack => get_table_name => "opening_airattack",
     OpeningAirAttackList => opening_airattack_list: OpeningAirAttackList => get_table_name => "opening_airattack_list",
@@ -379,8 +381,10 @@ define_port_table_schema! {
     SupportAirattack => support_airattack: SupportAirattack => get_table_name => "support_airattack",
     SupportHourai => support_hourai: SupportHourai => get_table_name => "support_hourai",
     Battle => battle: Battle => get_table_name => "battle",
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     BattleResult => battle_result: BattleResult => get_table_name => "battle_result",
+    #[cfg(schema_since = "0.5.1")]
+    DestructionBattle => destruction_battle: DestructionBattle => get_table_name => "destruction_battle",
 }
 
 pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {

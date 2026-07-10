@@ -2,10 +2,11 @@
 import json
 import os
 from pathlib import Path
+import re
 
 # Paths
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-SOURCE_JSON = ROOT_DIR / "packages/FUSOU-WORKFLOW/schemas/kc_api_v1.json"
+SCHEMA_DIR = ROOT_DIR / "packages/kc_api/generated-schemas"
 TARGET_PY = ROOT_DIR / "packages/fusou-datasets/python/fusou_datasets/schema.py"
 
 # Manual Master Data Definitions (since they aren't in kc_api_v1.json)
@@ -22,9 +23,43 @@ MASTER_TABLES = {
 def to_class_name(s):
     return "".join(word.capitalize() for word in s.split("_"))
 
+
+def parse_version_key(path: Path):
+    match = re.match(r"schema_(v\d+_\d+(?:_\d+)?)\.json$", path.name)
+    if not match:
+        return None
+    version_key = match.group(1)
+    version_match = re.match(r"v(\d+)_(\d+)(?:_(\d+))?$", version_key)
+    if not version_match:
+        return None
+    return (
+        int(version_match.group(1)),
+        int(version_match.group(2)),
+        int(version_match.group(3) or 0),
+        path,
+    )
+
+
+def resolve_source_json() -> Path:
+    candidates = []
+    if SCHEMA_DIR.exists():
+        for path in SCHEMA_DIR.glob("schema_v*.json"):
+            parsed = parse_version_key(path)
+            if parsed is not None:
+                candidates.append(parsed)
+
+    if not candidates:
+        raise FileNotFoundError(
+            f"No schema_v*.json files found under {SCHEMA_DIR}"
+        )
+
+    candidates.sort()
+    return candidates[-1][3]
+
 def generate():
-    print(f"Reading {SOURCE_JSON}...")
-    with open(SOURCE_JSON, "r", encoding="utf-8") as f:
+    source_json = resolve_source_json()
+    print(f"Reading {source_json}...")
+    with open(source_json, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     lines = [

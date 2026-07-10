@@ -95,15 +95,19 @@ function resolveOverrideTarget(fieldName, sourceTable = "") {
   return resolveOverrideTargets(fieldName, sourceTable)[0] ?? null;
 }
 
-/** Compare version keys like "v0_4" vs "v1_0" numerically */
+/** Compare version keys like "v0_4" vs "v0_5_1" vs "v1_0" numerically */
 function compareVersionKeys(a, b) {
   const parse = (k) => {
-    const m = k.match(/^v(\d+)_(\d+)$/);
-    return m ? [parseInt(m[1], 10), parseInt(m[2], 10)] : [0, 0];
+    const m = k.match(/^v(\d+)_(\d+)(?:_(\d+))?$/);
+    return m
+      ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3] || "0", 10)]
+      : [0, 0, 0];
   };
-  const [aMajor, aMinor] = parse(a);
-  const [bMajor, bMinor] = parse(b);
-  return aMajor !== bMajor ? aMajor - bMajor : aMinor - bMinor;
+  const [aMajor, aMinor, aPatch] = parse(a);
+  const [bMajor, bMinor, bPatch] = parse(b);
+  if (aMajor !== bMajor) return aMajor - bMajor;
+  if (aMinor !== bMinor) return aMinor - bMinor;
+  return aPatch - bPatch;
 }
 
 /** Auto-detect schema versions by scanning for schema_v*.json files */
@@ -113,7 +117,7 @@ function detectVersions() {
     return [];
   }
   return readdirSync(SCHEMAS_DIR)
-    .map((f) => f.match(/^schema_(v\d+_\d+)\.json$/)?.[1])
+    .map((f) => f.match(/^schema_(v\d+_\d+(?:_\d+)?)\.json$/)?.[1])
     .filter(Boolean)
     .sort(compareVersionKeys);
 }
@@ -122,7 +126,7 @@ function detectVersions() {
 function computeMajorVersions(versions) {
   const groups = {};
   for (const vKey of versions) {
-    const m = vKey.match(/^v(\d+)_(\d+)$/);
+    const m = vKey.match(/^v(\d+)_(\d+)(?:_(\d+))?$/);
     if (!m) continue;
     const majorKey = `v${m[1]}`;
     if (!groups[majorKey]) {
@@ -714,8 +718,17 @@ for (const version of VERSIONS) {
     if (dotMerge) {
       // Filter DOT edges to only include nodes present in this version
       const nodeIds = new Set(result.nodes.map((n) => n.id));
+      const fieldNamesByNode = new Map(
+        result.nodes.map((n) => [
+          n.id,
+          new Set((n.data?.fields || []).map((f) => f.name)),
+        ]),
+      );
       result.edges = dotMerge.edges.filter(
-        (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
+        (e) =>
+          nodeIds.has(e.source) &&
+          nodeIds.has(e.target) &&
+          fieldNamesByNode.get(e.source)?.has(e.label),
       );
       // Enrich nodes with isEnvRef from DOT
       result.nodes = enrichAvroNodes(result.nodes, dotMerge.envRefFields);

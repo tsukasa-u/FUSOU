@@ -577,16 +577,16 @@ pub struct AirBaseAirAttack {
     /// All sprites affected by motion (crashed + damaged)
     pub f_sprite_non_normal_count: Option<i64>,
     pub e_sprite_non_normal_count: Option<i64>,
-    /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
-    pub f_sprite_crash_stage1_count: Option<i64>,
-    pub f_sprite_crash_stage2_count: Option<i64>,
-    pub e_sprite_crash_stage1_count: Option<i64>,
-    pub e_sprite_crash_stage2_count: Option<i64>,
-    /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
-    pub f_sprite_damage_stage1_count: Option<i64>,
-    pub f_sprite_damage_stage2_count: Option<i64>,
-    pub e_sprite_damage_stage1_count: Option<i64>,
-    pub e_sprite_damage_stage2_count: Option<i64>,
+    // /// Deprecated: stage1-only crash counts. Use f_sprite_crash_count instead.
+    // pub f_sprite_crash_stage1_count: Option<i64>,
+    // pub f_sprite_crash_stage2_count: Option<i64>,
+    // pub e_sprite_crash_stage1_count: Option<i64>,
+    // pub e_sprite_crash_stage2_count: Option<i64>,
+    // /// Deprecated: stage-specific damage counts. Use f_sprite_damage_count instead.
+    // pub f_sprite_damage_stage1_count: Option<i64>,
+    // pub f_sprite_damage_stage2_count: Option<i64>,
+    // pub e_sprite_damage_stage1_count: Option<i64>,
+    // pub e_sprite_damage_stage2_count: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]

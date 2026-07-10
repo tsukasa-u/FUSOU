@@ -24,6 +24,7 @@ import {
 import {
   fetchBattleResultByUuid,
   fetchBattleRecordsByUuid,
+  resolveDestructionBattleByBattleUuid,
   fetchRecordsByField,
   getMstShipById,
   getWeaponIconFrames,
@@ -417,6 +418,7 @@ export default function BattleDetailPanel(props: {
           resolvedOpeningAirAttack,
           resolvedOpeningRaigeki,
           resolvedClosingRaigeki,
+          resolvedDestructionBattle,
         ] = await Promise.all([
           resolvedBattleResultPromise,
           resolveMidnightHougeki(matched.midnight_hougeki, queryOptions),
@@ -425,6 +427,11 @@ export default function BattleDetailPanel(props: {
           resolveOpeningAirAttack(matched.opening_air_attack, queryOptions),
           resolveOpeningRaigeki(matched.opening_raigeki, queryOptions),
           resolveClosingRaigeki(matched.closing_raigeki, queryOptions),
+          resolveDestructionBattleByBattleUuid(
+            String(matched.uuid ?? ""),
+            Number(matched.index ?? Number.NaN),
+            queryOptions,
+          ),
         ]);
 
         const merged = {
@@ -440,6 +447,7 @@ export default function BattleDetailPanel(props: {
           opening_air_attack: resolvedOpeningAirAttack,
           opening_raigeki: resolvedOpeningRaigeki,
           closing_raigeki: resolvedClosingRaigeki,
+          destruction_battle: resolvedDestructionBattle,
         };
 
         const label = matched.uuid

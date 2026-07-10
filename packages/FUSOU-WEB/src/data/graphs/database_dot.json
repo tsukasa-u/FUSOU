@@ -177,6 +177,22 @@
       "targetHandle": "models__battle__SupportHourai-SupportHouraiId"
     },
     {
+      "id": "e-models__battle__DestructionBattle-e_deck_ids-models__deck__EnemyDeck-EnemyDeck",
+      "label": "e_deck_ids",
+      "source": "models__battle__DestructionBattle",
+      "sourceHandle": "models__battle__DestructionBattle-e_deck_ids",
+      "target": "models__deck__EnemyDeck",
+      "targetHandle": "models__deck__EnemyDeck-EnemyDeck"
+    },
+    {
+      "id": "e-models__battle__DestructionBattle-f_airbase_ids-models__airbase__AirBase-AirBase",
+      "label": "f_airbase_ids",
+      "source": "models__battle__DestructionBattle",
+      "sourceHandle": "models__battle__DestructionBattle-f_airbase_ids",
+      "target": "models__airbase__AirBase",
+      "targetHandle": "models__airbase__AirBase-AirBase"
+    },
+    {
       "id": "e-models__battle__FriendlySupportHouraiList-hourai_list-models__battle__FriendlySupportHourai-FriendlySupportHouraiId",
       "label": "hourai_list",
       "source": "models__battle__FriendlySupportHouraiList",
@@ -223,6 +239,14 @@
       "sourceHandle": "models__cell__Cells-battles",
       "target": "models__battle__Battle",
       "targetHandle": "models__battle__Battle-Battle"
+    },
+    {
+      "id": "e-models__cell__Cells-destruction_battles-models__battle__DestructionBattle-DestructionBattle",
+      "label": "destruction_battles",
+      "source": "models__cell__Cells",
+      "sourceHandle": "models__cell__Cells-destruction_battles",
+      "target": "models__battle__DestructionBattle",
+      "targetHandle": "models__battle__DestructionBattle-DestructionBattle"
     },
     {
       "id": "e-models__cell__Cells-f_deck_after_id-models__deck__OwnDeck-OwnDeck",
@@ -575,34 +599,6 @@
             "isEnvRef": false,
             "isFk": false,
             "isKey": false,
-            "name": "e_sprite_crash_stage1_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "e_sprite_crash_stage2_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "e_sprite_damage_stage1_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "e_sprite_damage_stage2_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
             "name": "e_sprite_fly_count",
             "type": "Option<i32>"
           },
@@ -689,34 +685,6 @@
             "isKey": false,
             "name": "f_rai_flag",
             "type": "Option<Vec<Option<i32>>>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "f_sprite_crash_stage1_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "f_sprite_crash_stage2_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "f_sprite_damage_stage1_count",
-            "type": "Option<i32>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "f_sprite_damage_stage2_count",
-            "type": "Option<i32>"
           },
           {
             "isEnvRef": false,
@@ -1815,6 +1783,248 @@
         "tableName": "closing_raigeki"
       },
       "id": "models__battle__ClosingRaigeki",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "type": "schemaTableNode"
+    },
+    {
+      "data": {
+        "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "air_superiority",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "cell_no",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_damages",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "e_deck_ids",
+            "type": "Option<EnemyDeckId>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_formation",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_loss_plane1",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_loss_plane2",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_now_hps",
+            "type": "Vec<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_plane_from",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_sprite_crash_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_sprite_damage_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_sprite_fly_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_total_damages",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "e_touch_plane",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": true,
+            "isFk": false,
+            "isKey": false,
+            "name": "env_uuid",
+            "type": "EnvInfoId"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "f_airbase_ids",
+            "type": "Option<Vec<Option<AirBaseId>>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_damages",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_formation",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_loss_plane1",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_loss_plane2",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_max_hps",
+            "type": "Vec<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_now_hps",
+            "type": "Vec<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_plane_from",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_sprite_crash_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_sprite_damage_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_sprite_fly_count",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_total_damages",
+            "type": "Option<Vec<i32>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_touch_plane",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "index",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "lost_kind",
+            "type": "i32"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "squadron_planes",
+            "type": "Option<Vec<Vec<i32>>>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": true,
+            "name": "uuid",
+            "type": "DestructionBattleId"
+          }
+        ],
+        "isDataType": true,
+        "isReq": false,
+        "isRes": false,
+        "recordName": "DestructionBattle",
+        "structName": "DestructionBattle",
+        "tableName": "destruction_battle"
+      },
+      "id": "models__battle__DestructionBattle",
       "position": {
         "x": 0,
         "y": 0
@@ -3286,6 +3496,13 @@
             "isKey": false,
             "name": "cell_index",
             "type": "Vec<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "destruction_battles",
+            "type": "Option<DestructionBattleId>"
           },
           {
             "isEnvRef": true,

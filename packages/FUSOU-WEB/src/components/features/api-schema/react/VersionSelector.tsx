@@ -14,7 +14,7 @@ interface VersionSelectorProps {
   onMajorChange?: (major: string) => void;
 }
 
-/** Convert a version key like "v0_4" to a display label like "v0.4" */
+/** Convert a version key like "v0_5_1" to a display label like "v0.5.1" */
 function versionKeyToLabel(key: string): string {
   return key.replace(/_/g, ".");
 }

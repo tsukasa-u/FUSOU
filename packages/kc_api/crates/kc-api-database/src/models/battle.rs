@@ -9,9 +9,9 @@ use crate::models::deck::EnemyDeck;
 use crate::models::deck::EnemyDeckId;
 use crate::models::deck::FriendDeck;
 use crate::models::deck::FriendDeckId;
-#[cfg(feature = "schema_v0_4")]
+#[cfg(schema_until = "0.5.0")]
 use crate::models::deck::OwnDeck;
-#[cfg(feature = "schema_v0_4")]
+#[cfg(schema_until = "0.5.0")]
 use crate::models::deck::OwnDeckId;
 use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
@@ -39,15 +39,17 @@ pub type AirBaseAirAttackId = Uuid;
 pub type AirBaseAssultId = Uuid;
 pub type CarrierBaseAssaultId = Uuid;
 pub type SupportHouraiId = Uuid;
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 pub type NightSupportHouraiId = Uuid;
 pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 pub type NightSupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 pub type BattleResultId = Uuid;
+#[cfg(schema_since = "0.5.1")]
+pub type DestructionBattleId = Uuid;
 
 trait IntoI32 {
     type Output;
@@ -83,6 +85,155 @@ impl<T: IntoI32> IntoI32 for Vec<T> {
 
     fn into_i32(self) -> Self::Output {
         self.into_iter().map(|value| value.into_i32()).collect()
+    }
+}
+
+#[cfg(schema_since = "0.5.1")]
+fn flatten_map_squadron_plane(
+    map_squadron_plane: Option<std::collections::HashMap<String, Vec<i64>>>,
+) -> (Option<Vec<i32>>, Option<Vec<Vec<i32>>>) {
+    let Some(map_squadron_plane) = map_squadron_plane else {
+        return (None, None);
+    };
+
+    let mut entries = map_squadron_plane
+        .into_iter()
+        .filter_map(|(base_no, planes)| {
+            base_no
+                .parse::<i32>()
+                .ok()
+                .map(|parsed_base_no| (parsed_base_no, planes.into_i32()))
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(base_no, _)| *base_no);
+
+    if entries.is_empty() {
+        return (None, None);
+    }
+
+    let (base_nos, squadron_planes): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+    (Some(base_nos), Some(squadron_planes))
+}
+
+#[cfg(schema_since = "0.5.1")]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
+pub struct DestructionBattle {
+    pub env_uuid: EnvInfoId,
+    pub uuid: DestructionBattleId,
+    pub index: i32,
+    pub cell_no: i32,
+    pub f_formation: Option<i32>,
+    pub e_formation: Option<i32>,
+    pub f_airbase_ids: Option<Vec<Option<AirBaseId>>>,
+    pub e_deck_ids: Option<EnemyDeckId>,
+    pub f_max_hps: Vec<i32>,
+    pub f_total_damages: Option<Vec<i32>>,
+    pub e_total_damages: Option<Vec<i32>>,
+    pub air_superiority: Option<i32>,
+    pub f_plane_from: Option<Vec<i32>>,
+    pub f_touch_plane: Option<i32>,
+    pub f_loss_plane1: i32,
+    pub f_loss_plane2: i32,
+    pub f_damages: Option<Vec<i32>>,
+    pub f_now_hps: Vec<i32>,
+    pub e_plane_from: Option<Vec<i32>>,
+    pub e_touch_plane: Option<i32>,
+    pub e_loss_plane1: i32,
+    pub e_loss_plane2: i32,
+    pub e_damages: Option<Vec<i32>>,
+    pub e_now_hps: Vec<i32>,
+    pub f_sprite_fly_count: Option<i32>,
+    pub e_sprite_fly_count: Option<i32>,
+    pub f_sprite_crash_count: Option<i32>,
+    pub e_sprite_crash_count: Option<i32>,
+    pub f_sprite_damage_count: Option<i32>,
+    pub e_sprite_damage_count: Option<i32>,
+    pub squadron_planes: Option<Vec<Vec<i32>>>,
+    pub lost_kind: i32,
+}
+
+#[cfg(schema_since = "0.5.1")]
+impl DestructionBattle {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_ret_option(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: kc_api_interface::cells::DestructionBattle,
+        table: &mut PortTable,
+        dedup: &mut DedupCache,
+        env_uuid: EnvInfoId,
+        index: usize,
+        cell_no: i64,
+    ) -> Option<()> {
+        let air_bases = AirBases::load();
+        let e_deck_uuid = Uuid::new_v7(ts);
+        let e_deck_ids = EnemyDeck::new_ret_option_from_destruction(ts, e_deck_uuid, &data, table, env_uuid)
+            .map(|_| e_deck_uuid);
+        let f_airbase_nos = (!data.f_maxhps.is_empty()).then(|| {
+            (1..=data.f_maxhps.len())
+                .map(|base_no| base_no as i32)
+                .collect::<Vec<_>>()
+        });
+        let f_airbase_ids = f_airbase_nos.as_ref().map(|base_nos| {
+            base_nos
+                .iter()
+                .map(|base_no| {
+                    let air_base = air_bases.bases.get(&base_no.to_string())?.clone();
+                    dedup.get_or_insert_with("airbase", *base_no as i64, ts, |new_uuid| {
+                        AirBase::new_ret_option(ts, new_uuid, air_base.clone(), table, env_uuid)
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let (_, squadron_planes) =
+            flatten_map_squadron_plane(data.air_base_attack.map_squadron_plane.clone());
+
+        let new_data = DestructionBattle {
+            env_uuid,
+            uuid,
+            index: index as i32,
+            cell_no: cell_no as i32,
+            f_formation: data.formation.first().copied().into_i32(),
+            e_formation: data.formation.get(1).copied().into_i32(),
+            f_airbase_ids,
+            e_deck_ids,
+            f_max_hps: data.f_maxhps.into_i32(),
+            f_total_damages: data.f_total_damages.into_i32(),
+            e_total_damages: data.e_total_damages.into_i32(),
+            air_superiority: data.air_base_attack.air_superiority.into_i32(),
+            f_plane_from: data.air_base_attack.f_damage.plane_from.into_i32(),
+            f_touch_plane: data.air_base_attack.f_damage.touch_plane.into_i32(),
+            f_loss_plane1: data.air_base_attack.f_damage.loss_plane1 as i32,
+            f_loss_plane2: data.air_base_attack.f_damage.loss_plane2 as i32,
+            f_damages: data.air_base_attack.f_damage.damages.into_i32(),
+            f_now_hps: data.air_base_attack.f_damage.now_hps.into_i32(),
+            e_plane_from: data.air_base_attack.e_damage.plane_from.into_i32(),
+            e_touch_plane: data.air_base_attack.e_damage.touch_plane.into_i32(),
+            e_loss_plane1: data.air_base_attack.e_damage.loss_plane1 as i32,
+            e_loss_plane2: data.air_base_attack.e_damage.loss_plane2 as i32,
+            e_damages: data.air_base_attack.e_damage.damages.into_i32(),
+            e_now_hps: data.air_base_attack.e_damage.now_hps.into_i32(),
+            f_sprite_fly_count: data.air_base_attack.f_sprite_fly_count.into_i32(),
+            e_sprite_fly_count: data.air_base_attack.e_sprite_fly_count.into_i32(),
+            f_sprite_crash_count: data.air_base_attack.f_sprite_crash_count.into_i32(),
+            e_sprite_crash_count: data.air_base_attack.e_sprite_crash_count.into_i32(),
+            f_sprite_damage_count: data.air_base_attack.f_sprite_damage_count.into_i32(),
+            e_sprite_damage_count: data.air_base_attack.e_sprite_damage_count.into_i32(),
+            squadron_planes,
+            lost_kind: data.lost_kind as i32,
+        };
+
+        table.destruction_battle.push(new_data);
+        Some(())
     }
 }
 
@@ -708,29 +859,29 @@ pub struct OpeningAirAttack {
     pub airfire_idx: Option<i32>,
     pub airfire_use_item: Option<Vec<i32>>,
     pub air_superiority: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_non_normal_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_non_normal_count: Option<i32>,
 }
 
@@ -785,37 +936,37 @@ impl OpeningAirAttack {
                     .collect()
             }),
             air_superiority: data.air_superiority.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage1_count: data.f_sprite_crash_count_stage1.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage2_count: data.f_sprite_crash_count_stage2.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage1_count: data.e_sprite_crash_count_stage1.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_count_stage2.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage1_count: data
                 .f_sprite_damage_count_stage1
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage2_count: data
                 .f_sprite_damage_count_stage2
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage1_count: data
                 .e_sprite_damage_count_stage1
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage2_count: data
                 .e_sprite_damage_count_stage2
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_non_normal_count: data.f_sprite_non_normal_count.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         };
 
@@ -922,29 +1073,29 @@ pub struct AirBaseAirAttack {
     pub e_now_hps: Vec<i32>,
     pub airbase_id: Option<AirBaseId>,
     pub squadron_plane: Option<Vec<Option<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub f_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub f_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub e_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub e_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub f_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub f_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub e_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
-    pub e_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
+    // pub f_sprite_crash_stage1_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub f_sprite_crash_stage2_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub e_sprite_crash_stage1_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub e_sprite_crash_stage2_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub f_sprite_damage_stage1_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub f_sprite_damage_stage2_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub e_sprite_damage_stage1_count: Option<i32>,
+    // #[cfg(schema_since = "0.5.0")]
+    // pub e_sprite_damage_stage2_count: Option<i32>,
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_non_normal_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_non_normal_count: Option<i32>,
 }
 
@@ -1011,37 +1162,37 @@ impl AirBaseAirAttack {
                 .collect(),
             airbase_id: new_airbase_id,
             squadron_plane: data.squadron_plane.into_i32(),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            f_sprite_damage_stage1_count: data
-                .f_sprite_damage_stage1_count
-                .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            f_sprite_damage_stage2_count: data
-                .f_sprite_damage_stage2_count
-                .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            e_sprite_damage_stage1_count: data
-                .e_sprite_damage_stage1_count
-                .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
-            e_sprite_damage_stage2_count: data
-                .e_sprite_damage_stage2_count
-                .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            // #[cfg(schema_since = "0.5.0")]
+            // f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // f_sprite_damage_stage1_count: data
+            //     .f_sprite_damage_stage1_count
+            //     .map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // f_sprite_damage_stage2_count: data
+            //     .f_sprite_damage_stage2_count
+            //     .map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // e_sprite_damage_stage1_count: data
+            //     .e_sprite_damage_stage1_count
+            //     .map(|value| value as i32),
+            // #[cfg(schema_since = "0.5.0")]
+            // e_sprite_damage_stage2_count: data
+            //     .e_sprite_damage_stage2_count
+            //     .map(|value| value as i32),
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_non_normal_count: data.f_sprite_non_normal_count.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         };
 
@@ -1085,29 +1236,29 @@ pub struct AirBaseAssult {
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_non_normal_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_non_normal_count: Option<i32>,
 }
 
@@ -1157,37 +1308,37 @@ impl AirBaseAssult {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage1_count: data
                 .f_sprite_damage_stage1_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage2_count: data
                 .f_sprite_damage_stage2_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage1_count: data
                 .e_sprite_damage_stage1_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage2_count: data
                 .e_sprite_damage_stage2_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_non_normal_count: data.f_sprite_non_normal_count.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         };
 
@@ -1230,29 +1381,29 @@ pub struct CarrierBaseAssault {
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage1_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_stage2_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_non_normal_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_non_normal_count: Option<i32>,
 }
 
@@ -1297,37 +1448,37 @@ impl CarrierBaseAssault {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage1_count: data.f_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_stage2_count: data.f_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage1_count: data.e_sprite_crash_stage1_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_stage2_count: data.e_sprite_crash_stage2_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage1_count: data
                 .f_sprite_damage_stage1_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_stage2_count: data
                 .f_sprite_damage_stage2_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage1_count: data
                 .e_sprite_damage_stage1_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_stage2_count: data
                 .e_sprite_damage_stage2_count
                 .map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_non_normal_count: data.f_sprite_non_normal_count.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         };
 
@@ -1417,7 +1568,7 @@ impl SupportHourai {
     }
 }
 
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 #[derive(
     Debug,
     Clone,
@@ -1441,7 +1592,7 @@ pub struct NightSupportHourai {
     pub e_now_hps: Vec<i32>,
 }
 
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 impl NightSupportHourai {
     pub fn new_ret_option(
         _ts: uuid::Timestamp,
@@ -1528,21 +1679,21 @@ pub struct SupportAirattack {
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_fly_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_crash_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_crash_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_damage_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_damage_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_sprite_non_normal_count: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub e_sprite_non_normal_count: Option<i32>,
 }
 
@@ -1597,21 +1748,21 @@ impl SupportAirattack {
             e_bak_flag: e_damage.bak_flag.into_i32(),
             e_protect_flag: e_damage.protect_flag,
             e_now_hps: e_damage.now_hps.into_i32(),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_fly_count: data.f_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_fly_count: data.e_sprite_fly_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_crash_count: data.f_sprite_crash_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_crash_count: data.e_sprite_crash_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_damage_count: data.f_sprite_damage_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_damage_count: data.e_sprite_damage_count.map(|value| value as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_sprite_non_normal_count: data.f_sprite_non_normal_count.map(|v| v as i32),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         })
     }
@@ -1629,7 +1780,7 @@ impl SupportAirattack {
         Some(())
     }
 
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub fn new_ret_option_night(
         ts: uuid::Timestamp,
         uuid: Uuid,
@@ -1791,7 +1942,7 @@ impl FriendlySupportHourai {
     }
 }
 
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 #[derive(
     Debug,
     Clone,
@@ -1812,7 +1963,7 @@ pub struct BattleResult {
     pub landing_sub_value: Option<i32>,
 }
 
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 impl BattleResult {
     pub fn new_ret_option(
         _ts: uuid::Timestamp,
@@ -1855,7 +2006,7 @@ pub struct Battle {
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
     pub cell_id: i32,
-    #[cfg(feature = "schema_v0_4")]
+    #[cfg(schema_until = "0.5.0")]
     pub f_deck_id: Option<OwnDeckId>,
     pub e_deck_id: Option<EnemyDeckId>,
     pub friend_deck_id: Option<FriendDeckId>,
@@ -1879,9 +2030,9 @@ pub struct Battle {
     pub opening_air_attack: Option<OpeningAirAttackListId>,
     pub support_hourai: Option<SupportHouraiId>,
     pub support_airattack: Option<SupportAirattackId>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub night_support_hourai: Option<NightSupportHouraiId>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub night_support_airattack: Option<NightSupportAirattackId>,
     pub opening_taisen: Option<OpeningTaisenListId>,
     pub opening_raigeki: Option<OpeningRaigekiId>,
@@ -1893,7 +2044,7 @@ pub struct Battle {
     pub e_nowhps: Option<Vec<i32>>,
     pub midnight_f_nowhps: Option<Vec<i32>>,
     pub midnight_e_nowhps: Option<Vec<i32>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub battle_result: Option<BattleResultId>,
 }
 
@@ -1921,7 +2072,7 @@ impl Battle {
             })
             .unwrap_or_default();
 
-        #[cfg(feature = "schema_v0_4")]
+        #[cfg(schema_until = "0.5.0")]
         let new_f_deck_id = data.clone().deck_id.and_then(|deck_id| {
             dedup.get_or_insert_with("own_deck", deck_id, ts, |uuid| {
                 let cache = true;
@@ -1948,7 +2099,7 @@ impl Battle {
                     .map(|air| air.deck_id)
                     .or(attack.support_hourai.map(|hourai| hourai.deck_id))
             });
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             let support_deck_source = support_deck_source.or_else(|| {
                 data.clone().night_support_attack.and_then(|attack| {
                     attack
@@ -2023,7 +2174,7 @@ impl Battle {
                 })
                 .map(|_| uuid)
         };
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let new_night_support_hourai = {
             let uuid = Uuid::new_v7(ts);
             data.clone()
@@ -2035,7 +2186,7 @@ impl Battle {
                 })
                 .map(|_| uuid)
         };
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let new_night_support_airattack = {
             let uuid = Uuid::new_v7(ts);
             data.clone()
@@ -2095,7 +2246,7 @@ impl Battle {
         let new_e_nowhps = data.clone().e_nowhps;
         let new_midnight_f_nowhps = data.clone().midnight_f_nowhps;
         let new_midnight_e_nowhps = data.clone().midnight_e_nowhps;
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let new_battle_result = {
             let uuid = Uuid::new_v7(ts);
             data.clone()
@@ -2112,7 +2263,7 @@ impl Battle {
             timestamp: data.clone().timestamp,
             midnight_timestamp: data.clone().midnight_timestamp,
             cell_id: data.clone().cell_id as i32,
-            #[cfg(feature = "schema_v0_4")]
+            #[cfg(schema_until = "0.5.0")]
             f_deck_id: new_f_deck_id,
             e_deck_id: new_e_deck_id,
             friend_deck_id: new_friend_deck_id,
@@ -2145,9 +2296,9 @@ impl Battle {
             opening_air_attack: new_opening_air_attack,
             support_hourai: new_support_hourai,
             support_airattack: new_support_airattack,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             night_support_hourai: new_night_support_hourai,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             night_support_airattack: new_night_support_airattack,
             opening_taisen: new_opening_taisen,
             opening_raigeki: new_opening_raigeki,
@@ -2159,7 +2310,7 @@ impl Battle {
             e_nowhps: new_e_nowhps.map(|values| values.into_i32()),
             midnight_f_nowhps: new_midnight_f_nowhps.map(|values| values.into_i32()),
             midnight_e_nowhps: new_midnight_e_nowhps.map(|values| values.into_i32()),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             battle_result: new_battle_result,
         };
 

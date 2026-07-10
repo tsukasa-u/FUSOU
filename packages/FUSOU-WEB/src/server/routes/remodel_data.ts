@@ -26,6 +26,7 @@ import {
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
+const REMODEL_INGEST_SCHEMA_VERSION = 1;
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
@@ -33,8 +34,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 type RemodelPeriodSummaryRow = {
   period_tag: string;
-  table_version: string;
-  dataset_count: number;
+  row_count: number;
   slotitem_count: number;
 };
 
@@ -42,6 +42,14 @@ type RemodelSummarySnapshot = {
   periods: RemodelPeriodSummaryRow[];
   refreshed_at: number;
   db_synced_at: number;
+};
+
+type RemodelEffectiveSummaryRow = {
+  period_tag: string;
+  total_rows: number;
+  slotlist_rows: number;
+  recovered_from_detail_rows: number;
+  unresolved_fallback_rows: number;
 };
 
 function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
@@ -53,8 +61,7 @@ function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
       (p) =>
         typeof p === "object" &&
         p !== null &&
-        typeof (p as Record<string, unknown>).period_tag === "string" &&
-        typeof (p as Record<string, unknown>).table_version === "string",
+        typeof (p as Record<string, unknown>).period_tag === "string",
     ) &&
     typeof s.refreshed_at === "number" &&
     typeof s.db_synced_at === "number"
@@ -77,6 +84,93 @@ function isValidInt(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && Number.isInteger(v);
 }
 
+async function archiveAndResetOnPeriodSwitch(
+  db: Bindings["REMODEL_INDEX_DB"],
+  archiveBucket: Bindings["SHIP_GROWTH_ARCHIVE_BUCKET"] | undefined,
+  incomingPeriodTag: string,
+  nowMs: number,
+): Promise<{ stalePeriods: string[] }> {
+  const periods = ((
+    await db
+      .prepare(
+        `SELECT DISTINCT period_tag FROM remodel_slotlist_entries
+         UNION
+         SELECT DISTINCT period_tag FROM remodel_detail_entries`,
+      )
+      .all()
+  ).results ?? [])
+    .map((row) => String((row as Record<string, unknown>).period_tag ?? "").trim())
+    .filter(Boolean);
+
+  const stalePeriods = periods.filter((tag) => tag !== incomingPeriodTag);
+  if (stalePeriods.length === 0) return { stalePeriods: [] };
+
+  if (!archiveBucket) {
+    throw new Error(
+      "SHIP_GROWTH_ARCHIVE_BUCKET is required when period_tag changes",
+    );
+  }
+
+  const slotlistEntries = (
+    await db
+      .prepare(
+        `SELECT * FROM remodel_slotlist_entries
+         WHERE period_tag <> ?
+         ORDER BY secretary_ship_master_id, weekday_jst, slotitem_master_id, remodel_level`,
+      )
+      .bind(incomingPeriodTag)
+      .all()
+  ).results ?? [];
+
+  const detailEntries = (
+    await db
+      .prepare(
+        `SELECT * FROM remodel_detail_entries
+         WHERE period_tag <> ?
+         ORDER BY slotitem_master_id, remodel_level`,
+      )
+      .bind(incomingPeriodTag)
+      .all()
+  ).results ?? [];
+
+  const archiveKey =
+    `remodel/period-switch/${incomingPeriodTag}/${nowMs}-` +
+    `${crypto.randomUUID()}.json`;
+  await archiveBucket.put(
+    archiveKey,
+    JSON.stringify({
+      archived_at_ms: nowMs,
+      archived_period_tags: stalePeriods,
+      incoming_period_tag: incomingPeriodTag,
+      slotlist_entries: slotlistEntries,
+      detail_entries: detailEntries,
+    }),
+    {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: {
+        archived_period_tags: stalePeriods.join(","),
+        incoming_period_tag: incomingPeriodTag,
+      },
+    },
+  );
+
+  return { stalePeriods };
+}
+
+async function pruneStalePeriodsAfterSuccessfulIngest(
+  db: Bindings["REMODEL_INDEX_DB"],
+  incomingPeriodTag: string,
+): Promise<void> {
+  await db
+    .prepare(`DELETE FROM remodel_slotlist_entries WHERE period_tag <> ?`)
+    .bind(incomingPeriodTag)
+    .run();
+  await db
+    .prepare(`DELETE FROM remodel_detail_entries WHERE period_tag <> ?`)
+    .bind(incomingPeriodTag)
+    .run();
+}
+
 // ── Validation ─────────────────────────────────────────────────────
 
 type ValidResult = {
@@ -85,8 +179,8 @@ type ValidResult = {
   requestId: string;
   payloadHash: string;
   eventType: "slotlist" | "detail";
+  schemaVersion: number;
   periodTag: string;
-  tableVersion: string;
   timestampMs: number;
 };
 type InvalidResult = { ok: false; error: string };
@@ -118,13 +212,24 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
     };
   }
 
+  const schemaVersion = Number(body.schema_version);
+  if (!isValidInt(schemaVersion)) {
+    return {
+      ok: false,
+      error: "schema_version must be an integer",
+    };
+  }
+  if (schemaVersion !== REMODEL_INGEST_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: `unsupported schema_version: ${schemaVersion} (latest=${REMODEL_INGEST_SCHEMA_VERSION})`,
+    };
+  }
+
   const periodTag = String(body.period_tag ?? "").trim();
   if (!isValidPeriodTagDate(periodTag)) {
     return { ok: false, error: "period_tag must be a valid calendar date" };
   }
-
-  const tableVersion = String(body.table_version ?? "").trim();
-  if (!tableVersion) return { ok: false, error: "table_version is required" };
 
   const timestampMs = Number(body.timestamp_ms);
   if (!isValidInt(timestampMs) || timestampMs <= 0) {
@@ -175,6 +280,30 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
       "req_slot_num",
     ];
     for (const [i, entry] of body.entries.entries()) {
+      if (entry.remodel_step_id != null && !isValidInt(entry.remodel_step_id)) {
+        return {
+          ok: false,
+          error: `entries[${i}].remodel_step_id must be an integer or null`,
+        };
+      }
+      if (entry.remodel_level != null && !isValidInt(entry.remodel_level)) {
+        return {
+          ok: false,
+          error: `entries[${i}].remodel_level must be an integer or null`,
+        };
+      }
+      if (!isValidInt(entry.remodel_level)) {
+        return {
+          ok: false,
+          error: `entries[${i}].remodel_level is required and must be an integer`,
+        };
+      }
+      if (entry.remodel_level < 0 || entry.remodel_level > 10) {
+        return {
+          ok: false,
+          error: `entries[${i}].remodel_level must be between 0 and 10`,
+        };
+      }
       for (const f of intFields) {
         if (!isValidInt(entry[f])) {
           return { ok: false, error: `entries[${i}].${f} must be an integer` };
@@ -193,6 +322,21 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
     if (!isValidInt(body.remodel_id)) {
       return { ok: false, error: "remodel_id must be an integer" };
     }
+    if (body.remodel_step_id != null && !isValidInt(body.remodel_step_id)) {
+      return {
+        ok: false,
+        error: "remodel_step_id must be an integer or null",
+      };
+    }
+    if (body.remodel_level != null && !isValidInt(body.remodel_level)) {
+      return { ok: false, error: "remodel_level must be an integer or null" };
+    }
+    if (!isValidInt(body.remodel_level)) {
+      return { ok: false, error: "remodel_level is required and must be an integer" };
+    }
+    if (body.remodel_level < 0 || body.remodel_level > 10) {
+      return { ok: false, error: "remodel_level must be between 0 and 10" };
+    }
     if (
       !isValidInt(body.certain_buildkit) ||
       !isValidInt(body.certain_remodelkit)
@@ -204,6 +348,15 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
     }
     if (!isValidInt(body.change_flag)) {
       return { ok: false, error: "change_flag must be an integer" };
+    }
+    if (
+      (body.req_slot_id != null && !isValidInt(body.req_slot_id)) ||
+      (body.req_slot_num != null && !isValidInt(body.req_slot_num))
+    ) {
+      return {
+        ok: false,
+        error: "req_slot_id and req_slot_num must be integers or null",
+      };
     }
     for (const f of [
       "req_useitem_id",
@@ -223,8 +376,8 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
     requestId,
     payloadHash,
     eventType: eventType as "slotlist" | "detail",
+    schemaVersion,
     periodTag,
-    tableVersion,
     timestampMs,
   };
 }
@@ -239,6 +392,8 @@ async function invalidateRemodelCaches(
   const targets = [
     new URL("/remodel-data/summary", url.origin).toString(),
     new URL("/api/remodel-data/summary", url.origin).toString(),
+    new URL("/remodel-data/effective-summary", url.origin).toString(),
+    new URL("/api/remodel-data/effective-summary", url.origin).toString(),
   ];
 
   for (const target of targets) {
@@ -261,7 +416,7 @@ function scheduleRemodelTask(
 
 /**
  * GET /summary — Aggregated overview of collected remodel data.
- * Returns distinct period_tags, dataset count, and slotitem coverage per period.
+ * Returns distinct period_tags and slotitem coverage per period.
  * Cache: 1 h CF Cache.
  */
 app.get("/summary", async (c) => {
@@ -283,16 +438,15 @@ app.get("/summary", async (c) => {
         const changedPeriods = ((
           await db
             .prepare(
-              `SELECT period_tag, table_version, MAX(updated_at_ms) AS max_updated_at_ms
-               FROM remodel_slotlist_entries
+                `SELECT period_tag, MAX(updated_at_ms) AS max_updated_at_ms
+               FROM remodel_slotlist_effective_requirements
                WHERE updated_at_ms > ?
-               GROUP BY period_tag, table_version`,
+                 GROUP BY period_tag`,
             )
             .bind(cached.db_synced_at)
             .all()
         ).results ?? []) as Array<{
           period_tag: string;
-          table_version: string;
           max_updated_at_ms: number;
         }>;
 
@@ -306,29 +460,24 @@ app.get("/summary", async (c) => {
           };
         }
 
-        const byPeriod = new Map(
-          cached.periods.map((row) => [
-            `${row.period_tag}:${row.table_version}`,
-            row,
-          ]),
-        );
+        const byPeriod = new Map(cached.periods.map((row) => [row.period_tag, row]));
 
         for (const changed of changedPeriods) {
           const current = ((
             await db
               .prepare(
-                `SELECT period_tag, table_version,
-                      COUNT(DISTINCT dataset_id)         AS dataset_count,
+                  `SELECT period_tag,
+                        COUNT(*)                            AS row_count,
                       COUNT(DISTINCT slotitem_master_id) AS slotitem_count
-                 FROM remodel_slotlist_entries
-                 WHERE period_tag = ? AND table_version = ?
-                 GROUP BY period_tag, table_version`,
+                   FROM remodel_slotlist_effective_requirements
+                   WHERE period_tag = ?
+                   GROUP BY period_tag`,
               )
-              .bind(changed.period_tag, changed.table_version)
+                .bind(changed.period_tag)
               .all()
           ).results ?? []) as RemodelPeriodSummaryRow[];
 
-          const key = `${changed.period_tag}:${changed.table_version}`;
+            const key = changed.period_tag;
           if (current.length > 0) {
             byPeriod.set(key, current[0]);
           } else {
@@ -342,12 +491,7 @@ app.get("/summary", async (c) => {
         );
 
         const nextPeriods = Array.from(byPeriod.values())
-          .sort((a, b) => {
-            if (a.period_tag === b.period_tag) {
-              return b.table_version.localeCompare(a.table_version, "en");
-            }
-            return b.period_tag.localeCompare(a.period_tag, "en");
-          })
+          .sort((a, b) => b.period_tag.localeCompare(a.period_tag, "en"))
           .slice(0, 20);
 
         return {
@@ -363,12 +507,12 @@ app.get("/summary", async (c) => {
         const periodRows = ((
           await db
             .prepare(
-              `SELECT period_tag, table_version,
-                    COUNT(DISTINCT dataset_id)         AS dataset_count,
+              `SELECT period_tag,
+                  COUNT(*)                            AS row_count,
                     COUNT(DISTINCT slotitem_master_id) AS slotitem_count
-               FROM remodel_slotlist_entries
-               GROUP BY period_tag, table_version
-               ORDER BY period_tag DESC, table_version DESC
+                 FROM remodel_slotlist_effective_requirements
+              GROUP BY period_tag
+              ORDER BY period_tag DESC
                LIMIT 20`,
             )
             .all()
@@ -376,7 +520,7 @@ app.get("/summary", async (c) => {
 
         const maxUpdatedAtRow = (await db
           .prepare(
-            `SELECT MAX(updated_at_ms) AS max_updated_at_ms FROM remodel_slotlist_entries`,
+            `SELECT MAX(updated_at_ms) AS max_updated_at_ms FROM remodel_slotlist_effective_requirements`,
           )
           .first()) as { max_updated_at_ms?: number } | null;
 
@@ -401,6 +545,42 @@ app.get("/summary", async (c) => {
   } catch (err) {
     console.error("[remodel-data] Failed to query summary:", err);
     return c.json({ error: "Failed to retrieve remodel summary" }, 500);
+  }
+});
+
+/**
+ * GET /effective-summary — req_slot 補完状況の集計。
+ * slotlist 生値と detail 補完の内訳を period/tag 単位で返す。
+ */
+app.get("/effective-summary", async (c) => {
+  const db = c.env.REMODEL_INDEX_DB;
+  if (!db) return c.json({ error: "REMODEL_INDEX_DB not configured" }, 503);
+
+  try {
+    const rows = ((await db
+      .prepare(
+        `SELECT
+            period_tag,
+            COUNT(*) AS total_rows,
+            SUM(CASE WHEN req_slot_source = 'slotlist' THEN 1 ELSE 0 END) AS slotlist_rows,
+            SUM(CASE WHEN req_slot_source = 'detail' THEN 1 ELSE 0 END) AS recovered_from_detail_rows,
+            SUM(CASE WHEN req_slot_source = 'fallback_zero' THEN 1 ELSE 0 END) AS unresolved_fallback_rows
+         FROM remodel_slotlist_effective_requirements
+         GROUP BY period_tag
+         ORDER BY period_tag DESC
+         LIMIT 20`,
+      )
+      .all()).results ?? []) as RemodelEffectiveSummaryRow[];
+
+    const response = c.json({ ok: true, periods: rows });
+    response.headers.set(
+      "Cache-Control",
+      "public, max-age=3600, stale-while-revalidate=86400",
+    );
+    return response;
+  } catch (err) {
+    console.error("[remodel-data] Failed to query effective summary:", err);
+    return c.json({ error: "Failed to retrieve effective summary" }, 500);
   }
 });
 
@@ -521,6 +701,7 @@ app.post("/ingest", async (c) => {
         dataset_id: validated.datasetId,
         request_id: validated.requestId,
         event_type: validated.eventType,
+        schema_version: validated.schemaVersion,
       },
       signingSecret,
       300,
@@ -562,6 +743,7 @@ app.post("/ingest", async (c) => {
     "dataset_id",
     "request_id",
     "event_type",
+    "schema_version",
   ]);
   if (!payloadValidation.valid) {
     return c.json(
@@ -630,7 +812,8 @@ app.post("/ingest", async (c) => {
   if (
     verified.datasetId !== String(tokenPayload.dataset_id) ||
     verified.requestId !== String(tokenPayload.request_id) ||
-    verified.eventType !== String(tokenPayload.event_type)
+    verified.eventType !== String(tokenPayload.event_type) ||
+    verified.schemaVersion !== Number(tokenPayload.schema_version)
   ) {
     return c.json(
       { error: "Upload payload does not match upload token claims" },
@@ -640,6 +823,13 @@ app.post("/ingest", async (c) => {
 
   // ── INSERT ─────────────────────────────────────────────────────
   try {
+    const archiveResult = await archiveAndResetOnPeriodSwitch(
+      db,
+      c.env.SHIP_GROWTH_ARCHIVE_BUCKET,
+      verified.periodTag,
+      verified.timestampMs,
+    );
+
     if (verified.eventType === "slotlist") {
       // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity.
       const stmts = (body.entries as Array<Record<string, unknown>>).map(
@@ -647,9 +837,9 @@ app.post("/ingest", async (c) => {
           db
             .prepare(
               `INSERT OR REPLACE INTO remodel_slotlist_entries (
-              dataset_id, period_tag, table_version,
+              period_tag,
               secretary_ship_master_id, weekday_jst,
-              remodel_id, slotitem_master_id, sp_type,
+              remodel_id, remodel_step_id, remodel_level, slotitem_master_id, sp_type,
               req_fuel, req_bull, req_steel, req_bauxite,
               req_buildkit, req_remodelkit,
               req_slot_id, req_slot_num,
@@ -657,12 +847,12 @@ app.post("/ingest", async (c) => {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
-              verified.datasetId,
               verified.periodTag,
-              verified.tableVersion,
               body.secretary_ship_master_id,
               body.weekday_jst,
               entry.remodel_id,
+              entry.remodel_step_id ?? entry.remodel_id,
+              entry.remodel_level,
               entry.slotitem_master_id,
               entry.sp_type,
               entry.req_fuel,
@@ -684,22 +874,25 @@ app.post("/ingest", async (c) => {
       await db
         .prepare(
           `INSERT OR REPLACE INTO remodel_detail_entries (
-            dataset_id, period_tag, table_version,
-            slotitem_master_id, remodel_id,
+            period_tag,
+            slotitem_master_id, remodel_id, remodel_step_id, remodel_level,
             certain_buildkit, certain_remodelkit,
+            req_slot_id, req_slot_num,
             change_flag,
             req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
             updated_at_ms
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
-          verified.datasetId,
           verified.periodTag,
-          verified.tableVersion,
           body.slotitem_master_id,
           body.remodel_id,
+          body.remodel_step_id ?? body.remodel_id,
+          body.remodel_level,
           body.certain_buildkit,
           body.certain_remodelkit,
+          body.req_slot_id ?? null,
+          body.req_slot_num ?? null,
           body.change_flag,
           body.req_useitem_id ?? null,
           body.req_useitem_id2 ?? null,
@@ -708,6 +901,10 @@ app.post("/ingest", async (c) => {
           verified.timestampMs,
         )
         .run();
+    }
+
+    if (archiveResult.stalePeriods.length > 0) {
+      await pruneStalePeriodsAfterSuccessfulIngest(db, verified.periodTag);
     }
   } catch (error) {
     console.error("remodel ingest DB write failed:", error);
@@ -729,6 +926,7 @@ app.post("/ingest", async (c) => {
       ]);
       try {
         await app.request(`/summary`, {}, c.env, safeGetExecutionCtx(c));
+        await app.request(`/effective-summary`, {}, c.env, safeGetExecutionCtx(c));
       } catch (err) {
         console.warn("[remodel-data] Failed to pre-warm caches:", err);
       }

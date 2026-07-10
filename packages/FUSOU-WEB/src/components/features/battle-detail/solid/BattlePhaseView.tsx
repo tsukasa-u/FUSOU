@@ -15,6 +15,7 @@ import {
   PhaseSummaryBadges,
   EquipmentBadgesFromSlotIds,
 } from "./ui";
+import { SpriteMotionCounts } from "./sprite-motion-counts";
 
 // ── Phase data helpers ────────────────────────────────────────────────────
 
@@ -656,6 +657,85 @@ function AirAttackRows(props: {
     </div>
   );
 }
+
+function readDestructionValue(
+  source: Record<string, unknown>,
+  key: string,
+): number | null {
+  const direct = source[key];
+  if (direct != null) {
+    const n = Number(direct);
+    return Number.isFinite(n) ? n : null;
+  }
+  const nested = (source.air_base_attack as Record<string, unknown> | undefined)?.[key];
+  if (nested != null) {
+    const n = Number(nested);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function destructionLostKindLabel(lostKind: number | null): string {
+  switch (lostKind) {
+    case 0:
+      return "None";
+    case 1:
+      return "Half squadron lost";
+    case 2:
+      return "One squadron lost";
+    case 3:
+      return "Two squadrons lost";
+    case 4:
+      return "Three squadrons lost";
+    case 5:
+      return "All squadrons lost";
+    default:
+      return "Unknown";
+  }
+}
+
+function DestructionBattleCard(props: {
+  data: Record<string, unknown>;
+}): JSX.Element {
+  const airSuperiority = () =>
+    readDestructionValue(props.data, "air_superiority") ?? -1;
+  const lostKind = () => readDestructionValue(props.data, "lost_kind");
+
+  return (
+    <div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200">
+      <input type="checkbox" checked />
+      <div class="collapse-title font-bold">
+        <div class="flex flex-wrap items-center justify-between gap-2 pr-6">
+          <span>基地空襲 (Destruction Battle)</span>
+          <span class="flex flex-wrap gap-1">
+            <PhaseSummaryBadges
+              items={[
+                AIR_STATE[airSuperiority()]?.label ?? "-",
+                `Lost: ${destructionLostKindLabel(lostKind())}`,
+              ]}
+            />
+          </span>
+        </div>
+      </div>
+      <div class="collapse-content">
+        <div class="rounded border border-base-300 bg-base-100 p-2 text-sm">
+          <SpriteMotionCounts
+            counts={{
+              f_sprite_fly_count: readDestructionValue(props.data, "f_sprite_fly_count"),
+              e_sprite_fly_count: readDestructionValue(props.data, "e_sprite_fly_count"),
+              f_sprite_crash_count: readDestructionValue(props.data, "f_sprite_crash_count"),
+              e_sprite_crash_count: readDestructionValue(props.data, "e_sprite_crash_count"),
+              f_sprite_damage_count: readDestructionValue(props.data, "f_sprite_damage_count"),
+              e_sprite_damage_count: readDestructionValue(props.data, "e_sprite_damage_count"),
+              f_sprite_non_normal_count: readDestructionValue(props.data, "f_sprite_non_normal_count"),
+              e_sprite_non_normal_count: readDestructionValue(props.data, "e_sprite_non_normal_count"),
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
 // ── Single phase card ─────────────────────────────────────────────────────
 
 function PhaseCard(props: {
@@ -1001,9 +1081,11 @@ export default function BattlePhaseView(props: {
   mstSlotItemById: Map<number, Record<string, unknown>> | null;
 }): JSX.Element {
   const phases = () => extractPhaseEntries(props.battle);
+  const destructionBattle = () =>
+    (props.battle.destruction_battle as Record<string, unknown> | null) ?? null;
   return (
     <Show
-      when={phases().length > 0}
+      when={phases().length > 0 || !!destructionBattle()}
       fallback={
         <div class="text-center text-base-content/40 py-8">
           戦闘フェーズ情報がありません
@@ -1011,6 +1093,7 @@ export default function BattlePhaseView(props: {
       }
     >
       <div class="space-y-4">
+        <Show when={destructionBattle()}>{(db) => <DestructionBattleCard data={db()} />}</Show>
         <For each={phases()}>
           {(entry) => (
             <PhaseCard

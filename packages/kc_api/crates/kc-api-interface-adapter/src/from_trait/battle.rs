@@ -57,7 +57,7 @@ fn calc_opening_ydam_protect_flag(ydam_items: &Vec<Option<Vec<f32>>>) -> Vec<boo
 }
 
 #[derive(Clone, Copy)]
-enum SpritePlaneTypeSet {
+pub(super) enum SpritePlaneTypeSet {
     AirWar,
     AirWarJet,
     AirUnit,
@@ -169,7 +169,7 @@ fn should_include_friend_escort(combined_flag: Option<i64>, deck_id: i64) -> boo
     deck_id == 1 && combined_flag.is_some_and(|flag| flag > 0)
 }
 
-fn build_enemy_ship_sprite_capacity(
+pub(super) fn build_enemy_ship_sprite_capacity(
     e_slots: Option<Vec<Vec<i64>>>,
     set: SpritePlaneTypeSet,
 ) -> Option<SpriteCapacity> {
@@ -191,7 +191,7 @@ fn build_enemy_ship_sprite_capacity(
 /// which builds sprites only for stage3 participants.
 /// When `plane_from` is `None` (stage3 data absent), falls back to summing all ships.
 /// When `plane_from` is `Some([])` (no stage3 participation), returns `Some(0)`.
-fn count_sprite_fly_from_capacity(
+pub(super) fn count_sprite_fly_from_capacity(
     capacity: Option<&SpriteCapacity>,
     plane_from: Option<&[i64]>,
 ) -> Option<i64> {
@@ -300,7 +300,7 @@ fn calc_sprite_crash_stage_counts(
     (crash, damage)
 }
 
-fn calc_sprite_motion_stage_counts(
+pub(super) fn calc_sprite_motion_stage_counts(
     fly_count: Option<i64>,
     loss_stage1: i64,
     total_stage1: i64,
@@ -875,14 +875,14 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
             e_sprite_damage_count: None,
             f_sprite_non_normal_count: None,
             e_sprite_non_normal_count: None,
-            f_sprite_crash_stage1_count: None,
-            f_sprite_crash_stage2_count: None,
-            e_sprite_crash_stage1_count: None,
-            e_sprite_crash_stage2_count: None,
-            f_sprite_damage_stage1_count: None,
-            f_sprite_damage_stage2_count: None,
-            e_sprite_damage_stage1_count: None,
-            e_sprite_damage_stage2_count: None,
+            // f_sprite_crash_stage1_count: None,
+            // f_sprite_crash_stage2_count: None,
+            // e_sprite_crash_stage1_count: None,
+            // e_sprite_crash_stage2_count: None,
+            // f_sprite_damage_stage1_count: None,
+            // f_sprite_damage_stage2_count: None,
+            // e_sprite_damage_stage1_count: None,
+            // e_sprite_damage_stage2_count: None,
         })
     }
 }

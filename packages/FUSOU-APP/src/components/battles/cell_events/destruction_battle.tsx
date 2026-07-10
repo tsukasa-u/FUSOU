@@ -4,6 +4,7 @@ import "../../../css/divider.css";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   WrapBaseHPComponent,
   WrapCIMstEquipComponent,
@@ -171,6 +172,49 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     );
   };
 
+  const display_air_raid_result = () => {
+    const lost_kind = props.cell()?.destruction_battle?.lost_kind;
+    return (
+      <>
+        Air Raid Result :{" "}
+        <Switch fallback={<div class="pl-1">_</div>}>
+          <Match when={lost_kind == 1}>
+            <div class="text-amber-500 pl-1">
+              Supplies have taken damage due to the air raid.
+            </div>
+          </Match>
+          <Match when={lost_kind == 2}>
+            <div class="text-red-500 pl-1">
+              Supplies have taken damage, and your land-based air squadrons have also suffered losses on the ground.
+            </div>
+          </Match>
+          <Match when={lost_kind == 3}>
+            <div class="text-orange-500 pl-1">
+              Your land-based air squadrons have suffered losses on the ground.
+            </div>
+          </Match>
+          <Match when={lost_kind == 4}>
+            <div class="text-lime-500 pl-1">No damage from the air raid.</div>
+          </Match>
+        </Switch>
+      </>
+    );
+  };
+
+  const display_sprite_counts = () => {
+    const destruction_battle = props.cell()?.destruction_battle;
+    const attack = destruction_battle?.air_base_attack;
+    if (!attack) return null;
+
+    return (
+      <div class="pl-2 text-xs">
+        <div>
+          <SpriteMotionCounts counts={attack} class="" />
+        </div>
+      </div>
+    );
+  };
+
   const base_attacker_planes = () => {
     const base_ids = Object.keys(
       props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane ?? {}
@@ -221,6 +265,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     battle_selected={() => undefined}
                     combined_flag={false}
                     store_data_set_param_ship={props.store_data_set_param_ship}
+                    destruction_flag={true}
                   />
                 </div>
               </Show>
@@ -249,6 +294,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     }
                     idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}
+                    destruction_flag={true}
                   />
                 </Show>
               </>
@@ -306,6 +352,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                       store_data_set_param_ship={
                         props.store_data_set_param_ship
                       }
+                      destruction_flag={true}
                     />
                   </div>
                 </Show>
@@ -332,6 +379,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     }
                     idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}
+                    destruction_flag={true}
                   />
                 </Show>
               </>
@@ -429,6 +477,13 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             {display_air_state()}
             <div class="divider divider-horizontal mr-0 ml-0" />
             {display_touch()}
+          </div>
+          <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
+            {display_air_raid_result()}
+            <div class="divider divider-horizontal mr-0 ml-0" />
+            <Show when={props.cell()?.destruction_battle?.air_base_attack}>
+                {display_sprite_counts()}
+            </Show>
           </div>
           <ul class="pl-0">
             <table class="table table-xs">

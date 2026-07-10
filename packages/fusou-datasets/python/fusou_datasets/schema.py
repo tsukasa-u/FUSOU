@@ -53,6 +53,18 @@ class Tables:
         E_NOW_HPS = Column("e_now_hps", "airbase_airattack")
         AIRBASE_ID = Column("airbase_id", "airbase_airattack")
         SQUADRON_PLANE = Column("squadron_plane", "airbase_airattack")
+        F_SPRITE_FLY_COUNT = Column("f_sprite_fly_count", "airbase_airattack")
+        E_SPRITE_FLY_COUNT = Column("e_sprite_fly_count", "airbase_airattack")
+        F_SPRITE_CRASH_STAGE1_COUNT = Column("f_sprite_crash_stage1_count", "airbase_airattack")
+        F_SPRITE_CRASH_STAGE2_COUNT = Column("f_sprite_crash_stage2_count", "airbase_airattack")
+        E_SPRITE_CRASH_STAGE1_COUNT = Column("e_sprite_crash_stage1_count", "airbase_airattack")
+        E_SPRITE_CRASH_STAGE2_COUNT = Column("e_sprite_crash_stage2_count", "airbase_airattack")
+        F_SPRITE_DAMAGE_STAGE1_COUNT = Column("f_sprite_damage_stage1_count", "airbase_airattack")
+        F_SPRITE_DAMAGE_STAGE2_COUNT = Column("f_sprite_damage_stage2_count", "airbase_airattack")
+        E_SPRITE_DAMAGE_STAGE1_COUNT = Column("e_sprite_damage_stage1_count", "airbase_airattack")
+        E_SPRITE_DAMAGE_STAGE2_COUNT = Column("e_sprite_damage_stage2_count", "airbase_airattack")
+        F_SPRITE_NON_NORMAL_COUNT = Column("f_sprite_non_normal_count", "airbase_airattack")
+        E_SPRITE_NON_NORMAL_COUNT = Column("e_sprite_non_normal_count", "airbase_airattack")
 
     class AirbaseAirattackList:
         TABLE = "airbase_airattack_list"
@@ -85,6 +97,18 @@ class Tables:
         E_BAK_FLAG = Column("e_bak_flag", "airbase_assult")
         E_PROTECT_FLAG = Column("e_protect_flag", "airbase_assult")
         E_NOW_HPS = Column("e_now_hps", "airbase_assult")
+        F_SPRITE_FLY_COUNT = Column("f_sprite_fly_count", "airbase_assult")
+        E_SPRITE_FLY_COUNT = Column("e_sprite_fly_count", "airbase_assult")
+        F_SPRITE_CRASH_STAGE1_COUNT = Column("f_sprite_crash_stage1_count", "airbase_assult")
+        F_SPRITE_CRASH_STAGE2_COUNT = Column("f_sprite_crash_stage2_count", "airbase_assult")
+        E_SPRITE_CRASH_STAGE1_COUNT = Column("e_sprite_crash_stage1_count", "airbase_assult")
+        E_SPRITE_CRASH_STAGE2_COUNT = Column("e_sprite_crash_stage2_count", "airbase_assult")
+        F_SPRITE_DAMAGE_STAGE1_COUNT = Column("f_sprite_damage_stage1_count", "airbase_assult")
+        F_SPRITE_DAMAGE_STAGE2_COUNT = Column("f_sprite_damage_stage2_count", "airbase_assult")
+        E_SPRITE_DAMAGE_STAGE1_COUNT = Column("e_sprite_damage_stage1_count", "airbase_assult")
+        E_SPRITE_DAMAGE_STAGE2_COUNT = Column("e_sprite_damage_stage2_count", "airbase_assult")
+        F_SPRITE_NON_NORMAL_COUNT = Column("f_sprite_non_normal_count", "airbase_assult")
+        E_SPRITE_NON_NORMAL_COUNT = Column("e_sprite_non_normal_count", "airbase_assult")
 
     class Battle:
         TABLE = "battle"
@@ -95,7 +119,6 @@ class Tables:
         TIMESTAMP = Column("timestamp", "battle")
         MIDNIGHT_TIMESTAMP = Column("midnight_timestamp", "battle")
         CELL_ID = Column("cell_id", "battle")
-        F_DECK_ID = Column("f_deck_id", "battle")
         E_DECK_ID = Column("e_deck_id", "battle")
         FRIEND_DECK_ID = Column("friend_deck_id", "battle")
         SUPPORT_DECK_ID = Column("support_deck_id", "battle")
@@ -118,6 +141,8 @@ class Tables:
         OPENING_AIR_ATTACK = Column("opening_air_attack", "battle")
         SUPPORT_HOURAI = Column("support_hourai", "battle")
         SUPPORT_AIRATTACK = Column("support_airattack", "battle")
+        NIGHT_SUPPORT_HOURAI = Column("night_support_hourai", "battle")
+        NIGHT_SUPPORT_AIRATTACK = Column("night_support_airattack", "battle")
         OPENING_TAISEN = Column("opening_taisen", "battle")
         OPENING_RAIGEKI = Column("opening_raigeki", "battle")
         HOUGEKI = Column("hougeki", "battle")
@@ -128,6 +153,17 @@ class Tables:
         E_NOWHPS = Column("e_nowhps", "battle")
         MIDNIGHT_F_NOWHPS = Column("midnight_f_nowhps", "battle")
         MIDNIGHT_E_NOWHPS = Column("midnight_e_nowhps", "battle")
+        BATTLE_RESULT = Column("battle_result", "battle")
+
+    class BattleResult:
+        TABLE = "battle_result"
+        ENV_UUID = Column("env_uuid", "battle_result")
+        UUID = Column("uuid", "battle_result")
+        WIN_RANK = Column("win_rank", "battle_result")
+        DROP_SHIP_ID = Column("drop_ship_id", "battle_result")
+        LANDING_HP_NOW = Column("landing_hp_now", "battle_result")
+        LANDING_HP_MAX = Column("landing_hp_max", "battle_result")
+        LANDING_SUB_VALUE = Column("landing_sub_value", "battle_result")
 
     class CarrierbaseAssault:
         TABLE = "carrierbase_assault"
@@ -153,6 +189,18 @@ class Tables:
         E_BAK_FLAG = Column("e_bak_flag", "carrierbase_assault")
         E_PROTECT_FLAG = Column("e_protect_flag", "carrierbase_assault")
         E_NOW_HPS = Column("e_now_hps", "carrierbase_assault")
+        F_SPRITE_FLY_COUNT = Column("f_sprite_fly_count", "carrierbase_assault")
+        E_SPRITE_FLY_COUNT = Column("e_sprite_fly_count", "carrierbase_assault")
+        F_SPRITE_CRASH_STAGE1_COUNT = Column("f_sprite_crash_stage1_count", "carrierbase_assault")
+        F_SPRITE_CRASH_STAGE2_COUNT = Column("f_sprite_crash_stage2_count", "carrierbase_assault")
+        E_SPRITE_CRASH_STAGE1_COUNT = Column("e_sprite_crash_stage1_count", "carrierbase_assault")
+        E_SPRITE_CRASH_STAGE2_COUNT = Column("e_sprite_crash_stage2_count", "carrierbase_assault")
+        F_SPRITE_DAMAGE_STAGE1_COUNT = Column("f_sprite_damage_stage1_count", "carrierbase_assault")
+        F_SPRITE_DAMAGE_STAGE2_COUNT = Column("f_sprite_damage_stage2_count", "carrierbase_assault")
+        E_SPRITE_DAMAGE_STAGE1_COUNT = Column("e_sprite_damage_stage1_count", "carrierbase_assault")
+        E_SPRITE_DAMAGE_STAGE2_COUNT = Column("e_sprite_damage_stage2_count", "carrierbase_assault")
+        F_SPRITE_NON_NORMAL_COUNT = Column("f_sprite_non_normal_count", "carrierbase_assault")
+        E_SPRITE_NON_NORMAL_COUNT = Column("e_sprite_non_normal_count", "carrierbase_assault")
 
     class Cells:
         TABLE = "cells"
@@ -163,6 +211,21 @@ class Tables:
         CELL_INDEX = Column("cell_index", "cells")
         BATTLE_INDEX = Column("battle_index", "cells")
         BATTLES = Column("battles", "cells")
+        EVENT_MAP_MAX_MAPHP = Column("event_map_max_maphp", "cells")
+        EVENT_MAP_NOW_MAPHP = Column("event_map_now_maphp", "cells")
+        EVENT_MAP_DMG = Column("event_map_dmg", "cells")
+        EVENT_MAP_GAUGE_TYPE = Column("event_map_gauge_type", "cells")
+        EVENT_MAP_GAUGE_NUM = Column("event_map_gauge_num", "cells")
+        EVENT_MAP_STATE = Column("event_map_state", "cells")
+        EVENT_MAP_SELECTED_RANK = Column("event_map_selected_rank", "cells")
+        HAPPENING_COUNTS = Column("happening_counts", "cells")
+        HAPPENING_MST_IDS = Column("happening_mst_ids", "cells")
+        HAPPENING_DENTANS = Column("happening_dentans", "cells")
+        ITEMGET_IDS = Column("itemget_ids", "cells")
+        ITEMGET_COUNTS = Column("itemget_counts", "cells")
+        F_DECK_BEFORE_ID = Column("f_deck_before_id", "cells")
+        F_DECK_AFTER_ID = Column("f_deck_after_id", "cells")
+        DESTRUCTION_BATTLES = Column("destruction_battles", "cells")
 
     class ClosingRaigeki:
         TABLE = "closing_raigeki"
@@ -179,11 +242,58 @@ class Tables:
         F_NOW_HPS = Column("f_now_hps", "closing_raigeki")
         E_NOW_HPS = Column("e_now_hps", "closing_raigeki")
 
+    class DestructionBattle:
+        TABLE = "destruction_battle"
+        ENV_UUID = Column("env_uuid", "destruction_battle")
+        UUID = Column("uuid", "destruction_battle")
+        INDEX = Column("index", "destruction_battle")
+        CELL_NO = Column("cell_no", "destruction_battle")
+        F_FORMATION = Column("f_formation", "destruction_battle")
+        E_FORMATION = Column("e_formation", "destruction_battle")
+        ENCOUNTER_FORMATION = Column("encounter_formation", "destruction_battle")
+        F_AIRBASE_NOS = Column("f_airbase_nos", "destruction_battle")
+        F_AIRBASE_IDS = Column("f_airbase_ids", "destruction_battle")
+        F_INITIAL_NOW_HPS = Column("f_initial_now_hps", "destruction_battle")
+        F_MAX_HPS = Column("f_max_hps", "destruction_battle")
+        F_TOTAL_DAMAGES = Column("f_total_damages", "destruction_battle")
+        E_SHIP_IDS = Column("e_ship_ids", "destruction_battle")
+        E_SHIP_LVS = Column("e_ship_lvs", "destruction_battle")
+        E_INITIAL_NOW_HPS = Column("e_initial_now_hps", "destruction_battle")
+        E_MAX_HPS = Column("e_max_hps", "destruction_battle")
+        E_SLOTS = Column("e_slots", "destruction_battle")
+        E_TOTAL_DAMAGES = Column("e_total_damages", "destruction_battle")
+        AIR_SUPERIORITY = Column("air_superiority", "destruction_battle")
+        STAGE_FLAG = Column("stage_flag", "destruction_battle")
+        F_PLANE_FROM = Column("f_plane_from", "destruction_battle")
+        F_TOUCH_PLANE = Column("f_touch_plane", "destruction_battle")
+        F_LOSS_PLANE1 = Column("f_loss_plane1", "destruction_battle")
+        F_LOSS_PLANE2 = Column("f_loss_plane2", "destruction_battle")
+        F_DAMAGES = Column("f_damages", "destruction_battle")
+        F_CL = Column("f_cl", "destruction_battle")
+        F_RAI_FLAG = Column("f_rai_flag", "destruction_battle")
+        F_BAK_FLAG = Column("f_bak_flag", "destruction_battle")
+        F_PROTECT_FLAG = Column("f_protect_flag", "destruction_battle")
+        F_NOW_HPS = Column("f_now_hps", "destruction_battle")
+        E_PLANE_FROM = Column("e_plane_from", "destruction_battle")
+        E_TOUCH_PLANE = Column("e_touch_plane", "destruction_battle")
+        E_LOSS_PLANE1 = Column("e_loss_plane1", "destruction_battle")
+        E_LOSS_PLANE2 = Column("e_loss_plane2", "destruction_battle")
+        E_DAMAGES = Column("e_damages", "destruction_battle")
+        E_CL = Column("e_cl", "destruction_battle")
+        E_RAI_FLAG = Column("e_rai_flag", "destruction_battle")
+        E_BAK_FLAG = Column("e_bak_flag", "destruction_battle")
+        E_PROTECT_FLAG = Column("e_protect_flag", "destruction_battle")
+        E_NOW_HPS = Column("e_now_hps", "destruction_battle")
+        SQUADRON_PLANE_BASE_NOS = Column("squadron_plane_base_nos", "destruction_battle")
+        SQUADRON_PLANES = Column("squadron_planes", "destruction_battle")
+        LOST_KIND = Column("lost_kind", "destruction_battle")
+
     class EnemyDeck:
         TABLE = "enemy_deck"
         ENV_UUID = Column("env_uuid", "enemy_deck")
         UUID = Column("uuid", "enemy_deck")
         SHIP_IDS = Column("ship_ids", "enemy_deck")
+        COMBINED_FLAG = Column("combined_flag", "enemy_deck")
 
     class EnemyShip:
         TABLE = "enemy_ship"
@@ -342,6 +452,18 @@ class Tables:
         AIRFIRE_IDX = Column("airfire_idx", "opening_airattack")
         AIRFIRE_USE_ITEM = Column("airfire_use_item", "opening_airattack")
         AIR_SUPERIORITY = Column("air_superiority", "opening_airattack")
+        F_SPRITE_FLY_COUNT = Column("f_sprite_fly_count", "opening_airattack")
+        E_SPRITE_FLY_COUNT = Column("e_sprite_fly_count", "opening_airattack")
+        F_SPRITE_CRASH_STAGE1_COUNT = Column("f_sprite_crash_stage1_count", "opening_airattack")
+        F_SPRITE_CRASH_STAGE2_COUNT = Column("f_sprite_crash_stage2_count", "opening_airattack")
+        E_SPRITE_CRASH_STAGE1_COUNT = Column("e_sprite_crash_stage1_count", "opening_airattack")
+        E_SPRITE_CRASH_STAGE2_COUNT = Column("e_sprite_crash_stage2_count", "opening_airattack")
+        F_SPRITE_DAMAGE_STAGE1_COUNT = Column("f_sprite_damage_stage1_count", "opening_airattack")
+        F_SPRITE_DAMAGE_STAGE2_COUNT = Column("f_sprite_damage_stage2_count", "opening_airattack")
+        E_SPRITE_DAMAGE_STAGE1_COUNT = Column("e_sprite_damage_stage1_count", "opening_airattack")
+        E_SPRITE_DAMAGE_STAGE2_COUNT = Column("e_sprite_damage_stage2_count", "opening_airattack")
+        F_SPRITE_NON_NORMAL_COUNT = Column("f_sprite_non_normal_count", "opening_airattack")
+        E_SPRITE_NON_NORMAL_COUNT = Column("e_sprite_non_normal_count", "opening_airattack")
 
     class OpeningAirattackList:
         TABLE = "opening_airattack_list"
@@ -392,6 +514,8 @@ class Tables:
         UUID = Column("uuid", "own_deck")
         SHIP_IDS = Column("ship_ids", "own_deck")
         COMBINED_FLAG = Column("combined_flag", "own_deck")
+        CHART_SEIKU_VALUE = Column("chart_seiku_value", "own_deck")
+        CHART_TP_VALUE = Column("chart_tp_value", "own_deck")
 
     class OwnShip:
         TABLE = "own_ship"
@@ -410,6 +534,7 @@ class Tables:
         FUEL = Column("fuel", "own_ship")
         BULL = Column("bull", "own_ship")
         COND = Column("cond", "own_ship")
+        COND_STATE = Column("cond_state", "own_ship")
         KARYOKU = Column("karyoku", "own_ship")
         RAISOU = Column("raisou", "own_ship")
         TAIKU = Column("taiku", "own_ship")
@@ -463,12 +588,22 @@ class Tables:
         E_BAK_FLAG = Column("e_bak_flag", "support_airattack")
         E_PROTECT_FLAG = Column("e_protect_flag", "support_airattack")
         E_NOW_HPS = Column("e_now_hps", "support_airattack")
+        F_SPRITE_FLY_COUNT = Column("f_sprite_fly_count", "support_airattack")
+        E_SPRITE_FLY_COUNT = Column("e_sprite_fly_count", "support_airattack")
+        F_SPRITE_CRASH_COUNT = Column("f_sprite_crash_count", "support_airattack")
+        E_SPRITE_CRASH_COUNT = Column("e_sprite_crash_count", "support_airattack")
+        F_SPRITE_DAMAGE_COUNT = Column("f_sprite_damage_count", "support_airattack")
+        E_SPRITE_DAMAGE_COUNT = Column("e_sprite_damage_count", "support_airattack")
+        F_SPRITE_NON_NORMAL_COUNT = Column("f_sprite_non_normal_count", "support_airattack")
+        E_SPRITE_NON_NORMAL_COUNT = Column("e_sprite_non_normal_count", "support_airattack")
 
     class SupportDeck:
         TABLE = "support_deck"
         ENV_UUID = Column("env_uuid", "support_deck")
         UUID = Column("uuid", "support_deck")
         SHIP_IDS = Column("ship_ids", "support_deck")
+        CHART_SEIKU_VALUE = Column("chart_seiku_value", "support_deck")
+        CHART_TP_VALUE = Column("chart_tp_value", "support_deck")
 
     class SupportHourai:
         TABLE = "support_hourai"

@@ -73,14 +73,6 @@
       "targetHandle": "enemy_deck-uuid"
     },
     {
-      "id": "e-battle-f_deck_id-own_deck",
-      "label": "f_deck_id",
-      "source": "battle",
-      "sourceHandle": "battle-f_deck_id",
-      "target": "own_deck",
-      "targetHandle": "own_deck-uuid"
-    },
-    {
       "id": "e-battle-friend_deck_id-friend_deck",
       "label": "friend_deck_id",
       "source": "battle",
@@ -633,38 +625,6 @@
             "isFk": false,
             "isKey": false,
             "isUuid": false,
-            "name": "e_sprite_crash_stage1_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "e_sprite_crash_stage2_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "e_sprite_damage_stage1_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "e_sprite_damage_stage2_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
             "name": "e_sprite_fly_count",
             "type": "int?"
           },
@@ -763,38 +723,6 @@
             "isUuid": false,
             "name": "f_rai_flag",
             "type": "int?[]?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "f_sprite_crash_stage1_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "f_sprite_crash_stage2_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "f_sprite_damage_stage1_count",
-            "type": "int?"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "isUuid": false,
-            "name": "f_sprite_damage_stage2_count",
-            "type": "int?"
           },
           {
             "isEnvRef": false,
@@ -5672,6 +5600,6 @@
     }
   ],
   "tableCount": 47,
-  "version": "0.5",
+  "version": "0.5.0",
   "versionKey": "v0_5"
 }

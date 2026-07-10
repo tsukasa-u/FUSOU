@@ -49,6 +49,7 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
+const FIXED_ASSET_KEY_PREFIX: &str = "assets";
 
 fn mask_sensitive(value: &str) -> String {
     if cfg!(debug_assertions) {
@@ -196,7 +197,7 @@ impl AssetSyncInit {
         let api_endpoint = normalize_string(config.get_asset_sync_api_endpoint())
             .ok_or_else(|| "asset_sync.asset_sync_api_endpoint is empty".to_string())?;
         let api_origin = derive_origin(&api_endpoint)?;
-        let key_prefix = normalize_string(config.get_key_prefix());
+        let key_prefix = Some(FIXED_ASSET_KEY_PREFIX.to_string());
         let period_endpoint = config.get_period_endpoint();
         let blocked_extensions = config.get_skip_extensions();
         let existing_keys_endpoint = config.get_existing_keys_endpoint();

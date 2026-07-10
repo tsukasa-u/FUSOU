@@ -146,10 +146,10 @@ function main() {
   if (requestedVersion === "all") {
     const parts = versions.map((v) => `schema_${v}`);
     feature = `${parts.join(",")},console_error_panic_hook`;
-  } else if (/^v[0-9]+_[0-9]+$/.test(requestedVersion)) {
+  } else if (/^v[0-9]+_[0-9]+(?:_[0-9]+)?$/.test(requestedVersion)) {
     feature = `schema_${requestedVersion},console_error_panic_hook`;
   } else {
-    fail("Usage: node build-wasm.mjs [v0_4|v0_5|...|all]");
+    fail("Usage: node build-wasm.mjs [v0_4|v0_5|v0_5_1|...|all]");
   }
 
   const wasmPack = resolveWasmPackCommand();

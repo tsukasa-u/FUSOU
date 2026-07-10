@@ -39,6 +39,9 @@ def define_core_relationships(graph: JoinGraph) -> None:
     
     # Cells -> MapAreaMaster
     graph.add(Tables.Cells.TABLE, Tables.Cells.MAPAREA_ID, Tables.MapAreaMaster.TABLE, Tables.MapAreaMaster.ID)
+
+    # Cells -> DestructionBattle (air raid / air base defense phase anchored on map cells)
+    graph.add(Tables.Cells.TABLE, Tables.Cells.DESTRUCTION_BATTLES, Tables.DestructionBattle.TABLE, Tables.DestructionBattle.UUID)
     
     # MapInfoMaster -> MapAreaMaster
     graph.add(Tables.MapInfoMaster.TABLE, Tables.MapInfoMaster.MAPAREA_ID, Tables.MapAreaMaster.TABLE, Tables.MapAreaMaster.ID)
@@ -188,6 +191,12 @@ def define_core_relationships(graph: JoinGraph) -> None:
     
     # AirbaseAirattack -> Airbase
     graph.add(Tables.AirbaseAirattack.TABLE, Tables.AirbaseAirattack.AIRBASE_ID, Tables.Airbase.TABLE, Tables.Airbase.UUID)
+
+    # DestructionBattle -> Airbase
+    graph.add(Tables.DestructionBattle.TABLE, Tables.DestructionBattle.F_AIRBASE_IDS, Tables.Airbase.TABLE, Tables.Airbase.UUID)
+
+    # DestructionBattle -> ShipMaster (enemy fleet in air-raid battle)
+    graph.add(Tables.DestructionBattle.TABLE, Tables.DestructionBattle.E_SHIP_IDS, Tables.ShipMaster.TABLE, Tables.ShipMaster.ID)
     
     # Airbase -> PlaneInfo
     graph.add(Tables.Airbase.TABLE, Tables.Airbase.PLANE_INFO, Tables.PlaneInfo.TABLE, Tables.PlaneInfo.UUID)

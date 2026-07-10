@@ -7,6 +7,7 @@ import type {
   DataSetParamShip,
   DataSetShip,
 } from "../../../utility/get_data_set";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
@@ -352,20 +353,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
     const carrier_base_assault = props.battle_selected()?.carrier_base_assault;
     if (!carrier_base_assault) return null;
 
-    const f_fly = carrier_base_assault.f_sprite_fly_count;
-    const e_fly = carrier_base_assault.e_sprite_fly_count;
-    const f_crash = carrier_base_assault.f_sprite_crash_count ?? "?";
-    const e_crash = carrier_base_assault.e_sprite_crash_count ?? "?";
-    const f_damage = carrier_base_assault.f_sprite_damage_count ?? "?";
-    const e_damage = carrier_base_assault.e_sprite_damage_count ?? "?";
-    const f_non_normal = carrier_base_assault.f_sprite_non_normal_count ?? "?";
-    const e_non_normal = carrier_base_assault.e_sprite_non_normal_count ?? "?";
-
-    return (
-      <div class="pl-2 text-xs">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash}/{e_crash}, Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
-      </div>
-    );
+    return <SpriteMotionCounts counts={carrier_base_assault} />;
   };
 
   return (

@@ -6,7 +6,10 @@ use crate::InterfaceWrapper;
 use kc_api_dto::common as kcapi_common;
 use kc_api_dto::endpoints as kcapi_main;
 
-use super::battle::calc_air_damage;
+use super::battle::{
+    build_enemy_ship_sprite_capacity, calc_air_damage, calc_sprite_motion_stage_counts,
+    count_sprite_fly_from_capacity, SpritePlaneTypeSet,
+};
 
 use kc_api_interface::cells::{
     AirBaseAttack, Cell, CellData, Cells, DestructionBattle, EDeckInfo, Eventmap, Happening,
@@ -44,8 +47,73 @@ impl From<kcapi_main::api_req_map::next::ApiAirBaseAttack> for InterfaceWrapper<
                     })
                     .collect::<HashMap<String, Vec<i64>>>()
             }),
+            f_sprite_fly_count: None,
+            e_sprite_fly_count: None,
+            f_sprite_crash_count: None,
+            e_sprite_crash_count: None,
+            f_sprite_damage_count: None,
+            e_sprite_damage_count: None,
+            f_sprite_non_normal_count: None,
+            e_sprite_non_normal_count: None,
         })
     }
+}
+
+fn count_friend_sprite_fly_from_map_squadrons(
+    map_squadron_plane: &Option<HashMap<String, Vec<i64>>>,
+) -> Option<i64> {
+    let counts = map_squadron_plane.as_ref()?;
+    let mut sprite_count = 0;
+    for count in counts.values().flat_map(|values| values.iter()) {
+        if *count > 0 {
+            sprite_count += 1;
+        }
+        if *count > 6 {
+            sprite_count += 1;
+        }
+    }
+    Some(sprite_count)
+}
+
+fn apply_destruction_sprite_metrics(
+    air_base_attack: &mut AirBaseAttack,
+    e_slots: Vec<Vec<i64>>,
+) {
+    let friend_capacity = count_friend_sprite_fly_from_map_squadrons(
+        &air_base_attack.map_squadron_plane,
+    );
+    let enemy_capacity = build_enemy_ship_sprite_capacity(
+        Some(e_slots),
+        SpritePlaneTypeSet::AirUnit,
+    );
+
+    air_base_attack.f_sprite_fly_count = friend_capacity;
+    air_base_attack.e_sprite_fly_count = count_sprite_fly_from_capacity(
+        enemy_capacity.as_ref(),
+        air_base_attack.e_damage.plane_from.as_deref(),
+    );
+
+    let (f_crash, f_damage, f_non_normal) = calc_sprite_motion_stage_counts(
+        air_base_attack.f_sprite_fly_count,
+        air_base_attack.f_damage.loss_plane1,
+        air_base_attack.f_damage.total_plane1,
+        air_base_attack.f_damage.loss_plane2,
+        air_base_attack.f_damage.total_plane2,
+    );
+    let (e_crash, e_damage, e_non_normal) = calc_sprite_motion_stage_counts(
+        air_base_attack.e_sprite_fly_count,
+        air_base_attack.e_damage.loss_plane1,
+        air_base_attack.e_damage.total_plane1,
+        air_base_attack.e_damage.loss_plane2,
+        air_base_attack.e_damage.total_plane2,
+    );
+
+    air_base_attack.f_sprite_crash_count = f_crash;
+    air_base_attack.e_sprite_crash_count = e_crash;
+    air_base_attack.f_sprite_damage_count = f_damage;
+    air_base_attack.e_sprite_damage_count = e_damage;
+    air_base_attack.f_sprite_non_normal_count = f_non_normal;
+    air_base_attack.e_sprite_non_normal_count = e_non_normal;
 }
 
 impl From<kcapi_common::common_map::ApiEDeckInfo> for InterfaceWrapper<EDeckInfo> {
@@ -107,6 +175,12 @@ impl From<kcapi_main::api_req_map::next::ApiDestructionBattle>
     for InterfaceWrapper<DestructionBattle>
 {
     fn from(destruction_battle: kcapi_main::api_req_map::next::ApiDestructionBattle) -> Self {
+        let mut air_base_attack = InterfaceWrapper::<AirBaseAttack>::from(
+            destruction_battle.api_air_base_attack,
+        )
+        .unwrap();
+        apply_destruction_sprite_metrics(&mut air_base_attack, destruction_battle.api_e_slot.clone());
+
         Self(DestructionBattle {
             formation: destruction_battle.api_formation,
             ship_lv: destruction_battle.api_ship_lv,
@@ -116,10 +190,7 @@ impl From<kcapi_main::api_req_map::next::ApiDestructionBattle>
             e_slot: destruction_battle.api_e_slot,
             f_nowhps: destruction_battle.api_f_nowhps,
             f_maxhps: destruction_battle.api_f_maxhps,
-            air_base_attack: InterfaceWrapper::<AirBaseAttack>::from(
-                destruction_battle.api_air_base_attack,
-            )
-            .unwrap(),
+            air_base_attack,
             lost_kind: destruction_battle.api_lost_kind,
             f_total_damages: None,
             e_total_damages: None,

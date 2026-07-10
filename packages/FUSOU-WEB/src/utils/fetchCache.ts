@@ -41,6 +41,7 @@ const CACHEABLE_PATHS = new Set([
   "/api/quest-tree/rules",
   // remodel summary
   "/api/remodel-data/summary",
+  "/api/remodel-data/effective-summary",
 ]);
 
 function buildCacheKey(url: string, init?: RequestInit): string {

@@ -12,6 +12,10 @@ static SCHEMA_V0_4_JSON: &str = include_str!("../../kc_api/generated-schemas/sch
 #[cfg(feature = "schema_v0_5")]
 static SCHEMA_V0_5_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v0_5.json");
 
+#[cfg(feature = "schema_v0_5_1")]
+static SCHEMA_V0_5_1_JSON: &str =
+    include_str!("../../kc_api/generated-schemas/schema_v0_5_1.json");
+
 // #[cfg(feature = "schema_v0_6")]
 // static SCHEMA_V0_6_JSON: &str = include_str!("../../kc_api/generated-schemas/schema_v0_6.json");
 
@@ -75,6 +79,8 @@ fn get_schema_set(version: &str) -> Option<SchemaSet> {
         "v0_4" => Some(load_schema_set(SCHEMA_V0_4_JSON, "v0_4")),
         #[cfg(feature = "schema_v0_5")]
         "v0_5" => Some(load_schema_set(SCHEMA_V0_5_JSON, "v0_5")),
+        #[cfg(feature = "schema_v0_5_1")]
+        "v0_5_1" => Some(load_schema_set(SCHEMA_V0_5_1_JSON, "v0_5_1")),
         // #[cfg(feature = "schema_v0_6")]
         // "v0_6" => Some(load_schema_set(SCHEMA_V0_6_JSON, "v0_6")),
         _ => None,
@@ -89,6 +95,10 @@ fn get_all_schema_sets_internal() -> Vec<SchemaSet> {
     }
     #[cfg(feature = "schema_v0_5")]
     if let Some(s) = get_schema_set("v0_5") {
+        sets.push(s);
+    }
+    #[cfg(feature = "schema_v0_5_1")]
+    if let Some(s) = get_schema_set("v0_5_1") {
         sets.push(s);
     }
     // #[cfg(feature = "schema_v0_6")]
@@ -297,6 +307,8 @@ pub fn get_available_versions() -> Vec<String> {
     versions.push("v0_4".to_string());
     #[cfg(feature = "schema_v0_5")]
     versions.push("v0_5".to_string());
+    #[cfg(feature = "schema_v0_5_1")]
+    versions.push("v0_5_1".to_string());
     // #[cfg(feature = "schema_v0_6")]
     // versions.push("v0_6".to_string());
     versions

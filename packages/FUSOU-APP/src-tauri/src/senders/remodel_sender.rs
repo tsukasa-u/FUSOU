@@ -15,6 +15,7 @@ use tokio::sync::Notify;
 use uuid::Uuid;
 
 static REMODEL_SENDER: OnceCell<Arc<RemodelSender>> = OnceCell::new();
+const REMODEL_INGEST_SCHEMA_VERSION: i32 = 1;
 
 enum RemodelPacket {
     SlotList(RemodelSlotList),
@@ -156,6 +157,7 @@ impl RemodelSender {
                     "request_id": request_id,
                     "payload_hash": p_hash,
                     "event_type": evt,
+                    "schema_version": REMODEL_INGEST_SCHEMA_VERSION,
                     "timestamp_ms": timestamp_ms,
                     "period_tag": period_tag,
                     "table_version": kc_api::database::DATABASE_TABLE_VERSION,
@@ -171,13 +173,18 @@ impl RemodelSender {
                     "request_id": request_id,
                     "payload_hash": p_hash,
                     "event_type": evt,
+                    "schema_version": REMODEL_INGEST_SCHEMA_VERSION,
                     "timestamp_ms": timestamp_ms,
                     "period_tag": period_tag,
                     "table_version": kc_api::database::DATABASE_TABLE_VERSION,
                     "slotitem_master_id": upload.slotitem_master_id,
                     "remodel_id": upload.remodel_id,
+                    "remodel_step_id": upload.remodel_step_id,
+                    "remodel_level": upload.remodel_level,
                     "certain_buildkit": upload.certain_buildkit,
                     "certain_remodelkit": upload.certain_remodelkit,
+                    "req_slot_id": upload.req_slot_id,
+                    "req_slot_num": upload.req_slot_num,
                     "change_flag": upload.change_flag,
                     "req_useitem_id": upload.req_useitem_id,
                     "req_useitem_id2": upload.req_useitem_id2,

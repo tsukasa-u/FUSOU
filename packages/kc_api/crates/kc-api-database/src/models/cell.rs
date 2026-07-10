@@ -4,13 +4,17 @@ use uuid::Uuid;
 
 use crate::models::battle::Battle;
 use crate::models::battle::BattleId;
+#[cfg(schema_since = "0.5.1")]
+use crate::models::battle::DestructionBattle;
+#[cfg(schema_since = "0.5.1")]
+use crate::models::battle::DestructionBattleId;
 use crate::models::env_info::EnvInfoId;
 use crate::dedup::DedupCache;
 use crate::table::PortTable;
 
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 use crate::models::deck::OwnDeckId;
-#[cfg(feature = "schema_v0_5")]
+#[cfg(schema_since = "0.5.0")]
 use crate::models::deck::OwnDeck;
 
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
@@ -35,34 +39,36 @@ pub struct Cells {
     pub cell_index: Vec<i32>,
     pub battle_index: Vec<i32>,
     pub battles: BattleId,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_max_maphp: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_now_maphp: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_dmg: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_gauge_type: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_gauge_num: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_state: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub event_map_selected_rank: Option<i32>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub happening_counts: Option<Vec<Option<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub happening_mst_ids: Option<Vec<Option<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub happening_dentans: Option<Vec<Option<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub itemget_ids: Option<Vec<Vec<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub itemget_counts: Option<Vec<Vec<i32>>>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_deck_before_id: Option<OwnDeckId>,
-    #[cfg(feature = "schema_v0_5")]
+    #[cfg(schema_since = "0.5.0")]
     pub f_deck_after_id: Option<OwnDeckId>,
+    #[cfg(schema_since = "0.5.1")]
+    pub destruction_battles: Option<DestructionBattleId>,
 }
 
 impl Cells {
@@ -89,10 +95,42 @@ impl Cells {
                     battle_index,
                 )
             });
+
+        #[cfg(schema_since = "0.5.1")]
+        let new_destruction_battles = {
+            let destruction_battle_uuid = Uuid::new_v7(ts);
+            let mut has_destruction_battle = false;
+
+            for (destruction_battle_index, cell_no) in data.cell_index.iter().enumerate() {
+                let Some(cell) = data.cells.get(cell_no) else {
+                    continue;
+                };
+                let Some(destruction_battle) = cell.destruction_battle.clone() else {
+                    continue;
+                };
+
+                if DestructionBattle::new_ret_option(
+                    ts,
+                    destruction_battle_uuid,
+                    destruction_battle,
+                    table,
+                    dedup,
+                    env_uuid,
+                    destruction_battle_index,
+                    *cell_no,
+                )
+                .is_some()
+                {
+                    has_destruction_battle = true;
+                }
+            }
+
+            has_destruction_battle.then_some(destruction_battle_uuid)
+        };
         
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let deck_id = data.clone().battles.values().find_map(|battle| battle.deck_id);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let new_f_deck_before_id = {
             let uuid = Uuid::new_v7(ts);
             let cashe = true;
@@ -100,7 +138,7 @@ impl Cells {
                 .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe))
                 .map(|_| uuid)
         };
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let new_f_deck_after_id = {
             let uuid = Uuid::new_v7(ts);
             let cashe = false;
@@ -109,23 +147,23 @@ impl Cells {
                 .map(|_| uuid)
         };
 
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut happening_counts = Vec::with_capacity(data.cell_index.len());
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut happening_mst_ids = Vec::with_capacity(data.cell_index.len());
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut happening_dentans = Vec::with_capacity(data.cell_index.len());
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut itemget_ids = Vec::with_capacity(data.cell_index.len());
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut itemget_counts = Vec::with_capacity(data.cell_index.len());
 
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut has_happening = false;
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let mut has_itemget = false;
 
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         for cell_no in &data.cell_index {
             let cell = data.cells.get(cell_no);
 
@@ -152,31 +190,31 @@ impl Cells {
             }
         }
 
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_max_maphp = data.event_map.as_ref().map(|x| x.max_maphp as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_now_maphp = data.event_map.as_ref().map(|x| x.now_maphp as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_dmg = data.event_map.as_ref().map(|x| x.dmg as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_gauge_type = data
             .event_map
             .as_ref()
             .and_then(|x| x.gauge_type)
             .map(|x| x as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_gauge_num = data
             .event_map
             .as_ref()
             .and_then(|x| x.gauge_num)
             .map(|x| x as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_state = data
             .event_map
             .as_ref()
             .and_then(|x| x.state)
             .map(|x| x as i32);
-        #[cfg(feature = "schema_v0_5")]
+        #[cfg(schema_since = "0.5.0")]
         let event_map_selected_rank = data
             .event_map
             .as_ref()
@@ -200,34 +238,36 @@ impl Cells {
                 .map(|&battle_idx| battle_idx as i32)
                 .collect(),
             battles: new_battle,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_max_maphp,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_now_maphp,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_dmg,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_gauge_type,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_gauge_num,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_state,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             event_map_selected_rank,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             happening_counts: has_happening.then_some(happening_counts),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             happening_mst_ids: has_happening.then_some(happening_mst_ids),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             happening_dentans: has_happening.then_some(happening_dentans),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             itemget_ids: has_itemget.then_some(itemget_ids),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             itemget_counts: has_itemget.then_some(itemget_counts),
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_deck_before_id: new_f_deck_before_id,
-            #[cfg(feature = "schema_v0_5")]
+            #[cfg(schema_since = "0.5.0")]
             f_deck_after_id: new_f_deck_after_id,
+            #[cfg(schema_since = "0.5.1")]
+            destruction_battles: new_destruction_battles,
         };
 
         table.cells.push(new_data);

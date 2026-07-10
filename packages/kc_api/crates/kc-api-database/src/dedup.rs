@@ -12,7 +12,7 @@ use uuid::Uuid;
 /// record contents.  Only use it when the same key is guaranteed to map to the
 /// same data within a single `PortTable::new` invocation.  Cases where the same
 /// source ID can yield different data (e.g. before/after battle snapshots in
-/// `schema_v0_5`) must **not** go through `DedupCache`.
+/// schema 0.5.0+) must **not** go through `DedupCache`.
 #[derive(Debug, Default)]
 pub struct DedupCache {
     caches: HashMap<&'static str, HashMap<i64, Uuid>>,
