@@ -163,15 +163,15 @@ async function checkRemodel() {
     // slotlist_entries: period 別 収集状況
     const slotlist = d1query(
       db,
-      `SELECT period_tag, table_version, COUNT(DISTINCT dataset_id) AS datasets, COUNT(DISTINCT slotitem_master_id) AS slotitem_types, COUNT(*) AS rows FROM remodel_slotlist_entries GROUP BY period_tag, table_version ORDER BY period_tag DESC, table_version DESC LIMIT 10`,
+      `SELECT period_tag, COUNT(DISTINCT slotitem_master_id) AS slotitem_types, COUNT(*) AS rows FROM remodel_slotlist_effective_requirements GROUP BY period_tag ORDER BY period_tag DESC LIMIT 10`,
     );
-    console.log("\n[remodel_slotlist_entries] period 別 収集状況:");
+    console.log("\n[remodel_slotlist_effective_requirements] period 別 収集状況:");
     table(slotlist);
 
     // detail_entries: period 別 収集状況
     const details = d1query(
       db,
-      `SELECT period_tag, table_version, COUNT(DISTINCT dataset_id) AS datasets, COUNT(DISTINCT slotitem_master_id) AS slotitem_types, COUNT(*) AS rows FROM remodel_detail_entries GROUP BY period_tag, table_version ORDER BY period_tag DESC, table_version DESC LIMIT 10`,
+      `SELECT period_tag, COUNT(DISTINCT slotitem_master_id) AS slotitem_types, COUNT(*) AS rows FROM remodel_detail_entries GROUP BY period_tag ORDER BY period_tag DESC LIMIT 10`,
     );
     console.log("\n[remodel_detail_entries] period 別 収集状況:");
     table(details);
@@ -179,9 +179,9 @@ async function checkRemodel() {
     // 装備種別の上位（slotlist）
     const topItems = d1query(
       db,
-      `SELECT slotitem_master_id, COUNT(DISTINCT dataset_id) AS observed_by FROM remodel_slotlist_entries GROUP BY slotitem_master_id ORDER BY observed_by DESC LIMIT 15`,
+      `SELECT slotitem_master_id, COUNT(*) AS observed_by FROM remodel_slotlist_effective_requirements GROUP BY slotitem_master_id ORDER BY observed_by DESC LIMIT 15`,
     );
-    console.log("\n[remodel_slotlist_entries] 観測数上位装備:");
+    console.log("\n[remodel_slotlist_effective_requirements] 観測数上位装備:");
     table(topItems);
   } catch (err) {
     console.error("  エラー:", err.message);

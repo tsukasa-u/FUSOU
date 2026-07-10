@@ -29,6 +29,7 @@ import {
 import { validateSynergyPayload } from "../utils/synergy-payload";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
+const SHIP_GROWTH_INGEST_SCHEMA_VERSION = 1;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -67,6 +68,7 @@ interface IngestBody {
   request_id: string;
   payload_hash: string;
   event_type: string;
+  schema_version: number;
   timestamp_ms: number;
   period_tag: string;
   table_version: string;
@@ -992,7 +994,13 @@ function deriveServerNakedStats(
 function validateIngestBody(
   body: IngestBody | null,
 ):
-  | { ok: true; datasetId: string; requestId: string; eventType: string }
+  | {
+      ok: true;
+      datasetId: string;
+      requestId: string;
+      eventType: string;
+      schemaVersion: number;
+    }
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Missing body" };
 
@@ -1019,6 +1027,17 @@ function validateIngestBody(
   const eventType = String(body.event_type ?? "").trim();
   if (eventType !== "snapshot")
     return { ok: false, error: 'event_type must be "snapshot"' };
+
+  const schemaVersion = Number(body.schema_version);
+  if (!isValidInt(schemaVersion)) {
+    return { ok: false, error: "schema_version must be an integer" };
+  }
+  if (schemaVersion !== SHIP_GROWTH_INGEST_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: `unsupported schema_version: ${schemaVersion} (latest=${SHIP_GROWTH_INGEST_SCHEMA_VERSION})`,
+    };
+  }
 
   if (!body.period_tag || !isValidPeriodTagDate(body.period_tag)) {
     return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
@@ -1093,7 +1112,7 @@ function validateIngestBody(
     }
   }
 
-  return { ok: true, datasetId, requestId, eventType };
+  return { ok: true, datasetId, requestId, eventType, schemaVersion };
 }
 
 function buildAggregatedShipGrowthRows(
@@ -3370,6 +3389,7 @@ app.post("/ingest", async (c) => {
         dataset_id: validated.datasetId,
         request_id: validated.requestId,
         event_type: validated.eventType,
+        schema_version: validated.schemaVersion,
       },
       signingSecret,
       tokenTtl,
@@ -3410,6 +3430,7 @@ app.post("/ingest", async (c) => {
     "dataset_id",
     "request_id",
     "event_type",
+    "schema_version",
   ]);
   if (!payloadValidation.valid) {
     return c.json(
@@ -3474,7 +3495,8 @@ app.post("/ingest", async (c) => {
   if (
     verified.datasetId !== String(tokenPayload.dataset_id) ||
     verified.requestId !== String(tokenPayload.request_id) ||
-    verified.eventType !== String(tokenPayload.event_type)
+    verified.eventType !== String(tokenPayload.event_type) ||
+    verified.schemaVersion !== Number(tokenPayload.schema_version)
   ) {
     return c.json(
       { error: "Upload payload does not match upload token claims" },
