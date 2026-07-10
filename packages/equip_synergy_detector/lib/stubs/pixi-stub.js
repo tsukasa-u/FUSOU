@@ -7,87 +7,101 @@ const EventEmitter = require('events');
 
 // ── Base classes ───────────────────────────────────────────────────
 
-class DisplayObject extends EventEmitter {
-  constructor() {
-    super();
-    this.visible = true;
-    this.interactive = false;
-    this.alpha = 1;
-    this.x = 0;
-    this.y = 0;
-    this.scale = new Point(1, 1);
-    this.anchor = new Point(0, 0);
-    this.pivot = new Point(0, 0);
-    this.rotation = 0;
-    this.position = new Point(0, 0);
-    this.mask = null;
-    this.filters = null;
-    this.parent = null;
-    this.texture = null;
-    this.tint = 0xFFFFFF;
-    this.blendMode = 0;
-    this.buttonMode = false;
-  }
-  destroy() {}
-  getBounds() { return new Rectangle(0, 0, 0, 0); }
-  getLocalBounds() { return new Rectangle(0, 0, 0, 0); }
-  toGlobal(pos) { return new Point(pos.x, pos.y); }
-  toLocal(pos) { return new Point(pos.x, pos.y); }
+function DisplayObject() {
+  EventEmitter.call(this);
+  this.visible = true;
+  this.interactive = false;
+  this.alpha = 1;
+  this.x = 0;
+  this.y = 0;
+  this.scale = new Point(1, 1);
+  this.anchor = new Point(0, 0);
+  this.pivot = new Point(0, 0);
+  this.rotation = 0;
+  this.position = new Point(0, 0);
+  this.mask = null;
+  this.filters = null;
+  this.parent = null;
+  this.texture = null;
+  this.tint = 0xFFFFFF;
+  this.blendMode = 0;
+  this.buttonMode = false;
 }
+DisplayObject.prototype = Object.create(EventEmitter.prototype);
+DisplayObject.prototype.constructor = DisplayObject;
+DisplayObject.prototype.destroy = function () {};
+DisplayObject.prototype.getBounds = function () {
+  return new Rectangle(0, 0, 0, 0);
+};
+DisplayObject.prototype.getLocalBounds = function () {
+  return new Rectangle(0, 0, 0, 0);
+};
+DisplayObject.prototype.toGlobal = function (pos) {
+  return new Point(pos.x, pos.y);
+};
+DisplayObject.prototype.toLocal = function (pos) {
+  return new Point(pos.x, pos.y);
+};
 
-class Container extends DisplayObject {
-  constructor() {
-    super();
-    this.children = [];
-  }
-  addChild(child) {
-    if (child) {
-      child.parent = this;
-      this.children.push(child);
-    }
-    return child;
-  }
-  addChildAt(child, index) {
-    if (child) {
-      child.parent = this;
-      this.children.splice(index, 0, child);
-    }
-    return child;
-  }
-  removeChild(child) {
-    const idx = this.children.indexOf(child);
-    if (idx >= 0) {
-      this.children.splice(idx, 1);
-      child.parent = null;
-    }
-    return child;
-  }
-  removeChildAt(index) {
-    return this.removeChild(this.children[index]);
-  }
-  removeChildren(begin, end) {
-    const removed = this.children.splice(begin || 0, end || this.children.length);
-    removed.forEach(c => { if (c) c.parent = null; });
-    return removed;
-  }
-  getChildAt(index) { return this.children[index]; }
-  getChildIndex(child) { return this.children.indexOf(child); }
-  setChildIndex(child, index) {
-    const idx = this.children.indexOf(child);
-    if (idx >= 0) {
-      this.children.splice(idx, 1);
-      this.children.splice(index, 0, child);
-    }
-  }
-  swapChildren(a, b) {
-    const ia = this.children.indexOf(a);
-    const ib = this.children.indexOf(b);
-    if (ia >= 0 && ib >= 0) {
-      this.children[ia] = b;
-      this.children[ib] = a;
-    }
-  }
+function Container() {
+  DisplayObject.call(this);
+  this.children = [];
 }
+Container.prototype = Object.create(DisplayObject.prototype);
+Container.prototype.constructor = Container;
+Container.prototype.addChild = function (child) {
+  if (child) {
+    child.parent = this;
+    this.children.push(child);
+  }
+  return child;
+};
+Container.prototype.addChildAt = function (child, index) {
+  if (child) {
+    child.parent = this;
+    this.children.splice(index, 0, child);
+  }
+  return child;
+};
+Container.prototype.removeChild = function (child) {
+  const idx = this.children.indexOf(child);
+  if (idx >= 0) {
+    this.children.splice(idx, 1);
+    child.parent = null;
+  }
+  return child;
+};
+Container.prototype.removeChildAt = function (index) {
+  return this.removeChild(this.children[index]);
+};
+Container.prototype.removeChildren = function (begin, end) {
+  const removed = this.children.splice(begin || 0, end || this.children.length);
+  removed.forEach((c) => {
+    if (c) c.parent = null;
+  });
+  return removed;
+};
+Container.prototype.getChildAt = function (index) {
+  return this.children[index];
+};
+Container.prototype.getChildIndex = function (child) {
+  return this.children.indexOf(child);
+};
+Container.prototype.setChildIndex = function (child, index) {
+  const idx = this.children.indexOf(child);
+  if (idx >= 0) {
+    this.children.splice(idx, 1);
+    this.children.splice(index, 0, child);
+  }
+};
+Container.prototype.swapChildren = function (a, b) {
+  const ia = this.children.indexOf(a);
+  const ib = this.children.indexOf(b);
+  if (ia >= 0 && ib >= 0) {
+    this.children[ia] = b;
+    this.children[ib] = a;
+  }
+};
 
 class Point {
   constructor(x = 0, y = 0) { this.x = x; this.y = y; }

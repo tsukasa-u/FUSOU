@@ -70,6 +70,12 @@ binding = "QUEST_INDEX_DB"
 database_name = "dev-kc-quest-index"
 database_id = "f6d4f2c0-e48b-4539-bd9e-28ab46cdbfb8"
 
+# Optional KV binding for hot-read cost optimization.
+# During cron processing only, reader includes buffer_logs_processing.
+# [[kv_namespaces]]
+# binding = "WORKFLOW_STATE_KV"
+# id = "091373317ad84defb7e2c66f49f2cbad"
+
 ## Environment Variables
 # Do NOT hardcode variables here.
 # - Development: use dotenvx with `.env`
@@ -80,11 +86,8 @@ type = "CompiledWasm"
 globs = ["**/*.wasm"]
 fallthrough = true
 
-# ===== TiDB Cloud Configuration =====
-# TiDB Cloud Serverless for buffer_logs (high-volume writes)
-# Official integration guide: https://docs.pingcap.com/tidbcloud/integrate-tidbcloud-with-cloudflare/
-#
-# Secret configured as TIDB_KC_DB_URL:
-#   wrangler secret put TIDB_KC_DB_URL
-#
-# Format: mysql://username:password@host:4000/database
+# ===== Turso Configuration =====
+# Turso serverless for hot buffer tables
+# Secrets required:
+#   wrangler secret put TURSO_DATABASE_URL
+#   wrangler secret put TURSO_AUTH_TOKEN

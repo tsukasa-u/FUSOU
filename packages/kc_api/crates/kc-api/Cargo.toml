@@ -3,17 +3,21 @@ name = "kc-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
-kc-api-interface = { workspace = true }
-kc-api-interface-adapter = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
+kc-api-interface-adapter = { workspace = true, default-features = false }
 kc-api-database = { workspace = true }
-kc-api-dto = { workspace = true }
-kc-api-parser = { workspace = true }
-kc-fleet-snapshot = { workspace = true }
+kc-api-dto = { workspace = true, default-features = false }
+kc-api-parser = { workspace = true, default-features = false }
+kc-fleet-snapshot = { workspace = true, default-features = false }
+
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
 
 [features]
-default = ["graphviz", "from20250627", "schema_v0_5"]
+default = ["graphviz", "genesis", "schema_v0_5"]
 full = ["kc-api-database/full"]
 graphviz = [
     "kc-api-database/graphviz",
@@ -23,15 +27,21 @@ cytoscape = [
     "kc-api-database/cytoscape",
     "kc-api-dto/cytoscape",
 ]
-from20250627 = [
-    "kc-api-interface/from20250627",
-    "kc-api-interface-adapter/from20250627",
-    "kc-api-dto/from20250627",
+genesis = [
+    "kc-api-database/genesis",
+    "kc-api-interface/genesis",
+    "kc-api-interface-adapter/genesis",
+    "kc-api-dto/genesis",
+    "kc-api-parser/genesis",
+    "kc-fleet-snapshot/genesis",
 ]
-20250627 = [
-    "kc-api-interface/20250627",
-    "kc-api-interface-adapter/20250627",
-    "kc-api-dto/20250627",
+epoch_20250627 = [
+    "kc-api-database/epoch_20250627",
+    "kc-api-interface/epoch_20250627",
+    "kc-api-interface-adapter/epoch_20250627",
+    "kc-api-dto/epoch_20250627",
+    "kc-api-parser/epoch_20250627",
+    "kc-fleet-snapshot/epoch_20250627",
 ]
 
 # Schema version features - names match table_version values (0.4, 0.5, 0.6)

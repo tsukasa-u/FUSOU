@@ -226,13 +226,19 @@ pub fn check_database_field_size() {
             })
             .any(|file_path| {
                 let ts_int = get_timestamp_from_file_content(file_path.clone()).parse::<i64>() .expect("failed to get timestamp from file_ contnet");
-                #[cfg(feature = "from20250627")]
+                let epoch_unix = kc_api_build_config::first_epoch_unix()
+                    .expect("epoch transition unix is not defined in build-config");
+                #[cfg(since = "20250627")]
                 {
-                    !(ts_int >= 1750993200)
+                    !(ts_int >= epoch_unix)
                 }
-                #[cfg(not(feature = "from20250627"))]
+                #[cfg(until = "20250627")]
                 {
-                    !(ts_int < 1750993200)
+                    !(ts_int < epoch_unix)
+                }
+                #[cfg(not(any(since = "20250627", until = "20250627")))]
+                {
+                    false // no filtering if no epoch is active
                 }
             });
         if skip_flag {

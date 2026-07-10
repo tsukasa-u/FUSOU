@@ -19,7 +19,12 @@ const ROOT = path.resolve(__dirname, "..");
 /**
  * Resolve the game script path.
  */
-function resolveScript(useMain) {
+function resolveScript(useMain, periodTag = null) {
+  if (periodTag) {
+    return useMain
+      ? path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcs2", "js", "main.js")
+      : path.join(ROOT, "output", `deobfuscated_${periodTag}.js`);
+  }
   return useMain
     ? path.join(ROOT, "main.js")
     : path.join(ROOT, "output", "deobfuscated.js");
@@ -29,8 +34,13 @@ function resolveScript(useMain) {
  * Find the first master data file in master_data/.
  * Returns the path or null.
  */
-function findMasterData() {
-  const dir = path.join(ROOT, "master_data");
+function findMasterData(periodTag = null) {
+  let dir;
+  if (periodTag) {
+    dir = path.join(ROOT, "..", "FUSOU-PROXY-DATA", periodTag, "kcsapi");
+  } else {
+    dir = path.join(ROOT, "master_data");
+  }
   if (!fs.existsSync(dir)) return null;
   const files = fs
     .readdirSync(dir)
@@ -172,13 +182,14 @@ function setupRequireIntercept(window) {
  * @param {boolean} [opts.useMain=false]  Use main.js instead of deobfuscated.js
  * @param {function} [opts.getMst]        Mock getMst for App singleton (module 18622)
  * @param {boolean} [opts.silent=false]   Suppress log output
- * @returns {{ kcsRequire: function, kcsCache: object, exports: any }}
+ * @param {string} [opts.periodTag]       Optional period_tag to resolve from FUSOU-PROXY-DATA
+ * @returns {{ kcsRequire: function, kcsCache: object, kcsModules: object, exports: any }}
  */
 function loadBundle(opts = {}) {
-  const { useMain = false, getMst, silent = false } = opts;
+  const { useMain = false, getMst, silent = false, periodTag = null } = opts;
   const log = silent ? () => {} : console.log.bind(console);
 
-  const targetScript = resolveScript(useMain);
+  const targetScript = resolveScript(useMain, periodTag);
   if (!fs.existsSync(targetScript)) {
     throw new Error("Target script not found: " + targetScript);
   }
@@ -192,6 +203,10 @@ function loadBundle(opts = {}) {
   if (getMst) {
     global.__kcs_getMst = getMst;
   }
+  // Reset captured references to avoid stale values from prior loads.
+  global.__kcs_require = undefined;
+  global.__kcs_cache = undefined;
+  global.__kcs_modules = undefined;
 
   // Intercept _compile to capture webpack internals + inject mock App
   const origCompile = Module.prototype._compile;
@@ -202,6 +217,11 @@ function loadBundle(opts = {}) {
       );
       if (match) {
         const reqFn = match[1];
+        const mm = content.match(
+          new RegExp(
+            `function\\s+${reqFn}\\s*\\((\\w+)\\)[\\s\\S]{0,2000}?return\\s+(\\w+)\\s*\\[\\s*\\1\\s*\\]`,
+          ),
+        );
         const cacheRe = new RegExp(
           `(?:var\\s+)?(\\w+)\\s*=\\s*\\{\\};\\s*function\\s+${reqFn}\\b`,
         );
@@ -212,6 +232,10 @@ function loadBundle(opts = {}) {
           );
 
         let inj = `global.__kcs_require = ${reqFn};\n`;
+        if (mm) {
+          const modulesName = mm[2];
+          inj += `global.__kcs_modules = ${modulesName};\n`;
+        }
         if (cm) {
           const cacheName = cm[1];
           inj += `global.__kcs_cache = ${cacheName};\n`;
@@ -238,6 +262,7 @@ function loadBundle(opts = {}) {
   return {
     kcsRequire: global.__kcs_require,
     kcsCache: global.__kcs_cache || {},
+    kcsModules: global.__kcs_modules || {},
     exports,
   };
 }

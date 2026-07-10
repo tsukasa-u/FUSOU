@@ -1,7 +1,7 @@
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::mst_equip_exslot::MstEquipExslots;
 use kc_api_interface::mst_equip_exslot_ship::MstEquipExslotShips;
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 use kc_api_interface::mst_equip_limit_exslot::MstEquipLimitExslots;
 use kc_api_interface::mst_equip_ship::MstEquipShips;
 use kc_api_interface::mst_maparea::MstMapAreas;
@@ -41,7 +41,7 @@ impl TraitForConvert for get_data::Res {
             InterfaceWrapper::<MstEquipShips>::from(self.api_data.api_mst_equip_ship.clone())
                 .unwrap();
 
-        #[cfg(feature = "20250627")]
+        #[cfg(since = "20250627")]
         let mst_equip_limit_exslot =
             InterfaceWrapper::<MstEquipLimitExslots>::from(self.api_data.clone()).unwrap();
 
@@ -70,7 +70,7 @@ impl TraitForConvert for get_data::Res {
             EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
         ];
 
-        #[cfg(feature = "20250627")]
+        #[cfg(since = "20250627")]
         events.push(EmitData::Set(Set::MstEquipLimitExslots(
             mst_equip_limit_exslot,
         )));

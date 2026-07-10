@@ -2,20 +2,33 @@
 name = "kc-api-integration-test"
 version.workspace = true
 edition.workspace = true
+build = "build.rs"
 
 
 [dev-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
 chrono = { workspace = true }
 kc-api-database = { workspace = true, features = ["full", "schema_v0_5"] }
-kc-api-interface = { workspace = true }
-kc-api-parser = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
+kc-api-parser = { workspace = true, default-features = false }
 register_trait = { workspace = true }
 uuid = { workspace = true }
 dotenvy = { workspace = true }
 regex = { workspace = true }
 
-[features]
-default = [ "from20250627" ]
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
 
-from20250627 = ["20250627"]
-20250627 = []
+[features]
+default = [ "genesis" ]
+
+genesis = [
+	"kc-api-database/genesis",
+	"kc-api-interface/genesis",
+	"kc-api-parser/genesis",
+]
+epoch_20250627 = [
+	"kc-api-database/epoch_20250627",
+	"kc-api-interface/epoch_20250627",
+	"kc-api-parser/epoch_20250627",
+]

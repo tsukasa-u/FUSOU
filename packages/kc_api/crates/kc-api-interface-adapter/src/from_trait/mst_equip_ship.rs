@@ -3,7 +3,7 @@ use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::mst_equip_ship::{MstEquipShip, MstEquipShips};
 use std::collections::HashMap;
 
-#[cfg(not(feature = "20250627"))]
+#[cfg(until = "20250627")]
 impl From<Vec<kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     for InterfaceWrapper<MstEquipShips>
 {
@@ -21,7 +21,7 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     }
 }
 
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 impl From<HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     for InterfaceWrapper<MstEquipShips>
 {
@@ -39,7 +39,7 @@ impl From<HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     }
 }
 
-#[cfg(not(feature = "20250627"))]
+#[cfg(until = "20250627")]
 impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrapper<MstEquipShip> {
     fn from(equip_ship: kcapi_main::api_start2::get_data::ApiMstEquipShip) -> Self {
         Self(MstEquipShip {
@@ -53,7 +53,7 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrappe
     }
 }
 
-#[cfg(feature = "20250627")]
+#[cfg(since = "20250627")]
 impl From<(i64, kcapi_main::api_start2::get_data::ApiMstEquipShip)>
     for InterfaceWrapper<MstEquipShip>
 {

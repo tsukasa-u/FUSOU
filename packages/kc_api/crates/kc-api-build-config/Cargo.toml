@@ -1,0 +1,8 @@
+[package]
+name = "kc-api-build-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+path = "src/lib.rs"

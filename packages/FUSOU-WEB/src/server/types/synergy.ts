@@ -29,6 +29,7 @@ export interface SynergyManifestRequest {
   api_start2_batch_hash: string;
   generator_version: string;
   generated_at: string; // ISO8601
+  allow_duplicate_content?: boolean;
 }
 
 export interface SynergyManifestResponse {

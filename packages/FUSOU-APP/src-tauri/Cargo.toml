@@ -34,11 +34,11 @@ tauri-plugin-notification = "2.3.3"
 tauri-plugin-global-shortcut = "2.3.1"
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
-kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api", features = ["full", "schema_v0_5"] }
-proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
+kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api", default-features = false, features = ["full", "graphviz", "schema_v0_5"] }
+proxy-https = { path = "./../../FUSOU-PROXY/proxy-https", default-features = false }
 fusou-auth = { path = "./../../fusou-auth" }
 fusou-upload = { path = "./../../fusou-upload" }
-fusou-storage = { path = "./../../fusou-storage" }
+fusou-storage = { path = "./../../fusou-storage", default-features = false }
 configs = { path = "./../../configs" }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
@@ -72,8 +72,18 @@ cap-std = "3"
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
 
-default = []
+default = ["kc-api-epoch-20250627"]
 grpc-channel = ["proxy-https/grpc"]
+kc-api-epoch-genesis = [
+	"kc_api/genesis",
+	"proxy-https/kc-api-epoch-genesis",
+	"fusou-storage/kc-api-epoch-genesis",
+]
+kc-api-epoch-20250627 = [
+	"kc_api/epoch_20250627",
+	"proxy-https/kc-api-epoch-20250627",
+	"fusou-storage/kc-api-epoch-20250627",
+]
 # Google Drive cloud storage integration (deprecated, will be removed in future version)
 gdrive = ["fusou-storage/gdrive"]
 

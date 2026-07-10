@@ -25,7 +25,7 @@
       "table_name": "mst_slotitem_equip_types"
     },
     {
-      "schema": "{\"type\":\"record\",\"name\":\"MstEquipShip\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip_type\",\"type\":{\"type\":\"map\",\"values\":[\"null\",{\"type\":\"array\",\"items\":\"int\"}]}}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"MstEquipShip\",\"fields\":[{\"name\":\"ship_id\",\"type\":\"int\"},{\"name\":\"equip_type\",\"type\":{\"type\":\"array\",\"items\":\"int\"}}]}",
       "table_name": "mst_equip_ships"
     },
     {

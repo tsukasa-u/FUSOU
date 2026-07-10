@@ -3,6 +3,7 @@ name = "kc-api-database"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+build = "build.rs"
 
 [dependencies]
 # apache-avro: Use different configurations based on features
@@ -16,7 +17,7 @@ sha2 = "0.10"
 tokio = { workspace = true, optional = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
-kc-api-interface = { workspace = true }
+kc-api-interface = { workspace = true, default-features = false }
 # kc-api-interface-adapter = { workspace = true }
 
 [dev-dependencies]
@@ -26,8 +27,11 @@ dot-writer = { workspace = true }
 syn = { workspace = true }
 quote = { workspace = true }
 
+[build-dependencies]
+kc-api-build-config = { path = "../kc-api-build-config" }
+
 [features]
-default = ["graphviz", "full", "schema_v0_5"]
+default = ["graphviz", "full", "schema_v0_5", "genesis"]
 graphviz = []
 cytoscape = []
 breaking_schema = []
@@ -39,6 +43,9 @@ wasm = []
 
 schema_v0_4 = []
 schema_v0_5 = []
+
+genesis = ["kc-api-interface/genesis"]
+epoch_20250627 = ["kc-api-interface/epoch_20250627"]
 
 # Optional: Override uuid for WASM target to include js feature
 [target.'cfg(target_arch = "wasm32")'.dependencies]
