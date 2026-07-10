@@ -86,7 +86,7 @@ function detectVersions() {
 
   const cargoToml = readFileSync(cargoTomlPath, "utf8");
   const versions = [];
-  const pattern = /^schema_(v[0-9]+_[0-9]+)\s*=/gm;
+  const pattern = /^schema_(v[0-9]+_[0-9]+(?:_[0-9]+)?)\s*=/gm;
   let match = pattern.exec(cargoToml);
   while (match) {
     versions.push(match[1]);
@@ -94,7 +94,7 @@ function detectVersions() {
   }
 
   if (!versions.length) {
-    fail("No schema_vN_M features found in kc-api-database Cargo.toml");
+    fail("No schema_vN_M[_P] features found in kc-api-database Cargo.toml");
   }
 
   return versions;

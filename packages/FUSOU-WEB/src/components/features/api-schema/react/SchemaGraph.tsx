@@ -38,13 +38,13 @@ interface GraphData {
 }
 
 // Dynamically import all version JSON files at build time
-const dbVersionModules = import.meta.glob("../../data/graphs/db_v*.json", {
+const dbVersionModules = import.meta.glob("../../../../data/graphs/db_v*.json", {
   eager: true,
 }) as Record<string, { default: any }>;
 
 const DB_VERSIONS: Record<string, any> = {};
 for (const [path, mod] of Object.entries(dbVersionModules)) {
-  const match = path.match(/db_(v\d+_\d+)\.json$/);
+  const match = path.match(/db_(v\d+_\d+(?:_\d+)?)\.json$/);
   if (match) {
     DB_VERSIONS[match[1]] = mod.default;
   }

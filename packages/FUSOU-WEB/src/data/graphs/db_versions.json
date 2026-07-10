@@ -3,16 +3,8 @@
     "v0_4_to_v0_5": {
       "airbase_airattack": {
         "addedFields": [
-          "e_sprite_crash_stage1_count",
-          "e_sprite_crash_stage2_count",
-          "e_sprite_damage_stage1_count",
-          "e_sprite_damage_stage2_count",
           "e_sprite_fly_count",
           "e_sprite_non_normal_count",
-          "f_sprite_crash_stage1_count",
-          "f_sprite_crash_stage2_count",
-          "f_sprite_damage_stage1_count",
-          "f_sprite_damage_stage2_count",
           "f_sprite_fly_count",
           "f_sprite_non_normal_count"
         ],
@@ -182,29 +174,84 @@
         "removedFields": [],
         "status": "changed"
       }
+    },
+    "v0_5_to_v0_5_1": {
+      "cells": {
+        "addedFields": [
+          "destruction_battles"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "changed"
+      },
+      "destruction_battle": {
+        "addedFields": [
+          "air_superiority",
+          "cell_no",
+          "e_damages",
+          "e_deck_ids",
+          "e_formation",
+          "e_loss_plane1",
+          "e_loss_plane2",
+          "e_now_hps",
+          "e_plane_from",
+          "e_sprite_crash_count",
+          "e_sprite_damage_count",
+          "e_sprite_fly_count",
+          "e_total_damages",
+          "e_touch_plane",
+          "env_uuid",
+          "f_airbase_ids",
+          "f_damages",
+          "f_formation",
+          "f_loss_plane1",
+          "f_loss_plane2",
+          "f_max_hps",
+          "f_now_hps",
+          "f_plane_from",
+          "f_sprite_crash_count",
+          "f_sprite_damage_count",
+          "f_sprite_fly_count",
+          "f_total_damages",
+          "f_touch_plane",
+          "index",
+          "lost_kind",
+          "squadron_planes",
+          "uuid"
+        ],
+        "changedFields": [],
+        "removedFields": [],
+        "status": "added"
+      }
     }
   },
   "majorVersions": {
     "v0": {
-      "latest": "v0_5",
+      "latest": "v0_5_1",
       "versions": [
         "v0_4",
-        "v0_5"
+        "v0_5",
+        "v0_5_1"
       ]
     }
   },
   "sortedVersions": [
     "v0_4",
-    "v0_5"
+    "v0_5",
+    "v0_5_1"
   ],
   "versions": {
     "v0_4": {
       "tableCount": 46,
-      "version": "0.4"
+      "version": "0.4.0"
     },
     "v0_5": {
       "tableCount": 47,
-      "version": "0.5"
+      "version": "0.5.0"
+    },
+    "v0_5_1": {
+      "tableCount": 48,
+      "version": "0.5.1"
     }
   }
 }
