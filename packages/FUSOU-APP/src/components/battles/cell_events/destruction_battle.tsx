@@ -4,6 +4,7 @@ import "../../../css/divider.css";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   WrapBaseHPComponent,
   WrapCIMstEquipComponent,
@@ -206,24 +207,9 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     if (!attack) return null;
 
     return (
-      <div class="pl-2 text-xs font-mono">
-        <div>Sprite Motion (F / E)</div>
+      <div class="pl-2 text-xs">
         <div>
-          Fly: {attack.f_sprite_fly_count ?? "?"} / {attack.e_sprite_fly_count ?? "?"}
-        </div>
-        <div>
-          Crash: {attack.f_sprite_crash_count ?? "?"} / {attack.e_sprite_crash_count ?? "?"}
-        </div>
-        <div>
-          Damage: {attack.f_sprite_damage_count ?? "?"} / {attack.e_sprite_damage_count ?? "?"}
-        </div>
-        <div>
-          Non-Normal: {attack.f_sprite_non_normal_count ?? "?"} / {attack.e_sprite_non_normal_count ?? "?"}
-        </div>
-        <div>
-          Loss Plane (S1+S2): {attack.f_damage.loss_plane1}+
-          {attack.f_damage.loss_plane2} / {attack.e_damage.loss_plane1}+
-          {attack.e_damage.loss_plane2}
+          <SpriteMotionCounts counts={attack} class="" />
         </div>
       </div>
     );
@@ -494,10 +480,11 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
           </div>
           <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
             {display_air_raid_result()}
+            <div class="divider divider-horizontal mr-0 ml-0" />
+            <Show when={props.cell()?.destruction_battle?.air_base_attack}>
+                {display_sprite_counts()}
+            </Show>
           </div>
-          <Show when={props.cell()?.destruction_battle?.air_base_attack}>
-            {display_sprite_counts()}
-          </Show>
           <ul class="pl-0">
             <table class="table table-xs">
               <thead>

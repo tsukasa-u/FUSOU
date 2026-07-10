@@ -4,6 +4,7 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipHPComponent,
@@ -192,20 +193,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_sprite_counts = (attack: AirBaseAirAttack) => {
-    const f_fly = attack.f_sprite_fly_count;
-    const e_fly = attack.e_sprite_fly_count;
-    const f_crash = attack.f_sprite_crash_count ?? "?";
-    const e_crash = attack.e_sprite_crash_count ?? "?";
-    const f_damage = attack.f_sprite_damage_count ?? "?";
-    const e_damage = attack.e_sprite_damage_count ?? "?";
-    const f_non_normal = attack.f_sprite_non_normal_count ?? "?";
-    const e_non_normal = attack.e_sprite_non_normal_count ?? "?";
-
-    return (
-      <span class="pl-2">
-        Sprite - Fly: {f_fly ?? "?"}/{e_fly ?? "?"}, Crash: {f_crash}/{e_crash}, Damage: {f_damage}/{e_damage}, Non-Normal: {f_non_normal}/{e_non_normal}
-      </span>
-    );
+    return <SpriteMotionCounts counts={attack} />;
   };
 
   return (
@@ -230,7 +218,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                 >
                   {(attack, attack_idx) => (
                     <>
-                      <div class="flex flex-nowrap pl-2 items-center">
+                      <div class="flex flex-nowrap pl-2 items-center text-xs">
                         {display_touch(attack)}
                         {display_sprite_counts(attack)}
                       </div>

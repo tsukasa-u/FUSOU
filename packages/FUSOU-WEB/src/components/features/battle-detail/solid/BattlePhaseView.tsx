@@ -15,6 +15,7 @@ import {
   PhaseSummaryBadges,
   EquipmentBadgesFromSlotIds,
 } from "./ui";
+import { SpriteMotionCounts } from "./sprite-motion-counts";
 
 // ── Phase data helpers ────────────────────────────────────────────────────
 
@@ -699,12 +700,6 @@ function DestructionBattleCard(props: {
   const airSuperiority = () =>
     readDestructionValue(props.data, "air_superiority") ?? -1;
   const lostKind = () => readDestructionValue(props.data, "lost_kind");
-  const fFly = () => readDestructionValue(props.data, "f_sprite_fly_count");
-  const eFly = () => readDestructionValue(props.data, "e_sprite_fly_count");
-  const fCrash = () => readDestructionValue(props.data, "f_sprite_crash_count");
-  const eCrash = () => readDestructionValue(props.data, "e_sprite_crash_count");
-  const fDamage = () => readDestructionValue(props.data, "f_sprite_damage_count");
-  const eDamage = () => readDestructionValue(props.data, "e_sprite_damage_count");
 
   return (
     <div class="collapse collapse-arrow rounded-lg border border-base-300 bg-base-200">
@@ -723,19 +718,19 @@ function DestructionBattleCard(props: {
         </div>
       </div>
       <div class="collapse-content">
-        <div class="grid gap-2 sm:grid-cols-2">
-          <div class="rounded border border-base-300 bg-base-100 p-2 text-sm">
-            <div class="text-xs text-base-content/60">Fly</div>
-            <div class="font-mono">{fFly() ?? "?"} / {eFly() ?? "?"}</div>
-          </div>
-          <div class="rounded border border-base-300 bg-base-100 p-2 text-sm">
-            <div class="text-xs text-base-content/60">Crash</div>
-            <div class="font-mono">{fCrash() ?? "?"} / {eCrash() ?? "?"}</div>
-          </div>
-          <div class="rounded border border-base-300 bg-base-100 p-2 text-sm sm:col-span-2">
-            <div class="text-xs text-base-content/60">Damage</div>
-            <div class="font-mono">{fDamage() ?? "?"} / {eDamage() ?? "?"}</div>
-          </div>
+        <div class="rounded border border-base-300 bg-base-100 p-2 text-sm">
+          <SpriteMotionCounts
+            counts={{
+              f_sprite_fly_count: readDestructionValue(props.data, "f_sprite_fly_count"),
+              e_sprite_fly_count: readDestructionValue(props.data, "e_sprite_fly_count"),
+              f_sprite_crash_count: readDestructionValue(props.data, "f_sprite_crash_count"),
+              e_sprite_crash_count: readDestructionValue(props.data, "e_sprite_crash_count"),
+              f_sprite_damage_count: readDestructionValue(props.data, "f_sprite_damage_count"),
+              e_sprite_damage_count: readDestructionValue(props.data, "e_sprite_damage_count"),
+              f_sprite_non_normal_count: readDestructionValue(props.data, "f_sprite_non_normal_count"),
+              e_sprite_non_normal_count: readDestructionValue(props.data, "e_sprite_non_normal_count"),
+            }}
+          />
         </div>
       </div>
     </div>
