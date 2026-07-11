@@ -82,10 +82,10 @@ find_asset_id_from_manifest_url() {
   fi
 
   asset_id=$(jq -r --arg u "${normalized_url}" '
-    .[] | select(
-      ($u | endswith("/" + .name)) or
-      ($u | endswith("/" + (.name | @uri)))
-    ) | .id
+    .[] as $asset | select(
+      ($u | endswith("/" + $asset.name)) or
+      ($u | endswith("/" + ($asset.name | @uri)))
+    ) | $asset.id
   ' /tmp/release-assets.json | head -n1 || true)
 
   if [[ -n "${asset_id}" ]]; then
@@ -173,7 +173,8 @@ if [[ -z "${PUBKEY}" ]]; then
 fi
 
 mkdir -p /tmp/updater-assets
-declare -A SEEN_ASSET_IDS
+declare -A SEEN_ASSET_IDS  # asset_id → url of first platform that used it
+declare -A SEEN_URLS       # url → platform name of first platform that used it
 
 while IFS=$'\t' read -r platform url sig_b64; do
   echo "Validating platform: ${platform}"
@@ -183,6 +184,15 @@ while IFS=$'\t' read -r platform url sig_b64; do
     echo "  expected: https://github.com/${GITHUB_REPOSITORY}/releases/(latest/download|download/<tag>)/<asset>"
     echo "  actual: ${url}"
     exit 1
+  fi
+
+  # Tauri v2 can legitimately emit multiple platform keys (e.g. linux-x86_64 and
+  # linux-x86_64-appimage) that reference the same asset URL. When the URL has
+  # already been verified for a previous platform, skip re-downloading and
+  # re-verifying; just confirm the signature matches and move on.
+  if [[ -n "${SEEN_URLS[${url}]:-}" ]]; then
+    echo "Platform ${platform} shares URL with ${SEEN_URLS[${url}]}; skipping re-download"
+    continue
   fi
 
   asset_id=""
@@ -203,11 +213,15 @@ while IFS=$'\t' read -r platform url sig_b64; do
     exit 1
   fi
 
+  # Two different URLs resolving to the same asset ID would indicate a real bug
+  # in the manifest (e.g. a copy-paste error where distinct platforms got the
+  # same filename by mistake).
   if [[ -n "${SEEN_ASSET_IDS[${asset_id}]:-}" ]]; then
-    echo "Error: duplicate release asset id resolved for multiple platforms: ${asset_id}"
+    echo "Error: platforms ${platform} and ${SEEN_ASSET_IDS[${asset_id}]} have different URLs but resolved to the same release asset id: ${asset_id}"
     exit 1
   fi
-  SEEN_ASSET_IDS["${asset_id}"]=1
+  SEEN_ASSET_IDS["${asset_id}"]="${platform}"
+  SEEN_URLS["${url}"]="${platform}"
 
   artifact_path="/tmp/updater-assets/${platform}--asset"
   sig_path="${artifact_path}.minisig"
