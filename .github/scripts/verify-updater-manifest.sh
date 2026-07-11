@@ -82,10 +82,10 @@ find_asset_id_from_manifest_url() {
   fi
 
   asset_id=$(jq -r --arg u "${normalized_url}" '
-    .[] | select(
-      ($u | endswith("/" + .name)) or
-      ($u | endswith("/" + (.name | @uri)))
-    ) | .id
+    .[] as $asset | select(
+      ($u | endswith("/" + $asset.name)) or
+      ($u | endswith("/" + ($asset.name | @uri)))
+    ) | $asset.id
   ' /tmp/release-assets.json | head -n1 || true)
 
   if [[ -n "${asset_id}" ]]; then
