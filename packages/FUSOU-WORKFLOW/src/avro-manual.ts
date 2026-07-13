@@ -10,18 +10,15 @@ function decodeZigzag(n: number): number {
   return (n >>> 1) ^ -(n & 1);
 }
 
-function encodeZigzag(n: number): number {
-  return n >= 0 ? n * 2 : -n * 2 - 1;
-}
-
 function encodeLong(value: number): Uint8Array {
-  let n = encodeZigzag(Math.trunc(value));
+  const bigVal = BigInt(Math.trunc(value));
+  let n = bigVal >= 0n ? bigVal * 2n : -bigVal * 2n - 1n;
   const out: number[] = [];
-  while (n > 0x7f) {
-    out.push((n & 0x7f) | 0x80);
-    n >>>= 7;
+  while (n > 0x7fn) {
+    out.push(Number(n & 0x7fn) | 0x80);
+    n >>= 7n;
   }
-  out.push(n);
+  out.push(Number(n));
   return Uint8Array.from(out);
 }
 

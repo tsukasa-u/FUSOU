@@ -83,14 +83,16 @@ function parseOldLikePath(path) {
   if (parts.length < 4) return null;
   const [version, period, p3, p4, ...rest] = parts;
 
-  if (/^(hourly|daily|weekly|period)$/i.test(p3) && /^\d{10,}$/.test(p4)) {
+  if (/^(hourly|daily|weekly|period)$/i.test(p3) && /^\d{10,}/.test(p4)) {
+    const runTs = p4.match(/^(\d+)/)[1];
     const file = rest.join("/");
-    return { version, period, runTs: p4, file, tiered: true };
+    return { version, period, runTs, file, tiered: true };
   }
 
-  if (/^\d{10,}$/.test(p3)) {
+  if (/^\d{10,}/.test(p3)) {
+    const runTs = p3.match(/^(\d+)/)[1];
     const file = [p4, ...rest].join("/");
-    return { version, period, runTs: p3, file, tiered: false };
+    return { version, period, runTs, file, tiered: false };
   }
 
   return null;
