@@ -261,7 +261,14 @@ CREATE TABLE IF NOT EXISTS archived_files (
   compression_codec TEXT DEFAULT 'none',
   created_at INTEGER NOT NULL,
   last_modified_at INTEGER NOT NULL,
-  table_version TEXT NOT NULL DEFAULT 'v1'
+  table_version TEXT NOT NULL DEFAULT 'v1',
+  compaction_tier TEXT NOT NULL DEFAULT 'hourly',
+  window_start_ms INTEGER,
+  window_end_ms INTEGER,
+  source_tier TEXT,
+  lock_token TEXT,
+  lock_expires_ms INTEGER,
+  lock_owner_run_key TEXT
 );
 CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,12 +282,18 @@ CREATE TABLE IF NOT EXISTS block_indexes (
   end_timestamp INTEGER NOT NULL,
   table_version TEXT NOT NULL DEFAULT 'v1',
   period_tag TEXT NOT NULL DEFAULT '2025-12-18',
+  compaction_tier TEXT NOT NULL DEFAULT 'hourly',
+  window_start_ms INTEGER,
+  window_end_ms INTEGER,
+  source_file_count INTEGER NOT NULL DEFAULT 1,
   FOREIGN KEY(file_id) REFERENCES archived_files(id)
 );
 CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
+CREATE INDEX IF NOT EXISTS idx_archived_files_lock_expires ON archived_files(lock_expires_ms);
 CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start_byte);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
+CREATE INDEX IF NOT EXISTS idx_block_indexes_tier_period_table ON block_indexes(compaction_tier, period_tag, table_name, table_version, start_timestamp);
 `;
   runWithRetry(
     `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,

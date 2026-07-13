@@ -33,10 +33,21 @@ function yStep(si: number): string {
 // ── Event extraction ──────────────────────────────────────────────────────
 
 function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
+  const normalizeSi = (value: unknown): unknown[] => {
+    if (Array.isArray(value)) return value;
+    const n = Number(value ?? 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  };
+
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
   if (obj && (obj.at !== undefined || Array.isArray(obj.df))) {
-    return [obj];
+    return [
+      {
+        ...obj,
+        si: normalizeSi(obj.si),
+      },
+    ];
   }
   if (obj?.at_list) {
     const atList = obj.at_list as unknown[];
@@ -46,7 +57,7 @@ function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
       damage: (obj.damage as unknown[])?.[idx] ?? [],
       cl: (obj.cl_list as unknown[])?.[idx] ?? [],
       at_eflag: (obj.at_eflag as unknown[])?.[idx] ?? 0,
-      si: (obj.si_list as unknown[])?.[idx] ?? [],
+      si: normalizeSi((obj.si_list as unknown[])?.[idx] ?? []),
       protect_flag: (obj.protect_flag as unknown[])?.[idx] ?? [],
       f_now_hps: (obj.f_now_hps as unknown[])?.[idx] ?? [],
       e_now_hps: (obj.e_now_hps as unknown[])?.[idx] ?? [],
@@ -460,6 +471,43 @@ export function buildTimelineEvents(
     }
   }
 
+  function hasRaigekiActivity(data: unknown): boolean {
+    if (!data || typeof data !== "object") return false;
+    const d = data as Record<string, unknown>;
+    const raiCandidates = [
+      d.frai,
+      d.f_rai,
+      d.frai_list_items,
+      d.erai,
+      d.e_rai,
+      d.erai_list_items,
+    ];
+    const hasTarget = raiCandidates.some((candidate) => {
+      if (!Array.isArray(candidate)) return false;
+      return candidate.some((row) => {
+        if (Array.isArray(row)) {
+          return row.some((v) => {
+            const n = Number(v);
+            return Number.isFinite(n) && n >= 0;
+          });
+        }
+        const n = Number(row);
+        return Number.isFinite(n) && n >= 0;
+      });
+    });
+    if (hasTarget) return true;
+
+    const damages = [d.fdam, d.f_dam, d.edam, d.e_dam];
+    return damages.some(
+      (arr) =>
+        Array.isArray(arr) &&
+        arr.some((v) => {
+          const n = Number(v ?? 0) || 0;
+          return n > 0;
+        }),
+    );
+  }
+
   const rawOrder = battle.battle_order as unknown[] | undefined;
   const hasObjectOrder =
     Array.isArray(rawOrder) &&
@@ -468,6 +516,7 @@ export function buildTimelineEvents(
     typeof rawOrder[0] === "object";
 
   if (hasObjectOrder) {
+    const presentKeys = new Set<string>();
     for (const phaseType of rawOrder!) {
       if (
         !phaseType ||
@@ -479,6 +528,7 @@ export function buildTimelineEvents(
       const phaseObj = phaseType as Record<string, unknown>;
       const key = Object.keys(phaseObj)[0];
       if (!key) continue;
+      presentKeys.add(key);
       const idx = phaseObj[key] as number | null;
       const phaseLabel = PHASE_NAMES[key] ?? key;
 
@@ -701,6 +751,18 @@ export function buildTimelineEvents(
           }
         }
       }
+    }
+    if (
+      !presentKeys.has("OpeningRaigeki") &&
+      hasRaigekiActivity(battle.opening_raigeki)
+    ) {
+      extractRaigekiEvents(battle.opening_raigeki, PHASE_NAMES.OpeningRaigeki);
+    }
+    if (
+      !presentKeys.has("ClosingRaigeki") &&
+      hasRaigekiActivity(battle.closing_raigeki)
+    ) {
+      extractRaigekiEvents(battle.closing_raigeki, PHASE_NAMES.ClosingRaigeki);
     }
   } else {
     // Air base / carrier base assaults (processed first in battle flow)
