@@ -35,9 +35,25 @@ const DATA_LOADER_CORS_HEADERS = {
 };
 
 const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
+type CompactionTier = "hourly" | "daily" | "weekly" | "period";
+const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
 
 function isValidMasterTableVersion(value: string): boolean {
   return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
+function parseCompactionTier(value: string | undefined): CompactionTier | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "hourly" ||
+    normalized === "daily" ||
+    normalized === "weekly" ||
+    normalized === "period"
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 // Helper to add RU headers
@@ -319,6 +335,18 @@ app.get("/data/:table", async (c) => {
   const periodTagParam = c.req.query("period_tag") || "latest";
   const scopeParam = c.req.query("scope") || "all";
   const tableVersionParam = c.req.query("table_version") || undefined;
+  const tierParamRaw = c.req.query("tier")?.trim();
+  const compactionTier = parseCompactionTier(tierParamRaw);
+  const windowStartMsRaw = c.req.query("window_start_ms")?.trim();
+  const windowEndMsRaw = c.req.query("window_end_ms")?.trim();
+  const windowStartMs =
+    windowStartMsRaw && Number.isFinite(Number(windowStartMsRaw))
+      ? Number(windowStartMsRaw)
+      : null;
+  const windowEndMs =
+    windowEndMsRaw && Number.isFinite(Number(windowEndMsRaw))
+      ? Number(windowEndMsRaw)
+      : null;
   const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
 
   if (tableVersionParam && !isValidMasterTableVersion(tableVersionParam)) {
@@ -350,6 +378,50 @@ app.get("/data/:table", async (c) => {
   if (scopeParam !== "own" && scopeParam !== "all") {
     return jsonResponse(
       { error: "INVALID_SCOPE", message: "scope must be 'own' or 'all'" },
+      400,
+    );
+  }
+
+  if (tierParamRaw && !compactionTier) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "tier must be one of: hourly, daily, weekly, period",
+      },
+      400,
+    );
+  }
+
+  if (windowStartMsRaw && windowStartMs == null) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_start_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+  if (windowEndMsRaw && windowEndMs == null) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_end_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+  if (
+    windowStartMs != null &&
+    windowEndMs != null &&
+    windowStartMs > windowEndMs
+  ) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_start_ms must be less than or equal to window_end_ms",
+      },
       400,
     );
   }
@@ -584,8 +656,8 @@ app.get("/data/:table", async (c) => {
 
     const includeBuffer = c.req.query("include_buffer") === "true";
 
-    // Query D1 for archived files
-    let sql = `SELECT 
+    const fetchArchivedRows = async (tier: CompactionTier | null) => {
+      let sql = `SELECT 
          bi.id,
          bi.dataset_id,
          bi.table_name,
@@ -600,29 +672,63 @@ app.get("/data/:table", async (c) => {
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
-    const params: unknown[] = [tableName];
+      const params: unknown[] = [tableName];
 
-    // Filter by dataset_id for scope=own
-    if (scopeParam === "own" && userDatasetId) {
-      sql += ` AND bi.dataset_id = ?`;
-      params.push(userDatasetId);
+      if (scopeParam === "own" && userDatasetId) {
+        sql += ` AND bi.dataset_id = ?`;
+        params.push(userDatasetId);
+      }
+
+      if (periodTag && periodTagParam !== "all") {
+        sql += ` AND bi.period_tag = ?`;
+        params.push(periodTag);
+      }
+
+      if (tableVersionParam) {
+        sql += ` AND bi.table_version = ?`;
+        params.push(tableVersionParam);
+      }
+
+      if (tier) {
+        sql += ` AND bi.compaction_tier = ?`;
+        params.push(tier);
+      }
+
+      if (windowStartMs != null) {
+        sql += ` AND bi.window_start_ms >= ?`;
+        params.push(windowStartMs);
+      }
+
+      if (windowEndMs != null) {
+        sql += ` AND bi.window_end_ms <= ?`;
+        params.push(windowEndMs);
+      }
+
+      sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
+      params.push(limit);
+
+      const stmt = indexDb.prepare(sql);
+      return await stmt.bind(...params).all?.();
+    };
+
+    let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
+    let effectiveTier: CompactionTier | null = compactionTier ?? null;
+
+    if (compactionTier) {
+      result = await fetchArchivedRows(compactionTier);
+    } else {
+      for (const tier of TIER_PRIORITY) {
+        const candidate = await fetchArchivedRows(tier);
+        if ((candidate?.results?.length ?? 0) > 0) {
+          result = candidate;
+          effectiveTier = tier;
+          break;
+        }
+      }
+      if (!result) {
+        result = await fetchArchivedRows(null);
+      }
     }
-
-    if (periodTag && periodTagParam !== "all") {
-      sql += ` AND bi.period_tag = ?`;
-      params.push(periodTag);
-    }
-
-    if (tableVersionParam) {
-      sql += ` AND bi.table_version = ?`;
-      params.push(tableVersionParam);
-    }
-
-    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
-    params.push(limit);
-
-    const stmt = indexDb.prepare(sql);
-    const result = await stmt.bind(...params).all?.();
 
     if (
       (!result || !result.results || result.results.length === 0) &&
@@ -673,6 +779,9 @@ app.get("/data/:table", async (c) => {
         success: true,
         table: tableName,
         period_tag: periodTagParam === "all" ? "all" : periodTag,
+        tier: effectiveTier,
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
         scope: scopeParam,
         count: files.length,
         files,

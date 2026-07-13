@@ -104,6 +104,22 @@ const PUBLIC_RECORD_TABLES = new Set([
 ]);
 
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
+type CompactionTier = "hourly" | "daily" | "weekly" | "period";
+const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
+
+function parseCompactionTier(value: string | undefined): CompactionTier | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "hourly" ||
+    normalized === "daily" ||
+    normalized === "weekly" ||
+    normalized === "period"
+  ) {
+    return normalized;
+  }
+  return null;
+}
 
 async function resolveAllowedPeriodTagsForRecords(
   c: { env: Bindings },
@@ -1168,6 +1184,18 @@ app.get("/global/records", async (c) => {
   const periodTagParam = (c.req.query("period_tag") || "latest").trim();
   const tableVersionParam = (c.req.query("table_version") || "").trim();
   const datasetId = c.req.query("dataset_id")?.trim();
+  const tierParamRaw = c.req.query("tier")?.trim();
+  const compactionTier = parseCompactionTier(tierParamRaw);
+  const windowStartMsRaw = c.req.query("window_start_ms")?.trim();
+  const windowEndMsRaw = c.req.query("window_end_ms")?.trim();
+  const windowStartMs =
+    windowStartMsRaw && Number.isFinite(Number(windowStartMsRaw))
+      ? Number(windowStartMsRaw)
+      : null;
+  const windowEndMs =
+    windowEndMsRaw && Number.isFinite(Number(windowEndMsRaw))
+      ? Number(windowEndMsRaw)
+      : null;
   const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
     .trim()
     .toLowerCase();
@@ -1222,6 +1250,50 @@ app.get("/global/records", async (c) => {
       400,
     );
   }
+
+  if (tierParamRaw && !compactionTier) {
+    return c.json(
+      {
+        error: "INVALID_TIER",
+        message: "tier must be one of: hourly, daily, weekly, period",
+      },
+      400,
+    );
+  }
+
+  if (windowStartMsRaw && windowStartMs == null) {
+    return c.json(
+      {
+        error: "INVALID_WINDOW_START",
+        message: "window_start_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+  if (windowEndMsRaw && windowEndMs == null) {
+    return c.json(
+      {
+        error: "INVALID_WINDOW_END",
+        message: "window_end_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+    if (
+      windowStartMs != null &&
+      windowEndMs != null &&
+      windowStartMs > windowEndMs
+    ) {
+      return c.json(
+        {
+          error: "INVALID_WINDOW_RANGE",
+          message: "window_start_ms must be less than or equal to window_end_ms",
+        },
+        400,
+      );
+    }
 
   if (periodTagParam !== "latest" && periodTagParam !== "all") {
     const periodTagValidation = await validateCachedPeriodTag(
@@ -1286,56 +1358,98 @@ app.get("/global/records", async (c) => {
       resolvedPeriodTag = periodTagParam;
     }
 
-    let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
+    const fetchBlocks = async (tier: CompactionTier | null) => {
+      let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
                WHERE bi.table_name = ?`;
-    const params: unknown[] = [table];
+      const params: unknown[] = [table];
 
-    if (tableVersionParam) {
-      sql += " AND bi.table_version = ?";
-      params.push(tableVersionParam);
-    }
-
-    if (resolvedPeriodTag) {
-      sql += " AND bi.period_tag = ?";
-      params.push(resolvedPeriodTag);
-    } else {
-      const allowedTags = [...allowedPeriodTagSet];
-      if (allowedTags.length === 0) {
-        const payload = {
-          success: true,
-          table,
-          period_tag: periodTagParam,
-          table_version: tableVersionParam || null,
-          count: 0,
-          records: [],
-          source_blocks: 0,
-        };
-        const response = c.json(payload);
-        response.headers.set("Cache-Control", cacheControl);
-        response.headers.set("X-FUSOU-Cache", "MISS");
-        if (cache) {
-          await putCacheSafely(c, cache, cacheKey, response);
-        }
-        return response;
+      if (tableVersionParam) {
+        sql += " AND bi.table_version = ?";
+        params.push(tableVersionParam);
       }
-      const placeholders = allowedTags.map(() => "?").join(", ");
-      sql += ` AND bi.period_tag IN (${placeholders})`;
-      params.push(...allowedTags);
-    }
-    if (datasetId) {
-      sql += " AND bi.dataset_id = ?";
-      params.push(datasetId);
+
+      if (tier) {
+        sql += " AND bi.compaction_tier = ?";
+        params.push(tier);
+      }
+
+      if (windowStartMs != null) {
+        sql += " AND bi.window_start_ms >= ?";
+        params.push(windowStartMs);
+      }
+
+      if (windowEndMs != null) {
+        sql += " AND bi.window_end_ms <= ?";
+        params.push(windowEndMs);
+      }
+
+      if (resolvedPeriodTag) {
+        sql += " AND bi.period_tag = ?";
+        params.push(resolvedPeriodTag);
+      } else {
+        const allowedTags = [...allowedPeriodTagSet];
+        if (allowedTags.length === 0) {
+          return null;
+        }
+        const placeholders = allowedTags.map(() => "?").join(", ");
+        sql += ` AND bi.period_tag IN (${placeholders})`;
+        params.push(...allowedTags);
+      }
+
+      if (datasetId) {
+        sql += " AND bi.dataset_id = ?";
+        params.push(datasetId);
+      }
+
+      sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
+      params.push(limitBlocks);
+
+      return await indexDb.prepare(sql).bind(...params).all?.();
+    };
+
+    let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
+    let effectiveTier: CompactionTier | null = compactionTier ?? null;
+
+    if (compactionTier) {
+      blockResult = await fetchBlocks(compactionTier);
+    } else {
+      for (const tier of TIER_PRIORITY) {
+        const candidate = await fetchBlocks(tier);
+        if ((candidate?.results?.length ?? 0) > 0) {
+          blockResult = candidate;
+          effectiveTier = tier;
+          break;
+        }
+      }
+      if (!blockResult) {
+        blockResult = await fetchBlocks(null);
+      }
     }
 
-    sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
-    params.push(limitBlocks);
+    if (blockResult == null) {
+      const payload = {
+        success: true,
+        table,
+        period_tag: periodTagParam,
+        table_version: tableVersionParam || null,
+        tier: effectiveTier,
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
+        count: 0,
+        records: [],
+        source_blocks: 0,
+      };
+      const response = c.json(payload);
+      response.headers.set("Cache-Control", cacheControl);
+      response.headers.set("X-FUSOU-Cache", "MISS");
+      if (cache) {
+        await putCacheSafely(c, cache, cacheKey, response);
+      }
+      return response;
+    }
 
-    const blockResult = await indexDb
-      .prepare(sql)
-      .bind(...params)
-      .all?.();
     const rows = (blockResult?.results || []) as Array<{
       id: number;
       dataset_id: string;
@@ -1372,6 +1486,9 @@ app.get("/global/records", async (c) => {
         table,
         period_tag: resolvedPeriodTag || periodTagParam,
         table_version: tableVersionParam || null,
+        tier: effectiveTier,
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
         count: 0,
         records: [],
         source_blocks: 0,
@@ -1428,6 +1545,9 @@ app.get("/global/records", async (c) => {
       table,
       period_tag: resolvedPeriodTag || periodTagParam,
       table_version: tableVersionParam || null,
+      tier: effectiveTier,
+      window_start_ms: windowStartMs,
+      window_end_ms: windowEndMs,
       count: decodedRecords.length,
       records: decodedRecords,
       source_blocks: rows.length,
