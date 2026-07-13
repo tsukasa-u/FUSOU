@@ -27,12 +27,43 @@ const FORMATION_NAMES: Record<number, string> = {
 };
 
 const AIR_SUPERIORITY_NAMES: Record<number, string> = {
-  0: "航空均衡",
+  0: "制空拮抗",
   1: "制空権確保",
   2: "航空優勢",
   3: "航空劣勢",
   4: "制空権喪失",
 };
+
+function airSuperiorityLabelOf(battle: any): string {
+  const openingAir = Array.isArray(battle?.opening_air_attack)
+    ? battle.opening_air_attack[0]
+    : battle?.opening_air_attack;
+  if (!openingAir || typeof openingAir !== "object") {
+    return "";
+  }
+
+  const fDamages = Array.isArray(openingAir.f_damages)
+    ? openingAir.f_damages
+    : [];
+  const eDamages = Array.isArray(openingAir.e_damages)
+    ? openingAir.e_damages
+    : [];
+  const hasAnyAirDamage =
+    fDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0) ||
+    eDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0);
+  const hasAnyAirSortie =
+    (Array.isArray(openingAir.f_plane_from) && openingAir.f_plane_from.length > 0) ||
+    (Array.isArray(openingAir.e_plane_from) && openingAir.e_plane_from.length > 0);
+  if (!hasAnyAirDamage && !hasAnyAirSortie) {
+    return "";
+  }
+
+  const airSup = Number(openingAir.air_superiority);
+  if (!Number.isFinite(airSup)) {
+    return "";
+  }
+  return AIR_SUPERIORITY_NAMES[airSup] ?? "";
+}
 
 const PAGE_SIZE = 50;
 
@@ -215,7 +246,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                         const result = battleResultOf(b);
                         const rank = result?.win_rank ?? "-";
                         const formation = b.f_formation ?? 0;
-                        const airSup = b.opening_air_attack?.[0]?.air_superiority;
+                        const airSupLabel = airSuperiorityLabelOf(b);
                         const fallbackIdx = currentPage() * PAGE_SIZE + i();
                         
                         return (
@@ -224,7 +255,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
                             <td>{mapKeyOf(b)}</td>
                             <td>{cellDisplayLabelOf(b)}</td>
                             <td>{FORMATION_NAMES[formation] ?? "-"}</td>
-                            <td>{airSup != null ? (AIR_SUPERIORITY_NAMES[airSup] ?? String(airSup)) : "-"}</td>
+                            <td>{airSupLabel || ""}</td>
                             <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>
                             <td>
                               {result?.drop_ship_id ? (

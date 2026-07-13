@@ -169,6 +169,7 @@ If you want to inspect or retry runs visually, the same task still appears in th
 ### Safety expectations
 
 - Compaction output registration is separate from source cleanup.
-- D1 source metadata cleanup is finalized before source R2 object deletion starts.
-- Source R2 object deletion is best-effort; deletion failures are logged and should be handled by periodic storage hygiene.
+- D1 source metadata cleanup is finalized before source R2 object relocation starts.
+- Consumed source R2 objects are moved to `compacted/` (or `COMPACTION_CONSUMED_SOURCE_PREFIX`) instead of being hard-deleted.
+- Source relocation is best-effort; move failures are logged and failed objects remain at source path.
 - Historical backfill should be treated as an operator action, not as an always-on scheduled workflow.

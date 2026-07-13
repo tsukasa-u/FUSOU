@@ -1,5 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DeleteObjectCommand, S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  CopyObjectCommand,
+  DeleteObjectCommand,
+  S3Client,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries } from "@fusou/compaction-core";
 import { InternalCompactionClient } from "./internal-api.js";
 import type { CompactionJobInput, RegisterOutputBlock, SourceBlock } from "./types.js";
@@ -19,9 +24,14 @@ function groupByDataset(blocks: SourceBlock[]): Map<string, SourceBlock[]> {
   return map;
 }
 
-function shouldDeleteConsumedSourceR2(): boolean {
-  const raw = String(process.env.COMPACTION_DELETE_CONSUMED_SOURCE_R2 ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
+function consumedSourceArchivePrefix(): string {
+  const raw = String(process.env.COMPACTION_CONSUMED_SOURCE_PREFIX ?? "compacted").trim();
+  return raw.replace(/^\/+|\/+$/g, "") || "compacted";
+}
+
+function buildCompactedSourcePath(sourcePath: string): string {
+  const normalized = sourcePath.replace(/^\/+/, "");
+  return `${consumedSourceArchivePrefix()}/${normalized}`;
 }
 
 function normalizeOutputGroupKey(raw: unknown): string | null {
@@ -70,6 +80,57 @@ async function uploadToR2(
       },
     }),
   );
+}
+
+async function moveConsumedSourceObjects(sourcePaths: string[]): Promise<void> {
+  if (sourcePaths.length === 0) return;
+
+  const bucket = requiredEnv("R2_BUCKET");
+  const endpoint = requiredEnv("R2_S3_ENDPOINT");
+  const accessKeyId = requiredEnv("R2_ACCESS_KEY_ID");
+  const secretAccessKey = requiredEnv("R2_SECRET_ACCESS_KEY");
+
+  const client = new S3Client({
+    region: "auto",
+    endpoint,
+    forcePathStyle: true,
+    credentials: { accessKeyId, secretAccessKey },
+  });
+
+  let movedCount = 0;
+  const failedPaths: string[] = [];
+
+  for (const sourcePath of sourcePaths) {
+    const targetPath = buildCompactedSourcePath(sourcePath);
+    try {
+      await client.send(
+        new CopyObjectCommand({
+          Bucket: bucket,
+          CopySource: `${bucket}/${sourcePath}`,
+          Key: targetPath,
+          MetadataDirective: "COPY",
+        }),
+      );
+      await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: sourcePath }));
+      movedCount += 1;
+    } catch (error) {
+      failedPaths.push(sourcePath);
+      console.warn(
+        `[compactor] failed to move consumed source object to compacted route: ${sourcePath} -> ${targetPath}`,
+        error,
+      );
+    }
+  }
+
+  if (failedPaths.length > 0) {
+    console.warn(
+      `[compactor] moved ${movedCount}/${sourcePaths.length} consumed source objects; ${failedPaths.length} remained at source path`,
+    );
+  } else {
+    console.info(
+      `[compactor] moved ${movedCount} consumed source objects into '${consumedSourceArchivePrefix()}/' route`,
+    );
+  }
 }
 
 export async function runCompactionJob(input: CompactionJobInput): Promise<void> {
@@ -205,31 +266,8 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
     }
 
     const sourcePaths = [...new Set(sourceBlocks.map((block) => String(block.file_path || "")).filter(Boolean))];
-    if (sourcePaths.length > 0 && shouldDeleteConsumedSourceR2()) {
-      const bucket = requiredEnv("R2_BUCKET");
-      const endpoint = requiredEnv("R2_S3_ENDPOINT");
-      const accessKeyId = requiredEnv("R2_ACCESS_KEY_ID");
-      const secretAccessKey = requiredEnv("R2_SECRET_ACCESS_KEY");
-
-      const client = new S3Client({
-        region: "auto",
-        endpoint,
-        forcePathStyle: true,
-        credentials: { accessKeyId, secretAccessKey },
-      });
-
-      // Cleanup in D1 first; source object deletion is best-effort to avoid data-plane lockups.
-      for (const sourcePath of sourcePaths) {
-        try {
-          await client.send(new DeleteObjectCommand({ Bucket: bucket, Key: sourcePath }));
-        } catch (error) {
-          console.warn(`[compactor] failed to delete consumed source object: ${sourcePath}`, error);
-        }
-      }
-    } else if (sourcePaths.length > 0) {
-      console.info(
-        `[compactor] source R2 deletion is disabled; kept ${sourcePaths.length} consumed source objects`,
-      );
+    if (sourcePaths.length > 0) {
+      await moveConsumedSourceObjects(sourcePaths);
     }
 
   } catch (error) {

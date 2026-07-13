@@ -1358,8 +1358,10 @@ app.get("/global/records", async (c) => {
       resolvedPeriodTag = periodTagParam;
     }
 
+    const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
+
     const fetchBlocks = async (tier: CompactionTier | null) => {
-      let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
+      let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
                WHERE bi.table_name = ?`;
@@ -1404,7 +1406,7 @@ app.get("/global/records", async (c) => {
       }
 
       sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
-      params.push(limitBlocks);
+      params.push(perTierFetchLimit);
 
       return await indexDb.prepare(sql).bind(...params).all?.();
     };
@@ -1412,19 +1414,66 @@ app.get("/global/records", async (c) => {
     let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
-    if (compactionTier) {
-      blockResult = await fetchBlocks(compactionTier);
-    } else {
+    const mergeTierRows = (
+      tierRows: Map<CompactionTier, any[]>,
+    ): { rows: any[]; tier: CompactionTier | null } => {
+      const accepted: any[] = [];
+      const seenBlockIds = new Set<number>();
+      let usedTierCount = 0;
+      let firstTier: CompactionTier | null = null;
+
       for (const tier of TIER_PRIORITY) {
-        const candidate = await fetchBlocks(tier);
-        if ((candidate?.results?.length ?? 0) > 0) {
-          blockResult = candidate;
-          effectiveTier = tier;
-          break;
+        const rows = tierRows.get(tier) ?? [];
+        let usedThisTier = false;
+        for (const row of rows) {
+          const id = Number(row?.id ?? NaN);
+          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
+            continue;
+          }
+
+          accepted.push(row);
+          seenBlockIds.add(id);
+          usedThisTier = true;
+        }
+
+        if (usedThisTier) {
+          usedTierCount += 1;
+          if (!firstTier) {
+            firstTier = tier;
+          }
         }
       }
-      if (!blockResult) {
+
+      accepted.sort(
+        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
+      );
+
+      return {
+        rows: accepted,
+        tier: usedTierCount > 1 ? null : firstTier,
+      };
+    };
+
+    if (compactionTier) {
+      blockResult = await fetchBlocks(compactionTier);
+      effectiveTier = compactionTier;
+    } else {
+      const tierRows = new Map<CompactionTier, any[]>();
+      for (const tier of TIER_PRIORITY) {
+        const candidate = await fetchBlocks(tier);
+        tierRows.set(tier, (candidate?.results || []) as any[]);
+      }
+
+      const merged = mergeTierRows(tierRows);
+      effectiveTier = merged.tier;
+
+      if (merged.rows.length > 0) {
+        blockResult = { results: merged.rows } as Awaited<
+          ReturnType<typeof fetchBlocks>
+        >;
+      } else {
         blockResult = await fetchBlocks(null);
+        effectiveTier = null;
       }
     }
 
@@ -1450,7 +1499,7 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
-    const rows = (blockResult?.results || []) as Array<{
+    const candidateRows = (blockResult?.results || []) as Array<{
       id: number;
       dataset_id: string;
       start_byte: number;
@@ -1458,8 +1507,13 @@ app.get("/global/records", async (c) => {
       start_timestamp: number | null;
       end_timestamp: number | null;
       period_tag: string | null;
+      window_start_ms: number | null;
+      window_end_ms: number | null;
+      compaction_tier: CompactionTier | null;
       file_path: string;
     }>;
+    const sourceBlocksTruncated = candidateRows.length > limitBlocks;
+    const rows = candidateRows.slice(0, limitBlocks);
 
     // Build a lightweight ETag from the block IDs so conditional requests can
     // skip the expensive R2 decode step entirely.
@@ -1489,6 +1543,10 @@ app.get("/global/records", async (c) => {
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
+        applied_limit_blocks: limitBlocks,
+        applied_limit_records: limitRecords,
+        source_blocks_truncated: false,
+        records_limit_reached: false,
         count: 0,
         records: [],
         source_blocks: 0,
@@ -1503,6 +1561,7 @@ app.get("/global/records", async (c) => {
     }
 
     const decodedRecords: any[] = [];
+    let recordsLimitReached = false;
     for (const row of rows) {
       try {
         const recs = await decodeIndexedBlock(
@@ -1517,10 +1576,12 @@ app.get("/global/records", async (c) => {
           }
           decodedRecords.push(rec);
           if (decodedRecords.length >= limitRecords) {
+            recordsLimitReached = true;
             break;
           }
         }
         if (decodedRecords.length >= limitRecords) {
+          recordsLimitReached = true;
           break;
         }
       } catch (err) {
@@ -1548,6 +1609,10 @@ app.get("/global/records", async (c) => {
       tier: effectiveTier,
       window_start_ms: windowStartMs,
       window_end_ms: windowEndMs,
+      applied_limit_blocks: limitBlocks,
+      applied_limit_records: limitRecords,
+      source_blocks_truncated: sourceBlocksTruncated,
+      records_limit_reached: recordsLimitReached,
       count: decodedRecords.length,
       records: decodedRecords,
       source_blocks: rows.length,

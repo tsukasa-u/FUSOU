@@ -655,6 +655,7 @@ app.get("/data/:table", async (c) => {
     }
 
     const includeBuffer = c.req.query("include_buffer") === "true";
+    const perTierFetchLimit = Math.max(limit + 1, 300);
 
     const fetchArchivedRows = async (tier: CompactionTier | null) => {
       let sql = `SELECT 
@@ -662,10 +663,13 @@ app.get("/data/:table", async (c) => {
          bi.dataset_id,
          bi.table_name,
           bi.table_version,
+         bi.compaction_tier,
          bi.length AS size,
          bi.record_count,
          bi.start_timestamp,
          bi.end_timestamp,
+         bi.window_start_ms,
+         bi.window_end_ms,
          bi.period_tag,
          bi.start_byte,
          af.file_path
@@ -705,7 +709,7 @@ app.get("/data/:table", async (c) => {
       }
 
       sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
-      params.push(limit);
+      params.push(perTierFetchLimit);
 
       const stmt = indexDb.prepare(sql);
       return await stmt.bind(...params).all?.();
@@ -714,19 +718,67 @@ app.get("/data/:table", async (c) => {
     let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
-    if (compactionTier) {
-      result = await fetchArchivedRows(compactionTier);
-    } else {
+    const mergeTierRows = (
+      tierRows: Map<CompactionTier, any[]>,
+    ): { rows: any[]; tier: CompactionTier | null } => {
+      const accepted: any[] = [];
+      const seenBlockIds = new Set<number>();
+      let usedTierCount = 0;
+      let firstTier: CompactionTier | null = null;
+
       for (const tier of TIER_PRIORITY) {
-        const candidate = await fetchArchivedRows(tier);
-        if ((candidate?.results?.length ?? 0) > 0) {
-          result = candidate;
-          effectiveTier = tier;
-          break;
+        const rows = tierRows.get(tier) ?? [];
+        let usedThisTier = false;
+
+        for (const row of rows) {
+          const id = Number(row?.id ?? NaN);
+          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
+            continue;
+          }
+
+          accepted.push(row);
+          seenBlockIds.add(id);
+          usedThisTier = true;
+        }
+
+        if (usedThisTier) {
+          usedTierCount += 1;
+          if (!firstTier) {
+            firstTier = tier;
+          }
         }
       }
-      if (!result) {
+
+      accepted.sort(
+        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
+      );
+
+      return {
+        rows: accepted,
+        tier: usedTierCount > 1 ? null : firstTier,
+      };
+    };
+
+    if (compactionTier) {
+      result = await fetchArchivedRows(compactionTier);
+      effectiveTier = compactionTier;
+    } else {
+      const tierRows = new Map<CompactionTier, any[]>();
+      for (const tier of TIER_PRIORITY) {
+        const candidate = await fetchArchivedRows(tier);
+        tierRows.set(tier, (candidate?.results || []) as any[]);
+      }
+
+      const merged = mergeTierRows(tierRows);
+      effectiveTier = merged.tier;
+
+      if (merged.rows.length > 0) {
+        result = { results: merged.rows } as Awaited<
+          ReturnType<typeof fetchArchivedRows>
+        >;
+      } else {
         result = await fetchArchivedRows(null);
+        effectiveTier = null;
       }
     }
 
@@ -744,7 +796,9 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const archivedFiles = ((result?.results as any[]) || []).map((r) => ({
+    const candidateRows = ((result?.results as any[]) || []) as any[];
+    const filesTruncated = candidateRows.length > limit;
+    const archivedFiles = candidateRows.slice(0, limit).map((r) => ({
       id: r.id,
       file_path: r.file_path,
       period_tag: r.period_tag,
@@ -782,6 +836,8 @@ app.get("/data/:table", async (c) => {
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
+        applied_limit: limit,
+        files_truncated: filesTruncated,
         scope: scopeParam,
         count: files.length,
         files,

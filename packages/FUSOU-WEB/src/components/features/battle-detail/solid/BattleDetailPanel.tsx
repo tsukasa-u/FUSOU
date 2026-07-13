@@ -223,12 +223,34 @@ export default function BattleDetailPanel(props: {
 
   const airInfo = createMemo(() => {
     const b = battle();
-    if (!b) return { label: "-", cls: "" };
+    if (!b) return null;
     const openingAir = Array.isArray(b.opening_air_attack)
       ? (b.opening_air_attack as any)[0]
       : b.opening_air_attack;
+    if (!openingAir || typeof openingAir !== "object") {
+      return null;
+    }
+    const fDamages = Array.isArray(openingAir?.f_damages)
+      ? (openingAir.f_damages as unknown[])
+      : [];
+    const eDamages = Array.isArray(openingAir?.e_damages)
+      ? (openingAir.e_damages as unknown[])
+      : [];
+    const hasAnyAirDamage =
+      fDamages.some((d) => (Number(d ?? 0) || 0) > 0) ||
+      eDamages.some((d) => (Number(d ?? 0) || 0) > 0);
+    const fPlaneFrom = Array.isArray(openingAir?.f_plane_from)
+      ? (openingAir.f_plane_from as unknown[])
+      : [];
+    const ePlaneFrom = Array.isArray(openingAir?.e_plane_from)
+      ? (openingAir.e_plane_from as unknown[])
+      : [];
+    const hasAnyAirSortie = fPlaneFrom.length > 0 || ePlaneFrom.length > 0;
+    if (!hasAnyAirDamage && !hasAnyAirSortie) {
+      return null;
+    }
     const airSup = openingAir?.air_superiority;
-    return AIR_STATE[Number(airSup)] ?? { label: "-", cls: "" };
+    return AIR_STATE[Number(airSup)] ?? null;
   });
 
   const rank = createMemo(() => {
@@ -616,16 +638,16 @@ export default function BattleDetailPanel(props: {
                   </div>
                 </div>
               </div>
-              <div class="card bg-base-100 shadow-sm">
-                <div class="card-body p-4">
-                  <h3 class="font-bold text-sm text-base-content/60">
-                    制空状態
-                  </h3>
-                  <p class={`text-lg font-bold ${airInfo().cls}`}>
-                    {airInfo().label}
-                  </p>
-                </div>
-              </div>
+              <Show when={airInfo()}>
+                {(air) => (
+                  <div class="card bg-base-100 shadow-sm">
+                    <div class="card-body p-4">
+                      <h3 class="font-bold text-sm text-base-content/60">制空</h3>
+                      <p class={`text-lg font-bold ${air().cls}`}>{air().label}</p>
+                    </div>
+                  </div>
+                )}
+              </Show>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
                   <h3 class="font-bold text-sm text-base-content/60">

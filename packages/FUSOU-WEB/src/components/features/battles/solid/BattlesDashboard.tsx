@@ -27,6 +27,11 @@ import { normalizeEpochMs, resolveBattleResult } from "../../map-flow/solid/batt
 import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
 
 export default function BattlesDashboard() {
+  const DEFAULT_LIMIT_BLOCKS = 200;
+  const DEFAULT_LIMIT_RECORDS = 20000;
+  const MAX_LIMIT_BLOCKS = 400;
+  const MAX_LIMIT_RECORDS = 20000;
+
   const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
   const [selectedDetailId, setSelectedDetailId] = createSignal("");
   
@@ -36,6 +41,9 @@ export default function BattlesDashboard() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [partialLoadWarnings, setPartialLoadWarnings] = createSignal<string[]>([]);
+  const [truncationWarnings, setTruncationWarnings] = createSignal<string[]>([]);
+  const [limitBlocks, setLimitBlocks] = createSignal(DEFAULT_LIMIT_BLOCKS);
+  const [limitRecords, setLimitRecords] = createSignal(DEFAULT_LIMIT_RECORDS);
   const [masterDataStatus, setMasterDataStatus] = createSignal<MasterDataStatusItem[]>([
     { name: "mst_ship", status: "pending" },
     { name: "mst_slotitem", status: "pending" },
@@ -62,6 +70,16 @@ export default function BattlesDashboard() {
   let loadDataAbortController: AbortController | null = null;
 
   const selectedPeriod = () => periods()[selectedPeriodIdx()] ?? null;
+  const hasReachedLimitCeiling = () =>
+    limitBlocks() >= MAX_LIMIT_BLOCKS && limitRecords() >= MAX_LIMIT_RECORDS;
+
+  type GlobalRecordsResponse = {
+    records?: any[];
+    source_blocks_truncated?: boolean;
+    records_limit_reached?: boolean;
+    applied_limit_blocks?: number;
+    applied_limit_records?: number;
+  };
 
   const mapOptions = () => {
     const values = new Set<string>();
@@ -134,10 +152,13 @@ export default function BattlesDashboard() {
     const tableVersionQuery = requestedPeriod.table_version
       ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
       : "";
+    const recordsUrl = (table: string, extraParams = "") =>
+      `/api/battle-data/global/records?table=${table}&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=${limitBlocks()}&limit_records=${limitRecords()}${extraParams}`;
 
     setLoading(true);
     setError(null);
     setPartialLoadWarnings([]);
+    setTruncationWarnings([]);
     setMasterDataStatus([
       { name: "戦闘レコード", status: "pending" },
       { name: "セル履歴", status: "pending" },
@@ -185,37 +206,37 @@ export default function BattlesDashboard() {
         weaponIconFramesRes,
       ] = await Promise.all([
         cachedFetch(
-          `/api/battle-data/global/records?table=battle&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000&include_sortie_key=1`,
+          recordsUrl("battle", "&include_sortie_key=1"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=cells&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("cells"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_deck&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("enemy_deck"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_ship&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("enemy_ship"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=enemy_slotitem&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=40000`,
+          recordsUrl("enemy_slotitem"),
           { signal },
         ),
         cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
         cachedFetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
         cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("battle_result"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=opening_airattack_list&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("opening_airattack_list"),
           { signal },
         ),
         cachedFetch(
-          `/api/battle-data/global/records?table=opening_airattack&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=200&limit_records=20000`,
+          recordsUrl("opening_airattack"),
           { signal },
         ),
         cachedFetch(`/api/asset-sync/weapon-icon-frames?v=2`, { signal }),
@@ -240,11 +261,11 @@ export default function BattlesDashboard() {
         return;
       }
 
-      const battlePayload = (await battleRes.json()) as { records?: any[] };
-      const cellsPayload = await parseOptionalJson<{ records?: any[] }>(cellsRes, { records: [] }, "セル履歴", optionalWarnings);
-      const deckPayload = await parseOptionalJson<{ records?: any[] }>(enemyDeckRes, { records: [] }, "敵編成", optionalWarnings);
-      const shipPayload = await parseOptionalJson<{ records?: any[] }>(enemyShipRes, { records: [] }, "敵艦情報", optionalWarnings);
-      const slotItemPayload = await parseOptionalJson<{ records?: any[] }>(enemySlotItemRes, { records: [] }, "敵装備情報", optionalWarnings);
+      const battlePayload = (await battleRes.json()) as GlobalRecordsResponse;
+      const cellsPayload = await parseOptionalJson<GlobalRecordsResponse>(cellsRes, { records: [] }, "セル履歴", optionalWarnings);
+      const deckPayload = await parseOptionalJson<GlobalRecordsResponse>(enemyDeckRes, { records: [] }, "敵編成", optionalWarnings);
+      const shipPayload = await parseOptionalJson<GlobalRecordsResponse>(enemyShipRes, { records: [] }, "敵艦情報", optionalWarnings);
+      const slotItemPayload = await parseOptionalJson<GlobalRecordsResponse>(enemySlotItemRes, { records: [] }, "敵装備情報", optionalWarnings);
       const mstPayload = await parseOptionalJson<{ records?: any[]; period_tag?: string; period_revision?: number; table_version?: string }>(mstShipRes, { records: [] }, "艦マスタ", optionalWarnings);
       setMasterDataMeta({
         period_tag: mstPayload.period_tag,
@@ -252,10 +273,29 @@ export default function BattlesDashboard() {
         table_version: mstPayload.table_version,
       });
       const mstSlotItemPayload = await parseOptionalJson<{ records?: any[] }>(mstSlotItemRes, { records: [] }, "装備マスタ", optionalWarnings);
-      const battleResultPayload = await parseOptionalJson<{ records?: any[] }>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
-      const openingAirattackListPayload = await parseOptionalJson<{ records?: any[] }>(openingAirattackListRes, { records: [] }, "航空戦リスト", optionalWarnings);
-      const openingAirattackPayload = await parseOptionalJson<{ records?: any[] }>(openingAirattackRes, { records: [] }, "開幕航空戦", optionalWarnings);
+      const battleResultPayload = await parseOptionalJson<GlobalRecordsResponse>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
+      const openingAirattackListPayload = await parseOptionalJson<GlobalRecordsResponse>(openingAirattackListRes, { records: [] }, "航空戦リスト", optionalWarnings);
+      const openingAirattackPayload = await parseOptionalJson<GlobalRecordsResponse>(openingAirattackRes, { records: [] }, "開幕航空戦", optionalWarnings);
       const weaponIconFramesPayload = await parseOptionalJson<any>(weaponIconFramesRes, {}, "装備アイコン情報", optionalWarnings);
+
+      const truncationTargets: Array<{ label: string; payload: GlobalRecordsResponse }> = [
+        { label: "戦闘レコード", payload: battlePayload },
+        { label: "セル履歴", payload: cellsPayload },
+        { label: "敵編成", payload: deckPayload },
+        { label: "敵艦情報", payload: shipPayload },
+        { label: "敵装備情報", payload: slotItemPayload },
+        { label: "戦闘結果", payload: battleResultPayload },
+        { label: "航空戦リスト", payload: openingAirattackListPayload },
+        { label: "開幕航空戦", payload: openingAirattackPayload },
+      ];
+      const newTruncationWarnings = truncationTargets
+        .filter(({ payload }) => payload.source_blocks_truncated || payload.records_limit_reached)
+        .map(({ label, payload }) => {
+          const blockLimit = payload.applied_limit_blocks ?? limitBlocks();
+          const recordLimit = payload.applied_limit_records ?? limitRecords();
+          return `${label}は取得上限に達したため一部のみ表示中です（blocks: ${blockLimit}, records: ${recordLimit}）。`;
+        });
+      setTruncationWarnings(newTruncationWarnings);
 
       setMasterDataStatus([
         { name: "戦闘レコード", status: "success" },
@@ -310,8 +350,10 @@ export default function BattlesDashboard() {
       if (unresolvedResultUuids.size > 0) {
         const fillTargets = [...unresolvedResultUuids].slice(0, 100);
         const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
+        const batchLimitBlocks = Math.min(limitBlocks(), 120);
+        const batchLimitRecords = Math.min(limitRecords(), fillTargets.length * 2);
         const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=120&limit_records=${fillTargets.length * 2}&filter_json=${batchFilterJson}`,
+          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=${batchLimitBlocks}&limit_records=${batchLimitRecords}&filter_json=${batchFilterJson}`,
           { signal },
         );
         if (batchRes.ok) {
@@ -592,6 +634,38 @@ export default function BattlesDashboard() {
             <For each={partialLoadWarnings()}>
               {(warning) => <AlertMessage type="warning">{warning}</AlertMessage>}
             </For>
+          </div>
+        </Show>
+
+        <Show when={truncationWarnings().length > 0}>
+          <div class="mb-6 space-y-2">
+            <For each={truncationWarnings()}>
+              {(warning) => <AlertMessage type="warning">{warning}</AlertMessage>}
+            </For>
+            <div class="flex flex-wrap items-center gap-2 text-sm">
+              <span class="text-base-content/70">
+                現在の上限: blocks={limitBlocks()} / records={limitRecords()}
+              </span>
+              <button
+                type="button"
+                class="btn btn-warning btn-outline btn-sm"
+                disabled={loading() || hasReachedLimitCeiling()}
+                onClick={() => {
+                  const nextBlocks = Math.min(limitBlocks() + 100, MAX_LIMIT_BLOCKS);
+                  const nextRecords = Math.min(limitRecords() + 5000, MAX_LIMIT_RECORDS);
+                  setLimitBlocks(nextBlocks);
+                  setLimitRecords(nextRecords);
+                  void loadData(selectedPeriod());
+                }}
+              >
+                上限を拡張して再取得
+              </button>
+              <Show when={hasReachedLimitCeiling()}>
+                <span class="text-base-content/70">
+                  API上限に達しているためこれ以上の拡張はできません。
+                </span>
+              </Show>
+            </div>
           </div>
         </Show>
 
