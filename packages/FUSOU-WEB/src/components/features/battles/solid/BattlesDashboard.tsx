@@ -449,9 +449,24 @@ export default function BattlesDashboard() {
       if (rows.length > 0) {
         const idx = resolveInitialPeriodIndex(rows, initialPeriodTag, initialTableVersion);
         setSelectedPeriodIdx(idx);
-        await loadData(rows[idx]);
+        if (initialTab !== "detail" || !initialDetailId) {
+          await loadData(rows[idx]);
+        }
       }
     })();
+  });
+
+  createEffect(() => {
+    const tab = activeTab();
+    const period = selectedPeriod();
+    if (
+      tab !== "detail" &&
+      !loading() &&
+      battleRecords().length === 0 &&
+      period
+    ) {
+      void loadData(period);
+    }
   });
 
   onCleanup(() => {

@@ -1317,13 +1317,41 @@ app.get("/global/records", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches
     ?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
+  const cacheUrl = new URL(c.req.url);
+  if (filterJsonRaw) {
+    cacheUrl.searchParams.set("_cache_v", "2");
+  }
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
       const hit = new Response(cached.body, cached);
       hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
+    }
+  }
+
+  const cacheKV = env.runtime.DATA_LOADER_CACHE_KV as KVNamespace | undefined;
+  let kvKey: string | null = null;
+  if (filterJsonRaw && cacheKV) {
+    const hashBytes = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(filterJsonRaw),
+    );
+    const filterHash = Array.from(new Uint8Array(hashBytes))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 16);
+    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
+    const kvCached = await cacheKV.get(kvKey, "text");
+    if (kvCached) {
+      return new Response(kvCached, {
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": cacheControl,
+          "X-FUSOU-Cache": "KV-HIT",
+        },
+      });
     }
   }
 
@@ -1493,7 +1521,7 @@ app.get("/global/records", async (c) => {
       const response = c.json(payload);
       response.headers.set("Cache-Control", cacheControl);
       response.headers.set("X-FUSOU-Cache", "MISS");
-      if (cache) {
+      if (cache && !(recordFilter && payload.count === 0)) {
         await putCacheSafely(c, cache, cacheKey, response);
       }
       return response;
@@ -1554,46 +1582,46 @@ app.get("/global/records", async (c) => {
       const response = c.json(payload);
       response.headers.set("Cache-Control", cacheControl);
       response.headers.set("X-FUSOU-Cache", "MISS");
-      if (cache) {
+      if (cache && !(recordFilter && payload.count === 0)) {
         await putCacheSafely(c, cache, cacheKey, response);
       }
       return response;
     }
 
-    const decodedRecords: any[] = [];
-    let recordsLimitReached = false;
-    for (const row of rows) {
-      try {
-        const recs = await decodeIndexedBlock(
+    const decodedBlocks = await Promise.all(
+      rows.map((row) =>
+        decodeIndexedBlock(
           bucket,
           row.file_path,
           Number(row.start_byte || 0),
           Number(row.length || 0),
-        );
-        for (const rec of recs) {
-          if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
-            continue;
-          }
-          decodedRecords.push(rec);
-          if (decodedRecords.length >= limitRecords) {
-            recordsLimitReached = true;
-            break;
-          }
+        ).catch((err) => {
+          console.warn(
+            "[battle-data] failed to decode block in /global/records",
+            {
+              table,
+              blockId: row.id,
+              filePath: row.file_path,
+              error: String(err),
+            },
+          );
+          return [] as any[];
+        }),
+      ),
+    );
+
+    const decodedRecords: any[] = [];
+    let recordsLimitReached = false;
+    outer: for (const recs of decodedBlocks) {
+      for (const rec of recs) {
+        if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
+          continue;
         }
+        decodedRecords.push(rec);
         if (decodedRecords.length >= limitRecords) {
           recordsLimitReached = true;
-          break;
+          break outer;
         }
-      } catch (err) {
-        console.warn(
-          "[battle-data] failed to decode block in /global/records",
-          {
-            table,
-            blockId: row.id,
-            filePath: row.file_path,
-            error: String(err),
-          },
-        );
       }
     }
 
@@ -1623,8 +1651,18 @@ app.get("/global/records", async (c) => {
     if (blockEtag) {
       response.headers.set("ETag", blockEtag);
     }
-    if (cache) {
+    if (cache && !(recordFilter && payload.count === 0)) {
       await putCacheSafely(c, cache, cacheKey, response);
+    }
+    if (kvKey && cacheKV && payload.count > 0) {
+      const kvTtlSeconds = periodTagParam === "latest" ? 3600 : 86400;
+      const payloadText = JSON.stringify(payload);
+      if (payloadText.length < 20 * 1024 * 1024) {
+        safeWaitUntil(
+          c,
+          cacheKV.put(kvKey, payloadText, { expirationTtl: kvTtlSeconds }),
+        );
+      }
     }
     return response;
   } catch (err) {

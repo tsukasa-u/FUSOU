@@ -472,14 +472,19 @@ export default function BattleDetailPanel(props: {
           destruction_battle: resolvedDestructionBattle,
         };
 
-        const label = matched.uuid
-          ? await fetchCellMapLabel(String(matched.uuid))
-          : null;
-
-        await getWeaponIconFrames();
-        const [friendlyShips, enemyShips] = await Promise.all([
-          resolveFriendlyFleet(merged, queryOptions),
-          resolveEnemyFleet(merged, queryOptions),
+        const [
+          label,
+          _iconFramesResult,
+          [friendlyShips, enemyShips],
+        ] = await Promise.all([
+          matched.uuid
+            ? fetchCellMapLabel(String(matched.uuid))
+            : Promise.resolve(null),
+          getWeaponIconFrames(),
+          Promise.all([
+            resolveFriendlyFleet(merged, queryOptions),
+            resolveEnemyFleet(merged, queryOptions),
+          ]),
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
