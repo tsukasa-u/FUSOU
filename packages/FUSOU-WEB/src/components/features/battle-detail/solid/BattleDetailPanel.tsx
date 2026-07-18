@@ -55,6 +55,18 @@ type DropShipInfo = {
   bannerUrl: string;
 };
 
+type BattleDetailPayload = {
+  battle?: Record<string, unknown> | null;
+  refs?: {
+    mst_ship?: Array<Record<string, unknown>>;
+    mst_slotitem?: Array<Record<string, unknown>>;
+  };
+  derived?: {
+    friendly_fleet?: Array<Record<string, unknown>>;
+    enemy_fleet?: Array<Record<string, unknown>>;
+  };
+};
+
 // ── Main orchestrator component ───────────────────────────────────────────
 
 export default function BattleDetailPanel(props: {
@@ -369,6 +381,72 @@ export default function BattleDetailPanel(props: {
       const tableVersionQuery = tableVersion
         ? `&table_version=${encodeURIComponent(tableVersion)}`
         : "";
+
+      if (isLikelyUuid) {
+        const detailRes = await cachedFetch(
+          `/api/battle-data/detail?battle_uuid=${encodeURIComponent(idText)}&period_tag=${encodeURIComponent(requestedPeriod)}${tableVersionQuery}`,
+        );
+        if (detailRes.ok) {
+          const payload = (await detailRes.json()) as BattleDetailPayload;
+          const detailBattle = payload.battle ?? null;
+          if (detailBattle) {
+            const resolvedMstShip = new Map(
+              (payload.refs?.mst_ship || []).map((row) => [Number(row.id), row]),
+            );
+            const resolvedMstSlotItem = new Map(
+              (payload.refs?.mst_slotitem || []).map((row) => [Number(row.id), row]),
+            );
+            setMasterDataStatus([
+              {
+                name: "mst_slotitem",
+                status: resolvedMstSlotItem.size > 0 ? "success" : "failed",
+                detail: `${resolvedMstSlotItem.size}件`,
+              },
+              {
+                name: "mst_ship",
+                status: resolvedMstShip.size > 0 ? "success" : "failed",
+                detail: `${resolvedMstShip.size}件`,
+              },
+            ]);
+
+            const [resolvedCellLabel] = await Promise.all([
+              resolveBattleCellLabel(detailBattle),
+              getWeaponIconFrames(),
+            ]);
+
+            const dropShipId =
+              Number((detailBattle.battle_result as any)?.drop_ship_id ?? 0) || 0;
+            const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
+            const mapAreaId = Number(detailBattle.maparea_id ?? NaN);
+            const mapInfoNo = Number(detailBattle.mapinfo_no ?? NaN);
+
+            if (disposed) return;
+            setBattle(detailBattle);
+            setFleets({
+              friendlyShips: (payload.derived?.friendly_fleet || []) as any,
+              enemyShips: (payload.derived?.enemy_fleet || []) as any,
+            });
+            setMstSlotItemById(resolvedMstSlotItem);
+            setMstShipById(resolvedMstShip);
+            setMapLabel(
+              Number.isFinite(mapAreaId) && Number.isFinite(mapInfoNo) && mapAreaId > 0 && mapInfoNo > 0
+                ? `${mapAreaId}-${mapInfoNo}`
+                : null,
+            );
+            setCellLabel(resolvedCellLabel);
+            setDropShipInfo(
+              dropShipId > 0
+                ? {
+                    shipId: dropShipId,
+                    name: String(dropShip?.name ?? `艦#${dropShipId}`),
+                    bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
+                  }
+                : null,
+            );
+            return;
+          }
+        }
+      }
 
       let matched: Record<string, unknown> | null = null;
 

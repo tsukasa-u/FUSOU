@@ -321,6 +321,21 @@ function RaigekiRows(props: {
 
   const buildHits = (): RaigekiHit[] => {
     const hits: RaigekiHit[] = [];
+    const fHpSnapshot = fNow();
+    const eHpSnapshot = eNow();
+    const sideLimit = (side: "friend" | "enemy"): number => {
+      const fleetLen =
+        side === "friend"
+          ? props.fleets?.friendlyShips?.length ?? 0
+          : props.fleets?.enemyShips?.length ?? 0;
+      if (fleetLen > 0) return fleetLen;
+      return side === "friend" ? fHpSnapshot.length : eHpSnapshot.length;
+    };
+    const isValidSideIndex = (
+      side: "friend" | "enemy",
+      idx: number,
+    ): boolean => idx >= 0 && idx < sideLimit(side);
+
     const addHit = (
       atkSide: "friend" | "enemy",
       atkIdx: number,
@@ -329,6 +344,8 @@ function RaigekiRows(props: {
       dmg: number,
       crit: boolean,
     ) => {
+      if (!isValidSideIndex(atkSide, atkIdx)) return;
+      if (!isValidSideIndex(defSide, defIdx)) return;
       hits.push({ atkSide, atkIdx, defSide, defIdx, dmg: Math.max(0, dmg), crit });
     };
     // f_rai[i]: targets for friendly ship i.
@@ -412,7 +429,11 @@ function RaigekiRows(props: {
           });
       });
     }
-    return hits;
+    return hits.filter((hit) => {
+      if (!isValidSideIndex(hit.atkSide, hit.atkIdx)) return false;
+      if (!isValidSideIndex(hit.defSide, hit.defIdx)) return false;
+      return true;
+    });
   };
 
   const hits = () => buildHits();

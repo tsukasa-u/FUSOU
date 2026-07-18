@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { bannerUrl } from "@/features/simulator/equip-calc";
@@ -67,7 +67,7 @@ function airSuperiorityLabelOf(battle: any): string {
 
 const PAGE_SIZE = 50;
 
-function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null } | null {
+function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null; drop_ship_name?: string | null } | null {
   if (!b.battle_result || typeof b.battle_result !== "object") return null;
   return b.battle_result;
 }
@@ -75,56 +75,7 @@ function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null
 export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
   const [currentPage, setCurrentPage] = createSignal(0);
-
-  const masterShipNameById = createMemo(() => {
-    return new Map(d.mstShips().map((s) => [s.id, s.name]));
-  });
-
-  const enemyDeckNameById = createMemo(() => {
-    const deckById = new Map(d.enemyDecks().map((deck) => [deck.uuid, deck]));
-    const shipsByGroupId = new Map<string, any[]>();
-    for (const ship of d.enemyShips()) {
-      const group = shipsByGroupId.get(ship.uuid);
-      if (group) group.push(ship);
-      else shipsByGroupId.set(ship.uuid, [ship]);
-    }
-    for (const group of shipsByGroupId.values()) {
-      group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-    }
-    
-    const names = new Map<string, string>();
-    for (const battle of d.battleRecords()) {
-      if (!battle.e_deck_id || names.has(battle.e_deck_id)) continue;
-      const deck = deckById.get(battle.e_deck_id);
-      if (!deck?.ship_ids) {
-        names.set(battle.e_deck_id, `敵艦隊 ${battle.e_deck_id.slice(0, 8)}`);
-        continue;
-      }
-      
-      let shipIds: string[] = [];
-      if (Array.isArray(deck.ship_ids)) {
-        shipIds = deck.ship_ids.filter((id: any) => typeof id === "string" && id.length > 0);
-      } else if (typeof deck.ship_ids === "string" && deck.ship_ids.length > 0) {
-        shipIds = [deck.ship_ids];
-      }
-      
-      const n: string[] = [];
-      for (const groupId of shipIds) {
-        const ships = shipsByGroupId.get(groupId) || [];
-        for (const ship of ships) {
-          const id = ship.mst_ship_id;
-          if (id) n.push(masterShipNameById().get(id) ?? `艦ID:${id}`);
-        }
-      }
-      const uniq = [...new Set(n)];
-      if (uniq.length === 0) names.set(battle.e_deck_id, `敵艦隊 ${battle.e_deck_id.slice(0, 8)}`);
-      else {
-        const head = uniq.slice(0, 3).join(" / ");
-        names.set(battle.e_deck_id, uniq.length > 3 ? `${head} +${uniq.length - 3}` : head);
-      }
-    }
-    return names;
-  });
+  const [viewMode, setViewMode] = createSignal<"list" | "map">("list");
 
   const alphaCellLabel = (cellId: number): string => {
     if (!Number.isFinite(cellId) || cellId <= 0) return "-";
@@ -142,27 +93,59 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     const cellId = Number(b.cell_id ?? NaN);
     if (!Number.isFinite(cellId)) return "-";
     if (cellId === 0) return "港";
-    return alphaCellLabel(cellId); // Note: Simplified for SPA to avoid async labels for now, or we can add it to dashboard.
+    return alphaCellLabel(cellId);
   };
 
-  const mapOptions = createMemo(() => {
-    const values = new Set<string>();
-    for (const b of d.battleRecords()) {
-      const label = mapKeyOf(b);
-      if (label !== "-") values.add(label);
-    }
-    return [...values].sort((a, b) => a.localeCompare(b, "ja"));
-  });
-
-  const filteredBattles = createMemo(() => {
+  const resultFilteredBattles = createMemo(() => {
     let list = d.battleRecords();
     if (d.resultFilter()) {
       list = list.filter((b) => battleResultOf(b)?.win_rank === d.resultFilter());
     }
-    if (d.mapFilter()) {
-      list = list.filter((b) => mapKeyOf(b) === d.mapFilter());
-    }
     return list;
+  });
+
+  const filteredBattles = createMemo(() => {
+    if (viewMode() === "list") {
+      return resultFilteredBattles();
+    }
+    const selectedMap = d.mapFilter();
+    if (!selectedMap) return [];
+    return resultFilteredBattles().filter((b) => mapKeyOf(b) === selectedMap);
+  });
+
+  const mapOverview = createMemo(() => {
+    const mapStats = new Map<string, number>();
+    for (const battle of resultFilteredBattles()) {
+      const mapKey = mapKeyOf(battle);
+      if (!mapKey || mapKey === "-") continue;
+      mapStats.set(mapKey, (mapStats.get(mapKey) ?? 0) + 1);
+    }
+
+    const grouped = new Map<
+      string,
+      { areaId: string; maps: Array<{ mapKey: string; count: number }>; total: number }
+    >();
+    for (const [mapKey, count] of mapStats.entries()) {
+      const areaId = mapKey.split("-")[0] || "?";
+      if (!grouped.has(areaId)) {
+        grouped.set(areaId, { areaId, maps: [], total: 0 });
+      }
+      const group = grouped.get(areaId)!;
+      group.maps.push({ mapKey, count });
+      group.total += count;
+    }
+
+    const groups = [...grouped.values()].sort(
+      (a, b) => Number(a.areaId) - Number(b.areaId),
+    );
+    for (const group of groups) {
+      group.maps.sort((a, b) => {
+        const [, aNo] = a.mapKey.split("-").map(Number);
+        const [, bNo] = b.mapKey.split("-").map(Number);
+        return (aNo || 0) - (bNo || 0);
+      });
+    }
+    return groups;
   });
 
   const totalPages = createMemo(() => Math.ceil(filteredBattles().length / PAGE_SIZE));
@@ -172,11 +155,9 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     return filteredBattles().slice(start, start + PAGE_SIZE);
   });
 
-  const recentSummary = createMemo(() => {
-    return [...d.battleRecords()]
-      .filter((b) => !!b.timestamp)
-      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0))
-      .slice(0, 25);
+  createEffect(() => {
+    filteredBattles();
+    setCurrentPage(0);
   });
 
   function moveToDetail(battle: any, fallbackIndex: number) {
@@ -188,106 +169,151 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     d.setActiveTab("detail");
   }
 
-  return (
-    <>
-      <div class="card bg-base-100 shadow-sm mb-6">
-        <div class="card-body p-4">
-          <h3 class="font-bold">直近の進軍ルート（サマリ）</h3>
-          <div class="text-sm text-base-content/70">
-            <Show when={recentSummary().length > 0} fallback={<span>読込後に最新の進軍順路と交戦結果を表示します。</span>}>
-              <For each={recentSummary()}>
-                {(b) => {
-                  const rank = battleResultOf(b)?.win_rank ?? "-";
+  const BattlesTable = () => (
+    <div class="overflow-x-auto">
+      <table class="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>日時</th>
+            <th>マップ</th>
+            <th>セル</th>
+            <th>陣形</th>
+            <th>制空</th>
+            <th>結果</th>
+            <th>ドロップ</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <Show
+            when={!d.loading()}
+            fallback={<tr><td colspan={8} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}
+          >
+            <Show
+              when={pagedBattles().length > 0}
+              fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
+            >
+              <For each={pagedBattles()}>
+                {(b, i) => {
+                  const result = battleResultOf(b);
+                  const rank = result?.win_rank ?? "-";
+                  const formation = b.f_formation ?? 0;
+                  const airSupLabel = airSuperiorityLabelOf(b);
+                  const fallbackIdx = currentPage() * PAGE_SIZE + i();
+
                   return (
-                    <div class="py-1 border-b border-base-200">
-                      <span class="font-mono text-xs mr-2">{formatTimestamp(b.timestamp)}</span>
-                      <span class="badge badge-ghost badge-sm mr-2">{mapKeyOf(b)}</span>
-                      <span class="mr-2">{cellDisplayLabelOf(b)}</span>
-                      <span class="mr-2">
-                        {b.e_deck_id ? (enemyDeckNameById().get(b.e_deck_id) ?? `敵艦隊 ${b.e_deck_id.slice(0, 8)}`) : "-"}
-                      </span>
-                      <span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span>
-                    </div>
+                    <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
+                      <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
+                      <td>{mapKeyOf(b)}</td>
+                      <td>{cellDisplayLabelOf(b)}</td>
+                      <td>{FORMATION_NAMES[formation] ?? "-"}</td>
+                      <td>{airSupLabel || ""}</td>
+                      <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>
+                      <td>
+                        {result?.drop_ship_id ? (
+                          <div class="flex items-center gap-1 min-w-[100px]">
+                            <img
+                              src={bannerUrl(result.drop_ship_id, { f: "auto" })}
+                              alt={result.drop_ship_name ?? `#${result.drop_ship_id}`}
+                              class="h-5 w-20 object-cover rounded-sm"
+                              loading="lazy"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                            />
+                            <span class="text-xs truncate max-w-24">
+                              {result.drop_ship_name ?? `#${result.drop_ship_id}`}
+                            </span>
+                          </div>
+                        ) : "-"}
+                      </td>
+                      <td>
+                        <button class="btn btn-ghost btn-xs" onClick={(e) => {
+                          e.stopPropagation();
+                          moveToDetail(b, fallbackIdx);
+                        }}>詳細</button>
+                      </td>
+                    </tr>
                   );
                 }}
               </For>
             </Show>
+          </Show>
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body p-4 border-b border-base-200">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="font-bold text-lg">戦闘一覧</h3>
+            <div class="text-xs text-base-content/60 mt-1">
+              {viewMode() === "list" ? "これまでの一覧を時系列で表示します。" : "海域を選択して一覧を絞り込みます。"}
+            </div>
+          </div>
+          <div
+            class="relative flex items-center bg-base-200 rounded-md p-1 cursor-pointer select-none w-64 shadow-inner"
+            onClick={() => {
+              const next = viewMode() === "list" ? "map" : "list";
+              setViewMode(next);
+              if (next === "list") d.setMapFilter("");
+            }}
+          >
+            <div
+              class="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary rounded-md transition-transform duration-300 ease-in-out"
+              style={{ transform: viewMode() === "list" ? "translateX(0)" : "translateX(100%)" }}
+            />
+            <div class={`relative z-10 flex-1 text-center text-sm px-2 py-1.5 transition-colors duration-300 ${viewMode() === "list" ? "font-bold text-primary-content" : "text-base-content/60 hover:text-primary-content"}`}>
+              一覧表示
+            </div>
+            <div class={`relative z-10 flex-1 text-center text-sm px-2 py-1.5 transition-colors duration-300 ${viewMode() === "map" ? "font-bold text-primary-content" : "text-base-content/60 hover:text-primary-content"}`}>
+              海域から絞る
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body p-0">
-          <div class="overflow-x-auto">
-            <table class="table table-zebra table-sm">
-              <thead>
-                <tr>
-                  <th>日時</th>
-                  <th>マップ</th>
-                  <th>セル</th>
-                  <th>陣形</th>
-                  <th>制空</th>
-                  <th>結果</th>
-                  <th>ドロップ</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                <Show
-                  when={!d.loading()}
-                  fallback={<tr><td colspan={8} class="text-center py-12"><span class="loading loading-spinner loading-md"></span></td></tr>}
-                >
-                  <Show
-                    when={pagedBattles().length > 0}
-                    fallback={<tr><td colspan={8} class="text-center py-12 text-base-content/40">データがありません</td></tr>}
-                  >
-                    <For each={pagedBattles()}>
-                      {(b, i) => {
-                        const result = battleResultOf(b);
-                        const rank = result?.win_rank ?? "-";
-                        const formation = b.f_formation ?? 0;
-                        const airSupLabel = airSuperiorityLabelOf(b);
-                        const fallbackIdx = currentPage() * PAGE_SIZE + i();
-                        
-                        return (
-                          <tr class="hover cursor-pointer" onClick={() => moveToDetail(b, fallbackIdx)}>
-                            <td class="whitespace-nowrap">{formatTimestamp(b.timestamp)}</td>
-                            <td>{mapKeyOf(b)}</td>
-                            <td>{cellDisplayLabelOf(b)}</td>
-                            <td>{FORMATION_NAMES[formation] ?? "-"}</td>
-                            <td>{airSupLabel || ""}</td>
-                            <td><span class={`badge badge-sm ${WIN_RANK_BADGES[rank] ?? ""}`}>{rank}</span></td>
-                            <td>
-                              {result?.drop_ship_id ? (
-                                <div class="flex items-center gap-1 min-w-[100px]">
-                                  <img
-                                    src={bannerUrl(result.drop_ship_id, { f: "auto" })}
-                                    alt={masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
-                                    class="h-5 w-20 object-cover rounded-sm"
-                                    loading="lazy"
-                                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                                  />
-                                  <span class="text-xs truncate max-w-24">
-                                    {masterShipNameById().get(result.drop_ship_id) ?? `#${result.drop_ship_id}`}
-                                  </span>
-                                </div>
-                              ) : "-"}
-                            </td>
-                            <td>
-                              <button class="btn btn-ghost btn-xs" onClick={(e) => {
-                                e.stopPropagation();
-                                moveToDetail(b, fallbackIdx);
-                              }}>詳細</button>
-                            </td>
-                          </tr>
-                        );
-                      }}
+      <Show when={viewMode() === "map" && !d.mapFilter()}>
+        <div class="card-body space-y-6">
+          <Show when={mapOverview().length > 0} fallback={<div class="py-10 text-center text-base-content/50">一覧データがありません</div>}>
+            <For each={mapOverview()}>
+              {(area) => (
+                <div>
+                  <h4 class="font-bold text-sm text-base-content/80 mb-3 border-b border-base-200 pb-1 flex justify-between">
+                    <span>{area.areaId} 海域</span>
+                    <span class="font-mono text-xs text-base-content/60">計 {area.total} 件</span>
+                  </h4>
+                  <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                    <For each={area.maps}>
+                      {(mapInfo) => (
+                        <button
+                          class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
+                          onClick={() => d.setMapFilter(mapInfo.mapKey)}
+                        >
+                          <div class="flex items-center gap-2">
+                            <span class="font-bold text-base">{mapInfo.mapKey}</span>
+                            <span class="badge badge-accent badge-sm font-mono">{mapInfo.count}</span>
+                          </div>
+                        </button>
+                      )}
                     </For>
-                  </Show>
-                </Show>
-              </tbody>
-            </table>
-          </div>
+                  </div>
+                </div>
+              )}
+            </For>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={viewMode() === "list" || !!d.mapFilter()}>
+        <div class="card-body p-0">
+          <Show when={viewMode() === "map" && d.mapFilter()}>
+            <div class="px-4 pt-4">
+              <button class="btn btn-secondary btn-xs" onClick={() => d.setMapFilter("")}>選択解除: {d.mapFilter()}</button>
+            </div>
+          </Show>
+          <BattlesTable />
           <Show when={totalPages() > 1}>
             <div class="flex justify-center py-4 gap-2">
               <For each={Array.from({ length: Math.min(totalPages(), 10) }, (_, i) => i)}>
@@ -303,7 +329,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
             </div>
           </Show>
         </div>
-      </div>
-    </>
+      </Show>
+    </div>
   );
 }

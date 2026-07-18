@@ -84,6 +84,7 @@ function pickHougekiRowsByRound(
 
 export function buildTimelineEvents(
   battle: Record<string, unknown>,
+  fleets: BattleFleets | null = null,
 ): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
@@ -316,6 +317,14 @@ export function buildTimelineEvents(
           ? d.e_nowhps
           : []
     ) as number[];
+    const friendLimit =
+      fleets?.friendlyShips && fleets.friendlyShips.length > 0
+        ? fleets.friendlyShips.length
+        : fNow.length;
+    const enemyLimit =
+      fleets?.enemyShips && fleets.enemyShips.length > 0
+        ? fleets.enemyShips.length
+        : eNow.length;
 
     // Build per-defender attacker map from rai array (1-based targets → 0-based).
     // Returns Map<defIdx, atkIdx[]> — only attackers that target that specific defender.
@@ -323,6 +332,7 @@ export function buildTimelineEvents(
       raiRows: unknown[],
       defenderLimit: number,
       preferZeroBased: boolean,
+      attackerLimit: number,
     ): Map<number, number[]> {
       const defToAtk = new Map<number, number[]>();
       const toNumericTarget = (raw: unknown): number | null => {
@@ -370,6 +380,7 @@ export function buildTimelineEvents(
       };
 
       for (let atkIdx = 0; atkIdx < raiRows.length; atkIdx++) {
+        if (attackerLimit > 0 && atkIdx >= attackerLimit) break;
         const row = raiRows[atkIdx];
         if (Array.isArray(row)) {
           for (const target of row as unknown[]) addTarget(atkIdx, target);
@@ -382,7 +393,12 @@ export function buildTimelineEvents(
 
     if (fRai.length > 0 || eRai.length > 0) {
       // Friend fleet → enemy: one event per targeted enemy slot
-      const fDefToAtk = parseRaiTargets(fRai, eNow.length, fRaiFromSnake);
+      const fDefToAtk = parseRaiTargets(
+        fRai,
+        enemyLimit,
+        fRaiFromSnake,
+        friendLimit,
+      );
       for (const [defIdx, atkList] of fDefToAtk) {
         const dmg = Number(eDam[defIdx] ?? 0) || 0;
         const beforeHp = Number(eNow[defIdx] ?? 0) || 0;
@@ -405,7 +421,12 @@ export function buildTimelineEvents(
       }
 
       // Enemy fleet → friend: one event per targeted friend slot
-      const eDefToAtk = parseRaiTargets(eRai, fNow.length, eRaiFromSnake);
+      const eDefToAtk = parseRaiTargets(
+        eRai,
+        friendLimit,
+        eRaiFromSnake,
+        enemyLimit,
+      );
       for (const [defIdx, atkList] of eDefToAtk) {
         const dmg = Number(fDam[defIdx] ?? 0) || 0;
         const beforeHp = Number(fNow[defIdx] ?? 0) || 0;
@@ -428,7 +449,7 @@ export function buildTimelineEvents(
       }
     } else {
       // Fallback: no rai data, emit damage-only events (no MISS)
-      for (let i = 0; i < eDam.length; i++) {
+      for (let i = 0; i < Math.min(eDam.length, enemyLimit); i++) {
         const dmg = Number(eDam[i] ?? 0) || 0;
         if (dmg <= 0) continue;
         const beforeHp = Number(eNow[i] ?? 0) || 0;
@@ -448,7 +469,7 @@ export function buildTimelineEvents(
           eHps: eNow,
         });
       }
-      for (let i = 0; i < fDam.length; i++) {
+      for (let i = 0; i < Math.min(fDam.length, friendLimit); i++) {
         const dmg = Number(fDam[i] ?? 0) || 0;
         if (dmg <= 0) continue;
         const beforeHp = Number(fNow[i] ?? 0) || 0;
@@ -1189,7 +1210,7 @@ export function renderTimelineView(
   fleets: BattleFleets | null,
   mstSlotItemById: Map<number, Record<string, unknown>> | null = null,
 ): string {
-  const events = buildTimelineEvents(battle);
+  const events = buildTimelineEvents(battle, fleets);
   const { fInit, eInit } = buildInitialHps(battle);
   const steps = buildSteps(events, fInit, eInit);
 

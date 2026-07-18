@@ -66,6 +66,7 @@ export default function BattlesDashboard() {
   const [mstSlotItems, setMstSlotItems] = createSignal<any[]>([]);
   const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, any>>({});
   const [weaponIconMeta, setWeaponIconMeta] = createSignal<{ width: number; height: number }>({ width: 0, height: 0 });
+  const [loadedDatasetKind, setLoadedDatasetKind] = createSignal<"overview" | "drops" | null>(null);
 
   let loadDataAbortController: AbortController | null = null;
 
@@ -79,6 +80,35 @@ export default function BattlesDashboard() {
     records_limit_reached?: boolean;
     applied_limit_blocks?: number;
     applied_limit_records?: number;
+  };
+
+  type OverviewPayload = {
+    battles?: any[];
+    cells?: any[];
+    master_data?: {
+      period_tag?: string;
+      period_revision?: number;
+      table_version?: string;
+    };
+  };
+
+  type DropsPayload = {
+    battles?: any[];
+    mst_ships?: any[];
+    mst_slotitems?: any[];
+    master_data?: {
+      period_tag?: string;
+      period_revision?: number;
+      table_version?: string;
+    };
+  };
+
+  const datasetKindForTab = (
+    tab: "list" | "detail" | "map-flow" | "stats" | "drops",
+  ): "overview" | "drops" | null => {
+    if (tab === "detail") return null;
+    if (tab === "drops") return "drops";
+    return "overview";
   };
 
   const mapOptions = () => {
@@ -149,280 +179,152 @@ export default function BattlesDashboard() {
     loadDataAbortController = abortController;
     const signal = abortController.signal;
     const requestedPeriodTag = requestedPeriod.period_tag;
+    const datasetKind = datasetKindForTab(activeTab());
+    if (!datasetKind) return;
     const tableVersionQuery = requestedPeriod.table_version
       ? `&table_version=${encodeURIComponent(requestedPeriod.table_version)}`
       : "";
-    const recordsUrl = (table: string, extraParams = "") =>
-      `/api/battle-data/global/records?table=${table}&period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=${limitBlocks()}&limit_records=${limitRecords()}${extraParams}`;
+    const overviewUrl = `/api/battle-data/global/overview?period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=${limitBlocks()}&limit_records=${limitRecords()}`;
+    const dropsUrl = `/api/battle-data/global/drops?period_tag=${encodeURIComponent(requestedPeriodTag)}${tableVersionQuery}&limit_blocks=${limitBlocks()}&limit_records=${limitRecords()}`;
 
     setLoading(true);
     setError(null);
     setPartialLoadWarnings([]);
     setTruncationWarnings([]);
     setMasterDataStatus([
-      { name: "戦闘レコード", status: "pending" },
-      { name: "セル履歴", status: "pending" },
-      { name: "敵編成", status: "pending" },
-      { name: "敵艦情報", status: "pending" },
-      { name: "敵装備情報", status: "pending" },
-      { name: "戦闘結果", status: "pending" },
-      { name: "装備アイコン情報", status: "pending" },
-      { name: "艦マスタ", status: "pending" },
-      { name: "装備マスタ", status: "pending" },
+      { name: "mst_ship", status: "pending" },
+      { name: "mst_slotitem", status: "pending" },
     ]);
 
     try {
-      const parseOptionalJson = async <T,>(
-        response: Response,
-        fallback: T,
-        label: string,
-        warnings: Set<string>,
-      ): Promise<T> => {
-        if (!response.ok) {
-          warnings.add(`${label}の読込に失敗`);
-          return fallback;
-        }
-        try {
-          return (await response.json()) as T;
-        } catch (err) {
-          warnings.add(`${label}の解析に失敗`);
-          return fallback;
-        }
-      };
-
-      const optionalWarnings = new Set<string>();
-
-      const [
-        battleRes,
-        cellsRes,
-        enemyDeckRes,
-        enemyShipRes,
-        enemySlotItemRes,
-        mstShipRes,
-        mstSlotItemRes,
-        battleResultRes,
-        openingAirattackListRes,
-        openingAirattackRes,
-        weaponIconFramesRes,
-      ] = await Promise.all([
-        cachedFetch(
-          recordsUrl("battle", "&include_sortie_key=1"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("cells"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("enemy_deck"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("enemy_ship"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("enemy_slotitem"),
-          { signal },
-        ),
-        cachedFetch(`/api/master-data/json?table_name=mst_ship`, { signal }),
-        cachedFetch(`/api/master-data/json?table_name=mst_slotitem`, { signal }),
-        cachedFetch(
-          recordsUrl("battle_result"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("opening_airattack_list"),
-          { signal },
-        ),
-        cachedFetch(
-          recordsUrl("opening_airattack"),
-          { signal },
-        ),
-        cachedFetch(`/api/asset-sync/weapon-icon-frames?v=2`, { signal }),
-      ]);
-
-      if (signal.aborted) return;
-
-      if (!battleRes.ok) {
-        setError("戦闘データの取得に失敗しました。");
-        setBattleRecords([]);
-        setMasterDataStatus([
-          { name: "戦闘レコード", status: "failed" },
-          { name: "セル履歴", status: cellsRes.ok ? "success" : "failed" },
-          { name: "敵編成", status: enemyDeckRes.ok ? "success" : "failed" },
-          { name: "敵艦情報", status: enemyShipRes.ok ? "success" : "failed" },
-          { name: "敵装備情報", status: enemySlotItemRes.ok ? "success" : "failed" },
-          { name: "戦闘結果", status: battleResultRes.ok ? "success" : "failed" },
-          { name: "装備アイコン情報", status: weaponIconFramesRes.ok ? "success" : "failed" },
-          { name: "艦マスタ", status: mstShipRes.ok ? "success" : "failed" },
-          { name: "装備マスタ", status: mstSlotItemRes.ok ? "success" : "failed" },
+      if (datasetKind === "overview") {
+        const [overviewResponse, masterShipResponse, masterSlotItemResponse] = await Promise.all([
+          cachedFetch(overviewUrl, { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
         ]);
-        return;
-      }
-
-      const battlePayload = (await battleRes.json()) as GlobalRecordsResponse;
-      const cellsPayload = await parseOptionalJson<GlobalRecordsResponse>(cellsRes, { records: [] }, "セル履歴", optionalWarnings);
-      const deckPayload = await parseOptionalJson<GlobalRecordsResponse>(enemyDeckRes, { records: [] }, "敵編成", optionalWarnings);
-      const shipPayload = await parseOptionalJson<GlobalRecordsResponse>(enemyShipRes, { records: [] }, "敵艦情報", optionalWarnings);
-      const slotItemPayload = await parseOptionalJson<GlobalRecordsResponse>(enemySlotItemRes, { records: [] }, "敵装備情報", optionalWarnings);
-      const mstPayload = await parseOptionalJson<{ records?: any[]; period_tag?: string; period_revision?: number; table_version?: string }>(mstShipRes, { records: [] }, "艦マスタ", optionalWarnings);
-      setMasterDataMeta({
-        period_tag: mstPayload.period_tag,
-        period_revision: mstPayload.period_revision,
-        table_version: mstPayload.table_version,
-      });
-      const mstSlotItemPayload = await parseOptionalJson<{ records?: any[] }>(mstSlotItemRes, { records: [] }, "装備マスタ", optionalWarnings);
-      const battleResultPayload = await parseOptionalJson<GlobalRecordsResponse>(battleResultRes, { records: [] }, "戦闘結果", optionalWarnings);
-      const openingAirattackListPayload = await parseOptionalJson<GlobalRecordsResponse>(openingAirattackListRes, { records: [] }, "航空戦リスト", optionalWarnings);
-      const openingAirattackPayload = await parseOptionalJson<GlobalRecordsResponse>(openingAirattackRes, { records: [] }, "開幕航空戦", optionalWarnings);
-      const weaponIconFramesPayload = await parseOptionalJson<any>(weaponIconFramesRes, {}, "装備アイコン情報", optionalWarnings);
-
-      const truncationTargets: Array<{ label: string; payload: GlobalRecordsResponse }> = [
-        { label: "戦闘レコード", payload: battlePayload },
-        { label: "セル履歴", payload: cellsPayload },
-        { label: "敵編成", payload: deckPayload },
-        { label: "敵艦情報", payload: shipPayload },
-        { label: "敵装備情報", payload: slotItemPayload },
-        { label: "戦闘結果", payload: battleResultPayload },
-        { label: "航空戦リスト", payload: openingAirattackListPayload },
-        { label: "開幕航空戦", payload: openingAirattackPayload },
-      ];
-      const newTruncationWarnings = truncationTargets
-        .filter(({ payload }) => payload.source_blocks_truncated || payload.records_limit_reached)
-        .map(({ label, payload }) => {
-          const blockLimit = payload.applied_limit_blocks ?? limitBlocks();
-          const recordLimit = payload.applied_limit_records ?? limitRecords();
-          return `${label}は取得上限に達したため一部のみ表示中です（blocks: ${blockLimit}, records: ${recordLimit}）。`;
-        });
-      setTruncationWarnings(newTruncationWarnings);
-
-      setMasterDataStatus([
-        { name: "戦闘レコード", status: "success" },
-        { name: "セル履歴", status: cellsRes.ok ? "success" : "failed" },
-        { name: "敵編成", status: enemyDeckRes.ok ? "success" : "failed" },
-        { name: "敵艦情報", status: enemyShipRes.ok ? "success" : "failed" },
-        { name: "敵装備情報", status: enemySlotItemRes.ok ? "success" : "failed" },
-        { name: "戦闘結果", status: battleResultRes.ok ? "success" : "failed" },
-        { name: "装備アイコン情報", status: weaponIconFramesRes.ok ? "success" : "failed" },
-        { name: "艦マスタ", status: mstShipRes.ok ? "success" : "failed" },
-        { name: "装備マスタ", status: mstSlotItemRes.ok ? "success" : "failed" },
-      ]);
-
-      if (optionalWarnings.size > 0) setPartialLoadWarnings([...optionalWarnings]);
-
-      const iconFrames: Record<number, any> = {};
-      for (const [name, entry] of Object.entries(weaponIconFramesPayload.frames || {}) as any) {
-        const match = name.match(/_id_(\d+)$/);
-        if (!match) continue;
-        const iconId = Number.parseInt(match[1], 10);
-        if (entry?.frame) iconFrames[iconId] = entry.frame;
-      }
-
-      const battleResultByUuid = new Map<string, any>();
-      for (const rec of battleResultPayload.records || []) {
-        if (!rec?.uuid || !rec.win_rank) continue;
-        battleResultByUuid.set(rec.uuid, {
-          win_rank: rec.win_rank,
-          drop_ship_id: rec.drop_ship_id ?? null,
-        });
-      }
-
-      const openingAirattackListByUuid = new Map<string, any>();
-      for (const rec of openingAirattackListPayload.records || []) {
-        if (!rec?.uuid) continue;
-        openingAirattackListByUuid.set(rec.uuid, rec);
-      }
-
-      const openingAirattackByUuid = new Map<string, any>();
-      for (const rec of openingAirattackPayload.records || []) {
-        if (!rec?.uuid) continue;
-        openingAirattackByUuid.set(rec.uuid, rec);
-      }
-
-      const unresolvedResultUuids = new Set<string>();
-      for (const rec of battlePayload.records || []) {
-        if (typeof rec?.battle_result === "string" && !battleResultByUuid.has(rec.battle_result)) {
-          unresolvedResultUuids.add(rec.battle_result);
+        if (!overviewResponse.ok) {
+          throw new Error(`HTTP ${overviewResponse.status}`);
         }
-      }
-
-      if (unresolvedResultUuids.size > 0) {
-        const fillTargets = [...unresolvedResultUuids].slice(0, 100);
-        const batchFilterJson = encodeURIComponent(JSON.stringify({ uuid: fillTargets }));
-        const batchLimitBlocks = Math.min(limitBlocks(), 120);
-        const batchLimitRecords = Math.min(limitRecords(), fillTargets.length * 2);
-        const batchRes = await cachedFetch(
-          `/api/battle-data/global/records?table=battle_result&period_tag=all${tableVersionQuery}&limit_blocks=${batchLimitBlocks}&limit_records=${batchLimitRecords}&filter_json=${batchFilterJson}`,
-          { signal },
-        );
-        if (batchRes.ok) {
-          const body = (await batchRes.json().catch(() => ({}))) as { records?: any[] };
-          for (const found of body.records || []) {
-            if (found?.uuid && found.win_rank && !battleResultByUuid.has(found.uuid)) {
-              battleResultByUuid.set(found.uuid, { win_rank: found.win_rank, drop_ship_id: found.drop_ship_id ?? null });
-            }
-          }
+        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
+          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
         }
-      }
-
-      if (signal.aborted || loadDataAbortController !== abortController) return;
-
-      const mapByBattleUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
-      for (const cell of cellsPayload.records || []) {
-        const battleUuid = cell.battles;
-        if (!battleUuid) continue;
-        const maparea = Number(cell.maparea_id ?? 0);
-        const mapinfo = Number(cell.mapinfo_no ?? 0);
-        if (maparea > 0 && mapinfo > 0) {
-          mapByBattleUuid.set(battleUuid, { maparea_id: maparea, mapinfo_no: mapinfo });
+        const payload = (await overviewResponse.json()) as OverviewPayload;
+        const masterShipPayload = (await masterShipResponse.json()) as {
+          period_tag?: string;
+          period_revision?: number;
+          table_version?: string;
+          records?: any[];
+        };
+        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
+          period_tag?: string;
+          period_revision?: number;
+          table_version?: string;
+          records?: any[];
+        };
+        if (signal.aborted || loadDataAbortController !== abortController) return;
+        setBattleRecords(payload.battles || []);
+        setCellRecords(payload.cells || []);
+        setEnemyDecks([]);
+        setEnemyShips([]);
+        setEnemySlotItems([]);
+        setMstShips([]);
+        setMstSlotItems([]);
+        setWeaponIconFrames({});
+        setWeaponIconMeta({ width: 0, height: 0 });
+        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataStatus([
+          {
+            name: "mst_ship",
+            status: "success",
+            detail: `${masterShipPayload.records?.length ?? 0}件` +
+              (masterShipPayload.period_tag
+                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
+                : ""),
+          },
+          {
+            name: "mst_slotitem",
+            status: "success",
+            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
+              (masterSlotItemPayload.period_tag
+                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
+                : ""),
+          },
+        ]);
+        setLoadedDatasetKind("overview");
+      } else {
+        const [dropsResponse, masterShipResponse, masterSlotItemResponse] = await Promise.all([
+          cachedFetch(dropsUrl, { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
+          cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
+        ]);
+        if (!dropsResponse.ok) {
+          throw new Error(`HTTP ${dropsResponse.status}`);
         }
+        if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
+          throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
+        }
+        const payload = (await dropsResponse.json()) as DropsPayload;
+        const masterShipPayload = (await masterShipResponse.json()) as {
+          period_tag?: string;
+          period_revision?: number;
+          table_version?: string;
+          records?: any[];
+        };
+        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
+          period_tag?: string;
+          period_revision?: number;
+          table_version?: string;
+          records?: any[];
+        };
+        if (signal.aborted || loadDataAbortController !== abortController) return;
+        setBattleRecords(payload.battles || []);
+        setCellRecords([]);
+        setEnemyDecks([]);
+        setEnemyShips([]);
+        setEnemySlotItems([]);
+        setMstShips(payload.mst_ships || []);
+        setMstSlotItems(masterSlotItemPayload.records || []);
+        setWeaponIconFrames({});
+        setWeaponIconMeta({ width: 0, height: 0 });
+        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataStatus([
+          {
+            name: "mst_ship",
+            status: "success",
+            detail: `${masterShipPayload.records?.length ?? payload.mst_ships?.length ?? 0}件` +
+              (masterShipPayload.period_tag
+                ? ` / ${masterShipPayload.period_tag} rev${masterShipPayload.period_revision ?? "?"}`
+                : ""),
+          },
+          {
+            name: "mst_slotitem",
+            status: "success",
+            detail: `${masterSlotItemPayload.records?.length ?? 0}件` +
+              (masterSlotItemPayload.period_tag
+                ? ` / ${masterSlotItemPayload.period_tag} rev${masterSlotItemPayload.period_revision ?? "?"}`
+                : ""),
+          },
+        ]);
+        setLoadedDatasetKind("drops");
       }
-
-      const mergedBattles = (battlePayload.records || [])
-        .filter((r) => typeof r.cell_id === "number")
-        .map((r) => {
-          const normalizedTimestamp = normalizeEpochMs(r.timestamp) ?? normalizeEpochMs(r.midnight_timestamp) ?? null;
-          const normalizedBattleResult = resolveBattleResult(r.battle_result, battleResultByUuid);
-          
-          let normalizedOpeningAirAttack = r.opening_air_attack;
-          if (typeof normalizedOpeningAirAttack === "string") {
-            const listObj = openingAirattackListByUuid.get(normalizedOpeningAirAttack);
-            const detailUuid = listObj?.opening_air_attack ?? normalizedOpeningAirAttack;
-            if (typeof detailUuid === "string") {
-              const detailObj = openingAirattackByUuid.get(detailUuid);
-              if (detailObj) {
-                normalizedOpeningAirAttack = [detailObj];
-              }
-            }
-          }
-
-          if (r.maparea_id && r.mapinfo_no) {
-            return { ...r, timestamp: normalizedTimestamp, battle_result: normalizedBattleResult, opening_air_attack: normalizedOpeningAirAttack };
-          }
-          const resolved = r.uuid ? mapByBattleUuid.get(r.uuid) : undefined;
-          return { ...r, ...(resolved || {}), timestamp: normalizedTimestamp, battle_result: normalizedBattleResult, opening_air_attack: normalizedOpeningAirAttack };
-        });
-
-      setBattleRecords(mergedBattles);
-      setCellRecords(cellsPayload.records || []);
-      setEnemyDecks(deckPayload.records || []);
-      setEnemyShips(shipPayload.records || []);
-      setEnemySlotItems(slotItemPayload.records || []);
-      setMstShips(mstPayload.records || []);
-      setMstSlotItems(mstSlotItemPayload.records || []);
-      setWeaponIconFrames(iconFrames);
-      setWeaponIconMeta({
-        width: Number(weaponIconFramesPayload.meta?.size?.w ?? 0) || 0,
-        height: Number(weaponIconFramesPayload.meta?.size?.h ?? 0) || 0,
-      });
 
     } catch (e: any) {
       if (e.name === "AbortError") return;
-      setMasterDataStatus((prev) => prev.map((item) => item.status === "pending" ? { ...item, status: "failed" } : item));
       setError("読込に失敗しました。しばらくしてから再試行してください。");
       setBattleRecords([]);
       setCellRecords([]);
+      setEnemyDecks([]);
+      setEnemyShips([]);
+      setEnemySlotItems([]);
+      setMstShips([]);
+      setMstSlotItems([]);
+      setMasterDataMeta(null);
+      setMasterDataStatus([
+        { name: "mst_ship", status: "failed", detail: "読込失敗" },
+        { name: "mst_slotitem", status: "failed", detail: "読込失敗" },
+      ]);
+      setLoadedDatasetKind(null);
     } finally {
       if (loadDataAbortController === abortController) {
         setLoading(false);
@@ -459,10 +361,11 @@ export default function BattlesDashboard() {
   createEffect(() => {
     const tab = activeTab();
     const period = selectedPeriod();
+    const wantedDatasetKind = datasetKindForTab(tab);
     if (
-      tab !== "detail" &&
+      wantedDatasetKind &&
       !loading() &&
-      battleRecords().length === 0 &&
+      loadedDatasetKind() !== wantedDatasetKind &&
       period
     ) {
       void loadData(period);
