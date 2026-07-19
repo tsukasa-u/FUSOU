@@ -29,6 +29,7 @@ use tracing_unwrap::ResultExt;
 pub static CA_CERT_NAME: &str = "fusou_ca_cert";
 pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
 pub static CA_CERT_NAME_CRT: &str = "fusou_ca_cert.crt";
+pub static CA_CERT_NAME_DER: &str = "fusou_ca_cert.der";
 static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
 
 static ORGANIZATION_NAME: &str = "FUSOU";
@@ -593,6 +594,7 @@ pub fn create_ca(ca_save_path: String) {
 
     let _ = fs::write(ca_dir.join(CA_CERT_NAME_PEM), ca_cert.pem());
     let _ = fs::write(ca_dir.join(CA_CERT_NAME_CRT), ca_cert.pem());
+    let _ = fs::write(ca_dir.join(CA_CERT_NAME_DER), ca_cert.der());
     let _ = fs::write(ca_dir.join(CA_KEY_NAME_PEM), ca_key_pair.serialize_pem());
 }
 
@@ -600,9 +602,10 @@ pub fn check_ca(ca_save_path: String) -> bool {
     let ca_dir = Path::new(ca_save_path.as_str());
     let ca_cert_pem = ca_dir.join(CA_CERT_NAME_PEM);
     let ca_cert_crt = ca_dir.join(CA_CERT_NAME_CRT);
+    let ca_cert_der = ca_dir.join(CA_CERT_NAME_DER);
     let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_key.exists() {
+    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists() || !ca_key.exists() {
         return false;
     }
     true
@@ -825,8 +828,23 @@ pub fn serve_proxy(
 
 #[cfg(test)]
 mod tests {
-    use super::{decode_response_body, parse_content_encodings};
+    use super::{
+        create_ca, decode_response_body, parse_content_encodings, CA_CERT_NAME_CRT,
+        CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
+    };
+    use super::rcgen::{CertificateParams, KeyPair};
+    use std::fs;
     use std::io::Write;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn unique_temp_dir(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("fusou_proxy_https_{name}_{stamp}"))
+    }
 
     fn gzip_compress(input: &[u8]) -> Vec<u8> {
         let mut encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
@@ -883,5 +901,51 @@ mod tests {
 
         let decoded = decode_response_body(gz, &[], true);
         assert_eq!(decoded, json);
+    }
+
+    #[test]
+    fn create_ca_outputs_parseable_pem_and_crt() {
+        let ca_dir = unique_temp_dir("create_ca_outputs_parseable_pem_and_crt");
+        let ca_dir_str = ca_dir.to_string_lossy().to_string();
+
+        create_ca(ca_dir_str);
+
+        let pem_path = ca_dir.join(CA_CERT_NAME_PEM);
+        let crt_path = ca_dir.join(CA_CERT_NAME_CRT);
+        let der_path = ca_dir.join(CA_CERT_NAME_DER);
+        let key_path = ca_dir.join(CA_KEY_NAME_PEM);
+
+        assert!(pem_path.exists(), "expected PEM file to exist");
+        assert!(crt_path.exists(), "expected CRT file to exist");
+        assert!(der_path.exists(), "expected DER file to exist");
+        assert!(key_path.exists(), "expected key file to exist");
+
+        let pem = fs::read_to_string(&pem_path).expect("failed to read PEM file");
+        let crt = fs::read_to_string(&crt_path).expect("failed to read CRT file");
+        let der = fs::read(&der_path).expect("failed to read DER file");
+        let key_pem = fs::read_to_string(&key_path).expect("failed to read key file");
+
+        assert!(pem.contains("-----BEGIN CERTIFICATE-----"));
+        assert!(pem.contains("-----END CERTIFICATE-----"));
+        assert!(crt.contains("-----BEGIN CERTIFICATE-----"));
+        assert!(crt.contains("-----END CERTIFICATE-----"));
+        assert!(!der.is_empty(), "DER file should not be empty");
+        assert_eq!(der[0], 0x30, "DER should start with ASN.1 SEQUENCE tag");
+
+        let key_pair = KeyPair::from_pem(&key_pem).expect("generated key should be parseable");
+        let _cert_from_pem = CertificateParams::from_ca_cert_pem(&pem)
+            .expect("generated PEM should be parseable")
+            .self_signed(&key_pair)
+            .expect("generated PEM should be self-signable");
+        let _cert_from_crt = CertificateParams::from_ca_cert_pem(&crt)
+            .expect("generated CRT should be parseable")
+            .self_signed(&key_pair)
+            .expect("generated CRT should be self-signable");
+
+        let _ = fs::remove_file(pem_path);
+        let _ = fs::remove_file(crt_path);
+        let _ = fs::remove_file(der_path);
+        let _ = fs::remove_file(key_path);
+        let _ = fs::remove_dir_all(ca_dir);
     }
 }

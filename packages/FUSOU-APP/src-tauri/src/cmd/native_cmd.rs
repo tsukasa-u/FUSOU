@@ -25,7 +25,7 @@ use proxy_https::proxy_server_https::CA_CERT_NAME;
 #[cfg(target_os = "linux")]
 use proxy_https::proxy_server_https::CA_CERT_NAME_CRT;
 #[cfg(target_os = "windows")]
-use proxy_https::proxy_server_https::CA_CERT_NAME_PEM;
+use proxy_https::proxy_server_https::CA_CERT_NAME_DER;
 
 use crate::util::get_RESOURCES_DIR;
 use crate::util::get_ROAMING_DIR;
@@ -165,7 +165,7 @@ where
     R: tauri::Runtime,
 {
     #[cfg(target_os = "windows")]
-    let ca_cert_name = CA_CERT_NAME_PEM;
+    let ca_cert_name = CA_CERT_NAME_DER;
     #[cfg(target_os = "linux")]
     let ca_cert_name = CA_CERT_NAME_CRT;
 
