@@ -3,20 +3,22 @@
 use tauri_plugin_shell::ShellExt;
 use tracing_unwrap::{OptionExt, ResultExt};
 
+use crate::notify;
+
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_PROXY_BAT: &str = "cmd/add_proxy.bat";
+pub static PATH_ADD_PROXY_BAT: &str = "cmd/windows/add_proxy.bat";
 #[cfg(target_os = "windows")]
-pub static PATH_DELETE_PROXY_BAT: &str = "cmd/delete_proxy.bat";
+pub static PATH_DELETE_PROXY_BAT: &str = "cmd/windows/delete_proxy.bat";
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_STORE_BAT: &str = "cmd/add_store.bat";
+pub static PATH_ADD_STORE_BAT: &str = "cmd/windows/add_store.bat";
 #[cfg(target_os = "linux")]
-pub static PATH_ADD_PROXY_SH: &str = "cmd/add_proxy.sh";
+pub static PATH_ADD_PROXY_SH: &str = "cmd/linux/add_proxy.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_DELETE_PROXY_SH: &str = "cmd/delete_proxy.sh";
+pub static PATH_DELETE_PROXY_SH: &str = "cmd/linux/delete_proxy.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_ADD_STORE_SH: &str = "cmd/add_store.sh";
+pub static PATH_ADD_STORE_SH: &str = "cmd/linux/add_store.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_CHECK_CA_SH: &str = "cmd/check_ca.sh";
+pub static PATH_CHECK_CA_SH: &str = "cmd/linux/check_ca.sh";
 
 #[cfg(target_os = "linux")]
 use proxy_https::proxy_server_https::CA_CERT_NAME;
@@ -51,15 +53,44 @@ where
     let app_handle = app.clone();
     let path_clone = path.clone();
     tauri::async_runtime::spawn(async move {
-        let output = app_handle
+        let output_result = app_handle
             .shell()
             .command(cmd_path)
             .args([path])
             .output()
-            .await
-            .expect_or_log("failed to execute process");
+            .await;
 
-        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                tracing::debug!("add_pac stdout: {}", stdout);
+                tracing::debug!("add_pac stderr: {}", stderr);
+                if !output.status.success() {
+                    tracing::warn!("add_pac failed with status: {:?}", output.status);
+                    if !stderr.trim().is_empty() {
+                        tracing::warn!("add_pac stderr: {}", stderr);
+                    }
+                    if !stdout.trim().is_empty() {
+                        tracing::warn!("add_pac stdout: {}", stdout);
+                    }
+                    notify::show(
+                        &app_handle,
+                        "Proxy Setup Failed",
+                        "Failed to apply PAC settings. Please retry and check your system proxy permissions.",
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!("failed to execute add_pac process: {:?}", err);
+                notify::show(
+                    &app_handle,
+                    "Proxy Setup Failed",
+                    "Could not run PAC setup command. Please retry and check your environment.",
+                );
+            }
+        }
     });
 
     tracing::info!("register AutoConfigURL: {}", path_clone);
@@ -87,14 +118,43 @@ where
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let output = app_handle
+        let output_result = app_handle
             .shell()
             .command(cmd_path)
             .output()
-            .await
-            .expect_or_log("failed to execute process");
+            .await;
 
-        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                tracing::debug!("remove_pac stdout: {}", stdout);
+                tracing::debug!("remove_pac stderr: {}", stderr);
+                if !output.status.success() {
+                    tracing::warn!("remove_pac failed with status: {:?}", output.status);
+                    if !stderr.trim().is_empty() {
+                        tracing::warn!("remove_pac stderr: {}", stderr);
+                    }
+                    if !stdout.trim().is_empty() {
+                        tracing::warn!("remove_pac stdout: {}", stdout);
+                    }
+                    notify::show(
+                        &app_handle,
+                        "Proxy Cleanup Failed",
+                        "Failed to remove PAC settings. Please check your system proxy configuration.",
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!("failed to execute remove_pac process: {:?}", err);
+                notify::show(
+                    &app_handle,
+                    "Proxy Cleanup Failed",
+                    "Could not run PAC cleanup command. Please retry and check your environment.",
+                );
+            }
+        }
     });
 
     tracing::info!("unregister AutoConfigURL");
@@ -137,15 +197,47 @@ where
     tracing::debug!("ca_path: {}", ca_path.clone());
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let output = app_handle
+        let output_result = app_handle
             .shell()
             .command(cmd_path)
             .args([ca_path])
             .output()
-            .await
-            .expect_or_log("failed to execute process");
+            .await;
 
-        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
+        match output_result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let status = output.status;
+
+                tracing::debug!("add_store stdout: {}", stdout);
+                tracing::debug!("add_store stderr: {}", stderr);
+                if status.success() {
+                    tracing::info!("add_store succeeded");
+                } else {
+                    tracing::warn!("add_store failed with status: {:?}", status);
+                    if !stderr.trim().is_empty() {
+                        tracing::warn!("add_store stderr: {}", stderr);
+                    }
+                    if !stdout.trim().is_empty() {
+                        tracing::warn!("add_store stdout: {}", stdout);
+                    }
+                    notify::show(
+                        &app_handle,
+                        "Certificate Installation Failed",
+                        "Failed to install the local CA certificate. Please retry and check your permissions.",
+                    );
+                }
+            }
+            Err(err) => {
+                tracing::warn!("failed to execute add_store process: {:?}", err);
+                notify::show(
+                    &app_handle,
+                    "Certificate Installation Failed",
+                    "Could not run certificate installation command. Please retry and check your environment.",
+                );
+            }
+        }
     });
 }
 
