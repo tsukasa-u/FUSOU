@@ -38,6 +38,8 @@ import type {
   SelectedCellFilter,
   SortieRoute,
   TransitionOverlay,
+  WeaponIconFrame,
+  WeaponIconMeta,
 } from "./battle-map-flow/types";
 
 import {
@@ -67,6 +69,10 @@ import {
   resolveBattleResult,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
+import {
+  buildEnemyDeckResolver,
+  buildEnemyFleetResolver,
+} from "./battle-map-flow/enemyResolver";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
@@ -293,12 +299,19 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
-  const describeEnemy = (battle: Record<string, unknown>): string => {
-    const summary = battle.enemy_summary;
-    if (typeof summary === "string" && summary) return summary;
-    const deckId = typeof battle.e_deck_id === "string" ? battle.e_deck_id : "";
-    return deckId ? `敵艦隊 ${deckId.slice(0, 6)}` : "-";
-  };
+  const describeEnemy = createMemo(() =>
+    buildEnemyDeckResolver(d.enemyDecks(), d.enemyShips(), d.mstShips()),
+  );
+
+  const describeEnemyFleet = createMemo(() =>
+    buildEnemyFleetResolver(
+      d.enemyDecks(),
+      d.enemyShips(),
+      d.enemySlotItems(),
+      d.mstShips(),
+      d.mstSlotItems(),
+    ),
+  );
 
   const mapOptions = createMemo(() => {
     const values = new Set<string>();
@@ -331,6 +344,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const selected = d.mapFilter();
     return d.cellRecords().filter((r) => !selected || mapKeyOf(r) === selected);
   });
+
+  const mstShipNameById = createMemo(
+    () => new Map(d.mstShips().map((ship) => [ship.id, ship.name])),
+  );
 
   const battleGroupsByUuid = createMemo(() => {
     const groups = new Map<string, BattleRecord[]>();
@@ -383,7 +400,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           return {
             stepNo: idx + 1,
             cellId,
-            enemy: battle ? describeEnemy(battle) : "通過",
+            enemy: battle ? describeEnemy()(battle.e_deck_id) : "通過",
             hasBattle: !!battle,
           };
         });
@@ -521,7 +538,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         const battle = (battlesByCell.get(currentCell) || []).shift();
         if (battle) {
           stat.battleCount++;
-          const enemyLabel = describeEnemy(battle);
+          const enemyLabel = describeEnemy()(battle.e_deck_id);
           stat.enemyCounts.set(
             enemyLabel,
             (stat.enemyCounts.get(enemyLabel) ?? 0) + 1,
@@ -814,7 +831,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       )
       .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
 
-    const enemyLabelCounts = new Map<string, number>();
+    const enemyFleetCounts = new Map<
+      string,
+      {
+        fleet: ReturnType<ReturnType<typeof describeEnemyFleet>>;
+        count: number;
+      }
+    >();
     const resultCounts = new Map<string, number>();
     const dropCounts = new Map<string, number>();
     const outgoingCounts = new Map<string, number>();
@@ -835,8 +858,14 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     }
 
     for (const battle of matchingBattles) {
-      const enemyLabel = describeEnemy(battle);
-      enemyLabelCounts.set(enemyLabel, (enemyLabelCounts.get(enemyLabel) ?? 0) + 1);
+      const enemyFleet = describeEnemyFleet()(battle.e_deck_id);
+      const fleetKey = enemyFleet.signature;
+      const existing = enemyFleetCounts.get(fleetKey);
+      if (existing) {
+        existing.count++;
+      } else {
+        enemyFleetCounts.set(fleetKey, { fleet: enemyFleet, count: 1 });
+      }
 
       const result =
         battle.battle_result && typeof battle.battle_result === "object"
@@ -849,7 +878,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         );
       }
       if (result?.drop_ship_id) {
-        const dropName = result.drop_ship_name ?? `艦ID:${result.drop_ship_id}`;
+        const dropName =
+          mstShipNameById().get(result.drop_ship_id) ??
+          `艦ID:${result.drop_ship_id}`;
         dropCounts.set(dropName, (dropCounts.get(dropName) ?? 0) + 1);
       }
     }
@@ -859,9 +890,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       passCount,
       routeCount: matchingRoutes.length,
       battleCount: matchingBattles.length,
-      topEnemyLabels: [...enemyLabelCounts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5),
+      topEnemyFleets: [...enemyFleetCounts.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 5)
+        .map(([, { fleet, count }]) => ({
+          ...fleet,
+          count,
+        })),
       resultCounts: [...resultCounts.entries()].sort((a, b) => b[1] - a[1]),
       dropCounts: [...dropCounts.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -875,7 +910,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           battle.env_uuid ??
           `${battle.cell_id}-${battle.timestamp ?? 0}`,
         timestamp: formatTimestamp(battle.timestamp),
-        enemy: describeEnemy(battle),
+        enemy: describeEnemy()(battle.e_deck_id),
         result:
           battle.battle_result && typeof battle.battle_result === "object"
             ? battle.battle_result
@@ -1028,6 +1063,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                       displayedSortieRoutesCount={
                         displayedSortieRoutes().length
                       }
+                      mstShipNameById={mstShipNameById()}
+                      weaponIconFrames={d.weaponIconFrames()}
+                      weaponIconMeta={d.weaponIconMeta()}
                       onClear={() => setSelectedCellFilter(null)}
                     />
                   )}

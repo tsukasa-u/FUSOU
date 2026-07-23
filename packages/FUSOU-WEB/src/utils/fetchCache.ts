@@ -58,9 +58,14 @@ function isCacheableRequest(url: string, init?: RequestInit): boolean {
       typeof window !== "undefined"
         ? new URL(url, window.location.origin)
         : new URL(url, "http://localhost");
-    // filter_json 付きも通常パスと同じくキャッシュ許可。
-    // データは1時間ごとの更新のため、同一 URL のキャッシュは問題ない。
-    // サーバー側 KV キャッシュも同様に 3600s TTL を使用している。
+    if (
+      parsed.pathname === "/api/battle-data/global/records" &&
+      parsed.searchParams.has("filter_json")
+    ) {
+      // Detail resolvers rely on filtered lookups and should reflect newly-seeded
+      // data immediately; caching old empty responses causes false "データなし".
+      return false;
+    }
     return CACHEABLE_PATHS.has(parsed.pathname);
   } catch {
     return false;
@@ -88,34 +93,6 @@ function isCacheableResponse(response: Response): boolean {
   ) {
     return false;
   }
-  return true;
-}
-
-function shouldCacheResponseBody(url: string, bodyText: string): boolean {
-  try {
-    const parsed =
-      typeof window !== "undefined"
-        ? new URL(url, window.location.origin)
-        : new URL(url, "http://localhost");
-    if (parsed.pathname !== "/api/battle-data/global/records") {
-      return true;
-    }
-
-    const payload = JSON.parse(bodyText) as {
-      count?: unknown;
-      records?: unknown;
-    };
-    const count = Number(payload?.count ?? Number.NaN);
-    if (Number.isFinite(count)) {
-      return count > 0;
-    }
-    if (Array.isArray(payload?.records)) {
-      return payload.records.length > 0;
-    }
-  } catch {
-    return true;
-  }
-
   return true;
 }
 
@@ -203,12 +180,7 @@ export function cachedFetch(
   }
 
   // Make the actual request
-  const fetchInit: RequestInit = {
-    ...init,
-    cache: init?.cache ?? "no-store",
-  };
-
-  const promise = fetch(url, fetchInit)
+  const promise = fetch(url, init)
     .then(async (response) => {
       inflightRequests.delete(cacheKey);
 
@@ -216,9 +188,6 @@ export function cachedFetch(
       if (response.ok && isCacheableResponse(response)) {
         try {
           const bodyText = await response.clone().text();
-          if (!shouldCacheResponseBody(url, bodyText)) {
-            return response;
-          }
           const sizeBytes = estimateSizeBytes(bodyText);
           if (sizeBytes > MAX_CACHE_ENTRY_BYTES) {
             return response;

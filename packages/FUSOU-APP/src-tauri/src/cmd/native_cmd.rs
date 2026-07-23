@@ -2,69 +2,31 @@
 // use std::process::Command;
 use tauri_plugin_shell::ShellExt;
 use tracing_unwrap::{OptionExt, ResultExt};
-use std::path::PathBuf;
-
-use crate::notify;
 
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_PROXY_PS1: &str = "cmd/windows/add_proxy.ps1";
+pub static PATH_ADD_PROXY_BAT: &str = "cmd/add_proxy.bat";
 #[cfg(target_os = "windows")]
-pub static PATH_DELETE_PROXY_PS1: &str = "cmd/windows/delete_proxy.ps1";
+pub static PATH_DELETE_PROXY_BAT: &str = "cmd/delete_proxy.bat";
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_STORE_PS1: &str = "cmd/windows/add_store.ps1";
+pub static PATH_ADD_STORE_BAT: &str = "cmd/add_store.bat";
 #[cfg(target_os = "linux")]
-pub static PATH_ADD_PROXY_SH: &str = "cmd/linux/add_proxy.sh";
+pub static PATH_ADD_PROXY_SH: &str = "cmd/add_proxy.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_DELETE_PROXY_SH: &str = "cmd/linux/delete_proxy.sh";
+pub static PATH_DELETE_PROXY_SH: &str = "cmd/delete_proxy.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_ADD_STORE_SH: &str = "cmd/linux/add_store.sh";
+pub static PATH_ADD_STORE_SH: &str = "cmd/add_store.sh";
 #[cfg(target_os = "linux")]
-pub static PATH_CHECK_CA_SH: &str = "cmd/linux/check_ca.sh";
+pub static PATH_CHECK_CA_SH: &str = "cmd/check_ca.sh";
 
+#[cfg(target_os = "linux")]
+use proxy_https::proxy_server_https::CA_CERT_NAME;
 #[cfg(target_os = "linux")]
 use proxy_https::proxy_server_https::CA_CERT_NAME_CRT;
 #[cfg(target_os = "windows")]
-use proxy_https::proxy_server_https::CA_CERT_NAME_DER;
+use proxy_https::proxy_server_https::CA_CERT_NAME_PEM;
 
 use crate::util::get_RESOURCES_DIR;
 use crate::util::get_ROAMING_DIR;
-
-fn resolve_store_cert_path() -> Result<PathBuf, String> {
-    let proxy_configs = configs::get_user_configs_for_proxy();
-    let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
-    tracing::info!(
-        use_generated_certs,
-        "resolving store/check certificate path from proxy settings"
-    );
-
-    if !use_generated_certs {
-        if let Some(custom_cert_path) = proxy_configs.certificates.get_cert_file() {
-            tracing::info!(
-                cert_path = %custom_cert_path.display(),
-                "custom certificate mode selected for store/check"
-            );
-            return Ok(custom_cert_path);
-        }
-        return Err(
-            "custom certificate mode requires certificates.cert_file for store/check operations"
-                .to_string(),
-        );
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        let path = get_ROAMING_DIR().join("ca").join(CA_CERT_NAME_DER);
-        tracing::info!(cert_path = %path.display(), "generated certificate mode selected for store/check");
-        Ok(path)
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        let path = get_ROAMING_DIR().join("ca").join(CA_CERT_NAME_CRT);
-        tracing::info!(cert_path = %path.display(), "generated certificate mode selected for store/check");
-        Ok(path)
-    }
-}
 
 pub fn add_pac<R>(path: String, app: &tauri::AppHandle<R>)
 where
@@ -72,7 +34,7 @@ where
 {
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_ADD_PROXY_PS1)
+        .join(PATH_ADD_PROXY_BAT)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -89,61 +51,15 @@ where
     let app_handle = app.clone();
     let path_clone = path.clone();
     tauri::async_runtime::spawn(async move {
-        #[cfg(target_os = "windows")]
-        let output_result = app_handle
-            .shell()
-            .command("powershell.exe")
-            .args([
-                "-NoProfile".to_string(),
-                "-NonInteractive".to_string(),
-                "-ExecutionPolicy".to_string(),
-                "Bypass".to_string(),
-                "-File".to_string(),
-                cmd_path,
-                path,
-            ])
-            .output()
-            .await;
-
-        #[cfg(target_os = "linux")]
-        let output_result = app_handle
+        let output = app_handle
             .shell()
             .command(cmd_path)
             .args([path])
             .output()
-            .await;
+            .await
+            .expect_or_log("failed to execute process");
 
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-
-                tracing::debug!("add_pac stdout: {}", stdout);
-                tracing::debug!("add_pac stderr: {}", stderr);
-                if !output.status.success() {
-                    tracing::warn!("add_pac failed with status: {:?}", output.status);
-                    if !stderr.trim().is_empty() {
-                        tracing::warn!("add_pac stderr: {}", stderr);
-                    }
-                    if !stdout.trim().is_empty() {
-                        tracing::warn!("add_pac stdout: {}", stdout);
-                    }
-                    notify::show(
-                        &app_handle,
-                        "Proxy Setup Failed",
-                        "Failed to apply PAC settings. Please retry and check your system proxy permissions.",
-                    );
-                }
-            }
-            Err(err) => {
-                tracing::warn!("failed to execute add_pac process: {:?}", err);
-                notify::show(
-                    &app_handle,
-                    "Proxy Setup Failed",
-                    "Could not run PAC setup command. Please retry and check your environment.",
-                );
-            }
-        }
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     });
 
     tracing::info!("register AutoConfigURL: {}", path_clone);
@@ -155,7 +71,7 @@ where
 {
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_DELETE_PROXY_PS1)
+        .join(PATH_DELETE_PROXY_BAT)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -171,59 +87,14 @@ where
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        #[cfg(target_os = "windows")]
-        let output_result = app_handle
-            .shell()
-            .command("powershell.exe")
-            .args([
-                "-NoProfile".to_string(),
-                "-NonInteractive".to_string(),
-                "-ExecutionPolicy".to_string(),
-                "Bypass".to_string(),
-                "-File".to_string(),
-                cmd_path,
-            ])
-            .output()
-            .await;
-
-        #[cfg(target_os = "linux")]
-        let output_result = app_handle
+        let output = app_handle
             .shell()
             .command(cmd_path)
             .output()
-            .await;
+            .await
+            .expect_or_log("failed to execute process");
 
-        match output_result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-
-                tracing::debug!("remove_pac stdout: {}", stdout);
-                tracing::debug!("remove_pac stderr: {}", stderr);
-                if !output.status.success() {
-                    tracing::warn!("remove_pac failed with status: {:?}", output.status);
-                    if !stderr.trim().is_empty() {
-                        tracing::warn!("remove_pac stderr: {}", stderr);
-                    }
-                    if !stdout.trim().is_empty() {
-                        tracing::warn!("remove_pac stdout: {}", stdout);
-                    }
-                    notify::show(
-                        &app_handle,
-                        "Proxy Cleanup Failed",
-                        "Failed to remove PAC settings. Please check your system proxy configuration.",
-                    );
-                }
-            }
-            Err(err) => {
-                tracing::warn!("failed to execute remove_pac process: {:?}", err);
-                notify::show(
-                    &app_handle,
-                    "Proxy Cleanup Failed",
-                    "Could not run PAC cleanup command. Please retry and check your environment.",
-                );
-            }
-        }
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
     });
 
     tracing::info!("unregister AutoConfigURL");
@@ -233,33 +104,22 @@ pub fn add_store<R>(app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,
 {
-    let app_handle = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let _ = add_store_sync(&app_handle).await;
-    });
-}
+    #[cfg(target_os = "windows")]
+    let ca_cert_name = CA_CERT_NAME_PEM;
+    #[cfg(target_os = "linux")]
+    let ca_cert_name = CA_CERT_NAME_CRT;
 
-pub async fn add_store_sync<R>(app: &tauri::AppHandle<R>) -> bool
-where
-    R: tauri::Runtime,
-{
-    let ca_path_buf = match resolve_store_cert_path() {
-        Ok(path) => path,
-        Err(err) => {
-            tracing::warn!("add_store path resolution failed: {}", err);
-            notify::show(
-                app,
-                "Certificate Installation Failed",
-                "Certificate path configuration is invalid for current mode. Please check settings.tom.",
-            );
-            return false;
-        }
-    };
-    let ca_path = ca_path_buf.to_string_lossy().to_string();
+    let ca_path = get_ROAMING_DIR()
+        .join("ca")
+        .join(ca_cert_name)
+        .as_path()
+        .to_str()
+        .expect_or_log("ca_path not found")
+        .to_string();
 
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_ADD_STORE_PS1)
+        .join(PATH_ADD_STORE_BAT)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -274,69 +134,19 @@ where
         .to_string();
 
     tracing::debug!("cmd_path: {}", cmd_path.clone());
-    tracing::info!("add_store using certificate path: {}", ca_path.clone());
+    tracing::debug!("ca_path: {}", ca_path.clone());
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let output = app_handle
+            .shell()
+            .command(cmd_path)
+            .args([ca_path])
+            .output()
+            .await
+            .expect_or_log("failed to execute process");
 
-    #[cfg(target_os = "windows")]
-    let output_result = app
-        .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile".to_string(),
-            "-NonInteractive".to_string(),
-            "-ExecutionPolicy".to_string(),
-            "Bypass".to_string(),
-            "-File".to_string(),
-            cmd_path,
-            ca_path,
-        ])
-        .output()
-        .await;
-
-    #[cfg(target_os = "linux")]
-    let output_result = app
-        .shell()
-        .command(cmd_path)
-        .args([ca_path])
-        .output()
-        .await;
-
-    match output_result {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let status = output.status;
-
-            tracing::debug!("add_store stdout: {}", stdout);
-            tracing::debug!("add_store stderr: {}", stderr);
-            if status.success() {
-                tracing::info!("add_store succeeded");
-                true
-            } else {
-                tracing::warn!("add_store failed with status: {:?}", status);
-                if !stderr.trim().is_empty() {
-                    tracing::warn!("add_store stderr: {}", stderr);
-                }
-                if !stdout.trim().is_empty() {
-                    tracing::warn!("add_store stdout: {}", stdout);
-                }
-                notify::show(
-                    app,
-                    "Certificate Installation Failed",
-                    "Failed to install the local CA certificate. Please retry and check your permissions.",
-                );
-                false
-            }
-        }
-        Err(err) => {
-            tracing::warn!("failed to execute add_store process: {:?}", err);
-            notify::show(
-                app,
-                "Certificate Installation Failed",
-                "Could not run certificate installation command. Please retry and check your environment.",
-            );
-            false
-        }
-    }
+        tracing::debug!("{}", String::from_utf8_lossy(&output.stdout));
+    });
 }
 
 #[cfg(target_os = "linux")]
@@ -351,19 +161,12 @@ where
         .to_str()
         .expect_or_log("cmd_path not found")
         .to_string();
-    let ca_cert_path = match resolve_store_cert_path() {
-        Ok(path) => path.to_string_lossy().to_string(),
-        Err(err) => {
-            tracing::warn!("check_ca path resolution failed: {}", err);
-            return false;
-        }
-    };
-    tracing::info!("check_ca using local certificate path: {}", ca_cert_path);
+    let ca_cert_file_name = CA_CERT_NAME;
 
     let output = app_handle
         .shell()
         .command(cmd_path)
-        .args([ca_cert_path])
+        .args([ca_cert_file_name])
         .output()
         .await
         .expect_or_log("failed to execute process");

@@ -401,46 +401,6 @@ curl -X POST https://fusou-workflow.workers.dev/buffer \
 
 ## 運用手順
 
-### R2 -> D1 再構築（battle-data）
-
-再インデックスの定義:
-
-- `archived_files` と `block_indexes` の両方を構築すること。
-- 完了条件は以下の 2 つを同時に満たすこと。
-  - `archived_files_count == block_indexes_count`
-  - `missing_index_rows == 0`（`archived_files LEFT JOIN block_indexes` で未対応行 0）
-
-推奨コマンド（FUSOU-WEB 入口）:
-
-```bash
-cd /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-WEB
-
-# 1) dry-run（差分確認）
-pnpm run battle-data:recover
-
-# 2) apply（実反映）
-pnpm run battle-data:recover:apply
-
-# 3) verify（完了判定）
-pnpm run battle-data:verify
-```
-
-同等コマンド（fusou-compaction-trigger 入口）:
-
-```bash
-cd /home/ogu-h/Documents/GitHub/FUSOU/packages/fusou-compaction-trigger
-
-pnpm run battle-data:recover
-pnpm run battle-data:recover:apply
-pnpm run battle-data:verify
-```
-
-補足:
-
-- `battle-data:recover:apply` は `bootstrap + reindex` を順番に実行する。
-- `bootstrap` は R2 キーから `archived_files` を補完する。
-- `reindex:block-indexes` は clone 可能なものを優先し、残りは `archived_files` メタデータから合成して埋める。
-
 ### 定期監視タスク
 
 #### Cron Archiver 実行確認

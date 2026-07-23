@@ -55,18 +55,6 @@ type DropShipInfo = {
   bannerUrl: string;
 };
 
-type BattleDetailPayload = {
-  battle?: Record<string, unknown> | null;
-  refs?: {
-    mst_ship?: Array<Record<string, unknown>>;
-    mst_slotitem?: Array<Record<string, unknown>>;
-  };
-  derived?: {
-    friendly_fleet?: Array<Record<string, unknown>>;
-    enemy_fleet?: Array<Record<string, unknown>>;
-  };
-};
-
 // ── Main orchestrator component ───────────────────────────────────────────
 
 export default function BattleDetailPanel(props: {
@@ -235,34 +223,12 @@ export default function BattleDetailPanel(props: {
 
   const airInfo = createMemo(() => {
     const b = battle();
-    if (!b) return null;
+    if (!b) return { label: "-", cls: "" };
     const openingAir = Array.isArray(b.opening_air_attack)
       ? (b.opening_air_attack as any)[0]
       : b.opening_air_attack;
-    if (!openingAir || typeof openingAir !== "object") {
-      return null;
-    }
-    const fDamages = Array.isArray(openingAir?.f_damages)
-      ? (openingAir.f_damages as unknown[])
-      : [];
-    const eDamages = Array.isArray(openingAir?.e_damages)
-      ? (openingAir.e_damages as unknown[])
-      : [];
-    const hasAnyAirDamage =
-      fDamages.some((d) => (Number(d ?? 0) || 0) > 0) ||
-      eDamages.some((d) => (Number(d ?? 0) || 0) > 0);
-    const fPlaneFrom = Array.isArray(openingAir?.f_plane_from)
-      ? (openingAir.f_plane_from as unknown[])
-      : [];
-    const ePlaneFrom = Array.isArray(openingAir?.e_plane_from)
-      ? (openingAir.e_plane_from as unknown[])
-      : [];
-    const hasAnyAirSortie = fPlaneFrom.length > 0 || ePlaneFrom.length > 0;
-    if (!hasAnyAirDamage && !hasAnyAirSortie) {
-      return null;
-    }
     const airSup = openingAir?.air_superiority;
-    return AIR_STATE[Number(airSup)] ?? null;
+    return AIR_STATE[Number(airSup)] ?? { label: "-", cls: "" };
   });
 
   const rank = createMemo(() => {
@@ -382,72 +348,6 @@ export default function BattleDetailPanel(props: {
         ? `&table_version=${encodeURIComponent(tableVersion)}`
         : "";
 
-      if (isLikelyUuid) {
-        const detailRes = await cachedFetch(
-          `/api/battle-data/detail?battle_uuid=${encodeURIComponent(idText)}&period_tag=${encodeURIComponent(requestedPeriod)}${tableVersionQuery}`,
-        );
-        if (detailRes.ok) {
-          const payload = (await detailRes.json()) as BattleDetailPayload;
-          const detailBattle = payload.battle ?? null;
-          if (detailBattle) {
-            const resolvedMstShip = new Map(
-              (payload.refs?.mst_ship || []).map((row) => [Number(row.id), row]),
-            );
-            const resolvedMstSlotItem = new Map(
-              (payload.refs?.mst_slotitem || []).map((row) => [Number(row.id), row]),
-            );
-            setMasterDataStatus([
-              {
-                name: "mst_slotitem",
-                status: resolvedMstSlotItem.size > 0 ? "success" : "failed",
-                detail: `${resolvedMstSlotItem.size}件`,
-              },
-              {
-                name: "mst_ship",
-                status: resolvedMstShip.size > 0 ? "success" : "failed",
-                detail: `${resolvedMstShip.size}件`,
-              },
-            ]);
-
-            const [resolvedCellLabel] = await Promise.all([
-              resolveBattleCellLabel(detailBattle),
-              getWeaponIconFrames(),
-            ]);
-
-            const dropShipId =
-              Number((detailBattle.battle_result as any)?.drop_ship_id ?? 0) || 0;
-            const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
-            const mapAreaId = Number(detailBattle.maparea_id ?? NaN);
-            const mapInfoNo = Number(detailBattle.mapinfo_no ?? NaN);
-
-            if (disposed) return;
-            setBattle(detailBattle);
-            setFleets({
-              friendlyShips: (payload.derived?.friendly_fleet || []) as any,
-              enemyShips: (payload.derived?.enemy_fleet || []) as any,
-            });
-            setMstSlotItemById(resolvedMstSlotItem);
-            setMstShipById(resolvedMstShip);
-            setMapLabel(
-              Number.isFinite(mapAreaId) && Number.isFinite(mapInfoNo) && mapAreaId > 0 && mapInfoNo > 0
-                ? `${mapAreaId}-${mapInfoNo}`
-                : null,
-            );
-            setCellLabel(resolvedCellLabel);
-            setDropShipInfo(
-              dropShipId > 0
-                ? {
-                    shipId: dropShipId,
-                    name: String(dropShip?.name ?? `艦#${dropShipId}`),
-                    bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
-                  }
-                : null,
-            );
-            return;
-          }
-        }
-      }
-
       let matched: Record<string, unknown> | null = null;
 
       if (isLikelyUuid) {
@@ -550,19 +450,14 @@ export default function BattleDetailPanel(props: {
           destruction_battle: resolvedDestructionBattle,
         };
 
-        const [
-          label,
-          _iconFramesResult,
-          [friendlyShips, enemyShips],
-        ] = await Promise.all([
-          matched.uuid
-            ? fetchCellMapLabel(String(matched.uuid))
-            : Promise.resolve(null),
-          getWeaponIconFrames(),
-          Promise.all([
-            resolveFriendlyFleet(merged, queryOptions),
-            resolveEnemyFleet(merged, queryOptions),
-          ]),
+        const label = matched.uuid
+          ? await fetchCellMapLabel(String(matched.uuid))
+          : null;
+
+        await getWeaponIconFrames();
+        const [friendlyShips, enemyShips] = await Promise.all([
+          resolveFriendlyFleet(merged, queryOptions),
+          resolveEnemyFleet(merged, queryOptions),
         ]);
         const resolvedFleets: BattleFleets = { friendlyShips, enemyShips };
         const resolvedMst = await getMstSlotItemById();
@@ -721,16 +616,16 @@ export default function BattleDetailPanel(props: {
                   </div>
                 </div>
               </div>
-              <Show when={airInfo()}>
-                {(air) => (
-                  <div class="card bg-base-100 shadow-sm">
-                    <div class="card-body p-4">
-                      <h3 class="font-bold text-sm text-base-content/60">制空</h3>
-                      <p class={`text-lg font-bold ${air().cls}`}>{air().label}</p>
-                    </div>
-                  </div>
-                )}
-              </Show>
+              <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4">
+                  <h3 class="font-bold text-sm text-base-content/60">
+                    制空状態
+                  </h3>
+                  <p class={`text-lg font-bold ${airInfo().cls}`}>
+                    {airInfo().label}
+                  </p>
+                </div>
+              </div>
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
                   <h3 class="font-bold text-sm text-base-content/60">

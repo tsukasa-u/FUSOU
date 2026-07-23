@@ -1,12 +1,9 @@
 import { Hono } from "hono";
-import { promisify } from "node:util";
-import { brotliDecompress } from "node:zlib";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv, timingSafeEqual, safeWaitUntil } from "../utils";
 import {
   getAllowedPeriodTagSet,
-  getLatestMasterPeriodTag,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
@@ -17,10 +14,8 @@ import {
   extractSchemaFromOCF,
   validateAvroHeader,
 } from "../utils/avro-validator";
-import { bannerUrl } from "../../features/simulator/equip-calc";
 
 const app = new Hono<{ Bindings: Bindings }>();
-const brotliDecompressAsync = promisify(brotliDecompress);
 
 function transformOpeningRaigekiData(raw: any): any {
   if (!raw) return raw;
@@ -87,7 +82,6 @@ function arrayBufferToBase64(bytes: Uint8Array): string {
 const PUBLIC_RECORD_TABLES = new Set([
   "battle",
   "cells",
-  "destruction_battle",
   "env_info",
   "enemy_deck",
   "enemy_ship",
@@ -109,839 +103,7 @@ const PUBLIC_RECORD_TABLES = new Set([
   "opening_taisen_list",
 ]);
 
-function getBattleDataCacheControl(periodTagParam: string): string {
-  return periodTagParam === "latest"
-    ? "public, max-age=600, stale-while-revalidate=3600"
-    : "public, max-age=3600, stale-while-revalidate=86400";
-}
-
-function buildTableVersionSearchParam(tableVersion: string): string {
-  const trimmed = tableVersion.trim();
-  if (!trimmed) return "";
-  return `&table_version=${encodeURIComponent(trimmed)}`;
-}
-
-function buildGlobalRecordsPath(options: {
-  table: string;
-  periodTag: string;
-  tableVersion: string;
-  limitBlocks: number;
-  limitRecords: number;
-  filter?: Record<string, unknown>;
-  includeSortieKey?: boolean;
-}): string {
-  const filterJson = options.filter
-    ? `&filter_json=${encodeURIComponent(JSON.stringify(options.filter))}`
-    : "";
-  const includeSortieKey = options.includeSortieKey
-    ? "&include_sortie_key=1"
-    : "";
-  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
-}
-
-function toBattleDataInternalPath(path: string): string {
-  if (path.startsWith("/api/battle-data/")) {
-    return path.replace(/^\/api\/battle-data/, "");
-  }
-  if (path === "/api/battle-data") {
-    return "/";
-  }
-  return path;
-}
-
-async function fetchBattleDataJsonInternal<T>(c: any, path: string): Promise<T> {
-  const normalizedPath = toBattleDataInternalPath(path);
-  const targetUrl = new URL(c.req.url);
-  targetUrl.pathname = normalizedPath;
-  targetUrl.search = "";
-  if (normalizedPath.includes("?")) {
-    const [pathname, search] = normalizedPath.split("?", 2);
-    targetUrl.pathname = pathname || "/";
-    targetUrl.search = search ? `?${search}` : "";
-  }
-
-  const request = new Request(targetUrl.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  let executionCtx: ExecutionContext | undefined;
-  try {
-    executionCtx = c.executionCtx as ExecutionContext;
-  } catch {
-    executionCtx = undefined;
-  }
-  const response = await app.fetch(request, c.env, executionCtx);
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`,
-    );
-  }
-  return (await response.json()) as T;
-}
-
-async function fetchInternalJson<T>(c: any, path: string): Promise<T> {
-  const targetUrl = new URL(c.req.url);
-  targetUrl.search = "";
-  const normalizedPath = path;
-  if (normalizedPath.includes("?")) {
-    const [pathname, search] = normalizedPath.split("?", 2);
-    targetUrl.pathname = pathname || "/";
-    targetUrl.search = search ? `?${search}` : "";
-  } else {
-    targetUrl.pathname = normalizedPath;
-  }
-
-  const response = await fetch(targetUrl.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`,
-    );
-  }
-  return (await response.json()) as T;
-}
-
-type MasterDataJsonPayload = {
-  table_name: string;
-  table_version: string | null;
-  period_tag: string | null;
-  period_revision: number | null;
-  count: number;
-  records: Array<Record<string, unknown>>;
-};
-
-type BattleEnvBundlePayload = {
-  ownDecks: Array<Record<string, unknown>>;
-  ownShips: Array<Record<string, unknown>>;
-  ownSlotItems: Array<Record<string, unknown>>;
-  enemyDecks: Array<Record<string, unknown>>;
-  enemyShips: Array<Record<string, unknown>>;
-  enemySlotItems: Array<Record<string, unknown>>;
-};
-
-async function fetchMasterDataJsonDirect(
-  c: any,
-  tableName: string,
-): Promise<MasterDataJsonPayload> {
-  const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
-
-  if (!db || !bucket) {
-    throw new Error("Master data storage not configured");
-  }
-
-  const latestMaster = await getLatestMasterPeriodTag(db, kv);
-  const latestPeriodTag = latestMaster?.period_tag;
-  if (!latestPeriodTag) {
-    return {
-      table_name: tableName,
-      table_version: null,
-      period_tag: null,
-      period_revision: null,
-      count: 0,
-      records: [],
-    };
-  }
-
-  const row = (await db
-    .prepare(
-      `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
-       FROM master_data_tables t
-       JOIN master_data_index i ON i.id = t.master_data_id
-       WHERE i.upload_status = 'completed' AND t.table_name = ? AND i.period_tag = ?
-       ORDER BY i.completed_at DESC, i.period_revision DESC
-       LIMIT 1`,
-    )
-    .bind(tableName, latestPeriodTag)
-    .first()) as {
-    period_tag: string;
-    table_version: string;
-    period_revision: number;
-    r2_key: string;
-  } | null;
-
-  if (!row) {
-    return {
-      table_name: tableName,
-      table_version: null,
-      period_tag: latestPeriodTag,
-      period_revision: null,
-      count: 0,
-      records: [],
-    };
-  }
-
-  const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
-  if (kv) {
-    try {
-      const cachedStr = await kv.get(cacheKey);
-      if (cachedStr) {
-        const decodedRecords = JSON.parse(cachedStr) as Array<
-          Record<string, unknown>
-        >;
-        return {
-          table_name: tableName,
-          table_version: row.table_version,
-          period_tag: row.period_tag,
-          period_revision: row.period_revision,
-          count: decodedRecords.length,
-          records: decodedRecords,
-        };
-      }
-    } catch (kvErr) {
-      console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
-    }
-  }
-
-  const r2Object = await bucket.get(row.r2_key);
-  if (!r2Object) {
-    return {
-      table_name: tableName,
-      table_version: row.table_version,
-      period_tag: row.period_tag,
-      period_revision: row.period_revision,
-      count: 0,
-      records: [],
-    };
-  }
-
-  const MAX_AVRO_BYTES = 50 * 1024 * 1024;
-  if (r2Object.size > MAX_AVRO_BYTES) {
-    throw new Error(`Master data object too large: ${r2Object.size} bytes`);
-  }
-
-  const arrayBuffer = await r2Object.arrayBuffer();
-  const avroBytes = new Uint8Array(arrayBuffer);
-  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
-    Record<string, unknown>
-  >;
-
-  if (kv) {
-    try {
-      await kv.put(cacheKey, JSON.stringify(decodedRecords), {
-        expirationTtl: 86400 * 30,
-      });
-    } catch (kvErr) {
-      console.warn(`[battle-data] master-data KV write failed for ${cacheKey}:`, kvErr);
-    }
-  }
-
-  return {
-    table_name: tableName,
-    table_version: row.table_version,
-    period_tag: row.period_tag,
-    period_revision: row.period_revision,
-    count: decodedRecords.length,
-    records: decodedRecords,
-  };
-}
-
-async function fetchBattleEnvBundleInternal(
-  c: any,
-  envUuid: string,
-  tableVersion: string,
-): Promise<BattleEnvBundlePayload> {
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(
-    new URL(
-      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&table_version=${encodeURIComponent(tableVersion || "")}`,
-      c.req.url,
-    ).toString(),
-    { method: "GET" },
-  );
-
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      return (await cached.json()) as BattleEnvBundlePayload;
-    }
-  }
-
-  const [ownDecks, ownShips, ownSlotItems, enemyDecks, enemyShips, enemySlotItems] =
-    await Promise.all([
-      fetchGlobalRecordsInternal(c, {
-        table: "own_deck",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 200,
-        filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "own_ship",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 2000,
-        filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "own_slotitem",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 4000,
-        filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "enemy_deck",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 200,
-        filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "enemy_ship",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 2000,
-        filter: { env_uuid: envUuid },
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "enemy_slotitem",
-        periodTag: "all",
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 4000,
-        filter: { env_uuid: envUuid },
-      }),
-    ]);
-
-  const payload = {
-    ownDecks,
-    ownShips,
-    ownSlotItems,
-    enemyDecks,
-    enemyShips,
-    enemySlotItems,
-  };
-
-  if (cache) {
-    const response = new Response(JSON.stringify(payload), {
-      headers: {
-        "Content-Type": "application/json",
-        "Cache-Control": "public, max-age=600, stale-while-revalidate=3600",
-      },
-    });
-    await cache.put(cacheKey, response);
-  }
-
-  return payload;
-}
-
-async function fetchWeaponIconFramesDirect(
-  c: any,
-): Promise<Record<string, unknown>> {
-  const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_SYNC_BUCKET;
-  if (!bucket) {
-    throw new Error("Asset storage not configured");
-  }
-
-  const jsonKey = "assets/kcs2/img/common/common_icon_weapon.json";
-  const r2Object = await bucket.get(jsonKey);
-  if (!r2Object) {
-    throw new Error("Sprite atlas not found");
-  }
-
-  const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
-  try {
-    return JSON.parse(new TextDecoder().decode(atlasRaw)) as Record<string, unknown>;
-  } catch {
-    const decompressed = await brotliDecompressAsync(atlasRaw);
-    return JSON.parse(decompressed.toString("utf8")) as Record<string, unknown>;
-  }
-}
-
-async function fetchGlobalRecordsInternal(
-  c: any,
-  options: {
-    table: string;
-    periodTag: string;
-    tableVersion: string;
-    limitBlocks: number;
-    limitRecords: number;
-    filter?: Record<string, unknown>;
-    includeSortieKey?: boolean;
-  },
-): Promise<Array<Record<string, unknown>>> {
-  const payload = await fetchBattleDataJsonInternal<{
-    records?: Array<Record<string, unknown>>;
-  }>(c, buildGlobalRecordsPath(options));
-  return payload.records || [];
-}
-
-async function fetchFirstMatchingRecordsByFields(
-  c: any,
-  table: string,
-  value: string,
-  fields: string[],
-  options: {
-    periodTag: string;
-    tableVersion: string;
-    limitBlocks: number;
-    limitRecords: number;
-  },
-): Promise<Array<Record<string, unknown>>> {
-  for (const field of fields) {
-    const rows = await fetchGlobalRecordsInternal(c, {
-      table,
-      periodTag: options.periodTag,
-      tableVersion: options.tableVersion,
-      limitBlocks: options.limitBlocks,
-      limitRecords: options.limitRecords,
-      filter: { [field]: value },
-    });
-    if (rows.length > 0) {
-      return rows;
-    }
-  }
-  return [];
-}
-
-function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
-  if (Array.isArray(rawIds)) {
-    return rawIds.filter(
-      (id): id is string => typeof id === "string" && id.length > 0,
-    );
-  }
-  if (typeof rawIds === "string" && rawIds.length > 0) {
-    return [rawIds];
-  }
-  return [];
-}
-
-function hpScoreForBattleQuery(
-  ships: Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
-  hpSnapshot: unknown[],
-): number {
-  if (!ships.length || !Array.isArray(hpSnapshot) || hpSnapshot.length === 0) {
-    return Number.MAX_SAFE_INTEGER;
-  }
-
-  const sorted = [...ships].sort(
-    (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
-  );
-  const len = Math.min(sorted.length, hpSnapshot.length);
-  let score = Math.abs(sorted.length - hpSnapshot.length) * 20;
-  for (let i = 0; i < len; i++) {
-    const nowhp = Number(sorted[i]?.nowhp ?? sorted[i]?.maxhp ?? 0);
-    const target = Number(hpSnapshot[i] ?? 0);
-    score += Math.abs(nowhp - target);
-  }
-  return score;
-}
-
-function buildEnemySummaryResolver(args: {
-  enemyDecks: Array<Record<string, unknown>>;
-  enemyShips: Array<Record<string, unknown>>;
-  mstShips: Array<Record<string, unknown>>;
-}): (deckId?: string | null) => string {
-  const deckById = new Map(
-    args.enemyDecks.map((deck) => [String(deck.uuid ?? ""), deck]),
-  );
-  const shipsByGroupId = new Map<string, Array<Record<string, unknown>>>();
-  for (const ship of args.enemyShips) {
-    const groupId = String(ship.uuid ?? "");
-    if (!groupId) continue;
-    if (!shipsByGroupId.has(groupId)) shipsByGroupId.set(groupId, []);
-    shipsByGroupId.get(groupId)!.push(ship);
-  }
-  for (const ships of shipsByGroupId.values()) {
-    ships.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-  }
-  const mstNameById = new Map(
-    args.mstShips.map((ship) => [Number(ship.id ?? 0), String(ship.name ?? "")]),
-  );
-
-  return (deckId?: string | null): string => {
-    if (!deckId) return "-";
-    const deck = deckById.get(deckId);
-    if (!deck?.ship_ids) return `敵艦隊 ${deckId.slice(0, 6)}`;
-
-    const names: string[] = [];
-    for (const groupId of toGroupIdsForBattleQuery(deck.ship_ids)) {
-      const ships = shipsByGroupId.get(groupId) || [];
-      for (const ship of ships) {
-        const mstId = Number(ship.mst_ship_id ?? 0);
-        if (mstId <= 0) continue;
-        names.push(mstNameById.get(mstId) || `艦ID:${mstId}`);
-      }
-    }
-
-    const uniqueNames = [...new Set(names)];
-    if (uniqueNames.length === 0) {
-      return `敵艦隊 ${deckId.slice(0, 6)}`;
-    }
-    const head = uniqueNames.slice(0, 3).join(" / ");
-    return uniqueNames.length > 3 ? `${head} +${uniqueNames.length - 3}` : head;
-  };
-}
-
-function buildBattleSummaries(args: {
-  battles: Array<Record<string, unknown>>;
-  cells: Array<Record<string, unknown>>;
-  battleResults: Array<Record<string, unknown>>;
-  openingAirattackLists?: Array<Record<string, unknown>>;
-  openingAirattacks?: Array<Record<string, unknown>>;
-  mstShips?: Array<Record<string, unknown>>;
-  enemyDecks?: Array<Record<string, unknown>>;
-  enemyShips?: Array<Record<string, unknown>>;
-  includeEnemySummary?: boolean;
-  includeOpeningAirAttack?: boolean;
-}): Array<Record<string, unknown>> {
-  const battleResultByUuid = new Map<string, Record<string, unknown>>();
-  for (const record of args.battleResults) {
-    const uuid = String(record.uuid ?? "");
-    if (!uuid) continue;
-    battleResultByUuid.set(uuid, record);
-  }
-
-  const mapByBattleUuid = new Map<
-    string,
-    { maparea_id: number; mapinfo_no: number }
-  >();
-  for (const cell of args.cells) {
-    const battleUuid = String(cell.battles ?? "");
-    if (!battleUuid) continue;
-    const maparea = Number(cell.maparea_id ?? 0);
-    const mapinfo = Number(cell.mapinfo_no ?? 0);
-    if (maparea > 0 && mapinfo > 0) {
-      mapByBattleUuid.set(battleUuid, {
-        maparea_id: maparea,
-        mapinfo_no: mapinfo,
-      });
-    }
-  }
-
-  const mstShipNameById = new Map<number, string>();
-  for (const ship of args.mstShips || []) {
-    const id = Number(ship.id ?? 0);
-    if (id <= 0) continue;
-    mstShipNameById.set(id, String(ship.name ?? ""));
-  }
-
-  const openingAirattackListByUuid = new Map<string, Record<string, unknown>>();
-  for (const record of args.openingAirattackLists || []) {
-    const uuid = String(record.uuid ?? "");
-    if (!uuid) continue;
-    openingAirattackListByUuid.set(uuid, record);
-  }
-
-  const openingAirattackByUuid = new Map<string, Record<string, unknown>>();
-  for (const record of args.openingAirattacks || []) {
-    const uuid = String(record.uuid ?? "");
-    if (!uuid) continue;
-    openingAirattackByUuid.set(uuid, record);
-  }
-
-  const enemySummaryOf = args.includeEnemySummary
-    ? buildEnemySummaryResolver({
-        enemyDecks: args.enemyDecks || [],
-        enemyShips: args.enemyShips || [],
-        mstShips: args.mstShips || [],
-      })
-    : () => "-";
-
-  return (args.battles || [])
-    .filter((battle) => Number.isFinite(Number(battle.cell_id ?? Number.NaN)))
-    .map((battle) => {
-      const battleResultUuid = String(battle.battle_result ?? "");
-      const rawBattleResult =
-        typeof battle.battle_result === "object" && battle.battle_result !== null
-          ? (battle.battle_result as Record<string, unknown>)
-          : battleResultByUuid.get(battleResultUuid) || null;
-      const dropShipId = Number(rawBattleResult?.drop_ship_id ?? 0) || null;
-      const normalizedBattleResult = rawBattleResult
-        ? {
-            ...rawBattleResult,
-            drop_ship_name:
-              dropShipId != null
-                ? mstShipNameById.get(dropShipId) || `艦#${dropShipId}`
-                : null,
-          }
-        : null;
-
-      let normalizedOpeningAirAttack = battle.opening_air_attack;
-      if (
-        args.includeOpeningAirAttack &&
-        typeof normalizedOpeningAirAttack === "string"
-      ) {
-        const listObj = openingAirattackListByUuid.get(normalizedOpeningAirAttack);
-        const detailUuid = String(
-          listObj?.opening_air_attack ?? normalizedOpeningAirAttack,
-        );
-        const detailObj = openingAirattackByUuid.get(detailUuid);
-        if (detailObj) {
-          normalizedOpeningAirAttack = [detailObj];
-        }
-      }
-
-      const resolvedMap = battle.uuid
-        ? mapByBattleUuid.get(String(battle.uuid))
-        : undefined;
-
-      const timestamp = normalizeTimestamp(battle.timestamp) ?? normalizeTimestamp(battle.midnight_timestamp);
-      return {
-        ...battle,
-        ...(resolvedMap || {}),
-        timestamp,
-        battle_result: normalizedBattleResult,
-        enemy_summary: args.includeEnemySummary
-          ? enemySummaryOf(String(battle.e_deck_id ?? "") || null)
-          : undefined,
-        opening_air_attack: normalizedOpeningAirAttack,
-      };
-    });
-}
-
-function resolveFriendlyFleetFromResolvedData(args: {
-  battle: Record<string, unknown>;
-  ownDecks: Array<Record<string, unknown>>;
-  ownShips: Array<Record<string, unknown>>;
-  ownSlotItems: Array<Record<string, unknown>>;
-  mstShips: Array<Record<string, unknown>>;
-  mstSlotItems: Array<Record<string, unknown>>;
-}): Array<Record<string, unknown>> {
-  const hpSnapshot = Array.isArray(args.battle.f_nowhps)
-    ? (args.battle.f_nowhps as unknown[])
-    : Array.isArray(args.battle.midnight_f_nowhps)
-      ? (args.battle.midnight_f_nowhps as unknown[])
-      : [];
-  const mstShipById = new Map(
-    args.mstShips.map((ship) => [Number(ship.id ?? 0), ship]),
-  );
-  const mstSlotItemById = new Map(
-    args.mstSlotItems.map((item) => [Number(item.id ?? 0), item]),
-  );
-  const ownShipsByGroup = new Map<string, Array<Record<string, unknown>>>();
-  for (const ship of args.ownShips) {
-    const groupId = String(ship.uuid ?? "");
-    if (!groupId) continue;
-    if (!ownShipsByGroup.has(groupId)) ownShipsByGroup.set(groupId, []);
-    ownShipsByGroup.get(groupId)!.push(ship);
-  }
-  for (const ships of ownShipsByGroup.values()) {
-    ships.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-  }
-
-  const ownSlotItemsByGroup = new Map<string, Array<Record<string, unknown>>>();
-  for (const item of args.ownSlotItems) {
-    const groupId = String(item.uuid ?? "");
-    if (!groupId) continue;
-    if (!ownSlotItemsByGroup.has(groupId)) ownSlotItemsByGroup.set(groupId, []);
-    ownSlotItemsByGroup.get(groupId)!.push(item);
-  }
-  for (const items of ownSlotItemsByGroup.values()) {
-    items.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-  }
-
-  let bestShips: Array<Record<string, unknown>> = [];
-  let bestScore = Number.MAX_SAFE_INTEGER;
-  for (const deck of args.ownDecks) {
-    for (const groupId of toGroupIdsForBattleQuery(deck.ship_ids)) {
-      const ships = ownShipsByGroup.get(groupId) || [];
-      const score = hpScoreForBattleQuery(
-        ships as Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
-        hpSnapshot,
-      );
-      if (score < bestScore) {
-        bestScore = score;
-        bestShips = ships;
-      }
-    }
-  }
-  if (bestShips.length === 0) {
-    const fallbackHps = hpSnapshot
-      .map((value) => Number(value ?? 0) || 0)
-      .filter((hp) => hp > 0);
-    return fallbackHps.map((hp, idx) => ({
-      name: `味方${idx + 1}番艦`,
-      shipId: null,
-      level: null,
-      nowhp: hp,
-      maxhp: hp,
-      karyoku: null,
-      raisou: null,
-      taiku: null,
-      soukou: null,
-      equipments: [],
-    }));
-  }
-
-  return [...bestShips]
-    .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
-    .map((ship) => {
-      const shipId = Number(ship.ship_id ?? 0) || null;
-      const mstShip = shipId ? mstShipById.get(shipId) : null;
-      const slotItems = typeof ship.slot === "string"
-        ? ownSlotItemsByGroup.get(ship.slot) || []
-        : [];
-      return {
-        name: shipId
-          ? String(mstShip?.name ?? `艦ID:${shipId}`)
-          : "味方艦",
-        shipId,
-        bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
-        level: Number(ship.lv ?? 0) || null,
-        nowhp: Number(ship.nowhp ?? 0) || 0,
-        maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-        karyoku: ship.karyoku ?? null,
-        raisou: ship.raisou ?? null,
-        taiku: ship.taiku ?? null,
-        soukou: ship.soukou ?? null,
-        equipments: slotItems
-          .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-          .map((row) => {
-            const slotId = Number(row.mst_slotitem_id ?? 0) || null;
-            const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
-            const iconType =
-              Array.isArray(mstSlot?.type) && mstSlot.type.length >= 4
-                ? Number(mstSlot.type[3] ?? 0) || null
-                : null;
-            return {
-              name: String(mstSlot?.name ?? `装備ID:${slotId}`),
-              level: Number(row.level ?? 0) || null,
-              iconType,
-              slotItemId: slotId,
-            };
-          }),
-      };
-    });
-}
-
-function resolveEnemyFleetFromResolvedData(args: {
-  battle: Record<string, unknown>;
-  enemyDecks: Array<Record<string, unknown>>;
-  enemyShips: Array<Record<string, unknown>>;
-  enemySlotItems: Array<Record<string, unknown>>;
-  mstShips: Array<Record<string, unknown>>;
-  mstSlotItems: Array<Record<string, unknown>>;
-}): Array<Record<string, unknown>> {
-  const mstShipById = new Map(
-    args.mstShips.map((ship) => [Number(ship.id ?? 0), ship]),
-  );
-  const mstSlotItemById = new Map(
-    args.mstSlotItems.map((item) => [Number(item.id ?? 0), item]),
-  );
-  const deckById = new Map(
-    args.enemyDecks.map((deck) => [String(deck.uuid ?? ""), deck]),
-  );
-  const shipsByGroup = new Map<string, Array<Record<string, unknown>>>();
-  for (const ship of args.enemyShips) {
-    const groupId = String(ship.uuid ?? "");
-    if (!groupId) continue;
-    if (!shipsByGroup.has(groupId)) shipsByGroup.set(groupId, []);
-    shipsByGroup.get(groupId)!.push(ship);
-  }
-  for (const ships of shipsByGroup.values()) {
-    ships.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-  }
-  const slotItemsByGroup = new Map<string, Array<Record<string, unknown>>>();
-  for (const item of args.enemySlotItems) {
-    const groupId = String(item.uuid ?? "");
-    if (!groupId) continue;
-    if (!slotItemsByGroup.has(groupId)) slotItemsByGroup.set(groupId, []);
-    slotItemsByGroup.get(groupId)!.push(item);
-  }
-  for (const items of slotItemsByGroup.values()) {
-    items.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
-  }
-
-  const deckId = String(args.battle.e_deck_id ?? "");
-  const deck = deckById.get(deckId);
-  if (!deck?.ship_ids) {
-    const fallbackHps = (Array.isArray(args.battle.e_nowhps)
-      ? args.battle.e_nowhps
-      : Array.isArray(args.battle.midnight_e_nowhps)
-        ? args.battle.midnight_e_nowhps
-        : []) as unknown[];
-    return fallbackHps
-      .map((value) => Number(value ?? 0) || 0)
-      .filter((hp) => hp > 0)
-      .map((hp, idx) => ({
-        name: `敵${idx + 1}番艦`,
-        shipId: null,
-        level: null,
-        nowhp: hp,
-        maxhp: hp,
-        karyoku: null,
-        raisou: null,
-        taiku: null,
-        soukou: null,
-        equipments: [],
-      }));
-  }
-
-  const ships: Array<Record<string, unknown>> = [];
-  for (const groupId of toGroupIdsForBattleQuery(deck.ship_ids)) {
-    ships.push(...(shipsByGroup.get(groupId) || []));
-  }
-
-  return ships
-    .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
-    .map((ship) => {
-      const shipId = Number(ship.mst_ship_id ?? 0) || null;
-      const mstShip = shipId ? mstShipById.get(shipId) : null;
-      const slotItems = typeof ship.slot === "string"
-        ? slotItemsByGroup.get(ship.slot) || []
-        : [];
-      return {
-        name: shipId
-          ? String(mstShip?.name ?? `敵艦ID:${shipId}`)
-          : "敵艦",
-        shipId,
-        bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
-        level: Number(ship.lv ?? 0) || null,
-        nowhp: Number(ship.nowhp ?? 0) || 0,
-        maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-        karyoku: ship.karyoku ?? null,
-        raisou: ship.raisou ?? null,
-        taiku: ship.taiku ?? null,
-        soukou: ship.soukou ?? null,
-        equipments: slotItems
-          .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-          .map((row) => {
-            const slotId = Number(row.mst_slotitem_id ?? 0) || null;
-            const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
-            const iconType =
-              Array.isArray(mstSlot?.type) && mstSlot.type.length >= 4
-                ? Number(mstSlot.type[3] ?? 0) || null
-                : null;
-            return {
-              name: String(mstSlot?.name ?? `装備ID:${slotId}`),
-              level: null,
-              iconType,
-              slotItemId: slotId,
-            };
-          }),
-      };
-    });
-}
-
 const SORTIE_SPLIT_GAP_MS = 90 * 60 * 1000;
-type CompactionTier = "hourly" | "daily" | "weekly" | "period";
-const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
-
-function parseCompactionTier(value: string | undefined): CompactionTier | null {
-  if (!value) return null;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "hourly" ||
-    normalized === "daily" ||
-    normalized === "weekly" ||
-    normalized === "period"
-  ) {
-    return normalized;
-  }
-  return null;
-}
 
 async function resolveAllowedPeriodTagsForRecords(
   c: { env: Bindings },
@@ -2006,18 +1168,6 @@ app.get("/global/records", async (c) => {
   const periodTagParam = (c.req.query("period_tag") || "latest").trim();
   const tableVersionParam = (c.req.query("table_version") || "").trim();
   const datasetId = c.req.query("dataset_id")?.trim();
-  const tierParamRaw = c.req.query("tier")?.trim();
-  const compactionTier = parseCompactionTier(tierParamRaw);
-  const windowStartMsRaw = c.req.query("window_start_ms")?.trim();
-  const windowEndMsRaw = c.req.query("window_end_ms")?.trim();
-  const windowStartMs =
-    windowStartMsRaw && Number.isFinite(Number(windowStartMsRaw))
-      ? Number(windowStartMsRaw)
-      : null;
-  const windowEndMs =
-    windowEndMsRaw && Number.isFinite(Number(windowEndMsRaw))
-      ? Number(windowEndMsRaw)
-      : null;
   const includeSortieKeyRaw = (c.req.query("include_sortie_key") || "1")
     .trim()
     .toLowerCase();
@@ -2073,50 +1223,6 @@ app.get("/global/records", async (c) => {
     );
   }
 
-  if (tierParamRaw && !compactionTier) {
-    return c.json(
-      {
-        error: "INVALID_TIER",
-        message: "tier must be one of: hourly, daily, weekly, period",
-      },
-      400,
-    );
-  }
-
-  if (windowStartMsRaw && windowStartMs == null) {
-    return c.json(
-      {
-        error: "INVALID_WINDOW_START",
-        message: "window_start_ms must be a valid number",
-      },
-      400,
-    );
-  }
-
-  if (windowEndMsRaw && windowEndMs == null) {
-    return c.json(
-      {
-        error: "INVALID_WINDOW_END",
-        message: "window_end_ms must be a valid number",
-      },
-      400,
-    );
-  }
-
-    if (
-      windowStartMs != null &&
-      windowEndMs != null &&
-      windowStartMs > windowEndMs
-    ) {
-      return c.json(
-        {
-          error: "INVALID_WINDOW_RANGE",
-          message: "window_start_ms must be less than or equal to window_end_ms",
-        },
-        400,
-      );
-    }
-
   if (periodTagParam !== "latest" && periodTagParam !== "all") {
     const periodTagValidation = await validateCachedPeriodTag(
       c,
@@ -2139,41 +1245,13 @@ app.get("/global/records", async (c) => {
 
   const cache = (globalThis as { caches?: { default?: Cache } }).caches
     ?.default;
-  const cacheUrl = new URL(c.req.url);
-  if (filterJsonRaw) {
-    cacheUrl.searchParams.set("_cache_v", "2");
-  }
-  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
+  const cacheKey = new Request(c.req.url, { method: "GET" });
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
       const hit = new Response(cached.body, cached);
       hit.headers.set("X-FUSOU-Cache", "HIT");
       return hit;
-    }
-  }
-
-  const cacheKV = env.runtime.DATA_LOADER_CACHE_KV as KVNamespace | undefined;
-  let kvKey: string | null = null;
-  if (filterJsonRaw && cacheKV) {
-    const hashBytes = await crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(filterJsonRaw),
-    );
-    const filterHash = Array.from(new Uint8Array(hashBytes))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("")
-      .slice(0, 16);
-    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
-    const kvCached = await cacheKV.get(kvKey, "text");
-    if (kvCached) {
-      return new Response(kvCached, {
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": cacheControl,
-          "X-FUSOU-Cache": "KV-HIT",
-        },
-      });
     }
   }
 
@@ -2208,148 +1286,57 @@ app.get("/global/records", async (c) => {
       resolvedPeriodTag = periodTagParam;
     }
 
-    const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
-
-    const fetchBlocks = async (tier: CompactionTier | null) => {
-      let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
+    let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
                WHERE bi.table_name = ?`;
-      const params: unknown[] = [table];
+    const params: unknown[] = [table];
 
-      if (tableVersionParam) {
-        sql += " AND bi.table_version = ?";
-        params.push(tableVersionParam);
-      }
+    if (tableVersionParam) {
+      sql += " AND bi.table_version = ?";
+      params.push(tableVersionParam);
+    }
 
-      if (tier) {
-        sql += " AND bi.compaction_tier = ?";
-        params.push(tier);
-      }
-
-      if (windowStartMs != null) {
-        sql += " AND bi.window_start_ms >= ?";
-        params.push(windowStartMs);
-      }
-
-      if (windowEndMs != null) {
-        sql += " AND bi.window_end_ms <= ?";
-        params.push(windowEndMs);
-      }
-
-      if (resolvedPeriodTag) {
-        sql += " AND bi.period_tag = ?";
-        params.push(resolvedPeriodTag);
-      } else {
-        const allowedTags = [...allowedPeriodTagSet];
-        if (allowedTags.length === 0) {
-          return null;
-        }
-        const placeholders = allowedTags.map(() => "?").join(", ");
-        sql += ` AND bi.period_tag IN (${placeholders})`;
-        params.push(...allowedTags);
-      }
-
-      if (datasetId) {
-        sql += " AND bi.dataset_id = ?";
-        params.push(datasetId);
-      }
-
-      sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
-      params.push(perTierFetchLimit);
-
-      return await indexDb.prepare(sql).bind(...params).all?.();
-    };
-
-    let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
-    let effectiveTier: CompactionTier | null = compactionTier ?? null;
-
-    const mergeTierRows = (
-      tierRows: Map<CompactionTier, any[]>,
-    ): { rows: any[]; tier: CompactionTier | null } => {
-      const accepted: any[] = [];
-      const seenBlockIds = new Set<number>();
-      let usedTierCount = 0;
-      let firstTier: CompactionTier | null = null;
-
-      for (const tier of TIER_PRIORITY) {
-        const rows = tierRows.get(tier) ?? [];
-        let usedThisTier = false;
-        for (const row of rows) {
-          const id = Number(row?.id ?? NaN);
-          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
-            continue;
-          }
-
-          accepted.push(row);
-          seenBlockIds.add(id);
-          usedThisTier = true;
-        }
-
-        if (usedThisTier) {
-          usedTierCount += 1;
-          if (!firstTier) {
-            firstTier = tier;
-          }
-        }
-      }
-
-      accepted.sort(
-        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
-      );
-
-      return {
-        rows: accepted,
-        tier: usedTierCount > 1 ? null : firstTier,
-      };
-    };
-
-    if (compactionTier) {
-      blockResult = await fetchBlocks(compactionTier);
-      effectiveTier = compactionTier;
+    if (resolvedPeriodTag) {
+      sql += " AND bi.period_tag = ?";
+      params.push(resolvedPeriodTag);
     } else {
-      const tierRows = new Map<CompactionTier, any[]>();
-      for (const tier of TIER_PRIORITY) {
-        const candidate = await fetchBlocks(tier);
-        tierRows.set(tier, (candidate?.results || []) as any[]);
+      const allowedTags = [...allowedPeriodTagSet];
+      if (allowedTags.length === 0) {
+        const payload = {
+          success: true,
+          table,
+          period_tag: periodTagParam,
+          table_version: tableVersionParam || null,
+          count: 0,
+          records: [],
+          source_blocks: 0,
+        };
+        const response = c.json(payload);
+        response.headers.set("Cache-Control", cacheControl);
+        response.headers.set("X-FUSOU-Cache", "MISS");
+        if (cache) {
+          await putCacheSafely(c, cache, cacheKey, response);
+        }
+        return response;
       }
-
-      const merged = mergeTierRows(tierRows);
-      effectiveTier = merged.tier;
-
-      if (merged.rows.length > 0) {
-        blockResult = { results: merged.rows } as Awaited<
-          ReturnType<typeof fetchBlocks>
-        >;
-      } else {
-        blockResult = await fetchBlocks(null);
-        effectiveTier = null;
-      }
+      const placeholders = allowedTags.map(() => "?").join(", ");
+      sql += ` AND bi.period_tag IN (${placeholders})`;
+      params.push(...allowedTags);
+    }
+    if (datasetId) {
+      sql += " AND bi.dataset_id = ?";
+      params.push(datasetId);
     }
 
-    if (blockResult == null) {
-      const payload = {
-        success: true,
-        table,
-        period_tag: periodTagParam,
-        table_version: tableVersionParam || null,
-        tier: effectiveTier,
-        window_start_ms: windowStartMs,
-        window_end_ms: windowEndMs,
-        count: 0,
-        records: [],
-        source_blocks: 0,
-      };
-      const response = c.json(payload);
-      response.headers.set("Cache-Control", cacheControl);
-      response.headers.set("X-FUSOU-Cache", "MISS");
-      if (cache && !(recordFilter && payload.count === 0)) {
-        await putCacheSafely(c, cache, cacheKey, response);
-      }
-      return response;
-    }
+    sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
+    params.push(limitBlocks);
 
-    const candidateRows = (blockResult?.results || []) as Array<{
+    const blockResult = await indexDb
+      .prepare(sql)
+      .bind(...params)
+      .all?.();
+    const rows = (blockResult?.results || []) as Array<{
       id: number;
       dataset_id: string;
       start_byte: number;
@@ -2357,13 +1344,8 @@ app.get("/global/records", async (c) => {
       start_timestamp: number | null;
       end_timestamp: number | null;
       period_tag: string | null;
-      window_start_ms: number | null;
-      window_end_ms: number | null;
-      compaction_tier: CompactionTier | null;
       file_path: string;
     }>;
-    const sourceBlocksTruncated = candidateRows.length > limitBlocks;
-    const rows = candidateRows.slice(0, limitBlocks);
 
     // Build a lightweight ETag from the block IDs so conditional requests can
     // skip the expensive R2 decode step entirely.
@@ -2390,13 +1372,6 @@ app.get("/global/records", async (c) => {
         table,
         period_tag: resolvedPeriodTag || periodTagParam,
         table_version: tableVersionParam || null,
-        tier: effectiveTier,
-        window_start_ms: windowStartMs,
-        window_end_ms: windowEndMs,
-        applied_limit_blocks: limitBlocks,
-        applied_limit_records: limitRecords,
-        source_blocks_truncated: false,
-        records_limit_reached: false,
         count: 0,
         records: [],
         source_blocks: 0,
@@ -2404,46 +1379,43 @@ app.get("/global/records", async (c) => {
       const response = c.json(payload);
       response.headers.set("Cache-Control", cacheControl);
       response.headers.set("X-FUSOU-Cache", "MISS");
-      if (cache && !(recordFilter && payload.count === 0)) {
+      if (cache) {
         await putCacheSafely(c, cache, cacheKey, response);
       }
       return response;
     }
 
-    const decodedBlocks = await Promise.all(
-      rows.map((row) =>
-        decodeIndexedBlock(
+    const decodedRecords: any[] = [];
+    for (const row of rows) {
+      try {
+        const recs = await decodeIndexedBlock(
           bucket,
           row.file_path,
           Number(row.start_byte || 0),
           Number(row.length || 0),
-        ).catch((err) => {
-          console.warn(
-            "[battle-data] failed to decode block in /global/records",
-            {
-              table,
-              blockId: row.id,
-              filePath: row.file_path,
-              error: String(err),
-            },
-          );
-          return [] as any[];
-        }),
-      ),
-    );
-
-    const decodedRecords: any[] = [];
-    let recordsLimitReached = false;
-    outer: for (const recs of decodedBlocks) {
-      for (const rec of recs) {
-        if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
-          continue;
+        );
+        for (const rec of recs) {
+          if (recordFilter && !matchesRecordFilter(rec, recordFilter)) {
+            continue;
+          }
+          decodedRecords.push(rec);
+          if (decodedRecords.length >= limitRecords) {
+            break;
+          }
         }
-        decodedRecords.push(rec);
         if (decodedRecords.length >= limitRecords) {
-          recordsLimitReached = true;
-          break outer;
+          break;
         }
+      } catch (err) {
+        console.warn(
+          "[battle-data] failed to decode block in /global/records",
+          {
+            table,
+            blockId: row.id,
+            filePath: row.file_path,
+            error: String(err),
+          },
+        );
       }
     }
 
@@ -2456,13 +1428,6 @@ app.get("/global/records", async (c) => {
       table,
       period_tag: resolvedPeriodTag || periodTagParam,
       table_version: tableVersionParam || null,
-      tier: effectiveTier,
-      window_start_ms: windowStartMs,
-      window_end_ms: windowEndMs,
-      applied_limit_blocks: limitBlocks,
-      applied_limit_records: limitRecords,
-      source_blocks_truncated: sourceBlocksTruncated,
-      records_limit_reached: recordsLimitReached,
       count: decodedRecords.length,
       records: decodedRecords,
       source_blocks: rows.length,
@@ -2473,530 +1438,13 @@ app.get("/global/records", async (c) => {
     if (blockEtag) {
       response.headers.set("ETag", blockEtag);
     }
-    if (cache && !(recordFilter && payload.count === 0)) {
+    if (cache) {
       await putCacheSafely(c, cache, cacheKey, response);
-    }
-    if (kvKey && cacheKV && payload.count > 0) {
-      const kvTtlSeconds = periodTagParam === "latest" ? 3600 : 86400;
-      const payloadText = JSON.stringify(payload);
-      if (payloadText.length < 20 * 1024 * 1024) {
-        safeWaitUntil(
-          c,
-          cacheKV.put(kvKey, payloadText, { expirationTtl: kvTtlSeconds }),
-        );
-      }
     }
     return response;
   } catch (err) {
     console.error("[battle-data] Failed to fetch global records:", err);
     return c.json({ error: "Failed to decode records" }, 500);
-  }
-});
-
-app.get("/global/overview", async (c) => {
-  const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 200, 400);
-  const limitRecords = parsePositiveInt(
-    c.req.query("limit_records"),
-    20000,
-    20000,
-  );
-  const cacheControl = getBattleDataCacheControl(periodTag);
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
-
-  try {
-    const [battles, cells, battleResults, mstShipPayload] =
-      await Promise.all([
-        fetchGlobalRecordsInternal(c, {
-          table: "battle",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-          includeSortieKey: true,
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "cells",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        }),
-        fetchGlobalRecordsInternal(c, {
-          table: "battle_result",
-          periodTag,
-          tableVersion,
-          limitBlocks,
-          limitRecords,
-        }),
-        fetchMasterDataJsonDirect(c, "mst_ship"),
-      ]);
-
-    const mstShips = mstShipPayload.records || [];
-
-    const payload = {
-      success: true,
-      period_tag: periodTag,
-      table_version: tableVersion || null,
-      master_data: {
-        period_tag: mstShipPayload.period_tag || null,
-        period_revision: mstShipPayload.period_revision ?? null,
-        table_version: mstShipPayload.table_version || null,
-      },
-      battles: buildBattleSummaries({
-        battles,
-        cells,
-        battleResults,
-        mstShips,
-        includeEnemySummary: false,
-        includeOpeningAirAttack: false,
-      }),
-      cells,
-    };
-
-    const response = c.json(payload);
-    response.headers.set("Cache-Control", cacheControl);
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, response);
-    }
-    return response;
-  } catch (error) {
-    console.error("[battle-data] Failed to build overview payload:", error);
-    return c.json({ error: "Failed to build overview payload" }, 500);
-  }
-});
-
-app.get("/global/drops", async (c) => {
-  const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
-  const limitBlocks = parsePositiveInt(c.req.query("limit_blocks"), 200, 400);
-  const limitRecords = parsePositiveInt(
-    c.req.query("limit_records"),
-    20000,
-    20000,
-  );
-  const cacheControl = getBattleDataCacheControl(periodTag);
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
-
-  try {
-    const [battles, cells, battleResults, mstShipPayload] = await Promise.all([
-      fetchGlobalRecordsInternal(c, {
-        table: "battle",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-        includeSortieKey: true,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "cells",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
-      fetchGlobalRecordsInternal(c, {
-        table: "battle_result",
-        periodTag,
-        tableVersion,
-        limitBlocks,
-        limitRecords,
-      }),
-      fetchMasterDataJsonDirect(c, "mst_ship"),
-    ]);
-
-    const mstShips = mstShipPayload.records || [];
-
-    const summaries = buildBattleSummaries({
-      battles,
-      cells,
-      battleResults,
-      mstShips,
-      includeEnemySummary: false,
-      includeOpeningAirAttack: false,
-    });
-
-    const dropShipIds = new Set<number>();
-    for (const battle of summaries) {
-      const dropShipId = Number(
-        (battle.battle_result as Record<string, unknown> | null)?.drop_ship_id ??
-          0,
-      );
-      if (dropShipId > 0) {
-        dropShipIds.add(dropShipId);
-      }
-    }
-
-    const filteredMstShips = mstShips.filter((ship) =>
-      dropShipIds.has(Number(ship.id ?? 0)),
-    );
-
-    const payload = {
-      success: true,
-      period_tag: periodTag,
-      table_version: tableVersion || null,
-      master_data: {
-        period_tag: mstShipPayload.period_tag || null,
-        period_revision: mstShipPayload.period_revision ?? null,
-        table_version: mstShipPayload.table_version || null,
-      },
-      battles: summaries,
-      mst_ships: filteredMstShips,
-    };
-
-    const response = c.json(payload);
-    response.headers.set("Cache-Control", cacheControl);
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, response);
-    }
-    return response;
-  } catch (error) {
-    console.error("[battle-data] Failed to build drops payload:", error);
-    return c.json({ error: "Failed to build drops payload" }, 500);
-  }
-});
-
-app.get("/detail", async (c) => {
-  const battleUuid = (c.req.query("battle_uuid") || "").trim();
-  const periodTag = (c.req.query("period_tag") || "latest").trim();
-  const tableVersion = (c.req.query("table_version") || "").trim();
-  const cacheControl = getBattleDataCacheControl(periodTag);
-  const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
-
-  if (!battleUuid) {
-    return c.json({ error: "battle_uuid is required" }, 400);
-  }
-
-  if (cache) {
-    const cached = await cache.match(cacheKey);
-    if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
-    }
-  }
-
-  try {
-    const fetchBattle = async (tag: string) =>
-      fetchGlobalRecordsInternal(c, {
-        table: "battle",
-        periodTag: tag,
-        tableVersion,
-        limitBlocks: 120,
-        limitRecords: 50,
-        filter: { uuid: battleUuid },
-      });
-
-    const primaryBattles = await fetchBattle(periodTag);
-    const fallbackBattles =
-      primaryBattles.length > 0 || periodTag === "all"
-        ? primaryBattles
-        : await fetchBattle("all");
-    const battle = fallbackBattles.find((row) => String(row.uuid ?? "") === battleUuid);
-
-    if (!battle) {
-      return c.json({ error: "Battle not found" }, 404);
-    }
-
-    const envUuid = String(battle.env_uuid ?? "");
-    const battleResultUuid = String(battle.battle_result ?? "");
-    const midnightHougekiListUuid = String(battle.midnight_hougeki ?? "");
-    const openingTaisenListUuid = String(battle.opening_taisen ?? "");
-    const hougekiListUuid = String(battle.hougeki ?? "");
-    const openingAirattackListUuid = String(battle.opening_air_attack ?? "");
-    const openingRaigekiUuid = String(battle.opening_raigeki ?? "");
-    const closingRaigekiUuid = String(battle.closing_raigeki ?? "");
-    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis] =
-      await Promise.all([
-        fetchGlobalRecordsInternal(c, {
-          table: "cells",
-          periodTag: "all",
-          tableVersion,
-          limitBlocks: 120,
-          limitRecords: 200,
-          filter: { battles: battleUuid },
-        }),
-        battleResultUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "battle_result",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 50,
-              filter: { uuid: battleResultUuid },
-            })
-          : Promise.resolve([]),
-        envUuid
-          ? fetchBattleEnvBundleInternal(c, envUuid, tableVersion)
-          : Promise.resolve({
-              ownDecks: [],
-              ownShips: [],
-              ownSlotItems: [],
-              enemyDecks: [],
-              enemyShips: [],
-              enemySlotItems: [],
-            }),
-        fetchMasterDataJsonDirect(c, "mst_ship"),
-        fetchMasterDataJsonDirect(c, "mst_slotitem"),
-        fetchWeaponIconFramesDirect(c),
-        midnightHougekiListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: midnightHougekiListUuid },
-            })
-          : Promise.resolve([]),
-        openingTaisenListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingTaisenListUuid },
-            })
-          : Promise.resolve([]),
-        hougekiListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: hougekiListUuid },
-            })
-          : Promise.resolve([]),
-        openingAirattackListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingAirattackListUuid },
-            })
-          : Promise.resolve([]),
-        openingRaigekiUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_raigeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingRaigekiUuid },
-            })
-          : Promise.resolve([]),
-        closingRaigekiUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "closing_raigeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: closingRaigekiUuid },
-            })
-          : Promise.resolve([]),
-      ]);
-
-    const ownDecks = envBundle.ownDecks;
-    const ownShips = envBundle.ownShips;
-    const ownSlotItems = envBundle.ownSlotItems;
-    const enemyDecks = envBundle.enemyDecks;
-    const enemyShips = envBundle.enemyShips;
-    const enemySlotItems = envBundle.enemySlotItems;
-
-    const midnightHougekiDetailUuid = String(
-      midnightHougekiLists[0]?.midnight_hougeki ?? "",
-    );
-    const openingTaisenDetailUuid = String(
-      openingTaisenLists[0]?.opening_taisen ?? "",
-    );
-    const hougekiDetailUuid = String(hougekiLists[0]?.hougeki ?? "");
-    const openingAirattackDetailUuid = String(
-      openingAirattackLists[0]?.opening_air_attack ?? "",
-    );
-    const destructionBattleUuid = String(cells[0]?.destruction_battles ?? "");
-
-    const [midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles] =
-      await Promise.all([
-        midnightHougekiDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: midnightHougekiDetailUuid },
-            })
-          : Promise.resolve([]),
-        openingTaisenDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingTaisenDetailUuid },
-            })
-          : Promise.resolve([]),
-        hougekiDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: hougekiDetailUuid },
-            })
-          : Promise.resolve([]),
-        openingAirattackDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingAirattackDetailUuid },
-            })
-          : Promise.resolve([]),
-        destructionBattleUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "destruction_battle",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: destructionBattleUuid },
-            })
-          : Promise.resolve([]),
-      ]);
-
-    const mstShips = mstShipPayload.records || [];
-    const mstSlotItems = mstSlotItemPayload.records || [];
-
-    const mergedBattle = {
-      ...battle,
-      timestamp:
-        normalizeTimestamp(battle.timestamp) ??
-        normalizeTimestamp(battle.midnight_timestamp),
-      battle_result: battleResults[0] || battle.battle_result || null,
-      midnight_hougeki: midnightHougekis.length > 0 ? midnightHougekis : battle.midnight_hougeki,
-      opening_taisen: openingTaisens.length > 0 ? openingTaisens : battle.opening_taisen,
-      hougeki: hougekis.length > 0 ? hougekis : battle.hougeki,
-      opening_air_attack:
-        openingAirattacks.length > 0 ? openingAirattacks : battle.opening_air_attack,
-      opening_raigeki: openingRaigekis[0] || battle.opening_raigeki,
-      closing_raigeki: closingRaigekis[0] || battle.closing_raigeki,
-      destruction_battle:
-        destructionBattles.length > 0 ? destructionBattles[0] : null,
-    };
-
-    const relevantShipIds = new Set<number>();
-    const relevantSlotItemIds = new Set<number>();
-    for (const row of [...ownShips, ...enemyShips]) {
-      const shipId = Number(row.ship_id ?? row.mst_ship_id ?? 0);
-      if (shipId > 0) relevantShipIds.add(shipId);
-    }
-    const dropShipId = Number(battleResults[0]?.drop_ship_id ?? 0);
-    if (dropShipId > 0) relevantShipIds.add(dropShipId);
-    for (const row of [...ownSlotItems, ...enemySlotItems]) {
-      const slotItemId = Number(row.mst_slotitem_id ?? 0);
-      if (slotItemId > 0) relevantSlotItemIds.add(slotItemId);
-    }
-
-    const payload = {
-      success: true,
-      period_tag: periodTag,
-      table_version: tableVersion || null,
-      battle: mergedBattle,
-      linked: {
-        cells,
-        battle_result: battleResults,
-        own_deck: ownDecks,
-        own_ship: ownShips,
-        own_slotitem: ownSlotItems,
-        enemy_deck: enemyDecks,
-        enemy_ship: enemyShips,
-        enemy_slotitem: enemySlotItems,
-        midnight_hougeki_list: midnightHougekiLists,
-        midnight_hougeki: midnightHougekis,
-        opening_taisen_list: openingTaisenLists,
-        opening_taisen: openingTaisens,
-        hougeki_list: hougekiLists,
-        hougeki: hougekis,
-        opening_airattack_list: openingAirattackLists,
-        opening_airattack: openingAirattacks,
-        opening_raigeki: openingRaigekis,
-        closing_raigeki: closingRaigekis,
-        destruction_battle: destructionBattles,
-      },
-      refs: {
-        mst_ship: mstShips.filter((ship) => relevantShipIds.has(Number(ship.id ?? 0))),
-        mst_slotitem: mstSlotItems.filter((item) =>
-          relevantSlotItemIds.has(Number(item.id ?? 0)),
-        ),
-        weapon_icon_frames: weaponIconFramesPayload,
-      },
-      derived: {
-        friendly_fleet: resolveFriendlyFleetFromResolvedData({
-          battle: mergedBattle,
-          ownDecks,
-          ownShips,
-          ownSlotItems,
-          mstShips,
-          mstSlotItems,
-        }),
-        enemy_fleet: resolveEnemyFleetFromResolvedData({
-          battle: mergedBattle,
-          enemyDecks,
-          enemyShips,
-          enemySlotItems,
-          mstShips,
-          mstSlotItems,
-        }),
-      },
-      source_meta: {
-        battle_uuid: battleUuid,
-      },
-    };
-
-    const response = c.json(payload);
-    response.headers.set("Cache-Control", cacheControl);
-    response.headers.set("X-FUSOU-Cache", "MISS");
-    if (cache) {
-      await putCacheSafely(c, cache, cacheKey, response);
-    }
-    return response;
-  } catch (error) {
-    console.error("[battle-data] Failed to build detail payload:", error);
-    return c.json({ error: "Failed to build detail payload" }, 500);
   }
 });
 

@@ -24,7 +24,6 @@ import anonymousSyncV2App from "./routes/anonymous-sync-v2";
 import shortenerApp from "./routes/shortener";
 import questTreeApp from "./routes/quest_tree";
 import remodelDataApp from "./routes/remodel_data";
-import internalCompactionApp from "./routes/internal_compaction";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const SAFE_CORS_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -220,7 +219,6 @@ app.route("/shorten", shortenerApp); // shortener app declares POST /
 app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest
 app.route("/soku-speed-observed", sokuSpeedObserved); // Mount new route for sokuSpeedObserved
-app.route("/internal/compaction", internalCompactionApp); // internal compaction control plane APIs for Trigger.dev
 
 // Catch-all 404
 app.all("*", (c) => {

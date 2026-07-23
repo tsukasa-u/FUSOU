@@ -26,10 +26,7 @@ const fixDeclareGlobal = {
         /\/\/# sourceMappingURL=/,
         "export {};\n//# sourceMappingURL="
       );
-      if (fixed !== code) {
-        return { code: fixed, map: null };
-      }
-      return { code: "export {};\n" + code, map: null };
+      return { code: fixed, map: null };
     }
     return null;
   },

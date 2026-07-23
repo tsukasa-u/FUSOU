@@ -261,14 +261,7 @@ CREATE TABLE IF NOT EXISTS archived_files (
   compression_codec TEXT DEFAULT 'none',
   created_at INTEGER NOT NULL,
   last_modified_at INTEGER NOT NULL,
-  table_version TEXT NOT NULL DEFAULT 'v1',
-  compaction_tier TEXT NOT NULL DEFAULT 'hourly',
-  window_start_ms INTEGER,
-  window_end_ms INTEGER,
-  source_tier TEXT,
-  lock_token TEXT,
-  lock_expires_ms INTEGER,
-  lock_owner_run_key TEXT
+  table_version TEXT NOT NULL DEFAULT 'v1'
 );
 CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -282,10 +275,6 @@ CREATE TABLE IF NOT EXISTS block_indexes (
   end_timestamp INTEGER NOT NULL,
   table_version TEXT NOT NULL DEFAULT 'v1',
   period_tag TEXT NOT NULL DEFAULT '2025-12-18',
-  compaction_tier TEXT NOT NULL DEFAULT 'hourly',
-  window_start_ms INTEGER,
-  window_end_ms INTEGER,
-  source_file_count INTEGER NOT NULL DEFAULT 1,
   FOREIGN KEY(file_id) REFERENCES archived_files(id)
 );
 CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
@@ -295,52 +284,6 @@ CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timesta
 `;
   runWithRetry(
     `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
-    6,
-    400,
-  );
-
-  const tableColumns = {
-    archived_files: {
-      compaction_tier: "TEXT NOT NULL DEFAULT 'hourly'",
-      window_start_ms: "INTEGER",
-      window_end_ms: "INTEGER",
-      source_tier: "TEXT",
-      lock_token: "TEXT",
-      lock_expires_ms: "INTEGER",
-      lock_owner_run_key: "TEXT",
-    },
-    block_indexes: {
-      compaction_tier: "TEXT NOT NULL DEFAULT 'hourly'",
-      window_start_ms: "INTEGER",
-      window_end_ms: "INTEGER",
-      source_file_count: "INTEGER NOT NULL DEFAULT 1",
-    },
-  };
-
-  for (const [tableName, requiredColumns] of Object.entries(tableColumns)) {
-    const infoRows = d1Query(dbName, `PRAGMA table_info(${tableName});`, false);
-    const existingColumns = new Set(
-      infoRows
-        .map((row) => String(row?.name || "").trim())
-        .filter(Boolean),
-    );
-
-    for (const [columnName, columnDef] of Object.entries(requiredColumns)) {
-      if (existingColumns.has(columnName)) continue;
-      runWithRetry(
-        `npx wrangler d1 execute ${dbName} --command "ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef};"`,
-        6,
-        400,
-      );
-    }
-  }
-
-  const indexSql = `
-CREATE INDEX IF NOT EXISTS idx_archived_files_lock_expires ON archived_files(lock_expires_ms);
-CREATE INDEX IF NOT EXISTS idx_block_indexes_tier_period_table ON block_indexes(compaction_tier, period_tag, table_name, table_version, start_timestamp);
-`;
-  runWithRetry(
-    `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(indexSql)}"`,
     6,
     400,
   );

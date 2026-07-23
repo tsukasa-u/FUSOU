@@ -20,12 +20,6 @@ import { SpriteMotionCounts } from "./sprite-motion-counts";
 // ── Phase data helpers ────────────────────────────────────────────────────
 
 function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
-  const normalizeSi = (value: unknown): unknown[] => {
-    if (Array.isArray(value)) return value;
-    const n = Number(value ?? 0);
-    return Number.isFinite(n) && n > 0 ? [n] : [];
-  };
-
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
   if (obj?.at_list) {
@@ -36,17 +30,9 @@ function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
       damage: (obj.damage as unknown[])?.[idx] ?? [],
       cl: (obj.cl_list as unknown[])?.[idx] ?? [],
       at_eflag: (obj.at_eflag as unknown[])?.[idx] ?? 0,
-      si: normalizeSi((obj.si_list as unknown[])?.[idx] ?? []),
+      si: (obj.si_list as unknown[])?.[idx] ?? [],
       protect_flag: (obj.protect_flag as unknown[])?.[idx] ?? [],
     }));
-  }
-  if (obj) {
-    return [
-      {
-        ...obj,
-        si: normalizeSi(obj.si),
-      },
-    ];
   }
   return [];
 }
@@ -101,37 +87,6 @@ function normalizeNightSupportAttackData(
 
   if (!hourai && !airatack) return null;
   return { hourai, airatack };
-}
-
-function hasRaigekiActivity(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false;
-  const d = data as Record<string, unknown>;
-
-  const raiCandidates = [d.frai, d.f_rai, d.frai_list_items, d.erai, d.e_rai, d.erai_list_items];
-  const hasTarget = raiCandidates.some((candidate) => {
-    if (!Array.isArray(candidate)) return false;
-    return candidate.some((row) => {
-      if (Array.isArray(row)) {
-        return row.some((v) => {
-          const n = Number(v);
-          return Number.isFinite(n) && n >= 0;
-        });
-      }
-      const n = Number(row);
-      return Number.isFinite(n) && n >= 0;
-    });
-  });
-  if (hasTarget) return true;
-
-  const damages = [d.fdam, d.f_dam, d.edam, d.e_dam];
-  return damages.some(
-    (arr) =>
-      Array.isArray(arr) &&
-      arr.some((v) => {
-        const n = Number(v ?? 0) || 0;
-        return n > 0;
-      }),
-  );
 }
 
 // ── Per-attack-type renderers ─────────────────────────────────────────────
@@ -321,21 +276,6 @@ function RaigekiRows(props: {
 
   const buildHits = (): RaigekiHit[] => {
     const hits: RaigekiHit[] = [];
-    const fHpSnapshot = fNow();
-    const eHpSnapshot = eNow();
-    const sideLimit = (side: "friend" | "enemy"): number => {
-      const fleetLen =
-        side === "friend"
-          ? props.fleets?.friendlyShips?.length ?? 0
-          : props.fleets?.enemyShips?.length ?? 0;
-      if (fleetLen > 0) return fleetLen;
-      return side === "friend" ? fHpSnapshot.length : eHpSnapshot.length;
-    };
-    const isValidSideIndex = (
-      side: "friend" | "enemy",
-      idx: number,
-    ): boolean => idx >= 0 && idx < sideLimit(side);
-
     const addHit = (
       atkSide: "friend" | "enemy",
       atkIdx: number,
@@ -344,9 +284,7 @@ function RaigekiRows(props: {
       dmg: number,
       crit: boolean,
     ) => {
-      if (!isValidSideIndex(atkSide, atkIdx)) return;
-      if (!isValidSideIndex(defSide, defIdx)) return;
-      hits.push({ atkSide, atkIdx, defSide, defIdx, dmg: Math.max(0, dmg), crit });
+      if (dmg > 0) hits.push({ atkSide, atkIdx, defSide, defIdx, dmg, crit });
     };
     // f_rai[i]: targets for friendly ship i.
     // Opening raigeki: array of arrays; Closing raigeki: flat array of ints.
@@ -429,11 +367,7 @@ function RaigekiRows(props: {
           });
       });
     }
-    return hits.filter((hit) => {
-      if (!isValidSideIndex(hit.atkSide, hit.atkIdx)) return false;
-      if (!isValidSideIndex(hit.defSide, hit.defIdx)) return false;
-      return true;
-    });
+    return hits;
   };
 
   const hits = () => buildHits();
@@ -572,13 +506,8 @@ function AirAttackRows(props: {
     Array.isArray(props.data?.e_rai_flag)
       ? (props.data.e_rai_flag as (number | null)[])
       : [];
-  const airLabel = () => {
-    const label = AIR_STATE[Number(props.data?.air_superiority ?? -1)]?.label;
-    return typeof label === "string" && label.length > 0 ? label : null;
-  };
-  const hasAnyAirSortie = () => fPlaneFrom().length > 0 || ePlaneFrom().length > 0;
-  const hasAnyAirDamage = () =>
-    fDefs().some((d) => d.dmg > 0) || eDefs().some((d) => d.dmg > 0);
+  const airLabel = () =>
+    AIR_STATE[Number(props.data?.air_superiority ?? -1)]?.label ?? "-";
 
   const eDefs = () =>
     eDamages()
@@ -662,13 +591,11 @@ function AirAttackRows(props: {
 
   return (
     <div class="space-y-3">
-      <Show when={airLabel() && (hasAnyAirSortie() || hasAnyAirDamage())}>
-        <div class="flex items-center gap-2 text-xs text-base-content/55">
-          <span class="font-semibold">制空: {airLabel()}</span>
-        </div>
-      </Show>
+      <div class="flex items-center gap-2 text-xs text-base-content/55">
+        <span class="font-semibold">制空: {airLabel()}</span>
+      </div>
       {/* Friendly planes attacking enemies */}
-      <Show when={fPlaneFrom().length > 0 || fDefs().length > 0}>
+      <Show when={fPlaneFrom().length > 0}>
         <div class="rounded border border-base-300 bg-base-200 p-2">
           <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
             <div class="space-y-1">
@@ -698,7 +625,7 @@ function AirAttackRows(props: {
         </div>
       </Show>
       {/* Enemy planes attacking friendlies */}
-      <Show when={ePlaneFrom().length > 0 || eDefs().length > 0}>
+      <Show when={ePlaneFrom().length > 0}>
         <div class="rounded border border-base-300 bg-base-200 p-2">
           <div class="grid gap-2 md:grid-cols-[260px_20px_minmax(0,1fr)] md:items-start">
             <div class="space-y-1">
@@ -853,31 +780,21 @@ function PhaseCard(props: {
         ? (props.phaseData as Record<string, unknown>[])[0]
         : (props.phaseData as Record<string, unknown>);
       if (first) {
-        const fTotal: number = Array.isArray(first.f_damages)
-          ? Number(
-              (first.f_damages as unknown[]).reduce(
-                (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
-                0,
-              ),
+        const fTotal = Array.isArray(first.f_damages)
+          ? (first.f_damages as unknown[]).reduce(
+              (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+              0,
             )
           : 0;
-        const eTotal: number = Array.isArray(first.e_damages)
-          ? Number(
-              (first.e_damages as unknown[]).reduce(
-                (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
-                0,
-              ),
+        const eTotal = Array.isArray(first.e_damages)
+          ? (first.e_damages as unknown[]).reduce(
+              (s: number, d: unknown) => s + (Number(d ?? 0) || 0),
+              0,
             )
           : 0;
-        const airLabel = AIR_STATE[Number(first.air_superiority ?? -1)]?.label;
-        const badges: string[] = [];
-        if (typeof airLabel === "string" && airLabel.length > 0) {
-          badges.push(airLabel);
-        }
-        if (fTotal > 0 || eTotal > 0) {
-          badges.push(`味方被ダメ ${fTotal}`, `敵被ダメ ${eTotal}`);
-        }
-        return badges;
+        const airLabel =
+          AIR_STATE[Number(first.air_superiority ?? -1)]?.label ?? "-";
+        return [airLabel, `味方被ダメ ${fTotal}`, `敵被ダメ ${eTotal}`];
       }
     } else if (key === "SupportAttack") {
       const pd = props.phaseData as Record<string, unknown> | null;
@@ -1079,26 +996,12 @@ function extractPhaseEntries(
     (battle.battle_order as unknown[]).length > 0 &&
     typeof (battle.battle_order as unknown[])[0] === "object"
   ) {
-    const presentKeys = new Set<string>();
     for (const phaseType of battle.battle_order as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
-      presentKeys.add(key);
       const idx = phaseType[key] as number | null;
       entries.push({
         type: phaseType,
         data: phaseDataForKey(battle, key, idx),
-      });
-    }
-    if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle.opening_raigeki)) {
-      entries.push({
-        type: { OpeningRaigeki: 0 },
-        data: battle.opening_raigeki,
-      });
-    }
-    if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle.closing_raigeki)) {
-      entries.push({
-        type: { ClosingRaigeki: 0 },
-        data: battle.closing_raigeki,
       });
     }
   } else {

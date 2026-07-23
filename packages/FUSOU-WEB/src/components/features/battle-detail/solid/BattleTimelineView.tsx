@@ -332,9 +332,7 @@ export default function BattleTimelineView(props: {
 }): JSX.Element {
   const [hoveredStep, setHoveredStep] = createSignal<number | null>(null);
 
-  const rawEvents = createMemo(() =>
-    buildTimelineEvents(props.battle, props.fleets),
-  );
+  const rawEvents = createMemo(() => buildTimelineEvents(props.battle));
   // Filter out separator (blank) rows when the user has disabled phase separators.
   const events = createMemo(() =>
     props.showPhaseSeparators !== false

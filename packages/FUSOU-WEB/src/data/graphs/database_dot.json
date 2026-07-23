@@ -4062,34 +4062,6 @@
             "isEnvRef": false,
             "isFk": false,
             "isKey": false,
-            "name": "remodel_level",
-            "type": "Option<i64>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "remodel_step_id",
-            "type": "i64"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "req_slot_id",
-            "type": "i64"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "req_slot_num",
-            "type": "i64"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
             "name": "req_useitem_id",
             "type": "Option<i64>"
           },
@@ -4144,20 +4116,6 @@
             "isFk": false,
             "isKey": false,
             "name": "remodel_id",
-            "type": "i64"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "remodel_level",
-            "type": "Option<i64>"
-          },
-          {
-            "isEnvRef": false,
-            "isFk": false,
-            "isKey": false,
-            "name": "remodel_step_id",
             "type": "i64"
           },
           {

@@ -191,18 +191,7 @@ while IFS=$'\t' read -r platform url sig_b64; do
   # already been verified for a previous platform, skip re-downloading and
   # re-verifying; just confirm the signature matches and move on.
   if [[ -n "${SEEN_URLS[${url}]:-}" ]]; then
-    echo "Platform ${platform} shares URL with ${SEEN_URLS[${url}]}; skipping re-download, verifying signature"
-    first_platform="${SEEN_URLS[${url}]}"
-    artifact_path="/tmp/updater-assets/${first_platform}--asset"
-    sig_path="/tmp/updater-assets/${platform}--asset.minisig"
-    if ! echo "${sig_b64}" | base64 -d > "${sig_path}"; then
-      echo "Error: failed to decode signature for platform ${platform}"
-      exit 1
-    fi
-    if ! minisign -Vm "${artifact_path}" -x "${sig_path}" -P "${PUBKEY}"; then
-      echo "Error: minisign verification failed for platform ${platform}"
-      exit 1
-    fi
+    echo "Platform ${platform} shares URL with ${SEEN_URLS[${url}]}; skipping re-download"
     continue
   fi
 

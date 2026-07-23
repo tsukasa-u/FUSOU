@@ -26,31 +26,18 @@ export function slotItemMeta(
   slotItemId: unknown,
   mstSlotItemById: Map<number, Record<string, unknown>> | null,
 ): { name: string; iconType: number | null } {
-  const id = Number(slotItemId ?? 0);
-  if (!Number.isFinite(id) || id <= 0) {
-    return { name: "", iconType: null };
-  }
-  const mst = mstSlotItemById?.get?.(id);
+  const mst = mstSlotItemById?.get?.(Number(slotItemId ?? 0));
   if (!mst) {
-    return { name: "", iconType: null };
+    return { name: `装備${slotItemId}`, iconType: null };
   }
   const iconType =
     Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
       ? Number((mst.type as unknown[])[3] ?? 0) || null
       : null;
   return {
-    name: String(mst.name ?? ""),
+    name: String(mst.name ?? `装備${slotItemId}`),
     iconType,
   };
-}
-
-function normalizeSlotIds(slotIds: unknown[]): number[] {
-  const flat = slotIds.flatMap((id) => {
-    if (Array.isArray(id)) return normalizeSlotIds(id);
-    const n = Number(id ?? 0);
-    return Number.isFinite(n) && n > 0 ? [n] : [];
-  });
-  return [...new Set(flat)];
 }
 
 export function renderEquipmentBadge(eq: {
@@ -80,17 +67,15 @@ export function renderEquipmentBadgesFromSlotIds(
   if (!Array.isArray(slotIds) || slotIds.length === 0) {
     return "";
   }
-  return normalizeSlotIds(slotIds)
+  return slotIds
     .map((slotId) => {
       const meta = slotItemMeta(slotId, mstSlotItemById);
-      if (!meta.name) return "";
       return renderEquipmentBadge({
         name: meta.name,
         iconType: meta.iconType,
         level: null,
       });
     })
-    .filter((html) => html.length > 0)
     .join(" ");
 }
 
@@ -389,7 +374,7 @@ export function renderShellingRows(
         <div class="grid gap-2 md:grid-cols-[minmax(0,260px)_20px_minmax(0,1fr)] md:items-start">
           <div class="space-y-1">
             ${renderPhaseParticipant(attackerName, attackerSide, attackerIdx, attackerCurrentHp, attackerMaxHp)}
-            ${eqText ? `<div class="text-[10px] text-base-content/55 wrap-break-word">${eqText}</div>` : ""}
+            ${eqText ? `<div class="text-[10px] text-base-content/55 break-words">${eqText}</div>` : ""}
           </div>
           <div class="hidden md:flex md:items-center md:justify-center text-base-content/40">→</div>
           <div class="space-y-1">
@@ -469,15 +454,11 @@ export function renderAirAttackRows(data: Record<string, unknown>): string {
       )
     : 0;
   const sup = Number(data?.air_superiority ?? -1);
-  const airLabel = AIR_STATE[sup]?.label ?? "";
-  const hasAnySortie =
-    (Array.isArray(data?.f_plane_from) && (data.f_plane_from as unknown[]).length > 0) ||
-    (Array.isArray(data?.e_plane_from) && (data.e_plane_from as unknown[]).length > 0);
-  const showAirLabel = airLabel.length > 0 && (hasAnySortie || fDmg > 0 || eDmg > 0);
+  const airLabel = AIR_STATE[sup]?.label ?? "-";
   return `<div class="grid gap-2 md:grid-cols-3 text-xs">
     <div class="rounded border border-base-300 bg-base-100 px-2 py-2">
       <div class="text-[10px] uppercase tracking-wide text-base-content/45">制空</div>
-      <div class="font-semibold">${showAirLabel ? escHtml(airLabel) : ""}</div>
+      <div class="font-semibold">${escHtml(airLabel)}</div>
     </div>
     <div class="rounded border border-info/25 bg-info/5 px-2 py-2">
       <div class="text-[10px] uppercase tracking-wide text-base-content/45">味方被ダメ</div>

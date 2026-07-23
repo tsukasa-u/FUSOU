@@ -15,7 +15,7 @@ import {
   mergeAvroOCF,
   mergeAvroOCFWithBoundaries,
   MergeResult,
-} from "@fusou/compaction-core";
+} from "./avro-merger";
 import { getAvroHeaderLengthFromPrefix } from "./avro-manual";
 import {
   fetchProcessingBufferedData,
@@ -72,16 +72,12 @@ interface BlockIndexRow {
   table_name: string;
   table_version: string;
   period_tag: string;
-  compaction_tier: "hourly";
   file_id: number;
   start_byte: number;
   length: number;
   record_count: number;
   start_timestamp: number;
   end_timestamp: number;
-  window_start_ms: number;
-  window_end_ms: number;
-  source_file_count: number;
   trust_tag: string | null;
 }
 
@@ -216,19 +212,6 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
 // Multiple datasets are merged into single files up to this limit for efficient storage
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
 
-function createOutputGroupKey(runTimestampMs: number): string {
-  const epochSec = Math.max(0, Math.trunc(Number(runTimestampMs || 0) / 1000));
-  // Lightweight deterministic hash for Worker runtime (no sync crypto API required).
-  let h = 2166136261;
-  const seed = String(runTimestampMs || 0);
-  for (let i = 0; i < seed.length; i += 1) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  const digest = (h >>> 0).toString(16).padStart(8, "0");
-  return `${epochSec}-${digest}`;
-}
-
 function generateFilePath(
   tableVersion: string,
   periodTag: string,
@@ -237,10 +220,8 @@ function generateFilePath(
   runTimestamp: number,
 ): string {
   // Generate file path with index for multi-dataset files
-  // and keep tier direct child as epoch-hash folder.
   const indexStr = String(fileIndex).padStart(3, "0");
-  const groupKey = createOutputGroupKey(runTimestamp);
-  return `${tableVersion}/${periodTag}/hourly/${groupKey}/${tableName}-${indexStr}.avro`;
+  return `${tableVersion}/${periodTag}/${runTimestamp}/${tableName}-${indexStr}.avro`;
 }
 
 async function registerArchivedFile(
@@ -248,9 +229,6 @@ async function registerArchivedFile(
   filePath: string,
   tableVersion: string,
   fileSize: number,
-  compactionTier: "hourly",
-  windowStartMs: number,
-  windowEndMs: number,
   codec: string = "deflate",
 ): Promise<number> {
   // Use INSERT OR REPLACE to handle duplicate file_path (idempotent)
@@ -282,22 +260,11 @@ async function registerArchivedFile(
       .prepare(
         `
       UPDATE archived_files 
-      SET file_size = ?, compression_codec = ?, table_version = ?,
-          compaction_tier = ?, window_start_ms = ?, window_end_ms = ?,
-          last_modified_at = ?
+      SET file_size = ?, compression_codec = ?, table_version = ?, last_modified_at = ?
       WHERE id = ?
     `,
       )
-      .bind(
-        fileSize,
-        codec,
-        tableVersion,
-        compactionTier,
-        windowStartMs,
-        windowEndMs,
-        now,
-        existing.id,
-      )
+      .bind(fileSize, codec, tableVersion, now, existing.id)
       .run();
     return existing.id;
   }
@@ -307,25 +274,11 @@ async function registerArchivedFile(
   const insertResult = await db
     .prepare(
       `
-    INSERT INTO archived_files (
-      file_path, table_version, file_size, compression_codec,
-      compaction_tier, window_start_ms, window_end_ms,
-      created_at, last_modified_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO archived_files (file_path, table_version, file_size, compression_codec, created_at, last_modified_at)
+    VALUES (?, ?, ?, ?, ?, ?)
   `,
     )
-    .bind(
-      filePath,
-      tableVersion,
-      fileSize,
-      codec,
-      compactionTier,
-      windowStartMs,
-      windowEndMs,
-      now,
-      now,
-    )
+    .bind(filePath, tableVersion, fileSize, codec, now, now)
     .run();
 
   return insertResult.meta.last_row_id;
@@ -352,37 +305,27 @@ async function insertBlockIndexes(
   }
 
   // Insert new indexes in chunks to stay within D1's 999-parameter bind limit.
-  // Each row uses 15 parameters; floor(999/15) = 66 rows per chunk.
-  const CHUNK_SIZE = 66;
+  // Each row uses 11 parameters; floor(999/11) = 90 rows per chunk.
+  const CHUNK_SIZE = 90;
   for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
     const chunk = rows.slice(i, i + CHUNK_SIZE);
     const sql = `
-      INSERT INTO block_indexes (
-        dataset_id, table_name, table_version, period_tag, compaction_tier,
-        file_id, start_byte, length, record_count,
-        start_timestamp, end_timestamp,
-        window_start_ms, window_end_ms, source_file_count,
-        trust_tag
-      )
-      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").join(",")}
+      INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp, trust_tag)
+      VALUES ${chunk.map(() => "(?,?,?,?,?,?,?,?,?,?,?)").join(",")}
     `;
-    const params: (string | number | null)[] = [];
+    const params: (string | number)[] = [];
     for (const r of chunk) {
       params.push(
         r.dataset_id,
         r.table_name,
         r.table_version,
         r.period_tag,
-        r.compaction_tier,
         r.file_id,
         r.start_byte,
         r.length,
         r.record_count,
         r.start_timestamp,
         r.end_timestamp,
-        r.window_start_ms,
-        r.window_end_ms,
-        r.source_file_count,
         r.trust_tag ?? "unverified",
       );
     }
@@ -543,21 +486,11 @@ export async function handleCron(env: Env): Promise<void> {
 
         // Register file in D1
         try {
-          const chunkWindowStart = Math.min(
-            ...chunk.blocks.map((b) => b.startTimestamp),
-          );
-          const chunkWindowEnd = Math.max(
-            ...chunk.blocks.map((b) => b.endTimestamp),
-          );
-
           const fileId = await registerArchivedFile(
             env.BATTLE_INDEX_DB,
             filePath,
             group.key.table_version,
             actualSize,
-            "hourly",
-            chunkWindowStart,
-            chunkWindowEnd,
             "deflate",
           );
 
@@ -574,16 +507,12 @@ export async function handleCron(env: Env): Promise<void> {
               table_name: group.key.table_name,
               table_version: group.key.table_version,
               period_tag: group.key.period_tag,
-              compaction_tier: "hourly",
               file_id: fileId,
               start_byte: boundary.startByte, // Accurate offset from merge result
               length: boundary.length, // Accurate length from merge result
               record_count: block.recordCount,
               start_timestamp: block.startTimestamp,
               end_timestamp: block.endTimestamp,
-              window_start_ms: block.startTimestamp,
-              window_end_ms: block.endTimestamp,
-              source_file_count: block.recordCount,
               trust_tag: block.trust_tag,
             });
           }

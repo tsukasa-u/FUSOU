@@ -7,7 +7,6 @@ export type WinRank = "S" | "A" | "B" | "C" | "D" | "E" | string;
 export type BattleResultData = {
   win_rank: WinRank;
   drop_ship_id: number | null;
-  drop_ship_name?: string | null;
 };
 
 export type BattleRecord = {
@@ -265,6 +264,41 @@ export type ResolvedRouteOverlay = {
 };
 
 // Enemy ship stats (parameters).
+export type EnemyEquipment = {
+  mstSlotitemId: number | null;
+  name: string;
+  iconType: number | null;
+};
+
+export type EnemyShipDetails = {
+  mstShipId: number | null;
+  name: string;
+  bannerUrl: string;
+  karyoku: number | null;
+  raisou: number | null;
+  taiku: number | null;
+  soukou: number | null;
+  equipments: EnemyEquipment[];
+};
+
+export type EnemyFleetDetails = {
+  signature: string;
+  ships: EnemyShipDetails[];
+  count: number;
+};
+
+export type WeaponIconFrame = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
+export type WeaponIconMeta = {
+  width: number;
+  height: number;
+};
+
 // Battle info shown in the recent-battles list inside CellDetailsPanel.
 export type RecentBattle = {
   uuid: string;
@@ -278,7 +312,7 @@ export type SelectedCellDetails = SelectedCellFilter & {
   passCount: number;
   routeCount: number;
   battleCount: number;
-  topEnemyLabels: [string, number][];
+  topEnemyFleets: EnemyFleetDetails[];
   resultCounts: [string, number][];
   dropCounts: [string, number][];
   outgoingCounts: [string, number][];

@@ -148,20 +148,8 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
       const openingAir = Array.isArray(b.opening_air_attack)
         ? b.opening_air_attack[0]
         : b.opening_air_attack;
-      const fDamages = Array.isArray(openingAir?.f_damages)
-        ? openingAir.f_damages
-        : [];
-      const eDamages = Array.isArray(openingAir?.e_damages)
-        ? openingAir.e_damages
-        : [];
-      const hasAnyAirDamage =
-        fDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0) ||
-        eDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0);
-      const hasAnyAirSortie =
-        (Array.isArray(openingAir?.f_plane_from) && openingAir.f_plane_from.length > 0) ||
-        (Array.isArray(openingAir?.e_plane_from) && openingAir.e_plane_from.length > 0);
       const airSup = openingAir?.air_superiority;
-      if ((hasAnyAirDamage || hasAnyAirSortie) && airSup != null) {
+      if (airSup != null) {
         const name = AIR_NAMES[airSup] ?? `不明(${airSup})`;
         airCounts[name] = (airCounts[name] ?? 0) + 1;
       }

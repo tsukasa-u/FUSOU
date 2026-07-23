@@ -464,7 +464,7 @@ async function runTest() {
   log(`  📂 R2 file size: ${avroBuffer.byteLength} bytes`, 'cyan');
   
   // Parse with parseNullAvroBlock
-  const { parseDeflateAvroBlock, getAvroHeaderLength } = await import('../dist/FUSOU-WORKFLOW/src/avro-manual.js');
+  const { parseDeflateAvroBlock, getAvroHeaderLength } = await import('../dist/avro-manual.js');
   const headerLength = getAvroHeaderLength(avroBuffer);
   const header = avroBuffer.subarray(0, headerLength);
   const syncMarker = header.subarray(header.length - 16);

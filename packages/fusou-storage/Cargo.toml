@@ -15,7 +15,7 @@ dirs = "5.0.1"
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.38.0", features = ["full"] }
-kc_api = { package = "kc-api", path = "../kc_api/crates/kc-api", default-features = false, features = ["full", "graphviz", "schema_v0_5_1"] }
+kc_api = { package = "kc-api", path = "../kc_api/crates/kc-api", default-features = false, features = ["full", "graphviz", "schema_v0_5"] }
 fusou-auth = { path = "../fusou-auth" }
 fusou-upload = { path = "../fusou-upload" }
 configs = { path = "../configs" }
