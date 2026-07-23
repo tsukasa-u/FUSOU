@@ -7,11 +7,11 @@ use std::path::PathBuf;
 use crate::notify;
 
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_PROXY_BAT: &str = "cmd/windows/add_proxy.bat";
+pub static PATH_ADD_PROXY_PS1: &str = "cmd/windows/add_proxy.ps1";
 #[cfg(target_os = "windows")]
-pub static PATH_DELETE_PROXY_BAT: &str = "cmd/windows/delete_proxy.bat";
+pub static PATH_DELETE_PROXY_PS1: &str = "cmd/windows/delete_proxy.ps1";
 #[cfg(target_os = "windows")]
-pub static PATH_ADD_STORE_BAT: &str = "cmd/windows/add_store.bat";
+pub static PATH_ADD_STORE_PS1: &str = "cmd/windows/add_store.ps1";
 #[cfg(target_os = "linux")]
 pub static PATH_ADD_PROXY_SH: &str = "cmd/linux/add_proxy.sh";
 #[cfg(target_os = "linux")]
@@ -72,7 +72,7 @@ where
 {
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_ADD_PROXY_BAT)
+        .join(PATH_ADD_PROXY_PS1)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -89,6 +89,23 @@ where
     let app_handle = app.clone();
     let path_clone = path.clone();
     tauri::async_runtime::spawn(async move {
+        #[cfg(target_os = "windows")]
+        let output_result = app_handle
+            .shell()
+            .command("powershell.exe")
+            .args([
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
+                "-File".to_string(),
+                cmd_path,
+                path,
+            ])
+            .output()
+            .await;
+
+        #[cfg(target_os = "linux")]
         let output_result = app_handle
             .shell()
             .command(cmd_path)
@@ -138,7 +155,7 @@ where
 {
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_DELETE_PROXY_BAT)
+        .join(PATH_DELETE_PROXY_PS1)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -154,6 +171,22 @@ where
 
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
+        #[cfg(target_os = "windows")]
+        let output_result = app_handle
+            .shell()
+            .command("powershell.exe")
+            .args([
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
+                "-File".to_string(),
+                cmd_path,
+            ])
+            .output()
+            .await;
+
+        #[cfg(target_os = "linux")]
         let output_result = app_handle
             .shell()
             .command(cmd_path)
@@ -226,7 +259,7 @@ where
 
     #[cfg(target_os = "windows")]
     let cmd_path = get_RESOURCES_DIR()
-        .join(PATH_ADD_STORE_BAT)
+        .join(PATH_ADD_STORE_PS1)
         .as_path()
         .to_str()
         .expect_or_log("cmd_path not found")
@@ -242,6 +275,24 @@ where
 
     tracing::debug!("cmd_path: {}", cmd_path.clone());
     tracing::info!("add_store using certificate path: {}", ca_path.clone());
+
+    #[cfg(target_os = "windows")]
+    let output_result = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile".to_string(),
+            "-NonInteractive".to_string(),
+            "-ExecutionPolicy".to_string(),
+            "Bypass".to_string(),
+            "-File".to_string(),
+            cmd_path,
+            ca_path,
+        ])
+        .output()
+        .await;
+
+    #[cfg(target_os = "linux")]
     let output_result = app
         .shell()
         .command(cmd_path)
