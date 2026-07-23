@@ -38,11 +38,28 @@ async function fetchJson(url: string): Promise<unknown> {
   return response.json();
 }
 
+function shouldUseDevLocalFallback(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const search = new URLSearchParams(window.location.search);
+    if (search.get("dev_local_fallback") === "1") return true;
+    if (window.localStorage?.getItem("fusou.devLocalFallback") === "1") {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 async function fetchDevLocalRecords(
   table: string,
   value: string,
   field?: string,
 ): Promise<Array<Record<string, unknown>>> {
+  if (!shouldUseDevLocalFallback()) {
+    return [];
+  }
   const params = new URLSearchParams({
     uuid: value,
     table,
@@ -770,10 +787,14 @@ export async function resolveEnemyFleet(
   battle: Record<string, unknown>,
   options?: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
-  const fallbackEnemyByHp = (): ShipInfo[] => {
-    const hps = Array.isArray(battle?.e_nowhps)
-      ? (battle.e_nowhps as unknown[]).map((v) => Number(v ?? 0) || 0)
+  const enemyHpSnapshot = Array.isArray(battle?.e_nowhps)
+    ? (battle.e_nowhps as unknown[])
+    : Array.isArray(battle?.midnight_e_nowhps)
+      ? (battle.midnight_e_nowhps as unknown[])
       : [];
+
+  const fallbackEnemyByHp = (): ShipInfo[] => {
+    const hps = enemyHpSnapshot.map((v) => Number(v ?? 0) || 0);
     return hps
       .filter((hp) => hp > 0)
       .map((hp, idx) => ({
@@ -795,9 +816,7 @@ export async function resolveEnemyFleet(
     const envUuid = String(battle?.env_uuid ?? "");
     if (!envUuid) return [];
 
-    const hpSnapshot = Array.isArray(battle?.e_nowhps)
-      ? (battle.e_nowhps as unknown[])
-      : [];
+    const hpSnapshot = enemyHpSnapshot;
     const rows = await fetchRecordsByField(
       "enemy_ship",
       "env_uuid",

@@ -10,33 +10,79 @@ use crate::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
         get_proxy_log_bidirectional_channel,
     },
-    cmd::native_cmd::{self, add_store},
+    cmd::native_cmd::{self, add_store_sync},
 };
 
 use fusou_auth::{AuthManager, FileStorage};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "linux")]
 use crate::cmd::native_cmd::check_ca_installed;
 
-pub fn check_ca_and_install<R>(app: &tauri::AppHandle<R>)
+pub async fn check_ca_and_install<R>(app: &tauri::AppHandle<R>) -> bool
 where
     R: tauri::Runtime,
 {
-    let app = app.clone();
-    tokio::task::spawn(async move {
-        #[cfg(target_os = "linux")]
-        if !check_ca_installed(&app).await {
-            tracing::info!("CA certificate is not installed");
-            add_store(&app);
+    #[cfg(target_os = "linux")]
+    {
+        if check_ca_installed(app).await {
+            return true;
         }
-        #[cfg(target_os = "windows")]
-        add_store(&app);
-    });
+
+        tracing::info!("CA certificate is not installed");
+        if !add_store_sync(app).await {
+            return false;
+        }
+
+        return check_ca_installed(app).await;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        return add_store_sync(app).await;
+    }
+}
+
+fn validate_custom_certificate_mode_settings() -> Result<(), String> {
+    let proxy_configs = configs::get_user_configs_for_proxy();
+    if proxy_configs.certificates.get_use_generated_certs() {
+        return Ok(());
+    }
+
+    let cert_path = proxy_configs
+        .certificates
+        .get_cert_file()
+        .ok_or("custom certificate mode requires certificates.cert_file")?;
+    let key_path = proxy_configs
+        .certificates
+        .get_key_file()
+        .ok_or("custom certificate mode requires certificates.key_file")?;
+
+    tracing::info!(
+        cert_path = %cert_path.display(),
+        key_path = %key_path.display(),
+        "validating custom certificate mode file paths"
+    );
+
+    if !Path::new(&cert_path).exists() {
+        return Err(format!(
+            "custom certificate file does not exist: {}",
+            cert_path.display()
+        ));
+    }
+    if !Path::new(&key_path).exists() {
+        return Err(format!(
+            "custom key file does not exist: {}",
+            key_path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn serve_proxy<R>(
+pub async fn serve_proxy<R>(
     proxy_target: String,
     save_path: String,
     asset_sync_save_path: String,
@@ -56,15 +102,37 @@ where
     let pac_bidirectional_channel_slave: Slave<StatusInfo> =
         get_pac_bidirectional_channel().clone_slave();
 
-    let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
+    let proxy_configs = configs::get_user_configs_for_proxy();
+    let use_generated_certs = proxy_configs.certificates.get_use_generated_certs();
 
-    if ca_check_result {
-        tracing::info!("CA certificate already exists");
-        check_ca_and_install(app);
+    if use_generated_certs {
+        let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
+
+        if ca_check_result {
+            tracing::info!("Generated CA certificate already exists");
+            if !check_ca_and_install(app).await {
+                return Err("Failed to install or verify generated CA certificate".into());
+            }
+        } else {
+            tracing::info!("Generated CA certificate does not exist, creating...");
+            proxy_https::proxy_server_https::create_ca(ca_path.clone());
+            if !add_store_sync(app).await {
+                return Err("Failed to install regenerated CA certificate".into());
+            }
+            #[cfg(target_os = "linux")]
+            if !check_ca_installed(app).await {
+                return Err("Generated CA certificate verification failed after regeneration".into());
+            }
+        }
     } else {
-        tracing::info!("CA certificate does not exist, creating...");
-        proxy_https::proxy_server_https::create_ca(ca_path.clone());
-        add_store(app);
+        if let Err(err) = validate_custom_certificate_mode_settings() {
+            tracing::warn!("custom certificate preflight failed: {}", err);
+            return Err(err.into());
+        }
+        tracing::info!("Custom CA mode is enabled by settings; skipping generated CA create/check");
+        if !check_ca_and_install(app).await {
+            return Err("Failed to install or verify custom CA certificate".into());
+        }
     }
 
     // start proxy server

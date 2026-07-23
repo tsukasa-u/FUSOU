@@ -1,65 +1,75 @@
 {
-  "folders": [
-    {
-      "path": "packages/FUSOU-APP",
-    },
-    {
-      "path": "packages/FUSOU-PROXY",
-    },
-    {
-      "path": "packages/FUSOU-WEB",
-    },
-    {
-      "path": "packages/shared-ui",
-    },
-    {
-      "path": "packages/kc_api",
-    },
-    {
-      "path": "packages/configs",
-    },
-    {
-      "path": "packages/fusou-auth",
-    },
-    {
-      "path": "packages/avro-wasm",
-    },
-    {
-      "path": "packages/fusou-upload",
-    },
-    {
-      "path": "packages/FUSOU-WORKFLOW",
-    },
-    {
-      "path": "packages/fusou-datasets",
-    },
-    {
-      "path": "packages/equip_synergy_detector",
-    },
-    {
-      "path": "packages/FUSOU-URL-SHORTER",
-    },
-    {
-      "path": "packages/fusou-storage",
-    },
-    {
-      "path": "docs",
-    },
-    {
-      "path": ".github",
-    },
-    {
-      "path": "../../HuggingFace/FUSOU",
-    },
-  ],
-  "settings": {
-    "jupyter.disableJupyterAutoStart": true,
-    "vite.autoStart": false,
-    "chat.tools.terminal.autoApprove": {
-      "npx astro": true,
-    },
-  },
-  "extensions": {
-    "recommendations": ["ms-python.python"],
-  },
+	"folders": [
+		{
+			"path": "packages/FUSOU-APP"
+		},
+		{
+			"path": "packages/FUSOU-PROXY"
+		},
+		{
+			"path": "packages/FUSOU-WEB"
+		},
+		{
+			"path": "packages/shared-ui"
+		},
+		{
+			"path": "packages/kc_api"
+		},
+		{
+			"path": "packages/configs"
+		},
+		{
+			"path": "packages/fusou-auth"
+		},
+		{
+			"path": "packages/avro-wasm"
+		},
+		{
+			"path": "packages/fusou-upload"
+		},
+		{
+			"path": "packages/FUSOU-WORKFLOW"
+		},
+		{
+			"path": "packages/fusou-datasets"
+		},
+		{
+			"path": "packages/equip_synergy_detector"
+		},
+		{
+			"path": "packages/FUSOU-URL-SHORTER"
+		},
+		{
+			"path": "packages/fusou-storage"
+		},
+		{
+			"path": "packages/fusou-compaction-core",
+			"name": "fusou-compaction-core"
+		},
+		{
+			"path": "packages/fusou-compaction-trigger",
+			"name": "fusou-compaction-trigger"
+		},
+		{
+			"path": "docs"
+		},
+		{
+			"path": ".github"
+		},
+		{
+			"path": "../../HuggingFace/FUSOU"
+		}
+	],
+	"settings": {
+		"jupyter.disableJupyterAutoStart": true,
+		"vite.autoStart": false,
+		"chat.tools.terminal.autoApprove": {
+			"npx astro": true
+		}
+	},
+	"extensions": {
+		"recommendations": [
+			"ms-python.python"
+		]
+	}
 }

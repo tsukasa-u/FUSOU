@@ -4,6 +4,7 @@ use kc_api::database::integrate::integrate;
 use kc_api::database::models::airbase::{AirBase, PlaneInfo};
 use kc_api::database::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    DestructionBattle,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, NightSupportHourai, OpeningAirAttack,
     OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack,
@@ -62,5 +63,6 @@ pub fn integrate_by_table_name(
         PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::Battle => integrate::<Battle>(file_contents).map_err(|e| e.to_string()),
         PortTableEnum::BattleResult => integrate::<BattleResult>(file_contents).map_err(|e| e.to_string()),
+        PortTableEnum::DestructionBattle => integrate::<DestructionBattle>(file_contents).map_err(|e| e.to_string()),
     }
 }

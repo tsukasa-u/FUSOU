@@ -19288,11 +19288,11 @@
                   },
                   {
                     "name": "api_req_slot_id",
-                    "type": "i64"
+                    "type": "Option<i64>"
                   },
                   {
                     "name": "api_req_slot_num",
-                    "type": "i64"
+                    "type": "Option<i64>"
                   },
                   {
                     "name": "api_req_steel",

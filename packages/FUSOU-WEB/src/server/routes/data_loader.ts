@@ -35,9 +35,25 @@ const DATA_LOADER_CORS_HEADERS = {
 };
 
 const MASTER_TABLE_VERSION_PATTERN = /^\d+(?:\.\d+){1,2}$/;
+type CompactionTier = "hourly" | "daily" | "weekly" | "period";
+const TIER_PRIORITY: CompactionTier[] = ["period", "weekly", "daily", "hourly"];
 
 function isValidMasterTableVersion(value: string): boolean {
   return MASTER_TABLE_VERSION_PATTERN.test(value);
+}
+
+function parseCompactionTier(value: string | undefined): CompactionTier | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "hourly" ||
+    normalized === "daily" ||
+    normalized === "weekly" ||
+    normalized === "period"
+  ) {
+    return normalized;
+  }
+  return null;
 }
 
 // Helper to add RU headers
@@ -319,6 +335,18 @@ app.get("/data/:table", async (c) => {
   const periodTagParam = c.req.query("period_tag") || "latest";
   const scopeParam = c.req.query("scope") || "all";
   const tableVersionParam = c.req.query("table_version") || undefined;
+  const tierParamRaw = c.req.query("tier")?.trim();
+  const compactionTier = parseCompactionTier(tierParamRaw);
+  const windowStartMsRaw = c.req.query("window_start_ms")?.trim();
+  const windowEndMsRaw = c.req.query("window_end_ms")?.trim();
+  const windowStartMs =
+    windowStartMsRaw && Number.isFinite(Number(windowStartMsRaw))
+      ? Number(windowStartMsRaw)
+      : null;
+  const windowEndMs =
+    windowEndMsRaw && Number.isFinite(Number(windowEndMsRaw))
+      ? Number(windowEndMsRaw)
+      : null;
   const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
 
   if (tableVersionParam && !isValidMasterTableVersion(tableVersionParam)) {
@@ -350,6 +378,50 @@ app.get("/data/:table", async (c) => {
   if (scopeParam !== "own" && scopeParam !== "all") {
     return jsonResponse(
       { error: "INVALID_SCOPE", message: "scope must be 'own' or 'all'" },
+      400,
+    );
+  }
+
+  if (tierParamRaw && !compactionTier) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "tier must be one of: hourly, daily, weekly, period",
+      },
+      400,
+    );
+  }
+
+  if (windowStartMsRaw && windowStartMs == null) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_start_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+  if (windowEndMsRaw && windowEndMs == null) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_end_ms must be a valid number",
+      },
+      400,
+    );
+  }
+
+  if (
+    windowStartMs != null &&
+    windowEndMs != null &&
+    windowStartMs > windowEndMs
+  ) {
+    return jsonResponse(
+      {
+        error: "INVALID_PARAMETER",
+        message: "window_start_ms must be less than or equal to window_end_ms",
+      },
       400,
     );
   }
@@ -583,46 +655,132 @@ app.get("/data/:table", async (c) => {
     }
 
     const includeBuffer = c.req.query("include_buffer") === "true";
+    const perTierFetchLimit = Math.max(limit + 1, 300);
 
-    // Query D1 for archived files
-    let sql = `SELECT 
+    const fetchArchivedRows = async (tier: CompactionTier | null) => {
+      let sql = `SELECT 
          bi.id,
          bi.dataset_id,
          bi.table_name,
           bi.table_version,
+         bi.compaction_tier,
          bi.length AS size,
          bi.record_count,
          bi.start_timestamp,
          bi.end_timestamp,
+         bi.window_start_ms,
+         bi.window_end_ms,
          bi.period_tag,
          bi.start_byte,
          af.file_path
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
-    const params: unknown[] = [tableName];
+      const params: unknown[] = [tableName];
 
-    // Filter by dataset_id for scope=own
-    if (scopeParam === "own" && userDatasetId) {
-      sql += ` AND bi.dataset_id = ?`;
-      params.push(userDatasetId);
+      if (scopeParam === "own" && userDatasetId) {
+        sql += ` AND bi.dataset_id = ?`;
+        params.push(userDatasetId);
+      }
+
+      if (periodTag && periodTagParam !== "all") {
+        sql += ` AND bi.period_tag = ?`;
+        params.push(periodTag);
+      }
+
+      if (tableVersionParam) {
+        sql += ` AND bi.table_version = ?`;
+        params.push(tableVersionParam);
+      }
+
+      if (tier) {
+        sql += ` AND bi.compaction_tier = ?`;
+        params.push(tier);
+      }
+
+      if (windowStartMs != null) {
+        sql += ` AND bi.window_start_ms >= ?`;
+        params.push(windowStartMs);
+      }
+
+      if (windowEndMs != null) {
+        sql += ` AND bi.window_end_ms <= ?`;
+        params.push(windowEndMs);
+      }
+
+      sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
+      params.push(perTierFetchLimit);
+
+      const stmt = indexDb.prepare(sql);
+      return await stmt.bind(...params).all?.();
+    };
+
+    let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
+    let effectiveTier: CompactionTier | null = compactionTier ?? null;
+
+    const mergeTierRows = (
+      tierRows: Map<CompactionTier, any[]>,
+    ): { rows: any[]; tier: CompactionTier | null } => {
+      const accepted: any[] = [];
+      const seenBlockIds = new Set<number>();
+      let usedTierCount = 0;
+      let firstTier: CompactionTier | null = null;
+
+      for (const tier of TIER_PRIORITY) {
+        const rows = tierRows.get(tier) ?? [];
+        let usedThisTier = false;
+
+        for (const row of rows) {
+          const id = Number(row?.id ?? NaN);
+          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
+            continue;
+          }
+
+          accepted.push(row);
+          seenBlockIds.add(id);
+          usedThisTier = true;
+        }
+
+        if (usedThisTier) {
+          usedTierCount += 1;
+          if (!firstTier) {
+            firstTier = tier;
+          }
+        }
+      }
+
+      accepted.sort(
+        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
+      );
+
+      return {
+        rows: accepted,
+        tier: usedTierCount > 1 ? null : firstTier,
+      };
+    };
+
+    if (compactionTier) {
+      result = await fetchArchivedRows(compactionTier);
+      effectiveTier = compactionTier;
+    } else {
+      const tierRows = new Map<CompactionTier, any[]>();
+      for (const tier of TIER_PRIORITY) {
+        const candidate = await fetchArchivedRows(tier);
+        tierRows.set(tier, (candidate?.results || []) as any[]);
+      }
+
+      const merged = mergeTierRows(tierRows);
+      effectiveTier = merged.tier;
+
+      if (merged.rows.length > 0) {
+        result = { results: merged.rows } as Awaited<
+          ReturnType<typeof fetchArchivedRows>
+        >;
+      } else {
+        result = await fetchArchivedRows(null);
+        effectiveTier = null;
+      }
     }
-
-    if (periodTag && periodTagParam !== "all") {
-      sql += ` AND bi.period_tag = ?`;
-      params.push(periodTag);
-    }
-
-    if (tableVersionParam) {
-      sql += ` AND bi.table_version = ?`;
-      params.push(tableVersionParam);
-    }
-
-    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
-    params.push(limit);
-
-    const stmt = indexDb.prepare(sql);
-    const result = await stmt.bind(...params).all?.();
 
     if (
       (!result || !result.results || result.results.length === 0) &&
@@ -638,7 +796,9 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const archivedFiles = ((result?.results as any[]) || []).map((r) => ({
+    const candidateRows = ((result?.results as any[]) || []) as any[];
+    const filesTruncated = candidateRows.length > limit;
+    const archivedFiles = candidateRows.slice(0, limit).map((r) => ({
       id: r.id,
       file_path: r.file_path,
       period_tag: r.period_tag,
@@ -673,6 +833,11 @@ app.get("/data/:table", async (c) => {
         success: true,
         table: tableName,
         period_tag: periodTagParam === "all" ? "all" : periodTag,
+        tier: effectiveTier,
+        window_start_ms: windowStartMs,
+        window_end_ms: windowEndMs,
+        applied_limit: limit,
+        files_truncated: filesTruncated,
         scope: scopeParam,
         count: files.length,
         files,
