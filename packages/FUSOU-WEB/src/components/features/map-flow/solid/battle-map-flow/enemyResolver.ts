@@ -1,12 +1,34 @@
 import type {
   EnemyDeckRecord,
-  EnemyFleetDetails,
   EnemyShipRecord,
   EnemySlotItemRecord,
   MstShipRecord,
   MstSlotItemRecord,
 } from "./types";
 import { bannerUrl } from "@/features/simulator/equip-calc";
+
+type EnemyEquipment = {
+  mstSlotitemId: number | null;
+  name: string;
+  iconType: number | null;
+};
+
+type EnemyShipDetails = {
+  mstShipId: number | null;
+  name: string;
+  bannerUrl: string;
+  karyoku: number | null;
+  raisou: number | null;
+  taiku: number | null;
+  soukou: number | null;
+  equipments: EnemyEquipment[];
+};
+
+type EnemyFleetDetails = {
+  signature: string;
+  ships: EnemyShipDetails[];
+  count: number;
+};
 
 export function buildEnemyDeckResolver(
   enemyDecks: EnemyDeckRecord[],

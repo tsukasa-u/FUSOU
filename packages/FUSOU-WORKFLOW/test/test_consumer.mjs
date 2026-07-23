@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const modPath = path.join(__dirname, '../dist/buffer-consumer.js');
+const modPath = path.join(__dirname, '../dist/FUSOU-WORKFLOW/src/buffer-consumer.js');
 if (!fs.existsSync(modPath)) {
   console.error('Compiled buffer-consumer module not found at', modPath);
   console.error('Run: npx tsc --outDir dist');
@@ -29,7 +29,7 @@ function makeMessage(id, body) {
 async function run() {
   // create 2 messages for same table
   // build avro slices for two fragments
-  const { buildAvroContainer } = await import('../dist/avro-manual.js');
+  const { buildAvroContainer } = await import('../dist/FUSOU-WORKFLOW/src/avro-manual.js');
   const s1 = buildAvroContainer([{ a: 1 }, { a: 2 }]);
   const s2 = buildAvroContainer([{ a: 3 }]);
   const m1 = makeMessage('m1', { table: 'battle', avro_base64: Buffer.from(s1).toString('base64') });

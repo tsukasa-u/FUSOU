@@ -93,13 +93,26 @@ export function slotItemMeta(
   slotItemId: unknown,
   mstSlotItemById: Map<number, Record<string, unknown>> | null,
 ): { name: string; iconType: number | null } {
-  const mst = mstSlotItemById?.get?.(Number(slotItemId ?? 0));
-  if (!mst) return { name: `装備${slotItemId}`, iconType: null };
+  const id = Number(slotItemId ?? 0);
+  if (!Number.isFinite(id) || id <= 0) {
+    return { name: "", iconType: null };
+  }
+  const mst = mstSlotItemById?.get?.(id);
+  if (!mst) return { name: "", iconType: null };
   const iconType =
     Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
       ? Number((mst.type as unknown[])[3] ?? 0) || null
       : null;
-  return { name: String(mst.name ?? `装備${slotItemId}`), iconType };
+  return { name: String(mst.name ?? ""), iconType };
+}
+
+function normalizeSlotIds(slotIds: unknown[]): number[] {
+  const flat = slotIds.flatMap((id) => {
+    if (Array.isArray(id)) return normalizeSlotIds(id);
+    const n = Number(id ?? 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  });
+  return [...new Set(flat)];
 }
 
 // ── JSX components ────────────────────────────────────────────────────────
@@ -186,7 +199,7 @@ export function EquipmentBadgesFromSlotIds(props: {
   mstSlotItemById: Map<number, Record<string, unknown>> | null;
 }): JSX.Element {
   const items = () =>
-    (props.slotIds ?? [])
+    normalizeSlotIds(props.slotIds ?? [])
       .map((id) => slotItemMeta(id, props.mstSlotItemById))
       .filter((m) => m.name);
   return (
