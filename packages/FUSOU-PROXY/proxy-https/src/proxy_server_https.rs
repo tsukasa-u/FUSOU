@@ -605,9 +605,50 @@ pub fn check_ca(ca_save_path: String) -> bool {
     let ca_cert_der = ca_dir.join(CA_CERT_NAME_DER);
     let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists() || !ca_key.exists() {
+    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_cert_der.exists() || !ca_key.exists()
+    {
         return false;
     }
+
+    let key_pair_pem = match fs::read_to_string(&ca_key) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    let key_pair = match KeyPair::from_pem(&key_pair_pem) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+
+    let cert_pem_text = match fs::read_to_string(&ca_cert_pem) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if CertificateParams::from_ca_cert_pem(&cert_pem_text)
+        .and_then(|params| params.self_signed(&key_pair))
+        .is_err()
+    {
+        return false;
+    }
+
+    let cert_crt_text = match fs::read_to_string(&ca_cert_crt) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if CertificateParams::from_ca_cert_pem(&cert_crt_text)
+        .and_then(|params| params.self_signed(&key_pair))
+        .is_err()
+    {
+        return false;
+    }
+
+    let cert_der_bytes = match fs::read(&ca_cert_der) {
+        Ok(value) => value,
+        Err(_) => return false,
+    };
+    if cert_der_bytes.len() < 4 || cert_der_bytes[0] != 0x30 {
+        return false;
+    }
+
     true
 }
 
@@ -654,31 +695,45 @@ pub fn serve_proxy(
     let use_generated_certs = configs.certificates.get_use_generated_certs();
 
     let custom_cert_file_path = configs.certificates.get_cert_file();
-    let ca_cert_path = if use_generated_certs {
-        ca_dir.join(CA_CERT_NAME_PEM)
-    } else if let Some(custom_cert_file_path) = custom_cert_file_path {
-        custom_cert_file_path
-    } else {
-        ca_dir.join(CA_CERT_NAME_PEM)
-    };
-
     let custom_key_file_path = configs.certificates.get_key_file();
-    let ca_key_path = if use_generated_certs {
-        ca_dir.join(CA_KEY_NAME_PEM)
-    } else if let Some(custom_key_file_path) = custom_key_file_path {
-        custom_key_file_path
+    let (ca_cert_path, ca_key_path) = if use_generated_certs {
+        (ca_dir.join(CA_CERT_NAME_PEM), ca_dir.join(CA_KEY_NAME_PEM))
     } else {
-        ca_dir.join(CA_KEY_NAME_PEM)
+        let cert_path = custom_cert_file_path
+            .ok_or("custom certificate mode requires certificates.cert_file")?;
+        let key_path = custom_key_file_path
+            .ok_or("custom certificate mode requires certificates.key_file")?;
+        (cert_path, key_path)
     };
 
-    let key_pair_pem = fs::read_to_string(ca_key_path).expect_or_log("Failed to open CA key file");
-    let ca_cert_pem = fs::read_to_string(ca_cert_path).expect_or_log("Failed to open CA cert file");
+    tracing::info!(
+        use_generated_certs,
+        ca_cert_path = %ca_cert_path.display(),
+        ca_key_path = %ca_key_path.display(),
+        "proxy certificate paths resolved"
+    );
 
-    let key_pair = KeyPair::from_pem(&key_pair_pem).expect_or_log("Failed to parse private key");
+    let key_pair_pem = fs::read_to_string(&ca_key_path).map_err(|e| {
+        format!(
+            "failed to open CA key file {}: {}",
+            ca_key_path.display(),
+            e
+        )
+    })?;
+    let ca_cert_pem = fs::read_to_string(&ca_cert_path).map_err(|e| {
+        format!(
+            "failed to open CA cert file {}: {}",
+            ca_cert_path.display(),
+            e
+        )
+    })?;
+
+    let key_pair = KeyPair::from_pem(&key_pair_pem)
+        .map_err(|e| format!("failed to parse private key {}: {}", ca_key_path.display(), e))?;
     let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert_pem)
-        .expect_or_log("Failed to parse CA certificate")
+        .map_err(|e| format!("failed to parse CA certificate {}: {}", ca_cert_path.display(), e))?
         .self_signed(&key_pair)
-        .expect_or_log("Failed to sign CA certificate");
+        .map_err(|e| format!("failed to self-sign CA certificate {}: {}", ca_cert_path.display(), e))?;
 
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
 
@@ -829,7 +884,7 @@ pub fn serve_proxy(
 #[cfg(test)]
 mod tests {
     use super::{
-        create_ca, decode_response_body, parse_content_encodings, CA_CERT_NAME_CRT,
+        check_ca, create_ca, decode_response_body, parse_content_encodings, CA_CERT_NAME_CRT,
         CA_CERT_NAME_DER, CA_CERT_NAME_PEM, CA_KEY_NAME_PEM,
     };
     use super::rcgen::{CertificateParams, KeyPair};
@@ -946,6 +1001,29 @@ mod tests {
         let _ = fs::remove_file(crt_path);
         let _ = fs::remove_file(der_path);
         let _ = fs::remove_file(key_path);
+        let _ = fs::remove_dir_all(ca_dir);
+    }
+
+    #[test]
+    fn check_ca_returns_false_when_der_is_missing() {
+        let ca_dir = unique_temp_dir("check_ca_returns_false_when_der_is_missing");
+        let ca_dir_str = ca_dir.to_string_lossy().to_string();
+
+        create_ca(ca_dir_str.clone());
+
+        let der_path = ca_dir.join(CA_CERT_NAME_DER);
+        fs::remove_file(&der_path).expect("failed to remove der before check");
+
+        assert!(
+            !check_ca(ca_dir_str),
+            "check_ca should fail when der is missing"
+        );
+        assert!(!der_path.exists(), "der should remain missing");
+
+        let _ = fs::remove_file(ca_dir.join(CA_CERT_NAME_PEM));
+        let _ = fs::remove_file(ca_dir.join(CA_CERT_NAME_CRT));
+        let _ = fs::remove_file(ca_dir.join(CA_CERT_NAME_DER));
+        let _ = fs::remove_file(ca_dir.join(CA_KEY_NAME_PEM));
         let _ = fs::remove_dir_all(ca_dir);
     }
 }

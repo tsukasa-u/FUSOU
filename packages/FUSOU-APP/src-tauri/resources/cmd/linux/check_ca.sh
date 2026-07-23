@@ -1,9 +1,29 @@
 #!/bin/bash
 
 set -u
+set -o pipefail
+
+SCRIPT_NAME="$(basename -- "$0")"
+
+log_info() {
+    echo "[INFO][$SCRIPT_NAME] $1" 1>&2
+}
+
+log_error() {
+    echo "[ERROR][$SCRIPT_NAME] $1" 1>&2
+}
+
+on_error() {
+    local exit_code="$1"
+    local line_no="$2"
+    log_error "command failed at line $line_no with exit code $exit_code"
+    exit "$exit_code"
+}
+
+trap 'on_error $? $LINENO' ERR
 
 if [ -z "${1-}" ]; then
-    echo "Usage: $0 <certificate_base_name>" 1>&2
+    echo "Usage: $0 <local_certificate_path>" 1>&2
     exit 2
 fi
 
@@ -12,11 +32,17 @@ if ! command -v openssl >/dev/null 2>&1; then
     exit 3
 fi
 
-CERT_BASE="$1"
-if ! [[ "$CERT_BASE" =~ ^[A-Za-z0-9._-]+$ ]]; then
-    echo "[ERROR] certificate base name contains unsupported characters: $CERT_BASE" 1>&2
-    exit 2
+LOCAL_CERT_PATH="$1"
+if [ ! -f "$LOCAL_CERT_PATH" ]; then
+    log_error "local certificate file not found: $LOCAL_CERT_PATH"
+    exit 3
 fi
+
+log_info "starting CA installation check"
+log_info "local_cert_path=$LOCAL_CERT_PATH"
+
+CERT_FILE_NAME="$(basename "$LOCAL_CERT_PATH")"
+CERT_BASE="${CERT_FILE_NAME%.*}"
 
 detect_family() {
     local distro_id=""
@@ -119,7 +145,27 @@ for candidate in "${ANCHOR_CANDIDATES[@]}"; do
 done
 
 if [ -z "$ANCHOR_CERT" ]; then
-    echo "Certificate $1 is not installed."
+    log_info "anchor certificate not found for $CERT_BASE"
+    echo "Certificate $CERT_BASE is not installed."
+    exit 1
+fi
+
+log_info "anchor certificate found: $ANCHOR_CERT"
+
+LOCAL_FP=$(openssl x509 -in "$LOCAL_CERT_PATH" -noout -fingerprint -sha256 2>/dev/null | awk -F= '{print $2}' | tr -d '\r')
+ANCHOR_FP=$(openssl x509 -in "$ANCHOR_CERT" -noout -fingerprint -sha256 2>/dev/null | awk -F= '{print $2}' | tr -d '\r')
+
+if [ -z "$LOCAL_FP" ] || [ -z "$ANCHOR_FP" ]; then
+    log_error "failed to read certificate fingerprint"
+    exit 4
+fi
+
+log_info "local_fp=$LOCAL_FP"
+log_info "anchor_fp=$ANCHOR_FP"
+
+if [ "$LOCAL_FP" != "$ANCHOR_FP" ]; then
+    log_info "fingerprint mismatch detected"
+    echo "Certificate $CERT_BASE is installed, but fingerprint does not match local CA."
     exit 1
 fi
 
@@ -127,15 +173,16 @@ mapfile -t BUNDLES < <(bundle_candidates_for_family "$DISTRO_FAMILY")
 
 for bundle in "${BUNDLES[@]}"; do
     if [ -f "$bundle" ] && openssl verify -CAfile "$bundle" "$ANCHOR_CERT" >/dev/null 2>&1; then
-        echo "Certificate $1 is already installed."
+        echo "Certificate $CERT_BASE is already installed."
         exit 0
     fi
 done
 
 if [ -f "$ANCHOR_CERT" ]; then
-    echo "Certificate $1 is installed in anchors, but trust bundle check was inconclusive."
+    log_error "trust bundle verification inconclusive for anchor $ANCHOR_CERT"
+    echo "Certificate $CERT_BASE is installed in anchors, but trust bundle check was inconclusive."
     exit 4
 fi
 
-echo "Certificate $1 is not installed."
+echo "Certificate $CERT_BASE is not installed."
 exit 1

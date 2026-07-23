@@ -1,6 +1,8 @@
 @echo off
 setlocal EnableExtensions
 
+echo [INFO] add_store.bat started. 1>&2
+
 if "%~1"=="" (
 	echo [ERROR] certificate path is required. 1>&2
 	exit /b 2
@@ -12,12 +14,14 @@ if not exist "%CERT_PATH%" (
 	exit /b 3
 )
 
-certutil -f -user -addstore Root "%CERT_PATH%" >nul 2>&1
+echo [INFO] running certutil addstore for: "%CERT_PATH%" 1>&2
+certutil -f -user -addstore Root "%CERT_PATH%"
 set "CERTUTIL_EXIT=%ERRORLEVEL%"
 
 if not "%CERTUTIL_EXIT%"=="0" (
 	echo [ERROR] certutil addstore failed with exit code %CERTUTIL_EXIT%. 1>&2
 	echo [ERROR] certificate path: "%CERT_PATH%" 1>&2
+	echo [ERROR] command: certutil -f -user -addstore Root "%%CERT_PATH%%" 1>&2
 	exit /b %CERTUTIL_EXIT%
 )
 

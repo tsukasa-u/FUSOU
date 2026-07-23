@@ -110,7 +110,8 @@ pub async fn launch_with_options(
                             window.app_handle(),
                             Some(file_prefix),
                             auth_manager.clone(),
-                        );
+                        )
+                        .await;
                         match addr {
                             Ok(addr) => Some(addr),
                             Err(e) => {
