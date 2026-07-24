@@ -4,6 +4,7 @@
   "exclude": ["dist", "src/server/durable-objects/**", "playwright-report", "test-results"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
+    "jsx": "preserve",
     "module": "es2020",
     "moduleResolution": "bundler",
     "strictNullChecks": true,

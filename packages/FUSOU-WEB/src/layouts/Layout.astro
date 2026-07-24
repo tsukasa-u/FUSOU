@@ -73,14 +73,12 @@ const canonicalUrl = Astro.url.toString();
     <meta name="twitter:image" content={absoluteOgImage} />
     {
       import.meta.env.PROD && (
-        <!-- Cloudflare Web Analytics -->
         <script
           defer
           is:inline
           src="https://static.cloudflareinsights.com/beacon.min.js"
           data-cf-beacon={`{"token": "${import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
         />
-        <!-- End Cloudflare Web Analytics -->
       )
     }
   </head>

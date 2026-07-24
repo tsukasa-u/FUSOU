@@ -4,6 +4,28 @@ import { env as cfEnv } from "cloudflare:workers";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
 
+const SUPABASE_URL_KEYS = ["PUBLIC_SUPABASE_URL", "SUPABASE_URL"] as const;
+const SUPABASE_SERVICE_ROLE_KEYS = [
+  "SUPABASE_SECRET_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+] as const;
+const SUPABASE_PUBLISHABLE_KEYS = [
+  "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  "PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_ANON_KEY",
+] as const;
+
+function firstResolvedEnv(
+  ctx: EnvContext,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    const value = getEnv(ctx, key);
+    if (value) return value;
+  }
+  return undefined;
+}
+
 // ========================
 // 環境変数コンテキスト
 // ========================
@@ -27,11 +49,14 @@ export interface EnvContext {
 export function createEnvContext(
   c: Pick<Context, "env"> | { env?: any },
 ): EnvContext {
-  const runtimeEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  const contextEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
   const isDev = import.meta.env.DEV;
 
   return {
-    runtime: runtimeEnv,
+    runtime: {
+      ...(cfEnv as unknown as Record<string, any>),
+      ...contextEnv,
+    },
     buildtime: import.meta.env as Record<string, any>,
     isDev,
   };
@@ -167,9 +192,9 @@ export type SupabaseConfig = {
 
 /** Supabase設定を環境変数から解決 */
 export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
-  const url = getEnv(ctx, "PUBLIC_SUPABASE_URL")?.replace(/\/$/, "") ?? null;
-  const serviceRoleKey = getEnv(ctx, "SUPABASE_SECRET_KEY") ?? null;
-  const publishableKey = getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? null;
+  const url = firstResolvedEnv(ctx, SUPABASE_URL_KEYS)?.replace(/\/$/, "") ?? null;
+  const serviceRoleKey = firstResolvedEnv(ctx, SUPABASE_SERVICE_ROLE_KEYS) ?? null;
+  const publishableKey = firstResolvedEnv(ctx, SUPABASE_PUBLISHABLE_KEYS) ?? null;
 
   return { url, serviceRoleKey, publishableKey };
 }
@@ -393,30 +418,42 @@ export function sanitizeFileName(input: string | null): string | null {
 // getEnv() falls through to import.meta.env which contains the "encrypted:..." string
 // that getEnv() refuses to return, leaving SUPABASE_URL=null and all JWT validation
 // failing with 401.
-const initCtx: EnvContext = {
-  runtime: cfEnv as unknown as Record<string, any>,
-  buildtime: import.meta.env as Record<string, any>,
-  isDev: import.meta.env.DEV,
-};
-const { url: SUPABASE_URL } = resolveSupabaseConfig(initCtx);
-
-if (import.meta.env.DEV) {
-  console.log(`[JWKS Init] SUPABASE_URL: ${SUPABASE_URL || "<not set>"}`);
+function createGlobalEnvContext(): EnvContext {
+  return createEnvContext({ env: cfEnv as any });
 }
 
-let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
+function getCurrentSupabaseUrl(): string | null {
+  return resolveSupabaseConfig(createGlobalEnvContext()).url;
+}
+
+if (import.meta.env.DEV) {
+  console.log(
+    `[JWKS Init] SUPABASE_URL: ${getCurrentSupabaseUrl() || "<not set>"}`,
+  );
+}
+
+let JWKS:
+  | {
+      url: string;
+      value: ReturnType<typeof createRemoteJWKSet>;
+    }
+  | undefined;
 
 function getJWKS() {
-  if (JWKS) return JWKS;
-  if (!SUPABASE_URL) return undefined;
+  const supabaseUrl = getCurrentSupabaseUrl();
+  if (!supabaseUrl) return { url: null, jwks: undefined } as const;
+  if (JWKS?.url === supabaseUrl) {
+    return { url: supabaseUrl, jwks: JWKS.value } as const;
+  }
 
   try {
-    const jwksUrl = new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`);
-    JWKS = createRemoteJWKSet(jwksUrl);
-    return JWKS;
+    const jwksUrl = new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`);
+    const value = createRemoteJWKSet(jwksUrl);
+    JWKS = { url: supabaseUrl, value };
+    return { url: supabaseUrl, jwks: value } as const;
   } catch (e) {
     console.warn("Invalid Supabase URL for JWKS:", e);
-    return undefined;
+    return { url: supabaseUrl, jwks: undefined } as const;
   }
 }
 
@@ -426,8 +463,8 @@ export async function validateJWT(token: string): Promise<{
   payload?: Record<string, any>;
 } | null> {
   try {
-    const jwks = getJWKS();
-    if (!SUPABASE_URL || !jwks) {
+    const { url: supabaseUrl, jwks } = getJWKS();
+    if (!supabaseUrl || !jwks) {
       console.error(
         "validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized",
       );
@@ -435,7 +472,7 @@ export async function validateJWT(token: string): Promise<{
     }
 
     const { payload } = await jwtVerify(token, jwks, {
-      issuer: `${SUPABASE_URL}/auth/v1`,
+      issuer: `${supabaseUrl}/auth/v1`,
       audience: "authenticated",
       clockTolerance: 30, // Allow 30 seconds of clock skew
     });
