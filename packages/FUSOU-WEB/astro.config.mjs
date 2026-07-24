@@ -3,6 +3,7 @@ import { defineConfig } from "astro/config";
 import tailwindcss from "@tailwindcss/vite";
 import solid from "@astrojs/solid-js";
 import cloudflare from "@astrojs/cloudflare";
+import { unified } from "@astrojs/markdown-remark";
 import sitemap from "@astrojs/sitemap";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
@@ -77,10 +78,10 @@ export default defineConfig({
   integrations: [
     sitemap(),
     react({
-      include: ["**/react/**"],
+      include: ["**/react/**/*.{js,jsx,ts,tsx}"],
     }),
     solid({
-      include: ["**/solid/**"],
+      include: ["**/solid/**/*.{js,jsx,ts,tsx}"],
     }),
   ],
   output: "server",
@@ -89,6 +90,19 @@ export default defineConfig({
   }),
   vite: {
     optimizeDeps: {
+      // Vite 8/Rolldown may mis-scan Astro app source TSX entries as plain TS
+      // during automatic dependency discovery under the Cloudflare dev runtime.
+      // Keep prebundling opt-in until upstream parsing stabilizes.
+      noDiscovery: true,
+      include: [
+        "hono",
+        "hono/logger",
+        "@xyflow/react",
+        "elkjs/lib/elk.bundled.js",
+        "zustand",
+        "zustand/traditional",
+        "use-sync-external-store/shim/with-selector",
+      ],
       exclude: ["solid-chartjs"],
     },
     ssr: {
@@ -170,11 +184,13 @@ export default defineConfig({
     },
   },
   markdown: {
-    remarkPlugins: [remarkCallout, remarkMath],
+    processor: unified({
+      remarkPlugins: [remarkCallout, remarkMath],
+      rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
+    }),
     syntaxHighlight: {
       type: "shiki",
       excludeLangs: ["mermaid", "js"],
     },
-    rehypePlugins: [[rehypeMermaid, { strategy: "pre-mermaid" }], rehypeKatex],
   },
 });
