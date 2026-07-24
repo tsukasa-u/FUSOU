@@ -215,7 +215,7 @@ jobs:
 
   verify-updater-manifest:
     permissions:
-      contents: read
+      contents: write
     runs-on: ubuntu-latest
     needs: [create-release, build-tauri]
 
