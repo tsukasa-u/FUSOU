@@ -49,7 +49,7 @@ import {
 } from "../../utility/battles";
 import type { DataSetParamShip, DataSetShip } from "../../utility/get_data_set";
 import { get_data_set_param_ship } from "../../utility/get_data_set";
-import { WrapCompactEquipComponent } from "./wrap_web_component";
+import { ConnectedCompactEquip } from "./connected_components";
 import { BattleResultComponent } from "./battle/battle_result";
 
 export function BattlesComponent() {
@@ -422,7 +422,7 @@ export function BattlesComponent() {
           >
             {(ration) => (
               <div>
-                <WrapCompactEquipComponent si={ration} name_flag={false} />
+                <ConnectedCompactEquip si={ration} name_flag={false} />
               </div>
             )}
           </For>

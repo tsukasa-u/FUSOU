@@ -3,7 +3,7 @@ import type { AirDamage, Battle } from "./battle";
 
 export type AirBaseAttack = { air_superiority: number | null, plane_from: Array<Array<number> | null>, f_damage: AirDamage, e_damage: AirDamage, stage_flag: Array<number>, map_squadron_plane: { [key in string]?: Array<number> } | null, f_sprite_fly_count: number | null, e_sprite_fly_count: number | null, f_sprite_crash_count: number | null, e_sprite_crash_count: number | null, f_sprite_damage_count: number | null, e_sprite_damage_count: number | null, f_sprite_non_normal_count: number | null, e_sprite_non_normal_count: number | null, };
 
-export type Cell = { timestamp: number | null, rashin_id: number, no: number, color_no: number, event_id: number, event_kind: number, next: number, e_deck_info: Array<EDeckInfo> | null, limit_state: number, itemget: Array<Itemget> | null, m1: number | null, destruction_battle: DestructionBattle | null, happening: Happening | null, };
+export type Cell = { timestamp: number | null, rashin_id: number, no: number, color_no: number, event_id: number, event_kind: number, next: number, e_deck_info: Array<EDeckInfo> | null, limit_state: number, itemget?: Array<Itemget> | null, m1: number | null, destruction_battle: DestructionBattle | null, happening: Happening | null, };
 
 export type CellData = { id: number, no: number, color_no: number, passed: number, distance: number | null, };
 

@@ -8,12 +8,12 @@ import type {
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
 import {
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedErrorShipComponent,
-  WrapNumberedOwnShipComponent,
-  WrapOwnShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedErrorShip,
+  ConnectedNumberedOwnShip,
+  ConnectedOwnShipHP,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AntiSubmarineProps {
@@ -38,7 +38,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
         return (
           <td>
             <div class="flex flex-nowarp">
-              <WrapNumberedOwnShipComponent
+              <ConnectedNumberedOwnShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
                 deck_ship_id={props.deck_ship_id}
@@ -51,7 +51,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
         return (
           <td>
             <div class="flex flex-nowarp">
-              <WrapNumberedEnemyShipComponent
+              <ConnectedNumberedEnemyShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -64,7 +64,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
       return (
         <td>
           <div class="flex flex-nowarp">
-            <WrapNumberedErrorShipComponent />
+            <ConnectedNumberedErrorShip />
           </div>
         </td>
       );
@@ -77,7 +77,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
       if (at_eflag[at_index()] == 0) {
         return (
           <td>
-            <WrapOwnShipHPComponent
+            <ConnectedOwnShipHP
               f_now_hps={
                 props.battle_selected()?.opening_taisen?.f_now_hps[at_index()]
               }
@@ -91,7 +91,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
       } else {
         return (
           <td>
-            <WrapEnemyShipHPComponent
+            <ConnectedEnemyShipHP
               e_now_hps={
                 props.battle_selected()?.opening_taisen?.e_now_hps[at_index()]
               }
@@ -118,7 +118,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
               <For each={df_list?.[at_index()]}>
                 {(df, df_index) => (
                   <div class="flex flex-nowarp">
-                    <WrapNumberedEnemyShipComponent
+                    <ConnectedNumberedEnemyShip
                       ship_idx={df}
                       battle_selected={props.battle_selected}
                       store_data_set_param_ship={
@@ -141,7 +141,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
               <For each={df_list?.[at_index()]}>
                 {(df, df_index) => (
                   <div class="flex flex-nowarp">
-                    <WrapNumberedOwnShipComponent
+                    <ConnectedNumberedOwnShip
                       ship_idx={df}
                       deck_ship_id={props.deck_ship_id}
                       battle_selected={props.battle_selected}
@@ -164,7 +164,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <For each={df_list?.[at_index()]}>
               {() => (
                 <div class="flex flex-nowarp">
-                  <WrapNumberedErrorShipComponent />
+                  <ConnectedNumberedErrorShip />
                 </div>
               )}
             </For>
@@ -185,7 +185,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
               <For each={df_list?.[at_index()]}>
                 {(df) => (
                   <div class="flex flex-nowarp">
-                    <WrapEnemyShipHPComponent
+                    <ConnectedEnemyShipHP
                       e_now_hps={
                         props.battle_selected()?.opening_taisen?.e_now_hps[
                           at_index()
@@ -209,7 +209,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
               <For each={df_list?.[at_index()]}>
                 {(df) => (
                   <div class="flex flex-nowarp">
-                    <WrapOwnShipHPComponent
+                    <ConnectedOwnShipHP
                       battle_selected={props.battle_selected}
                       deck_ship_id={props.deck_ship_id}
                       f_now_hps={

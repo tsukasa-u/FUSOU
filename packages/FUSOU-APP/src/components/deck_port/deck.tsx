@@ -13,7 +13,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import "../../css/divider.css";
 import "../../css/back_slash.css";
 
-import "shared-ui";
+import { ComponentColorBar, ComponentColorBarLabel, ComponentEquipmentModal, ComponentShipModal, IconCautionFill, IconKira } from "ui";;
 import type {
   MstShip,
   MstSlotItem,
@@ -108,45 +108,45 @@ export function DeckComponent(props: DeckPortProps) {
       if (cond >= 71)
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={3} />
+            <IconKira size="full" kira_type={3} />
           </div>
         );
       else if (cond >= 58)
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={2} />
+            <IconKira size="full" kira_type={2} />
           </div>
         );
       else if (cond >= 50)
         // cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
         cond_state = (
           <div class="size-4">
-            <icon-kira size="full" kira_type={1} />
+            <IconKira size="full" kira_type={1} />
           </div>
         );
       else if (cond == 49) cond_state = <></>;
       else if (cond >= 40)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (cond >= 30)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (cond >= 20)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (cond >= 0)
         cond_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return cond_state;
@@ -166,19 +166,19 @@ export function DeckComponent(props: DeckPortProps) {
       else if (nowhp > 0.5 * maxhp)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (nowhp > 0.25 * maxhp)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (nowhp > 0)
         hp_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return hp_state;
@@ -205,19 +205,19 @@ export function DeckComponent(props: DeckPortProps) {
       else if (9 * nowfuel >= 7 * maxfuel && 9 * nowbullet >= 7 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"low"} />
+            <IconCautionFill size="full" level={"low"} />
           </div>
         );
       else if (9 * nowfuel >= 3 * maxfuel && 9 * nowbullet >= 3 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"middle"} />
+            <IconCautionFill size="full" level={"middle"} />
           </div>
         );
       else if (nowfuel >= 0 && nowbullet >= 0)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="full" level={"high"} />
+            <IconCautionFill size="full" level={"high"} />
           </div>
         );
       return fuel_bullet_state;
@@ -331,7 +331,7 @@ export function DeckComponent(props: DeckPortProps) {
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                           <div class="w-[106px] h-max">
-                            <component-ship-modal
+                            <ComponentShipModal
                               size="xs"
                               color=""
                               name_flag={true}
@@ -362,7 +362,7 @@ export function DeckComponent(props: DeckPortProps) {
                             {hp_state()[ship_index()]}
                           </div>
                           <div class="w-16 text-xs">
-                            <component-color-bar-label
+                            <ComponentColorBarLabel
                               v_max={ship_list()[ship_index()].maxhp ?? 0}
                               v_now={ship_list()[ship_index()].nowhp ?? 0}
                               size="xs"
@@ -410,7 +410,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   ]?.bull_max ?? 0
                                 }
                               /> */}
-                              <component-color-bar
+                              <ComponentColorBar
                                 class="w-8"
                                 v_now={ship_list()[ship_index()].fuel ?? 0}
                                 v_max={
@@ -418,7 +418,7 @@ export function DeckComponent(props: DeckPortProps) {
                                 }
                                 size="xs"
                               />
-                              <component-color-bar
+                              <ComponentColorBar
                                 class="w-8"
                                 v_now={ship_list()[ship_index()].bull ?? 0}
                                 v_max={
@@ -446,7 +446,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   when={slotId > 0}
                                   fallback={
                                     <div class="text-base flex justify-center">
-                                      <component-equipment-modal
+                                      <ComponentEquipmentModal
                                         size="xs"
                                         empty_flag={true}
                                       />
@@ -454,7 +454,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   }
                                 >
                                   <div class="text-base flex justify-center">
-                                    <component-equipment-modal
+                                    <ComponentEquipmentModal
                                       size="xs"
                                       empty_flag={false}
                                       name_flag={false}
@@ -497,7 +497,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   (ship_list()[ship_index()].slot_ex ?? 0) > 0
                                 }
                               >
-                                <component-equipment-modal
+                                <ComponentEquipmentModal
                                   size="xs"
                                   empty_flag={false}
                                   name_flag={false}

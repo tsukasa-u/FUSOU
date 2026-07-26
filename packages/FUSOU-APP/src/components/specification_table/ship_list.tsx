@@ -16,7 +16,7 @@ import {
 import { createStore } from "solid-js/store";
 
 import "../../css/divider.css";
-import "shared-ui";
+import { ComponentShipModal } from "ui";;
 
 import { VList } from "virtua/solid";
 import { get_data_set_ship } from "../../utility/get_data_set.tsx";
@@ -451,7 +451,7 @@ export function ShipListComponent() {
         </th>
         <td class="w-32 overflow-hidden">
           {/* <ShipNameComponent ship_id={Number(ship_id)} /> */}
-          <component-ship-modal
+          <ComponentShipModal
             mst_ship={mst_ship}
             ship={ship}
             name_flag={true}

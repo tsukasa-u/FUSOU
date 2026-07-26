@@ -5,10 +5,10 @@ import { useAirBasesBattles, useSlotItems } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import {
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapOwnPlaneEquipComponent,
-} from "../wrap_web_component";
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedOwnPlaneEquip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
@@ -116,7 +116,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapOwnPlaneEquipComponent si={slot_id} />
+                <ConnectedOwnPlaneEquip si={slot_id} />
               </>
             )}
           </For>
@@ -139,7 +139,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                     <div class="h-px" />
                   </Show>
                   <div class="flex flex-nowrap">
-                    <WrapNumberedEnemyShipComponent
+                    <ConnectedNumberedEnemyShip
                       battle_selected={props.battle_selected}
                       ship_idx={idx()}
                       store_data_set_param_ship={
@@ -180,7 +180,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={
                       props.battle_selected()?.air_base_assault?.e_damage
                         .now_hps

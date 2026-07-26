@@ -23,8 +23,7 @@ export default <StorybookConfig>{
     },
   ],
   stories: [
-    "../**/stories/**/*.mdx",
-    "../**/stories/**/*.stories.@(js|jsx|mjs|ts|tsx)",
+    "../src/**/*.stories.@(js|jsx|ts|tsx|mdx)"
   ],
   async viteFinal(config) {
     return mergeConfig(config, {

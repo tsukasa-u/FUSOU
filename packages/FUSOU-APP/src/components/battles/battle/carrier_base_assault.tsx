@@ -9,11 +9,11 @@ import type {
 } from "../../../utility/get_data_set";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedOwnShipComponent,
-  WrapOwnShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedOwnShip,
+  ConnectedOwnShipHP,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
@@ -88,7 +88,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
                     ship_idx={ship_idx}
@@ -114,7 +114,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapOwnShipHPComponent
+                <ConnectedOwnShipHP
                   f_now_hps={carrier_base_assault?.f_damage.now_hps}
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
@@ -141,7 +141,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     battle_selected={props.battle_selected}
                     ship_idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -172,7 +172,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
           {(_, idx) => (
             <>
               <Show when={show_damage()[0][idx()]}>
-                <WrapEnemyShipHPComponent
+                <ConnectedEnemyShipHP
                   e_now_hps={carrier_base_assault?.e_damage.now_hps}
                   idx={idx()}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -222,7 +222,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     battle_selected={props.battle_selected}
                     ship_idx={ship_idx}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -248,7 +248,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={carrier_base_assault?.e_damage.now_hps}
                     idx={ship_idx}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -274,7 +274,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     battle_selected={props.battle_selected}
                     deck_ship_id={props.deck_ship_id}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -309,7 +309,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapOwnShipHPComponent
+                <ConnectedOwnShipHP
                   f_now_hps={carrier_base_assault?.f_damage.now_hps}
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}

@@ -1,5 +1,18 @@
 @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500&display=swap");
 @import "tailwindcss";
+@import "./css/modal.css";
+@import "./css/modal_active.css";
+@import "./css/table_hover.css";
+@import "./css/table_active.css";
+@import "./css/hr_hover.css";
+@import "./css/hr_active.css";
+@import "./css/menu_hover.css";
+@import "./css/menu_active.css";
+@import "./css/back_slash.css";
+@import "./css/battle_table_common.css";
+@import "./css/divider.css";
+@import "./css/justify_self_center.css";
+@import "./css/pagination.css";
 @plugin "daisyui" {
   themes:
     light --default,

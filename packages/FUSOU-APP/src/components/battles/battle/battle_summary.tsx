@@ -8,7 +8,7 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
-import "shared-ui";
+import { ComponentColorBarLabel, ComponentShipMaskedModal, ComponentShipModal, IconFleetNumber } from "ui";;
 
 const friendly_force_number = 5;
 
@@ -306,13 +306,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       >
         <td>
           <div class="flex flex-nowrap">
-            <icon-fleet-number
+            <IconFleetNumber
               e_flag={0}
               fleet_number={1}
               ship_number={idx + 1}
               size="xs"
             />
-            <component-ship-modal
+            <ComponentShipModal
               size="xs"
               color=""
               name_flag={true}
@@ -329,7 +329,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_now={fleet_info().f_main_nowhps[idx] ?? 0}
               v_max={fleet_info().f_main_maxhps[idx] ?? 0}
@@ -357,13 +357,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       >
         <td>
           <div class="flex flex-nowrap">
-            <icon-fleet-number
+            <IconFleetNumber
               e_flag={1}
               fleet_number={1}
               ship_number={idx + 1}
               size="xs"
             />
-            <component-ship-masked-modal
+            <ComponentShipMaskedModal
               size="xs"
               empty_flag={false}
               name_flag={true}
@@ -386,7 +386,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_now={fleet_info().e_main_nowhps[idx] ?? 0}
               v_max={fleet_info().e_main_maxhps[idx] ?? 0}
@@ -426,14 +426,14 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       >
         <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
           <div class="flex flex-nowrap">
-            <icon-fleet-number
+            <IconFleetNumber
               e_flag={0}
               fleet_number={2}
               ship_number={idx + 1}
               combined_flag={true}
               size="xs"
             />
-            <component-ship-modal
+            <ComponentShipModal
               size="xs"
               color=""
               empty_flag={false}
@@ -447,7 +447,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_max={fleet_info().f_escort_maxhps[idx] ?? 0}
               v_now={fleet_info().f_escort_nowhps[idx] ?? 0}
@@ -478,14 +478,14 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       >
         <td>
           <div class="flex flex-nowrap">
-            <icon-fleet-number
+            <IconFleetNumber
               e_flag={1}
               fleet_number={2}
               ship_number={idx + 1}
               combined_flag={true}
               class="xs"
             />
-            <component-ship-masked-modal
+            <ComponentShipMaskedModal
               size="xs"
               empty_flag={false}
               name_flag={true}
@@ -510,7 +510,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_max={fleet_info().e_escort_maxhps[idx] ?? 0}
               v_now={fleet_info().e_escort_nowhps[idx] ?? 0}
@@ -535,14 +535,14 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         }
       >
         <td>
-          <icon-fleet-number
+          <IconFleetNumber
             e_flag={0}
             fleet_number={friendly_force_number}
             ship_number={idx + 1}
             combined_flag={false}
             size="xs"
           />
-          <component-ship-masked-modal
+          <ComponentShipMaskedModal
             size="xs"
             empty_flag={false}
             name_flag={true}
@@ -564,7 +564,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_max={fleet_info().friend_nowhps[idx] ?? 0}
               v_now={fleet_info().friend_maxhps[idx] ?? 0}

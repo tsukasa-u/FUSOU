@@ -3,7 +3,7 @@ import { createMemo, For, Show } from "solid-js";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import "shared-ui";
+import { ComponentColorBarLabel, ComponentShipMaskedModal, IconFleetNumber } from "ui";;
 
 interface ButtleSummaryProps {
   area_id: number;
@@ -105,7 +105,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_now={fleet_info().f_base_nowhps[idx] ?? 0}
               v_max={fleet_info().f_base_maxhps[idx] ?? 0}
@@ -133,13 +133,13 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       >
         <td>
           <div class="flex flex-nowrap">
-            <icon-fleet-number
+            <IconFleetNumber
               e_flag={1}
               fleet_number={1}
               ship_number={idx + 1}
               size="xs"
             />
-            <component-ship-masked-modal
+            <ComponentShipMaskedModal
               size="xs"
               empty_flag={false}
               name_flag={true}
@@ -166,7 +166,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
         </td>
         <td>
           <div class="flex-none">
-            <component-color-bar-label
+            <ComponentColorBarLabel
               size="xs"
               v_now={fleet_info().e_main_nowhps[idx] ?? 0}
               v_max={fleet_info().e_main_maxhps[idx] ?? 0}
