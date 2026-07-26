@@ -97,6 +97,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const [selectedCellFilter, setSelectedCellFilter] =
     createSignal<SelectedCellFilter | null>(null);
   const [metadataWarnings, setMetadataWarnings] = createSignal<string[]>([]);
+  const [showWarnings, setShowWarnings] = createSignal(false);
   const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
   const [officialMapThemeMode, setOfficialMapThemeMode] =
     createSignal<OfficialMapThemeMode>("auto");
@@ -121,6 +122,21 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const pendingMetadataLoads = new Map<string, Promise<void>>();
 
   let mapMetadataAbortController: AbortController | null = null;
+
+  // ── Master data for area/map names ─────────────────────────────────────────
+  const [mstMapareas, setMstMapareas] = createSignal<any[]>([]);
+  const [mstMapinfos, setMstMapinfos] = createSignal<any[]>([]);
+
+  onMount(() => {
+    fetch("/api/master-data/json?table_name=mst_map_area")
+      .then((res) => res.json())
+      .then((payload: any) => setMstMapareas(payload.records || []))
+      .catch(() => {});
+    fetch("/api/master-data/json?table_name=mst_map_info")
+      .then((res) => res.json())
+      .then((payload: any) => setMstMapinfos(payload.records || []))
+      .catch(() => {});
+  });
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
 
@@ -338,6 +354,47 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       if (key !== "0-0") values.add(key);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
+  });
+
+  function getAreaName(areaIdStr: string): string {
+    const fromApi = mstMapareas().find((m) => String(m.id) === areaIdStr);
+    if (fromApi?.name) return fromApi.name;
+    const map: Record<string, string> = {
+      "1": "鎮守府海域", "2": "南西諸島海域", "3": "北方海域",
+      "4": "西方海域", "5": "南方海域", "6": "中部海域", "7": "南西海域",
+    };
+    return map[areaIdStr] || `第${areaIdStr}海域`;
+  }
+
+  function getMapInfoName(mapKey: string): string {
+    const [area, no] = mapKey.split("-");
+    const fromApi = mstMapinfos().find(
+      (m) => String(m.maparea_id) === area && String(m.no) === no,
+    );
+    if (fromApi?.name) return fromApi.name;
+    const map: Record<string, string> = {
+      "1-1": "鎮守府正面海域", "1-2": "南西諸島沖", "1-3": "製油所地帯沿岸", "1-4": "南西諸島防衛線", "1-5": "鎮守府近海", "1-6": "鎮守府近海航路",
+      "2-1": "南西諸島近海", "2-2": "バシー海峡", "2-3": "東部オリョール海", "2-4": "沖ノ島海域", "2-5": "沖ノ島沖",
+      "3-1": "モーレイ海", "3-2": "キス島沖", "3-3": "アルフォンシーノ方面", "3-4": "北方海域全域", "3-5": "北方AL海域",
+      "4-1": "ジャム島攻略作戦", "4-2": "カレー洋制圧戦", "4-3": "リランカ島空襲", "4-4": "カスガダマ沖海戦", "4-5": "カレー洋リランカ島沖",
+      "5-1": "南方海域前面", "5-2": "珊瑚諸島沖", "5-3": "サブ島沖海域", "5-4": "サーモン海域", "5-5": "サーモン海域北方",
+      "6-1": "中部海域哨戒線", "6-2": "MS諸島沖", "6-3": "グアノ環礁沖海域", "6-4": "中部北太平洋海域", "6-5": "KW環礁沖海域",
+      "7-1": "ブルネイ泊地沖", "7-2": "タウイタウイ泊地沖", "7-3": "ペナン島沖", "7-4": "昭南本土航路",
+    };
+    return map[mapKey] || "";
+  }
+
+  /** mapOptions を海域ごとにグループ化したリスト */
+  const mapAreaGroups = createMemo(() => {
+    const grouped = new Map<string, string[]>();
+    for (const mapKey of mapOptions()) {
+      const areaId = mapKey.split("-")[0];
+      if (!grouped.has(areaId)) grouped.set(areaId, []);
+      grouped.get(areaId)!.push(mapKey);
+    }
+    return [...grouped.entries()]
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([areaId, maps]) => ({ areaId, maps }));
   });
 
   createEffect(() => {
@@ -926,17 +983,45 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       </button>
 
       <Show when={metadataWarnings().length > 0}>
-        <AlertMessage
-          type="warning"
-          title="マップメタデータ警告"
-          class="mb-6 p-3 text-sm items-start shadow-sm"
-        >
-          <For each={metadataWarnings()}>
-            {(warning) => (
-              <div class="text-xs text-base-content/80">{warning}</div>
-            )}
-          </For>
-        </AlertMessage>
+        <div class="alert alert-warning mb-6 p-3 text-sm items-start shadow-sm">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="w-5 h-5 shrink-0 stroke-current text-warning"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M12 9v4m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4c-.77-1.33-2.69-1.33-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z"
+            />
+          </svg>
+          <div class="flex flex-col gap-2 w-full">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-semibold text-warning">
+                マップメタデータ警告 ({metadataWarnings().length}件)
+              </span>
+              <button
+                class="btn btn-xs btn-ghost"
+                type="button"
+                onClick={() => setShowWarnings((prev) => !prev)}
+              >
+                {showWarnings() ? "詳細を隠す" : "詳細を表示"}
+              </button>
+            </div>
+            <Show when={showWarnings()}>
+              <div class="flex flex-col gap-1 mt-1">
+                <For each={metadataWarnings()}>
+                  {(warning) => (
+                    <div class="text-xs text-base-content/80">{warning}</div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </div>
       </Show>
 
       {/* Map route visualisation */}
@@ -946,6 +1031,53 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           <div class="text-xs text-base-content/60 mb-2">
             港からどの順番で進んだかを矢印で表示します。線のそばの数字は、そのルートを通った回数です。セルをクリックすると、そのマスを通った出撃だけを表示できます。
           </div>
+
+          {/* 海域未選択時: ドロップページと同様の海域選択グリッドを表示 */}
+          <Show when={!d.mapFilter()}>
+            <Show
+              when={mapAreaGroups().length > 0}
+              fallback={
+                <div class="flex items-center justify-center h-32 text-base-content/40">
+                  {d.loading() ? "読込中..." : "データがありません"}
+                </div>
+              }
+            >
+              <div class="space-y-6">
+                <For each={mapAreaGroups()}>
+                  {(area) => (
+                    <div>
+                      <h4 class="font-bold text-sm text-base-content/80 mb-3 border-b border-base-200 pb-1">
+                        {area.areaId} {getAreaName(area.areaId)}
+                      </h4>
+                      <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                        <For each={area.maps}>
+                          {(mapKey) => {
+                            const infoName = getMapInfoName(mapKey);
+                            return (
+                              <button
+                                class="btn btn-outline h-auto py-2 flex flex-col items-center gap-1 hover:bg-base-200 hover:text-base-content hover:border-base-300"
+                                onClick={() => d.setMapFilter(mapKey)}
+                              >
+                                <span class="font-bold text-base">{mapKey}</span>
+                                <Show when={infoName}>
+                                  <span class="text-[10px] font-normal opacity-75 max-w-full truncate px-1">
+                                    {infoName}
+                                  </span>
+                                </Show>
+                              </button>
+                            );
+                          }}
+                        </For>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+
+          {/* 海域選択済み: ルート図を表示 */}
+          <Show when={d.mapFilter()}>
           <Show
             when={selectedRouteOverlay()}
             fallback={
@@ -1062,10 +1194,12 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
               </div>
             )}
           </Show>
+          </Show>
         </div>
       </div>
 
       {/* Cell stats table */}
+      <Show when={d.mapFilter()}>
       <div class="card bg-base-100 shadow-sm">
         <div class="card-body p-0">
           <div class="overflow-x-auto">
@@ -1128,8 +1262,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           </div>
         </div>
       </div>
+      </Show>
 
       {/* Sortie list panel */}
+      <Show when={d.mapFilter()}>
       <div class="card bg-base-100 shadow-sm mt-6">
         <div class="card-body">
           <h3 class="card-title text-lg">進軍ルート一覧（出撃ごと）</h3>
@@ -1147,6 +1283,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           />
         </div>
       </div>
+      </Show>
 
       {/* Display settings modal */}
       <DisplaySettingsModal
