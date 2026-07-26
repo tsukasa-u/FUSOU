@@ -563,7 +563,7 @@ function buildEnemySummaryResolver(args: {
   return (deckId?: string | null): string => {
     if (!deckId) return "-";
     const deck = deckById.get(deckId);
-    if (!deck?.ship_ids) return `敵艦隊 ${deckId.slice(0, 6)}`;
+    if (!deck?.ship_ids) return "-";
 
     const names: string[] = [];
     for (const groupId of toGroupIdsForBattleQuery(deck.ship_ids)) {
@@ -577,7 +577,7 @@ function buildEnemySummaryResolver(args: {
 
     const uniqueNames = [...new Set(names)];
     if (uniqueNames.length === 0) {
-      return `敵艦隊 ${deckId.slice(0, 6)}`;
+      return "-";
     }
     const head = uniqueNames.slice(0, 3).join(" / ");
     return uniqueNames.length > 3 ? `${head} +${uniqueNames.length - 3}` : head;
@@ -2506,12 +2506,22 @@ app.get("/global/overview", async (c) => {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
 
-  if (cache) {
+  if (cache && c.req.header("cache-control") !== "no-cache") {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      const hit = new Response(cached.body, cached);
-      hit.headers.set("X-FUSOU-Cache", "HIT");
-      return hit;
+      try {
+        const text = await cached.clone().text();
+        JSON.parse(text);
+        const hit = new Response(text, cached);
+        hit.headers.set("X-FUSOU-Cache", "HIT");
+        return hit;
+      } catch {
+        try {
+          await cache.delete(cacheKey);
+        } catch {
+          // ignore cache delete errors
+        }
+      }
     }
   }
 
@@ -2545,6 +2555,42 @@ app.get("/global/overview", async (c) => {
 
     const mstShips = mstShipPayload.records || [];
 
+    const deckIds = [
+      ...new Set(
+        battles
+          .map((b) => (typeof b.e_deck_id === "string" ? b.e_deck_id : ""))
+          .filter(Boolean),
+      ),
+    ];
+    const enemyDecks =
+      deckIds.length > 0
+        ? await fetchGlobalRecordsInternal(c, {
+            table: "enemy_deck",
+            periodTag: "all",
+            tableVersion,
+            limitBlocks: 400,
+            limitRecords: 2000,
+            filter: { uuid: deckIds },
+          })
+        : [];
+
+    const shipGroupIds = [
+      ...new Set(
+        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d.ship_ids)),
+      ),
+    ];
+    const enemyShips =
+      shipGroupIds.length > 0
+        ? await fetchGlobalRecordsInternal(c, {
+            table: "enemy_ship",
+            periodTag: "all",
+            tableVersion,
+            limitBlocks: 400,
+            limitRecords: 4000,
+            filter: { uuid: shipGroupIds },
+          })
+        : [];
+
     const payload = {
       success: true,
       period_tag: periodTag,
@@ -2559,7 +2605,9 @@ app.get("/global/overview", async (c) => {
         cells,
         battleResults,
         mstShips,
-        includeEnemySummary: false,
+        enemyDecks,
+        enemyShips,
+        includeEnemySummary: true,
         includeOpeningAirAttack: false,
       }),
       cells,

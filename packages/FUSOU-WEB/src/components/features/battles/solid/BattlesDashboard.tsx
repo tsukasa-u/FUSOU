@@ -9,7 +9,7 @@ import {
   Switch,
   For,
 } from "solid-js";
-import { cachedFetch } from "@/utils/fetchCache";
+import { cachedFetch, clearFetchCache } from "@/utils/fetchCache";
 import type { PeriodSummary, MasterDataStatusItem } from "./types";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
@@ -85,6 +85,8 @@ export default function BattlesDashboard() {
   type OverviewPayload = {
     battles?: any[];
     cells?: any[];
+    enemy_decks?: any[];
+    enemy_ships?: any[];
     master_data?: {
       period_tag?: string;
       period_revision?: number;
@@ -165,7 +167,7 @@ export default function BattlesDashboard() {
     return periodOnlyIdx >= 0 ? periodOnlyIdx : 0;
   }
 
-  async function loadData(periodOverride?: PeriodSummary | null) {
+  async function loadData(periodOverride?: PeriodSummary | null, { forceRefresh = false }: { forceRefresh?: boolean } = {}) {
     const requestedPeriod = periodOverride ?? selectedPeriod();
     if (!requestedPeriod) {
       setError("利用可能な期間データがありません。");
@@ -196,10 +198,14 @@ export default function BattlesDashboard() {
       { name: "mst_slotitem", status: "pending" },
     ]);
 
+    const fetchInit = forceRefresh
+      ? { signal, cache: "reload" as RequestCache, headers: { "Cache-Control": "no-cache" } }
+      : { signal };
+
     try {
       if (datasetKind === "overview") {
         const [overviewResponse, masterShipResponse, masterSlotItemResponse] = await Promise.all([
-          cachedFetch(overviewUrl, { signal }),
+          cachedFetch(overviewUrl, fetchInit),
           cachedFetch("/api/master-data/json?table_name=mst_ship", { signal }),
           cachedFetch("/api/master-data/json?table_name=mst_slotitem", { signal }),
         ]);
@@ -225,11 +231,11 @@ export default function BattlesDashboard() {
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(payload.battles || []);
         setCellRecords(payload.cells || []);
-        setEnemyDecks([]);
-        setEnemyShips([]);
+        setEnemyDecks(payload.enemy_decks || []);
+        setEnemyShips(payload.enemy_ships || []);
         setEnemySlotItems([]);
-        setMstShips([]);
-        setMstSlotItems([]);
+        setMstShips(masterShipPayload.records || []);
+        setMstSlotItems(masterSlotItemPayload.records || []);
         setWeaponIconFrames({});
         setWeaponIconMeta({ width: 0, height: 0 });
         setMasterDataMeta(masterShipPayload || payload.master_data || null);
@@ -530,7 +536,10 @@ export default function BattlesDashboard() {
             <button
               type="button"
               class="btn btn-outline btn-sm"
-              onClick={() => loadData(selectedPeriod())}
+              onClick={() => {
+                clearFetchCache();
+                void loadData(selectedPeriod(), { forceRefresh: true });
+              }}
               disabled={loadingPeriods() || loading()}
             >
               <Show when={loading()}>

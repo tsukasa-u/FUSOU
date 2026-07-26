@@ -56,6 +56,7 @@ import {
 } from "./battle-map-flow/geometry";
 import { buildAutoLabelLayouts } from "./battle-map-flow/labelLayout";
 import { inferRouteOverlays } from "./battle-map-flow/routeInference";
+import { buildEnemyDeckResolver } from "./battle-map-flow/enemyResolver";
 import {
   cellLabel as pureCellLabel,
   cellOverlayLabel as pureCellOverlayLabel,
@@ -293,11 +294,37 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
+  const enemyDeckResolver = createMemo(() =>
+    buildEnemyDeckResolver(d.enemyDecks(), d.enemyShips(), d.mstShips()),
+  );
+
   const describeEnemy = (battle: Record<string, unknown>): string => {
     const summary = battle.enemy_summary;
-    if (typeof summary === "string" && summary) return summary;
+    if (
+      typeof summary === "string" &&
+      summary &&
+      summary !== "-" &&
+      !summary.match(/^[0-9a-f]{8}/i) &&
+      !summary.startsWith("敵艦隊 01") &&
+      !summary.startsWith("敵艦隊 0c")
+    ) {
+      return summary;
+    }
     const deckId = typeof battle.e_deck_id === "string" ? battle.e_deck_id : "";
-    return deckId ? `敵艦隊 ${deckId.slice(0, 6)}` : "-";
+    if (!deckId) return "-";
+    const resolved = enemyDeckResolver()(deckId);
+    if (
+      resolved &&
+      resolved !== "-" &&
+      resolved !== "敵艦隊" &&
+      !resolved.match(/^敵艦隊 [0-9a-fA-F]/)
+    ) {
+      return resolved;
+    }
+    if (typeof summary === "string" && summary && summary !== "-") {
+      return summary;
+    }
+    return `敵艦隊 (${deckId.slice(0, 6)})`;
   };
 
   const mapOptions = createMemo(() => {

@@ -172,7 +172,8 @@ export function cachedFetch(
   ttlMs: number = DEFAULT_TTL_MS,
 ): Promise<Response> {
   if (!isCacheableRequest(url, init)) {
-    return fetch(url, init);
+    const directInit: RequestInit = { ...init, cache: "no-store" };
+    return fetch(url, directInit);
   }
 
   const cacheKey = buildCacheKey(url, init);

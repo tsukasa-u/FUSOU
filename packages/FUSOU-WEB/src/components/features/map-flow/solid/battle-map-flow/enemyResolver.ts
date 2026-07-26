@@ -53,7 +53,7 @@ export function buildEnemyDeckResolver(
   return (deckId?: string | null): string => {
     if (!deckId) return "-";
     const deck = deckById.get(deckId);
-    if (!deck?.ship_ids) return `敵艦隊 ${deckId.slice(0, 6)}`;
+    if (!deck?.ship_ids) return "敵艦隊";
 
     const names: string[] = [];
     if (Array.isArray(deck.ship_ids)) {
@@ -75,7 +75,7 @@ export function buildEnemyDeckResolver(
       }
     }
 
-    if (names.length === 0) return `敵艦隊 ${deckId.slice(0, 6)}`;
+    if (names.length === 0) return "敵艦隊";
     const uniq = [...new Set(names)];
     const head = uniq.slice(0, 3).join(" / ");
     return uniq.length > 3 ? `${head} +${uniq.length - 3}` : head;
@@ -150,7 +150,7 @@ export function buildEnemyFleetResolver(
 
     const deck = deckById.get(deckId);
     if (!deck?.ship_ids) {
-      const fallbackName = `敵艦隊 ${deckId.slice(0, 6)}`;
+      const fallbackName = "敵艦隊";
       return {
         signature: fallbackName,
         ships: [
@@ -215,7 +215,7 @@ export function buildEnemyFleetResolver(
     }
 
     if (ships.length === 0) {
-      const fallbackName = `敵艦隊 ${deckId.slice(0, 6)}`;
+      const fallbackName = "敵艦隊";
       return {
         signature: fallbackName,
         ships: [
