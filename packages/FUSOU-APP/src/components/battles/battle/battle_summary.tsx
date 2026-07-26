@@ -483,7 +483,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
               fleet_number={2}
               ship_number={idx + 1}
               combined_flag={true}
-              class="xs"
+              size="xs"
             />
             <ComponentShipMaskedModal
               size="xs"

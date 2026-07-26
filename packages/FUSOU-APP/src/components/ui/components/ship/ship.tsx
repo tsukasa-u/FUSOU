@@ -61,7 +61,7 @@ export const ComponentShip: Component<ComponentShipProps> = (props) => {
 
   return (
     <Show
-      when={props.mst_ship}
+      when={props.mst_ship || props.empty_flag}
       fallback={
         <div class="flex flex-nowarp w-full">
           <div class="outline-error outline-2 rounded bg-error-content">
