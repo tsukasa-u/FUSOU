@@ -6,12 +6,12 @@ import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
-  WrapBaseHPComponent,
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapOwnPlaneEquipComponent,
-} from "../wrap_web_component";
+  ConnectedBaseHP,
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedOwnPlaneEquip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface DestructionBattleProps {
@@ -156,7 +156,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             when={f_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
+            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
@@ -165,7 +165,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             when={e_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
+            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
       </>
@@ -236,7 +236,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                       <Show when={idx() > 0}>
                         <div class="h-px" />
                       </Show>
-                      <WrapOwnPlaneEquipComponent si={plane.slotid} />
+                      <ConnectedOwnPlaneEquip si={plane.slotid} />
                     </Show>
                   </>
                 )}
@@ -260,7 +260,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     ship_idx={idx()}
                     battle_selected={() => undefined}
                     combined_flag={false}
@@ -288,7 +288,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={
                       destruction_battle?.air_base_attack.e_damage.now_hps
                     }
@@ -345,7 +345,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="h-px" />
                   </Show>
                   <div class="flex flex-nowrap">
-                    <WrapNumberedEnemyShipComponent
+                    <ConnectedNumberedEnemyShip
                       ship_idx={idx()}
                       battle_selected={() => undefined}
                       combined_flag={false}
@@ -373,7 +373,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             {(plane_flag, idx) => (
               <>
                 <Show when={plane_flag != -1}>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={
                       destruction_battle?.air_base_attack.e_damage.now_hps
                     }
@@ -423,7 +423,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
             {(_, idx) => (
               <>
                 <Show when={show_damage()[1][idx()]}>
-                  <WrapBaseHPComponent
+                  <ConnectedBaseHP
                     max_hps={destruction_battle?.f_nowhps}
                     now_hps={
                       destruction_battle?.air_base_attack.f_damage.now_hps

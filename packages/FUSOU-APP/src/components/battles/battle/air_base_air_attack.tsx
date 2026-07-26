@@ -6,11 +6,11 @@ import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapOwnPlaneEquipComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedOwnPlaneEquip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
@@ -60,7 +60,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             when={f_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
+            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
@@ -69,7 +69,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             when={e_touch_plane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
+            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
       </>
@@ -90,7 +90,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapOwnPlaneEquipComponent si={plane.slotid} />
+                  <ConnectedOwnPlaneEquip si={plane.slotid} />
                 </Show>
               </>
             )}
@@ -115,7 +115,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                     <div class="h-px" />
                   </Show>
                   <div class="flex flex-nowrap">
-                    <WrapNumberedEnemyShipComponent
+                    <ConnectedNumberedEnemyShip
                       store_data_set_param_ship={
                         props.store_data_set_param_ship
                       }
@@ -151,7 +151,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     e_now_hps={attack.e_damage.now_hps}
                     idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}

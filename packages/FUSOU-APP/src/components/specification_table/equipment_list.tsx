@@ -24,7 +24,7 @@ import {
 } from "../../utility/scroll.tsx";
 
 import "../../css/divider.css";
-import "shared-ui";
+import { ComponentEquipmentModal, IconPlaneProficiency } from "ui";;
 import type {
   CheckName,
   CheckProps,
@@ -429,7 +429,7 @@ export function EquipmentListComponent() {
         </th>
         <td class="w-48 overflow-hidden">
           {/* <EquimentComponent slot_id={Number(equip_id)} name_flag={true} /> */}
-          <component-equipment-modal
+          <ComponentEquipmentModal
             size="xs"
             name_flag={true}
             mst_slot_item={mst_slot_item}
@@ -514,7 +514,7 @@ export function EquipmentListComponent() {
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
               {/* {proficiency_selector(slot_item?.alv ?? 0)} */}
-              <icon-plane-proficiency size="xs" level={slot_item?.alv ?? 0} />
+              <IconPlaneProficiency size="xs" level={slot_item?.alv ?? 0} />
             </div>
           </td>
         </Show>

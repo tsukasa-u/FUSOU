@@ -5,7 +5,7 @@ import type { JSX } from "solid-js";
 import { createMemo, For } from "solid-js";
 import IconChevronRightS from "../../icons/chevron_right_s.tsx";
 
-import "shared-ui";
+import { ComponentEquipmentModal, IconCautionFill } from "ui";;
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 
 export function AirBasesComponent() {
@@ -28,13 +28,13 @@ export function AirBasesComponent() {
       else if (cond == 2)
         cond_state = (
           <div class="h-4 w-4">
-            <icon-caution-fill level={"middle"} size="full" />
+            <IconCautionFill level={"middle"} size="full" />
           </div>
         );
       else if (cond == 3)
         cond_state = (
           <div class="h-4 w-4">
-            <icon-caution-fill level={"high"} size="full" />
+            <IconCautionFill level={"high"} size="full" />
           </div>
         );
       return cond_state;
@@ -123,7 +123,7 @@ export function AirBasesComponent() {
                                       }}
                                     >
                                       <div class="w-58">
-                                        <component-equipment-modal
+                                        <ComponentEquipmentModal
                                           size="xs"
                                           attr_onslot={plane.count ?? 0}
                                           slot_item={

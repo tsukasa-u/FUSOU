@@ -1,7 +1,7 @@
 import { useMaterials } from "../../utility/provider.tsx";
 
 import { For, Show } from "solid-js";
-import "shared-ui";
+import { IconMaterial } from "ui";;
 import "../../css/divider.css";
 
 export function MaterialsComponent() {
@@ -47,7 +47,7 @@ export function MaterialsComponent() {
                         {(material, index) => (
                           <>
                             <div class="h-5 w-5">
-                              <icon-material
+                              <IconMaterial
                                 item_number={icon_material_converter[index()]}
                                 size="full"
                               />
@@ -67,7 +67,7 @@ export function MaterialsComponent() {
                         {(material, index) => (
                           <>
                             <div class="h-5 w-5">
-                              <icon-material
+                              <IconMaterial
                                 item_number={
                                   icon_material_converter[index() + 4]
                                 }

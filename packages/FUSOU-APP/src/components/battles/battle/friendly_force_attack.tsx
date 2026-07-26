@@ -8,13 +8,13 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapFriendShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedErrorShipComponent,
-  WrapNumberedFriendShipComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedFriendShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedErrorShip,
+  ConnectedNumberedFriendShip,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface FriendlyForceAttackProps {
@@ -63,7 +63,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                 when={f_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                <WrapNumberedFriendShipComponent
+                <ConnectedNumberedFriendShip
                   ship_idx={f_flare_pos}
                   battle_selected={props.battle_selected}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -76,7 +76,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                 when={e_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                <WrapNumberedEnemyShipComponent
+                <ConnectedNumberedEnemyShip
                   ship_idx={e_flare_pos}
                   battle_selected={props.battle_selected}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -98,7 +98,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         return (
           <td>
             <div class="flex flex-nowrap">
-              <WrapNumberedFriendShipComponent
+              <ConnectedNumberedFriendShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -110,7 +110,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         return (
           <td>
             <div class="flex flex-nowrap">
-              <WrapNumberedEnemyShipComponent
+              <ConnectedNumberedEnemyShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -123,7 +123,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
       return (
         <td>
           <div class="flex flex-nowrap">
-            <WrapNumberedErrorShipComponent />
+            <ConnectedNumberedErrorShip />
           </div>
         </td>
       );
@@ -137,7 +137,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
       if (at_eflag[at_index()] == 0) {
         return (
           <td>
-            <WrapFriendShipHPComponent
+            <ConnectedFriendShipHP
               store_data_set_param_ship={props.store_data_set_param_ship}
               idx={at}
               friend_now_hps={
@@ -150,7 +150,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
       } else {
         return (
           <td>
-            <WrapEnemyShipHPComponent
+            <ConnectedEnemyShipHP
               idx={at}
               store_data_set_param_ship={props.store_data_set_param_ship}
               e_now_hps={
@@ -185,7 +185,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                 <For each={df_list?.[at_index()]}>
                   {(df, df_index) => (
                     <div class="flex flex-nowrap">
-                      <WrapNumberedEnemyShipComponent
+                      <ConnectedNumberedEnemyShip
                         ship_idx={df}
                         battle_selected={props.battle_selected}
                         store_data_set_param_ship={
@@ -210,7 +210,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                 <For each={df_list?.[at_index()]}>
                   {(df, df_index) => (
                     <div class="flex flex-nowrap">
-                      <WrapNumberedFriendShipComponent
+                      <ConnectedNumberedFriendShip
                         ship_idx={df}
                         battle_selected={props.battle_selected}
                         store_data_set_param_ship={
@@ -233,7 +233,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         <td>
           <div class="flex flex-col">
             <div class="flex flex-nowrap">
-              <WrapNumberedErrorShipComponent />
+              <ConnectedNumberedErrorShip />
             </div>
           </div>
         </td>
@@ -255,7 +255,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df) => (
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     idx={df}
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     e_now_hps={
@@ -274,7 +274,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
             <div class="flex flex-col">
               <For each={df_list?.[at_index()]}>
                 {(df) => (
-                  <WrapFriendShipHPComponent
+                  <ConnectedFriendShipHP
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={df}
                     friend_now_hps={
@@ -351,7 +351,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
             >
               {(si) => (
                 <Show when={si}>
-                  <WrapCIMstEquipComponent
+                  <ConnectedCIMstEquip
                     si={si!}
                     e_flag={
                       props.battle_selected()?.friendly_force_attack

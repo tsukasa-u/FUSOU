@@ -1,6 +1,5 @@
 ---
 import "@/assets/app.css";
-import "../styles/global.css";
 import FocusBehavior from "@/components/common/astro/ui/FocusBehavior.astro";
 import TutorialModal from "@/components/common/astro/ui/TutorialModal.astro";
 
@@ -31,8 +30,7 @@ const { title = "FUSOU", tutorial = null } = Astro.props as {
 };
 
 const {
-  description =
-    "FUSOU is a website designed to extract, display, analyze, and utilize data from Kantai Collection (KanColle) using a proxy server, providing innovative tools and insights for users.",
+  description = "FUSOU is a website designed to extract, display, analyze, and utilize data from Kantai Collection (KanColle) using a proxy server, providing innovative tools and insights for users.",
   ogTitle = title,
   ogDescription = description,
   ogImage = "/favicon.svg",
@@ -56,10 +54,7 @@ const canonicalUrl = Astro.url.toString();
     <meta name="generator" content={Astro.generator} />
     <title>{title}</title>
     <link rel="sitemap" href="/sitemap-index.xml" />
-    <meta
-      name="description"
-      content={description}
-    />
+    <meta name="description" content={description} />
     <link rel="canonical" href={canonicalUrl} />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="FUSOU" />

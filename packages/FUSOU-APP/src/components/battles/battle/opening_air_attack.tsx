@@ -10,13 +10,13 @@ import type {
 } from "../../../utility/get_data_set";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedOwnShipComponent,
-  WrapOwnShipComponent,
-  WrapOwnShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedOwnShip,
+  ConnectedOwnShip,
+  ConnectedOwnShipHP,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
@@ -102,7 +102,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             when={(f_touch_plane ?? 0) > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane!} />
+            <ConnectedCIMstEquip e_flag={false} si={f_touch_plane!} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
@@ -111,7 +111,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             when={(e_touch_plane ?? 0) > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane!} />
+            <ConnectedCIMstEquip e_flag={true} si={e_touch_plane!} />
           </Show>
         </div>
       </>
@@ -130,7 +130,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             fallback={<div class="w-24 text-center">___</div>}
           >
             <div class="w-24">
-              <WrapOwnShipComponent
+              <ConnectedOwnShip
                 battle_selected={props.battle_selected}
                 deck_ship_id={props.deck_ship_id}
                 name_flag={true}
@@ -156,7 +156,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="w-1" />
                   </Show>
-                  <WrapCIMstEquipComponent e_flag={false} si={item_id} />
+                  <ConnectedCIMstEquip e_flag={false} si={item_id} />
                 </>
               )}
             </For>
@@ -189,7 +189,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     battle_selected={props.battle_selected}
                     deck_ship_id={props.deck_ship_id}
                     ship_idx={ship_idx}
@@ -214,7 +214,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapOwnShipHPComponent
+                <ConnectedOwnShipHP
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
                   f_now_hps={airattack()?.f_damage.now_hps}
@@ -240,7 +240,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     battle_selected={props.battle_selected}
                     ship_idx={idx()}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -273,7 +273,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapEnemyShipHPComponent
+                <ConnectedEnemyShipHP
                   e_now_hps={airattack()?.e_damage?.now_hps}
                   idx={idx()}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -319,7 +319,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     battle_selected={props.battle_selected}
                     ship_idx={ship_idx}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -343,7 +343,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapEnemyShipHPComponent
+                <ConnectedEnemyShipHP
                   e_now_hps={airattack()?.e_damage.now_hps}
                   idx={ship_idx}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -367,7 +367,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     battle_selected={props.battle_selected}
                     deck_ship_id={props.deck_ship_id}
                     ship_idx={idx()}
@@ -401,7 +401,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={idx() > 0}>
                   <div class="h-px" />
                 </Show>
-                <WrapOwnShipHPComponent
+                <ConnectedOwnShipHP
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
                   f_now_hps={airattack()?.f_damage.now_hps}

@@ -8,11 +8,11 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import {
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedOwnShipComponent,
-  WrapOwnShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedOwnShip,
+  ConnectedOwnShipHP,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface TorpedoSubmarineProps {
@@ -108,7 +108,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedOwnShipComponent
+                  <ConnectedNumberedOwnShip
                     ship_idx={ship_idx}
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
@@ -134,7 +134,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapNumberedEnemyShipComponent
+                  <ConnectedNumberedEnemyShip
                     ship_idx={ship_idx}
                     battle_selected={props.battle_selected}
                     store_data_set_param_ship={props.store_data_set_param_ship}
@@ -162,7 +162,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapOwnShipHPComponent
+                  <ConnectedOwnShipHP
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -190,7 +190,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={ship_idx}
                     e_now_hps={closing_raigeki?.e_now_hps}
@@ -209,7 +209,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     return (
       <td>
         <div class="flex flex-nowrap">
-          <WrapNumberedOwnShipComponent
+          <ConnectedNumberedOwnShip
             ship_idx={erai}
             deck_ship_id={props.deck_ship_id}
             battle_selected={props.battle_selected}
@@ -234,7 +234,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     return (
       <td>
         <div class="flex flex-nowrap">
-          <WrapNumberedEnemyShipComponent
+          <ConnectedNumberedEnemyShip
             ship_idx={frai}
             battle_selected={props.battle_selected}
             store_data_set_param_ship={props.store_data_set_param_ship}
@@ -257,7 +257,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const closing_raigeki = props.battle_selected()?.closing_raigeki;
     return (
       <td>
-        <WrapOwnShipHPComponent
+        <ConnectedOwnShipHP
           deck_ship_id={props.deck_ship_id}
           battle_selected={props.battle_selected}
           store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -272,7 +272,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const closing_raigeki = props.battle_selected()?.closing_raigeki;
     return (
       <td>
-        <WrapEnemyShipHPComponent
+        <ConnectedEnemyShipHP
           store_data_set_param_ship={props.store_data_set_param_ship}
           idx={frai}
           e_now_hps={closing_raigeki?.e_now_hps}

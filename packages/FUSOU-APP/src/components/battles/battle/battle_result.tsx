@@ -1,7 +1,7 @@
 import { createMemo, Show } from "solid-js";
 
 import type { Battle } from "@ipc-bindings/battle";
-import { WrapDropShipComponent } from "../wrap_web_component";
+import { ConnectedDropShip } from "../connected_components";
 
 interface BattleResultProps {
   battle_selected: () => Battle | undefined;
@@ -26,7 +26,7 @@ export function BattleResultComponent(props: BattleResultProps) {
   const get_drop_ship = () => {
     const drop_ship_id = props.battle_selected()?.battle_result?.drop_ship_id;
     if (!drop_ship_id) return <> </>;
-    return <WrapDropShipComponent ship_id={drop_ship_id} />;
+    return <ConnectedDropShip ship_id={drop_ship_id} />;
   };
 
   return (

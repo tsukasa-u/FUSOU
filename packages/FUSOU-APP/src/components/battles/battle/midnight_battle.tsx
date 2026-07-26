@@ -9,15 +9,15 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import {
-  WrapCIMstEquipComponent,
-  WrapEnemyShipComponent,
-  WrapEnemyShipHPComponent,
-  WrapNumberedEnemyShipComponent,
-  WrapNumberedErrorShipComponent,
-  WrapNumberedOwnShipComponent,
-  WrapOwnShipComponent,
-  WrapOwnShipHPComponent,
-} from "../wrap_web_component";
+  ConnectedCIMstEquip,
+  ConnectedEnemyShip,
+  ConnectedEnemyShipHP,
+  ConnectedNumberedEnemyShip,
+  ConnectedNumberedErrorShip,
+  ConnectedNumberedOwnShip,
+  ConnectedOwnShip,
+  ConnectedOwnShipHP,
+} from "../connected_components";
 import { DamageCommonComponent } from "../dmg";
 
 interface MidnightShellingProps {
@@ -55,7 +55,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             when={f_midnight_touchplane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent
+            <ConnectedCIMstEquip
               si={f_midnight_touchplane}
               e_flag={false}
             />
@@ -67,7 +67,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             when={e_midnight_touchplane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent si={e_midnight_touchplane} e_flag={true} />
+            <ConnectedCIMstEquip si={e_midnight_touchplane} e_flag={true} />
           </Show>
         </div>
       </>
@@ -101,13 +101,13 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 when={f_midnight_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                {/* <WrapNumberedOwnShipComponent
+                {/* <ConnectedNumberedOwnShip
                   ship_idx={f_midnight_flare_pos}
                   deck_ship_id={props.deck_ship_id}
                   battle_selected={props.battle_selected}
                   store_data_set_deck_ship={props.store_data_set_deck_ship}
                 /> */}
-                <WrapOwnShipComponent
+                <ConnectedOwnShip
                   ship_idx={f_midnight_flare_pos}
                   deck_ship_id={props.deck_ship_id}
                   battle_selected={props.battle_selected}
@@ -122,12 +122,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 when={e_midnight_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                {/* <WrapNumberedEnemyShipComponent
+                {/* <ConnectedNumberedEnemyShip
                   ship_idx={e_midnight_flare_pos}
                   battle_selected={props.battle_selected}
                   store_data_set_param_ship={props.store_data_set_param_ship}
                 /> */}
-                <WrapEnemyShipComponent
+                <ConnectedEnemyShip
                   ship_idx={e_midnight_flare_pos}
                   store_data_set_param_ship={props.store_data_set_param_ship}
                   name_flag={true}
@@ -147,7 +147,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         return (
           <td>
             <div class="flex flex-nowrap">
-              <WrapNumberedOwnShipComponent
+              <ConnectedNumberedOwnShip
                 ship_idx={at}
                 deck_ship_id={props.deck_ship_id}
                 battle_selected={props.battle_selected}
@@ -160,7 +160,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         return (
           <td>
             <div class="flex flex-nowrap">
-              <WrapNumberedEnemyShipComponent
+              <ConnectedNumberedEnemyShip
                 ship_idx={at}
                 battle_selected={props.battle_selected}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -173,7 +173,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       return (
         <td>
           <div class="flex flex-nowrap">
-            <WrapNumberedErrorShipComponent />
+            <ConnectedNumberedErrorShip />
           </div>
         </td>
       );
@@ -186,7 +186,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       if (at_eflag[at_index()] == 0) {
         return (
           <td>
-            <WrapOwnShipHPComponent
+            <ConnectedOwnShipHP
               deck_ship_id={props.deck_ship_id}
               battle_selected={props.battle_selected}
               store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -198,7 +198,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       } else {
         return (
           <td>
-            <WrapEnemyShipHPComponent
+            <ConnectedEnemyShipHP
               store_data_set_param_ship={props.store_data_set_param_ship}
               idx={at}
               e_now_hps={midnight_hougeki()?.e_now_hps[at_index()]}
@@ -221,7 +221,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 {(df, df_index) => {
                   return (
                     <div class="flex flex-nowrap">
-                      <WrapNumberedEnemyShipComponent
+                      <ConnectedNumberedEnemyShip
                         ship_idx={df}
                         battle_selected={props.battle_selected}
                         store_data_set_param_ship={
@@ -252,7 +252,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 {(df, df_index) => {
                   return (
                     <div class="flex flex-nowrap">
-                      <WrapNumberedOwnShipComponent
+                      <ConnectedNumberedOwnShip
                         ship_idx={df}
                         deck_ship_id={props.deck_ship_id}
                         battle_selected={props.battle_selected}
@@ -285,7 +285,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
               {() => {
                 return (
                   <div class="flex flex-nowrap">
-                    <WrapNumberedErrorShipComponent />
+                    <ConnectedNumberedErrorShip />
                   </div>
                 );
               }}
@@ -304,7 +304,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <WrapEnemyShipHPComponent
+                  <ConnectedEnemyShipHP
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={df}
                     e_now_hps={midnight_hougeki()?.e_now_hps?.[at_index()]}
@@ -320,7 +320,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <WrapOwnShipHPComponent
+                  <ConnectedOwnShipHP
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -373,7 +373,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <For each={midnight_hougeki()?.si_list?.[at_index()]}>
               {(si) => (
                 <Show when={si}>
-                  <WrapCIMstEquipComponent
+                  <ConnectedCIMstEquip
                     si={si!}
                     e_flag={midnight_hougeki()?.at_eflag?.[at_index()] !== 0}
                   />
