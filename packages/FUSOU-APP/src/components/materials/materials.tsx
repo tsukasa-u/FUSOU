@@ -42,35 +42,13 @@ export function MaterialsComponent() {
                   <a class="justify-start gap-0 flex flex-wrap gap-y-1">
                     <div class="justify-start gap-0 flex flex-nowrap">
                       <For
-                        each={Object.values(materials.materials).slice(0, 4)}
+                        each={Object.values(materials.materials)}
                       >
                         {(material, index) => (
                           <>
                             <div class="h-5 w-5">
                               <IconMaterial
                                 item_number={icon_material_converter[index()]}
-                                size="full"
-                              />
-                            </div>
-                            <div class="w-10 flex justify-end pt-0.5">
-                              {material ?? "_"}
-                            </div>
-                            <div class="divider divider-horizontal mr-0 ml-0" />
-                          </>
-                        )}
-                      </For>
-                    </div>
-                    <div class="justify-start gap-0 flex flex-nowrap">
-                      <For
-                        each={Object.values(materials.materials).slice(4, 8)}
-                      >
-                        {(material, index) => (
-                          <>
-                            <div class="h-5 w-5">
-                              <IconMaterial
-                                item_number={
-                                  icon_material_converter[index() + 4]
-                                }
                                 size="full"
                               />
                             </div>
