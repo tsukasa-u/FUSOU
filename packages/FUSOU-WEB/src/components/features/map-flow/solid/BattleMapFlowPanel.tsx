@@ -643,22 +643,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     return routes.find((r) => r.sortieId === selectedSortieId()) || routes[0];
   });
 
-  // Clear stale cell filter when filtered routes no longer include the selected cell.
-  createEffect(() => {
-    const filter = selectedCellFilter();
-    if (!filter) return;
-    const exists = allSortieRoutes().some((route) => {
-      if (route.mapKey !== filter.mapKey) return false;
-      return route.cells.some((cellId) => filter.cellIds.includes(cellId));
-    });
-    if (!exists) {
-      setSelectedCellFilter(null);
-    }
-  });
+  // NOTE: フィルター選択されたマスのデータがゼロの場合でも filter を null にしない。
+  // データなしのマスをクリックした際にマップが消えたり古いデータが残る問題を防ぐ。
 
   const selectedAsset = createMemo(() => {
     const selected = selectedSortieRoute();
-    const key = selected?.mapKey || d.mapFilter() || null;
+    // セルフィルターが設定されているがrouteがない場合(データなしマス)でもmapKeyを維持
+    const key = selected?.mapKey || selectedCellFilter()?.mapKey || d.mapFilter() || null;
     return getBattleMapAsset(key);
   });
 
@@ -671,8 +662,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   const selectedRouteOverlay = createMemo((): ResolvedRouteOverlay | null => {
     const asset = selectedAsset();
+    if (!asset) return null;
+    // selected が null のケース(データなしマスを選択中)ではマップを表示継続し markers を空にする
     const selected = selectedSortieRoute();
-    if (!asset || !selected) return null;
     const frameMeta = mapFrameMetaByKey()[asset.mapKey];
     const hasStandaloneThemeSprite = !!asset.spriteUrls;
     const resolvedAsset = {
@@ -698,7 +690,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       analysis().stats.map((stat) => [stat.cell, stat]),
     );
 
-    const markers: OverlayMarker[] = selected.steps
+    const markers: OverlayMarker[] = (selected?.steps ?? [])
       .map((step) => {
         const spot = spotByCellId.get(step.cellId);
         if (!spot) return null;
@@ -747,7 +739,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       number,
       { visited: boolean; hasBattle: boolean }
     >();
-    for (const step of selected.steps) {
+    for (const step of (selected?.steps ?? [])) {
       const current = selectedRouteStateByCellId.get(step.cellId);
       selectedRouteStateByCellId.set(step.cellId, {
         visited: true,
