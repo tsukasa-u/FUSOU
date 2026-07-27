@@ -2,11 +2,14 @@
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl, type BattleMapTheme } from "@/data/battleMapAssets";
-import { mapKeyOf, cellLabel as pureCellLabel } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { mapKeyOf, cellLabel as pureCellLabel, parseMapFrameMeta } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
+import type { InferredRouteOverlay } from "../../map-flow/solid/battle-map-flow/types";
+
 import { ShipBanner } from "../../battle-detail/solid/ui";
 import { STYPE_NAMES } from "@/features/simulator/constants";
 
-type MapSpot = { cellId: number; x: number; y: number };
+type MapSpot = { cellId: number; x: number; y: number; lineOffsetX?: number; lineOffsetY?: number };
 
 import { ShipDropCard } from "./ShipDropCard";
 
@@ -16,6 +19,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const [mapSpots, setMapSpots] = createSignal<MapSpot[]>([]);
   const [mapLabels, setMapLabels] = createSignal<Record<number, string>>({});
+  const [mapRouteFrames, setMapRouteFrames] = createSignal<Record<number, { x: number; y: number; width: number; height: number; routeId: number }>>({});
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
 
   const [mstMapareas, setMstMapareas] = createSignal<any[]>([]);
@@ -74,11 +78,33 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
       .then((res) => res.json())
       .then((payload: any) => {
         const spots = (payload.spots || [])
-          .map((s: any) => ({ cellId: Number(s.no), x: Number(s.x), y: Number(s.y) }))
-          .filter((s: MapSpot) => !Number.isNaN(s.cellId) && !Number.isNaN(s.x) && !Number.isNaN(s.y));
+          .map((s: any) => {
+            const cellId = Number(s.no);
+            const x = Number(s.x);
+            const y = Number(s.y);
+            if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
+            const lineOffsetX = Number(s.line?.x ?? NaN);
+            const lineOffsetY = Number(s.line?.y ?? NaN);
+            return {
+              cellId,
+              x,
+              y,
+              lineOffsetX: Number.isFinite(lineOffsetX) ? lineOffsetX : undefined,
+              lineOffsetY: Number.isFinite(lineOffsetY) ? lineOffsetY : undefined,
+            } satisfies MapSpot;
+          })
+          .filter((s: MapSpot | null): s is MapSpot => s !== null);
         setMapSpots(spots);
       })
       .catch(() => setMapSpots([]));
+
+    fetch(asset.imageMetaUrl)
+      .then((res) => res.json())
+      .then((payload: any) => {
+        const meta = parseMapFrameMeta(payload);
+        setMapRouteFrames(meta?.routeFrames ?? {});
+      })
+      .catch(() => setMapRouteFrames({}));
 
     if (asset.labelsUrl) {
       fetch(asset.labelsUrl)
@@ -168,6 +194,14 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   });
 
   const mapAsset = createMemo(() => getBattleMapAsset(d.mapFilter()));
+
+  const inferredRoutes = createMemo((): InferredRouteOverlay[] => {
+    const spots = mapSpots();
+    const routeFrames = mapRouteFrames();
+    if (spots.length === 0 || Object.keys(routeFrames).length === 0) return [];
+    // No transition data in drops panel – pass empty array so lines render as "potential routes"
+    return inferRouteOverlays(spots, routeFrames, []);
+  });
   const resolvedSpriteUrl = createMemo(() => {
     const asset = mapAsset();
     if (!asset) return null;
@@ -443,25 +477,72 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                           />
                         </Show>
 
+                        {/* Inferred route lines (実線) */}
+                        <For each={inferredRoutes()}>
+                          {(route) => (
+                            <g>
+                              <line
+                                x1={route.renderFromX}
+                                y1={route.renderFromY}
+                                x2={route.renderToX}
+                                y2={route.renderToY}
+                                stroke="#052e2b"
+                                stroke-width="5"
+                                stroke-linecap="round"
+                                opacity="0.28"
+                              />
+                              <line
+                                x1={route.renderFromX}
+                                y1={route.renderFromY}
+                                x2={route.renderToX}
+                                y2={route.renderToY}
+                                stroke="#34d399"
+                                stroke-width="2.5"
+                                stroke-linecap="round"
+                                opacity="0.75"
+                              />
+                            </g>
+                          )}
+                        </For>
+
                         <For each={mapSpots()}>
                           {(spot) => {
-                            const drops = mapDropsByCell().get(spot.cellId) || [];
-                            const hasDrops = drops.length > 0;
-                            const isSelected = selectedCellId() === spot.cellId;
-                            const totalCount = drops.reduce((sum, d) => sum + d.count, 0);
+                            // NOTE: すべてシグナル読み取りを関数でラップしてリアクティブに保つ
+                            const drops = () => mapDropsByCell().get(spot.cellId) || [];
+                            const hasDrops = () => drops().length > 0;
+                            const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
+                            const isSelected = () => selectedCellId() === spot.cellId;
+                            const isHarbor = () => getCellLabel(spot.cellId, d.mapFilter()) === "港";
+                            const r = () => isSelected() ? 18 : 14;
+
+                            const fill = () => isHarbor()
+                              ? "#e3c765"
+                              : hasDrops() ? "#fecdd3" : "#f1f5f9";
+                            const stroke = () => isSelected()
+                              ? "#ea580c"
+                              : isHarbor()
+                                ? "#a16207"
+                                : hasDrops() ? "#e11d48" : "#94a3b8";
+                            const textFill = () => isSelected()
+                              ? "#9a3412"
+                              : isHarbor()
+                                ? "#713f12"
+                                : hasDrops() ? "#9f1239" : "#475569";
 
                             return (
                               <g
                                 class="cursor-pointer"
-                                onClick={() => setSelectedCellId(isSelected ? null : spot.cellId)}
+                                onClick={() => setSelectedCellId(isSelected() ? null : spot.cellId)}
                               >
+                                {/* クリック領域拡張 */}
+                                <circle cx={spot.x} cy={spot.y} r="22" fill="transparent" />
                                 <circle
                                   cx={spot.x}
                                   cy={spot.y}
-                                  r={isSelected ? "18" : "14"}
-                                  fill={hasDrops ? "#fecdd3" : "#f1f5f9"}
-                                  stroke={hasDrops ? "#e11d48" : "#94a3b8"}
-                                  stroke-width={isSelected ? "3" : "2"}
+                                  r={r()}
+                                  fill={fill()}
+                                  stroke={stroke()}
+                                  stroke-width={isSelected() ? "3" : "2"}
                                   class="transition-all"
                                 />
                                 <text
@@ -470,15 +551,16 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                   text-anchor="middle"
                                   font-size="12"
                                   font-weight="bold"
-                                  fill={hasDrops ? "#9f1239" : "#475569"}
+                                  fill={textFill()}
+                                  style={{ "pointer-events": "none" }}
                                 >
                                   {getCellLabel(spot.cellId, d.mapFilter())}
                                 </text>
-                                <Show when={hasDrops}>
-                                  <g transform={`translate(${spot.x + 12}, ${spot.y - 12})`}>
+                                <Show when={hasDrops()}>
+                                  <g transform={`translate(${spot.x + r() - 4}, ${spot.y - r() + 4})`}>
                                     <rect x="-8" y="-8" width="16" height="16" rx="8" fill="#e11d48" />
                                     <text x="0" y="3" text-anchor="middle" font-size="9" font-weight="bold" fill="white">
-                                      {totalCount}
+                                      {totalCount()}
                                     </text>
                                   </g>
                                 </Show>

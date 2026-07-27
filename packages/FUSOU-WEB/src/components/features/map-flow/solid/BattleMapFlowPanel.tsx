@@ -1111,13 +1111,15 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
                   </div>
                 </div>
 
-                {/* SVG canvas */}
-                <MapSvgCanvas
-                  overlay={overlay()}
-                  selectedCellFilter={selectedCellFilter}
-                  toggleCellFilter={toggleCellFilter}
-                  showOfficialMapAssets={showOfficialMapAssets}
-                />
+                {/* SVG canvas — 固定アスペクト比コンテナでサイズ安定化 */}
+                <div style={`aspect-ratio: ${overlay().asset.routeLayoutFrame.width} / ${overlay().asset.routeLayoutFrame.height}; width: 100%;`}>
+                  <MapSvgCanvas
+                    overlay={overlay()}
+                    selectedCellFilter={selectedCellFilter}
+                    toggleCellFilter={toggleCellFilter}
+                    showOfficialMapAssets={showOfficialMapAssets}
+                  />
+                </div>
 
                 {/* Legend / summary */}
                 <div class="grid gap-3 md:grid-cols-3">
