@@ -5,3 +5,4 @@ main.js
 main.js.outdated
 master_data/*
 .env
+.wrangler/*

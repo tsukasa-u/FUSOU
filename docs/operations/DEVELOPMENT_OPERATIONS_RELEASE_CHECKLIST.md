@@ -139,7 +139,7 @@ pnpm --dir packages/FUSOU-WEB run sync:banners
 
 実行後は Astro dev server を再起動すること。
 
-## 4.4 装備シナジー検出データの手動アップロード
+## 4.4 装備シナジー検出データのアップロード（手動実行時）
 
 この処理は `pnpm --dir packages/FUSOU-WEB run deploy` には含まれないため、対象期間を更新したときは別途実行する。
 
@@ -149,58 +149,43 @@ pnpm --dir packages/FUSOU-WEB run sync:banners
 - `equip_synergy_detector` のロジック更新で `slot_item_effects.json` が変わった。
 - シナジー manifest を更新しないと本番が古い組み合わせデータを参照する。
 
-### 4.4.2 dry-run（必須）
+### 4.4.2 ローカル・開発環境への生成とアップロード（基本）
+
+最新の `period-tag` を自動検出して生成し、ローカル・開発環境（development）へアップロードします。
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload:dry -- --period-tag <YYYY-MM-DD>
+pnpm run generate:latest
 ```
 
-### 4.4.3 本番アップロード
+特定の `period-tag` を指定する場合:
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD>
+pnpm run generate:latest -- --period-tag <YYYY-MM-DD>
 ```
 
-### 4.4.4 ローカル開発環境(エミュレータ)へのアップロード
+### 4.4.3 生成のみ（アップロードなし）
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development
+pnpm run generate:latest:noupload
+```
+
+### 4.4.4 本番環境へのアップロード（既存の生成済みデータを使用）
+
+本番環境（production）へのアップロードは、すでに生成済みのJSONデータがある前提で以下のコマンドを実行します。
+
+```bash
+cd packages/equip_synergy_detector
+pnpm run upload:remote
 ```
 
 同一データによるスキップ（409 Duplicate）を無視して強制的にアップロード日時を最新にする場合:
 
 ```bash
 cd packages/equip_synergy_detector
-pnpm scan:upload -- --period-tag <YYYY-MM-DD> --env development --force
-```
-
-### 4.4.5 計算済み JSON を使う場合 (スキャン・再計算をスキップ)
-
-本番環境向け:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:only -- --period-tag <YYYY-MM-DD>
-```
-
-本番環境向け（強制上書き）:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:only:force -- --period-tag <YYYY-MM-DD>
-```
-
-ローカル開発環境向け:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:local -- --period-tag <YYYY-MM-DD>
-```
-
-ローカル開発環境向け（強制上書き）:
-```bash
-cd packages/equip_synergy_detector
-pnpm upload:local -- --period-tag <YYYY-MM-DD> --force
+pnpm run upload:remote:force
 ```
 
 ### 4.4.6 必須前提
@@ -209,7 +194,7 @@ pnpm upload:local -- --period-tag <YYYY-MM-DD> --force
 - `packages/FUSOU-WEB/.env` と `packages/.env.keys` が解読可能な状態であること。
 - `ADMIN_TOKEN` と `MASTER_DATA_BUCKET_NAME` が解決できること。
 - production 向けは `PUBLIC_SITE_URL_PRODUCTION` が解決できること。
-- `scan:upload` を使う場合は `packages/FUSOU-PROXY-DATA/<period-tag>/` 配下に `kcs2/js/main.js` と `kcsapi/*@api_start2@getData*` があること。
+- `generate:latest` 等を使う場合は `packages/FUSOU-PROXY-DATA/<period-tag>/` 配下に `kcs2/js/main.js` と `kcsapi/*@api_start2@getData*` があること。
 
 ---
 
@@ -393,7 +378,7 @@ pnpm --dir packages/FUSOU-APP run tauri build
 | WEB 本番反映                             | `pnpm --dir packages/FUSOU-WEB run deploy`                                                                                                                                                                                                                                                                  |
 | WEB ローカル実データ（最小）             | `pnpm --dir packages/FUSOU-WEB run seed:master-data`                                                                                                                                                                                                                                                        |
 | WEB ローカル実データ（フル）             | `seed:master-data:all`, `seed:assets`, `seed:fleet-data -- --all`, `seed:battle-data`, `seed:ship-growth-data`                                                                                                                                                                                              |
-| WEB シナジー period 更新                 | `cd packages/equip_synergy_detector && pnpm scan:upload -- --period-tag <YYYY-MM-DD>`                                                                                                                                                                                                                       |
+| WEB シナジー period 更新                 | `cd packages/equip_synergy_detector && pnpm run generate:latest` （本番反映時は `pnpm run upload:remote`）                                                                                                                                                                                                                       |
 | Rust interface 構造体変更（TS 連動あり） | `cd packages/kc_api && just export-ts`                                                                                                                                                                                                                                                                      |
 | schema/fingerprint 連動変更              | `pnpm --dir packages/FUSOU-WORKFLOW run generate:schemas`                                                                                                                                                                                                                                                   |
 | 匿名同期ローテーション                   | `pnpm --dir packages/FUSOU-WEB run manage-anon-sync-vault -- rotate-pepper --target-version v<N>`（dry-run）と `rotate-recovery`（dry-run）を確認し、各コマンドに `--confirm` を付けて適用。secret は環境変数必須（未設定は fail-fast）。詳細は `docs/operations/web/ANON_SYNC_V2_ROTATION_RUNBOOK.md` §4.2 |
