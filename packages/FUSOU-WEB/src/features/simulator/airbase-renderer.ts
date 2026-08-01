@@ -5,6 +5,7 @@ import {
   setCombinedFleetType,
   setFleetSectionVisible,
   setVisibleAirbaseCount,
+  setFleetSlotLayoutMode,
 } from "./simulator-mutations";
 import {
   getCombinedFleetType,
@@ -12,6 +13,7 @@ import {
   getVisibleAirbaseCount,
   isAirbaseSectionVisible,
   isFleetSectionVisible,
+  getFleetSlotLayoutMode,
 } from "./simulator-selectors";
 import { validateCombinedFleet } from "./combined-fleet";
 import { rerenderSolidSimulator } from "@/components/features/simulator/solid/simulator-renderer";
@@ -40,21 +42,15 @@ const AIRBASE_THREE_COLUMN_BREAKPOINT_PX = 1200;
 const AIRBASE_TWO_COLUMN_BREAKPOINT_PX = 768;
 const MOBILE_SINGLE_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
 const TWO_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
-export let fleetSlotLayoutMode: "2x3" | "3x2" = "2x3";
-
-export function setFleetSlotLayoutMode(mode: "2x3" | "3x2"): void {
-  fleetSlotLayoutMode = mode;
-}
-
 export function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
   if (
-    fleetSlotLayoutMode === "3x2" &&
+    getFleetSlotLayoutMode() === "3x2" &&
     typeof window !== "undefined" &&
     window.innerWidth < SLOT_LAYOUT_3X2_MIN_WIDTH_PX
   ) {
     return "2x3";
   }
-  return fleetSlotLayoutMode;
+  return getFleetSlotLayoutMode();
 }
 
 function readDisplaySettings(): DisplaySettings | null {
@@ -81,9 +77,9 @@ function readDisplaySettings(): DisplaySettings | null {
       airbaseCount: Math.max(0, Math.min(3, Math.trunc(parsed.airbaseCount ?? 3))),
       // Backward compatibility: old setting used singleFleetGrid3x2 boolean.
       fleetSlotLayout:
-        parsed.fleetSlotLayout === "3x2" || parsed.singleFleetGrid3x2 === true
-          ? "3x2"
-          : "2x3",
+        parsed.fleetSlotLayout === "2x3" && parsed.singleFleetGrid3x2 !== true
+          ? "2x3"
+          : "3x2",
       combinedFleetType
     };
   } catch {
@@ -101,7 +97,7 @@ export function writeDisplaySettings(): void {
     },
     showAirbase: isAirbaseSectionVisible(),
     airbaseCount: getVisibleAirbaseCount(),
-    fleetSlotLayout: fleetSlotLayoutMode,
+    fleetSlotLayout: getFleetSlotLayoutMode(),
     combinedFleetType: getCombinedFleetType(),
   };
   try {
@@ -123,7 +119,7 @@ function loadDisplaySettingsOnce(): void {
     setFleetSectionVisible(4, false);
     setAirbaseSectionVisible(true);
     setVisibleAirbaseCount(3);
-    fleetSlotLayoutMode = "2x3";
+    setFleetSlotLayoutMode("3x2");
     setCombinedFleetType(0);
     return;
   }
@@ -133,7 +129,7 @@ function loadDisplaySettingsOnce(): void {
   setFleetSectionVisible(4, settings.fleets[4]);
   setAirbaseSectionVisible(settings.showAirbase);
   setVisibleAirbaseCount(settings.airbaseCount);
-  fleetSlotLayoutMode = settings.fleetSlotLayout;
+  setFleetSlotLayoutMode(settings.fleetSlotLayout);
   setCombinedFleetType(settings.combinedFleetType);
 }
 

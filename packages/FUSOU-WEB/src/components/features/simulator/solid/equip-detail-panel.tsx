@@ -293,6 +293,8 @@ function EquipDetailPanel(props: {
             cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
             ships: rule.ships,
+            suppressed_components: rule.suppressed_components,
+            placements: rule.placements,
           });
         } else if (rule.item_pool) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -311,6 +313,8 @@ function EquipDetailPanel(props: {
             comboSize,
             correction: rule.synergy,
             ships: rule.ships,
+            suppressed_components: rule.suppressed_components,
+            placements: rule.placements,
           });
         } else if (rule.implicants) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -326,6 +330,8 @@ function EquipDetailPanel(props: {
               cancels_single: !!rule.cancels_single,
               correction: rule.synergy,
               ships: rule.ships,
+              suppressed_components: rule.suppressed_components,
+              placements: rule.placements,
             });
           }
         } else if (rule.fixed_items && rule.free_pool) {
@@ -361,6 +367,8 @@ function EquipDetailPanel(props: {
                 ? rule.free_pick_count
                 : undefined,
             ships: rule.ships,
+            suppressed_components: rule.suppressed_components,
+            placements: rule.placements,
           });
         } else {
           // Explicit combos: decode all, filter those containing this equip
@@ -384,6 +392,8 @@ function EquipDetailPanel(props: {
               combo: items as MstSlotItemData[],
               netStats: rule.synergy,
               ships: rule.ships,
+              suppressed_components: rule.suppressed_components,
+              placements: rule.placements,
             });
           }
         }

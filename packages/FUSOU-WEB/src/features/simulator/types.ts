@@ -75,6 +75,7 @@ export interface CrossEffect {
   synergy: Record<string, number>;
   exclusive_group?: number;
   cancels_single?: boolean;
+  suppressed_components?: number[];
   placements?: SlotUsageSummary[];
 }
 
@@ -163,6 +164,7 @@ interface MultiItemRule {
   implicants?: number[][][];
   exclusive_group?: number;
   placements?: SlotUsageSummary[];
+  suppressed_components?: number[];
 }
 
 export interface TripleRule extends MultiItemRule {

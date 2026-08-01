@@ -172,6 +172,193 @@ export function intersectSorted(a: number[], b: number[]): number[] {
   return result;
 }
 
+export function computeSuppressedEquipIds(
+  shipId: number,
+  equipIds: (number | null)[],
+  exSlotId: number | null,
+): Set<number> {
+  const suppressed = new Set<number>();
+  const slotItemEffects = getSlotItemEffects();
+  if (!slotItemEffects) return suppressed;
+
+  const allIds = equipIds.filter((id) => id != null) as number[];
+  if (exSlotId != null) allIds.push(exSlotId);
+  if (allIds.length === 0) return suppressed;
+
+  const itemCountMap = new Map<number, number>();
+  for (const id of allIds) {
+    itemCountMap.set(id, (itemCountMap.get(id) || 0) + 1);
+  }
+  const equippedSet = new Set(allIds);
+
+  const checkMultiRule = (
+    rule: any,
+    comboSize: number,
+  ) => {
+    if (!rule.ships.includes(shipId)) return;
+    if (!rule.suppressed_components || rule.suppressed_components.length === 0) return;
+
+    let isActive = false;
+    if (rule.category_pools) {
+      const poolMap = new Map<string, { pool: number[]; count: number }>();
+      for (const pool of rule.category_pools) {
+        const key = pool.join(",");
+        if (!poolMap.has(key)) poolMap.set(key, { pool, count: 0 });
+        poolMap.get(key)!.count++;
+      }
+      let times = 1;
+      for (const { pool, count } of poolMap.values()) {
+        let overlap = 0;
+        for (let i = 0; i < pool.length; i++) {
+          if (equippedSet.has(pool[i])) overlap++;
+        }
+        if (overlap < count) {
+          times = 0;
+          break;
+        }
+        times *= choose(overlap, count);
+      }
+      if (times > 0) isActive = true;
+    } else if (rule.implicants) {
+      let totalTimes = 0;
+      for (const implicant of rule.implicants) {
+        const poolMap = new Map<string, { pool: number[]; count: number }>();
+        for (const pool of implicant) {
+          const key = pool.join(",");
+          if (!poolMap.has(key)) poolMap.set(key, { pool, count: 0 });
+          poolMap.get(key)!.count++;
+        }
+        let times = 1;
+        for (const { pool, count } of poolMap.values()) {
+          let overlap = 0;
+          for (let i = 0; i < pool.length; i++) {
+            if (equippedSet.has(pool[i])) overlap++;
+          }
+          if (overlap < count) {
+            times = 0;
+            break;
+          }
+          times *= choose(overlap, count);
+        }
+        if (times > totalTimes) totalTimes = times;
+      }
+      if (totalTimes > 0) isActive = true;
+    } else if (rule.item_pool) {
+      const overlap = rule.item_pool.filter((id: number) => equippedSet.has(id)).length;
+      if (overlap >= comboSize) isActive = true;
+    } else if (rule.fixed_items && rule.free_pool) {
+      if (!hasEnoughItems(itemCountMap, rule.fixed_items)) return;
+      const neededFree = typeof rule.free_pick_count === "number" ? rule.free_pick_count : comboSize - rule.fixed_items.length;
+      if (rule.free_pool_with_replacement) {
+        const fixedReq = new Map<number, number>();
+        for (const id of rule.fixed_items) fixedReq.set(id, (fixedReq.get(id) || 0) + 1);
+        const available = rule.free_pool.map((id: number) => {
+          const total = itemCountMap.get(id) || 0;
+          const consumedByFixed = fixedReq.get(id) || 0;
+          return Math.max(0, total - consumedByFixed);
+        });
+        const times = countBoundedMultisets(available, neededFree);
+        if (times > 0) isActive = true;
+      } else {
+        const freeOverlap = rule.free_pool.filter((id: number) => equippedSet.has(id)).length;
+        if (freeOverlap >= neededFree) isActive = true;
+      }
+    } else if (rule.combos_b64 && rule.items) {
+      let buf = _combosB64Cache.get(rule);
+      if (!buf) {
+        buf = Uint8Array.from(atob(rule.combos_b64), (c) => c.charCodeAt(0));
+        _combosB64Cache.set(rule, buf);
+      }
+      const count = buf.length / comboSize;
+      outer: for (let ci = 0; ci < count; ci++) {
+        const base = ci * comboSize;
+        const comboIds: number[] = [];
+        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        if (hasEnoughItems(itemCountMap, comboIds)) {
+          isActive = true;
+          break outer;
+        }
+      }
+    } else if (rule.combos_u16_b64 && rule.items) {
+      let buf = _combosU16B64Cache.get(rule);
+      if (!buf) {
+        const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) => c.charCodeAt(0));
+        buf = new Uint16Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 2));
+        _combosU16B64Cache.set(rule, buf);
+      }
+      const count = buf.length / comboSize;
+      outer: for (let ci = 0; ci < count; ci++) {
+        const base = ci * comboSize;
+        const comboIds: number[] = [];
+        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        if (hasEnoughItems(itemCountMap, comboIds)) {
+          isActive = true;
+          break outer;
+        }
+      }
+    } else if (rule.combos_u32_b64 && rule.items) {
+      let buf = _combosU32B64Cache.get(rule);
+      if (!buf) {
+        const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) => c.charCodeAt(0));
+        buf = new Uint32Array(raw.buffer, raw.byteOffset, Math.floor(raw.byteLength / 4));
+        _combosU32B64Cache.set(rule, buf);
+      }
+      const count = buf.length / comboSize;
+      outer: for (let ci = 0; ci < count; ci++) {
+        const base = ci * comboSize;
+        const comboIds: number[] = [];
+        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        if (hasEnoughItems(itemCountMap, comboIds)) {
+          isActive = true;
+          break outer;
+        }
+      }
+    } else if (rule.combos) {
+      for (const combo of rule.combos) {
+        if (hasEnoughItems(itemCountMap, combo)) {
+          isActive = true;
+          break;
+        }
+      }
+    }
+
+    if (isActive) {
+      for (const comp of rule.suppressed_components) suppressed.add(comp);
+    }
+  };
+
+  if (slotItemEffects.cross_rules) {
+    for (const rule of slotItemEffects.cross_rules) {
+      if (!rule.pairs) checkMultiRule(rule, 2);
+      // Wait, pairwise rules in cross_rules use rule.pairs which is handled separately
+      else {
+        if (!rule.ships.includes(shipId)) continue;
+        if (!rule.suppressed_components || rule.suppressed_components.length === 0) continue;
+        for (const [a, b] of rule.pairs) {
+          if (equippedSet.has(a) && equippedSet.has(b)) {
+            for (const comp of rule.suppressed_components) suppressed.add(comp);
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (slotItemEffects.triple_rules) {
+    for (const rule of slotItemEffects.triple_rules) checkMultiRule(rule, 3);
+  }
+  if (slotItemEffects.quad_rules) {
+    for (const rule of slotItemEffects.quad_rules) checkMultiRule(rule, 4);
+  }
+  if (slotItemEffects.penta_rules) {
+    for (const rule of slotItemEffects.penta_rules) checkMultiRule(rule, 5);
+  }
+  if (slotItemEffects.hexa_rules) {
+    for (const rule of slotItemEffects.hexa_rules) checkMultiRule(rule, 6);
+  }
+
+  return suppressed;
+}
+
 /**
  * Compute total equipment bonus for a ship given its loadout.
  * Returns per-stat bonus values (single-item + pairwise synergy).

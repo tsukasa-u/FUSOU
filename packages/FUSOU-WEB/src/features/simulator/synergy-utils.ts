@@ -116,11 +116,14 @@ export type MultiPoolEntry = {
   freePickCount?: number;
   ships?: number[];
   placements?: SlotUsageSummary[];
+  cancels_single?: boolean;
+  suppressed_components?: number[];
 };
 export type MultiCategoryEntry = {
   kind: "category";
   pools: MstSlotItemData[][];
   cancels_single: boolean;
+  suppressed_components?: number[];
   correction: Record<string, number>;
   ships?: number[];
   is_implicant?: boolean;
@@ -320,6 +323,8 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       cancels_single: false,
       correction: group[0].netStats,
       ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
+      suppressed_components: group[0].suppressed_components,
+      placements: group[0].placements,
     };
   };
 
@@ -541,6 +546,8 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         freePoolWithReplacement: matchedMode === "with-replacement",
         freePickCount,
         ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
+        suppressed_components: group[0].suppressed_components,
+        placements: group[0].placements,
       });
 
       for (const i of matchedMembers) usedComboIndexes.add(i);
@@ -605,6 +612,8 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         group[0].ships != null
           ? [...mergedShips].sort((a, b) => a - b)
           : group[0].ships,
+      suppressed_components: group[0].suppressed_components,
+      placements: group[0].placements,
     });
     return nonComboEntries;
   }
@@ -715,7 +724,9 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
       pools: unionedPools,
       cancels_single: group[0].cancels_single,
       correction: group[0].correction,
-      ships: group[0].ships
+      ships: group[0].ships,
+      suppressed_components: group[0].suppressed_components,
+      placements: group[0].placements,
     });
   }
   
@@ -785,6 +796,7 @@ export function normalizeCrossEffects(
         synergy: rule.synergy,
         exclusive_group: (rule as { exclusive_group?: number }).exclusive_group,
         cancels_single: !!(rule as { cancels_single?: boolean }).cancels_single,
+        suppressed_components: (rule as { suppressed_components?: number[] }).suppressed_components,
         placements: (rule as { placements?: SlotUsageSummary[] }).placements,
       };
       if (!out[key]) out[key] = [];
@@ -1336,7 +1348,6 @@ export function buildMultiEntries(
   for (const rule of rules) {
     if (!appliesToShip(rule.ships)) continue;
     if (rule.category_pools) {
-      if (rule.cancels_single) continue;
       const pools = rule.category_pools.map((p) =>
         p
           .map((id) => getMasterSlotItem(id))
@@ -1351,11 +1362,11 @@ export function buildMultiEntries(
         kind: "category",
         pools,
         cancels_single: !!rule.cancels_single,
+        suppressed_components: rule.suppressed_components,
         correction: rule.synergy,
         placements: rule.placements,
       });
     } else if (rule.item_pool) {
-      if (rule.cancels_single) continue;
       const pool = rule.item_pool
         .map((id) => getMasterSlotItem(id))
         .filter(
@@ -1364,9 +1375,8 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements });
+      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
     } else if (rule.fixed_items && rule.free_pool) {
-      if (rule.cancels_single) continue;
       const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
       const pool = allPoolIds
         .map((id) => getMasterSlotItem(id))
@@ -1376,9 +1386,8 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements });
+      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
     } else if (rule.implicants) {
-      if (rule.cancels_single) continue;
       for (const implicant of rule.implicants) {
         const pools = implicant.map((p) =>
           p
@@ -1394,13 +1403,13 @@ export function buildMultiEntries(
           kind: "category",
           pools,
           cancels_single: !!rule.cancels_single,
+          suppressed_components: rule.suppressed_components,
           correction: rule.synergy,
           is_implicant: true,
           placements: rule.placements,
         });
       }
     } else {
-      if (rule.cancels_single) continue;
       const combos = decodeCombosForDisplay(rule, comboSize);
       for (const comboIds of combos) {
         const items = comboIds.map((id) => getMasterSlotItem(id));
@@ -1413,6 +1422,8 @@ export function buildMultiEntries(
           kind: "combo",
           combo: items as MstSlotItemData[],
           netStats: rule.synergy,
+          cancels_single: !!rule.cancels_single,
+          suppressed_components: rule.suppressed_components,
           placements: rule.placements,
         });
       }

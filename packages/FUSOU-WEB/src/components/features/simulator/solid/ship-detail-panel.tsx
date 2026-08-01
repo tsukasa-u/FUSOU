@@ -493,6 +493,8 @@ function ShipDetailPanel(props: {
             pools,
             cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
+            suppressed_components: rule.suppressed_components,
+            placements: rule.placements,
           });
         } else if (rule.item_pool) {
           // Pool rule: "any comboSize of these pool items" → show pool + correction
@@ -506,7 +508,7 @@ function ShipDetailPanel(props: {
             );
           if (pool.length < comboSize) continue;
           if (scoreSynergy(rule.synergy) === 0) continue;
-          all.push({ kind: "pool", pool, comboSize, correction: rule.synergy });
+          all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, suppressed_components: rule.suppressed_components, placements: rule.placements });
         } else if (rule.fixed_items && rule.free_pool) {
           // Fixed+free rule: keep structure for display instead of flattening to a single pool.
           const fixed = rule.fixed_items
@@ -540,6 +542,8 @@ function ShipDetailPanel(props: {
               typeof rule.free_pick_count === "number"
                 ? rule.free_pick_count
                 : undefined,
+            suppressed_components: rule.suppressed_components,
+            placements: rule.placements,
           });
         } else if (rule.implicants) {
           for (const implicant of rule.implicants) {
@@ -561,6 +565,8 @@ function ShipDetailPanel(props: {
               cancels_single: !!rule.cancels_single,
               correction: rule.synergy,
               is_implicant: true,
+              suppressed_components: rule.suppressed_components,
+              placements: rule.placements,
             });
           }
         } else {
@@ -578,6 +584,8 @@ function ShipDetailPanel(props: {
                 kind: "combo",
                 combo: items as MstSlotItemData[],
                 netStats: rule.synergy,
+                suppressed_components: rule.suppressed_components,
+                placements: rule.placements,
               });
             }
           }

@@ -217,7 +217,7 @@ export const state = {
   } as Record<number, boolean>,
   airbaseSectionVisible: true,
   visibleAirbaseCount: 3,
-  fleetSlotLayoutMode: "2x3" as "2x3" | "3x2",
+  fleetSlotLayoutMode: "3x2" as "2x3" | "3x2",
   airBases: Array.from({ length: 3 }, emptyAirBase) as AirBaseSlot[],
 
   // Modal callbacks and state

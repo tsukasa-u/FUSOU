@@ -520,8 +520,23 @@ export function EquipSlotGroup(props: {
   slotItems: MstSlotItemData[];
   onOpenEquip: (id: number) => void;
   currentEquipId?: number;
+  suppressedComponents?: number[];
 }) {
   const [expanded, setExpanded] = createSignal(false);
+  
+  const renderItemName = (equip: MstSlotItemData) => {
+    const isSuppressed = props.suppressedComponents?.includes(equip.id);
+    return (
+      <span class="inline-flex items-center gap-0.5">
+        <span class="truncate">{equip.name}</span>
+        <Show when={isSuppressed}>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0" title="他装備の影響によりシナジーが低下しています">
+            <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
+          </svg>
+        </Show>
+      </span>
+    );
+  };
 
   if (props.slotItems.length === 1) {
     const equip = props.slotItems[0];
@@ -537,7 +552,7 @@ export function EquipSlotGroup(props: {
           onClick={() => props.onOpenEquip(equip.id)}
           title={equip.name}
         >
-          {equip.name}
+          {renderItemName(equip)}
         </button>
       </span>
     );
@@ -564,7 +579,7 @@ export function EquipSlotGroup(props: {
                 onClick={() => props.onOpenEquip(equip.id)}
                 title={equip.name}
               >
-                {equip.name}
+                {renderItemName(equip)}
               </button>
             </>
           )}
@@ -649,12 +664,12 @@ export function MultiEntryDisplay(props: {
                   slotItems={[equip]}
                   currentEquipId={props.currentEquipId}
                   onOpenEquip={props.onOpenEquip}
+                  suppressedComponents={(props.entry as MultiComboEntry).suppressed_components}
                 />
               </>
             )}
           </For>
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiComboEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiComboEntry).netStats} />
       </Show>
 
@@ -675,6 +690,7 @@ export function MultiEntryDisplay(props: {
                         slotItems={group}
                         currentEquipId={props.currentEquipId}
                         onOpenEquip={props.onOpenEquip}
+                        suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                       />
                     </>
                   )}
@@ -699,6 +715,7 @@ export function MultiEntryDisplay(props: {
                     slotItems={fixed}
                     currentEquipId={props.currentEquipId}
                     onOpenEquip={props.onOpenEquip}
+                    suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                   />
                   <span class="text-base-content/40">+</span>
                   <span class="text-[10px] text-info font-bold shrink-0">
@@ -708,13 +725,13 @@ export function MultiEntryDisplay(props: {
                     slotItems={free}
                     currentEquipId={props.currentEquipId}
                     onOpenEquip={props.onOpenEquip}
+                    suppressedComponents={(props.entry as MultiPoolEntry).suppressed_components}
                   />
                 </>
               );
             })()}
           </Show>
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiPoolEntry).placements} />
         <SynergyStatInline stats={(props.entry as MultiPoolEntry).correction} />
       </Show>
 
@@ -763,6 +780,7 @@ export function MultiEntryDisplay(props: {
                           slotItems={pool}
                           currentEquipId={props.currentEquipId}
                           onOpenEquip={props.onOpenEquip}
+                          suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                         />
                       </span>
                     </>
@@ -781,6 +799,7 @@ export function MultiEntryDisplay(props: {
                   slotItems={fixedItems}
                   currentEquipId={props.currentEquipId}
                   onOpenEquip={props.onOpenEquip}
+                  suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                 />
                 <For each={variableGroups}>
                   {(group) => (
@@ -793,6 +812,7 @@ export function MultiEntryDisplay(props: {
                         slotItems={group.pool}
                         currentEquipId={props.currentEquipId}
                         onOpenEquip={props.onOpenEquip}
+                        suppressedComponents={(props.entry as MultiCategoryEntry).suppressed_components}
                       />
                     </>
                   )}
@@ -801,7 +821,6 @@ export function MultiEntryDisplay(props: {
             );
           })()}
         </div>
-        <SlotUsageBadges placements={(props.entry as MultiCategoryEntry).placements} />
         <SynergyStatInline
           stats={(props.entry as MultiCategoryEntry).correction}
         />
