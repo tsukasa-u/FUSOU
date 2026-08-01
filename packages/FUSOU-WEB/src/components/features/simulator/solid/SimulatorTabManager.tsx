@@ -103,7 +103,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
           </h1>
           <p class="fusou-page-subtitle-compact">
             {isOptimizer() ? "制約条件を満たす最適な装備の組み合わせを探索" : 
-             activeTab() === "ship" ? "艦娘の能力・搭載・成長・シナジー等の詳細を確認" : 
+             activeTab() === "ship" ? "艦の能力・搭載・成長・シナジー等の詳細を確認" : 
              activeTab() === "equip" ? "装備の性能・装備可能艦・シナジー効果を横断的に確認" : 
              "艦隊編成を組み立てて確認・共有"}
           </p>

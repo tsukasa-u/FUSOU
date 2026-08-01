@@ -3,7 +3,7 @@
 作成日: 2026-04-09  
 最終更新日: 2026-04-10
 
-この文書は、艦娘成長データが
+この文書は、艦成長データが
 
 - 何を収集し
 - どこへ送信し
@@ -28,12 +28,14 @@
 ### 1.1 クライアント（FUSOU-APP）
 
 責務:
+
 - ゲーム API 由来の観測値を ShipGrowthSnapshot として構築する。
 - 送信重複を抑制する。
 - 2段階アップロードで ship-growth ingest へ送る。
 - 失敗時は pending に退避し、retry で再送する。
 
 主な実装:
+
 - packages/FUSOU-APP/src-tauri/src/ship_growth_sender.rs
 - packages/FUSOU-APP/src-tauri/src/storage/retry_handler.rs
 - packages/fusou-upload/src/uploader.rs
@@ -43,12 +45,14 @@
 ### 1.2 サーバー（FUSOU-WEB）
 
 責務:
+
 - 認証、トークン検証、ボディ検証、ハッシュ検証。
 - master data と synergy データを取得。
 - naked 値の正規化計算を実施。
 - D1 へトランザクション保存。
 
 主な実装:
+
 - packages/FUSOU-WEB/src/server/routes/ship_growth.ts
 
 ### 1.3 永続ストア
@@ -69,7 +73,7 @@
 - timestamp_ms: クライアント生成時刻
 - period_tag: 期間タグ（YYYY-MM-DD）
 - table_version: テーブル版
-- ships: 艦娘配列
+- ships: 艦配列
 
 ### 2.1 ships 要素（ShipEntry）
 
@@ -95,11 +99,13 @@
   - sp_effect_items_json
 
 注記:
+
 - クライアント側に kaihi_naked / taisen_naked / sakuteki_naked フィールドはあるが、最終採用値はサーバーで再計算した値。
 
 ### 2.2 クライアント送信抑制（現状）
 
 現状実装:
+
 - クライアント抑制は 3 系統に分離している。
 - `LocalRequestSuppressionCache.should_skip(key, hash)` に対し、ship_growth_sender は次を個別判定する。
   - `snapshot:exp`
@@ -107,6 +113,7 @@
   - `snapshot:caps`
 
 意味:
+
 - `snapshot:exp`
   - 境界レベル（`lv+1`） -> `exp_current + exp_to_next` の境界観測が変わったときだけ送る。
 - `snapshot:bounds`
@@ -116,6 +123,7 @@
 - period_tag 切替時は suppression scope が切り替わるため、新周期として再送対象になる。
 
 補足:
+
 - サーバー側での受信判定は 2 段階 upload token（JWT + content_hash + declared_size）の整合で担保する。
 - 3 系統のいずれか 1 つでも変化していれば upload は実行される。
 
@@ -124,12 +132,14 @@
 ### 3.1 Stage 1: handshake
 
 受信要件:
+
 - Authorization: Bearer JWT 必須
 - body 検証（dataset_id, request_id, payload_hash, event_type, period_tag, table_version, ships）
 - content_hash 必須
 - file_size > 0 必須
 
 サーバー動作:
+
 - JWT を検証
 - signed upload token を生成（TTL 300 秒）
 - uploadUrl と token を返却
@@ -137,16 +147,19 @@
 ### 3.2 Stage 2: upload
 
 受信要件:
+
 - Authorization: Bearer JWT
 - X-Upload-Token 必須
 - body バイナリ長が declared_size と一致
 - SHA-256(body) が content_hash と一致
 
 サーバー動作:
+
 - トークン claim と body の dataset_id/request_id/event_type 整合確認
 - processShipGrowthIngest を実行
 
 補足（現実装の重要点）:
+
 - サーバー側で `request_id` を永続化して重複排除する仕組みは現在持たない。
 - Stage 2 で保証しているのは「トークン発行時に合意した body 条件」との整合であり、
   同一 payload の再送短絡（旧 payload_registry 相当）は行わない。
@@ -156,16 +169,18 @@
 ### 4.1 前提データ読込
 
 1. mst_slotitem 読込
+
 - MASTER_DATA_INDEX_DB から
   - period_tag
   - table_version
   - table_name = mst_slotitem
- で最新版（period_revision DESC）を解決。
+    で最新版（period_revision DESC）を解決。
 - R2 オブジェクトを読み、Avro OCF を decode。
 - slotitem_id -> { houk, tais, saku } の Map を作成。
 - キャッシュ TTL: 5 分。
 
 2. synergy データ読込
+
 - synergy_manifest から completed の最新 period_revision を取得。
 - manifest から sp_effect JSON キーを構築して R2 取得。
 - effects / cross_effects を Map 化。
@@ -174,17 +189,21 @@
 ### 4.2 1艦あたりの計算
 
 まず対象スロット:
+
 - allSlots = slots + exslot（存在時）
 
 1. slot 補正の合計
+
 - slotKaihi = sum(houk)
 - slotTaisen = sum(tais)
 - slotSakuteki = sum(saku)
 
 2. sp_effect 補正
+
 - spEffectKaihi = sum(api_kaih)
 
 3. synergy 補正
+
 - single synergy
   - item ごとの装備数 count
   - star10 有無
@@ -196,11 +215,13 @@
 - totalSynergy = single + cross
 
 4. naked 値
+
 - kaihi_naked = max(0, kaihi_observed - slotKaihi - spEffectKaihi - totalSynergy.kaihi)
 - taisen_naked = max(0, taisen_observed - slotTaisen - totalSynergy.taisen)
 - sakuteki_naked = max(0, sakuteki_observed - slotSakuteki - totalSynergy.sakuteki)
 
 5. 内訳保持
+
 - removed.slot
 - removed.spEffect
 - removed.synergy.single/cross/total
@@ -231,38 +252,46 @@
 ### 5.1 ship_level_exp_boundaries（物理テーブル: ship_level_exp_pairs）
 
 役割:
+
 - レベルに対応する経験値境界を保持する。
 - 現在実装は「そのレベル到達時の推定境界値」を主に扱う。
 
 主要列:
+
 - period_tag TEXT NOT NULL
 - table_version TEXT NOT NULL
 - lv INTEGER NOT NULL
 - exp_current INTEGER NOT NULL
 
 主キー:
+
 - PRIMARY KEY(period_tag, table_version, lv)
 
 更新ルール:
+
 - ingest 時は `lv = current_lv + 1` の境界行を扱う。
 - 未登録行は INSERT する。
 - 既存行がある場合は `existing == incoming` の一致のみ許可する。
 - 既存行と不一致なら 409 で受信拒否し、DB 更新はロールバックする。
 
 解釈:
+
 - exp_current:
   - `lv` 到達境界（`current_lv = lv-1` からのレベルアップ境界）に対応する累積経験値
 
 注意:
+
 - `exp_to_next` は入力で必須だが、DB には境界値（`exp_current`）のみを保存する。
 - 「次レベル必要量」は必要時に差分計算で導出する。
 
 ### 5.2 ship_growth_bounds
 
 役割:
+
 - master_id + lv ごとの裸ステータス下限を保持。
 
 主要列:
+
 - period_tag TEXT NOT NULL
 - table_version TEXT NOT NULL
 - master_id INTEGER NOT NULL
@@ -272,17 +301,21 @@
 - sakuteki_naked INTEGER NOT NULL
 
 主キー:
+
 - PRIMARY KEY(period_tag, table_version, master_id, lv)
 
 更新ルール:
+
 - upsert で MIN を採用（より低い観測を保持）
 
 ### 5.3 ship_growth_caps
 
 役割:
+
 - master_id ごとの cap 上限を保持。
 
 主要列:
+
 - period_tag TEXT NOT NULL
 - table_version TEXT NOT NULL
 - master_id INTEGER NOT NULL
@@ -291,22 +324,27 @@
 - sakuteki_max INTEGER NOT NULL
 
 主キー:
+
 - PRIMARY KEY(period_tag, table_version, master_id)
 
 更新ルール:
+
 - upsert で MAX を採用（より高い cap を保持）
 
 ### 5.4 ship_growth_archive（R2 archive object）
 
 役割:
+
 - period/version 更新時に、旧 `ship_growth_bounds` / `ship_growth_caps` の値を R2 に退避する。
 - 退避後は旧 period/version の対象レコードを active テーブルから削除する。
 - これにより active テーブルは現 period/version 中心に保ち、履歴は R2 archive object に残す。
 
 オブジェクトキー形式:
+
 - `ship-growth/archive/{period_tag}/{table_version}/{archived_at}-{hash16}-{uuid}.json`
 
 主な payload:
+
 - `period_tag_new`
 - `table_version_new`
 - `archived_at`
@@ -314,6 +352,7 @@
 - `rows.caps[]`（旧 caps 行）
 
 現状:
+
 - archive 候補行を先に収集し、R2 archive object を `put()` する。
 - DB 側の prune は、archive 済みとして確定した `rowid` のみを対象に削除する。
 - `SHIP_GROWTH_ARCHIVE_BUCKET` 未設定時は 503 を返し、DB更新は行わない。
@@ -333,37 +372,44 @@
 9. `COMMIT`
 
 失敗時:
+
 - `SHIP_GROWTH_ARCHIVE_BUCKET` 未設定時は `503` を返し、DB更新は開始しない。
 - それ以外の DB 失敗は `500` で `ROLLBACK`。
 
 ### 5.6 archive / prune 条件の詳細
 
 archive 挿入対象:
+
 - 対象キーは ingest payload を集約した一意集合:
   - bounds: `(master_id, lv)`
   - caps: `master_id`
 - かつ `(period_tag != current OR table_version != current)` を満たす行のみ。
 
 archive に入る値:
+
 - old 側の裸値行（bounds）
 - old 側の cap 値行（caps）
 - `period_tag_new`, `table_version_new`, `archived_at`
 
 prune 対象:
+
 - `ship_growth_bounds`: archive 済みとして確定した `rowid` の行のみ削除
 - `ship_growth_caps`: archive 済みとして確定した `rowid` の行のみ削除
 
 注意点:
+
 - prune は `rowid` 固定で行うため、archive 収集後に新規挿入された旧 period/version 行を誤って削除しない。
 - archive object は key に `archived_at + hash + uuid` を含むため、同一内容でも別実行で別オブジェクトとして保存される。
 
 ### 5.7 冪等性と重複受信の現状
 
 旧構成との違い:
+
 - `ship_growth_ingest_events` 削除により `request_id + payload_hash` のサーバー永続冪等判定は廃止。
 - `ship_growth_payload_registry` 削除によりグローバル payload dedupe も廃止。
 
 現在の重複抑制:
+
 - 主にクライアント側 suppression（`exp / bounds / caps` の3系統）
 - サーバー側でも ingest payload を以下の自然キーで集約してから upsert する
   - bounds: `(master_id, lv)`
@@ -375,6 +421,7 @@ prune 対象:
   - exp: 一致必須（不一致拒否）
 
 意味:
+
 - 同一 payload が届いても、上限/下限学習テーブルは原則値が悪化しない。
 - exp は固定テーブル前提で不一致を拒否するため、誤学習を防止する。
 - ただし「受信回数そのものの短絡」はしないため、受信コスト最適化はクライアント抑制依存になる。
@@ -398,6 +445,7 @@ prune 対象:
 ### 6.2 どのコンテキストで再送できるか
 
 retry_handler が対応する operation/provider:
+
 - provider: r2
 - operation: quest_ingest
 - operation: ship_growth_ingest
@@ -415,7 +463,7 @@ retry_handler が対応する operation/provider:
 ### 7.2 due 判定（通常 retry）
 
 - reference = last_attempt_at があればそれ、なければ created_at
-- base_wait = interval_seconds * 2^attempt_count
+- base_wait = interval_seconds \* 2^attempt_count
 - jitter_wait = base_wait に決定論的ジッター（-20% ～ +20%）
 - now >= reference + jitter_wait で送信対象
 
@@ -432,9 +480,11 @@ retry_handler が対応する operation/provider:
 ## 8. 現在の標準 retry 設定
 
 設定ファイル:
+
 - packages/configs/configs.toml
 
 現行値:
+
 - max_attempts = 10
 - ttl_seconds = 2592000（30日）
 - interval_seconds = 900（15分）
@@ -443,6 +493,7 @@ retry_handler が対応する operation/provider:
 ## 9. 監視 UI（Settings）
 
 UI で確認できる情報:
+
 - total pending
 - due now
 - max attempts
@@ -456,6 +507,7 @@ UI で確認できる情報:
   - expires
 
 バックエンドコマンド:
+
 - get_pending_upload_retry_status
 - retry_pending_uploads_now
 
@@ -522,6 +574,7 @@ npx wrangler d1 execute SHIP_GROWTH_DB --remote --command "SELECT name FROM sqli
 ```
 
 期待:
+
 - `ship_growth_payload_registry` が存在しない
 - `ship_growth_ingest_events` が存在しない
 - `ship_growth_bounds` / `ship_growth_caps` / `ship_level_exp_pairs` が存在する
@@ -542,4 +595,5 @@ npx wrangler d1 execute SHIP_GROWTH_DB --remote --command "SELECT name, tbl_name
 ```
 
 期待:
+
 - `ship_growth_bounds` / `ship_growth_caps` / `ship_level_exp_pairs` の index が表示される
