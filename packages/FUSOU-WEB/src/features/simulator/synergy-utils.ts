@@ -104,6 +104,8 @@ export type MultiComboEntry = {
   netStats: Record<string, number>;
   ships?: number[];
   placements?: SlotUsageSummary[];
+  cancels_single?: boolean;
+  suppressed_components?: number[];
 };
 export type MultiPoolEntry = {
   kind: "pool";
@@ -134,6 +136,9 @@ export type MultiGroupedComboEntry = {
   groupedPools: MstSlotItemData[][];
   netStats: Record<string, number>;
   ships?: number[];
+  cancels_single?: boolean;
+  suppressed_components?: number[];
+  placements?: SlotUsageSummary[];
 };
 export type MultiEntry =
   | MultiComboEntry

@@ -593,11 +593,14 @@ function ShipCard(props: {
           )
         : {};
     const equipSums = computeEquipSum(slot.equipIds, slot.exSlotId);
-    const suppressedEquipIds = computeSuppressedEquipIds(
-      slot.shipId,
-      slot.equipIds,
-      slot.exSlotId
-    );
+    const suppressedEquipIds =
+      slot.shipId != null
+        ? computeSuppressedEquipIds(
+            slot.shipId,
+            slot.equipIds,
+            slot.exSlotId
+          )
+        : new Set<number>();
 
     const leftStats: StatDef[] = [
       ["耐久", "taik", s.taik?.[0] ?? null, s.taik?.[1] ?? null, true],
@@ -1169,7 +1172,8 @@ function ShipCard(props: {
                                 {isActive ? (equip?.name ?? "—") : ""}
                               </span>
                               <Show when={equip && d.suppressedEquipIds.has(equip.id)}>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0" title="他装備の影響によりシナジーが低下しています">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
+                                  <title>他装備の影響によりシナジーが低下しています</title>
                                   <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
                                 </svg>
                               </Show>
@@ -1283,7 +1287,8 @@ function ShipCard(props: {
                           : "補強増設"}
                       </span>
                       <Show when={d.slot.exSlotId != null && d.suppressedEquipIds.has(d.slot.exSlotId!)}>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0" title="他装備の影響によりシナジーが低下しています">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-3.5 h-3.5 text-error shrink-0">
+                          <title>他装備の影響によりシナジーが低下しています</title>
                           <path fill-rule="evenodd" d="M8 2a.75.75 0 0 1 .75.75v8.69l3.22-3.22a.75.75 0 1 1 1.06 1.06l-4.5 4.5a.75.75 0 0 1-1.06 0l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.22 3.22V2.75A.75.75 0 0 1 8 2Z" clip-rule="evenodd" />
                         </svg>
                       </Show>

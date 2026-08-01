@@ -118,6 +118,7 @@ export interface CrossRule {
   cancels_single?: boolean;
   exclusive_group?: number;
   placements?: SlotUsageSummary[];
+  suppressed_components?: number[];
 }
 
 /** Base for triple/quad/penta/hexa rules. Combos are stored either as item_pool
