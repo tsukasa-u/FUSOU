@@ -3,7 +3,7 @@ import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
 import ShipGrowthPanel from "@/components/features/ship-growth/solid/ShipGrowthPanel";
 import PageShell from "@/components/common/astro/ui/PageShell.astro";
-import PageHeader from "@/components/common/astro/ui/PageHeader.astro";
+
 
 export const prerender = false;
 ---
@@ -38,11 +38,6 @@ export const prerender = false;
 >
   <Navigation filled={true} />
   <PageShell>
-    <PageHeader
-      title="パラメータ推移"
-      subtitle="収集された経験値テーブルと naked パラメータ成長の可視化"
-    />
-
     <ShipGrowthPanel client:only="solid-js" />
   </PageShell>
 </PageLayout>

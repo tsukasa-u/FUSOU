@@ -1265,75 +1265,75 @@ export default function ShipGrowthPanel() {
 
   return (
     <div class="space-y-6">
-      <MasterDataLoadStatusAlert items={masterDataStatus()} />
-
-      {/* Controls */}
-      <div class="card bg-base-100 shadow-sm">
-        <div class="card-body">
-          <h2 class="card-title text-lg">データ選択</h2>
-          <div class="flex flex-wrap gap-4 items-end">
-            {/* Period selector */}
-            <div class="form-control">
-              <label class="label">
-                <span class="label-text">期間</span>
-              </label>
-              <Show when={loadingPeriods()}>
-                <span class="loading loading-spinner loading-sm" />
-              </Show>
-              <Show when={!loadingPeriods()}>
-                <select
-                  class="select select-bordered select-sm"
-                  value={selectedPeriodIdx()}
-                  onChange={(e) =>
-                    setSelectedPeriodIdx(parseInt(e.currentTarget.value, 10))
-                  }
-                >
-                  <For each={periods()}>
-                    {(p, i) => <option value={i()}>{periodLabel(p)}</option>}
-                  </For>
-                </select>
-              </Show>
-            </div>
-
-            <button
-              class="btn btn-primary btn-sm"
-              disabled={
-                loadingData() ||
-                loadingPeriods() ||
-                loadingShips() ||
-                periods().length === 0 ||
-                selectedMasterId() == null
+      <div class="fusou-page-header flex flex-col md:flex-row md:items-end gap-4 pb-0 mb-2 border-none">
+        <div class="flex-1">
+          <h1 class="fusou-page-title">パラメータ推移</h1>
+          <p class="fusou-page-subtitle">収集された経験値テーブルと naked パラメータ成長の可視化</p>
+        </div>
+        <div class="fusou-page-actions flex-wrap items-end">
+          <div class="form-control">
+            <select
+              class="select select-bordered select-sm min-w-40"
+              value={selectedPeriodIdx().toString()}
+              onChange={(e) =>
+                setSelectedPeriodIdx(parseInt(e.currentTarget.value, 10))
               }
-              onClick={() => fetchGrowthData()}
+              disabled={loadingPeriods() || loadingData()}
             >
-              <Show when={loadingData()}>
-                <span class="loading loading-spinner loading-xs" />
+              <Show when={loadingPeriods()}>
+                <option value={selectedPeriodIdx().toString()}>読込中...</option>
               </Show>
-              再読み込み
-            </button>
-
-            <ShareUrlButton
-              id="ship-growth-share-btn"
-              disabled={
-                loadingPeriods() ||
-                loadingShips() ||
-                !selectedPeriod() ||
-                isCumulativePeriod(selectedPeriod()) ||
-                isAllPeriodsPeriod(selectedPeriod())
-              }
-              onClick={() => {
-                void issueShareUrl();
-              }}
-            />
+              <For each={periods()}>
+                {(p, i) => <option value={i().toString()}>{periodLabel(p)}</option>}
+              </For>
+            </select>
           </div>
 
-          <Show when={error()}>
-            <AlertMessage type="error" class="mt-2">
-              {error()}
-            </AlertMessage>
-          </Show>
+          <button
+            class="fusou-btn-secondary gap-1.5"
+            disabled={
+              loadingData() ||
+              loadingPeriods() ||
+              loadingShips() ||
+              periods().length === 0 ||
+              selectedMasterId() == null
+            }
+            onClick={() => fetchGrowthData()}
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span class="hidden md:inline">
+              <Show when={loadingData()} fallback="更新">
+                読込中
+              </Show>
+            </span>
+          </button>
+
+          <ShareUrlButton
+            id="ship-growth-share-btn"
+            class="btn-outline"
+            disabled={
+              loadingPeriods() ||
+              loadingShips() ||
+              !selectedPeriod() ||
+              isCumulativePeriod(selectedPeriod()) ||
+              isAllPeriodsPeriod(selectedPeriod())
+            }
+            onClick={() => {
+              void issueShareUrl();
+            }}
+          />
         </div>
       </div>
+
+      <Show when={error()}>
+        <AlertMessage type="error" class="mb-4">
+          {error()!}
+        </AlertMessage>
+      </Show>
+
+      <MasterDataLoadStatusAlert items={masterDataStatus()} />
 
       {/* Ship list + charts */}
       <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-4 items-start">
