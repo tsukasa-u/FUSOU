@@ -1,11 +1,14 @@
-https://*.dev/*
+/auth/*
   X-Robots-Tag: noindex
 
-https://*.dev/
-  ! X-Robots-Tag
+/account/*
+  X-Robots-Tag: noindex
 
-https://*.dev/download
-  ! X-Robots-Tag
+/dashboard
+  X-Robots-Tag: noindex
 
-https://*.dev/docs/*
-  ! X-Robots-Tag
+/dashboard/*
+  X-Robots-Tag: noindex
+
+/api/*
+  X-Robots-Tag: noindex
