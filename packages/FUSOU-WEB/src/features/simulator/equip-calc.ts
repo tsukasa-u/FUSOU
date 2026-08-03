@@ -6,13 +6,9 @@ import {
   getCardMap,
   getEquipItemOnMap,
   getEquipItemUpMap,
-  getShipTypeIconFrame,
-  getShipTypeSpriteSheetMeta,
   getShipIconMap,
   getMasterSlotItem,
   getSlotItemEffects,
-  getSpriteSheetMeta,
-  getWeaponIconFrame,
   getMasterShip,
   getSokuSpeedData,
 } from "./simulator-selectors";

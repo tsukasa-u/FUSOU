@@ -7,12 +7,10 @@ import {
   createEffect,
   createMemo,
   createSignal,
-  useContext,
   type JSX,
 } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { useStore } from "@nanostores/solid";
-import { render } from "solid-js/web";
 import { WeaponIcon } from "@/components/features/simulator/solid/shared-ui";
 import type {
   AirBaseSlot,
@@ -63,9 +61,6 @@ import {
 import {
   getAirBaseState,
   getFleetState,
-  getSokuSpeedData,
-  getSpriteSheetMeta,
-  getWeaponIconFrame,
   getVisibleAirbaseCount,
   getMasterShip,
   getMasterSlotItem,
@@ -76,7 +71,6 @@ import type {
   ShipGrowthCaps,
   NormalizedShipGrowthCaps,
   ShipGrowthBoundRow,
-  ShipGrowthBoundsResponse,
 } from "@/features/simulator/ship-growth-utils";
 import {
   normalizeShipGrowthCaps,
@@ -85,7 +79,6 @@ import {
   needsStatFallback,
 } from "@/features/simulator/ship-growth-utils";
 
-let mounted = false;
 const FLEET_SLOT_INDEXES = [0, 1, 2, 3, 4, 5] as const;
 const FLEET_EQUIP_SLOT_INDEXES = [0, 1, 2, 3, 4] as const;
 const AIRBASE_INDEXES = [0, 1, 2] as const;
@@ -307,11 +300,6 @@ interface ShipCardContextValue {
 
 const ShipCardContext = createContext<ShipCardContextValue>();
 
-function useShipCardContext(): ShipCardContextValue {
-  const ctx = useContext(ShipCardContext);
-  if (!ctx) throw new Error("ShipCardContext is not available");
-  return ctx;
-}
 
 function getLiveFleet(fleetIndex: 1 | 2 | 3 | 4): FleetSlot[] {
   const fleets = getFleetState();
@@ -732,12 +720,6 @@ function ShipCard(props: {
           const NON_EDITABLE_KEYS = new Set(["maxeq", "soku", "leng"]);
           const ZERO_FLOOR_STAT_KEYS = new Set(["tais", "kaih", "saku"]);
           const isEnemyShip = (d.slot.shipId ?? 0) >= 1500;
-
-          const editableStats = createMemo(() => {
-            return [...d.leftStats, ...d.rightStats].filter(
-              (st) => st[4] && !NON_EDITABLE_KEYS.has(st[1]),
-            );
-          });
 
           const openBulkEdit = () => {
             if (isReadOnly()) return;

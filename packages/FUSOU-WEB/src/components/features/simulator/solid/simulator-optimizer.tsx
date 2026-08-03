@@ -2572,9 +2572,9 @@ function EquipOptimizer(): JSX.Element {
 
 let _optimizerMounted = false;
 
-export function ensureOptimizerMounted(): void {
+export function ensureOptimizerMounted(container?: HTMLElement): void {
   if (_optimizerMounted) return;
-  const el = document.getElementById("optimizer-mount");
+  const el = container ?? document.getElementById("optimizer-mount");
   if (!el) return;
   render(() => <EquipOptimizer />, el);
   _optimizerMounted = true;

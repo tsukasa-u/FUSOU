@@ -1,33 +1,16 @@
 // ── I/O event handlers: import, share, load from URL, fleet load ──
 
-import { renderAll } from "./airbase-renderer";
-import { loadMasterDataFromJson } from "./data-loader";
 import { applyFleetSnapshot, applyExportedFleet } from "./snapshot";
-import {
-  stripSvdataPrefix,
-  detectResponseKind,
-  convertPortToSnapshot,
-  convertRequireInfoToSnapshot,
-  convertGetDataToMasterData,
-  mergeSnapshots,
-} from "./api-response-parser";
 import type { FleetSlot } from "./types";
 import {
   addEntry,
-  upsertEntry,
-  removeEntry,
-  duplicateEntry,
   updateEntryData,
   getActive,
   setActive,
   clearActive,
-  toggleLock,
-  getWorkspace,
   type ViewerEntry,
 } from "./viewer-workspace";
-import { resolveShareInput } from "./share-resolver";
 import { decodePayloadBase64, pickNumericRecord } from "./payload-codec";
-import { setWorkspaceReadOnly } from "./simulator-mutations";
 import {
   getAirBaseState,
   getCombinedFleetType,
@@ -70,11 +53,8 @@ export type ShareOptions = {
 };
 
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
-const WORKSPACE_MEMO_MAX_LENGTH = 300;
-const WORKSPACE_COLLAPSED_VISIBLE_COUNT = 6;
 let _isSnapshotPlayground = false;
 let _playgroundDraft: Record<string, unknown> | null = null;
-let _workspaceListExpanded = false;
 
 function encodePayloadBase64(payload: unknown): string {
   const json = JSON.stringify(payload);
@@ -230,7 +210,6 @@ function applyPlaygroundDraftOrBlank(): void {
 
 export function finalizePlaygroundLoad(
   hasSnapshotDataBool: boolean = hasSnapshotData(),
-  rerender = false,
 ): void {
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
@@ -308,30 +287,11 @@ function saveActiveOwnDeckIfNeeded(): void {
   saveCurrentStateToEntry(activeEntry);
 }
 
-function getWorkspaceEntryById(id: string): ViewerEntry | null {
-  return getWorkspace().entries.find((entry) => entry.id === id) ?? null;
-}
 
 export function isSnapshotPlayground(): boolean { return _isSnapshotPlayground; }
 
 function setSnapshotPlaygroundMode(enabled: boolean): void {
   _isSnapshotPlayground = enabled;
-}
-
-function hasSnapshotLink(entry: ViewerEntry): boolean {
-  if (entry.payloadKind === "fleetSnapshot") return true;
-  const payload = entry.payload as Record<string, unknown>;
-  const snapshotShips = payload.snapshotShips;
-  const snapshotSlotItems = payload.snapshotSlotItems;
-  const hasShips =
-    !!snapshotShips &&
-    typeof snapshotShips === "object" &&
-    Object.keys(snapshotShips).length > 0;
-  const hasItems =
-    !!snapshotSlotItems &&
-    typeof snapshotSlotItems === "object" &&
-    Object.keys(snapshotSlotItems).length > 0;
-  return hasShips || hasItems;
 }
 
 export async function loadFromUrl(): Promise<ViewerEntry | null> {

@@ -513,22 +513,18 @@ function SimulatorDetailsCatalog(): JSX.Element {
   });
 
   onMount(() => {
-    const btnSettings = document.getElementById("sim-details-settings-btn");
-    const btnHelp = document.getElementById("sim-details-help-btn");
-    const btnShare = document.getElementById("sim-details-share-btn");
-
     const onSettingsClick = () => setSettingsOpen(true);
     const onHelpClick = () => setHelpOpen(true);
     const onShareClick = () => void issueShareUrl();
 
-    btnSettings?.addEventListener("click", onSettingsClick);
-    btnHelp?.addEventListener("click", onHelpClick);
-    btnShare?.addEventListener("click", onShareClick);
+    window.addEventListener("sim-details-open-settings", onSettingsClick);
+    window.addEventListener("sim-details-open-help", onHelpClick);
+    window.addEventListener("sim-details-share", onShareClick);
 
     onCleanup(() => {
-      btnSettings?.removeEventListener("click", onSettingsClick);
-      btnHelp?.removeEventListener("click", onHelpClick);
-      btnShare?.removeEventListener("click", onShareClick);
+      window.removeEventListener("sim-details-open-settings", onSettingsClick);
+      window.removeEventListener("sim-details-open-help", onHelpClick);
+      window.removeEventListener("sim-details-share", onShareClick);
     });
   });
 

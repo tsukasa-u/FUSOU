@@ -9,21 +9,15 @@ import {
 } from "./simulator-mutations";
 import {
   getCombinedFleetType,
-  getFleetState,
   getVisibleAirbaseCount,
   isAirbaseSectionVisible,
   isFleetSectionVisible,
   getFleetSlotLayoutMode,
 } from "./simulator-selectors";
-import { validateCombinedFleet } from "./combined-fleet";
 import { rerenderSolidSimulator } from "@/components/features/simulator/solid/simulator-renderer";
-import { debounce } from "./equip-calc";
-import { onSimulatorStateDirty } from "./state";
 
 const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
 let displaySettingsLoaded = false;
-let settingsEventsBound = false;
-
 
 type DisplaySettings = {
   fleets: Record<number, boolean>;
@@ -33,15 +27,7 @@ type DisplaySettings = {
   combinedFleetType: 0 | 1 | 2 | 3;
 };
 
-const FLEET_SECTION_IDS = [1, 2, 3, 4] as const;
-const FLEET_SECTION_MAX_WIDTH_2X3 = "52rem";
-const FLEET_SECTION_MAX_WIDTH_3X2 = "76rem";
 const SLOT_LAYOUT_3X2_MIN_WIDTH_PX = 1200;
-const MOBILE_FLEET_SECTION_MAX_WIDTH = "26rem";
-const AIRBASE_THREE_COLUMN_BREAKPOINT_PX = 1200;
-const AIRBASE_TWO_COLUMN_BREAKPOINT_PX = 768;
-const MOBILE_SINGLE_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
-const TWO_COLUMN_BREAKPOINT_PX = AIRBASE_TWO_COLUMN_BREAKPOINT_PX;
 export function getEffectiveFleetSlotLayout(): "2x3" | "3x2" {
   if (
     getFleetSlotLayoutMode() === "3x2" &&
@@ -131,18 +117,6 @@ function loadDisplaySettingsOnce(): void {
   setVisibleAirbaseCount(settings.airbaseCount);
   setFleetSlotLayoutMode(settings.fleetSlotLayout);
   setCombinedFleetType(settings.combinedFleetType);
-}
-
-function applyDisplaySettingsUi(): void {
-  // Now handled reactively in SimulatorFleetTab.tsx
-}
-
-const applyDisplaySettingsUiOnResize = debounce(() => {
-  applyDisplaySettingsUi();
-}, 80);
-
-function syncCombinedFleetUI(): void {
-  // Now handled reactively in SimulatorFleetTab.tsx
 }
 
 

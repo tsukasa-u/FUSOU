@@ -1342,14 +1342,12 @@ export function getCompatibilityMeta(
 export function buildMultiEntries(
   rules: Array<TripleRule | QuadRule | PentaRule> | undefined,
   comboSize: number,
-  shipId: number,
+  _shipId: number,
   appliesToShip: (ships: number[] | null | undefined) => boolean,
-  effectsData: SlotItemEffectsData,
+  _effectsData: SlotItemEffectsData,
 ): MultiEntry[] {
   if (!rules) return [];
   const all: MultiEntry[] = [];
-  const _em = normalizeEffects(effectsData);
-  const _cm = normalizeCrossEffects(effectsData);
   for (const rule of rules) {
     if (!appliesToShip(rule.ships)) continue;
     if (rule.category_pools) {
