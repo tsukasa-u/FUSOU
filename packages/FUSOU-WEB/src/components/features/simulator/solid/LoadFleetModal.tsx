@@ -1,5 +1,6 @@
 /* @jsxImportSource solid-js */
-import { createSignal, onMount, Show, For } from "solid-js";
+import { createSignal, Show, For } from "solid-js";
+
 import { applyFleetSnapshot } from "@/features/simulator/snapshot";
 import { finalizePlaygroundLoad } from "@/features/simulator/io-handlers";
 

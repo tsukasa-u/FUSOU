@@ -98,10 +98,10 @@ export function ApiPasteModal() {
       if (isSnapshotMode && (pSnap || rSnap)) {
         const merged = mergeSnapshots(pSnap ?? {}, rSnap ?? {});
         applyFleetSnapshot(merged);
-        finalizePlaygroundLoad(true, true);
+        finalizePlaygroundLoad(true);
       } else if (!isSnapshotMode && portJson) {
         applyExportedFleet(portJson);
-        finalizePlaygroundLoad(hasSnapshotData(), true);
+        finalizePlaygroundLoad(hasSnapshotData());
       }
     }
 

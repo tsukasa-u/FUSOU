@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createEffect, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { simulatorDisplayRevision, simulatorCombinedFleetType } from "@/features/simulator/state";
 import { isFleetSectionVisible, isAirbaseSectionVisible, getVisibleAirbaseCount, getFleetSlotLayoutMode, getFleetState } from "@/features/simulator/simulator-selectors";

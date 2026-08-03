@@ -1,5 +1,5 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createEffect, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { workspaceStore, removeEntry, toggleLock, duplicateEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
 import { activateWorkspaceEntry, switchToPlayground, isSnapshotPlayground, createOwnDeckFromCurrentState } from "@/features/simulator/io-handlers";

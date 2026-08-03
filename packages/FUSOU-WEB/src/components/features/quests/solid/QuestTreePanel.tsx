@@ -124,7 +124,6 @@ function computeSimpleLayout(
     layers.get(d)!.push(id);
   }
 
-  const NODE_W = 60;
   const NODE_H = 30;
   const X_GAP = 90;
   const Y_GAP = 60;

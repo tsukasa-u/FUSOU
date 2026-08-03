@@ -1,7 +1,6 @@
 /* @jsxImportSource solid-js */
-import { createSignal, createMemo, onMount, onCleanup, createEffect, Show, For } from "solid-js";
+import { createSignal, createMemo, createEffect, Show, For } from "solid-js";
 import { VList } from "virtua/solid";
-import type { Component } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import type { MstSlotItemData } from "@/features/simulator/types";
 import { AIRCRAFT_TYPES, EQUIP_TYPE_NAMES, EQUIP_TYPE_SHORT, ENEMY_ID_THRESHOLD, RANGE_NAMES } from "@/features/simulator/constants";
