@@ -397,12 +397,11 @@ if (!user) {
   }
 
   // Modal state
-  /** @type {null | (() => void | Promise<void>)} */
-  let pendingDeleteAction = null;
+  let pendingDeleteAction: null | (() => void | Promise<void>) = null;
 
   // Modal helper
-  function showDeleteModal(message, onConfirm) {
-    const modal = /** @type {HTMLDialogElement} */ (byId("delete-modal"));
+  function showDeleteModal(message: string, onConfirm: () => void | Promise<void>) {
+    const modal = byId("delete-modal") as HTMLDialogElement;
     byId("delete-modal-message").textContent = message;
     pendingDeleteAction = onConfirm;
     modal.showModal();
@@ -529,7 +528,7 @@ if (!user) {
   /**
    * @param {Array<{ id: string; key_masked: string; is_active: boolean; created_at: string }>} keys
    */
-  function renderApiKeys(keys) {
+  function renderApiKeys(keys: any[]) {
     const container = byId("api-keys-list");
     if (keys.length === 0) {
       setContainerMessage(
@@ -581,7 +580,7 @@ if (!user) {
   /**
    * @param {Array<{ id: string; client_id_masked: string; device_name: string; created_at: string; last_used_at: string | null }>} devices
    */
-  function renderDevices(devices) {
+  function renderDevices(devices: any[]) {
     const container = byId("devices-list");
     if (devices.length === 0) {
       setContainerMessage("devices-list", "No trusted devices yet.");
@@ -671,7 +670,7 @@ if (!user) {
   }
 
   /** @param {string} keyId */
-  async function deleteApiKey(keyId) {
+  async function deleteApiKey(keyId: string) {
     try {
       const response = await fetch(`${API_BASE}/${keyId}`, {
         method: "DELETE",
@@ -687,7 +686,7 @@ if (!user) {
   }
 
   /** @param {string} deviceId */
-  async function revokeDevice(deviceId) {
+  async function revokeDevice(deviceId: string) {
     try {
       const response = await fetch(`${API_BASE}/devices/${deviceId}`, {
         method: "DELETE",
@@ -702,7 +701,7 @@ if (!user) {
   }
 
   /** @param {string | null | undefined} dateStr */
-  function formatDate(dateStr) {
+  function formatDate(dateStr: string) {
     if (!dateStr) return "N/A";
     const date = new Date(dateStr);
     return date.toLocaleDateString("ja-JP", {

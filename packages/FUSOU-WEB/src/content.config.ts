@@ -18,8 +18,8 @@ const authorsCollection = defineCollection({
   loader: glob({ pattern: "*.json", base: "./src/content/authors" }),
   schema: z.object({
     github_username: z.string(),
-    github_avatar: z.string().url().optional(),
-    github_url: z.string().url().optional(),
+    github_avatar: z.string().optional(),
+    github_url: z.string().optional(),
   }),
 });
 
