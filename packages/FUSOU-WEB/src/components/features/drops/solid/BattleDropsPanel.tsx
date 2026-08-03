@@ -1,12 +1,11 @@
 /** @jsxImportSource solid-js */
 import { createSignal, createMemo, createEffect, For, Show } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
-import { getBattleMapAsset, resolveBattleMapSpriteUrl, type BattleMapTheme } from "@/data/battleMapAssets";
+import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
 import { mapKeyOf, cellLabel as pureCellLabel, parseMapFrameMeta } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
 import type { InferredRouteOverlay } from "../../map-flow/solid/battle-map-flow/types";
 
-import { ShipBanner } from "../../battle-detail/solid/ui";
 import { STYPE_NAMES } from "@/features/simulator/constants";
 
 type MapSpot = { cellId: number; x: number; y: number; lineOffsetX?: number; lineOffsetY?: number };
@@ -122,7 +121,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     }
   });
 
-  const getCellLabel = (cellId: number, mapKey: string) => {
+  const getCellLabel = (cellId: number) => {
     return pureCellLabel(cellId, mapLabels());
   };
 
@@ -454,7 +453,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             class="btn btn-secondary btn-xs"
                             onClick={() => setSelectedCellId(null)}
                           >
-                            選択解除: {getCellLabel(selectedCellId()!, d.mapFilter())}
+                            選択解除: {getCellLabel(selectedCellId()!)}
                           </button>
                         </Show>
                       </div>
@@ -512,7 +511,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                             const hasDrops = () => drops().length > 0;
                             const totalCount = () => drops().reduce((sum, d) => sum + d.count, 0);
                             const isSelected = () => selectedCellId() === spot.cellId;
-                            const isHarbor = () => getCellLabel(spot.cellId, d.mapFilter()) === "港";
+                            const isHarbor = () => getCellLabel(spot.cellId) === "港";
                             const r = () => isSelected() ? 18 : 14;
 
                             const fill = () => isHarbor()
@@ -554,7 +553,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                   fill={textFill()}
                                   style={{ "pointer-events": "none" }}
                                 >
-                                  {getCellLabel(spot.cellId, d.mapFilter())}
+                                  {getCellLabel(spot.cellId)}
                                 </text>
                                 <Show when={hasDrops()}>
                                   <g transform={`translate(${spot.x + r() - 4}, ${spot.y - r() + 4})`}>
@@ -576,7 +575,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
               <div class="mt-6 border-t border-base-200 pt-6">
                 <h3 class="font-bold text-base mb-3">
-                  {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!, d.mapFilter())}マスのドロップ` : '海域全体のドロップ'}
+                  {selectedCellId() !== null ? `${getCellLabel(selectedCellId()!)}マスのドロップ` : '海域全体のドロップ'}
                 </h3>
                 <div class="space-y-6 mt-3">
                   <Show when={mapDropsGroupedByStype().length > 0} fallback={<div class="py-4 text-center text-base-content/40">ドロップ履歴がありません</div>}>
@@ -612,7 +611,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
                                   const dropRate = totalAtLoc > 0 ? ((loc.count / totalAtLoc) * 100).toFixed(1) + "%" : "-";
                                   const ranksStr = Object.entries(loc.winRanks).map(([r, c]) => `${r}:${c}`).join(" ");
                                   return {
-                                    label: `${getCellLabel(loc.cellId, d.mapFilter())}マス`,
+                                    label: `${getCellLabel(loc.cellId)}マス`,
                                     dropRateStr: dropRate,
                                     ranksStr,
                                     count: loc.count,

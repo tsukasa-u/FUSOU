@@ -107,7 +107,7 @@ function SchemaTableNode({ data, id }: NodeProps) {
 
       {/* Fields */}
       <div className="divide-y divide-base-200">
-        {d.fields.map((field, idx) => {
+        {d.fields.map((field) => {
           const fieldDiff = field.diffStatus;
           const bgClass =
             fieldDiff === "added"

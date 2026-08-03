@@ -13,24 +13,15 @@ import {
   getBattleMapAsset,
   resolveBattleMapSpriteUrl,
 } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utils/fetchCache";
 import type { SharedDashboardState } from "../../battles/solid/types";
 
 import type {
   BattleRecord,
-  BattleResultData,
-  BattleResultRecord,
-  CellRecord,
-  EnemyDeckRecord,
-  EnemyShipRecord,
-  EnemySlotItemRecord,
   MapFrameMeta,
   MapImageMetaPayload,
   MapInfoPayload,
   MapLabelsPayload,
   MapSpot,
-  MstShipRecord,
-  MstSlotItemRecord,
   OfficialMapThemeMode,
   OverlayMarker,
   ResolvedRouteOverlay,
@@ -42,7 +33,6 @@ import type {
 
 import {
   DEFAULT_MAP_VIEWPORT_HEIGHT_PERCENT,
-  MAP_FLOW_DISPLAY_SETTINGS_KEY,
   MAX_SORTIE_ROUTES,
   ROUTE_COUNT_BADGE_HEIGHT,
   ROUTE_COUNT_BADGE_WIDTH,
@@ -62,33 +52,15 @@ import {
   cellOverlayLabel as pureCellOverlayLabel,
   formatTimestamp,
   mapKeyOf,
-  normalizeEpochMs,
   parseMapFrameMeta,
-  parseOfficialMapThemeMode,
-  resolveBattleResult,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
 import MapSvgCanvas from "./battle-map-flow/MapSvgCanvas";
 import CellDetailsPanel from "./battle-map-flow/CellDetailsPanel";
 import SortieListPanel from "./battle-map-flow/SortieListPanel";
 import DisplaySettingsModal from "./battle-map-flow/DisplaySettingsModal";
-import { AlertMessage } from "@/components/common/solid/AlertMessage";
-import {
-  MasterDataLoadStatusAlert,
-  type MasterDataLoadStatusItem,
-} from "@/components/common/solid/MasterDataLoadStatusAlert";
 
-type PeriodSummary = {
-  period_tag: string;
-  table_version: string | null;
-};
 
-function periodLabel(period: PeriodSummary): string {
-  if (period.period_tag === "latest") return "最新期間";
-  if (period.period_tag === "all") return "全期間";
-  if (!period.table_version) return period.period_tag;
-  return `${period.period_tag} (v${period.table_version})`;
-}
 
 export default function BattleMapFlowPanel(props: { dashboardState: SharedDashboardState }) {
   const d = props.dashboardState;
@@ -101,7 +73,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const [showOfficialMapAssets, setShowOfficialMapAssets] = createSignal(true);
   const [officialMapThemeMode, setOfficialMapThemeMode] =
     createSignal<OfficialMapThemeMode>("auto");
-  const [detectedTheme, setDetectedTheme] =
+  const [detectedTheme] =
     createSignal<BattleMapTheme>("light");
 
   let displaySettingsModalRef!: HTMLDialogElement;
@@ -136,6 +108,10 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .then((res) => res.json())
       .then((payload: any) => setMstMapinfos(payload.records || []))
       .catch(() => {});
+
+    const openSettings = () => displaySettingsModalRef.showModal();
+    window.addEventListener("map-flow-open-display-settings", openSettings);
+    onCleanup(() => window.removeEventListener("map-flow-open-display-settings", openSettings));
   });
 
   // ── Helper closures (depend on signal state) ────────────────────────────────
@@ -438,8 +414,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .map((cellRecord) => {
         const mapKey = mapKeyOf(cellRecord);
         const cells = (cellRecord.cell_index || [])
-          .map((cellId) => Number(cellId ?? NaN))
-          .filter((cellId) => Number.isFinite(cellId));
+          .map((cellId: any) => Number(cellId ?? NaN))
+          .filter((cellId: any) => Number.isFinite(cellId));
         if (cells.length === 0) return null;
 
         const ports = mapPortsByKey()[mapKey] || [];
@@ -564,8 +540,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     for (const route of filteredCellRecords()) {
       const cells = (route.cell_index || [])
-        .map((cellId) => Number(cellId ?? NaN))
-        .filter((cellId) => Number.isFinite(cellId));
+        .map((cellId: any) => Number(cellId ?? NaN))
+        .filter((cellId: any) => Number.isFinite(cellId));
       if (cells.length === 0) continue;
 
       const mapKey = mapKeyOf(route);
@@ -964,16 +940,6 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
   return (
     <>
-      {/* Hidden button for triggering Display Settings modal from the global header */}
-      <button
-        id="map-flow-display-settings-btn"
-        class="hidden"
-        type="button"
-        onClick={() => displaySettingsModalRef.showModal()}
-      >
-        表示設定
-      </button>
-
       <Show when={metadataWarnings().length > 0}>
         <div class="alert alert-warning mb-6 p-3 text-sm items-start">
           <svg

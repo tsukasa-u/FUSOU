@@ -287,7 +287,6 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
   const rankConic = createMemo(() => buildConicGradient(rankEntries(), RANK_COLORS));
   const airConic = createMemo(() => buildConicGradient(airEntries(), AIR_COLORS));
-  const linePath = createMemo(() => buildLinePath(stats().dailySorties, 760, 220));
 
   return (
     <>

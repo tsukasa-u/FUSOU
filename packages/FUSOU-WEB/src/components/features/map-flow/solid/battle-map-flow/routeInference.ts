@@ -1,5 +1,5 @@
 import type { InferredRouteOverlay, MapSpot, RouteSpriteFrame, Transition } from "./types";
-import { ACTIVE_CELL_RING_RADIUS, INFERRED_ROUTE_NODE_PADDING } from "./constants";
+import { INFERRED_ROUTE_NODE_PADDING } from "./constants";
 
 export function inferRouteOverlays(
   spots: MapSpot[],
