@@ -1,4 +1,5 @@
 ---
+import ThemeToggle from "@/components/common/astro/ui/ThemeToggle.astro";
 const filled: boolean = Astro.props.filled;
 const css_filled = filled ? "bg-navbar" : "bg-base-100";
 ---
@@ -10,7 +11,10 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
     class="flex w-full max-w-[1440px] mx-auto px-4 sm:px-8 py-1 flex-nowrap items-center gap-1 sm:gap-2"
   >
     <div class="flex items-center gap-1 min-w-0">
-      <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
+      <a class="btn btn-ghost text-xl gap-2 px-2" href="/">
+        <img src="/favicon.svg" alt="FUSOU Logo" class="w-7 h-7" />
+        FUSOU
+      </a>
       <div class="tooltip tooltip-bottom" data-tip="GitHub">
         <a
           class="btn btn-ghost"
@@ -40,7 +44,6 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="24"
-            ,
             height="24"
             viewBox="0 0 576 512"
             fill="currentColor"
@@ -334,6 +337,9 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           <span class="hidden lg:inline">Download</span>
         </a>
       </div>
+    </div>
+    <div class="tooltip tooltip-bottom shrink-0 ml-1 sm:ml-2" data-tip="Toggle Theme">
+      <ThemeToggle />
     </div>
   </div>
 
