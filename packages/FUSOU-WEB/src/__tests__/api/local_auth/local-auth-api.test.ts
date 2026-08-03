@@ -8,7 +8,6 @@ const {
   mockSignInWithOAuth,
   mockExchangeCodeForSession,
   mockSelect,
-  mockUpsert,
   mockFrom,
 } = vi.hoisted(() => {
   const mockValidateOriginDetailed = vi.fn();

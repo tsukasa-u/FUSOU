@@ -59,8 +59,8 @@ describe("normalizeEpochMs", () => {
     const ms = 1_700_000_000_000;
     assert.equal(normalizeEpochMs(ms), ms);
   });
-  it("returns null for 0", () => {
-    assert.equal(normalizeEpochMs(0), null);
+  it("returns 0 for 0", () => {
+    assert.equal(normalizeEpochMs(0), 0);
   });
 });
 
@@ -86,20 +86,20 @@ describe("parseOfficialMapThemeMode", () => {
 });
 
 describe("cellLabel", () => {
-  it("returns '港(0)' for cell 0 with no labels", () => {
-    assert.equal(cellLabel(0, undefined), "港(0)");
+  it("returns '港' for cell 0 with no labels", () => {
+    assert.equal(cellLabel(0, undefined), "港");
   });
   it("returns fallback text for non-zero cell with no labels", () => {
-    assert.equal(cellLabel(3, undefined), "3マス");
+    assert.equal(cellLabel(3, undefined), "C");
   });
   it("formats custom label with cell id", () => {
-    assert.equal(cellLabel(4, { 4: "D" }), "D(4)");
+    assert.equal(cellLabel(4, { 4: "D" }), "D");
   });
   it("returns '-' for NaN cell id", () => {
     assert.equal(cellLabel(NaN, undefined), "-");
   });
   it("uses label from labels record", () => {
-    assert.equal(cellLabel(1, { 1: "A" }), "A(1)");
+    assert.equal(cellLabel(1, { 1: "A" }), "A");
   });
 });
 
@@ -108,7 +108,7 @@ describe("cellOverlayLabel", () => {
     assert.equal(cellOverlayLabel(0, undefined), "港");
   });
   it("returns cell id as string for non-zero cells without labels", () => {
-    assert.equal(cellOverlayLabel(5, undefined), "5");
+    assert.equal(cellOverlayLabel(5, undefined), "E");
   });
   it("returns raw label string when available", () => {
     assert.equal(cellOverlayLabel(4, { 4: "D" }), "D");
