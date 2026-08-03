@@ -10,7 +10,6 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
 import {
-  type SupabaseRestConfig,
   getSupabaseRestConfig,
   supabaseRestRequest,
   resolveMemberIdHashForUser,

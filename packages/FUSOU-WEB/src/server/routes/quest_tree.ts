@@ -28,10 +28,7 @@ const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
 
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
 const RECENT_WINDOW_MS = 10 * 60 * 1000;
-const MIN_OBS_SINGLE = 8;
-const MIN_OBS_PAIR = 6;
-const MIN_CONF_SINGLE = 0.55;
-const MIN_CONF_PAIR = 0.65;
+
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
@@ -584,55 +581,6 @@ function setDiff(next: number[], prev: number[]): number[] {
   return diff;
 }
 
-async function upsertQuestStateLatest(
-  db: D1Database,
-  params: {
-    datasetId: string;
-    questId: number;
-    sessionId: string;
-    state: string;
-    eventType: string;
-    atMs: number;
-    periodTag: string;
-    tableVersion: string;
-    isClaimed: number;
-  },
-): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO quest_state_latest (
-         dataset_id,
-         quest_id,
-         collection_session_id,
-         state,
-         updated_at_ms,
-         last_event_type,
-         period_tag,
-         table_version,
-         is_claimed
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(dataset_id, quest_id) DO UPDATE SET
-         collection_session_id = excluded.collection_session_id,
-         state = excluded.state,
-         updated_at_ms = excluded.updated_at_ms,
-         last_event_type = excluded.last_event_type,
-         period_tag = excluded.period_tag,
-         table_version = excluded.table_version,
-         is_claimed = excluded.is_claimed`,
-    )
-    .bind(
-      params.datasetId,
-      params.questId,
-      params.sessionId,
-      params.state,
-      params.atMs,
-      params.eventType,
-      params.periodTag,
-      params.tableVersion,
-      params.isClaimed,
-    )
-    .run();
-}
 
 async function enqueueTask(
   db: D1Database,

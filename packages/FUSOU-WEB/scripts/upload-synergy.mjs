@@ -178,14 +178,6 @@ function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
-function getSynergyManifestR2Keys(periodTag, periodRevision, contentHash) {
-  const basePath = `master_data_meta/sp_effect/${periodTag}/rev${periodRevision}/${contentHash}`;
-  return {
-    sp_effect_json: `${basePath}.json`,
-    manifest: `master_data_meta/manifest/${periodTag}/rev${periodRevision}/${contentHash}.manifest.json`,
-  };
-}
-
 function isConcurrentManifestConflict(err) {
   return (
     err instanceof ApiError &&

@@ -60,13 +60,6 @@ function run(cmd) {
   });
 }
 
-function runQuiet(cmd) {
-  try {
-    return run(cmd);
-  } catch (e) {
-    return e.stderr || e.stdout || "";
-  }
-}
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);

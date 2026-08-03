@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import init, { validate_avro_ocf } from '../../avro-wasm/pkg/avro_wasm.js';
 
 function b64ToUint8Array(b64) {

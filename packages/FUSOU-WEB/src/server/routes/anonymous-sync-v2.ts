@@ -1230,13 +1230,13 @@ app.get("/anonymous-sync/v2/devices", async (c) => {
       revoked_reason: string | null;
     };
 
-    const { data, error } = await query.returns<DeviceRow[]>();
+    const { data, error } = await query;
     if (error) {
       console.error("[anonymous-sync-v2/devices] lookup failed:", error);
       return c.json({ error: "Database error" }, 500);
     }
 
-    const devices = (data ?? []).map((row) => ({
+    const devices = ((data as DeviceRow[]) ?? []).map((row) => ({
       device_id: row.device_id,
       pid_masked: maskPid(row.pid),
       created_at: row.created_at,

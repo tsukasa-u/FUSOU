@@ -212,7 +212,7 @@ app.post('/trigger-scheduled', async (c) => {
           console.info(`[compact-scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
           enqueueResults.push({ datasetId: dataset.id, status: 'success' });
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
           console.error(`[compact-scheduled] Failed to enqueue dataset`, {
             datasetId: dataset.id,
             error: String(err),

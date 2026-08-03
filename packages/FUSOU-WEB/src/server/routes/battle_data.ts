@@ -179,29 +179,6 @@ async function fetchBattleDataJsonInternal<T>(c: any, path: string): Promise<T> 
   return (await response.json()) as T;
 }
 
-async function fetchInternalJson<T>(c: any, path: string): Promise<T> {
-  const targetUrl = new URL(c.req.url);
-  targetUrl.search = "";
-  const normalizedPath = path;
-  if (normalizedPath.includes("?")) {
-    const [pathname, search] = normalizedPath.split("?", 2);
-    targetUrl.pathname = pathname || "/";
-    targetUrl.search = search ? `?${search}` : "";
-  } else {
-    targetUrl.pathname = normalizedPath;
-  }
-
-  const response = await fetch(targetUrl.toString(), {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`,
-    );
-  }
-  return (await response.json()) as T;
-}
 
 type MasterDataJsonPayload = {
   table_name: string;
@@ -477,33 +454,6 @@ async function fetchGlobalRecordsInternal(
   return payload.records || [];
 }
 
-async function fetchFirstMatchingRecordsByFields(
-  c: any,
-  table: string,
-  value: string,
-  fields: string[],
-  options: {
-    periodTag: string;
-    tableVersion: string;
-    limitBlocks: number;
-    limitRecords: number;
-  },
-): Promise<Array<Record<string, unknown>>> {
-  for (const field of fields) {
-    const rows = await fetchGlobalRecordsInternal(c, {
-      table,
-      periodTag: options.periodTag,
-      tableVersion: options.tableVersion,
-      limitBlocks: options.limitBlocks,
-      limitRecords: options.limitRecords,
-      filter: { [field]: value },
-    });
-    if (rows.length > 0) {
-      return rows;
-    }
-  }
-  return [];
-}
 
 function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
   if (Array.isArray(rawIds)) {

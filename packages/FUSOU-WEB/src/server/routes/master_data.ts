@@ -9,7 +9,7 @@ import {
   timingSafeEqual,
   safeWaitUntil,
 } from "../utils";
-import { validateCachedPeriodTag, listAllowedPeriodTags, getLatestMasterPeriodTag } from "../utils/period-tags";
+import { validateCachedPeriodTag, getLatestMasterPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 

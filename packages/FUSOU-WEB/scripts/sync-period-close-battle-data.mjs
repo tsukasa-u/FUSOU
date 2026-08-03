@@ -194,9 +194,6 @@ function buildPeriodCloseRunKey(tableVersion, periodTag, runKeys) {
   return `${epoch}-${hash}`;
 }
 
-async function ensureDir(dirPath) {
-  await fsp.mkdir(dirPath, { recursive: true });
-}
 
 async function buildPlan(srcRoot, selectedPeriods, maxPeriods = 0) {
   const files = await walkAvro(srcRoot);

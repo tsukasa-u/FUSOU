@@ -188,7 +188,6 @@ function parseAvroType(avroType) {
  * or whose type is uuid with a name matching another table, indicates a reference.
  */
 function inferEdges(tables) {
-  const tableNameSet = new Set(tables.map((t) => t.table_name));
   const tableByRecord = new Map();
   for (const t of tables) {
     const schema = JSON.parse(t.schema);
@@ -385,17 +384,6 @@ function buildMasterDataNodesFromAvro(version) {
   }
 
   return deduped;
-}
-
-function resolveMasterTarget(fieldName, sourceTable = "") {
-  const overridden = resolveOverrideTarget(fieldName, sourceTable);
-  if (overridden) return overridden;
-
-  if (/^mst_[a-z0-9_]+_id$/.test(fieldName)) {
-    return normalizeMasterTableName(fieldName.replace(/_id$/, ""));
-  }
-
-  return null;
 }
 
 function resolveMasterTargets(fieldName, sourceTable = "") {

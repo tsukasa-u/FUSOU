@@ -225,7 +225,7 @@ async function handlePreparation(
 async function handleExecution(
   c: any,
   request: Request,
-  url: URL,
+  _url: URL,
   config: UploadConfig,
 ): Promise<Response> {
   const { signingSecret, executionProcessor } = config;
