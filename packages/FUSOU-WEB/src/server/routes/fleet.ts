@@ -196,7 +196,6 @@ async function resolveFleetDatasetCandidates(options: {
       const { data, error } = await options.supabaseAdmin
         .from("member_id_hash_rotations")
         .select("pid_from,pid_to")
-        .eq("canonical_user_id", options.actorUserId)
         .or(`pid_to.in.(${inValues}),pid_from.in.(${inValues})`)
         .range(from, to);
 
