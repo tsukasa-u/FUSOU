@@ -212,7 +212,10 @@ export function finalizePlaygroundLoad(
   clearActive();
   _playgroundDraft = buildCurrentPlaygroundPayload();
   setSnapshotPlaygroundMode(hasSnapshotDataBool);
+  setWorkspaceReadOnly(false);
 }
+
+import { setWorkspaceReadOnly } from "./simulator-mutations";
 
 export function activateWorkspaceEntry(
   entry: ViewerEntry,
@@ -232,6 +235,7 @@ export function activateWorkspaceEntry(
   setActive(entry.id);
   applyViewerEntry(entry);
   setSnapshotPlaygroundMode(false);
+  setWorkspaceReadOnly(entry.locked ?? false);
 }
 
 export function switchToPlayground(): void {
@@ -241,6 +245,7 @@ export function switchToPlayground(): void {
   }
   clearActive();
   applyPlaygroundDraftOrBlank();
+  setWorkspaceReadOnly(false);
 }
 
 

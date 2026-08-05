@@ -80,6 +80,11 @@ export function WorkspacePanel() {
   const handleToggleLock = (e: MouseEvent, entry: ViewerEntry) => {
     e.stopPropagation();
     toggleLock(entry.id);
+    if (ws().activeId === entry.id) {
+      import("@/features/simulator/simulator-mutations").then(m => {
+        m.setWorkspaceReadOnly(!entry.locked);
+      });
+    }
   };
 
   const handleDelete = (e: MouseEvent, entry: ViewerEntry) => {
@@ -185,7 +190,7 @@ export function WorkspacePanel() {
           <div id="workspace-entry-list" role="list" class="space-y-2">
             <For each={visibleEntries()}>
               {(entry) => {
-                const isActive = ws().activeId === entry.id;
+                const isActive = () => ws().activeId === entry.id;
                 const isDeck = entry.sourceType === "ownDeck";
                 const hasSnap = hasSnapshotLink(entry);
                 
@@ -194,14 +199,14 @@ export function WorkspacePanel() {
                     data-entry-id={entry.id}
                     role="listitem"
                     class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
-                      isActive ? "border-primary bg-primary/15 shadow-sm" : "border-base-300/60 hover:border-primary/40"
+                      isActive() ? "border-primary bg-primary/15 shadow-sm" : "border-base-300/60 hover:border-primary/40"
                     }`}
                     onClick={() => activateWorkspaceEntry(entry)}
                   >
                     <div class="flex-1 min-w-0">
                       <div class="flex items-center gap-1.5">
                         <span class="truncate font-medium">{entry.name}</span>
-                        <Show when={isActive}>
+                        <Show when={isActive()}>
                           <span class="badge badge-primary badge-xs opacity-80">編集中</span>
                         </Show>
                       </div>
