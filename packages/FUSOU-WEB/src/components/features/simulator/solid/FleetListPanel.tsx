@@ -13,6 +13,7 @@ import {
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
+import { authFetch } from "@/utils/authFetch";
 
 type FleetEntry = {
   tag: string;
@@ -33,18 +34,11 @@ function formatUploadedAt(input: string | Date | undefined): string {
 }
 
 function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
-  const authHeaders = (): HeadersInit => {
-    if (!props.accessToken) return {};
-    return { Authorization: `Bearer ${props.accessToken}` };
-  };
-
   const [deletedTags, setDeletedTags] = createSignal<Set<string>>(new Set());
 
   const [fleets] = createResource(async () => {
     if (!props.accessToken) return null;
-    const res = await fetch("/api/fleet/snapshots/list", {
-      headers: authHeaders(),
-    });
+    const res = await authFetch("/api/fleet/snapshots/list");
     if (!res.ok) throw new Error("Failed to load fleet list");
     const data = (await res.json()) as FleetsResponse;
     return data.tags ?? [];
@@ -59,11 +53,10 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
   async function handleDelete(tag: string) {
     if (!confirm(`「${tag}」を削除しますか？`)) return;
     try {
-      const res = await fetch(
+      const res = await authFetch(
         `/api/fleet/snapshot/${encodeURIComponent(tag)}`,
         {
           method: "DELETE",
-          headers: authHeaders(),
         },
       );
       if (!res.ok) {

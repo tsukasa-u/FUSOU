@@ -12,7 +12,7 @@ const cookieOptions = {
   sameSite: "lax" as const,
   httpOnly: true,
   secure: import.meta.env.PROD,
-  maxAge: 60 * 10, // 10 minutes is enough for PKCE exchange
+  maxAge: 60 * 60 * 24 * 7, // 7 days
 };
 
 const createCookieStorage = (cookies: CookieStore) => {

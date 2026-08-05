@@ -3,6 +3,7 @@ import { createSignal, Show, For } from "solid-js";
 
 import { applyFleetSnapshot } from "@/features/simulator/snapshot";
 import { finalizePlaygroundLoad } from "@/features/simulator/io-handlers";
+import { authFetch } from "@/utils/authFetch";
 
 export const loadFleetModalRef: { current: HTMLDialogElement | null } = { current: null };
 
@@ -34,7 +35,7 @@ export function LoadFleetModal() {
     setEntries([]);
 
     try {
-      const res = await fetch("/api/fleet/snapshots/list", { headers: authHeaders() });
+      const res = await authFetch("/api/fleet/snapshots/list");
       if (res.status === 401 || res.status === 403) {
         const body = (await res.json().catch(() => ({}))) as Record<string, any>;
         setErrorMsg(body.error ?? "認証エラー");
@@ -59,9 +60,7 @@ export function LoadFleetModal() {
 
   const handleApplySnapshot = async (tag: string) => {
     try {
-      const snapRes = await fetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`, {
-        headers: authHeaders(),
-      });
+      const snapRes = await authFetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`);
       if (snapRes.ok) {
         const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
         applyFleetSnapshot(result.snapshot);

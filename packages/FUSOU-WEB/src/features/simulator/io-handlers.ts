@@ -18,6 +18,7 @@ import {
   getSnapshotShareState,
   hasSnapshotData,
 } from "./simulator-selectors";
+import { authFetch } from "@/utils/authFetch";
 
 const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
 
@@ -346,9 +347,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
     }
 
     try {
-      const res = await fetch(
-        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`,
-        { headers: authHeaders() },
+      const res = await authFetch(
+        `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`
       );
       if (res.ok) {
         const payload = (await res.json()) as {
