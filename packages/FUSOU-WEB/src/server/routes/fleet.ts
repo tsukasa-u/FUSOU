@@ -640,6 +640,7 @@ app.post("/snapshot", async (c) => {
 
 // GET /snapshot/:tag - Retrieve fleet snapshot from R2
 app.get("/snapshot/:tag", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
   const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
 
@@ -740,6 +741,7 @@ app.get("/snapshot/:tag", async (c) => {
 
 // GET /snapshots/list - List available fleet snapshot tags
 app.get("/snapshots/list", async (c) => {
+  c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
   const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
 
