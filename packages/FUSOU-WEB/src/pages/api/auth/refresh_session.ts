@@ -2,13 +2,18 @@ import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
-export const GET: APIRoute = async ({ cookies }) => {
+export const POST: APIRoute = async ({ cookies }) => {
   const refreshTokenCookie = cookies.get("sb-refresh-token");
+
+  const noCacheHeaders = {
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store, max-age=0",
+  };
 
   if (!refreshTokenCookie?.value) {
     return new Response(
       JSON.stringify({ error: "No refresh token available" }),
-      { status: 401, headers: { "Content-Type": "application/json" } },
+      { status: 401, headers: noCacheHeaders },
     );
   }
 
@@ -24,7 +29,7 @@ export const GET: APIRoute = async ({ cookies }) => {
       console.error("[auth/refresh_session] Failed to refresh session:", error);
       return new Response(
         JSON.stringify({ error: "Failed to refresh session" }),
-        { status: 401, headers: { "Content-Type": "application/json" } },
+        { status: 401, headers: noCacheHeaders },
       );
     }
 
@@ -34,13 +39,13 @@ export const GET: APIRoute = async ({ cookies }) => {
 
     return new Response(
       JSON.stringify({ access_token: data.session.access_token }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
+      { status: 200, headers: noCacheHeaders },
     );
   } catch (error) {
     console.error("[auth/refresh_session] Unexpected error:", error);
     return new Response(
       JSON.stringify({ error: "Internal server error" }),
-      { status: 500, headers: { "Content-Type": "application/json" } },
+      { status: 500, headers: noCacheHeaders },
     );
   }
 };

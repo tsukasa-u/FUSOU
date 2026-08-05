@@ -39,7 +39,9 @@ export async function authFetch(
     if (isAuthError) {
       // Try to refresh the session
       try {
-        const refreshRes = await fetch("/api/auth/refresh_session");
+        const refreshRes = await fetch("/api/auth/refresh_session", {
+          method: "POST",
+        });
         if (refreshRes.ok) {
           const refreshData = await refreshRes.json() as { access_token?: string };
           if (refreshData.access_token) {
