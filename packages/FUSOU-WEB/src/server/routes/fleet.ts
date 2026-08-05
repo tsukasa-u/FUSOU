@@ -184,7 +184,6 @@ async function resolveFleetDatasetCandidates(options: {
     visited.size < MAX_CANDIDATE_DATASET_IDS;
     hop += 1
   ) {
-    const inValues = frontier.join(",");
     const rows: Array<{ pid_from?: string | null; pid_to?: string | null }> =
       [];
     let queryFailed = false;
@@ -193,11 +192,20 @@ async function resolveFleetDatasetCandidates(options: {
       const from = page * ROTATION_QUERY_PAGE_SIZE;
       const to = from + ROTATION_QUERY_PAGE_SIZE - 1;
 
-      const { data, error } = await options.supabaseAdmin
+      const { data: dataFrom, error: errFrom } = await options.supabaseAdmin
         .from("member_id_hash_rotations")
         .select("pid_from,pid_to")
-        .or(`pid_to.in.(${inValues}),pid_from.in.(${inValues})`)
+        .in("pid_from", frontier)
         .range(from, to);
+
+      const { data: dataTo, error: errTo } = await options.supabaseAdmin
+        .from("member_id_hash_rotations")
+        .select("pid_from,pid_to")
+        .in("pid_to", frontier)
+        .range(from, to);
+
+      const error = errFrom || errTo;
+      const data = [...(dataFrom || []), ...(dataTo || [])];
 
       if (error) {
         if (isSchemaObjectMissingError(error)) {
@@ -222,7 +230,7 @@ async function resolveFleetDatasetCandidates(options: {
         : [];
       rows.push(...pageRows);
 
-      if (pageRows.length < ROTATION_QUERY_PAGE_SIZE) {
+      if ((dataFrom?.length || 0) < ROTATION_QUERY_PAGE_SIZE && (dataTo?.length || 0) < ROTATION_QUERY_PAGE_SIZE) {
         break;
       }
     }
