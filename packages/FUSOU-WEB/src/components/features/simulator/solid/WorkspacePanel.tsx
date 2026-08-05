@@ -61,12 +61,13 @@ export function WorkspacePanel() {
   };
 
   const handleAddCurrent = () => {
-    if (!isPlaygroundActive()) return;
+    // Playground時だけでなく、いつでも「別名で保存」として機能させる
     const entry = createOwnDeckFromCurrentState(
       snapshotAvailable() ? `自分のデッキ（スナップショット由来） ${new Date().toLocaleTimeString()}` : "自分のデッキ",
       ""
     );
-    activateWorkspaceEntry(entry);
+    // 現在のUI状態を引き継いで新しいデッキを作り、元のデッキは上書きしない (savePrevious = false)
+    activateWorkspaceEntry(entry, true, false);
   };
 
   const handleEdit = (e: MouseEvent, entry: ViewerEntry) => {
@@ -88,8 +89,20 @@ export function WorkspacePanel() {
 
   const handleDuplicate = (e: MouseEvent, entry: ViewerEntry) => {
     e.stopPropagation();
+    const isActive = ws().activeId === entry.id;
+    let customPayload: Record<string, unknown> | undefined = undefined;
+    if (isActive) {
+      // アクティブな要素を複製する場合は、画面上の最新の未保存状態を新しいデッキに引き継ぐ
+      import("@/features/simulator/io-handlers").then(m => {
+        customPayload = m.buildCurrentPlaygroundPayload();
+        const dup = duplicateEntry(entry.id, customPayload);
+        if (dup) activateWorkspaceEntry(dup, true, false); // 元のデッキは上書きしない
+      });
+      return;
+    }
+    
     const dup = duplicateEntry(entry.id);
-    if (dup) activateWorkspaceEntry(dup);
+    if (dup) activateWorkspaceEntry(dup, true, true);
   };
 
   const VISIBLE_COUNT = 5;
@@ -110,8 +123,7 @@ export function WorkspacePanel() {
           <button
             id="btn-workspace-add-current"
             class="btn btn-ghost btn-xs gap-1"
-            title={isPlaygroundActive() ? "現在のPlayground編成をワークスペースに追加" : "Playgroundでのみ利用できます"}
-            disabled={!isPlaygroundActive()}
+            title="現在の画面の編成を新しいデッキとしてワークスペースに追加（別名で保存）"
             onClick={handleAddCurrent}
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -145,14 +157,19 @@ export function WorkspacePanel() {
         <div
           id="workspace-playground-entry"
           class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
-            isPlaygroundActive() ? "border-info bg-info/10" : "border-base-300/60 hover:border-info/50"
+            isPlaygroundActive() ? "border-info bg-info/15 shadow-sm" : "border-base-300/60 hover:border-info/50"
           }`}
           onClick={switchToPlayground}
         >
           <div class="flex-1 min-w-0">
-            <div class="truncate font-medium">Playground</div>
+            <div class="flex items-center gap-1.5">
+              <span class="truncate font-medium">Playground</span>
+              <Show when={isPlaygroundActive()}>
+                <span class="badge badge-info badge-xs opacity-80">編集中</span>
+              </Show>
+            </div>
             <div class="text-[11px] text-base-content/55 mt-0.5">
-              {isSnapshotPlayground() ? "スナップショットを反映した作業中の編成" : "白紙状態から編成を作成する作業領域"}
+              {isSnapshotPlayground() ? "スナップショットを反映した一時的な作業領域" : "白紙状態から作成する一時的な作業領域"}
             </div>
           </div>
         </div>
@@ -177,12 +194,17 @@ export function WorkspacePanel() {
                     data-entry-id={entry.id}
                     role="listitem"
                     class={`flex items-center gap-2 p-2 rounded-lg border text-sm cursor-pointer transition-colors ${
-                      isActive ? "border-primary bg-primary/10" : "border-base-300/60 hover:border-primary/40"
+                      isActive ? "border-primary bg-primary/15 shadow-sm" : "border-base-300/60 hover:border-primary/40"
                     }`}
                     onClick={() => activateWorkspaceEntry(entry)}
                   >
                     <div class="flex-1 min-w-0">
-                      <div class="truncate font-medium">{entry.name}</div>
+                      <div class="flex items-center gap-1.5">
+                        <span class="truncate font-medium">{entry.name}</span>
+                        <Show when={isActive}>
+                          <span class="badge badge-primary badge-xs opacity-80">編集中</span>
+                        </Show>
+                      </div>
                       <Show when={entry.memo?.trim()}>
                         <div class="text-xs text-base-content/65 mt-0.5 line-clamp-2 overflow-hidden">
                           {entry.memo!.trim()}
@@ -212,13 +234,13 @@ export function WorkspacePanel() {
                       <LockIcon locked={entry.locked || false} />
                     </button>
 
-                    <button class="btn btn-ghost btn-xs shrink-0" title="この項目を複製" onClick={(e) => handleDuplicate(e, entry)}>
+                    <button class="btn btn-ghost btn-xs shrink-0 px-1.5" title="現在の内容で複製（別名で保存）" onClick={(e) => handleDuplicate(e, entry)}>
                       複製
                     </button>
-                    <button class="btn btn-ghost btn-xs shrink-0" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "編集"} onClick={(e) => handleEdit(e, entry)}>
+                    <button class="btn btn-ghost btn-xs shrink-0 px-1.5" disabled={entry.locked} title={entry.locked ? "ロック中は編集できません" : "表示名やメモの編集"} onClick={(e) => handleEdit(e, entry)}>
                       編集
                     </button>
-                    <button class="btn btn-ghost btn-xs shrink-0" title="削除" onClick={(e) => handleDelete(e, entry)}>
+                    <button class="btn btn-ghost btn-xs shrink-0 px-1" title="削除" onClick={(e) => handleDelete(e, entry)}>
                       ×
                     </button>
                   </div>

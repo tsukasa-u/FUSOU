@@ -247,7 +247,7 @@ export function updateEntryData(
   return entry;
 }
 
-export function duplicateEntry(id: string): ViewerEntry | null {
+export function duplicateEntry(id: string, customPayload?: unknown): ViewerEntry | null {
   const ws = workspaceStore.get();
   const src = ws.entries.find((e) => e.id === id);
   if (!src) return null;
@@ -260,6 +260,7 @@ export function duplicateEntry(id: string): ViewerEntry | null {
     sourceValue: `duplicate:${crypto.randomUUID()}`,
     updatedAt: Date.now(),
     locked: false,
+    payload: customPayload !== undefined ? customPayload : src.payload,
   };
 
   let newEntries = [duplicated, ...ws.entries];

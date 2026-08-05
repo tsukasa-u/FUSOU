@@ -217,11 +217,14 @@ export function finalizePlaygroundLoad(
 export function activateWorkspaceEntry(
   entry: ViewerEntry,
   rememberPlayground = true,
+  savePrevious = true,
 ): void {
   const activeEntry = getActiveWorkspaceEntry();
 
   if (activeEntry && activeEntry.id !== entry.id) {
-    saveCurrentStateToEntry(activeEntry);
+    if (savePrevious) {
+      saveCurrentStateToEntry(activeEntry);
+    }
   } else if (!activeEntry && rememberPlayground) {
     rememberCurrentPlayground();
   }
