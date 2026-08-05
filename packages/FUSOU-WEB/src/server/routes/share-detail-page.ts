@@ -90,7 +90,7 @@ function resolveSelectionFromQuery(url: URL): Selection | null {
 }
 
 function buildTargetUrl(requestUrl: URL, selection: Selection): string {
-  const target = new URL("/simulator/details", requestUrl.origin);
+  const target = new URL("/simulator", requestUrl.origin);
   if (selection.kind === "ship") {
     target.searchParams.set("tab", "ship");
     target.searchParams.set("ship", String(selection.id));

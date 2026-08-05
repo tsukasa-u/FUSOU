@@ -26,17 +26,6 @@ function authHeaders(): HeadersInit {
   return { Authorization: `Bearer ${_accessToken}` };
 }
 
-export async function copyTextWithFallback(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}
 
 type ShortenApiResponse = {
   ok: boolean;
@@ -115,22 +104,30 @@ function buildSharePayload(opts: ShareOptions) {
 
 export async function createShareUrl(opts: ShareOptions): Promise<string> {
   const payload = buildSharePayload(opts);
+  let snapshotPayload: Record<string, unknown> | undefined;
+
   if (opts.includeSnapshotData) {
-    const snapshotPayload = buildSnapshotPayloadForShare();
-    if (snapshotPayload.snapshotShips) {
-      payload.snapshotShips = snapshotPayload.snapshotShips;
-    }
-    if (snapshotPayload.snapshotSlotItems) {
-      payload.snapshotSlotItems = snapshotPayload.snapshotSlotItems;
+    const data = buildSnapshotPayloadForShare();
+    if (data.snapshotShips || data.snapshotSlotItems) {
+      snapshotPayload = {
+        ...(data.snapshotShips ? { snapshotShips: data.snapshotShips } : {}),
+        ...(data.snapshotSlotItems ? { snapshotSlotItems: data.snapshotSlotItems } : {})
+      };
     }
   }
 
   const base64Str = encodePayloadBase64(payload);
+  const shareUrl = `${window.location.origin}/share/data?data=${encodeURIComponent(base64Str)}`;
+  const requestBody: Record<string, unknown> = { url: shareUrl };
+
+  if (snapshotPayload) {
+    requestBody.snapshotPayload = snapshotPayload;
+  }
   
   const res = await fetch("/api/shorten", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ payload: base64Str }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!res.ok) {
