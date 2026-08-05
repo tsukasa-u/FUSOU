@@ -102,6 +102,7 @@ export default defineConfig({
         "zustand",
         "zustand/traditional",
         "use-sync-external-store/shim/with-selector",
+        "@supabase/supabase-js",
       ],
       exclude: ["solid-chartjs"],
     },

@@ -14,7 +14,6 @@ import {
   RealtimeChannel,
   SupabaseClient,
 } from "@supabase/supabase-js";
-import { v4 as uuidv4 } from "uuid";
 import { getRequiredClientEnv } from "@/utils/clientEnv";
 
 // Lazy-initialized Supabase client (deferred to avoid errors during astro check)
@@ -94,7 +93,7 @@ const activeSessions = new Map<string, ActiveSyncSession>();
 export async function syncMemberIdHashWithApp(
   timeoutMs: number = 5000,
 ): Promise<MemberIdSyncResult> {
-  const syncToken = uuidv4();
+  const syncToken = crypto.randomUUID();
   const channelName = `member-id-sync-${syncToken}`;
   let channel: RealtimeChannel | null = null;
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
