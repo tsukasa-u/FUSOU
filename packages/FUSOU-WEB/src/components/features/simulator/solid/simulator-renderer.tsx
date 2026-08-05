@@ -1008,6 +1008,7 @@ function ShipCard(props: {
                     onLoad={() => setCardImageUnavailable(false)}
                     onError={() => setCardImageUnavailable(true)}
                     onClick={() => {
+                      if (isReadOnly()) return;
                       const currentShipId = liveSlot().shipId;
                       setShipModalTargetForFleet(props.fleetIndex, props.idx);
                       openShipModal(currentShipId, (selection) => {
@@ -1037,6 +1038,7 @@ function ShipCard(props: {
                   <div
                     class="group/shiphead flex items-center gap-1.5 px-2 py-1 border-b border-base-200/60 cursor-pointer"
                     onClick={() => {
+                      if (isReadOnly()) return;
                       const currentShipId = liveSlot().shipId;
                       setShipModalTargetForFleet(props.fleetIndex, props.idx);
                       openShipModal(currentShipId, (selection) => {
@@ -1072,6 +1074,7 @@ function ShipCard(props: {
                       title="諸元を一括編集"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isReadOnly()) return;
                         openBulkEdit();
                       }}
                     >
@@ -1204,6 +1207,7 @@ function ShipCard(props: {
                                   title="装備を外す"
                                   onClick={(e) => {
                                     e.stopPropagation();
+                                    if (isReadOnly()) return;
                                     setFleetEquip(liveSlot(), i, null);
                                   }}
                                 >
@@ -1300,6 +1304,7 @@ function ShipCard(props: {
                           title="補強増設装備を外す"
                           onClick={(e) => {
                             e.stopPropagation();
+                            if (isReadOnly()) return;
                             setFleetExslotEquip(liveSlot(), null);
                           }}
                         >
@@ -1567,6 +1572,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                       title="装備を外す"
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (isReadOnly()) return;
                         setAirBaseEquip(getLiveAirBase(props.index), i, null);
                       }}
                     >
