@@ -2,10 +2,11 @@
 import { createSignal, For, Show } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { workspaceStore, removeEntry, toggleLock, duplicateEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
-import { activateWorkspaceEntry, switchToPlayground, isSnapshotPlayground, createOwnDeckFromCurrentState } from "@/features/simulator/io-handlers";
+import { activateWorkspaceEntry, switchToPlayground, isSnapshotPlayground, createOwnDeckFromCurrentState, buildCurrentPlaygroundPayload } from "@/features/simulator/io-handlers";
 import { hasSnapshotData } from "@/features/simulator/simulator-selectors";
 import { workspaceAddModalRef, workspaceEditTarget } from "./WorkspaceAddModal";
 import { simulatorDisplayRevision } from "@/features/simulator/state";
+import { setWorkspaceReadOnly } from "@/features/simulator/simulator-mutations";
 
 function LockIcon(props: { locked: boolean }) {
   return (
@@ -81,9 +82,10 @@ export function WorkspacePanel() {
     e.stopPropagation();
     toggleLock(entry.id);
     if (ws().activeId === entry.id) {
-      import("@/features/simulator/simulator-mutations").then(m => {
-        m.setWorkspaceReadOnly(!entry.locked);
-      });
+      const updatedEntry = workspaceStore.get().entries.find(x => x.id === entry.id);
+      if (updatedEntry) {
+        setWorkspaceReadOnly(updatedEntry.locked ?? false);
+      }
     }
   };
 
@@ -98,11 +100,9 @@ export function WorkspacePanel() {
     let customPayload: Record<string, unknown> | undefined = undefined;
     if (isActive) {
       // アクティブな要素を複製する場合は、画面上の最新の未保存状態を新しいデッキに引き継ぐ
-      import("@/features/simulator/io-handlers").then(m => {
-        customPayload = m.buildCurrentPlaygroundPayload();
-        const dup = duplicateEntry(entry.id, customPayload);
-        if (dup) activateWorkspaceEntry(dup, true, false); // 元のデッキは上書きしない
-      });
+      customPayload = buildCurrentPlaygroundPayload();
+      const dup = duplicateEntry(entry.id, customPayload);
+      if (dup) activateWorkspaceEntry(dup, true, false); // 元のデッキは上書きしない
       return;
     }
     
