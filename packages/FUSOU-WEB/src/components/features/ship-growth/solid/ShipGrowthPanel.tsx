@@ -20,7 +20,8 @@ import {
   ENEMY_ID_THRESHOLD,
   STYPE_NAMES,
 } from "@/features/simulator/constants";
-import { buildShareGrowthUrl, copyTextWithFallback } from "@/utils/share-url";
+import { buildShareGrowthUrl } from "@/utils/share-url";
+import { copyToClipboard } from "@/utils/clipboard";
 import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
@@ -1167,23 +1168,22 @@ export default function ShipGrowthPanel() {
     });
   }
 
-  async function issueShareUrl(): Promise<void> {
+  async function issueShareUrl(): Promise<boolean> {
     const shareUrl = buildCurrentShareUrl();
     if (!shareUrl) {
-      alert("共有URLを生成できませんでした。期間と艦を選択してください。");
-      return;
+      return false;
     }
 
-    const copied = await copyTextWithFallback(shareUrl);
+    const copied = copyToClipboard(shareUrl);
     if (copied) {
-      alert("共有URLをクリップボードにコピーしました");
-      return;
+      return true;
     }
 
     window.prompt(
       "自動コピーに失敗しました。以下を手動でコピーしてください:",
       shareUrl,
     );
+    return false;
   }
 
   const expChartData = createMemo(() => buildExpChartData(expRows()));
@@ -1320,9 +1320,7 @@ export default function ShipGrowthPanel() {
               isCumulativePeriod(selectedPeriod()) ||
               isAllPeriodsPeriod(selectedPeriod())
             }
-            onClick={() => {
-              void issueShareUrl();
-            }}
+            onShare={() => issueShareUrl()}
           />
         </div>
       </div>

@@ -32,6 +32,8 @@ import {
 import { openShipModal } from "@/features/simulator/ship-modal";
 import { openEquipModal } from "@/features/simulator/equip-modal";
 import { getLoadedMasterDataMeta } from "@/features/simulator/data-loader";
+import { copyToClipboard } from "@/utils/clipboard";
+import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import {
   ENEMY_ID_THRESHOLD,
   RANGE_NAMES,
@@ -1552,7 +1554,7 @@ function EquipOptimizer(): JSX.Element {
     return baseCombo * (ex + 1);
   });
 
-  const handleShare = async () => {
+  const handleShare = async (): Promise<boolean> => {
     const payload: OptimizerSharePayload = {
       v: 1,
       kind: "optimizer",
@@ -1584,10 +1586,14 @@ function EquipOptimizer(): JSX.Element {
     }
 
     try {
-      await navigator.clipboard.writeText(finalUrl);
-      alert("共有URLをクリップボードにコピーしました");
-    } catch {
+      const copied = copyToClipboard(finalUrl);
+      if (copied) {
+        return true;
+      }
+      return false;
+    } catch (e: any) {
       window.prompt("以下を手動でコピーしてください:", finalUrl);
+      return false;
     }
   };
 
@@ -1980,28 +1986,11 @@ function EquipOptimizer(): JSX.Element {
                   計算中…
                 </Show>
               </button>
-              <button
-                class="btn btn-ghost btn-sm gap-1 px-2.5"
-                title="検索条件の共有URLをコピー"
+              <ShareUrlButton
+                class="!btn !btn-ghost !btn-sm gap-1 px-2.5 !shadow-none"
                 disabled={!selectedShip() || !hasWeights()}
-                onClick={handleShare}
-              >
-                <svg
-                  class="w-3.5 h-3.5 shrink-0"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                  />
-                </svg>
-                共有
-              </button>
+                onShare={handleShare}
+              />
             </div>
           </div>
 

@@ -386,6 +386,8 @@ if (!user) {
 
 <script>
   // @ts-nocheck
+  import { copyToClipboard } from "@/utils/clipboard";
+
   const API_BASE = "/api/api-keys";
 
   function byId(id) {
@@ -726,7 +728,8 @@ if (!user) {
       const copyIcon = byId("copy-icon");
       const checkIcon = byId("check-icon");
 
-      navigator.clipboard.writeText(key).then(() => {
+      const success = copyToClipboard(key);
+      if (success) {
         // Switch icons
         copyIcon.classList.add("hidden");
         checkIcon.classList.remove("hidden");
@@ -736,7 +739,7 @@ if (!user) {
           copyIcon.classList.remove("hidden");
           checkIcon.classList.add("hidden");
         }, 2000);
-      });
+      }
     });
 
     // Modal handlers

@@ -17,7 +17,8 @@ import {
   type JSX,
 } from "solid-js";
 import { render } from "solid-js/web";
-import { buildShareDetailUrl, copyTextWithFallback } from "@/utils/share-url";
+import { buildShareDetailUrl } from "@/utils/share-url";
+import { copyToClipboard } from "@/utils/clipboard";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 import { ShipListRow } from "@/components/common/solid/ship-list-row";
 import {
@@ -450,16 +451,17 @@ function SimulatorDetailsCatalog(): JSX.Element {
   async function issueShareUrl(): Promise<void> {
     const shareUrl = buildCurrentShareUrl();
     if (!shareUrl) {
-      alert("共有URLを生成できませんでした。艦または装備を選択してください。");
+      window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "error" }));
       return;
     }
 
-    const copied = await copyTextWithFallback(shareUrl);
+    const copied = copyToClipboard(shareUrl);
     if (copied) {
-      alert("共有URLをクリップボードにコピーしました");
+      window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "success" }));
       return;
     }
 
+    window.dispatchEvent(new CustomEvent("sim-details-share-status", { detail: "error" }));
     window.prompt(
       "自動コピーに失敗しました。以下を手動でコピーしてください:",
       shareUrl,
@@ -468,10 +470,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
 
   createEffect(() => {
     if (selectedShipId() == null && allShips().length > 0) {
-      setSelectedShipId(allShips()[0].id);
+      if (initialShipIdFromUrl() == null) {
+        setSelectedShipId(allShips()[0].id);
+      }
     }
     if (selectedEquipId() == null && allEquips().length > 0) {
-      setSelectedEquipId(allEquips()[0].id);
+      if (initialEquipIdFromUrl() == null) {
+        setSelectedEquipId(allEquips()[0].id);
+      }
     }
   });
 

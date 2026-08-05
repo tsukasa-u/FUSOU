@@ -12,6 +12,7 @@ import { initIOEvents, loadFromUrl } from "@/features/simulator/io-handlers";
 import { displaySettingsModalRef, saveImageModalRef } from "./SimulatorModals";
 import { apiPasteModalRef } from "./ApiPasteModal";
 import { shareSettingsModalRef } from "./ShareSettingsModal";
+import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 import { loadFleetModalRef } from "./LoadFleetModal";
 import { MasterDataStatusAlert } from "./MasterDataStatusAlert";
 
@@ -159,12 +160,21 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
             </svg>
             <span class="hidden md:inline">使い方</span>
           </button>
-          <button id="sim-details-share-btn" class="fusou-btn-secondary gap-1.5" hidden={!isDetails()} onClick={() => window.dispatchEvent(new CustomEvent("sim-details-share"))}>
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
-            </svg>
-            <span class="hidden md:inline">共有</span>
-          </button>
+          
+          <ShareUrlButton
+            id="sim-details-share-btn"
+            hidden={!isDetails()}
+            onShare={() => {
+              return new Promise((resolve) => {
+                const onStatus = (e: CustomEvent) => {
+                  window.removeEventListener("sim-details-share-status", onStatus as EventListener);
+                  resolve(e.detail === "success");
+                };
+                window.addEventListener("sim-details-share-status", onStatus as EventListener);
+                window.dispatchEvent(new CustomEvent("sim-details-share"));
+              });
+            }}
+          />
         </div>
       </div>
 

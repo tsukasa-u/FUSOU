@@ -57,14 +57,3 @@ export function buildShareBattleUrl(
   return shareUrl.toString();
 }
 
-export async function copyTextWithFallback(text: string): Promise<boolean> {
-  if (navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  return false;
-}

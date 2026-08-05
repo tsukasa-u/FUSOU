@@ -11,7 +11,8 @@ import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/features/battles/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { cachedFetch } from "@/utils/fetchCache";
-import { buildShareBattleUrl, copyTextWithFallback } from "@/utils/share-url";
+import { buildShareBattleUrl } from "@/utils/share-url";
+import { copyToClipboard } from "@/utils/clipboard";
 import {
   FORMATION_NAMES,
   AIR_STATE,
@@ -140,18 +141,18 @@ export default function BattleDetailPanel(props: {
     return query ? `/battles?${query}` : "/battles";
   });
 
-  async function issueShareUrl(): Promise<void> {
+  async function issueShareUrl(): Promise<boolean> {
     const shareUrl = buildCurrentShareUrl();
-    const copied = await copyTextWithFallback(shareUrl);
+    const copied = copyToClipboard(shareUrl);
     if (copied) {
-      alert("共有URLをクリップボードにコピーしました");
-      return;
+      return true;
     }
 
     window.prompt(
       "自動コピーに失敗しました。以下を手動でコピーしてください:",
       shareUrl,
     );
+    return false;
   }
 
   // Derived values
@@ -823,9 +824,7 @@ export default function BattleDetailPanel(props: {
                     </div>
                     <ShareUrlButton
                       id="battle-detail-share-url-btn"
-                      onClick={() => {
-                        void issueShareUrl();
-                      }}
+                      onShare={() => issueShareUrl()}
                     />
                     <button
                       id="battle-detail-display-settings-btn"
