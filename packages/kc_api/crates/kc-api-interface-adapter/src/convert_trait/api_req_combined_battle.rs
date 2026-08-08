@@ -10,7 +10,6 @@ register_trait!(
     (
         battle_water,
         battle,
-        battleresult,
         each_battle_water,
         each_battle,
         ec_battle,
@@ -22,6 +21,13 @@ register_trait!(
     )
 );
 register_trait!(Res, (goback_port));
+
+impl TraitForConvert for battleresult::Req {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        Some(vec![])
+    }
+}
 
 impl TraitForConvert for battleresult::Res {
     type Output = EmitData;

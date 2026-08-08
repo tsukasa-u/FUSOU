@@ -52,6 +52,7 @@ impl From<kcapi_main::api_port::port::ApiShip> for InterfaceWrapper<Ship> {
             sakuteki: Some(ship.api_sakuteki),
             lucky: Some(ship.api_lucky),
             sally_area: ship.api_sally_area,
+            sortie_tag_id: ship.api_sally_area,
             sp_effect_items: ship
                 .api_sp_effect_items
                 .map(|items| InterfaceWrapper::<SpEffectItems>::from(items).unwrap()),
@@ -177,6 +178,7 @@ impl From<kcapi_main::api_req_hokyu::charge::ApiData> for InterfaceWrapper<Ships
                     sakuteki: None,
                     lucky: None,
                     sally_area: None,
+                    sortie_tag_id: None,
                     sp_effect_items: None,
                 },
             );

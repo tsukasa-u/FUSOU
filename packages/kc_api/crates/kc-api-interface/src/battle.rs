@@ -488,6 +488,7 @@ mod tests {
 pub struct BattleResult {
     pub win_rank: String,
     pub drop_ship_id: Option<i64>,
+    pub mvp_ship_indexes: Option<Vec<i64>>,
     pub landing_hp_now: Option<i64>,
     pub landing_hp_max: Option<i64>,
     pub landing_sub_value: Option<i64>,

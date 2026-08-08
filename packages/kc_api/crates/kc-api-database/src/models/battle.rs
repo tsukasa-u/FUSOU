@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dedup::DedupCache;
+#[cfg(schema_until = "0.6.0")]
 use crate::models::airbase::AirBase;
+#[cfg(schema_until = "0.6.0")]
 use crate::models::airbase::AirBaseId;
 use crate::models::deck::EnemyDeck;
 use crate::models::deck::EnemyDeckId;
@@ -17,6 +19,7 @@ use crate::models::deck::SupportDeck;
 use crate::models::deck::SupportDeckId;
 use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
+#[cfg(schema_until = "0.6.0")]
 use kc_api_interface::air_base::AirBases;
 use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::ship::Ships;
@@ -88,6 +91,21 @@ impl<T: IntoI32> IntoI32 for Vec<T> {
     }
 }
 
+#[cfg(schema_until = "0.6.0")]
+fn resolve_airbase_uuid_from_base_no(
+    ts: uuid::Timestamp,
+    table: &mut PortTable,
+    dedup: &mut DedupCache,
+    env_uuid: EnvInfoId,
+    base_no: i64,
+) -> Option<AirBaseId> {
+    let air_bases = AirBases::load();
+    let air_base = air_bases.bases.get(&base_no.to_string())?.clone();
+    dedup.new_ret_uuid("airbase", base_no, ts, |new_uuid| {
+        AirBase::new_ret_option(ts, new_uuid, air_base, table, env_uuid, Some(base_no))
+    })
+}
+
 #[cfg(schema_since = "0.5.1")]
 fn flatten_map_squadron_plane(
     map_squadron_plane: Option<std::collections::HashMap<String, Vec<i64>>>,
@@ -133,6 +151,9 @@ pub struct DestructionBattle {
     pub cell_no: i32,
     pub f_formation: Option<i32>,
     pub e_formation: Option<i32>,
+    #[cfg(schema_since = "0.6.0")]
+    pub f_airbase_base_nos: Option<Vec<i32>>,
+    #[cfg(schema_until = "0.6.0")]
     pub f_airbase_ids: Option<Vec<Option<AirBaseId>>>,
     pub e_deck_ids: Option<EnemyDeckId>,
     pub f_max_hps: Vec<i32>,
@@ -165,35 +186,41 @@ pub struct DestructionBattle {
 impl DestructionBattle {
     #[allow(clippy::too_many_arguments)]
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: kc_api_interface::cells::DestructionBattle,
-        table: &mut PortTable,
-        dedup: &mut DedupCache,
+        _table: &mut PortTable,
+        _dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
         index: usize,
         cell_no: i64,
     ) -> Option<()> {
-        let air_bases = AirBases::load();
-        let e_deck_uuid = Uuid::new_v7(ts);
-        let e_deck_ids = EnemyDeck::new_ret_option_from_destruction(ts, e_deck_uuid, &data, table, env_uuid)
+        let e_deck_uuid = Uuid::new_v7(_ts);
+        let e_deck_ids = EnemyDeck::new_ret_option_from_destruction(_ts, e_deck_uuid, &data, _table, env_uuid)
             .map(|_| e_deck_uuid);
         let f_airbase_nos = (!data.f_maxhps.is_empty()).then(|| {
             (1..=data.f_maxhps.len())
                 .map(|base_no| base_no as i32)
                 .collect::<Vec<_>>()
         });
+
+        #[cfg(schema_until = "0.6.0")]
         let f_airbase_ids = f_airbase_nos.as_ref().map(|base_nos| {
             base_nos
                 .iter()
                 .map(|base_no| {
-                    let air_base = air_bases.bases.get(&base_no.to_string())?.clone();
-                    dedup.get_or_insert_with("airbase", *base_no as i64, ts, |new_uuid| {
-                        AirBase::new_ret_option(ts, new_uuid, air_base.clone(), table, env_uuid)
-                    })
+                    resolve_airbase_uuid_from_base_no(
+                        _ts,
+                        _table,
+                        _dedup,
+                        env_uuid,
+                        *base_no as i64,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
+        #[cfg(schema_since = "0.6.0")]
+        let f_airbase_base_nos = f_airbase_nos.clone();
         let (_, squadron_planes) =
             flatten_map_squadron_plane(data.air_base_attack.map_squadron_plane.clone());
 
@@ -204,6 +231,9 @@ impl DestructionBattle {
             cell_no: cell_no as i32,
             f_formation: data.formation.first().copied().into_i32(),
             e_formation: data.formation.get(1).copied().into_i32(),
+            #[cfg(schema_since = "0.6.0")]
+            f_airbase_base_nos,
+            #[cfg(schema_until = "0.6.0")]
             f_airbase_ids,
             e_deck_ids,
             f_max_hps: data.f_maxhps.into_i32(),
@@ -232,7 +262,7 @@ impl DestructionBattle {
             lost_kind: data.lost_kind as i32,
         };
 
-        table.destruction_battle.push(new_data);
+        _table.destruction_battle.push(new_data);
         Some(())
     }
 }
@@ -1071,6 +1101,9 @@ pub struct AirBaseAirAttack {
     pub e_bak_flag: Option<Vec<Option<i32>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i32>,
+    #[cfg(schema_since = "0.6.0")]
+    pub airbase_base_no: Option<i32>,
+    #[cfg(schema_until = "0.6.0")]
     pub airbase_id: Option<AirBaseId>,
     pub squadron_plane: Option<Vec<Option<i32>>>,
     #[cfg(schema_since = "0.5.0")]
@@ -1101,30 +1134,25 @@ pub struct AirBaseAirAttack {
 
 impl AirBaseAirAttack {
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: kc_api_interface::battle::AirBaseAirAttack,
-        table: &mut PortTable,
-        dedup: &mut DedupCache,
+        _table: &mut PortTable,
+        _dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
         index: usize,
     ) -> Option<()> {
-        let air_bases = AirBases::load();
-        let air_base = match air_bases.bases.get(&(data.base_id).to_string()) {
-            Some(air_base) => air_base,
-            None => {
-                tracing::warn!("AirBaseAirAttack: AirBase ID {} not found", data.base_id);
-                return None;
-            }
-        };
+        #[cfg(schema_until = "0.6.0")]
+        let new_airbase_id = resolve_airbase_uuid_from_base_no(
+            _ts,
+            _table,
+            _dedup,
+            env_uuid,
+            data.base_id,
+        );
 
-        // ------------------------------------------------------------------------
-        // Create AirBase record (deduplicate by base_id)
-        let air_base_clone = air_base.clone();
-        let new_airbase_id = dedup.get_or_insert_with("airbase", data.base_id, ts, |uuid| {
-            AirBase::new_ret_option(ts, uuid, air_base_clone, table, env_uuid)
-        });
-        // ------------------------------------------------------------------------
+        #[cfg(schema_since = "0.6.0")]
+        let new_airbase_base_no = (data.base_id > 0).then_some(data.base_id as i32);
 
         let new_data = AirBaseAirAttack {
             env_uuid,
@@ -1160,6 +1188,9 @@ impl AirBaseAirAttack {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
+            #[cfg(schema_since = "0.6.0")]
+            airbase_base_no: new_airbase_base_no,
+            #[cfg(schema_until = "0.6.0")]
             airbase_id: new_airbase_id,
             squadron_plane: data.squadron_plane.into_i32(),
             #[cfg(schema_since = "0.5.0")]
@@ -1196,7 +1227,7 @@ impl AirBaseAirAttack {
             e_sprite_non_normal_count: data.e_sprite_non_normal_count.map(|v| v as i32),
         };
 
-        table.airbase_airattack.push(new_data);
+        _table.airbase_airattack.push(new_data);
 
         Some(())
     }
@@ -1216,6 +1247,10 @@ pub struct AirBaseAssult {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAssultId,
     pub squadron_plane: Vec<i32>,
+    #[cfg(schema_since = "0.6.0")]
+    pub airbase_base_nos: Option<Vec<i32>>,
+    #[cfg(schema_until = "0.6.0")]
+    pub airbase_ids: Option<Vec<AirBaseId>>,
     pub f_plane_from: Option<Vec<i32>>,
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
@@ -1268,8 +1303,44 @@ impl AirBaseAssult {
         uuid: Uuid,
         data: kc_api_interface::battle::AirBaseAssult,
         table: &mut PortTable,
+        _dedup: &mut DedupCache,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
+        #[cfg(schema_since = "0.6.0")]
+        let base_nos = {
+            let base_count = data.squadron_count.len().max(1);
+            (1..=base_count).map(|base_no| base_no as i64).collect::<Vec<_>>()
+        };
+
+        #[cfg(schema_since = "0.6.0")]
+        let new_airbase_base_nos = (!base_nos.is_empty()).then_some(
+            base_nos
+                .iter()
+                .map(|base_no| *base_no as i32)
+                .collect::<Vec<_>>(),
+        );
+
+        #[cfg(schema_until = "0.6.0")]
+        let new_airbase_ids = {
+            let ts = _ts;
+            let dedup = _dedup;
+            let base_count = data.squadron_count.len().max(1);
+            let base_nos = (1..=base_count).map(|base_no| base_no as i64).collect::<Vec<_>>();
+            let ids = base_nos
+                .iter()
+                .filter_map(|base_no| {
+                    resolve_airbase_uuid_from_base_no(
+                        ts,
+                        table,
+                        dedup,
+                        env_uuid,
+                        *base_no,
+                    )
+                })
+                .collect::<Vec<_>>();
+            (!ids.is_empty()).then_some(ids)
+        };
+
         let new_data = AirBaseAssult {
             env_uuid,
             uuid,
@@ -1278,6 +1349,10 @@ impl AirBaseAssult {
                 .into_iter()
                 .map(|value| value as i32)
                 .collect(),
+            #[cfg(schema_since = "0.6.0")]
+            airbase_base_nos: new_airbase_base_nos,
+            #[cfg(schema_until = "0.6.0")]
+            airbase_ids: new_airbase_ids,
             f_plane_from: data.f_damage.plane_from.into_i32(),
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
@@ -1958,6 +2033,8 @@ pub struct BattleResult {
     pub uuid: BattleResultId,
     pub win_rank: String,
     pub drop_ship_id: Option<i32>,
+    #[cfg(schema_since = "0.6.0")]
+    pub mvp_ship_indexes: Option<Vec<i32>>,
     pub landing_hp_now: Option<i32>,
     pub landing_hp_max: Option<i32>,
     pub landing_sub_value: Option<i32>,
@@ -1972,11 +2049,21 @@ impl BattleResult {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
+        #[cfg(schema_since = "0.6.0")]
+        let mvp_ship_indexes = data.mvp_ship_indexes.as_ref().map(|indexes| {
+            indexes
+                .iter()
+                .map(|index| *index as i32)
+                .collect::<Vec<i32>>()
+        });
+
         let new_data = BattleResult {
             env_uuid,
             uuid,
             win_rank: data.win_rank,
             drop_ship_id: data.drop_ship_id.map(|id| id as i32),
+            #[cfg(schema_since = "0.6.0")]
+            mvp_ship_indexes,
             landing_hp_now: data.landing_hp_now.map(|hp| hp as i32),
             landing_hp_max: data.landing_hp_max.map(|hp| hp as i32),
             landing_sub_value: data.landing_sub_value.map(|value| value as i32),
@@ -2074,7 +2161,7 @@ impl Battle {
 
         #[cfg(schema_until = "0.5.0")]
         let new_f_deck_id = data.clone().deck_id.and_then(|deck_id| {
-            dedup.get_or_insert_with("own_deck", deck_id, ts, |uuid| {
+            dedup.new_ret_uuid("own_deck", deck_id, ts, |uuid| {
                 let cache = true;
                 OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cache)
             })
@@ -2110,7 +2197,7 @@ impl Battle {
             });
 
             support_deck_source.and_then(|deck_id| {
-                dedup.get_or_insert_with("support_deck", deck_id, ts, |uuid| {
+                dedup.new_ret_uuid("support_deck", deck_id, ts, |uuid| {
                     let cashe = true;
                     SupportDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
                 })
@@ -2120,7 +2207,9 @@ impl Battle {
             let uuid = Uuid::new_v7(ts);
             data.clone()
                 .air_base_assault
-                .and_then(|assult| AirBaseAssult::new_ret_option(ts, uuid, assult, table, env_uuid))
+                .and_then(|assult| {
+                    AirBaseAssult::new_ret_option(ts, uuid, assult, table, dedup, env_uuid)
+                })
                 .map(|_| uuid)
         };
         let new_carrier_base_assault = {
@@ -2251,7 +2340,15 @@ impl Battle {
             let uuid = Uuid::new_v7(ts);
             data.clone()
                 .battle_result
-                .and_then(|result| BattleResult::new_ret_option(ts, uuid, result, table, env_uuid))
+                .and_then(|result| {
+                    BattleResult::new_ret_option(
+                        ts,
+                        uuid,
+                        result,
+                        table,
+                        env_uuid,
+                    )
+                })
                 .map(|_| uuid)
         };
 

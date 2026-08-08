@@ -26,9 +26,14 @@ impl From<kcapi_main::api_req_combined_battle::battleresult::ApiData> for Interf
         let landing_hp_now = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_now_hp.trim().parse::<i64>().ok());
         let landing_hp_max = battle_result.clone().api_landing_hp.and_then(|landing_hp| landing_hp.api_max_hp.trim().parse::<i64>().ok());
         let landing_sub_value = battle_result.clone().api_landing_hp.and_then(|landing_hp| parse_landing_hp(landing_hp.api_sub_value));
+        let mut mvp_ship_indexes = vec![battle_result.api_mvp];
+        if let Some(combined_index) = battle_result.api_mvp_combined {
+            mvp_ship_indexes.push(combined_index);
+        }
         Self(BattleResult {
             win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
+            mvp_ship_indexes: Some(mvp_ship_indexes),
             landing_hp_now,
             landing_hp_max,
             landing_sub_value,

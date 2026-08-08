@@ -42,7 +42,7 @@ function detectVersions() {
 
   const cargoToml = readFileSync(cargoTomlPath, "utf8");
   const versions = [];
-  const pattern = /^schema_(v[0-9]+_[0-9]+)\s*=/gm;
+  const pattern = /^schema_(v[0-9]+(?:_[0-9]+)+)\s*=/gm;
   let match = pattern.exec(cargoToml);
   while (match) {
     versions.push(match[1]);

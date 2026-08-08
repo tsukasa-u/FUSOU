@@ -13,11 +13,11 @@ mkdir -p "$OUTPUT_DIR"
 cd "$KC_API_ROOT/crates/kc-api-database"
 
 # Auto-detect available schema versions from Cargo.toml features
-# Feature names follow the pattern schema_v{MAJOR}_{MINOR} matching table_version {MAJOR}.{MINOR}
+# Feature names follow the pattern schema_v{MAJOR}_{MINOR}[_{PATCH}] matching table_version {MAJOR}.{MINOR}[.{PATCH}]
 # When adding a new version, just add a new schema_vX_Y feature to Cargo.toml — no script changes needed
 VERSIONS=()
 while IFS= read -r line; do
-    if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+    if [[ "$line" =~ ^schema_(v[0-9]+(_[0-9]+)+)[[:space:]]*= ]]; then
         VERSIONS+=("${BASH_REMATCH[1]}")
     fi
 done < Cargo.toml

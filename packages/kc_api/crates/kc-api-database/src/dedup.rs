@@ -32,7 +32,7 @@ impl DedupCache {
     ///   `Some(new_uuid)` is returned.
     /// * If `create_fn` returns `None` → nothing is cached and `None` is
     ///   returned.
-    pub fn get_or_insert_with<F>(
+    pub fn new_ret_uuid<F>(
         &mut self,
         category: &'static str,
         key: i64,
@@ -53,5 +53,18 @@ impl DedupCache {
         } else {
             None
         }
+    }
+
+    pub fn get_or_insert_with<F>(
+        &mut self,
+        category: &'static str,
+        key: i64,
+        ts: uuid::Timestamp,
+        create_fn: F,
+    ) -> Option<Uuid>
+    where
+        F: FnOnce(Uuid) -> Option<()>,
+    {
+        self.new_ret_uuid(category, key, ts, create_fn)
     }
 }

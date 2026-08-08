@@ -2,6 +2,10 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[cfg(schema_since = "0.6.0")]
+use crate::models::airbase::AirBase;
+#[cfg(schema_since = "0.6.0")]
+use crate::models::airbase::AirBaseId;
 use crate::models::battle::Battle;
 use crate::models::battle::BattleId;
 #[cfg(schema_since = "0.5.1")]
@@ -11,6 +15,8 @@ use crate::models::battle::DestructionBattleId;
 use crate::models::env_info::EnvInfoId;
 use crate::dedup::DedupCache;
 use crate::table::PortTable;
+#[cfg(schema_since = "0.6.0")]
+use kc_api_interface::air_base::AirBases;
 
 #[cfg(schema_since = "0.5.0")]
 use crate::models::deck::OwnDeckId;
@@ -20,6 +26,21 @@ use crate::models::deck::OwnDeck;
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
+
+#[cfg(schema_since = "0.6.0")]
+fn resolve_airbase_uuid_from_base_no(
+    ts: uuid::Timestamp,
+    table: &mut PortTable,
+    dedup: &mut DedupCache,
+    env_uuid: EnvInfoId,
+    base_no: i64,
+) -> Option<AirBaseId> {
+    let air_bases = AirBases::load();
+    let air_base = air_bases.bases.get(&base_no.to_string())?.clone();
+    dedup.new_ret_uuid("airbase", base_no, ts, |new_uuid| {
+        AirBase::new_ret_option(ts, new_uuid, air_base, table, env_uuid, Some(base_no))
+    })
+}
 
 #[derive(
     Debug,
@@ -39,6 +60,8 @@ pub struct Cells {
     pub cell_index: Vec<i32>,
     pub battle_index: Vec<i32>,
     pub battles: BattleId,
+    #[cfg(schema_since = "0.6.0")]
+    pub airbase_id: Option<AirBaseId>,
     #[cfg(schema_since = "0.5.0")]
     pub event_map_max_maphp: Option<i32>,
     #[cfg(schema_since = "0.5.0")]
@@ -132,19 +155,21 @@ impl Cells {
         let deck_id = data.clone().battles.values().find_map(|battle| battle.deck_id);
         #[cfg(schema_since = "0.5.0")]
         let new_f_deck_before_id = {
-            let uuid = Uuid::new_v7(ts);
             let cashe = true;
-            deck_id
-                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe))
-                .map(|_| uuid)
+            deck_id.and_then(|deck_id| {
+                dedup.new_ret_uuid("own_deck_before", deck_id, ts, |uuid| {
+                    OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
+                })
+            })
         };
         #[cfg(schema_since = "0.5.0")]
         let new_f_deck_after_id = {
-            let uuid = Uuid::new_v7(ts);
             let cashe = false;
-            deck_id
-                .and_then(|deck_id| OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe))
-                .map(|_| uuid)
+            deck_id.and_then(|deck_id| {
+                dedup.new_ret_uuid("own_deck_after", deck_id, ts, |uuid| {
+                    OwnDeck::new_ret_option(ts, uuid, deck_id, table, env_uuid, cashe)
+                })
+            })
         };
 
         #[cfg(schema_since = "0.5.0")]
@@ -221,6 +246,47 @@ impl Cells {
             .and_then(|x| x.selected_rank)
             .map(|x| x as i32);
 
+        #[cfg(schema_since = "0.6.0")]
+        let new_airbase_id = {
+            let mut battle_indexes = data.battles.keys().copied().collect::<Vec<_>>();
+            battle_indexes.sort_unstable();
+
+            let base_no_from_battle = battle_indexes.into_iter().find_map(|battle_index| {
+                let battle = data.battles.get(&battle_index)?;
+                battle
+                    .air_base_air_attacks
+                    .as_ref()
+                    .and_then(|attacks| attacks.attacks.first().map(|attack| attack.base_id))
+                    .or_else(|| {
+                        battle.air_base_assault.as_ref().and_then(|assault| {
+                            (!assault.squadron_count.is_empty()).then_some(1_i64)
+                        })
+                    })
+            });
+
+            #[cfg(schema_since = "0.5.1")]
+            let base_no_from_destruction = data.cell_index.iter().find_map(|cell_no| {
+                let cell = data.cells.get(cell_no)?;
+                let destruction_battle = cell.destruction_battle.as_ref()?;
+                let map_squadron_plane = destruction_battle.air_base_attack.map_squadron_plane.as_ref()?;
+                let mut base_nos = map_squadron_plane
+                    .keys()
+                    .filter_map(|base_no| base_no.parse::<i64>().ok())
+                    .collect::<Vec<_>>();
+                base_nos.sort_unstable();
+                base_nos.into_iter().next()
+            });
+
+            #[cfg(schema_until = "0.5.0")]
+            let base_no_from_destruction = None;
+
+            base_no_from_battle
+                .or(base_no_from_destruction)
+                .and_then(|base_no| {
+                    resolve_airbase_uuid_from_base_no(ts, table, dedup, env_uuid, base_no)
+                })
+        };
+
 
         let new_data = Cells {
             env_uuid,
@@ -238,6 +304,8 @@ impl Cells {
                 .map(|&battle_idx| battle_idx as i32)
                 .collect(),
             battles: new_battle,
+            #[cfg(schema_since = "0.6.0")]
+            airbase_id: new_airbase_id,
             #[cfg(schema_since = "0.5.0")]
             event_map_max_maphp,
             #[cfg(schema_since = "0.5.0")]

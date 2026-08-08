@@ -7,9 +7,16 @@ use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
 register_trait!(
     Req,
-    (airbattle, battleresult, battle, goback_port, ld_airbattle)
+    (airbattle, battle, goback_port, ld_airbattle)
 );
 register_trait!(Res, (goback_port));
+
+impl TraitForConvert for battleresult::Req {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        Some(vec![])
+    }
+}
 
 impl TraitForConvert for battleresult::Res {
     type Output = EmitData;

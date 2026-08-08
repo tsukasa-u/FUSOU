@@ -833,6 +833,7 @@ impl From<kcapi_main::api_req_sortie::battleresult::ApiData> for InterfaceWrappe
         Self(BattleResult {
             win_rank: battle_result.api_win_rank,
             drop_ship_id: battle_result.api_get_ship.map(|ship| ship.api_ship_id),
+            mvp_ship_indexes: Some(vec![battle_result.api_mvp]),
             landing_hp_now,
             landing_hp_max,
             landing_sub_value,
