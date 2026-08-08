@@ -107,6 +107,21 @@ const PUBLIC_RECORD_TABLES = new Set([
   "opening_raigeki",
   "opening_taisen",
   "opening_taisen_list",
+  "airbase",
+  "plane_info",
+  "friend_slotitem",
+  "friend_ship",
+  "support_deck",
+  "friend_deck",
+  "airbase_airattack",
+  "airbase_airattack_list",
+  "airbase_assult",
+  "friendly_support_hourai",
+  "friendly_support_hourai_list",
+  "night_support_hourai",
+  "night_support_airattack",
+  "support_airattack",
+  "support_hourai",
 ]);
 
 function getBattleDataCacheControl(periodTagParam: string): string {
@@ -2678,15 +2693,25 @@ app.get("/global/drops", async (c) => {
 });
 
 app.get("/detail", async (c) => {
-  const battleUuid = (c.req.query("battle_uuid") || "").trim();
+  const envUuid = (c.req.query("env_uuid") || "").trim();
+  const battleIndexRaw = (c.req.query("battle_index") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheKey = new Request(c.req.url, { method: "GET" });
 
-  if (!battleUuid) {
-    return c.json({ error: "battle_uuid is required" }, 400);
+  if (!envUuid) {
+    return c.json({ error: "env_uuid is required" }, 400);
+  }
+
+  if (!battleIndexRaw) {
+    return c.json({ error: "battle_index is required" }, 400);
+  }
+
+  const battleIndex = Number.parseInt(battleIndexRaw, 10);
+  if (!Number.isFinite(battleIndex) || battleIndex < 0) {
+    return c.json({ error: "battle_index must be a non-negative integer" }, 400);
   }
 
   if (cache) {
@@ -2699,36 +2724,31 @@ app.get("/detail", async (c) => {
   }
 
   try {
-    const fetchBattle = async (tag: string) =>
+    const fetchBattles = async (tag: string) =>
       fetchGlobalRecordsInternal(c, {
         table: "battle",
         periodTag: tag,
         tableVersion,
         limitBlocks: 120,
-        limitRecords: 50,
-        filter: { uuid: battleUuid },
+        limitRecords: 200,
+        filter: { env_uuid: envUuid },
       });
 
-    const primaryBattles = await fetchBattle(periodTag);
+    const primaryBattles = await fetchBattles(periodTag);
     const fallbackBattles =
       primaryBattles.length > 0 || periodTag === "all"
         ? primaryBattles
-        : await fetchBattle("all");
-    const battle = fallbackBattles.find((row) => String(row.uuid ?? "") === battleUuid);
+        : await fetchBattles("all");
+    const battles = fallbackBattles;
+    const battle = battles.find(
+      (row) => Number(row.index ?? Number.NaN) === battleIndex,
+    );
 
     if (!battle) {
-      return c.json({ error: "Battle not found" }, 404);
+      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
     }
 
-    const envUuid = String(battle.env_uuid ?? "");
-    const battleResultUuid = String(battle.battle_result ?? "");
-    const midnightHougekiListUuid = String(battle.midnight_hougeki ?? "");
-    const openingTaisenListUuid = String(battle.opening_taisen ?? "");
-    const hougekiListUuid = String(battle.hougeki ?? "");
-    const openingAirattackListUuid = String(battle.opening_air_attack ?? "");
-    const openingRaigekiUuid = String(battle.opening_raigeki ?? "");
-    const closingRaigekiUuid = String(battle.closing_raigeki ?? "");
-    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis] =
+    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
         fetchGlobalRecordsInternal(c, {
           table: "cells",
@@ -2736,18 +2756,16 @@ app.get("/detail", async (c) => {
           tableVersion,
           limitBlocks: 120,
           limitRecords: 200,
-          filter: { battles: battleUuid },
+          filter: { env_uuid: envUuid },
         }),
-        battleResultUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "battle_result",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 50,
-              filter: { uuid: battleResultUuid },
-            })
-          : Promise.resolve([]),
+        fetchGlobalRecordsInternal(c, {
+          table: "battle_result",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
         envUuid
           ? fetchBattleEnvBundleInternal(c, envUuid, tableVersion)
           : Promise.resolve({
@@ -2761,66 +2779,131 @@ app.get("/detail", async (c) => {
         fetchMasterDataJsonDirect(c, "mst_ship"),
         fetchMasterDataJsonDirect(c, "mst_slotitem"),
         fetchWeaponIconFramesDirect(c),
-        midnightHougekiListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: midnightHougekiListUuid },
-            })
-          : Promise.resolve([]),
-        openingTaisenListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingTaisenListUuid },
-            })
-          : Promise.resolve([]),
-        hougekiListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: hougekiListUuid },
-            })
-          : Promise.resolve([]),
-        openingAirattackListUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack_list",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingAirattackListUuid },
-            })
-          : Promise.resolve([]),
-        openingRaigekiUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_raigeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingRaigekiUuid },
-            })
-          : Promise.resolve([]),
-        closingRaigekiUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "closing_raigeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: closingRaigekiUuid },
-            })
-          : Promise.resolve([]),
+        fetchGlobalRecordsInternal(c, {
+          table: "midnight_hougeki_list",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "opening_taisen_list",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "hougeki_list",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "opening_airattack_list",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "opening_raigeki",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "closing_raigeki",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        fetchGlobalRecordsInternal(c, {
+          table: "midnight_hougeki",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "opening_taisen",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "hougeki",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "opening_airattack",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "destruction_battle",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "friendly_support_hourai_list",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "friendly_support_hourai",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "night_support_hourai",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
+        fetchGlobalRecordsInternal(c, {
+          table: "night_support_airattack",
+          periodTag: "all",
+          tableVersion,
+          limitBlocks: 120,
+          limitRecords: 200,
+          filter: { env_uuid: envUuid },
+        }),
       ]);
 
     const ownDecks = envBundle.ownDecks;
@@ -2830,90 +2913,224 @@ app.get("/detail", async (c) => {
     const enemyShips = envBundle.enemyShips;
     const enemySlotItems = envBundle.enemySlotItems;
 
+    const findByUuid = (
+      records: Array<Record<string, unknown>>,
+      uuid: string,
+    ): Record<string, unknown> | null => {
+      if (!uuid) return null;
+      return records.find((row) => String(row.uuid ?? "") === uuid) || null;
+    };
+
+    const findByIndex = (
+      records: Array<Record<string, unknown>>,
+      idx: number,
+    ): Record<string, unknown> | null => {
+      return (
+        records.find((row) => Number(row.index ?? Number.NaN) === idx) || null
+      );
+    };
+
+    const resolveLinkedRow = (
+      records: Array<Record<string, unknown>>,
+      explicitUuid: unknown,
+      idx: number,
+    ): Record<string, unknown> | null => {
+      const uuid =
+        typeof explicitUuid === "string" && explicitUuid.length > 0
+          ? explicitUuid
+          : "";
+      return findByUuid(records, uuid) || findByIndex(records, idx);
+    };
+
+    const relatedCell =
+      cells.find((cell) => {
+        const indexes = Array.isArray(cell.battle_index)
+          ? (cell.battle_index as unknown[])
+          : [];
+        return indexes.some((value) => Number(value ?? Number.NaN) === battleIndex);
+      }) ||
+      cells.find((cell) => Number(cell.cell_index ?? Number.NaN) === Number(battle.cell_id ?? Number.NaN)) ||
+      null;
+
+    const selectedMidnightHougekiList = resolveLinkedRow(
+      midnightHougekiLists,
+      battle.midnight_hougeki,
+      battleIndex,
+    );
+    const selectedOpeningTaisenList = resolveLinkedRow(
+      openingTaisenLists,
+      battle.opening_taisen,
+      battleIndex,
+    );
+    const selectedHougekiList = resolveLinkedRow(
+      hougekiLists,
+      battle.hougeki,
+      battleIndex,
+    );
+    const selectedOpeningAirattackList = resolveLinkedRow(
+      openingAirattackLists,
+      battle.opening_air_attack,
+      battleIndex,
+    );
+
     const midnightHougekiDetailUuid = String(
-      midnightHougekiLists[0]?.midnight_hougeki ?? "",
+      selectedMidnightHougekiList?.midnight_hougeki ?? "",
     );
     const openingTaisenDetailUuid = String(
-      openingTaisenLists[0]?.opening_taisen ?? "",
+      selectedOpeningTaisenList?.opening_taisen ?? "",
     );
-    const hougekiDetailUuid = String(hougekiLists[0]?.hougeki ?? "");
+    const hougekiDetailUuid = String(selectedHougekiList?.hougeki ?? "");
     const openingAirattackDetailUuid = String(
-      openingAirattackLists[0]?.opening_air_attack ?? "",
+      selectedOpeningAirattackList?.opening_air_attack ?? "",
     );
-    const destructionBattleUuid = String(cells[0]?.destruction_battles ?? "");
 
-    const [midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles] =
-      await Promise.all([
-        midnightHougekiDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "midnight_hougeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: midnightHougekiDetailUuid },
-            })
-          : Promise.resolve([]),
-        openingTaisenDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_taisen",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingTaisenDetailUuid },
-            })
-          : Promise.resolve([]),
-        hougekiDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "hougeki",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: hougekiDetailUuid },
-            })
-          : Promise.resolve([]),
-        openingAirattackDetailUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "opening_airattack",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: openingAirattackDetailUuid },
-            })
-          : Promise.resolve([]),
-        destructionBattleUuid
-          ? fetchGlobalRecordsInternal(c, {
-              table: "destruction_battle",
-              periodTag: "all",
-              tableVersion,
-              limitBlocks: 120,
-              limitRecords: 200,
-              filter: { uuid: destructionBattleUuid },
-            })
-          : Promise.resolve([]),
-      ]);
+    const resolvedBattleResult = resolveLinkedRow(
+      battleResults,
+      battle.battle_result,
+      battleIndex,
+    );
+    const resolvedOpeningRaigeki = resolveLinkedRow(
+      openingRaigekis,
+      battle.opening_raigeki,
+      battleIndex,
+    );
+    const resolvedClosingRaigeki = resolveLinkedRow(
+      closingRaigekis,
+      battle.closing_raigeki,
+      battleIndex,
+    );
+    const resolvedAirBaseAssault =
+      resolveLinkedRow(airBaseAssaults, battle.air_base_assault, battleIndex) ||
+      battle.air_base_assault;
+    const resolvedAirBaseAirAttackList =
+      resolveLinkedRow(
+        airBaseAirAttackLists,
+        battle.air_base_air_attacks,
+        battleIndex,
+      ) || battle.air_base_air_attacks;
+    const resolvedCarrierBaseAssault =
+      resolveLinkedRow(
+        carrierBaseAssaults,
+        battle.carrier_base_assault,
+        battleIndex,
+      ) || battle.carrier_base_assault;
+
+    const resolvedSupportHourai = resolveLinkedRow(
+      supportHourais,
+      battle.support_hourai,
+      battleIndex,
+    );
+    const resolvedSupportAirattack = resolveLinkedRow(
+      supportAirattacks,
+      battle.support_airattack,
+      battleIndex,
+    );
+    const resolvedNightSupportHourai = resolveLinkedRow(
+      nightSupportHourais,
+      battle.night_support_hourai,
+      battleIndex,
+    );
+    const resolvedNightSupportAirattack = resolveLinkedRow(
+      nightSupportAirattacks,
+      battle.night_support_airattack,
+      battleIndex,
+    );
+
+    const selectedFriendlySupportHouraiList = resolveLinkedRow(
+      friendlySupportHouraiLists,
+      battle.friendly_force_attack,
+      battleIndex,
+    );
+    const friendlySupportHouraiUuid = String(
+      selectedFriendlySupportHouraiList?.friendly_support_hourai ?? "",
+    );
+    const resolvedFriendlySupportHourai =
+      findByUuid(friendlySupportHourais, friendlySupportHouraiUuid) ||
+      findByIndex(friendlySupportHourais, battleIndex);
+
+    const resolvedMidnightHougekis = midnightHougekiDetailUuid
+      ? midnightHougekis.filter(
+          (row) => String(row.uuid ?? "") === midnightHougekiDetailUuid,
+        )
+      : [];
+    const resolvedOpeningTaisens = openingTaisenDetailUuid
+      ? openingTaisens.filter(
+          (row) => String(row.uuid ?? "") === openingTaisenDetailUuid,
+        )
+      : [];
+    const resolvedHougekis = hougekiDetailUuid
+      ? hougekis.filter((row) => String(row.uuid ?? "") === hougekiDetailUuid)
+      : [];
+    const resolvedOpeningAirattacks = openingAirattackDetailUuid
+      ? openingAirattacks.filter(
+          (row) => String(row.uuid ?? "") === openingAirattackDetailUuid,
+        )
+      : [];
+
+    const resolvedDestructionBattle =
+      relatedCell && typeof relatedCell.destruction_battles === "string"
+        ? findByUuid(destructionBattles, relatedCell.destruction_battles)
+        : findByIndex(destructionBattles, battleIndex);
 
     const mstShips = mstShipPayload.records || [];
     const mstSlotItems = mstSlotItemPayload.records || [];
+
+    const resolvedSupportAttack =
+      resolvedSupportHourai || resolvedSupportAirattack
+        ? {
+      support_hourai: resolvedSupportHourai,
+      support_airatack: resolvedSupportAirattack
+          }
+        : null;
+    const resolvedNightSupportAttack =
+      resolvedNightSupportHourai || resolvedNightSupportAirattack
+        ? {
+            hourai: resolvedNightSupportHourai,
+            airatack: resolvedNightSupportAirattack,
+          }
+        : null;
+    const originalFriendlyForceAttack =
+      battle.friendly_force_attack && typeof battle.friendly_force_attack === "object"
+        ? (battle.friendly_force_attack as Record<string, unknown>)
+        : null;
+    const resolvedFriendlyForceAttack =
+      resolvedFriendlySupportHourai || originalFriendlyForceAttack?.fleet_info
+        ? {
+            fleet_info: originalFriendlyForceAttack?.fleet_info ?? null,
+            support_hourai:
+              resolvedFriendlySupportHourai ||
+              originalFriendlyForceAttack?.support_hourai ||
+              null,
+          }
+        : null;
 
     const mergedBattle = {
       ...battle,
       timestamp:
         normalizeTimestamp(battle.timestamp) ??
         normalizeTimestamp(battle.midnight_timestamp),
-      battle_result: battleResults[0] || battle.battle_result || null,
-      midnight_hougeki: midnightHougekis.length > 0 ? midnightHougekis : battle.midnight_hougeki,
-      opening_taisen: openingTaisens.length > 0 ? openingTaisens : battle.opening_taisen,
-      hougeki: hougekis.length > 0 ? hougekis : battle.hougeki,
+      maparea_id: Number(relatedCell?.maparea_id ?? battle.maparea_id ?? 0) || null,
+      mapinfo_no: Number(relatedCell?.mapinfo_no ?? battle.mapinfo_no ?? 0) || null,
+      battle_result: resolvedBattleResult || battle.battle_result || null,
+      air_base_assault: resolvedAirBaseAssault,
+      air_base_air_attacks: resolvedAirBaseAirAttackList,
+      carrier_base_assault: resolvedCarrierBaseAssault,
+      support_hourai: resolvedSupportHourai,
+      support_airattack: resolvedSupportAirattack,
+      support_attack: resolvedSupportAttack,
+      night_support_hourai: resolvedNightSupportHourai,
+      night_support_airattack: resolvedNightSupportAirattack,
+      night_support_attack: resolvedNightSupportAttack,
+      friendly_force_attack: resolvedFriendlyForceAttack,
+      midnight_hougeki: resolvedMidnightHougekis.length > 0 ? resolvedMidnightHougekis : battle.midnight_hougeki,
+      opening_taisen: resolvedOpeningTaisens.length > 0 ? resolvedOpeningTaisens : battle.opening_taisen,
+      hougeki: resolvedHougekis.length > 0 ? resolvedHougekis : battle.hougeki,
       opening_air_attack:
-        openingAirattacks.length > 0 ? openingAirattacks : battle.opening_air_attack,
-      opening_raigeki: openingRaigekis[0] || battle.opening_raigeki,
-      closing_raigeki: closingRaigekis[0] || battle.closing_raigeki,
+        resolvedOpeningAirattacks.length > 0 ? resolvedOpeningAirattacks : battle.opening_air_attack,
+      opening_raigeki: resolvedOpeningRaigeki || battle.opening_raigeki,
+      closing_raigeki: resolvedClosingRaigeki || battle.closing_raigeki,
       destruction_battle:
-        destructionBattles.length > 0 ? destructionBattles[0] : null,
+        resolvedDestructionBattle || null,
     };
 
     const relevantShipIds = new Set<number>();
@@ -2922,7 +3139,9 @@ app.get("/detail", async (c) => {
       const shipId = Number(row.ship_id ?? row.mst_ship_id ?? 0);
       if (shipId > 0) relevantShipIds.add(shipId);
     }
-    const dropShipId = Number(battleResults[0]?.drop_ship_id ?? 0);
+    const dropShipId = Number(
+      (resolvedBattleResult as Record<string, unknown> | null)?.drop_ship_id ?? 0,
+    );
     if (dropShipId > 0) relevantShipIds.add(dropShipId);
     for (const row of [...ownSlotItems, ...enemySlotItems]) {
       const slotItemId = Number(row.mst_slotitem_id ?? 0);
@@ -2933,27 +3152,41 @@ app.get("/detail", async (c) => {
       success: true,
       period_tag: periodTag,
       table_version: tableVersion || null,
+      battle_indexes: [...new Set(
+        battles
+          .map((row) => Number(row.index ?? Number.NaN))
+          .filter((idx) => Number.isFinite(idx) && idx >= 0),
+      )].sort((a, b) => a - b),
       battle: mergedBattle,
       linked: {
-        cells,
-        battle_result: battleResults,
+        cells: relatedCell ? [relatedCell] : cells,
+        battle_result: resolvedBattleResult ? [resolvedBattleResult] : battleResults,
         own_deck: ownDecks,
         own_ship: ownShips,
         own_slotitem: ownSlotItems,
         enemy_deck: enemyDecks,
         enemy_ship: enemyShips,
         enemy_slotitem: enemySlotItems,
-        midnight_hougeki_list: midnightHougekiLists,
-        midnight_hougeki: midnightHougekis,
-        opening_taisen_list: openingTaisenLists,
-        opening_taisen: openingTaisens,
-        hougeki_list: hougekiLists,
-        hougeki: hougekis,
-        opening_airattack_list: openingAirattackLists,
-        opening_airattack: openingAirattacks,
-        opening_raigeki: openingRaigekis,
-        closing_raigeki: closingRaigekis,
-        destruction_battle: destructionBattles,
+        midnight_hougeki_list: selectedMidnightHougekiList ? [selectedMidnightHougekiList] : [],
+        midnight_hougeki: resolvedMidnightHougekis,
+        opening_taisen_list: selectedOpeningTaisenList ? [selectedOpeningTaisenList] : [],
+        opening_taisen: resolvedOpeningTaisens,
+        hougeki_list: selectedHougekiList ? [selectedHougekiList] : [],
+        hougeki: resolvedHougekis,
+        opening_airattack_list: selectedOpeningAirattackList ? [selectedOpeningAirattackList] : [],
+        opening_airattack: resolvedOpeningAirattacks,
+        opening_raigeki: resolvedOpeningRaigeki ? [resolvedOpeningRaigeki] : [],
+        closing_raigeki: resolvedClosingRaigeki ? [resolvedClosingRaigeki] : [],
+        destruction_battle: resolvedDestructionBattle ? [resolvedDestructionBattle] : [],
+        airbase_assult: airBaseAssaults,
+        airbase_airattack_list: airBaseAirAttackLists,
+        carrierbase_assault: carrierBaseAssaults,
+        support_hourai: resolvedSupportHourai ? [resolvedSupportHourai] : [],
+        support_airattack: resolvedSupportAirattack ? [resolvedSupportAirattack] : [],
+        night_support_hourai: resolvedNightSupportHourai ? [resolvedNightSupportHourai] : [],
+        night_support_airattack: resolvedNightSupportAirattack ? [resolvedNightSupportAirattack] : [],
+        friendly_support_hourai_list: selectedFriendlySupportHouraiList ? [selectedFriendlySupportHouraiList] : [],
+        friendly_support_hourai: resolvedFriendlySupportHourai ? [resolvedFriendlySupportHourai] : [],
       },
       refs: {
         mst_ship: mstShips.filter((ship) => relevantShipIds.has(Number(ship.id ?? 0))),
@@ -2981,7 +3214,8 @@ app.get("/detail", async (c) => {
         }),
       },
       source_meta: {
-        battle_uuid: battleUuid,
+        env_uuid: envUuid,
+        battle_index: battleIndex,
       },
     };
 

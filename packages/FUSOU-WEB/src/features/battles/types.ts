@@ -34,9 +34,13 @@ export interface BattleFleets {
 export interface TimelineEvent {
   phase: string;
   type: string;
+  actorRole?: "main" | "airbase" | "support" | "friendly_force";
+  affectsHp?: boolean;
   attackerSide: "friend" | "enemy";
   attackerIdx: number | null;
   attackerGroup?: number[];
+  attackerNowHp?: number | null;
+  attackerMaxHp?: number | null;
   defenderSide: "friend" | "enemy";
   defenderIdx: number | null;
   damage: number;
@@ -52,6 +56,8 @@ export interface TimelineEvent {
   attackerMstShipId?: number;
   /** If true, this event is a phase separator (blank row between phases). */
   separator?: boolean;
+  /** Air-attack invocation group id (one extractAirAttackEvents call). */
+  airBatchId?: number;
 }
 
 export interface TimelineStep {

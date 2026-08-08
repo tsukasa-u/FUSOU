@@ -133,9 +133,14 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
       if (b.battle_result?.drop_ship_id) drops++;
 
-      const mvp = b.battle_result?.mvp;
-      if (mvp != null && Number(mvp) > 0) {
-        const label = Number(mvp) === 1 ? "旗艦" : `随伴艦(${mvp}番艦)`;
+      const mvpIndexes = Array.isArray(b.battle_result?.mvp_ship_indexes)
+        ? b.battle_result.mvp_ship_indexes
+        : [];
+      for (const idx of mvpIndexes) {
+        const normalized = Number(idx);
+        if (!Number.isFinite(normalized) || normalized <= 0) continue;
+        const label =
+          normalized === 1 ? "旗艦" : `随伴艦(${Math.trunc(normalized)}番艦)`;
         mvpCounts[label] = (mvpCounts[label] ?? 0) + 1;
       }
 

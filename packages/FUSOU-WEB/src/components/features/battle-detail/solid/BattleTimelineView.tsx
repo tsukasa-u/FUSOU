@@ -329,6 +329,7 @@ export default function BattleTimelineView(props: {
   mstSlotItemById: Map<number, Record<string, unknown>> | null;
   mstShipById?: Map<number, Record<string, unknown>> | null;
   showPhaseSeparators?: boolean;
+  showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
   const [hoveredStep, setHoveredStep] = createSignal<number | null>(null);
 
@@ -346,6 +347,14 @@ export default function BattleTimelineView(props: {
     buildSteps(events(), initHps().fInit, initHps().eInit),
   );
   const phaseRegions = createMemo(() => buildPhaseRegions(events()));
+  const legacyAirbasePhases = createMemo(() => {
+    if (!props.showLegacyAirbasePhaseWarning) return new Set<string>();
+    return new Set(
+      events()
+        .filter((ev) => ev.separator !== true && ev.actorRole === "airbase")
+        .map((ev) => ev.phase),
+    );
+  });
 
   const fCount = createMemo(
     () => props.fleets?.friendlyShips?.length || initHps().fInit.length || 6,
@@ -637,6 +646,12 @@ export default function BattleTimelineView(props: {
               </span>
             </div>
 
+            <Show when={legacyAirbasePhases().size > 0}>
+              <div class="mb-2 rounded border border-warning/50 bg-warning/10 px-2 py-1.5 text-[11px] text-warning-content/90">
+                0.6.0 未満の既知不具合: 基地航空隊が関与するフェーズの参照解決は正確でない可能性があります。
+              </div>
+            </Show>
+
             <For each={events()}>
               {(ev, i) => {
                 const isSep = ev.separator === true;
@@ -646,7 +661,8 @@ export default function BattleTimelineView(props: {
                   return idx === 0 || events()[idx - 1]?.phase !== ev.phase;
                 };
                 const atkIdx = isSep ? null : ev.attackerIdx;
-                const defIdx = isSep ? 0 : (ev.defenderIdx as number);
+                const defIdx =
+                  isSep || ev.defenderIdx == null ? null : Number(ev.defenderIdx);
                 const atkGroup = Array.isArray(ev.attackerGroup)
                   ? ev.attackerGroup.filter(
                       (v) => Number.isFinite(Number(v)) && Number(v) >= 0,
@@ -677,7 +693,7 @@ export default function BattleTimelineView(props: {
                           : "雷撃"
                       : "?",
                 );
-                const defLabel = `${defIdx + 1}番`;
+                      const defLabel = defIdx !== null ? `${defIdx + 1}番` : "-";
                 const atkShort = createMemo(() => {
                   if (atkIdx !== null) {
                     return shipNameFromIndex(
@@ -713,12 +729,25 @@ export default function BattleTimelineView(props: {
                   return "-";
                 });
                 const defShort = createMemo(() =>
-                  shipNameFromIndex(ev.defenderSide, defIdx, props.fleets),
+                  defIdx !== null
+                    ? shipNameFromIndex(ev.defenderSide, defIdx, props.fleets)
+                    : "対象なし",
                 );
                 const atkColor =
                   ev.attackerSide === "friend" ? "#3b82f6" : "#ef4444";
                 const defColor =
-                  ev.defenderSide === "friend" ? "#3b82f6" : "#ef4444";
+                  defIdx === null
+                    ? "#64748b"
+                    : ev.defenderSide === "friend"
+                      ? "#3b82f6"
+                      : "#ef4444";
+                const friendlyForceHp = createMemo(() => {
+                  if (ev.actorRole !== "friendly_force") return null;
+                  const now = Number(ev.attackerNowHp ?? 0) || 0;
+                  const max = Number(ev.attackerMaxHp ?? 0) || 0;
+                  if (max <= 0) return null;
+                  return `${now}/${max}`;
+                });
 
                 const topBorder = () =>
                   phaseChanged() && i() > 0
@@ -749,6 +778,18 @@ export default function BattleTimelineView(props: {
                       onMouseEnter={() => setHoveredStep(i())}
                       onMouseLeave={() => setHoveredStep(null)}
                     >
+                      <Show when={phaseChanged()}>
+                        <div class="shrink-0 flex items-center gap-1">
+                          <span class="rounded bg-base-200 px-1.5 py-0.5 text-[9px] font-semibold text-base-content/70">
+                            {ev.phase}
+                          </span>
+                          <Show when={legacyAirbasePhases().has(ev.phase)}>
+                            <span class="rounded bg-warning/20 px-1.5 py-0.5 text-[9px] font-semibold text-warning-content/90 border border-warning/50">
+                              基地航空隊: 未解決の可能性
+                            </span>
+                          </Show>
+                        </div>
+                      </Show>
                       <span
                         class="shrink-0 font-bold text-[10px] tabular-nums"
                         style={{ color: atkColor }}
@@ -761,6 +802,11 @@ export default function BattleTimelineView(props: {
                       >
                         {atkShort()}
                       </span>
+                      <Show when={friendlyForceHp() !== null}>
+                        <span class="shrink-0 text-[9px] text-warning/90">
+                          友軍HP {friendlyForceHp()}
+                        </span>
+                      </Show>
                       <span class="text-[9px] text-base-content/30 shrink-0">
                         →
                       </span>

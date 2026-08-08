@@ -77,21 +77,3 @@ export function transitionState(
   return { beforeState, afterState, sunk: afterHp <= 0 && beforeHp > 0 };
 }
 
-export function resolveBattleResult(
-  raw: unknown,
-  battleResultByUuid: Map<string, { win_rank: string; drop_ship_id: unknown; mvp?: unknown }>,
-): { win_rank: string; drop_ship_id: unknown; mvp?: unknown } | null {
-  if (!raw) return null;
-  if (typeof raw === "string") {
-    return battleResultByUuid.get(raw) ?? null;
-  }
-  if (typeof raw === "object" && raw !== null && "win_rank" in raw) {
-    const obj = raw as Record<string, unknown>;
-    return {
-      win_rank: String(obj.win_rank),
-      drop_ship_id: obj.drop_ship_id ?? null,
-      mvp: obj.mvp ?? null,
-    };
-  }
-  return null;
-}

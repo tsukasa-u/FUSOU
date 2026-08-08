@@ -41,4 +41,6 @@ export type SharedDashboardState = {
   // Specific to list/detail
   selectedDetailId: () => string;
   setSelectedDetailId: (id: string) => void;
+  selectedBattleIndex: () => number | null;
+  setSelectedBattleIndex: (index: number | null) => void;
 };

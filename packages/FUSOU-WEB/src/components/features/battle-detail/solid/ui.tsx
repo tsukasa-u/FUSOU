@@ -75,18 +75,31 @@ export function getRowHpSnapshot(
   row: Record<string, unknown>,
   side: "friend" | "enemy",
 ): unknown[] {
+  const normalizeHpArray = (raw: unknown[]): unknown[] => {
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+    const nums = raw.map((v) => Number(v ?? 0));
+    // Some legacy payloads include a 1-based dummy at index 0.
+    // Current env_uuid-bundle payloads are already 0-based; keep those intact.
+    if (nums.length >= 2 && nums[0] === 0 && nums.slice(1).some((v) => v > 0)) {
+      return raw.slice(1);
+    }
+    return raw;
+  };
+
   if (side === "friend") {
-    return Array.isArray(row?.f_now_hps)
+    const source = (Array.isArray(row?.f_now_hps)
       ? (row.f_now_hps as unknown[])
       : Array.isArray(row?.f_nowhps)
         ? (row.f_nowhps as unknown[])
-        : [];
+        : []);
+    return normalizeHpArray(source);
   }
-  return Array.isArray(row?.e_now_hps)
+  const source = (Array.isArray(row?.e_now_hps)
     ? (row.e_now_hps as unknown[])
     : Array.isArray(row?.e_nowhps)
       ? (row.e_nowhps as unknown[])
-      : [];
+      : []);
+  return normalizeHpArray(source);
 }
 
 export function slotItemMeta(
@@ -98,7 +111,7 @@ export function slotItemMeta(
     return { name: "", iconType: null };
   }
   const mst = mstSlotItemById?.get?.(id);
-  if (!mst) return { name: "", iconType: null };
+  if (!mst) return { name: `装備#${id}`, iconType: null };
   const iconType =
     Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
       ? Number((mst.type as unknown[])[3] ?? 0) || null
