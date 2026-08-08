@@ -48,6 +48,20 @@ const SUPPORTED_TABLES = [
   "opening_raigeki",
   "opening_taisen",
   "opening_taisen_list",
+  "airbase",
+  "plane_info",
+  "friend_slotitem",
+  "friend_ship",
+  "support_deck",
+  "friend_deck",
+  "airbase_airattack",
+  "airbase_airattack_list",
+  "airbase_assult",
+  "friendly_support_hourai",
+  "friendly_support_hourai_list",
+  "support_airattack",
+  "support_hourai",
+  "destruction_battle",
 ];
 const DEFAULT_TABLES = [...SUPPORTED_TABLES];
 const PERIOD_TAG_FETCH_LIMIT = 400;

@@ -17,6 +17,14 @@
       "targetHandle": "airbase-uuid"
     },
     {
+      "id": "e-airbase_assult-airbase_ids-airbase",
+      "label": "airbase_ids",
+      "source": "airbase_assult",
+      "sourceHandle": "airbase_assult-airbase_ids",
+      "target": "airbase",
+      "targetHandle": "airbase-uuid"
+    },
+    {
       "id": "e-airbase-plane_info-plane_info",
       "label": "plane_info",
       "source": "airbase",
@@ -824,6 +832,14 @@
     {
       "data": {
         "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "isUuid": true,
+            "name": "airbase_ids",
+            "type": "uuid[]?"
+          },
           {
             "isEnvRef": false,
             "isFk": false,

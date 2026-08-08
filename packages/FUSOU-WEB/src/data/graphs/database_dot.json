@@ -33,6 +33,14 @@
       "targetHandle": "models__battle__AirBaseAirAttack-AirBaseAirAttackId"
     },
     {
+      "id": "e-models__battle__AirBaseAssult-airbase_ids-models__airbase__AirBase-AirBase",
+      "label": "airbase_ids",
+      "source": "models__battle__AirBaseAssult",
+      "sourceHandle": "models__battle__AirBaseAssult-airbase_ids",
+      "target": "models__airbase__AirBase",
+      "targetHandle": "models__airbase__AirBase-AirBase"
+    },
+    {
       "id": "e-models__battle__Battle-air_base_air_attacks-models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
       "label": "air_base_air_attacks",
       "source": "models__battle__Battle",
@@ -231,6 +239,14 @@
       "sourceHandle": "models__battle__OpeningTaisenList-opening_taisen",
       "target": "models__battle__OpeningTaisen",
       "targetHandle": "models__battle__OpeningTaisen-OpeningTaisenId"
+    },
+    {
+      "id": "e-models__cell__Cells-airbase_id-models__airbase__AirBase-AirBase",
+      "label": "airbase_id",
+      "source": "models__cell__Cells",
+      "sourceHandle": "models__cell__Cells-airbase_id",
+      "target": "models__airbase__AirBase",
+      "targetHandle": "models__airbase__AirBase-AirBase"
     },
     {
       "id": "e-models__cell__Cells-battles-models__battle__Battle-Battle",
@@ -785,6 +801,13 @@
     {
       "data": {
         "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "airbase_ids",
+            "type": "Option<Vec<AirBaseId>>"
+          },
           {
             "isEnvRef": false,
             "isFk": false,
@@ -1401,6 +1424,13 @@
             "isKey": false,
             "name": "landing_sub_value",
             "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "mvp_ship_indexes",
+            "type": "Option<Vec<i32>>"
           },
           {
             "isEnvRef": false,
@@ -3478,6 +3508,13 @@
         "fields": [
           {
             "isEnvRef": false,
+            "isFk": true,
+            "isKey": false,
+            "name": "airbase_id",
+            "type": "Option<AirBaseId>"
+          },
+          {
+            "isEnvRef": false,
             "isFk": false,
             "isKey": false,
             "name": "battle_index",
@@ -4643,6 +4680,13 @@
             "isFk": false,
             "isKey": false,
             "name": "soku",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "sortie_tag_id",
             "type": "Option<i32>"
           },
           {
