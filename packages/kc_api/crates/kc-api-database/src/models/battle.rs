@@ -1249,8 +1249,6 @@ pub struct AirBaseAssult {
     pub squadron_plane: Vec<i32>,
     #[cfg(schema_since = "0.6.0")]
     pub airbase_base_nos: Option<Vec<i32>>,
-    #[cfg(schema_since = "0.6.0")]
-    pub airbase_ids: Option<Vec<AirBaseId>>,
     pub f_plane_from: Option<Vec<i32>>,
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
@@ -1320,27 +1318,6 @@ impl AirBaseAssult {
                 .collect::<Vec<_>>(),
         );
 
-        #[cfg(schema_since = "0.6.0")]
-        let new_airbase_ids = {
-            let ts = _ts;
-            let dedup = _dedup;
-            let base_count = data.squadron_count.len().max(1);
-            let base_nos = (1..=base_count).map(|base_no| base_no as i64).collect::<Vec<_>>();
-            let ids = base_nos
-                .iter()
-                .filter_map(|base_no| {
-                    resolve_airbase_uuid_from_base_no(
-                        ts,
-                        table,
-                        dedup,
-                        env_uuid,
-                        *base_no,
-                    )
-                })
-                .collect::<Vec<_>>();
-            (!ids.is_empty()).then_some(ids)
-        };
-
         let new_data = AirBaseAssult {
             env_uuid,
             uuid,
@@ -1351,8 +1328,6 @@ impl AirBaseAssult {
                 .collect(),
             #[cfg(schema_since = "0.6.0")]
             airbase_base_nos: new_airbase_base_nos,
-            #[cfg(schema_since = "0.6.0")]
-            airbase_ids: new_airbase_ids,
             f_plane_from: data.f_damage.plane_from.into_i32(),
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
