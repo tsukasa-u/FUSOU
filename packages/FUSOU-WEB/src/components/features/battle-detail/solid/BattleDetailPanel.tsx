@@ -71,6 +71,18 @@ type BattleOverviewPayload = {
   battles?: Array<Record<string, unknown>>;
 };
 
+function uniqueBattleIndexesInOrder(values: Array<unknown>): number[] {
+  const ordered: number[] = [];
+  const seen = new Set<number>();
+  for (const raw of values) {
+    const index = Number(raw);
+    if (!Number.isFinite(index) || index < 0 || seen.has(index)) continue;
+    seen.add(index);
+    ordered.push(index);
+  }
+  return ordered;
+}
+
 // ── Main orchestrator component ───────────────────────────────────────────
 
 export default function BattleDetailPanel(props: {
@@ -235,14 +247,7 @@ export default function BattleDetailPanel(props: {
   });
 
   const selectableBattleIndexes = createMemo(() => {
-    const fromPayload = battleIndexes()
-      .map((v) => Number(v))
-      .filter((v) => Number.isFinite(v) && v >= 0);
-    const current = Number(props.battleIndex ?? Number.NaN);
-    const merged = Number.isFinite(current) && current >= 0
-      ? [...fromPayload, current]
-      : fromPayload;
-    return [...new Set(merged)].sort((a, b) => a - b);
+    return uniqueBattleIndexesInOrder(battleIndexes());
   });
 
   const alphaCellLabel = (cellId: number): string => {
@@ -433,11 +438,22 @@ export default function BattleDetailPanel(props: {
           );
           if (!overviewRes.ok) return [];
           const overview = (await overviewRes.json()) as BattleOverviewPayload;
-          const indexes = (overview.battles || [])
+          const orderedRows = (overview.battles || [])
             .filter((row) => String(row.env_uuid ?? "") === envUuid)
-            .map((row) => Number(row.index ?? Number.NaN))
-            .filter((idx) => Number.isFinite(idx) && idx >= 0);
-          return [...new Set(indexes)].sort((a, b) => a - b);
+            .map((row) => ({
+              index: Number(row.index ?? Number.NaN),
+              ts:
+                normalizeEpochMs(row.timestamp) ??
+                normalizeEpochMs(row.midnight_timestamp),
+            }))
+            .filter((row) => Number.isFinite(row.index) && row.index >= 0)
+            .sort((a, b) => {
+              const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
+              const bTs = b.ts ?? Number.MAX_SAFE_INTEGER;
+              if (aTs !== bTs) return aTs - bTs;
+              return a.index - b.index;
+            });
+          return uniqueBattleIndexesInOrder(orderedRows.map((row) => row.index));
         } catch {
           return [];
         }
@@ -479,9 +495,7 @@ export default function BattleDetailPanel(props: {
       if (detailRes.ok) {
         const payload = (await detailRes.json()) as BattleDetailPayload;
         const indexesFromPayload = Array.isArray(payload.battle_indexes)
-          ? payload.battle_indexes
-              .map((v) => Number(v))
-              .filter((v) => Number.isFinite(v) && v >= 0)
+          ? uniqueBattleIndexesInOrder(payload.battle_indexes)
           : [];
         if (indexesFromPayload.length > 0) {
           setBattleIndexes(indexesFromPayload);
@@ -710,7 +724,7 @@ export default function BattleDetailPanel(props: {
         <div class="mb-3 overflow-x-auto">
           <div class="tabs tabs-boxed inline-flex flex-nowrap">
             <For each={selectableBattleIndexes()}>
-              {(idx) => (
+              {(idx, order) => (
                 <button
                   type="button"
                   class={`tab tab-sm ${idx === Number(props.battleIndex ?? Number.NaN) ? "tab-active" : ""}`}
@@ -720,7 +734,7 @@ export default function BattleDetailPanel(props: {
                     props.onBattleIndexChange?.(idx);
                   }}
                 >
-                  {idx + 1}戦目
+                  {order() + 1}戦目
                 </button>
               )}
             </For>

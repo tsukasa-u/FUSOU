@@ -2699,7 +2699,9 @@ app.get("/detail", async (c) => {
   const tableVersion = (c.req.query("table_version") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
-  const cacheKey = new Request(c.req.url, { method: "GET" });
+  const cacheUrl = new URL(c.req.url);
+  cacheUrl.searchParams.set("_cache_v", "5");
+  const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (!envUuid) {
     return c.json({ error: "env_uuid is required" }, 400);
@@ -2724,13 +2726,17 @@ app.get("/detail", async (c) => {
   }
 
   try {
+    // Keep a wider cap than the old 200-record window so per-env battle
+    // ordering is not truncated for long sorties/retries.
+    const DETAIL_BATTLE_LIMIT_RECORDS = 2000;
+
     const fetchBattles = async (tag: string) =>
       fetchGlobalRecordsInternal(c, {
         table: "battle",
         periodTag: tag,
         tableVersion,
         limitBlocks: 120,
-        limitRecords: 200,
+        limitRecords: DETAIL_BATTLE_LIMIT_RECORDS,
         filter: { env_uuid: envUuid },
       });
 
@@ -2740,13 +2746,9 @@ app.get("/detail", async (c) => {
         ? primaryBattles
         : await fetchBattles("all");
     const battles = fallbackBattles;
-    const battle = battles.find(
+    const battleFromRawIndex = battles.find(
       (row) => Number(row.index ?? Number.NaN) === battleIndex,
     );
-
-    if (!battle) {
-      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
-    }
 
     const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
@@ -2942,35 +2944,203 @@ app.get("/detail", async (c) => {
       return findByUuid(records, uuid) || findByIndex(records, idx);
     };
 
-    const relatedCell =
-      cells.find((cell) => {
-        const indexes = Array.isArray(cell.battle_index)
-          ? (cell.battle_index as unknown[])
-          : [];
-        return indexes.some((value) => Number(value ?? Number.NaN) === battleIndex);
-      }) ||
-      cells.find((cell) => Number(cell.cell_index ?? Number.NaN) === Number(battle.cell_id ?? Number.NaN)) ||
-      null;
+    const toNonNegativeNumberArray = (value: unknown): number[] => {
+      if (!Array.isArray(value)) return [];
+      return value
+        .map((entry) => Number(entry ?? Number.NaN))
+        .filter((entry) => Number.isFinite(entry) && entry >= 0);
+    };
+
+    const inferCellIdFromRelatedCell = (
+      cell: Record<string, unknown>,
+      idx: number,
+    ): number | null => {
+      const battleIndexes = toNonNegativeNumberArray(cell.battle_index);
+      const cellIndexes = toNonNegativeNumberArray(cell.cell_index);
+      if (battleIndexes.length === 0 || cellIndexes.length === 0) return null;
+
+      const matchedPos = battleIndexes.findIndex(
+        (value) => Number(value ?? Number.NaN) === idx,
+      );
+      if (matchedPos < 0) return null;
+
+      const resolvedCellId = Number(cellIndexes[matchedPos] ?? Number.NaN);
+      if (!Number.isFinite(resolvedCellId)) return null;
+      return resolvedCellId;
+    };
+
+    const battleByCellId = new Map<number, Record<string, unknown>>();
+    const sortedBattlesByTs = battles
+      .slice()
+      .sort((a, b) => {
+        const aTs =
+          normalizeTimestamp(a.timestamp) ??
+          normalizeTimestamp(a.midnight_timestamp) ??
+          Number.MAX_SAFE_INTEGER;
+        const bTs =
+          normalizeTimestamp(b.timestamp) ??
+          normalizeTimestamp(b.midnight_timestamp) ??
+          Number.MAX_SAFE_INTEGER;
+        if (aTs !== bTs) return aTs - bTs;
+        return Number(a.index ?? Number.NaN) - Number(b.index ?? Number.NaN);
+      });
+    for (const row of sortedBattlesByTs) {
+      const cellId = Number(row.cell_id ?? Number.NaN);
+      if (!Number.isFinite(cellId) || cellId < 0 || battleByCellId.has(cellId)) {
+        continue;
+      }
+      battleByCellId.set(cellId, row);
+    }
+
+    const selectBattleByCellId = (
+      targetCellId: number,
+    ): Record<string, unknown> | null => {
+      if (!Number.isFinite(targetCellId) || targetCellId < 0) return null;
+      return battleByCellId.get(targetCellId) || null;
+    };
+
+    const matchingCells = cells.filter((cell) => {
+      const indexes = toNonNegativeNumberArray(cell.battle_index);
+      return indexes.some((value) => Number(value ?? Number.NaN) === battleIndex);
+    });
+    const requestedBattleCellId = Number(
+      battleFromRawIndex?.cell_id ?? Number.NaN,
+    );
+    let relatedCell =
+      matchingCells.length > 0
+        ? matchingCells
+            .slice()
+            .sort((a, b) => {
+              const aMappedCellId = inferCellIdFromRelatedCell(a, battleIndex);
+              const bMappedCellId = inferCellIdFromRelatedCell(b, battleIndex);
+              const aMappedMatchesBattle =
+                Number.isFinite(requestedBattleCellId) &&
+                aMappedCellId === requestedBattleCellId;
+              const bMappedMatchesBattle =
+                Number.isFinite(requestedBattleCellId) &&
+                bMappedCellId === requestedBattleCellId;
+              if (aMappedMatchesBattle !== bMappedMatchesBattle) {
+                return aMappedMatchesBattle ? -1 : 1;
+              }
+
+              const aLen = Array.isArray(a.battle_index) ? a.battle_index.length : 0;
+              const bLen = Array.isArray(b.battle_index) ? b.battle_index.length : 0;
+              if (aLen !== bLen) return bLen - aLen;
+              const aTs =
+                normalizeTimestamp(a.timestamp) ??
+                normalizeTimestamp(a.midnight_timestamp) ??
+                0;
+              const bTs =
+                normalizeTimestamp(b.timestamp) ??
+                normalizeTimestamp(b.midnight_timestamp) ??
+                0;
+              return bTs - aTs;
+            })[0] || null
+        : cells.find(
+            (cell) => {
+              const targetCellId = Number(
+                battleFromRawIndex?.cell_id ?? Number.NaN,
+              );
+              if (!Number.isFinite(targetCellId)) return false;
+              const cellIndexes = toNonNegativeNumberArray(cell.cell_index);
+              return cellIndexes.some(
+                (value) => Number(value ?? Number.NaN) === targetCellId,
+              );
+            },
+          ) || null;
+
+    let effectiveBattle: Record<string, unknown> | null =
+      battleFromRawIndex || null;
+    let effectiveBattleIndex = Number(
+      battleFromRawIndex?.index ?? Number.NaN,
+    );
+    if (!Number.isFinite(effectiveBattleIndex) || effectiveBattleIndex < 0) {
+      effectiveBattleIndex = battleIndex;
+    }
+
+    let relatedCellIndexes = toNonNegativeNumberArray(relatedCell?.cell_index);
+
+    // If the current relatedCell cannot represent this ordinal, pick one that can.
+    if (
+      (relatedCellIndexes.length === 0 || battleIndex >= relatedCellIndexes.length) &&
+      battleIndex >= 0
+    ) {
+      const fallbackRelatedCell = cells
+        .slice()
+        .sort((a, b) => {
+          const aLen = Array.isArray(a.cell_index) ? a.cell_index.length : 0;
+          const bLen = Array.isArray(b.cell_index) ? b.cell_index.length : 0;
+          if (aLen !== bLen) return bLen - aLen;
+          const aTs =
+            normalizeTimestamp(a.timestamp) ??
+            normalizeTimestamp(a.midnight_timestamp) ??
+            0;
+          const bTs =
+            normalizeTimestamp(b.timestamp) ??
+            normalizeTimestamp(b.midnight_timestamp) ??
+            0;
+          return bTs - aTs;
+        })
+        .find((cell) => {
+          const indexes = toNonNegativeNumberArray(cell.cell_index);
+          if (battleIndex < 0 || battleIndex >= indexes.length) return false;
+          const targetCellId = indexes[battleIndex];
+          return selectBattleByCellId(targetCellId) !== null;
+        });
+
+      if (fallbackRelatedCell) {
+        relatedCell = fallbackRelatedCell;
+        relatedCellIndexes = toNonNegativeNumberArray(relatedCell.cell_index);
+      }
+    }
+
+    // Treat query battle_index as sortie-order ordinal when cell progression is available.
+    // This keeps detail tabs stable even when raw battle.index values are sparse or remapped.
+    if (
+      relatedCellIndexes.length > 0 &&
+      battleIndex >= 0 &&
+      battleIndex < relatedCellIndexes.length
+    ) {
+      const targetCellId = relatedCellIndexes[battleIndex];
+      const candidate = selectBattleByCellId(targetCellId);
+
+      if (candidate) {
+        effectiveBattle = candidate;
+        const candidateIndex = Number(candidate.index ?? Number.NaN);
+        if (Number.isFinite(candidateIndex) && candidateIndex >= 0) {
+          effectiveBattleIndex = candidateIndex;
+        }
+      }
+    }
+
+    if (!effectiveBattle) {
+      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
+    }
+
+    const inferredCellIdFromRelated = relatedCell
+      ? inferCellIdFromRelatedCell(relatedCell, effectiveBattleIndex)
+      : null;
+    const effectiveBattleCellId = Number(effectiveBattle.cell_id ?? Number.NaN);
 
     const selectedMidnightHougekiList = resolveLinkedRow(
       midnightHougekiLists,
-      battle.midnight_hougeki,
-      battleIndex,
+      effectiveBattle.midnight_hougeki,
+      effectiveBattleIndex,
     );
     const selectedOpeningTaisenList = resolveLinkedRow(
       openingTaisenLists,
-      battle.opening_taisen,
-      battleIndex,
+      effectiveBattle.opening_taisen,
+      effectiveBattleIndex,
     );
     const selectedHougekiList = resolveLinkedRow(
       hougekiLists,
-      battle.hougeki,
-      battleIndex,
+      effectiveBattle.hougeki,
+      effectiveBattleIndex,
     );
     const selectedOpeningAirattackList = resolveLinkedRow(
       openingAirattackLists,
-      battle.opening_air_attack,
-      battleIndex,
+      effectiveBattle.opening_air_attack,
+      effectiveBattleIndex,
     );
 
     const midnightHougekiDetailUuid = String(
@@ -2986,67 +3156,70 @@ app.get("/detail", async (c) => {
 
     const resolvedBattleResult = resolveLinkedRow(
       battleResults,
-      battle.battle_result,
-      battleIndex,
+      effectiveBattle.battle_result,
+      effectiveBattleIndex,
     );
     const resolvedOpeningRaigeki = resolveLinkedRow(
       openingRaigekis,
-      battle.opening_raigeki,
-      battleIndex,
+      effectiveBattle.opening_raigeki,
+      effectiveBattleIndex,
     );
     const resolvedClosingRaigeki = resolveLinkedRow(
       closingRaigekis,
-      battle.closing_raigeki,
-      battleIndex,
+      effectiveBattle.closing_raigeki,
+      effectiveBattleIndex,
     );
     const resolvedAirBaseAssault =
-      resolveLinkedRow(airBaseAssaults, battle.air_base_assault, battleIndex) ||
-      battle.air_base_assault;
+      resolveLinkedRow(
+        airBaseAssaults,
+        effectiveBattle.air_base_assault,
+        effectiveBattleIndex,
+      ) || effectiveBattle.air_base_assault;
     const resolvedAirBaseAirAttackList =
       resolveLinkedRow(
         airBaseAirAttackLists,
-        battle.air_base_air_attacks,
-        battleIndex,
-      ) || battle.air_base_air_attacks;
+        effectiveBattle.air_base_air_attacks,
+        effectiveBattleIndex,
+      ) || effectiveBattle.air_base_air_attacks;
     const resolvedCarrierBaseAssault =
       resolveLinkedRow(
         carrierBaseAssaults,
-        battle.carrier_base_assault,
-        battleIndex,
-      ) || battle.carrier_base_assault;
+        effectiveBattle.carrier_base_assault,
+        effectiveBattleIndex,
+      ) || effectiveBattle.carrier_base_assault;
 
     const resolvedSupportHourai = resolveLinkedRow(
       supportHourais,
-      battle.support_hourai,
-      battleIndex,
+      effectiveBattle.support_hourai,
+      effectiveBattleIndex,
     );
     const resolvedSupportAirattack = resolveLinkedRow(
       supportAirattacks,
-      battle.support_airattack,
-      battleIndex,
+      effectiveBattle.support_airattack,
+      effectiveBattleIndex,
     );
     const resolvedNightSupportHourai = resolveLinkedRow(
       nightSupportHourais,
-      battle.night_support_hourai,
-      battleIndex,
+      effectiveBattle.night_support_hourai,
+      effectiveBattleIndex,
     );
     const resolvedNightSupportAirattack = resolveLinkedRow(
       nightSupportAirattacks,
-      battle.night_support_airattack,
-      battleIndex,
+      effectiveBattle.night_support_airattack,
+      effectiveBattleIndex,
     );
 
     const selectedFriendlySupportHouraiList = resolveLinkedRow(
       friendlySupportHouraiLists,
-      battle.friendly_force_attack,
-      battleIndex,
+      effectiveBattle.friendly_force_attack,
+      effectiveBattleIndex,
     );
     const friendlySupportHouraiUuid = String(
       selectedFriendlySupportHouraiList?.friendly_support_hourai ?? "",
     );
     const resolvedFriendlySupportHourai =
       findByUuid(friendlySupportHourais, friendlySupportHouraiUuid) ||
-      findByIndex(friendlySupportHourais, battleIndex);
+      findByIndex(friendlySupportHourais, effectiveBattleIndex);
 
     const resolvedMidnightHougekis = midnightHougekiDetailUuid
       ? midnightHougekis.filter(
@@ -3070,7 +3243,7 @@ app.get("/detail", async (c) => {
     const resolvedDestructionBattle =
       relatedCell && typeof relatedCell.destruction_battles === "string"
         ? findByUuid(destructionBattles, relatedCell.destruction_battles)
-        : findByIndex(destructionBattles, battleIndex);
+        : findByIndex(destructionBattles, effectiveBattleIndex);
 
     const mstShips = mstShipPayload.records || [];
     const mstSlotItems = mstSlotItemPayload.records || [];
@@ -3090,8 +3263,8 @@ app.get("/detail", async (c) => {
           }
         : null;
     const originalFriendlyForceAttack =
-      battle.friendly_force_attack && typeof battle.friendly_force_attack === "object"
-        ? (battle.friendly_force_attack as Record<string, unknown>)
+      effectiveBattle.friendly_force_attack && typeof effectiveBattle.friendly_force_attack === "object"
+        ? (effectiveBattle.friendly_force_attack as Record<string, unknown>)
         : null;
     const resolvedFriendlyForceAttack =
       resolvedFriendlySupportHourai || originalFriendlyForceAttack?.fleet_info
@@ -3105,13 +3278,19 @@ app.get("/detail", async (c) => {
         : null;
 
     const mergedBattle = {
-      ...battle,
+      ...effectiveBattle,
       timestamp:
-        normalizeTimestamp(battle.timestamp) ??
-        normalizeTimestamp(battle.midnight_timestamp),
-      maparea_id: Number(relatedCell?.maparea_id ?? battle.maparea_id ?? 0) || null,
-      mapinfo_no: Number(relatedCell?.mapinfo_no ?? battle.mapinfo_no ?? 0) || null,
-      battle_result: resolvedBattleResult || battle.battle_result || null,
+        normalizeTimestamp(effectiveBattle.timestamp) ??
+        normalizeTimestamp(effectiveBattle.midnight_timestamp),
+      cell_id:
+        (Number.isFinite(effectiveBattleCellId)
+          ? effectiveBattleCellId
+          : inferredCellIdFromRelated ?? effectiveBattle.cell_id ?? null),
+      maparea_id:
+        Number(relatedCell?.maparea_id ?? effectiveBattle.maparea_id ?? 0) || null,
+      mapinfo_no:
+        Number(relatedCell?.mapinfo_no ?? effectiveBattle.mapinfo_no ?? 0) || null,
+      battle_result: resolvedBattleResult || effectiveBattle.battle_result || null,
       air_base_assault: resolvedAirBaseAssault,
       air_base_air_attacks: resolvedAirBaseAirAttackList,
       carrier_base_assault: resolvedCarrierBaseAssault,
@@ -3122,13 +3301,24 @@ app.get("/detail", async (c) => {
       night_support_airattack: resolvedNightSupportAirattack,
       night_support_attack: resolvedNightSupportAttack,
       friendly_force_attack: resolvedFriendlyForceAttack,
-      midnight_hougeki: resolvedMidnightHougekis.length > 0 ? resolvedMidnightHougekis : battle.midnight_hougeki,
-      opening_taisen: resolvedOpeningTaisens.length > 0 ? resolvedOpeningTaisens : battle.opening_taisen,
-      hougeki: resolvedHougekis.length > 0 ? resolvedHougekis : battle.hougeki,
+      midnight_hougeki:
+        resolvedMidnightHougekis.length > 0
+          ? resolvedMidnightHougekis
+          : effectiveBattle.midnight_hougeki,
+      opening_taisen:
+        resolvedOpeningTaisens.length > 0
+          ? resolvedOpeningTaisens
+          : effectiveBattle.opening_taisen,
+      hougeki:
+        resolvedHougekis.length > 0
+          ? resolvedHougekis
+          : effectiveBattle.hougeki,
       opening_air_attack:
-        resolvedOpeningAirattacks.length > 0 ? resolvedOpeningAirattacks : battle.opening_air_attack,
-      opening_raigeki: resolvedOpeningRaigeki || battle.opening_raigeki,
-      closing_raigeki: resolvedClosingRaigeki || battle.closing_raigeki,
+        resolvedOpeningAirattacks.length > 0
+          ? resolvedOpeningAirattacks
+          : effectiveBattle.opening_air_attack,
+      opening_raigeki: resolvedOpeningRaigeki || effectiveBattle.opening_raigeki,
+      closing_raigeki: resolvedClosingRaigeki || effectiveBattle.closing_raigeki,
       destruction_battle:
         resolvedDestructionBattle || null,
     };
@@ -3152,11 +3342,40 @@ app.get("/detail", async (c) => {
       success: true,
       period_tag: periodTag,
       table_version: tableVersion || null,
-      battle_indexes: [...new Set(
-        battles
-          .map((row) => Number(row.index ?? Number.NaN))
-          .filter((idx) => Number.isFinite(idx) && idx >= 0),
-      )].sort((a, b) => a - b),
+      battle_indexes: (() => {
+        if (relatedCellIndexes.length > 0) {
+          return relatedCellIndexes
+            .map((cellId, ordinal) => ({ cellId, ordinal }))
+            .filter((entry) => selectBattleByCellId(entry.cellId) !== null)
+            .map((entry) => entry.ordinal);
+        }
+
+        const sortable = battles
+          .map((row) => ({
+            index: Number(row.index ?? Number.NaN),
+            ts:
+              normalizeTimestamp(row.timestamp) ??
+              normalizeTimestamp(row.midnight_timestamp),
+          }))
+          .filter(
+            (row) => Number.isFinite(row.index) && row.index >= 0,
+          )
+          .sort((a, b) => {
+            const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
+            const bTs = b.ts ?? Number.MAX_SAFE_INTEGER;
+            if (aTs !== bTs) return aTs - bTs;
+            return a.index - b.index;
+          });
+
+        const orderedIndexes: number[] = [];
+        const seenIndexes = new Set<number>();
+        for (const row of sortable) {
+          if (seenIndexes.has(row.index)) continue;
+          seenIndexes.add(row.index);
+          orderedIndexes.push(row.index);
+        }
+        return orderedIndexes;
+      })(),
       battle: mergedBattle,
       linked: {
         cells: relatedCell ? [relatedCell] : cells,
