@@ -15,6 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const KC_API_ROOT = resolve(__dirname, "..");
 const KC_API_DB_CRATE = resolve(KC_API_ROOT, "crates/kc-api-database");
 const OUTPUT_DIR = resolve(KC_API_ROOT, "generated-schemas");
+const PROTECTED_SCHEMA_VERSIONS = ["v0_4", "v0_5", "v0_5_1"];
 const FINGERPRINT_SCRIPT = resolve(
   KC_API_ROOT,
   "../FUSOU-WORKFLOW/scripts/compute-kc-api-fingerprints.mjs",
@@ -223,6 +224,62 @@ function generateFingerprints(schemaFiles) {
   console.log(`Fingerprints written: ${FINGERPRINT_OUTPUT}`);
 }
 
+function hashFileSha256(filePath) {
+  const result = runCapture("sha256sum", [filePath], { cwd: KC_API_ROOT });
+  if (result.error || result.status !== 0) {
+    throw new Error(`Failed to hash file: ${filePath}`);
+  }
+  const output = (result.stdout || "").trim();
+  return output.split(/\s+/)[0] || "";
+}
+
+function collectProtectedSchemaHashes() {
+  const map = new Map();
+  for (const version of PROTECTED_SCHEMA_VERSIONS) {
+    const schemaPath = resolve(OUTPUT_DIR, `schema_${version}.json`);
+    const hash = existsSync(schemaPath) ? hashFileSha256(schemaPath) : "";
+    map.set(version, { schemaPath, hash });
+  }
+  return map;
+}
+
+function ensureProtectedSchemasUnchanged(beforeHashes) {
+  if (process.env.ALLOW_LEGACY_SCHEMA_UPDATE === "1") {
+    return;
+  }
+
+  const changed = [];
+  for (const version of PROTECTED_SCHEMA_VERSIONS) {
+    const before = beforeHashes.get(version) || { schemaPath: "", hash: "" };
+    const afterHash = existsSync(before.schemaPath)
+      ? hashFileSha256(before.schemaPath)
+      : "";
+    if (before.hash !== afterHash) {
+      changed.push({
+        version,
+        schemaPath: before.schemaPath,
+        beforeHash: before.hash || "<missing>",
+        afterHash: afterHash || "<missing>",
+      });
+    }
+  }
+
+  if (changed.length === 0) {
+    return;
+  }
+
+  console.error("Protected legacy schema changed unexpectedly:");
+  for (const item of changed) {
+    console.error(`  schema_${item.version}.json`);
+    console.error(`    file  : ${item.schemaPath}`);
+    console.error(`    before: ${item.beforeHash}`);
+    console.error(`    after : ${item.afterHash}`);
+  }
+  throw new Error(
+    "Legacy schema snapshots changed. Re-run with ALLOW_LEGACY_SCHEMA_UPDATE=1 only if intentional.",
+  );
+}
+
 function main() {
   const cargoCheck = runCapture("cargo", ["--version"]);
   if (cargoCheck.error || cargoCheck.status !== 0) {
@@ -230,6 +287,7 @@ function main() {
   }
 
   mkdirSync(OUTPUT_DIR, { recursive: true });
+  const protectedSchemaHashesBefore = collectProtectedSchemaHashes();
 
   const versions = detectVersions();
   console.log(`Detected versions: ${versions.join(" ")}`);
@@ -275,6 +333,7 @@ function main() {
   }
 
   generateFingerprints(generatedSchemaFiles);
+  ensureProtectedSchemasUnchanged(protectedSchemaHashesBefore);
   console.log("Schema generation completed.");
 }
 

@@ -5,10 +5,44 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KC_API_ROOT="$(dirname "$SCRIPT_DIR")"
 OUTPUT_DIR="$KC_API_ROOT/generated-schemas"
 
+# Legacy schema snapshots must not drift accidentally.
+# Set ALLOW_LEGACY_SCHEMA_UPDATE=1 only when intentionally updating these files.
+PROTECTED_SCHEMA_VERSIONS=("v0_4" "v0_5" "v0_5_1")
+
 echo "Generating Avro schemas from kc-api-database..."
+
+declare -A PROTECTED_SCHEMA_HASH_BEFORE
+declare -A PROTECTED_SCHEMA_PATH
+
+compute_hash() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" | awk '{print $1}'
+        return
+    fi
+    if command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" | awk '{print $1}'
+        return
+    fi
+    if command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "$file" | awk '{print $NF}'
+        return
+    fi
+    echo ""
+}
 
 # Create output directory
 mkdir -p "$OUTPUT_DIR"
+
+for ver in "${PROTECTED_SCHEMA_VERSIONS[@]}"; do
+    path="$OUTPUT_DIR/schema_${ver}.json"
+    PROTECTED_SCHEMA_PATH["$ver"]="$path"
+    if [ -f "$path" ]; then
+        PROTECTED_SCHEMA_HASH_BEFORE["$ver"]="$(compute_hash "$path")"
+    else
+        PROTECTED_SCHEMA_HASH_BEFORE["$ver"]=""
+    fi
+done
 
 cd "$KC_API_ROOT/crates/kc-api-database"
 
@@ -169,4 +203,31 @@ if [ -f "$FINGERPRINT_SCRIPT" ]; then
 else
     echo ""
     echo "⚠️  Fingerprint script not found at $FINGERPRINT_SCRIPT; skipping"
+fi
+
+if [ "${ALLOW_LEGACY_SCHEMA_UPDATE:-0}" != "1" ]; then
+    LEGACY_CHANGED=0
+    for ver in "${PROTECTED_SCHEMA_VERSIONS[@]}"; do
+        path="${PROTECTED_SCHEMA_PATH[$ver]}"
+        before="${PROTECTED_SCHEMA_HASH_BEFORE[$ver]}"
+        after=""
+        if [ -f "$path" ]; then
+            after="$(compute_hash "$path")"
+        fi
+        if [ "$before" != "$after" ]; then
+            echo ""
+            echo "❌ Protected legacy schema changed: schema_${ver}.json"
+            echo "   File: $path"
+            echo "   before: ${before:-<missing>}"
+            echo "   after : ${after:-<missing>}"
+            LEGACY_CHANGED=1
+        fi
+    done
+
+    if [ "$LEGACY_CHANGED" -eq 1 ]; then
+        echo ""
+        echo "Refusing to continue because legacy schema snapshots changed unexpectedly."
+        echo "If this was intentional, re-run with ALLOW_LEGACY_SCHEMA_UPDATE=1."
+        exit 1
+    fi
 fi
