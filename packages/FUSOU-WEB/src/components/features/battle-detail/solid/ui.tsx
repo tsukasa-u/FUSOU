@@ -119,12 +119,16 @@ export function slotItemMeta(
   return { name: String(mst.name ?? ""), iconType };
 }
 
-function normalizeSlotIds(slotIds: unknown[]): number[] {
+function normalizeSlotIds(
+  slotIds: unknown[],
+  options?: { preserveDuplicates?: boolean },
+): number[] {
   const flat = slotIds.flatMap((id) => {
-    if (Array.isArray(id)) return normalizeSlotIds(id);
+    if (Array.isArray(id)) return normalizeSlotIds(id, options);
     const n = Number(id ?? 0);
     return Number.isFinite(n) && n > 0 ? [n] : [];
   });
+  if (options?.preserveDuplicates) return flat;
   return [...new Set(flat)];
 }
 
@@ -210,9 +214,12 @@ export function EquipmentBadge(props: {
 export function EquipmentBadgesFromSlotIds(props: {
   slotIds: unknown[];
   mstSlotItemById: Map<number, Record<string, unknown>> | null;
+  preserveDuplicates?: boolean;
 }): JSX.Element {
   const items = () =>
-    normalizeSlotIds(props.slotIds ?? [])
+    normalizeSlotIds(props.slotIds ?? [], {
+      preserveDuplicates: props.preserveDuplicates,
+    })
       .map((id) => slotItemMeta(id, props.mstSlotItemById))
       .filter((m) => m.name);
   return (

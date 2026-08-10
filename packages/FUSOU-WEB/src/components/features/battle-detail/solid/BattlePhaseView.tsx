@@ -370,6 +370,7 @@ function AirAttackBatchRows(props: {
           ? "基地航空隊"
           : "友軍艦載機"
         : "敵艦載機";
+    const preserveFormationDuplicates = ev.actorRole === "airbase";
 
     return (
       <div class="space-y-1">
@@ -381,6 +382,7 @@ function AirAttackBatchRows(props: {
             <EquipmentBadgesFromSlotIds
               slotIds={slotIds}
               mstSlotItemById={props.mstSlotItemById}
+              preserveDuplicates={preserveFormationDuplicates}
             />
           </div>
         </Show>
@@ -667,6 +669,7 @@ function UnifiedAttackRows(props: {
                             <EquipmentBadgesFromSlotIds
                               slotIds={ev.slotItems}
                               mstSlotItemById={props.mstSlotItemById}
+                              preserveDuplicates={ev.actorRole === "airbase"}
                             />
                           </div>
                         </Show>
@@ -695,6 +698,7 @@ function UnifiedAttackRows(props: {
                           <EquipmentBadgesFromSlotIds
                             slotIds={ev.slotItems}
                             mstSlotItemById={props.mstSlotItemById}
+                            preserveDuplicates={ev.actorRole === "airbase"}
                           />
                         </div>
                       </Show>

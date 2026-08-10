@@ -29,7 +29,7 @@ import {
   getWeaponIconFrames,
 } from "@/features/battles/data-service";
 import { bannerUrl } from "@/features/simulator/equip-calc";
-import { ShipBanner, ShipRows } from "./ui";
+import { EquipmentBadge, ShipBanner, ShipRows, slotItemMeta } from "./ui";
 import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
@@ -70,6 +70,78 @@ type GlobalLatestPayload = {
 type BattleOverviewPayload = {
   battles?: Array<Record<string, unknown>>;
 };
+
+type AirBaseFormation = {
+  baseNo: number | null;
+  slotItemIds: number[];
+};
+
+function toPositiveNumberArray(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => Number(entry ?? Number.NaN))
+    .filter((entry) => Number.isFinite(entry) && entry > 0);
+}
+
+function resolveAirBaseFormations(
+  battle: Record<string, unknown> | null,
+): AirBaseFormation[] {
+  if (!battle) return [];
+
+  const formations: AirBaseFormation[] = [];
+  const seenBaseNos = new Set<number>();
+  const register = (baseNo: number | null, slotItemIds: number[]) => {
+    if (slotItemIds.length === 0) return;
+    if (baseNo !== null) {
+      if (seenBaseNos.has(baseNo)) return;
+      seenBaseNos.add(baseNo);
+    }
+    formations.push({ baseNo, slotItemIds });
+  };
+
+  const rawAirBaseAttacks = battle.air_base_air_attacks as
+    | unknown[]
+    | { attacks?: unknown[] }
+    | null
+    | undefined;
+  const attacks = Array.isArray(rawAirBaseAttacks)
+    ? rawAirBaseAttacks
+    : Array.isArray(rawAirBaseAttacks?.attacks)
+      ? rawAirBaseAttacks.attacks
+      : [];
+
+  for (const attack of attacks) {
+    if (!attack || typeof attack !== "object") continue;
+    const row = attack as Record<string, unknown>;
+    const slotItemIds = toPositiveNumberArray(row.squadron_plane);
+    const rawBaseNo = Number(row.airbase_base_no ?? row.base_id ?? Number.NaN);
+    const baseNo =
+      Number.isFinite(rawBaseNo) && rawBaseNo > 0 ? Math.trunc(rawBaseNo) : null;
+    register(baseNo, slotItemIds);
+  }
+
+  const assault =
+    battle.air_base_assault && typeof battle.air_base_assault === "object"
+      ? (battle.air_base_assault as Record<string, unknown>)
+      : null;
+  const assaultSquadron = toPositiveNumberArray(assault?.squadron_plane);
+  const assaultBaseNos = toPositiveNumberArray(assault?.airbase_base_nos);
+  if (assaultSquadron.length > 0) {
+    if (assaultBaseNos.length > 0) {
+      for (const baseNo of assaultBaseNos) {
+        register(baseNo, assaultSquadron);
+      }
+    } else if (formations.length === 0) {
+      register(null, assaultSquadron);
+    }
+  }
+
+  return formations.sort((a, b) => {
+    const aNo = a.baseNo ?? Number.MAX_SAFE_INTEGER;
+    const bNo = b.baseNo ?? Number.MAX_SAFE_INTEGER;
+    return aNo - bNo;
+  });
+}
 
 function uniqueBattleIndexesInOrder(values: Array<unknown>): number[] {
   const ordered: number[] = [];
@@ -359,6 +431,11 @@ export default function BattleDetailPanel(props: {
     if (!drop) return null;
     return drop;
   });
+
+  const airBaseFormations = createMemo(() => resolveAirBaseFormations(battle()));
+  const hasAirBaseStrikeFormations = createMemo(
+    () => airBaseFormations().length > 0,
+  );
 
   const FleetFallback = (props: { emptyLabel: string }) => (
     <div class="flex items-center justify-center py-6 text-base-content/40">
@@ -854,7 +931,9 @@ export default function BattleDetailPanel(props: {
             </div>
 
             {/* HP Gauges */}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+            <div
+              class={`grid grid-cols-1 ${hasAirBaseStrikeFormations() ? "lg:grid-cols-3" : "lg:grid-cols-2"} gap-4 mb-6`}
+            >
               <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
                   <h3 class="font-bold text-sm text-base-content/60 mb-2">
@@ -890,6 +969,51 @@ export default function BattleDetailPanel(props: {
                   </div>
                 </div>
               </div>
+              <Show when={hasAirBaseStrikeFormations()}>
+                <div class="card bg-base-100 shadow-sm">
+                  <div class="card-body p-4">
+                    <h3 class="font-bold text-sm text-base-content/60 mb-2">
+                      基地航空隊
+                    </h3>
+                    <div class="space-y-2">
+                      <div class="mb-2 flex flex-wrap gap-2 text-[11px]">
+                        <span class="badge badge-outline">
+                          基地 {airBaseFormations().length}隊
+                        </span>
+                      </div>
+                      <For each={airBaseFormations()}>
+                        {(formation) => (
+                          <div class="rounded-box bg-base-200 p-2">
+                            <div class="text-[11px] text-base-content/60 mb-1 font-semibold">
+                              <Show
+                                when={formation.baseNo != null}
+                                fallback={<span>基地航空隊</span>}
+                              >
+                                第{formation.baseNo}基地
+                              </Show>
+                            </div>
+                            <div class="mt-1 flex flex-wrap gap-1 text-[11px] text-base-content/75">
+                              <For each={formation.slotItemIds}>
+                                {(slotItemId) => {
+                                  const meta = createMemo(() =>
+                                    slotItemMeta(slotItemId, mstSlotItemById()),
+                                  );
+                                  return (
+                                    <EquipmentBadge
+                                      name={meta().name || `装備#${slotItemId}`}
+                                      iconType={meta().iconType}
+                                    />
+                                  );
+                                }}
+                              </For>
+                            </div>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </div>
+                </div>
+              </Show>
             </div>
 
             {/* Battle Phases / Timeline */}

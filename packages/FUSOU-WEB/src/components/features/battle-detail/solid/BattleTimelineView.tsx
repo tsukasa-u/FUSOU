@@ -755,8 +755,10 @@ export default function BattleTimelineView(props: {
                     : "border-t border-t-base-300/20";
 
                 const ciItems = Array.isArray(ev.slotItems)
-                  ? ev.slotItems.filter((id) => Number(id) > 0).slice(0, 3)
+                  ? ev.slotItems.filter((id) => Number(id) > 0)
                   : [];
+                const visibleCiItems =
+                  ev.actorRole === "airbase" ? ciItems : ciItems.slice(0, 3);
 
                 return (
                   <Show
@@ -853,11 +855,12 @@ export default function BattleTimelineView(props: {
                           -{ev.damage}
                         </span>
                       </Show>
-                      <Show when={ciItems.length > 0}>
+                      <Show when={visibleCiItems.length > 0}>
                         <span class="inline-flex shrink-0 items-center gap-0.5 text-[9px]">
                           <EquipmentBadgesFromSlotIds
-                            slotIds={ciItems}
+                            slotIds={visibleCiItems}
                             mstSlotItemById={props.mstSlotItemById}
+                            preserveDuplicates={ev.actorRole === "airbase"}
                           />
                         </span>
                       </Show>

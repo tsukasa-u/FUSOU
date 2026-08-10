@@ -482,6 +482,39 @@ function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
   return [];
 }
 
+function collectPositiveIdsToSet(
+  value: unknown,
+  target: Set<number>,
+): void {
+  if (!Array.isArray(value)) return;
+  for (const entry of value) {
+    const id = Number(entry ?? 0);
+    if (Number.isFinite(id) && id > 0) target.add(id);
+  }
+}
+
+function toAirBaseAttackRows(
+  raw: unknown,
+): Array<Record<string, unknown>> {
+  if (Array.isArray(raw)) {
+    return raw.filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    );
+  }
+  if (
+    raw &&
+    typeof raw === "object" &&
+    Array.isArray((raw as { attacks?: unknown[] }).attacks)
+  ) {
+    return ((raw as { attacks?: unknown[] }).attacks || []).filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null,
+    );
+  }
+  return [];
+}
+
 function hpScoreForBattleQuery(
   ships: Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
   hpSnapshot: unknown[],
@@ -2700,7 +2733,7 @@ app.get("/detail", async (c) => {
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
-  cacheUrl.searchParams.set("_cache_v", "5");
+  cacheUrl.searchParams.set("_cache_v", "7");
   const cacheKey = new Request(cacheUrl.toString(), { method: "GET" });
 
   if (!envUuid) {
@@ -2750,7 +2783,7 @@ app.get("/detail", async (c) => {
       (row) => Number(row.index ?? Number.NaN) === battleIndex,
     );
 
-    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
+    const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, airBaseAirAttacks, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
         fetchGlobalRecordsInternal(c, {
           table: "cells",
@@ -2831,6 +2864,7 @@ app.get("/detail", async (c) => {
         }),
         envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
@@ -2921,6 +2955,18 @@ app.get("/detail", async (c) => {
     ): Record<string, unknown> | null => {
       if (!uuid) return null;
       return records.find((row) => String(row.uuid ?? "") === uuid) || null;
+    };
+
+    const findAllByUuid = (
+      records: Array<Record<string, unknown>>,
+      uuid: string,
+    ): Array<Record<string, unknown>> => {
+      if (!uuid) return [];
+      return records
+        .filter((row) => String(row.uuid ?? "") === uuid)
+        .sort(
+          (a, b) => Number(a.index ?? Number.NaN) - Number(b.index ?? Number.NaN),
+        );
     };
 
     const findByIndex = (
@@ -3181,6 +3227,22 @@ app.get("/detail", async (c) => {
         effectiveBattle.air_base_air_attacks,
         effectiveBattleIndex,
       ) || effectiveBattle.air_base_air_attacks;
+    const resolvedAirBaseAirAttackUuids = toGroupIdsForBattleQuery(
+      (resolvedAirBaseAirAttackList as Record<string, unknown> | null)
+        ?.air_base_air_attack,
+    );
+    const resolvedAirBaseAirAttacks = resolvedAirBaseAirAttackUuids.flatMap(
+      (uuid) => findAllByUuid(airBaseAirAttacks, uuid),
+    );
+    const resolvedAirBaseAirAttacksPayload =
+      resolvedAirBaseAirAttackList &&
+      typeof resolvedAirBaseAirAttackList === "object" &&
+      !Array.isArray(resolvedAirBaseAirAttackList)
+        ? {
+            ...(resolvedAirBaseAirAttackList as Record<string, unknown>),
+            attacks: resolvedAirBaseAirAttacks,
+          }
+        : resolvedAirBaseAirAttackList;
     const resolvedCarrierBaseAssault =
       resolveLinkedRow(
         carrierBaseAssaults,
@@ -3292,7 +3354,7 @@ app.get("/detail", async (c) => {
         Number(relatedCell?.mapinfo_no ?? effectiveBattle.mapinfo_no ?? 0) || null,
       battle_result: resolvedBattleResult || effectiveBattle.battle_result || null,
       air_base_assault: resolvedAirBaseAssault,
-      air_base_air_attacks: resolvedAirBaseAirAttackList,
+      air_base_air_attacks: resolvedAirBaseAirAttacksPayload,
       carrier_base_assault: resolvedCarrierBaseAssault,
       support_hourai: resolvedSupportHourai,
       support_airattack: resolvedSupportAirattack,
@@ -3336,6 +3398,20 @@ app.get("/detail", async (c) => {
     for (const row of [...ownSlotItems, ...enemySlotItems]) {
       const slotItemId = Number(row.mst_slotitem_id ?? 0);
       if (slotItemId > 0) relevantSlotItemIds.add(slotItemId);
+    }
+
+    for (const attack of toAirBaseAttackRows(mergedBattle.air_base_air_attacks)) {
+      collectPositiveIdsToSet(attack.squadron_plane, relevantSlotItemIds);
+    }
+
+    if (
+      mergedBattle.air_base_assault &&
+      typeof mergedBattle.air_base_assault === "object"
+    ) {
+      collectPositiveIdsToSet(
+        (mergedBattle.air_base_assault as Record<string, unknown>).squadron_plane,
+        relevantSlotItemIds,
+      );
     }
 
     const payload = {
@@ -3399,6 +3475,7 @@ app.get("/detail", async (c) => {
         destruction_battle: resolvedDestructionBattle ? [resolvedDestructionBattle] : [],
         airbase_assult: airBaseAssaults,
         airbase_airattack_list: airBaseAirAttackLists,
+        airbase_airattack: resolvedAirBaseAirAttacks,
         carrierbase_assault: carrierBaseAssaults,
         support_hourai: resolvedSupportHourai ? [resolvedSupportHourai] : [],
         support_airattack: resolvedSupportAirattack ? [resolvedSupportAirattack] : [],

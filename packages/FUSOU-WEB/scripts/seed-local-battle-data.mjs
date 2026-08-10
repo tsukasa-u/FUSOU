@@ -259,6 +259,24 @@ function d1Query(dbName, sql, remote = false) {
   return parsed?.[0]?.results || [];
 }
 
+function fetchAllowedPeriodTagSetFromRemoteD1(dbName, tables) {
+  const tableListSql = (Array.isArray(tables) ? tables : DEFAULT_TABLES)
+    .map((t) => `'${esc(t)}'`)
+    .join(",");
+  const sql = `
+SELECT DISTINCT period_tag
+FROM block_indexes
+WHERE table_name IN (${tableListSql})
+ORDER BY period_tag DESC
+LIMIT ${PERIOD_TAG_FETCH_LIMIT};`;
+
+  const rows = d1Query(dbName, sql, true);
+  const tags = (Array.isArray(rows) ? rows : [])
+    .map((row) => String(row?.period_tag || "").trim())
+    .filter((tag) => isValidPeriodTagDate(tag));
+  return new Set(tags);
+}
+
 function ensureLocalSchema(dbName) {
   const schemaSql = `
 CREATE TABLE IF NOT EXISTS archived_files (
@@ -552,7 +570,19 @@ function seedLocalD1(db, rows, tables, period, uploadedPaths) {
 
 async function main() {
   const opts = parseArgs();
-  const allowedPeriodTagSet = await fetchAllowedPeriodTagSetFromSupabase();
+  let allowedPeriodTagSet;
+  try {
+    allowedPeriodTagSet = await fetchAllowedPeriodTagSetFromSupabase();
+  } catch (e) {
+    const reason = e?.message || String(e);
+    console.warn(
+      `[seed-local-battle-data] Supabase period-tag fetch failed (${reason}). Falling back to remote D1 period_tag set.`,
+    );
+    allowedPeriodTagSet = fetchAllowedPeriodTagSetFromRemoteD1(
+      opts.db,
+      opts.tables,
+    );
+  }
 
   console.log("=== Local Battle Data Seeder ===");
   console.log(`Bucket: ${opts.bucket}`);
