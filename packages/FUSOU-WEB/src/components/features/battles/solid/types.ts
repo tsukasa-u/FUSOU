@@ -7,6 +7,7 @@ export type MasterDataStatusItem = {
   name: string;
   status: "pending" | "success" | "failed";
   detail?: string;
+  diagnostic?: string;
 };
 
 export type SharedDashboardState = {

@@ -18,6 +18,8 @@
     "preview": "CLOUDFLARE_INCLUDE_PROCESS_ENV=true dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
     "test:battle-data": "vitest run --passWithNoTests src/server/routes/__tests__/battle_data.integration.test.ts",
+    "test:local-avro": "vitest run src/features/battles/local-directory src/features/battles/local-worker src/features/battles/repository src/features/battles/resolvers",
+    "e2e:battles:local-avro": "playwright test -c playwright.config.ts e2e/battles.local-avro.spec.ts",
     "e2e:simulator": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- playwright test -c playwright.config.ts e2e/simulator.spec.ts",
     "e2e:simulator:smoke": "playwright test -c playwright.config.ts e2e/simulator.smoke.spec.ts",
     "e2e:simulator:headed": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- playwright test -c playwright.config.ts e2e/simulator.spec.ts --headed",
