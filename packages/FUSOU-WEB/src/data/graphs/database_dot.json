@@ -33,14 +33,6 @@
       "targetHandle": "models__battle__AirBaseAirAttack-AirBaseAirAttackId"
     },
     {
-      "id": "e-models__battle__AirBaseAssult-airbase_ids-models__airbase__AirBase-AirBase",
-      "label": "airbase_ids",
-      "source": "models__battle__AirBaseAssult",
-      "sourceHandle": "models__battle__AirBaseAssult-airbase_ids",
-      "target": "models__airbase__AirBase",
-      "targetHandle": "models__airbase__AirBase-AirBase"
-    },
-    {
       "id": "e-models__battle__Battle-air_base_air_attacks-models__battle__AirBaseAirAttackList-AirBaseAirAttackListId",
       "label": "air_base_air_attacks",
       "source": "models__battle__Battle",
@@ -425,6 +417,13 @@
             "isEnvRef": false,
             "isFk": false,
             "isKey": false,
+            "name": "base_no",
+            "type": "Option<i32>"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
             "name": "distance",
             "type": "i32"
           },
@@ -541,6 +540,13 @@
     {
       "data": {
         "fields": [
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "airbase_base_no",
+            "type": "Option<i32>"
+          },
           {
             "isEnvRef": false,
             "isFk": true,
@@ -803,10 +809,10 @@
         "fields": [
           {
             "isEnvRef": false,
-            "isFk": true,
+            "isFk": false,
             "isKey": false,
-            "name": "airbase_ids",
-            "type": "Option<Vec<AirBaseId>>"
+            "name": "airbase_base_nos",
+            "type": "Option<Vec<i32>>"
           },
           {
             "isEnvRef": false,
@@ -1926,6 +1932,13 @@
             "isKey": false,
             "name": "env_uuid",
             "type": "EnvInfoId"
+          },
+          {
+            "isEnvRef": false,
+            "isFk": false,
+            "isKey": false,
+            "name": "f_airbase_base_nos",
+            "type": "Option<Vec<i32>>"
           },
           {
             "isEnvRef": false,

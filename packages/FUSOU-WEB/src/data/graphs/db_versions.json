@@ -199,9 +199,7 @@
           "airbase_base_nos"
         ],
         "changedFields": [],
-        "removedFields": [
-          "airbase_ids"
-        ],
+        "removedFields": [],
         "status": "changed"
       },
       "battle_result": {
