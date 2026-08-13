@@ -31,10 +31,12 @@ import {
 import { buildTableIndex, type TableIndex } from "./indexes";
 import { expectedSchemaNameForTable } from "./schema-registry";
 import {
+  DEFAULT_LOCAL_AVRO_LOAD_LIMITS,
   MAX_DECODE_CONCURRENCY,
   MAX_FILE_BYTES,
   MAX_MANIFEST_FILES,
-  MAX_QUERY_RECORDS,
+  normalizeLocalAvroLoadLimits,
+  type LocalAvroLoadLimits,
 } from "../local-directory/limits";
 
 export type WorkerProgressReporter = (
@@ -221,6 +223,9 @@ export class LocalWorkerSession {
   private readonly cache = new Map<string, CachedTable>();
   private readonly pending = new Map<string, Promise<TableIndex>>();
   private readonly cancelled = new Set<string>();
+  private readonly observedEntrySizes = new Map<string, number>();
+  private observedTotalBytes = 0;
+  private limits: LocalAvroLoadLimits = DEFAULT_LOCAL_AVRO_LOAD_LIMITS;
   private disposed = false;
 
   initialize(manifest: SerializableManifest): {
@@ -231,6 +236,14 @@ export class LocalWorkerSession {
       throw new LocalBattleError(
         "FILE_LIMIT_EXCEEDED",
         "ローカル AVRO のファイル数が上限を超えています。",
+      );
+    }
+    this.limits = normalizeLocalAvroLoadLimits(manifest.limits);
+    const manifestBytes = manifest.entries.reduce((total, entry) => total + entry.size, 0);
+    if (manifestBytes > this.limits.maxManifestBytes) {
+      throw new LocalBattleError(
+        "OUT_OF_MEMORY_GUARD",
+        "ローカル AVRO の合計サイズが上限を超えています。",
       );
     }
 
@@ -255,6 +268,8 @@ export class LocalWorkerSession {
     this.cache.clear();
     this.pending.clear();
     this.cancelled.clear();
+    this.observedEntrySizes.clear();
+    this.observedTotalBytes = 0;
     this.manifest = manifest;
     this.disposed = false;
     return { fingerprint: manifest.fingerprint, fileCount: manifest.entries.length };
@@ -263,14 +278,31 @@ export class LocalWorkerSession {
   listPeriods(table: string) {
     this.ensureReady();
     this.ensurePublicTable(table);
-    const periods = new Set(
-      this.manifest!.entries
-        .filter((entry) => entry.storageKind === "transaction_data" && entry.table === table)
-        .map((entry) => entry.periodTag),
-    );
-    return [...periods]
+    const periodVersions = new Map<string, Set<string>>();
+    for (const entry of this.manifest!.entries) {
+      if (entry.storageKind !== "transaction_data" || entry.table !== table) continue;
+      const versions = periodVersions.get(entry.periodTag) ?? new Set<string>();
+      if (entry.tableVersion) versions.add(entry.tableVersion);
+      periodVersions.set(entry.periodTag, versions);
+    }
+    return [...periodVersions.keys()]
       .sort((left, right) => right.localeCompare(left))
-      .map((periodTag) => ({ periodTag, tableVersion: null }));
+      .map((periodTag) => {
+        const versions = [...periodVersions.get(periodTag)!];
+        const entries = this.manifest!.entries.filter(
+          (entry) =>
+            entry.storageKind === "transaction_data" &&
+            entry.table === table &&
+            entry.periodTag === periodTag,
+        );
+        return {
+          periodTag,
+          tableVersion:
+            entries.every((entry) => entry.tableVersion) && versions.length === 1
+              ? versions[0]
+              : null,
+        };
+      });
   }
 
   async records(
@@ -286,8 +318,8 @@ export class LocalWorkerSession {
         "ローカル AVRO は period tier のみサポートします。",
       );
     }
-    const limit = query.limitRecords ?? MAX_QUERY_RECORDS;
-    if (!Number.isSafeInteger(limit) || limit < 0 || limit > MAX_QUERY_RECORDS) {
+    const limit = query.limitRecords ?? this.limits.maxQueryRecords;
+    if (!Number.isSafeInteger(limit) || limit < 0 || limit > this.limits.maxQueryRecords) {
       throw new LocalBattleError(
         "OUT_OF_MEMORY_GUARD",
         "ローカル AVRO query の record limit が上限を超えています。",
@@ -297,6 +329,7 @@ export class LocalWorkerSession {
     const records = await this.loadRows(
       query.table,
       query.periodTag,
+      query.tableVersion,
       requestId,
       reportProgress,
     );
@@ -306,7 +339,7 @@ export class LocalWorkerSession {
       success: true,
       table: query.table,
       period_tag: query.periodTag,
-      table_version: null,
+      table_version: this.resolveTableVersion(query.table, query.periodTag, query.tableVersion),
       count: limited.length,
       records: limited,
     };
@@ -319,9 +352,9 @@ export class LocalWorkerSession {
   ) {
     this.ensureReady();
     const [battles, cells, battleResults] = await Promise.all([
-      this.loadRows("battle", query.periodTag, requestId, reportProgress),
-      this.loadOptionalRows("cells", query.periodTag, requestId, reportProgress),
-      this.loadOptionalRows("battle_result", query.periodTag, requestId, reportProgress),
+      this.loadRows("battle", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("cells", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("battle_result", query.periodTag, query.tableVersion, requestId, reportProgress),
     ]);
     const deckIds = new Set(
       battles
@@ -331,6 +364,7 @@ export class LocalWorkerSession {
     const allEnemyDecks = await this.loadOptionalRows(
       "enemy_deck",
       "all",
+      query.tableVersion,
       requestId,
       reportProgress,
     );
@@ -347,6 +381,7 @@ export class LocalWorkerSession {
     const allEnemyShips = await this.loadOptionalRows(
       "enemy_ship",
       "all",
+      query.tableVersion,
       requestId,
       reportProgress,
     );
@@ -354,7 +389,7 @@ export class LocalWorkerSession {
 
     return buildBattleOverviewPayload({
       periodTag: query.periodTag,
-      tableVersion: null,
+      tableVersion: this.resolveTableVersion("battle", query.periodTag, query.tableVersion),
       battles,
       cells,
       battleResults,
@@ -371,13 +406,13 @@ export class LocalWorkerSession {
   ) {
     this.ensureReady();
     const [battles, cells, battleResults] = await Promise.all([
-      this.loadRows("battle", query.periodTag, requestId, reportProgress),
-      this.loadOptionalRows("cells", query.periodTag, requestId, reportProgress),
-      this.loadOptionalRows("battle_result", query.periodTag, requestId, reportProgress),
+      this.loadRows("battle", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("cells", query.periodTag, query.tableVersion, requestId, reportProgress),
+      this.loadOptionalRows("battle_result", query.periodTag, query.tableVersion, requestId, reportProgress),
     ]);
     return buildBattleDropsPayload({
       periodTag: query.periodTag,
-      tableVersion: null,
+      tableVersion: this.resolveTableVersion("battle", query.periodTag, query.tableVersion),
       battles,
       cells,
       battleResults,
@@ -402,6 +437,7 @@ export class LocalWorkerSession {
       this.loadDetailRows(
         table,
         query.periodTag,
+        query.tableVersion,
         query.envUuid,
         query.battleIndex,
         references,
@@ -412,6 +448,7 @@ export class LocalWorkerSession {
       this.loadDetailRows(
         "battle",
         query.periodTag,
+        query.tableVersion,
         query.envUuid,
         query.battleIndex,
         [],
@@ -600,7 +637,7 @@ export class LocalWorkerSession {
     };
     const resolved = resolveBattleDetail({
       periodTag: query.periodTag,
-      tableVersion: null,
+      tableVersion: this.resolveTableVersion("battle", query.periodTag, query.tableVersion),
       envUuid: query.envUuid,
       battleIndex: query.battleIndex,
       masterShips: query.masterShips || [],
@@ -633,6 +670,7 @@ export class LocalWorkerSession {
     cacheKey: string,
     table: string,
     periodTag: string,
+    tableVersion: string | undefined,
     requestId: string,
     reportProgress: WorkerProgressReporter,
     rowMatcher?: RowMatcher,
@@ -642,7 +680,14 @@ export class LocalWorkerSession {
     const existing = this.pending.get(cacheKey);
     if (existing) return existing;
 
-    const load = this.decodeTable(table, periodTag, requestId, reportProgress, rowMatcher)
+    const load = this.decodeTable(
+      table,
+      periodTag,
+      tableVersion,
+      requestId,
+      reportProgress,
+      rowMatcher,
+    )
       .then((rows) => {
         const index = buildTableIndex(table, rows);
         this.cache.set(cacheKey, { key: cacheKey, index });
@@ -656,13 +701,15 @@ export class LocalWorkerSession {
   private async loadRows(
     table: string,
     periodTag: string,
+    tableVersion: string | undefined,
     requestId: string,
     reportProgress: WorkerProgressReporter,
   ): Promise<AvroJsonRecord[]> {
     const index = await this.loadTable(
-      this.cacheKey(table, periodTag),
+      this.cacheKey(table, periodTag, tableVersion),
       table,
       periodTag,
+      tableVersion,
       requestId,
       reportProgress,
     );
@@ -672,13 +719,14 @@ export class LocalWorkerSession {
   private async loadDetailRows(
     table: string,
     periodTag: string,
+    tableVersion: string | undefined,
     envUuid: string,
     battleIndex: number,
     references: unknown[],
     requestId: string,
     reportProgress: WorkerProgressReporter,
   ): Promise<AvroJsonRecord[]> {
-    if (this.entriesFor(table, periodTag).length === 0) return [];
+    if (this.entriesFor(table, periodTag, tableVersion).length === 0) return [];
     const referenceUuids = new Set(
       references.flatMap((reference) => referenceIds(reference)),
     );
@@ -686,13 +734,14 @@ export class LocalWorkerSession {
       const belongsToEnvironment = String(row.env_uuid ?? "") === envUuid;
       return belongsToEnvironment || (typeof row.uuid === "string" && referenceUuids.has(row.uuid));
     };
-    const fullCache = this.cache.get(this.cacheKey(table, periodTag));
+    const fullCache = this.cache.get(this.cacheKey(table, periodTag, tableVersion));
     if (fullCache) return fullCache.index.rows.filter(matcher);
     const filterKey = [envUuid, battleIndex, ...[...referenceUuids].sort()].join("\0");
     const index = await this.loadTable(
-      `${this.cacheKey(table, periodTag)}\0detail\0${filterKey}`,
+      `${this.cacheKey(table, periodTag, tableVersion)}\0detail\0${filterKey}`,
       table,
       periodTag,
+      tableVersion,
       requestId,
       reportProgress,
       matcher,
@@ -703,21 +752,23 @@ export class LocalWorkerSession {
   private async loadOptionalRows(
     table: string,
     periodTag: string,
+    tableVersion: string | undefined,
     requestId: string,
     reportProgress: WorkerProgressReporter,
   ): Promise<AvroJsonRecord[]> {
-    if (this.entriesFor(table, periodTag).length === 0) return [];
-    return this.loadRows(table, periodTag, requestId, reportProgress);
+    if (this.entriesFor(table, periodTag, tableVersion).length === 0) return [];
+    return this.loadRows(table, periodTag, tableVersion, requestId, reportProgress);
   }
 
   private async decodeTable(
     table: string,
     periodTag: string,
+    tableVersion: string | undefined,
     requestId: string,
     reportProgress: WorkerProgressReporter,
     rowMatcher?: RowMatcher,
   ): Promise<AvroJsonRecord[]> {
-    const entries = this.entriesFor(table, periodTag);
+    const entries = this.entriesFor(table, periodTag, tableVersion);
     if (entries.length === 0) {
       throw new LocalBattleError(
         "NO_BATTLE_DATA",
@@ -740,11 +791,25 @@ export class LocalWorkerSession {
           if (bytes.byteLength > MAX_FILE_BYTES) {
             throw new LocalBattleError("FILE_TOO_LARGE", "ローカル AVRO ファイルが上限を超えています。");
           }
+          const previousSize = this.observedEntrySizes.get(entry.id) ?? 0;
+          const observedTotalBytes =
+            this.observedTotalBytes - previousSize + bytes.byteLength;
+          if (observedTotalBytes > this.limits.maxManifestBytes) {
+            throw new LocalBattleError(
+              "OUT_OF_MEMORY_GUARD",
+              "ローカル AVRO の実ファイル合計サイズが上限を超えています。",
+            );
+          }
+          this.observedEntrySizes.set(entry.id, bytes.byteLength);
+          this.observedTotalBytes = observedTotalBytes;
           validateSchema(table, bytes);
-          const decodedRows = decodeAvroOcfToJson(bytes);
-          const matchedRows = rowMatcher ? decodedRows.filter(rowMatcher) : decodedRows;
+          const decodedRows = decodeAvroOcfToJson(bytes, {
+            maxRecords: this.limits.maxQueryRecords,
+            recordFilter: rowMatcher,
+          });
+          const matchedRows = decodedRows;
           decoded += matchedRows.length;
-          if (decoded > MAX_QUERY_RECORDS) {
+          if (decoded > this.limits.maxQueryRecords) {
             throw new LocalBattleError(
               "OUT_OF_MEMORY_GUARD",
               "local AVRO query の decoded record 数が上限を超えています。",
@@ -752,7 +817,7 @@ export class LocalWorkerSession {
           }
           rows.push(...matchedRows);
           completedEntries += 1;
-          completedBytes += entry.size;
+          completedBytes += bytes.byteLength;
           reportProgress("decode", completedEntries, entries.length, table, {
             completedBytes,
             totalBytes,
@@ -782,9 +847,16 @@ export class LocalWorkerSession {
     return rows;
   }
 
-  private entriesFor(table: string, periodTag: string): LocalManifestEntry[] {
+  private entriesFor(
+    table: string,
+    periodTag: string,
+    tableVersion?: string,
+  ): LocalManifestEntry[] {
     const entries = this.manifest!.entries.filter(
-      (entry) => entry.storageKind === "transaction_data" && entry.table === table,
+      (entry) =>
+        entry.storageKind === "transaction_data" &&
+        entry.table === table &&
+        (!tableVersion || entry.tableVersion === tableVersion),
     );
     if (periodTag === "all") return entries.sort(compareEntries);
     if (periodTag === "latest") {
@@ -797,8 +869,23 @@ export class LocalWorkerSession {
     return entries.filter((entry) => entry.periodTag === periodTag).sort(compareEntries);
   }
 
-  private cacheKey(table: string, periodTag: string): string {
-    return `${this.manifest!.fingerprint}/period/${periodTag}/${table}`;
+  private cacheKey(table: string, periodTag: string, tableVersion?: string): string {
+    return `${this.manifest!.fingerprint}/period/${periodTag}/${table}/${tableVersion || "_"}`;
+  }
+
+  private resolveTableVersion(
+    table: string,
+    periodTag: string,
+    requestedVersion?: string,
+  ): string | null {
+    const entries = this.entriesFor(table, periodTag, requestedVersion);
+    const versions = new Set(
+      entries
+        .map((entry) => entry.tableVersion)
+        .filter((version): version is string => Boolean(version)),
+    );
+    if (entries.some((entry) => !entry.tableVersion)) return null;
+    return versions.size === 1 ? [...versions][0] : null;
   }
 
   private ensureReady(): void {

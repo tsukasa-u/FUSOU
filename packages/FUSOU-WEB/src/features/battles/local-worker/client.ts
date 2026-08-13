@@ -24,6 +24,7 @@ export class LocalAvroWorkerClient {
   private readonly pending = new Map<string, PendingRequest>();
   private nextId = 0;
   private disposed = false;
+  private workerFailed = false;
 
   constructor(workerFactory: WorkerFactory = defaultWorkerFactory) {
     this.worker = workerFactory();
@@ -82,7 +83,7 @@ export class LocalAvroWorkerClient {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     try {
-      await this.request({ type: "dispose" });
+      if (!this.workerFailed) await this.request({ type: "dispose" });
     } finally {
       this.disposed = true;
       for (const request of this.pending.values()) {
@@ -103,6 +104,7 @@ export class LocalAvroWorkerClient {
     } = {},
   ): Promise<WorkerResult> {
     if (this.disposed) return Promise.reject(new Error("Local AVRO worker disposed"));
+    if (this.workerFailed) return Promise.reject(new Error("Local AVRO worker failed"));
     const id = `local-avro-${this.nextId++}`;
     const promise = new Promise<WorkerResult>((resolve, reject) => {
       this.pending.set(id, { resolve, reject, onProgress: options.onProgress });
@@ -141,6 +143,7 @@ export class LocalAvroWorkerClient {
   };
 
   private readonly handleWorkerError = (): void => {
+    this.workerFailed = true;
     const error = new Error("Local AVRO worker failed");
     for (const request of this.pending.values()) request.reject(error);
     this.pending.clear();

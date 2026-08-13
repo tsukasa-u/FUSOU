@@ -3,8 +3,9 @@ import { scanLocalDirectoryHandle, scanLocalFileList } from "../manifest-scanner
 
 type FakeFile = File & { webkitRelativePath?: string };
 
-function fakeFile(name: string, size = 12, lastModified = 100): FakeFile {
-  const file = new File([new Uint8Array(size)], name, { lastModified }) as FakeFile;
+function fakeFile(name: string, size = 12, lastModified = 100, actualSize = size): FakeFile {
+  const file = new File([new Uint8Array(actualSize)], name, { lastModified }) as FakeFile;
+  if (actualSize !== size) Object.defineProperty(file, "size", { value: size });
   return file;
 }
 
@@ -89,6 +90,29 @@ describe("local AVRO manifest scanner", () => {
     await expect(scanLocalFileList([file])).rejects.toMatchObject({
       code: "FILE_TOO_LARGE",
     });
+  });
+
+  it("fails closed when the selected files exceed the aggregate size limit", async () => {
+    const files = Array.from({ length: 9 }, (_, index) => {
+      const file = fakeFile(`battle-${index}.avro`, 230 * 1024 * 1024, 100, 1) as FakeFile;
+      file.webkitRelativePath =
+        `fusou/2026-02-13/transaction_data/6-5/battle/${1783429200 + index}_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro`;
+      return file;
+    });
+
+    await expect(scanLocalFileList(files)).rejects.toMatchObject({
+      code: "MANIFEST_SIZE_EXCEEDED",
+    });
+  });
+
+  it("uses a caller-provided aggregate size limit", async () => {
+    const file = fakeFile("battle.avro", 12, 100, 1) as FakeFile;
+    file.webkitRelativePath =
+      "fusou/2026-02-13/transaction_data/6-5/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro";
+
+    await expect(
+      scanLocalFileList([file], { limits: { maxManifestBytes: 1 } }),
+    ).rejects.toMatchObject({ code: "MANIFEST_SIZE_EXCEEDED" });
   });
 
   it("stops immediately when a directory file loses read permission", async () => {

@@ -32,11 +32,11 @@ import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 
 
 import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
-import { R2BattleRepository } from "@/features/battles/repository/r2-battle-repository";
 import type {
   BattleDataProgress,
   BattleDataRepository,
 } from "@/features/battles/repository/types";
+import type { LocalAvroLoadLimits } from "@/features/battles/local-directory/limits";
 
 function formatLocalProgress(
   progress: BattleDataProgress | null,
@@ -110,19 +110,26 @@ function formatLoadError(
 }
 
 export default function BattlesDashboard(props: {
-  repository?: BattleDataRepository;
+  repository: BattleDataRepository;
   source: "r2" | "local-avro";
   localStatus: "idle" | "scanning" | "ready" | "error";
   localDirectoryName: () => string | null;
   rememberSource: boolean;
   onSourceChange: (source: "r2" | "local-avro") => void;
   onOpenLocalDirectorySettings: () => void;
+  onRefreshDataSource: () => void | Promise<void>;
   onRememberSourceChange: (enabled: boolean) => void;
+  localLimits: LocalAvroLoadLimits;
+  onLocalLimitsChange: (limits: LocalAvroLoadLimits) => void | Promise<void>;
 }) {
   const DEFAULT_LIMIT_BLOCKS = 200;
-  const DEFAULT_LIMIT_RECORDS = 20000;
+  const DEFAULT_LIMIT_RECORDS = props.source === "local-avro"
+    ? Math.min(20000, props.localLimits.maxQueryRecords)
+    : 20000;
   const MAX_LIMIT_BLOCKS = 400;
-  const MAX_LIMIT_RECORDS = 20000;
+  const MAX_LIMIT_RECORDS = props.source === "local-avro"
+    ? props.localLimits.maxQueryRecords
+    : 20000;
 
   const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
   const [selectedDetailId, setSelectedDetailId] = createSignal("");
@@ -169,7 +176,13 @@ export default function BattlesDashboard(props: {
   let loadDataAbortController: AbortController | null = null;
   let dataSettingsModalRef!: HTMLDialogElement;
   let filterSettingsModalRef!: HTMLDialogElement;
-  const repository = props.repository ?? new R2BattleRepository();
+  const repository = props.repository;
+
+  createEffect(() => {
+    if (props.source !== "local-avro" || props.localStatus === "ready") return;
+    loadDataAbortController?.abort();
+    setLoading(false);
+  });
 
   const dataLoadItems = () => {
     const items = [...masterDataStatus()];
@@ -503,13 +516,23 @@ export default function BattlesDashboard(props: {
     }
 
     void (async () => {
-      const rows = await fetchPeriodSummary();
-      if (rows.length > 0) {
-        const idx = resolveInitialPeriodIndex(rows, initialPeriodTag, initialTableVersion);
-        setSelectedPeriodIdx(idx);
-        if (initialTab !== "detail" || !initialDetailId) {
-          await loadData(rows[idx]);
+      try {
+        const rows = await fetchPeriodSummary();
+        if (rows.length > 0) {
+          const idx = resolveInitialPeriodIndex(rows, initialPeriodTag, initialTableVersion);
+          setSelectedPeriodIdx(idx);
+          if (initialTab !== "detail" || !initialDetailId) {
+            await loadData(rows[idx]);
+          }
         }
+      } catch (cause) {
+        const sourceLabel = repository.kind === "local-avro" ? "ローカル AVRO" : "R2";
+        const fallbackPeriod: PeriodSummary = {
+          period_tag: initialPeriodTag || "latest",
+          table_version: null,
+        };
+        setError(`${sourceLabel} の期間一覧の読込に失敗しました。`);
+        setErrorDetail(formatLoadError(cause, fallbackPeriod, localProgress(), sourceLabel));
       }
     })();
   });
@@ -522,7 +545,8 @@ export default function BattlesDashboard(props: {
       wantedDatasetKind &&
       !loading() &&
       loadedDatasetKind() !== wantedDatasetKind &&
-      period
+      period &&
+      (props.source !== "local-avro" || props.localStatus === "ready")
     ) {
       void loadData(period);
     }
@@ -558,7 +582,11 @@ export default function BattlesDashboard(props: {
     const p = selectedPeriod();
     if (p) {
       url.searchParams.set("period_tag", p.period_tag);
-      if (p.table_version) url.searchParams.set("table_version", p.table_version);
+      if (p.table_version) {
+        url.searchParams.set("table_version", p.table_version);
+      } else {
+        url.searchParams.delete("table_version");
+      }
     }
 
     const map = mapFilter().trim();
@@ -690,6 +718,10 @@ export default function BattlesDashboard(props: {
               class="fusou-btn-secondary gap-1.5"
               onClick={() => {
                 clearFetchCache();
+                if (repository.kind === "local-avro") {
+                  void props.onRefreshDataSource();
+                  return;
+                }
                 void loadData(selectedPeriod(), { forceRefresh: true });
               }}
               disabled={loadingPeriods() || loading()}
@@ -819,6 +851,8 @@ export default function BattlesDashboard(props: {
         items={currentDataLoadItems}
         progress={currentLoadProgress}
         loading={currentLoading}
+        localLimits={props.localLimits}
+        onLocalLimitsChange={props.onLocalLimitsChange}
       />
       <BattleFilterSettingsModal
         ref={(element) => {

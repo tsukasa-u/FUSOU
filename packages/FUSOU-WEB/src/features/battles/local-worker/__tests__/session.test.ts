@@ -14,17 +14,128 @@ const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
 const relativePath =
   "fusou/2026-07-08/transaction_data/5-4/battle/1785499200_4c78c801-1d64-4e66-bcac-82025884b215.avro";
 
-function entryFor(path: string, bytes: Uint8Array): LocalAvroFileEntry & { file: File } {
+function entryFor(
+  path: string,
+  bytes: Uint8Array,
+  tableVersion?: string,
+): LocalAvroFileEntry & { file: File } {
   const entry = createLocalAvroFileEntry(parseLocalAvroPath(path), {
     size: bytes.byteLength,
     lastModified: 1,
+    tableVersion,
   });
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
   return { ...entry, file: new File([buffer], "battle.avro") };
 }
 
+function handleEntryFor(
+  path: string,
+  declaredSize: number,
+  bytes: Uint8Array,
+): LocalAvroFileEntry & { handle: FileSystemFileHandle } {
+  const entry = createLocalAvroFileEntry(parseLocalAvroPath(path), {
+    size: declaredSize,
+    lastModified: 1,
+  });
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const file = new File([buffer], "battle.avro");
+  return {
+    ...entry,
+    handle: {
+      kind: "file",
+      name: file.name,
+      getFile: async () => file,
+    } as unknown as FileSystemFileHandle,
+  };
+}
+
 describe("LocalWorkerSession", () => {
+  it("filters records by the requested embedded table version", async () => {
+    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const secondPath = relativePath.replace("1785499200_", "1785499201_");
+    const session = new LocalWorkerSession();
+    session.initialize({
+      fingerprint: "versioned-fixture",
+      entries: [entryFor(relativePath, bytes, "v1"), entryFor(secondPath, bytes, "v2")],
+    });
+
+    const result = await session.records(
+      "request-versioned",
+      {
+        table: "battle",
+        periodTag: "2026-07-08",
+        tableVersion: "v2",
+        limitRecords: 10,
+      },
+      () => undefined,
+    );
+
+    expect(result.table_version).toBe("v2");
+    expect(result.records.length).toBeGreaterThan(0);
+    expect(session.listPeriods("battle")).toEqual([
+      { periodTag: "2026-07-08", tableVersion: null },
+    ]);
+  });
+
+  it("keeps table version unresolved when metadata is incomplete", async () => {
+    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const secondPath = relativePath.replace("1785499200_", "1785499201_");
+    const session = new LocalWorkerSession();
+    session.initialize({
+      fingerprint: "incomplete-version-fixture",
+      entries: [entryFor(relativePath, bytes, "v1"), entryFor(secondPath, bytes)],
+    });
+
+    expect(session.listPeriods("battle")).toEqual([
+      { periodTag: "2026-07-08", tableVersion: null },
+    ]);
+    await expect(
+      session.records(
+        "request-incomplete-version",
+        { table: "battle", periodTag: "2026-07-08", limitRecords: 1 },
+        () => undefined,
+      ),
+    ).resolves.toMatchObject({ table_version: null });
+  });
+
+  it("enforces the configured query record limit", async () => {
+    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const session = new LocalWorkerSession();
+    session.initialize({
+      fingerprint: "limited-fixture",
+      limits: { maxManifestBytes: bytes.byteLength, maxQueryRecords: 1 },
+      entries: [entryFor(relativePath, bytes)],
+    });
+
+    await expect(
+      session.records(
+        "request-limited",
+        { table: "battle", periodTag: "2026-07-08", limitRecords: 2 },
+        () => undefined,
+      ),
+    ).rejects.toMatchObject({ code: "OUT_OF_MEMORY_GUARD" });
+  });
+
+  it("checks actual bytes read from persistent file handles", async () => {
+    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const session = new LocalWorkerSession();
+    session.initialize({
+      fingerprint: "persistent-size-fixture",
+      limits: { maxManifestBytes: 2, maxQueryRecords: 20_000 },
+      entries: [handleEntryFor(relativePath, 1, bytes)],
+    });
+
+    await expect(
+      session.records(
+        "request-persistent-size",
+        { table: "battle", periodTag: "2026-07-08", limitRecords: 1 },
+        () => undefined,
+      ),
+    ).rejects.toMatchObject({ code: "OUT_OF_MEMORY_GUARD" });
+  });
+
   it("decodes and filters a real APP AVRO table in worker memory", async () => {
     const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
     const session = new LocalWorkerSession();
@@ -94,7 +205,11 @@ describe("LocalWorkerSession", () => {
     }));
     const decodeSpy = vi
       .spyOn(ocfDecoder, "decodeAvroOcfToJson")
-      .mockReturnValue([...unrelatedRows, target]);
+      .mockImplementation((_bytes, options) => {
+        const rows = [...unrelatedRows, target];
+        const recordFilter = options?.recordFilter;
+        return recordFilter ? rows.filter(recordFilter) : rows;
+      });
     try {
       const session = new LocalWorkerSession();
       session.initialize({

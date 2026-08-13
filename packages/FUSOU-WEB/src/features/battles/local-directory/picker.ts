@@ -1,4 +1,5 @@
 import { scanLocalDirectoryHandle, scanLocalFileList, type ManifestScanResult } from "./manifest-scanner";
+import type { LocalAvroLoadLimits } from "./limits";
 
 type DirectoryPickerWindow = Window & {
   showDirectoryPicker?: (options?: { mode?: "read" }) => Promise<FileSystemDirectoryHandle>;
@@ -15,7 +16,9 @@ export function supportsLocalDirectoryPicker(): boolean {
   );
 }
 
-export async function pickLocalDirectory(): Promise<LocalPickerResult> {
+export async function pickLocalDirectory(
+  limits?: Partial<LocalAvroLoadLimits>,
+): Promise<LocalPickerResult> {
   if (supportsLocalDirectoryPicker()) {
     const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
     if (!picker) throw new Error("Directory picker is unavailable");
@@ -23,12 +26,12 @@ export async function pickLocalDirectory(): Promise<LocalPickerResult> {
     return {
       kind: "directory-handle",
       handle,
-      scan: await scanLocalDirectoryHandle(handle),
+      scan: await scanLocalDirectoryHandle(handle, { limits }),
     };
   }
 
   const files = await pickLocalFileList();
-  return { kind: "file-list", scan: await scanLocalFileList(files) };
+  return { kind: "file-list", scan: await scanLocalFileList(files, { limits }) };
 }
 
 function pickLocalFileList(): Promise<File[]> {

@@ -16,7 +16,10 @@ export type AvroJsonValue =
 
 export type AvroJsonRecord = Record<string, AvroJsonValue>;
 
-export type AvroOcfErrorCode = "UNSUPPORTED_CODEC" | "CORRUPT_AVRO";
+export type AvroOcfErrorCode =
+  | "UNSUPPORTED_CODEC"
+  | "CORRUPT_AVRO"
+  | "OUT_OF_MEMORY_GUARD";
 
 export class AvroOcfError extends Error {
   constructor(
@@ -311,6 +314,9 @@ function readBlock(
   schema: AvroSchema,
   syncMarker: Uint8Array,
   named: NamedSchemas,
+  maxRecords: number | undefined,
+  recordFilter: ((record: AvroJsonRecord) => boolean) | undefined,
+  decodedRecords: { count: number },
 ): AvroJsonRecord[] {
   const recordCount = readLong(bytes, cursor);
   if (!Number.isSafeInteger(recordCount) || recordCount <= 0) {
@@ -332,6 +338,12 @@ function readBlock(
   const payloadCursor: Cursor = { offset: 0 };
   const records: AvroJsonRecord[] = [];
   for (let index = 0; index < recordCount; index += 1) {
+    if (!recordFilter && maxRecords !== undefined && decodedRecords.count >= maxRecords) {
+      throw new AvroOcfError(
+        "OUT_OF_MEMORY_GUARD",
+        "Avro decoded record count exceeds the configured limit",
+      );
+    }
     const value = readValue(payload, payloadCursor, schema as SchemaNode, named);
     if (
       value === null ||
@@ -341,7 +353,17 @@ function readBlock(
     ) {
       return fail("Avro top-level schema did not produce a record");
     }
-    records.push(value as AvroJsonRecord);
+    const record = value as AvroJsonRecord;
+    if (!recordFilter || recordFilter(record)) {
+      if (maxRecords !== undefined && decodedRecords.count >= maxRecords) {
+        throw new AvroOcfError(
+          "OUT_OF_MEMORY_GUARD",
+          "Avro decoded record count exceeds the configured limit",
+        );
+      }
+      records.push(record);
+      decodedRecords.count += 1;
+    }
   }
 
   if (payloadCursor.offset !== payload.length) {
@@ -358,7 +380,13 @@ function readBlock(
   return records;
 }
 
-export function decodeAvroOcfToJson(avroBytes: Uint8Array): AvroJsonRecord[] {
+export function decodeAvroOcfToJson(
+  avroBytes: Uint8Array,
+  options: {
+    maxRecords?: number;
+    recordFilter?: (record: AvroJsonRecord) => boolean;
+  } = {},
+): AvroJsonRecord[] {
   let header: OcfHeader;
   try {
     header = parseOcfHeader(avroBytes);
@@ -381,10 +409,20 @@ export function decodeAvroOcfToJson(avroBytes: Uint8Array): AvroJsonRecord[] {
   collectNamedSchemas(schema, named);
   const cursor: Cursor = { offset: header.bodyOffset };
   const records: AvroJsonRecord[] = [];
+  const decodedRecords = { count: 0 };
 
   while (cursor.offset < avroBytes.length) {
     records.push(
-      ...readBlock(avroBytes, cursor, header.schema, header.syncMarker, named),
+      ...readBlock(
+        avroBytes,
+        cursor,
+        header.schema,
+        header.syncMarker,
+        named,
+        options.maxRecords,
+        options.recordFilter,
+        decodedRecords,
+      ),
     );
   }
 

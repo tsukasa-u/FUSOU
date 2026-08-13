@@ -95,6 +95,18 @@ test.describe("browser-local AVRO source", () => {
     await expect(filterDialog.locator("#battle-filter-result")).toHaveValue("S");
   });
 
+  test("shows the default local AVRO loading limits", async ({ page }) => {
+    await page.goto("/battles?source=r2", { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "データ設定" }).click();
+    const dataSettingsDialog = page.getByRole("dialog").filter({
+      has: page.getByRole("heading", { name: "データ設定" }),
+    });
+
+    await expect(dataSettingsDialog.getByRole("heading", { name: "AVROデータの読み込み上限" })).toBeVisible();
+    await expect(dataSettingsDialog.getByRole("spinbutton", { name: "AVRO合計サイズ上限 MiB" })).toHaveValue("2048");
+    await expect(dataSettingsDialog.getByRole("spinbutton", { name: "AVRO record数上限" })).toHaveValue("20000");
+  });
+
   test("clears source-specific detail selection when switching source", async ({ page }) => {
     await page.goto(
       "/battles?source=r2&tab=detail&detail_id=019fb778-10d8-7000-b4d2-e6efb2fb015f&battle_index=4",

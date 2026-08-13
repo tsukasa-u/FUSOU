@@ -48,4 +48,30 @@ describe("decodeAvroOcfToJson", () => {
       expect.objectContaining({ code: "UNSUPPORTED_CODEC" }),
     );
   });
+
+  it("stops decoding before materializing records beyond the limit", () => {
+    const bytes = new Uint8Array(readFileSync(battlePath));
+
+    expect(() => decodeAvroOcfToJson(bytes, { maxRecords: 1 })).toThrowError(
+      expect.objectContaining({ code: "OUT_OF_MEMORY_GUARD" }),
+    );
+  });
+
+  it("applies a record filter before enforcing the record limit", () => {
+    const bytes = new Uint8Array(readFileSync(battlePath));
+    const targetUuid = String(decodeAvroOcfToJson(bytes)[0]?.uuid);
+    let matched = false;
+
+    const records = decodeAvroOcfToJson(bytes, {
+      maxRecords: 1,
+      recordFilter: (record) => {
+        if (matched || record.uuid !== targetUuid) return false;
+        matched = true;
+        return true;
+      },
+    });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]?.uuid).toBe(targetUuid);
+  });
 });

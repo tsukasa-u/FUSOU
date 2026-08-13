@@ -1,4 +1,5 @@
 import { PUBLIC_RECORD_TABLES } from "../contracts";
+import { parseOcfHeader } from "@/features/avro/ocf-header";
 import {
   createLocalAvroFileEntry,
   LocalAvroPathError,
@@ -7,6 +8,8 @@ import {
 import {
   MAX_FILE_BYTES,
   MAX_MANIFEST_FILES,
+  normalizeLocalAvroLoadLimits,
+  type LocalAvroLoadLimits,
 } from "./limits";
 import type { LocalManifestEntry, SerializableManifest } from "../local-worker/protocol";
 
@@ -18,6 +21,7 @@ export type ManifestDiagnostic = {
 export type ManifestScanErrorCode =
   | "FILE_LIMIT_EXCEEDED"
   | "FILE_TOO_LARGE"
+  | "MANIFEST_SIZE_EXCEEDED"
   | "PERMISSION_DENIED";
 
 export class ManifestScanError extends Error {
@@ -45,9 +49,11 @@ export type ManifestScanProgress = {
 
 export type ManifestScanOptions = {
   onProgress?: (progress: ManifestScanProgress) => void;
+  limits?: Partial<LocalAvroLoadLimits>;
 };
 
 type DirectoryEntry = FileSystemDirectoryHandle | FileSystemFileHandle;
+const MAX_HEADER_BYTES = 64 * 1024;
 
 function isDirectoryHandle(entry: DirectoryEntry): entry is FileSystemDirectoryHandle {
   return entry.kind === "directory";
@@ -83,11 +89,36 @@ function shouldScanRoot(handle: FileSystemDirectoryHandle): boolean {
   return handle.name === "fusou";
 }
 
-function parseEntry(
+async function readEmbeddedTableVersion(file: File): Promise<string | null> {
+  const headerBytes = new Uint8Array(
+    await file.slice(0, MAX_HEADER_BYTES).arrayBuffer(),
+  );
+  if (
+    headerBytes.length < 4 ||
+    headerBytes[0] !== 0x4f ||
+    headerBytes[1] !== 0x62 ||
+    headerBytes[2] !== 0x6a ||
+    headerBytes[3] !== 0x01
+  ) {
+    return null;
+  }
+  try {
+    const metadata = parseOcfHeader(headerBytes).metadata;
+    for (const key of ["table_version", "table.version", "fusou.table_version"]) {
+      const value = metadata[key]?.trim();
+      if (value) return value;
+    }
+  } catch {
+    // Full schema and codec validation remains in the worker before decoding.
+  }
+  return null;
+}
+
+async function parseEntry(
   relativePath: string,
   file: File,
   handle?: FileSystemFileHandle,
-): LocalManifestEntry | null {
+): Promise<LocalManifestEntry | null> {
   if (!relativePath.endsWith(".avro")) return null;
   const parsed = parseLocalAvroPath(relativePath);
   if (
@@ -106,6 +137,7 @@ function parseEntry(
     ...createLocalAvroFileEntry(parsed, {
       size: file.size,
       lastModified: file.lastModified,
+      tableVersion: await readEmbeddedTableVersion(file),
     }),
     ...(handle ? { handle } : { file }),
   };
@@ -117,7 +149,9 @@ async function scanDirectory(
   entries: LocalManifestEntry[],
   diagnostics: ManifestDiagnostic[],
   options: ManifestScanOptions,
+  sizeState: { totalBytes: number },
 ): Promise<void> {
+  const limits = normalizeLocalAvroLoadLimits(options.limits);
   const iterableDirectory = directory as unknown as {
     entries: () => AsyncIterableIterator<[string, DirectoryEntry]>;
   };
@@ -130,7 +164,7 @@ async function scanDirectory(
     }
     const path = canonicalPath(prefix, name);
     if (isDirectoryHandle(child)) {
-      await scanDirectory(child, path, entries, diagnostics, options);
+      await scanDirectory(child, path, entries, diagnostics, options, sizeState);
       continue;
     }
     if (!isFileHandle(child) || !name.endsWith(".avro")) continue;
@@ -140,8 +174,17 @@ async function scanDirectory(
     });
     try {
       const file = await child.getFile();
-      const entry = parseEntry(path, file, child);
-      if (entry) entries.push(entry);
+      const entry = await parseEntry(path, file, child);
+      if (entry) {
+        sizeState.totalBytes += entry.size;
+        if (sizeState.totalBytes > limits.maxManifestBytes) {
+          throw new ManifestScanError(
+            "MANIFEST_SIZE_EXCEEDED",
+            "local AVRO manifest exceeds the aggregate size limit",
+          );
+        }
+        entries.push(entry);
+      }
     } catch (error) {
       if (error instanceof ManifestScanError) throw error;
       if (error instanceof LocalAvroPathError) {
@@ -162,12 +205,14 @@ export async function scanLocalDirectoryHandle(
 ): Promise<ManifestScanResult> {
   const entries: LocalManifestEntry[] = [];
   const diagnostics: ManifestDiagnostic[] = [];
+  const sizeState = { totalBytes: 0 };
   await scanDirectory(
     root,
     shouldScanRoot(root) ? "fusou" : "",
     entries,
     diagnostics,
     options,
+    sizeState,
   );
   return buildManifestResult(entries, diagnostics, options);
 }
@@ -178,18 +223,28 @@ export async function scanLocalFileList(
 ): Promise<ManifestScanResult> {
   const entries: LocalManifestEntry[] = [];
   const diagnostics: ManifestDiagnostic[] = [];
-  const fileList = [...files];
-  for (const file of fileList) {
+  const limits = normalizeLocalAvroLoadLimits(options.limits);
+  let totalBytes = 0;
+  for (const file of files) {
     const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
     if (!relativePath || !relativePath.endsWith(".avro")) continue;
     options.onProgress?.({
       phase: "file-discovery",
       completed: entries.length,
-      total: fileList.length,
+      total: undefined,
     });
     try {
-      const entry = parseEntry(relativePath, file);
-      if (entry) entries.push(entry);
+      const entry = await parseEntry(relativePath, file);
+      if (entry) {
+        totalBytes += entry.size;
+        if (totalBytes > limits.maxManifestBytes) {
+          throw new ManifestScanError(
+            "MANIFEST_SIZE_EXCEEDED",
+            "local AVRO manifest exceeds the aggregate size limit",
+          );
+        }
+        entries.push(entry);
+      }
     } catch (error) {
       if (error instanceof ManifestScanError) throw error;
       if (error instanceof LocalAvroPathError) {
@@ -226,7 +281,11 @@ function buildManifestResult(
   }
   const totalBytes = entries.reduce((total, entry) => total + entry.size, 0);
   return {
-    manifest: { entries, fingerprint: createFingerprint(entries) },
+    manifest: {
+      entries,
+      fingerprint: createFingerprint(entries),
+      limits: normalizeLocalAvroLoadLimits(options.limits),
+    },
     diagnostics,
     fileCount: entries.length,
     totalBytes,

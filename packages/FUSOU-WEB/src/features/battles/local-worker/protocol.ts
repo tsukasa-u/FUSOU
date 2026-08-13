@@ -11,6 +11,7 @@ import type {
   RecordQuery,
   RecordResult,
 } from "../repository/types";
+import type { LocalAvroLoadLimits } from "../local-directory/limits";
 
 export type LocalBattleErrorCode =
   | "PERMISSION_REQUIRED"
@@ -48,6 +49,7 @@ export type LocalManifestEntry = LocalAvroFileEntry & {
 export type SerializableManifest = {
   entries: LocalManifestEntry[];
   fingerprint: string;
+  limits?: LocalAvroLoadLimits;
 };
 
 export type WorkerRecordQuery = Omit<RecordQuery, "signal" | "forceRefresh">;

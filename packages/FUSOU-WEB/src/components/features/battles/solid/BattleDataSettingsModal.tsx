@@ -1,6 +1,12 @@
 /** @jsxImportSource solid-js */
-import { For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import type { BattleDataProgress } from "@/features/battles/repository/types";
+import {
+  ABSOLUTE_MAX_MANIFEST_BYTES,
+  ABSOLUTE_MAX_QUERY_RECORDS,
+  DEFAULT_LOCAL_AVRO_LOAD_LIMITS,
+  type LocalAvroLoadLimits,
+} from "@/features/battles/local-directory/limits";
 import type { MasterDataLoadStatusItem } from "@/components/common/solid/MasterDataLoadStatusAlert";
 
 type Props = {
@@ -21,6 +27,8 @@ type Props = {
   items: () => MasterDataLoadStatusItem[];
   progress: () => BattleDataProgress | null;
   loading: () => boolean;
+  localLimits: LocalAvroLoadLimits;
+  onLocalLimitsChange: (limits: LocalAvroLoadLimits) => void | Promise<void>;
 };
 
 function formatBytes(value: number): string {
@@ -41,7 +49,34 @@ function progressLabel(progress: BattleDataProgress): string {
   return `${files}${bytes}${records}`;
 }
 
+function bytesToMiB(value: number): number {
+  return Math.round(value / (1024 * 1024));
+}
+
 export default function BattleDataSettingsModal(props: Props) {
+  const [maxManifestMiB, setMaxManifestMiB] = createSignal(
+    String(bytesToMiB(props.localLimits.maxManifestBytes)),
+  );
+  const [maxQueryRecords, setMaxQueryRecords] = createSignal(
+    String(props.localLimits.maxQueryRecords),
+  );
+
+  createEffect(() => {
+    setMaxManifestMiB(String(bytesToMiB(props.localLimits.maxManifestBytes)));
+    setMaxQueryRecords(String(props.localLimits.maxQueryRecords));
+  });
+
+  const applyLocalLimits = () => {
+    const manifestMiB = Number(maxManifestMiB());
+    const queryRecords = Number(maxQueryRecords());
+    if (!Number.isSafeInteger(manifestMiB) || manifestMiB < 1) return;
+    if (!Number.isSafeInteger(queryRecords) || queryRecords < 1) return;
+    void props.onLocalLimitsChange({
+      maxManifestBytes: manifestMiB * 1024 * 1024,
+      maxQueryRecords: queryRecords,
+    });
+  };
+
   return (
     <dialog ref={props.ref} class="modal">
       <div class="modal-box w-11/12 max-w-lg rounded-xl bg-base-100">
@@ -147,13 +182,15 @@ export default function BattleDataSettingsModal(props: Props) {
                 </span>
                 <span class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-base-content/60">
                   <span>ディレクトリ: {props.localDirectoryName() ?? "未設定"}</span>
-                  <button
-                    type="button"
-                    class="btn btn-outline btn-xs"
-                    onClick={props.onOpenLocalDirectorySettings}
-                  >
-                    ディレクトリを変更
-                  </button>
+                  <Show when={props.source === "local-avro"}>
+                    <button
+                      type="button"
+                      class="btn btn-outline btn-sm"
+                      onClick={props.onOpenLocalDirectorySettings}
+                    >
+                      ディレクトリを変更
+                    </button>
+                  </Show>
                 </span>
               </span>
             </div>
@@ -172,6 +209,45 @@ export default function BattleDataSettingsModal(props: Props) {
               />
               <span class="label-text font-medium">次回もこのデータソースを使う</span>
             </label>
+          </div>
+
+          <div class="form-control space-y-2">
+            <h4 class="text-xs font-semibold text-base-content/60">AVROデータの読み込み上限</h4>
+            <p class="text-xs leading-5 text-base-content/60">
+              ローカル AVRO 専用です。既定値は合計 {bytesToMiB(DEFAULT_LOCAL_AVRO_LOAD_LIMITS.maxManifestBytes).toLocaleString()} MiB / {DEFAULT_LOCAL_AVRO_LOAD_LIMITS.maxQueryRecords.toLocaleString()} 件です。
+            </p>
+            <label class="flex items-center justify-between gap-3 text-xs">
+              <span>AVRO合計サイズ (MiB)</span>
+              <input
+                class="input input-bordered input-sm w-32 text-right tabular-nums"
+                type="number"
+                min="1"
+                max={bytesToMiB(ABSOLUTE_MAX_MANIFEST_BYTES)}
+                step="1"
+                value={maxManifestMiB()}
+                onInput={(event) => setMaxManifestMiB(event.currentTarget.value)}
+                aria-label="AVRO合計サイズ上限 MiB"
+              />
+            </label>
+            <label class="flex items-center justify-between gap-3 text-xs">
+              <span>保持するrecord数</span>
+              <input
+                class="input input-bordered input-sm w-32 text-right tabular-nums"
+                type="number"
+                min="1"
+                max={ABSOLUTE_MAX_QUERY_RECORDS}
+                step="1"
+                value={maxQueryRecords()}
+                onInput={(event) => setMaxQueryRecords(event.currentTarget.value)}
+                aria-label="AVRO record数上限"
+              />
+            </label>
+            <p class="text-xs text-base-content/60">
+              設定可能な最大値: {bytesToMiB(ABSOLUTE_MAX_MANIFEST_BYTES).toLocaleString()} MiB / {ABSOLUTE_MAX_QUERY_RECORDS.toLocaleString()} 件。値を上げるほどメモリ使用量が増えます。
+            </p>
+            <button type="button" class="btn btn-outline btn-sm self-start" onClick={applyLocalLimits}>
+              適用して再読み込み
+            </button>
           </div>
         </div>
 

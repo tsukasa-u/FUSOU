@@ -161,7 +161,7 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
 
 export function createLocalAvroFileEntry(
   parsedPath: ParsedLocalAvroPath,
-  metadata: { size: number; lastModified: number },
+  metadata: { size: number; lastModified: number; tableVersion?: string | null },
 ): LocalAvroFileEntry {
   if (!Number.isSafeInteger(metadata.size) || metadata.size < 0) {
     throw new LocalAvroPathError(
@@ -179,7 +179,7 @@ export function createLocalAvroFileEntry(
   return {
     ...parsedPath,
     id: `${parsedPath.relativePath}\0${metadata.size}\0${metadata.lastModified}`,
-    tableVersion: null,
+    tableVersion: metadata.tableVersion ?? null,
     size: metadata.size,
     lastModified: metadata.lastModified,
   };

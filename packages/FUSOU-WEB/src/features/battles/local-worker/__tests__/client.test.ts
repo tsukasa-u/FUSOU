@@ -45,6 +45,10 @@ class FakeWorker {
     this.terminated = true;
   }
 
+  fail(): void {
+    this.errorListener?.();
+  }
+
   private emit(response: WorkerResponse): void {
     queueMicrotask(() => this.messageListener?.({ data: response } as MessageEvent<WorkerResponse>));
   }
@@ -81,5 +85,18 @@ describe("LocalAvroWorkerClient", () => {
       code: "CANCELLED",
     });
     await client.dispose();
+  });
+
+  it("does not reuse a worker client after the worker fails", async () => {
+    const worker = new FakeWorker();
+    const client = new LocalAvroWorkerClient(() => worker as unknown as Worker);
+
+    worker.fail();
+
+    await expect(client.listPeriods("battle")).rejects.toThrow(
+      "Local AVRO worker failed",
+    );
+    await client.dispose();
+    expect(worker.terminated).toBe(true);
   });
 });
