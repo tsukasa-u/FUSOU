@@ -12,7 +12,6 @@ import {
 import type { JSX } from "solid-js";
 import type { BattleFleets } from "@/features/battles/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
-import { cachedFetch } from "@/utils/fetchCache";
 import { buildShareBattleUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
 import {
@@ -25,6 +24,7 @@ import {
   normalizeEpochMs,
 } from "@/features/battles/helpers";
 import {
+  getMstShipById,
   getMstSlotItemById,
   getWeaponIconFrames,
 } from "@/features/battles/data-service";
@@ -34,15 +34,94 @@ import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
 import {
-  MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
+import {
+  BattleRepositoryHttpError,
+  type BattleDataProgress,
+  type BattleDataRepository,
+} from "@/features/battles/repository/types";
+import { R2BattleRepository } from "@/features/battles/repository/r2-battle-repository";
 
 type DropShipInfo = {
   shipId: number;
   name: string;
   bannerUrl: string;
 };
+
+function formatLocalProgress(
+  progress: BattleDataProgress | null,
+  includePhase = true,
+  includeTable = false,
+): string {
+  if (!progress) return "ローカルデータを準備しています...";
+  const phase = includePhase
+    ? progress.phase === "decode"
+      ? "AVROを展開中"
+      : progress.phase === "index"
+        ? "索引を作成中"
+        : progress.phase === "resolve"
+          ? "表示データを整理中"
+          : "ローカルデータを確認中"
+    : "";
+  const subject = includeTable && progress.label ? ` ${progress.label}` : "";
+  const files = progress.total > 0
+    ? `ファイル ${progress.completed}/${progress.total}`
+    : `ファイル ${progress.completed}`;
+  const bytes = progress.totalBytes
+    ? ` / ${formatProgressBytes(progress.completedBytes ?? 0)} / ${formatProgressBytes(progress.totalBytes)}`
+    : "";
+  const records = progress.records === undefined ? "" : ` / 保持レコード ${progress.records.toLocaleString()}件`;
+  return `${phase}${subject} ${files}${bytes}${records}`.trim();
+}
+
+function formatProgressBytes(value: number): string {
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function formatDetailLoadError(
+  error: unknown,
+  repository: BattleDataRepository,
+  periodTag: string,
+  envUuid: string,
+  battleIndex: number,
+  progress: BattleDataProgress | null,
+): string {
+  const candidate = error as {
+    code?: unknown;
+    message?: unknown;
+    details?: Record<string, unknown>;
+    status?: unknown;
+    url?: unknown;
+  } | null;
+  const details = candidate?.details ?? {};
+  const phase = typeof details.phase === "string"
+    ? details.phase === "decode"
+      ? "AVRO展開"
+      : details.phase === "index"
+        ? "索引作成"
+        : details.phase
+    : progress?.phase;
+  const cause = typeof candidate?.message === "string"
+    ? candidate.message
+    : error instanceof Error
+      ? error.message
+      : "原因不明のエラー";
+  return [
+    `データソース: ${repository.kind === "local-avro" ? "ローカル AVRO" : "R2"}`,
+    "操作: 戦闘詳細 query",
+    `対象戦闘: env_uuid=${envUuid} / battle_index=${battleIndex}`,
+    `期間: ${periodTag}`,
+    typeof details.table === "string" ? `対象 table: ${details.table}` : null,
+    typeof details.relativePath === "string" ? `ファイル: ${details.relativePath}` : null,
+    phase ? `処理: ${phase}` : null,
+    typeof candidate?.code === "string" ? `コード: ${candidate.code}` : null,
+    typeof candidate?.status === "number" ? `HTTP: ${candidate.status}` : null,
+    typeof candidate?.url === "string" ? `URL: ${candidate.url}` : null,
+    `原因: ${cause}`,
+  ].filter((part): part is string => part !== null).join(" / ");
+}
 
 type BattleDetailPayload = {
   table_version?: string | null;
@@ -58,12 +137,6 @@ type BattleDetailPayload = {
   derived?: {
     friendly_fleet?: Array<Record<string, unknown>>;
     enemy_fleet?: Array<Record<string, unknown>>;
-  };
-};
-
-type GlobalLatestPayload = {
-  latest?: {
-    table_version?: string | null;
   };
 };
 
@@ -157,16 +230,30 @@ function uniqueBattleIndexesInOrder(values: Array<unknown>): number[] {
 
 // ── Main orchestrator component ───────────────────────────────────────────
 
+export type BattleDetailLoadStatus = {
+  items: MasterDataLoadStatusItem[];
+  loading: boolean;
+  progress: BattleDataProgress | null;
+};
+
 export default function BattleDetailPanel(props: {
   battleId: string;
   battleIndex?: number | null;
+  repository?: BattleDataRepository;
   onBattleIndexChange?: (index: number) => void;
+  onLoadStatusChange?: (status: BattleDetailLoadStatus) => void;
 }): JSX.Element {
+  const repository = props.repository ?? new R2BattleRepository();
+  const ownsRepository = !props.repository;
   let disposed = false;
   let activeLoadToken = 0;
   let lastLoadKey: string | null = null;
+  let detailAbortController: AbortController | null = null;
   onCleanup(() => {
     disposed = true;
+    detailAbortController?.abort();
+    detailAbortController = null;
+    if (ownsRepository) void repository.dispose();
   });
 
   const [battle, setBattle] = createSignal<Record<string, unknown> | null>(
@@ -192,7 +279,9 @@ export default function BattleDetailPanel(props: {
   }
 
   const [loading, setLoading] = createSignal(true);
+  const [localProgress, setLocalProgress] = createSignal<BattleDataProgress | null>(null);
   const [error, setError] = createSignal<string | null>(null);
+  const [errorDetail, setErrorDetail] = createSignal<string | null>(null);
   const [masterDataStatus, setMasterDataStatus] = createSignal<
     MasterDataLoadStatusItem[]
   >([
@@ -206,6 +295,26 @@ export default function BattleDetailPanel(props: {
     createSignal<string>("latest");
   const [requestedTableVersion, setRequestedTableVersion] =
     createSignal<string>("");
+
+  const dataLoadItems = () => {
+    const items = [...masterDataStatus()];
+    if (repository.kind === "local-avro") {
+      items.push({
+        name: "ローカル AVRO",
+        status: loading() ? "pending" : error() ? "failed" : "success",
+        detail: errorDetail() ?? formatLocalProgress(localProgress(), false),
+        diagnostic: errorDetail() ?? undefined,
+      });
+    }
+    return items;
+  };
+  createEffect(() => {
+    props.onLoadStatusChange?.({
+      items: dataLoadItems(),
+      loading: loading(),
+      progress: localProgress(),
+    });
+  });
   const [resolvedTableVersion, setResolvedTableVersion] =
     createSignal<string | null>(null);
   const [battleIndexes, setBattleIndexes] = createSignal<number[]>([]);
@@ -459,6 +568,7 @@ export default function BattleDetailPanel(props: {
     requestedPeriod: string;
     tableVersion: string;
     loadToken: number;
+    signal: AbortSignal;
   }): Promise<void> {
     const {
       envUuid,
@@ -466,6 +576,7 @@ export default function BattleDetailPanel(props: {
       requestedPeriod,
       tableVersion,
       loadToken,
+      signal,
     } = params;
     if (!battle()) {
       setResolvedTableVersion(null);
@@ -476,6 +587,8 @@ export default function BattleDetailPanel(props: {
         { name: "mst_slotitem", status: "pending" },
       ]);
     }
+    setLocalProgress(null);
+    setErrorDetail(null);
     // Try to load from sessionStorage first (quick preview)
     const battleData = sessionStorage.getItem("battleDetail");
     if (battleData) {
@@ -504,17 +617,16 @@ export default function BattleDetailPanel(props: {
 
     try {
       let effectiveTableVersion: string | null = tableVersion || null;
-      const tableVersionQuery = tableVersion
-        ? `&table_version=${encodeURIComponent(tableVersion)}`
-        : "";
 
       const resolveBattleIndexesFallback = async (): Promise<number[]> => {
         try {
-          const overviewRes = await cachedFetch(
-            `/api/battle-data/global/overview?period_tag=${encodeURIComponent(requestedPeriod)}${tableVersionQuery}&limit_blocks=120&limit_records=20000`,
-          );
-          if (!overviewRes.ok) return [];
-          const overview = (await overviewRes.json()) as BattleOverviewPayload;
+          const overview = (await repository.getOverview({
+            periodTag: requestedPeriod,
+            tableVersion: tableVersion || undefined,
+            limitBlocks: 120,
+            limitRecords: 20000,
+            signal,
+          }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined })) as BattleOverviewPayload;
           const orderedRows = (overview.battles || [])
             .filter((row) => String(row.env_uuid ?? "") === envUuid)
             .map((row) => ({
@@ -536,24 +648,6 @@ export default function BattleDetailPanel(props: {
         }
       };
 
-      if (!effectiveTableVersion && requestedPeriod === "latest") {
-        try {
-          const latestRes = await cachedFetch(
-            `/api/battle-data/global/latest?table=battle`,
-          );
-          if (latestRes.ok) {
-            const latestPayload =
-              (await latestRes.json()) as GlobalLatestPayload;
-            const latestVersion = latestPayload.latest?.table_version;
-            if (typeof latestVersion === "string" && latestVersion.trim()) {
-              effectiveTableVersion = latestVersion.trim();
-            }
-          }
-        } catch {
-          // Keep fallback behavior when latest version lookup fails.
-        }
-      }
-
       if (!envUuid) {
         setMasterDataStatus([]);
         setError("env_uuid が指定されていません");
@@ -566,38 +660,77 @@ export default function BattleDetailPanel(props: {
         return;
       }
 
-      const detailRes = await cachedFetch(
-        `/api/battle-data/detail?env_uuid=${encodeURIComponent(envUuid)}&battle_index=${requestedBattleIndex}&period_tag=${encodeURIComponent(requestedPeriod)}${tableVersionQuery}`,
-      );
-      if (detailRes.ok) {
-        const payload = (await detailRes.json()) as BattleDetailPayload;
-        const indexesFromPayload = Array.isArray(payload.battle_indexes)
-          ? uniqueBattleIndexesInOrder(payload.battle_indexes)
-          : [];
-        if (indexesFromPayload.length > 0) {
-          setBattleIndexes(indexesFromPayload);
-        } else {
-          setBattleIndexes(await resolveBattleIndexesFallback());
+      let payload: BattleDetailPayload;
+      try {
+        const localMasterData =
+          repository.kind === "local-avro"
+            ? await Promise.all([getMstShipById(signal), getMstSlotItemById(signal)])
+            : null;
+        payload = (await repository.getDetail({
+          envUuid,
+          battleIndex: requestedBattleIndex,
+          periodTag: requestedPeriod,
+          tableVersion: tableVersion || undefined,
+          masterShips: localMasterData
+            ? [...localMasterData[0].values()]
+            : undefined,
+          masterSlotItems: localMasterData
+            ? [...localMasterData[1].values()]
+            : undefined,
+          signal,
+        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined })) as BattleDetailPayload;
+      } catch (error) {
+        const status =
+          error instanceof BattleRepositoryHttpError ? error.status : null;
+        if (status === 400) {
+          setMasterDataStatus([]);
+          setBattleIndexes([]);
+          setErrorDetail(formatDetailLoadError(error, repository, requestedPeriod, envUuid, requestedBattleIndex, localProgress()));
+          setError("battle_index または env_uuid が不正です");
+          return;
         }
-        setResolvedTableVersion(
-          typeof payload.table_version === "string" && payload.table_version.trim()
-            ? payload.table_version.trim()
-            : effectiveTableVersion,
-        );
-        const detailBattle = payload.battle ?? null;
-        if (detailBattle) {
+        if (status === 404) {
+          setMasterDataStatus([]);
+          setBattleIndexes([]);
+          setErrorDetail(formatDetailLoadError(error, repository, requestedPeriod, envUuid, requestedBattleIndex, localProgress()));
+          setError("指定された env_uuid / battle_index の戦闘が見つかりませんでした");
+          return;
+        }
+        throw error;
+      }
+
+      const indexesFromPayload = Array.isArray(payload.battle_indexes)
+        ? uniqueBattleIndexesInOrder(payload.battle_indexes)
+        : [];
+      if (indexesFromPayload.length > 0) {
+        setBattleIndexes(indexesFromPayload);
+      } else {
+        setBattleIndexes(await resolveBattleIndexesFallback());
+      }
+      setResolvedTableVersion(
+        typeof payload.table_version === "string" && payload.table_version.trim()
+          ? payload.table_version.trim()
+          : effectiveTableVersion,
+      );
+      const detailBattle = payload.battle ?? null;
+      if (detailBattle) {
           const resolvedMstShip = new Map(
             (payload.refs?.mst_ship || []).map((row) => [Number(row.id), row]),
           );
           const resolvedMstSlotItem = new Map(
             (payload.refs?.mst_slotitem || []).map((row) => [Number(row.id), row]),
           );
-          const fullMstSlotItem = await getMstSlotItemById();
+          const fullMstSlotItem = await getMstSlotItemById(signal);
           const effectiveMstSlotItem = new Map(fullMstSlotItem);
           for (const [id, row] of resolvedMstSlotItem.entries()) {
             effectiveMstSlotItem.set(id, row);
           }
           setMasterDataStatus([
+            {
+              name: "mst_ship",
+              status: resolvedMstShip.size > 0 ? "success" : "failed",
+              detail: `${resolvedMstShip.size}件`,
+            },
             {
               name: "mst_slotitem",
               status: effectiveMstSlotItem.size > 0 ? "success" : "failed",
@@ -606,14 +739,9 @@ export default function BattleDetailPanel(props: {
                   ? `${resolvedMstSlotItem.size}件 + 補完${effectiveMstSlotItem.size - resolvedMstSlotItem.size}件`
                   : `${resolvedMstSlotItem.size}件`,
             },
-            {
-              name: "mst_ship",
-              status: resolvedMstShip.size > 0 ? "success" : "failed",
-              detail: `${resolvedMstShip.size}件`,
-            },
           ]);
 
-          await getWeaponIconFrames();
+          await getWeaponIconFrames(signal);
 
           const dropShipId =
             Number((detailBattle.battle_result as any)?.drop_ship_id ?? 0) || 0;
@@ -674,32 +802,26 @@ export default function BattleDetailPanel(props: {
                 }
               : null,
           );
-          return;
-        }
-      }
-
-      if (detailRes.status === 400) {
-        setMasterDataStatus([]);
-        setBattleIndexes([]);
-        setError("battle_index または env_uuid が不正です");
         return;
       }
-
-      if (detailRes.status === 404) {
-        setMasterDataStatus([]);
-        setBattleIndexes([]);
-        setError("指定された env_uuid / battle_index の戦闘が見つかりませんでした");
-        return;
-      }
-      throw new Error(`detail request failed: HTTP ${detailRes.status}`);
+      throw new Error("detail response did not contain a battle");
     } catch (e) {
       console.error("Failed to load battle detail:", e);
+      const diagnostic = formatDetailLoadError(
+        e,
+        repository,
+        requestedPeriod,
+        envUuid,
+        requestedBattleIndex,
+        localProgress(),
+      );
       // Battle loading failed — hide the master data alert since it's irrelevant
       // when there is no battle to display names for.
       setMasterDataStatus([]);
       setBattleIndexes([]);
       if (disposed || loadToken !== activeLoadToken) return;
-      setError("戦闘データ読込中にエラーが発生しました");
+      setErrorDetail(diagnostic);
+      setError("戦闘詳細の読込に失敗しました。詳細はデータ読込エラーを確認してください。");
     } finally {
       if (disposed || loadToken !== activeLoadToken) return;
       setLoading(false);
@@ -764,6 +886,9 @@ export default function BattleDetailPanel(props: {
     lastLoadKey = loadKey;
 
     const loadToken = ++activeLoadToken;
+    detailAbortController?.abort();
+    const abortController = new AbortController();
+    detailAbortController = abortController;
     if (!untrack(() => battle())) {
       setLoading(true);
     }
@@ -775,6 +900,7 @@ export default function BattleDetailPanel(props: {
         requestedPeriod,
         tableVersion,
         loadToken,
+        signal: abortController.signal,
       });
     });
   });
@@ -795,8 +921,6 @@ export default function BattleDetailPanel(props: {
 
   return (
     <div class="max-w-[1280px] mx-auto px-4 pt-2 pb-8">
-      <MasterDataLoadStatusAlert items={masterDataStatus()} class="mb-3" />
-
       <Show when={selectableBattleIndexes().length > 1}>
         <div class="mb-3 overflow-x-auto">
           <div class="tabs tabs-boxed inline-flex flex-nowrap">

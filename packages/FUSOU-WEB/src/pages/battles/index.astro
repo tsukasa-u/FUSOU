@@ -1,7 +1,7 @@
 ---
 import PageLayout from "@/layouts/Layout.astro";
 import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import BattlesDashboard from "@/components/features/battles/solid/BattlesDashboard";
+import BattleSourceSwitcher from "@/components/features/battles/solid/BattleSourceSwitcher";
 
 export const prerender = false;
 ---
@@ -52,5 +52,5 @@ export const prerender = false;
   }}
 >
   <Navigation filled={true} />
-  <BattlesDashboard client:only="solid-js" />
+  <BattleSourceSwitcher client:only="solid-js" />
 </PageLayout>

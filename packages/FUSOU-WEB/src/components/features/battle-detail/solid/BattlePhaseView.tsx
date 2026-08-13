@@ -225,10 +225,12 @@ function RaigekiRows(props: {
                     fallback={
                       <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
                         <div class="mb-1 flex items-center gap-1.5">
-                          <div class="text-[10px] text-base-content/45 font-mono">
+                          <div
+                            class={`text-[10px] font-mono font-bold ${hit.attackerSide === "enemy" ? "text-error" : "text-info"}`}
+                          >
                             {attackerLabel(hit)}
                           </div>
-                          <div class={`text-xs font-semibold ${hit.attackerSide === "enemy" ? "text-error" : "text-info"}`}>
+                          <div class="text-xs font-semibold text-base-content/70">
                             {attackerName(hit)}
                           </div>
                         </div>
@@ -259,10 +261,8 @@ function RaigekiRows(props: {
                     <div class="flex flex-wrap items-center gap-2 justify-between">
                       <div class="min-w-0">
                         <div class="mb-1 flex items-center gap-1.5">
-                          <ShipIndexBadge idx={hit.defenderIdx} />
-                          <div
-                            class={`text-xs font-semibold ${hit.defenderSide === "enemy" ? "text-error" : "text-info"}`}
-                          >
+                          <ShipIndexBadge idx={hit.defenderIdx} side={hit.defenderSide} />
+                          <div class="text-xs font-semibold text-base-content/70">
                             {shipNameFromIndex(
                               hit.defenderSide,
                               hit.defenderIdx,
@@ -405,7 +405,7 @@ function AirAttackBatchRows(props: {
           </For>
         </Show>
         <Show when={group.length === 0 && !!ev.attackerMstShipId}>
-          <div class="rounded bg-base-100 px-2 py-1 border border-base-300 text-xs font-semibold text-info">
+          <div class="rounded bg-base-100 px-2 py-1 border border-base-300 text-xs font-semibold text-base-content/70">
             {mstShipNameFromId(props.mstShipById, ev.attackerMstShipId) ??
               `艦ID:${ev.attackerMstShipId}`}
           </div>
@@ -455,8 +455,8 @@ function AirAttackBatchRows(props: {
                 <div class="flex flex-wrap items-center gap-2 justify-between">
                   <div class="min-w-0">
                     <div class="mb-1 flex items-center gap-1.5">
-                      <ShipIndexBadge idx={ev.defenderIdx as number} />
-                      <div class={`text-xs font-semibold ${ev.defenderSide === "enemy" ? "text-error" : "text-info"}`}>
+                      <ShipIndexBadge idx={ev.defenderIdx as number} side={ev.defenderSide} />
+                      <div class="text-xs font-semibold text-base-content/70">
                         {shipNameFromIndex(
                           ev.defenderSide,
                           ev.defenderIdx as number,
@@ -657,10 +657,12 @@ function UnifiedAttackRows(props: {
                     fallback={
                       <div class="rounded bg-base-100 px-2 py-1 border border-base-300">
                         <div class="mb-1 flex items-center gap-1.5">
-                          <div class="text-[10px] text-base-content/45 font-mono">
+                          <div
+                            class={`text-[10px] font-mono font-bold ${ev.attackerSide === "enemy" ? "text-error" : "text-info"}`}
+                          >
                             {attackerLabel(ev)}
                           </div>
-                          <div class={`text-xs font-semibold ${ev.attackerSide === "enemy" ? "text-error" : "text-info"}`}>
+                          <div class="text-xs font-semibold text-base-content/70">
                             {attackerName(ev)}
                           </div>
                         </div>
@@ -718,8 +720,8 @@ function UnifiedAttackRows(props: {
                       <div class="flex flex-wrap items-center gap-2 justify-between">
                         <div class="min-w-0">
                           <div class="mb-1 flex items-center gap-1.5">
-                            <ShipIndexBadge idx={ev.defenderIdx as number} />
-                            <div class={`text-xs font-semibold ${ev.defenderSide === "enemy" ? "text-error" : "text-info"}`}>
+                            <ShipIndexBadge idx={ev.defenderIdx as number} side={ev.defenderSide} />
+                            <div class="text-xs font-semibold text-base-content/70">
                               {shipNameFromIndex(
                                 ev.defenderSide,
                                 ev.defenderIdx as number,

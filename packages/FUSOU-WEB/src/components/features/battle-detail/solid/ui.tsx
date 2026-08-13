@@ -318,9 +318,18 @@ export function HPBar(props: {
   );
 }
 
-export function ShipIndexBadge(props: { idx: number }): JSX.Element {
+export function ShipIndexBadge(props: {
+  idx: number;
+  side: "friend" | "enemy";
+}): JSX.Element {
   return (
-    <span class="badge badge-ghost badge-sm">{shipSlotLabel(props.idx)}</span>
+    <span
+      class={`badge badge-ghost badge-sm font-semibold ${
+        props.side === "enemy" ? "text-error" : "text-info"
+      }`}
+    >
+      {shipSlotLabel(props.idx)}
+    </span>
   );
 }
 
@@ -370,12 +379,11 @@ export function PhaseParticipant(props: {
   hpCurrent: number;
   hpMax: number;
 }): JSX.Element {
-  const tone = () => (props.side === "enemy" ? "text-error" : "text-info");
   return (
     <div class="min-w-0 rounded bg-base-100 px-2 py-1 border border-base-300">
       <div class="mb-1 flex items-center gap-1.5">
-        <ShipIndexBadge idx={props.idx} />
-        <div class={`truncate text-xs font-semibold ${tone()}`}>
+        <ShipIndexBadge idx={props.idx} side={props.side} />
+        <div class="truncate text-xs font-semibold text-base-content/70">
           {props.name}
         </div>
       </div>
