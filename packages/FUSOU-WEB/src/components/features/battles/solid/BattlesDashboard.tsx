@@ -8,7 +8,6 @@ import {
   Match,
   Switch,
   For,
-  type JSX,
 } from "solid-js";
 import { cachedFetch, clearFetchCache } from "@/utils/fetchCache";
 import type { PeriodSummary, MasterDataStatusItem } from "./types";
@@ -20,9 +19,14 @@ import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataL
 import BattlesListPanel from "../../stats/solid/BattlesListPanel";
 import BattleMapFlowPanel from "../../map-flow/solid/BattleMapFlowPanel";
 import BattleStatsPanel from "../../stats/solid/BattleStatsPanel";
-import BattleDetailPanel from "../../battle-detail/solid/BattleDetailPanel";
+import BattleDetailPanel, {
+  type BattleDetailLoadStatus,
+} from "../../battle-detail/solid/BattleDetailPanel";
 import BattleDropsPanel from "../../drops/solid/BattleDropsPanel"; // New component
 import BattleTabs from "./BattleTabs"; // We'll create this Solid component
+import BattleDataSettingsModal from "./BattleDataSettingsModal";
+import BattleFilterSettingsModal from "./BattleFilterSettingsModal";
+import { FilterIcon } from "@/components/common/solid/icons/FilterIcon";
 import { SettingsIcon } from "@/components/common/solid/icons/SettingsIcon";
 import { ShareUrlButton } from "@/components/common/solid/ShareUrlButton";
 
@@ -105,14 +109,15 @@ function formatLoadError(
   ].filter((part): part is string => part !== null).join(" / ");
 }
 
-function localProgressPercent(progress: BattleDataProgress | null): number {
-  if (!progress?.totalBytes) return progress?.total ? (progress.completed / progress.total) * 100 : 0;
-  return Math.min(100, (progress.completedBytes ?? 0) / progress.totalBytes * 100);
-}
-
 export default function BattlesDashboard(props: {
   repository?: BattleDataRepository;
-  sourceControls?: JSX.Element;
+  source: "r2" | "local-avro";
+  localStatus: "idle" | "scanning" | "ready" | "error";
+  localDirectoryName: () => string | null;
+  rememberSource: boolean;
+  onSourceChange: (source: "r2" | "local-avro") => void;
+  onOpenLocalDirectorySettings: () => void;
+  onRememberSourceChange: (enabled: boolean) => void;
 }) {
   const DEFAULT_LIMIT_BLOCKS = 200;
   const DEFAULT_LIMIT_RECORDS = 20000;
@@ -144,6 +149,8 @@ export default function BattlesDashboard(props: {
     period_revision?: number;
     table_version?: string;
   } | null>(null);
+  const [detailLoadStatus, setDetailLoadStatus] =
+    createSignal<BattleDetailLoadStatus | null>(null);
 
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
@@ -160,6 +167,8 @@ export default function BattlesDashboard(props: {
   const [loadedDatasetKind, setLoadedDatasetKind] = createSignal<"overview" | "drops" | null>(null);
 
   let loadDataAbortController: AbortController | null = null;
+  let dataSettingsModalRef!: HTMLDialogElement;
+  let filterSettingsModalRef!: HTMLDialogElement;
   const repository = props.repository ?? new R2BattleRepository();
 
   const dataLoadItems = () => {
@@ -176,6 +185,21 @@ export default function BattlesDashboard(props: {
     }
     return items;
   };
+
+  const currentDataLoadItems = () => activeTab() === "detail"
+    ? detailLoadStatus()?.items ?? [
+        { name: "mst_ship", status: "pending" as const },
+        { name: "mst_slotitem", status: "pending" as const },
+      ]
+    : dataLoadItems();
+
+  const currentLoadProgress = () => activeTab() === "detail"
+    ? detailLoadStatus()?.progress ?? null
+    : localProgress();
+
+  const currentLoading = () => activeTab() === "detail"
+    ? detailLoadStatus()?.loading ?? false
+    : loading();
 
   const selectedPeriod = () => periods()[selectedPeriodIdx()] ?? null;
   const hasReachedLimitCeiling = () =>
@@ -447,6 +471,11 @@ export default function BattlesDashboard(props: {
     }
   }
 
+  function changePeriod(index: number) {
+    setSelectedPeriodIdx(index);
+    void loadData(periods()[index]);
+  }
+
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
     const initialPeriodTag = params.get("period_tag");
@@ -587,69 +616,6 @@ export default function BattlesDashboard(props: {
             <p class="fusou-page-subtitle">記録された戦闘ログの分析・集計機能</p>
           </div>
           <div class="fusou-page-actions flex-wrap">
-            {props.sourceControls}
-            <div class="form-control">
-              <select
-                class="select select-bordered select-sm w-full"
-                value={selectedPeriodIdx().toString()}
-                onChange={(e) => {
-                  const idx = Number(e.currentTarget.value);
-                  setSelectedPeriodIdx(idx);
-                  void loadData(periods()[idx]);
-                }}
-                disabled={loadingPeriods() || loading()}
-              >
-                <Show when={loadingPeriods()}>
-                  <option value={selectedPeriodIdx().toString()}>読込中...</option>
-                </Show>
-                <For each={periods()}>
-                  {(period, index) => (
-                    <option value={index().toString()}>
-                      {period.period_tag === "latest" ? "最新期間" : 
-                       period.period_tag === "all" ? "全期間" : 
-                       period.table_version ? `${period.period_tag} (v${period.table_version})` : period.period_tag}
-                    </option>
-                  )}
-                </For>
-              </select>
-            </div>
-            
-            <Show when={activeTab() !== "detail"}>
-              <div class="form-control">
-                <select
-                  class="select select-bordered select-sm"
-                  value={mapFilter()}
-                  onInput={(e) => setMapFilter(e.currentTarget.value)}
-                >
-                  <option value="" selected={mapFilter() === ""}>全海域</option>
-                  <For each={mapOptions()}>
-                    {(map) => (
-                      <option value={map} selected={mapFilter() === map}>
-                        {map}
-                      </option>
-                    )}
-                  </For>
-                </select>
-              </div>
-            </Show>
-
-            <Show when={activeTab() === "list"}>
-              <div class="form-control">
-                <select
-                  class="select select-bordered select-sm"
-                  value={resultFilter()}
-                  onInput={(e) => setResultFilter(e.currentTarget.value)}
-                >
-                  <option value="" selected={resultFilter() === ""}>全結果</option>
-                  <option value="S" selected={resultFilter() === "S"}>S勝利</option>
-                  <option value="A" selected={resultFilter() === "A"}>A勝利</option>
-                  <option value="B" selected={resultFilter() === "B"}>B勝利</option>
-                  <option value="C" selected={resultFilter() === "C"}>C敗北</option>
-                  <option value="D" selected={resultFilter() === "D"}>D敗北</option>
-                </select>
-              </div>
-            </Show>
-
             <Show when={activeTab() === "map-flow"}>
               <button
                 class="fusou-btn-secondary gap-1.5"
@@ -699,24 +665,44 @@ export default function BattlesDashboard(props: {
               />
             </Show>
 
-              <button
-                type="button"
-                class="fusou-btn-secondary gap-1.5"
-                onClick={() => {
-                  clearFetchCache();
-                  void loadData(selectedPeriod(), { forceRefresh: true });
-                }}
-                disabled={loadingPeriods() || loading()}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                <span class="hidden md:inline">
-                  <Show when={loading()} fallback="更新">
-                    読込中
-                  </Show>
-                </span>
-              </button>
+            <button
+              id="battle-filter-settings-btn"
+              class="fusou-btn-secondary gap-1.5"
+              type="button"
+              onClick={() => filterSettingsModalRef?.showModal()}
+            >
+              <FilterIcon class="h-4 w-4" />
+              <span>フィルター</span>
+            </button>
+
+            <button
+              id="battle-data-settings-btn"
+              class="fusou-btn-secondary gap-1.5"
+              type="button"
+              onClick={() => dataSettingsModalRef?.showModal()}
+            >
+              <SettingsIcon class="h-4 w-4" />
+              <span class="hidden md:inline">データ設定</span>
+            </button>
+
+            <button
+              type="button"
+              class="fusou-btn-secondary gap-1.5"
+              onClick={() => {
+                clearFetchCache();
+                void loadData(selectedPeriod(), { forceRefresh: true });
+              }}
+              disabled={loadingPeriods() || loading()}
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              <span class="hidden md:inline">
+                <Show when={loading()} fallback="更新">
+                  読込中
+                </Show>
+              </span>
+            </button>
           </div>
         </div>
 
@@ -766,38 +752,18 @@ export default function BattlesDashboard(props: {
           </div>
         </Show>
 
-        <Show when={activeTab() !== "detail"}>
-          <div class="mb-6">
-            <MasterDataLoadStatusAlert
-              items={dataLoadItems()}
-              alwaysShow={true}
-              progress={repository.kind === "local-avro" && loading()
-                ? {
-                    value: localProgressPercent(localProgress()),
-                    max: 100,
-                    label: formatLocalProgress(localProgress()),
-                  }
-                : undefined}
-              subtitle={
-                <div class="flex flex-col gap-0.5 mt-0.5">
-                  <Show when={selectedPeriod()}>
-                    <span>{`参照データ期間: ${selectedPeriod()!.period_tag === 'latest' ? '最新 (latest)' : selectedPeriod()!.period_tag === 'all' ? '全期間 (all)' : selectedPeriod()!.period_tag}${selectedPeriod()!.table_version ? ` / ${selectedPeriod()!.table_version}` : ''}`}</span>
-                  </Show>
-                  <Show when={masterDataMeta()}>
-                    <span>{`マスターデータ: ${masterDataMeta()?.period_tag || ''} rev${masterDataMeta()?.period_revision || ''}${masterDataMeta()?.table_version ? ` / ${masterDataMeta()?.table_version}` : ''}`}</span>
-                  </Show>
-                  <Show when={repository.kind === "local-avro" && !loading() && localProgress()}>
-                    <span>{`ローカル AVRO: ${formatLocalProgress(localProgress(), false)}`}</span>
-                  </Show>
-                </div>
-              }
-            />
-          </div>
-        </Show>
+        <MasterDataLoadStatusAlert
+          items={currentDataLoadItems()}
+          errorsOnly={true}
+          class="mb-6"
+        />
 
         <BattleTabs
           activeTab={activeTab()}
-          onTabChange={setActiveTab}
+          onTabChange={(tab) => {
+            if (tab === "detail") setDetailLoadStatus(null);
+            setActiveTab(tab);
+          }}
           disabled={loading()}
         />
 
@@ -818,6 +784,7 @@ export default function BattlesDashboard(props: {
                 battleIndex={selectedBattleIndex()}
                 repository={repository}
                 onBattleIndexChange={(index) => setSelectedBattleIndex(index)}
+                onLoadStatusChange={setDetailLoadStatus}
               />
             </Match>
             <Match when={activeTab() === "drops"}>
@@ -826,6 +793,50 @@ export default function BattlesDashboard(props: {
           </Switch>
         </div>
       </div>
+      <BattleDataSettingsModal
+        ref={(element) => {
+          dataSettingsModalRef = element;
+        }}
+        source={props.source}
+        localStatus={props.localStatus}
+        localDirectoryName={props.localDirectoryName}
+        rememberSource={props.rememberSource}
+        onSourceChange={(source) => {
+          dataSettingsModalRef.close();
+          props.onSourceChange(source);
+        }}
+        onOpenLocalDirectorySettings={() => {
+          dataSettingsModalRef.close();
+          props.onOpenLocalDirectorySettings();
+        }}
+        onRememberSourceChange={props.onRememberSourceChange}
+        periodLabel={selectedPeriod()?.period_tag === "latest"
+          ? "最新 (latest)"
+          : selectedPeriod()?.period_tag === "all"
+            ? "全期間 (all)"
+            : selectedPeriod()?.period_tag ?? "-"}
+        masterDataMeta={masterDataMeta}
+        items={currentDataLoadItems}
+        progress={currentLoadProgress}
+        loading={currentLoading}
+      />
+      <BattleFilterSettingsModal
+        ref={(element) => {
+          filterSettingsModalRef = element;
+        }}
+        periods={periods}
+        selectedPeriodIndex={selectedPeriodIdx}
+        loadingPeriods={loadingPeriods}
+        loading={loading}
+        onPeriodChange={changePeriod}
+        mapOptions={mapOptions}
+        mapFilter={mapFilter}
+        onMapFilterChange={setMapFilter}
+        resultFilter={resultFilter}
+        onResultFilterChange={setResultFilter}
+        showMapFilter={activeTab() !== "detail"}
+        showResultFilter={activeTab() === "list"}
+      />
     </div>
   );
 }

@@ -22,6 +22,7 @@ export function MasterDataLoadStatusAlert(props: {
     label?: string;
   };
   alwaysShow?: boolean;
+  errorsOnly?: boolean;
   class?: string;
 }): JSX.Element {
   const [showDetails, setShowDetails] = createSignal(false);
@@ -68,8 +69,15 @@ export function MasterDataLoadStatusAlert(props: {
     return `データ読込完了 (${success}件)`;
   });
 
+  const progressPercent = createMemo(() => {
+    const progress = props.progress;
+    if (!progress || progress.max <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((progress.value / progress.max) * 100)));
+  });
+
   // Show only while loading or when there are failures; hide on complete success.
   const shouldShow = createMemo(() => {
+    if (props.errorsOnly) return summary().failed > 0;
     if (props.alwaysShow) return true;
     const { failed, pending } = summary();
     return failed > 0 || pending > 0;
@@ -77,7 +85,7 @@ export function MasterDataLoadStatusAlert(props: {
 
   return (
     <Show when={(props.items?.length ?? 0) > 0 && shouldShow()}>
-      <div class={`alert alert-${alertType()} text-sm ${props.class ?? ""}`.trim()}>
+      <div class={`alert alert-${alertType()} w-full max-w-none text-sm ${props.class ?? ""}`.trim()}>
         <div class="col-span-full flex w-full min-w-0 flex-col gap-2">
           <div class="flex w-full items-start gap-2">
             <div class="min-w-0 flex-1 flex flex-col gap-0.5">
@@ -95,14 +103,20 @@ export function MasterDataLoadStatusAlert(props: {
             </button>
           </div>
           <Show when={props.progress}>
-            <Show when={props.progress!.label}>
-              <span class="text-xs opacity-80">{props.progress!.label}</span>
-            </Show>
+            <div class="flex w-full min-w-0 items-center justify-between gap-2 text-xs opacity-80">
+              <span class="min-w-0 wrap-break-word">
+                {props.progress!.label ?? "データを読み込んでいます"}
+              </span>
+              <span class="shrink-0 font-semibold tabular-nums">
+                {progressPercent()}%
+              </span>
+            </div>
             <progress
-              class="progress progress-primary h-2 w-full"
+              class="progress progress-warning block h-1.5 w-full min-w-0"
               max={props.progress!.max}
               value={props.progress!.value}
               aria-label="データ読込進捗"
+              aria-valuetext={`${progressPercent()}%`}
             />
           </Show>
           <Show when={showDetails()}>

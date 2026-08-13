@@ -34,7 +34,6 @@ import BattlePhaseView from "./BattlePhaseView";
 import BattleTimelineView from "./BattleTimelineView";
 import BattleDisplaySettingsModal from "./BattleDisplaySettingsModal";
 import {
-  MasterDataLoadStatusAlert,
   type MasterDataLoadStatusItem,
 } from "@/components/common/solid/MasterDataLoadStatusAlert";
 import {
@@ -79,11 +78,6 @@ function formatLocalProgress(
 function formatProgressBytes(value: number): string {
   if (value < 1024 * 1024) return `${Math.round(value / 1024)} KiB`;
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
-}
-
-function localProgressPercent(progress: BattleDataProgress | null): number {
-  if (!progress?.totalBytes) return progress?.total ? (progress.completed / progress.total) * 100 : 0;
-  return Math.min(100, (progress.completedBytes ?? 0) / progress.totalBytes * 100);
 }
 
 function formatDetailLoadError(
@@ -236,11 +230,18 @@ function uniqueBattleIndexesInOrder(values: Array<unknown>): number[] {
 
 // ── Main orchestrator component ───────────────────────────────────────────
 
+export type BattleDetailLoadStatus = {
+  items: MasterDataLoadStatusItem[];
+  loading: boolean;
+  progress: BattleDataProgress | null;
+};
+
 export default function BattleDetailPanel(props: {
   battleId: string;
   battleIndex?: number | null;
   repository?: BattleDataRepository;
   onBattleIndexChange?: (index: number) => void;
+  onLoadStatusChange?: (status: BattleDetailLoadStatus) => void;
 }): JSX.Element {
   const repository = props.repository ?? new R2BattleRepository();
   const ownsRepository = !props.repository;
@@ -307,6 +308,13 @@ export default function BattleDetailPanel(props: {
     }
     return items;
   };
+  createEffect(() => {
+    props.onLoadStatusChange?.({
+      items: dataLoadItems(),
+      loading: loading(),
+      progress: localProgress(),
+    });
+  });
   const [resolvedTableVersion, setResolvedTableVersion] =
     createSignal<string | null>(null);
   const [battleIndexes, setBattleIndexes] = createSignal<number[]>([]);
@@ -913,19 +921,6 @@ export default function BattleDetailPanel(props: {
 
   return (
     <div class="max-w-[1280px] mx-auto px-4 pt-2 pb-8">
-      <MasterDataLoadStatusAlert
-        items={dataLoadItems()}
-        alwaysShow={true}
-        class="mb-3"
-        progress={repository.kind === "local-avro" && loading()
-          ? {
-              value: localProgressPercent(localProgress()),
-              max: 100,
-              label: formatLocalProgress(localProgress()),
-            }
-          : undefined}
-      />
-
       <Show when={selectableBattleIndexes().length > 1}>
         <div class="mb-3 overflow-x-auto">
           <div class="tabs tabs-boxed inline-flex flex-nowrap">

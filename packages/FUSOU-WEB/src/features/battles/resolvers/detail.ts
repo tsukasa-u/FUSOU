@@ -158,6 +158,22 @@ function battleIndexes(
       .filter((index) => Number.isSafeInteger(index) && index >= 0),
   );
   const cellBattleIndexes = positiveNumbers(cell?.battle_index);
+  const cellIndexes = positiveNumbers(cell?.cell_index);
+  if (cellIndexes.length > 0) {
+    const battleByCellId = new Map(
+      battles.map((row) => [Number(row.cell_id ?? Number.NaN), row]),
+    );
+    const orderedByCell = cellIndexes.map((cellId) =>
+      Number(battleByCellId.get(cellId)?.index ?? Number.NaN),
+    );
+    if (
+      orderedByCell.length === cellIndexes.length &&
+      orderedByCell.every((index) => availableIndexes.has(index))
+    ) {
+      return [...new Set(orderedByCell)];
+    }
+  }
+
   if (cellBattleIndexes.length > 0) {
     const matchingIndexes = cellBattleIndexes.filter((index) =>
       availableIndexes.has(index),
@@ -167,16 +183,6 @@ function battleIndexes(
     }
   }
 
-  const cellIndexes = positiveNumbers(cell?.cell_index);
-  if (cellIndexes.length > 0) {
-    const battleByCellId = new Map(
-      battles.map((row) => [Number(row.cell_id ?? Number.NaN), row]),
-    );
-    return cellIndexes
-      .map((cellId) => Number(battleByCellId.get(cellId)?.index ?? Number.NaN))
-      .filter((index) => availableIndexes.has(index))
-      .sort((left, right) => left - right);
-  }
   return [...availableIndexes].sort((left, right) => left - right);
 }
 

@@ -29,14 +29,31 @@ import BattlesDashboard from "./BattlesDashboard";
 
 type SourceKind = "r2" | "local-avro";
 type LocalStatus = "idle" | "scanning" | "ready" | "error";
+const SOURCE_PREFERENCE_KEY = "fusou:battles:preferred-source";
 
 function sourceFromUrl(): SourceKind {
   if (typeof window === "undefined") return "r2";
-  return window.location.search
-    ? new URLSearchParams(window.location.search).get("source") === "local-avro"
+  const params = new URLSearchParams(window.location.search);
+  const sourceParam = params.get("source");
+  if (sourceParam === "local-avro") return "local-avro";
+  if (sourceParam === "r2") return "r2";
+  try {
+    return window.localStorage.getItem(SOURCE_PREFERENCE_KEY) === "local-avro"
       ? "local-avro"
-      : "r2"
-    : "r2";
+      : "r2";
+  } catch {
+    return "r2";
+  }
+}
+
+function hasStoredSourcePreference(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const storedSource = window.localStorage.getItem(SOURCE_PREFERENCE_KEY);
+    return storedSource === "r2" || storedSource === "local-avro";
+  } catch {
+    return false;
+  }
 }
 
 function formatBytes(value: number): string {
@@ -71,6 +88,7 @@ function localScanErrorMessage(error: unknown): string {
 export default function BattleSourceSwitcher() {
   const initialSource = sourceFromUrl();
   const [source, setSource] = createSignal<SourceKind>(initialSource);
+  const [rememberSource, setRememberSource] = createSignal(hasStoredSourcePreference());
   const [repository, setRepository] = createSignal<BattleDataRepository | null>(
     new R2BattleRepository(),
   );
@@ -109,6 +127,7 @@ export default function BattleSourceSwitcher() {
     setScanProgress(null);
     setLocalStatus("idle");
     setSource("r2");
+    if (rememberSource()) persistSourcePreference("r2");
     syncSourceQuery("r2");
     replaceRepository(new R2BattleRepository());
   };
@@ -122,6 +141,15 @@ export default function BattleSourceSwitcher() {
       url.searchParams.delete("battle_index");
     }
     window.history.replaceState({}, "", url.toString());
+  };
+
+  const persistSourcePreference = (nextSource: SourceKind | null) => {
+    try {
+      if (nextSource) window.localStorage.setItem(SOURCE_PREFERENCE_KEY, nextSource);
+      else window.localStorage.removeItem(SOURCE_PREFERENCE_KEY);
+    } catch {
+      // localStorage may be unavailable in privacy-restricted browsers.
+    }
   };
 
   const scanHandle = async (handle: FileSystemDirectoryHandle, generation: number) => {
@@ -204,6 +232,7 @@ export default function BattleSourceSwitcher() {
     const generation = ++operationGeneration;
     const sourceChanged = source() !== nextSource;
     setSource(nextSource);
+    if (rememberSource()) persistSourcePreference(nextSource);
     syncSourceQuery(nextSource, sourceChanged);
     setError(null);
     clearBattlePreview();
@@ -222,6 +251,11 @@ export default function BattleSourceSwitcher() {
     else openLocalSettings();
   };
 
+  const setSourcePreference = (enabled: boolean) => {
+    setRememberSource(enabled);
+    persistSourcePreference(enabled ? source() : null);
+  };
+
   const releaseLocalAccess = async () => {
     ++operationGeneration;
     clearBattlePreview();
@@ -231,6 +265,7 @@ export default function BattleSourceSwitcher() {
     setLocalStatus("idle");
     setPermission("prompt");
     setSource("r2");
+    if (rememberSource()) persistSourcePreference("r2");
     syncSourceQuery("r2");
     replaceRepository(new R2BattleRepository());
     localSettingsModalRef?.close();
@@ -293,43 +328,17 @@ export default function BattleSourceSwitcher() {
         {(activeRepository) => (
           <BattlesDashboard
             repository={activeRepository}
-            sourceControls={
-              <SourceControls
-                source={source}
-                localStatus={localStatus}
-                onSourceChange={selectSource}
-              />
-            }
+            source={source()}
+            localStatus={localStatus()}
+            localDirectoryName={() => storedHandle()?.name ?? null}
+            rememberSource={rememberSource()}
+            onSourceChange={selectSource}
+            onOpenLocalDirectorySettings={openLocalSettings}
+            onRememberSourceChange={setSourcePreference}
           />
         )}
       </Show>
     </>
-  );
-}
-
-function SourceControls(props: {
-  source: () => SourceKind;
-  localStatus: () => LocalStatus;
-  onSourceChange: (source: SourceKind) => void;
-}) {
-  return (
-    <div class="flex flex-wrap items-center gap-2 text-sm">
-      <span class="font-semibold">データソース</span>
-      <label class="label cursor-pointer gap-2 p-0" aria-label="データソース">
-        <span class={props.source() === "r2" ? "font-semibold" : "text-base-content/55"}>R2</span>
-        <input
-          type="checkbox"
-          class="toggle toggle-primary toggle-sm"
-          checked={props.source() === "local-avro"}
-          aria-checked={props.source() === "local-avro"}
-          onChange={(event) => props.onSourceChange(event.currentTarget.checked ? "local-avro" : "r2")}
-        />
-        <span class={props.source() === "local-avro" ? "font-semibold" : "text-base-content/55"}>ローカル</span>
-      </label>
-      <Show when={props.source() === "local-avro" && props.localStatus() === "scanning"}>
-        <span class="text-xs text-base-content/60">読込中...</span>
-      </Show>
-    </div>
   );
 }
 

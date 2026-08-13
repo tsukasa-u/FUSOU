@@ -95,7 +95,7 @@ describe("resolveBattleDetail", () => {
     expect(result).toBeNull();
   });
 
-  it("uses the stored battle indexes instead of cell ordinals", () => {
+  it("preserves the cell traversal order when resolving battle indexes", () => {
     const result = resolveBattleDetail({
       periodTag: "2026-08-11",
       envUuid: "target-env",
@@ -116,7 +116,7 @@ describe("resolveBattleDetail", () => {
       }),
     });
 
-    expect(result?.payload.battle_indexes).toEqual([0, 1, 2]);
+    expect(result?.payload.battle_indexes).toEqual([2, 0, 1]);
   });
 
   it("falls back to cell ids when stored battle indexes are source ids", () => {
@@ -140,7 +140,33 @@ describe("resolveBattleDetail", () => {
       }),
     });
 
-    expect(result?.payload.battle_indexes).toEqual([0, 1, 2]);
+    expect(result?.payload.battle_indexes).toEqual([2, 1, 0]);
+  });
+
+  it("puts the final cell last for the local AVRO battle layout", () => {
+    const result = resolveBattleDetail({
+      periodTag: "2026-08-05",
+      envUuid: "target-env",
+      battleIndex: 0,
+      tables: tables({
+        battle: [
+          { env_uuid: "target-env", index: 0, cell_id: 18 },
+          { env_uuid: "target-env", index: 1, cell_id: 10 },
+          { env_uuid: "target-env", index: 2, cell_id: 17 },
+          { env_uuid: "target-env", index: 3, cell_id: 2 },
+          { env_uuid: "target-env", index: 4, cell_id: 6 },
+        ],
+        cells: [
+          {
+            env_uuid: "target-env",
+            battle_index: [18, 10, 17, 2, 6],
+            cell_index: [2, 6, 17, 10, 18],
+          },
+        ],
+      }),
+    });
+
+    expect(result?.payload.battle_indexes).toEqual([3, 4, 2, 1, 0]);
   });
 
   it("does not expose unequipped slot items in the derived fleet", () => {
