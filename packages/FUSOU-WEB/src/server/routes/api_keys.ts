@@ -11,6 +11,7 @@ import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
 import {
   ApiKeyCreateRowsSchema,
+  ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../schemas/api-keys";
@@ -257,15 +258,26 @@ app.post("/", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const currentKeys = await supabaseRestRequest<{ id: string }[]>(
+    const currentKeysResponse = await supabaseRestRequest(
       config,
       "api_keys",
       {
         query: `?user_id=eq.${user.id}&select=id`,
       },
     );
+    const parsedCurrentKeys = ApiKeyIdRowsSchema.safeParse(
+      currentKeysResponse,
+    );
+    if (!parsedCurrentKeys.success) {
+      console.error(
+        "API key current keys response shape invalid:",
+        parsedCurrentKeys.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+    const currentKeys = parsedCurrentKeys.data;
 
-    if (currentKeys && currentKeys.length >= 5) {
+    if (currentKeys.length >= 5) {
       return jsonResponse(
         {
           error: "Limit exceeded",

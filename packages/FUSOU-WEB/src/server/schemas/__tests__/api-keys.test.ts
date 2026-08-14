@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ApiKeyCreateRowsSchema,
+  ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../api-keys";
@@ -78,5 +79,21 @@ describe("ApiKeyCreateRowsSchema", () => {
       ApiKeyCreateRowsSchema.safeParse({ id: "key-1", key: "secret-key" })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("ApiKeyIdRowsSchema", () => {
+  it("accepts id rows and extra fields", () => {
+    expect(
+      ApiKeyIdRowsSchema.safeParse([
+        { id: "key-1", created_at: "2026-08-14T00:00:00Z" },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing ids and non-array responses", () => {
+    expect(ApiKeyIdRowsSchema.safeParse([{ id: "" }]).success).toBe(false);
+    expect(ApiKeyIdRowsSchema.safeParse([{ id: 42 }]).success).toBe(false);
+    expect(ApiKeyIdRowsSchema.safeParse(null).success).toBe(false);
   });
 });

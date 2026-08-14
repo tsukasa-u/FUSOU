@@ -14,6 +14,13 @@ export const ApiKeyCreateRowsSchema = z
   .passthrough()
   .array();
 
+export const ApiKeyIdRowsSchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .passthrough()
+  .array();
+
 export const ApiKeyListRowsSchema = z
   .object({
     id: z.string().min(1),
