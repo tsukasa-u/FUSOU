@@ -307,16 +307,16 @@ export function updateDataStatus() {
  */
 export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
   // mst_stypes
-  if (obj.mst_stypes && typeof obj.mst_stypes === "object") {
-    if (Array.isArray(obj.mst_stypes)) {
-      for (const v of obj.mst_stypes) {
+  if (obj["mst_stypes"] && typeof obj["mst_stypes"] === "object") {
+    if (Array.isArray(obj["mst_stypes"])) {
+      for (const v of obj["mst_stypes"]) {
         if (v && typeof v === "object" && "id" in v) {
           setMasterStype(v as MstStypeData);
         }
       }
     } else {
       for (const [k, v] of Object.entries(
-        obj.mst_stypes as Record<string, unknown>,
+        obj["mst_stypes"] as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "id" in v) {
           setMasterStype({ ...(v as MstStypeData), id: Number(k) });
@@ -326,16 +326,16 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
   }
 
   // mst_equip_exslots
-  if (obj.mst_equip_exslots && typeof obj.mst_equip_exslots === "object") {
-    if (Array.isArray(obj.mst_equip_exslots)) {
-      for (const v of obj.mst_equip_exslots) {
+  if (obj["mst_equip_exslots"] && typeof obj["mst_equip_exslots"] === "object") {
+    if (Array.isArray(obj["mst_equip_exslots"])) {
+      for (const v of obj["mst_equip_exslots"]) {
         if (v && typeof v === "object" && "equip" in v) {
           addEquipExslotId((v as MstEquipExslotData).equip);
         }
       }
     } else {
       for (const v of Object.values(
-        obj.mst_equip_exslots as Record<string, unknown>,
+        obj["mst_equip_exslots"] as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip" in v) {
           addEquipExslotId((v as MstEquipExslotData).equip);
@@ -345,16 +345,16 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
   }
 
   // mst_equip_ships — supports both keyed object and array (with ship_id field)
-  if (obj.mst_equip_ships && typeof obj.mst_equip_ships === "object") {
-    if (Array.isArray(obj.mst_equip_ships)) {
-      for (const v of obj.mst_equip_ships) {
+  if (obj["mst_equip_ships"] && typeof obj["mst_equip_ships"] === "object") {
+    if (Array.isArray(obj["mst_equip_ships"])) {
+      for (const v of obj["mst_equip_ships"]) {
         if (v && typeof v === "object" && "ship_id" in v && "equip_type" in v) {
           setMasterEquipShip(v as MstEquipShipData);
         }
       }
     } else {
       for (const [k, v] of Object.entries(
-        obj.mst_equip_ships as Record<string, unknown>,
+        obj["mst_equip_ships"] as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip_type" in v) {
           setMasterEquipShip({
@@ -368,18 +368,18 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
 
   // mst_equip_exslot_ships — supports both keyed object and array (with slotitem_id field)
   if (
-    obj.mst_equip_exslot_ships &&
-    typeof obj.mst_equip_exslot_ships === "object"
+    obj["mst_equip_exslot_ships"] &&
+    typeof obj["mst_equip_exslot_ships"] === "object"
   ) {
-    if (Array.isArray(obj.mst_equip_exslot_ships)) {
-      for (const v of obj.mst_equip_exslot_ships) {
+    if (Array.isArray(obj["mst_equip_exslot_ships"])) {
+      for (const v of obj["mst_equip_exslot_ships"]) {
         if (v && typeof v === "object" && "slotitem_id" in v) {
           setMasterEquipExslotShip(v as MstEquipExslotShipData);
         }
       }
     } else {
       for (const [k, v] of Object.entries(
-        obj.mst_equip_exslot_ships as Record<string, unknown>,
+        obj["mst_equip_exslot_ships"] as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "req_level" in v) {
           setMasterEquipExslotShip({
@@ -393,18 +393,18 @@ export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
 
   // mst_equip_limit_exslots — supports both keyed object and array (with ship_id field)
   if (
-    obj.mst_equip_limit_exslots &&
-    typeof obj.mst_equip_limit_exslots === "object"
+    obj["mst_equip_limit_exslots"] &&
+    typeof obj["mst_equip_limit_exslots"] === "object"
   ) {
-    if (Array.isArray(obj.mst_equip_limit_exslots)) {
-      for (const v of obj.mst_equip_limit_exslots) {
+    if (Array.isArray(obj["mst_equip_limit_exslots"])) {
+      for (const v of obj["mst_equip_limit_exslots"]) {
         if (v && typeof v === "object" && "ship_id" in v && "equip" in v) {
           setMasterEquipLimitExslot(v as MstEquipLimitExslotData);
         }
       }
     } else {
       for (const [k, v] of Object.entries(
-        obj.mst_equip_limit_exslots as Record<string, unknown>,
+        obj["mst_equip_limit_exslots"] as Record<string, unknown>,
       )) {
         if (v && typeof v === "object" && "equip" in v) {
           setMasterEquipLimitExslot({
@@ -436,9 +436,9 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   beginBulkLoad();
   try {
     let shipCount = 0;
-    if (obj.mst_ships && typeof obj.mst_ships === "object") {
-      if (Array.isArray(obj.mst_ships)) {
-        for (const v of obj.mst_ships) {
+    if (obj["mst_ships"] && typeof obj["mst_ships"] === "object") {
+      if (Array.isArray(obj["mst_ships"])) {
+        for (const v of obj["mst_ships"]) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             setMasterShip(normalizeMstShip(v as MstShipData));
             shipCount++;
@@ -446,7 +446,7 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
         }
       } else {
         for (const [k, v] of Object.entries(
-          obj.mst_ships as Record<string, unknown>,
+          obj["mst_ships"] as Record<string, unknown>,
         )) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             setMasterShip(
@@ -465,9 +465,9 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
 
     let equipCount = 0;
-    if (obj.mst_slot_items && typeof obj.mst_slot_items === "object") {
-      if (Array.isArray(obj.mst_slot_items)) {
-        for (const v of obj.mst_slot_items) {
+    if (obj["mst_slot_items"] && typeof obj["mst_slot_items"] === "object") {
+      if (Array.isArray(obj["mst_slot_items"])) {
+        for (const v of obj["mst_slot_items"]) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             const item = normalizeMstSlotItem(v as MstSlotItemData);
             setMasterSlotItem(item);
@@ -476,7 +476,7 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
         }
       } else {
         for (const [k, v] of Object.entries(
-          obj.mst_slot_items as Record<string, unknown>,
+          obj["mst_slot_items"] as Record<string, unknown>,
         )) {
           if (v && typeof v === "object" && "id" in v && "name" in v) {
             setMasterSlotItem({
@@ -497,8 +497,8 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
 
     // Optional: equipment type master for category display
     const equipTypeObj =
-      (obj.mst_slotitem_equiptypes as unknown) ??
-      (obj.mst_slotitem_equiptype as unknown);
+      (obj["mst_slotitem_equiptypes"] as unknown) ??
+      (obj["mst_slotitem_equiptype"] as unknown);
     if (equipTypeObj && typeof equipTypeObj === "object") {
       if (Array.isArray(equipTypeObj)) {
         for (const v of equipTypeObj) {
@@ -519,11 +519,14 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
       }
     }
 
-    if (obj.ships && !obj.mst_ships) {
-      loadMasterDataFromJson({ mst_ships: obj.ships }, renderAll);
+    if (obj["ships"] && !obj["mst_ships"]) {
+      loadMasterDataFromJson({ mst_ships: obj["ships"] }, renderAll);
     }
-    if (obj.equipments && !obj.mst_slot_items) {
-      loadMasterDataFromJson({ mst_slot_items: obj.equipments }, renderAll);
+    if (obj["equipments"] && !obj["mst_slot_items"]) {
+      loadMasterDataFromJson(
+        { mst_slot_items: obj["equipments"] },
+        renderAll,
+      );
     }
 
     // ── Equipment filtering tables (JSON import preserves keys) ──
