@@ -146,6 +146,7 @@ app.use("/api/*", async (c, next) => {
   }
 
   await next();
+  return;
 });
 
 // ---------------------------------------------------------------------------
@@ -183,6 +184,7 @@ const shortenValidator = zValidator("json", shortenSchema, (result, c) => {
   if (!result.success) {
     return c.json({ error: "Validation failed", issues: result.error.issues }, 400);
   }
+  return;
 });
 
 app.post("/api/shorten", shortenValidator, async (c) => {
@@ -197,7 +199,17 @@ app.post("/api/shorten", shortenValidator, async (c) => {
 
   let rawValue = url;
   if (snapshotPayload && (snapshotPayload.snapshotShips || snapshotPayload.snapshotSlotItems)) {
-    const record: StoredShareRecord = { url, snapshotPayload };
+    const record: StoredShareRecord = {
+      url,
+      snapshotPayload: {
+        ...(snapshotPayload.snapshotShips !== undefined
+          ? { snapshotShips: snapshotPayload.snapshotShips }
+          : {}),
+        ...(snapshotPayload.snapshotSlotItems !== undefined
+          ? { snapshotSlotItems: snapshotPayload.snapshotSlotItems }
+          : {}),
+      },
+    };
     const encoded = JSON.stringify(record);
     // Guardrail: keep room for future metadata and prevent excessive KV object size.
     if (encoded.length > 1_000_000) {
