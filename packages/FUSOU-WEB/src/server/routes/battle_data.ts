@@ -2707,7 +2707,10 @@ app.get("/dev/local-records", async (c) => {
 
     return c.json(payload);
   } catch (err) {
-    const msg = String((err as any)?.message || err || "");
+    const msg =
+      typeof err === "object" && err !== null && "message" in err
+        ? String(err.message)
+        : String(err ?? "");
     if (msg.includes("no such table") || msg.includes("no such column")) {
       // During partial/local seeding, some optional tables may be absent.
       // Some tables also do not have every fallback key column (uuid/battle_id/id).
