@@ -903,12 +903,12 @@ app.post("/upload", async (c) => {
         datasetId,
         table,
         periodTag,
-        queueExists: !!env.runtime.COMPACTION_QUEUE,
+        queueExists: !!env.runtime["COMPACTION_QUEUE"],
         timestamp: triggeredAt,
       });
 
       try {
-        if (!env.runtime.COMPACTION_QUEUE) {
+        if (!env.runtime["COMPACTION_QUEUE"]) {
           console.warn("[battle-data] COMPACTION_QUEUE binding not available");
           return c.json(
             {
@@ -1135,7 +1135,7 @@ app.post("/upload", async (c) => {
               validatedOffsets.length,
               "tables",
             );
-            await env.runtime.COMPACTION_QUEUE.send(messageBody);
+            await env.runtime["COMPACTION_QUEUE"].send(messageBody);
             console.info(
               "[battle-data] Successfully enqueued batched message with",
               validatedOffsets.length,
@@ -1178,7 +1178,7 @@ app.post("/upload", async (c) => {
  */
 app.get("/chunks", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -1285,7 +1285,7 @@ app.get("/chunks", async (c) => {
  */
 app.get("/latest", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -1359,7 +1359,7 @@ app.get("/health", (c) => {
  */
 app.get("/global/chunks", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -1456,7 +1456,7 @@ app.get("/global/chunks", async (c) => {
  */
 app.get("/global/summary", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -1534,8 +1534,8 @@ app.get("/global/summary", async (c) => {
  */
 app.get("/global/records", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
-  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"];
 
   if (!indexDb || !bucket) {
     return c.json(
