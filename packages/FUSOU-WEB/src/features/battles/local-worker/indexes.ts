@@ -71,7 +71,10 @@ export function rowsForIndexes(
 ): AvroJsonRecord[] {
   return [...rowIndexes]
     .filter((rowIndex) => rowIndex >= 0 && rowIndex < index.rows.length)
-    .map((rowIndex) => index.rows[rowIndex]);
+    .flatMap((rowIndex) => {
+      const row = index.rows[rowIndex];
+      return row === undefined ? [] : [row];
+    });
 }
 
 export function sortRowsByIndex(rows: AvroJsonRecord[]): AvroJsonRecord[] {
