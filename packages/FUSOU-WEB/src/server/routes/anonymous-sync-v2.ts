@@ -208,7 +208,9 @@ async function verifySupabaseAccessToken(options: {
     if (!parsedUser.success) return null;
     return {
       id: parsedUser.data.id,
-      email: parsedUser.data.email ?? undefined,
+      ...(typeof parsedUser.data.email !== "string"
+        ? {}
+        : { email: parsedUser.data.email }),
     };
   } catch (err) {
     console.warn("[anonymous-sync-v2] verifySupabaseAccessToken failed:", err);
@@ -624,7 +626,9 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     // Rate limit (pid 単位)。ローテーション中も current pid で一貫して制御する。
     const rateOk = await consumeRateLimit({
-      kv: c.env.DATA_LOADER_CACHE_KV,
+      ...(c.env.DATA_LOADER_CACHE_KV === undefined
+        ? {}
+        : { kv: c.env.DATA_LOADER_CACHE_KV }),
       pid: pidCurrent,
     });
     if (!rateOk) {
