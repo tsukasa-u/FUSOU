@@ -270,6 +270,7 @@ function EquipDetailPanel(props: {
 
       for (const idx of candidateIndices) {
         const rule = rules[idx];
+        if (!rule) continue;
         if (rule.cancels_single) continue;
 
         if (rule.category_pools) {
@@ -293,8 +294,10 @@ function EquipDetailPanel(props: {
             cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else if (rule.item_pool) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -313,8 +316,10 @@ function EquipDetailPanel(props: {
             comboSize,
             correction: rule.synergy,
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else if (rule.implicants) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -330,8 +335,10 @@ function EquipDetailPanel(props: {
               cancels_single: !!rule.cancels_single,
               correction: rule.synergy,
               ships: rule.ships,
-              suppressed_components: rule.suppressed_components,
-              placements: rule.placements,
+              ...(rule.suppressed_components !== undefined
+                ? { suppressed_components: rule.suppressed_components }
+                : {}),
+              ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
             });
           }
         } else if (rule.fixed_items && rule.free_pool) {
@@ -362,13 +369,14 @@ function EquipDetailPanel(props: {
             fixed,
             freePool,
             freePoolWithReplacement: !!rule.free_pool_with_replacement,
-            freePickCount:
-              typeof rule.free_pick_count === "number"
-                ? rule.free_pick_count
-                : undefined,
+            ...(typeof rule.free_pick_count === "number"
+              ? { freePickCount: rule.free_pick_count }
+              : {}),
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else {
           // Explicit combos: decode all, filter those containing this equip
@@ -392,8 +400,10 @@ function EquipDetailPanel(props: {
               combo: items as MstSlotItemData[],
               netStats: rule.synergy,
               ships: rule.ships,
-              suppressed_components: rule.suppressed_components,
-              placements: rule.placements,
+              ...(rule.suppressed_components !== undefined
+                ? { suppressed_components: rule.suppressed_components }
+                : {}),
+              ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
             });
           }
         }
@@ -523,9 +533,13 @@ function EquipDetailPanel(props: {
           }
 
           for (const [sokuTier, idArrays] of tierMap) {
-            let required = [...idArrays[0]];
+            const firstIds = idArrays[0];
+            if (!firstIds) continue;
+            let required = [...firstIds];
             for (let k = 1; k < idArrays.length; k++) {
-              required = intersectSorted(required, idArrays[k]);
+              const ids = idArrays[k];
+              if (!ids) continue;
+              required = intersectSorted(required, ids);
             }
 
             const isReliable =
@@ -611,7 +625,9 @@ function EquipDetailPanel(props: {
             equip: partner,
             before: ship.leng,
             after,
-            placements: entry.placements,
+            ...(entry.placements !== undefined
+              ? { placements: entry.placements }
+              : {}),
           });
         }
       }
