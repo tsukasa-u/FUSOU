@@ -985,19 +985,19 @@ export function buildTimelineEvents(
       });
     }
     // Support attack
-    const sa = (battle.support_attack as any) ?? battle;
+    const sa = (battle["support_attack"] as any) ?? battle;
     if (sa?.support_hourai?.damage) {
       const hourai = sa.support_hourai as Record<string, unknown>;
-      const dmgs = shiftHpArray(Array.isArray(hourai.damage) ? (hourai.damage as number[]) : []);
-      const eNow = shiftHpArray(Array.isArray(hourai.now_hps) ? (hourai.now_hps as number[]) : []);
-      const shipIds = shiftHpArray(Array.isArray(hourai.ship_id) ? (hourai.ship_id as number[]) : []);
-      const cls = shiftHpArray(Array.isArray(hourai.cl_list) ? (hourai.cl_list as number[]) : []);
+      const dmgs = shiftHpArray(Array.isArray(hourai["damage"]) ? (hourai["damage"] as number[]) : []);
+      const eNow = shiftHpArray(Array.isArray(hourai["now_hps"]) ? (hourai["now_hps"] as number[]) : []);
+      const shipIds = shiftHpArray(Array.isArray(hourai["ship_id"]) ? (hourai["ship_id"] as number[]) : []);
+      const cls = shiftHpArray(Array.isArray(hourai["cl_list"]) ? (hourai["cl_list"] as number[]) : []);
       for (let i = 0; i < dmgs.length; i++) {
         const dmg = Number(dmgs[i] ?? 0) || 0;
         if (dmg <= 0) continue;
         const beforeHp = Number(eNow[i] ?? 0) || 0;
         events.push({
-          phase: PHASE_NAMES.SupportAttack,
+          phase: PHASE_NAMES["SupportAttack"],
           type: "shelling",
           actorRole: "support",
           affectsHp: false,
@@ -1019,19 +1019,21 @@ export function buildTimelineEvents(
     const supportAir = (sa?.support_airatack ?? sa?.support_airattack) as
       | Record<string, unknown>
       | undefined;
-    if (supportAir?.e_damage) {
-      const ed = supportAir.e_damage as Record<string, unknown>;
-      const fd = supportAir.f_damage as Record<string, unknown> | undefined;
+    if (supportAir?.["e_damage"]) {
+      const ed = supportAir["e_damage"] as Record<string, unknown>;
+      const fd = supportAir["f_damage"] as
+        | Record<string, unknown>
+        | undefined;
       extractAirAttackEvents(
         {
-          e_damages: ed.damages,
-          f_damages: fd?.damages,
-          e_now_hps: ed.now_hps,
-          f_now_hps: fd?.now_hps,
+          e_damages: ed["damages"],
+          f_damages: fd?.["damages"],
+          e_now_hps: ed["now_hps"],
+          f_now_hps: fd?.["now_hps"],
           e_plane_from: [],
           f_plane_from: [],
         },
-        PHASE_NAMES.SupportAttack,
+        PHASE_NAMES["SupportAttack"],
         undefined,
         {
           actorRole: "support",
