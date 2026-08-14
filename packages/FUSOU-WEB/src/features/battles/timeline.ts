@@ -782,7 +782,7 @@ export function buildTimelineEvents(
       } else if (key === "NightSupportAttack") {
         const night = normalizeNightSupportAttack(battle);
         if (!night) continue;
-        const hourai = night.hourai as
+        const hourai = night["hourai"] as
           | Record<string, unknown>
           | null
           | undefined;
@@ -811,7 +811,7 @@ export function buildTimelineEvents(
               defenderSide: "enemy",
               defenderIdx: i,
               damage: dmg,
-              crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
               sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
               slotItems: [],
               fHps: [],
@@ -820,16 +820,20 @@ export function buildTimelineEvents(
             });
           }
         }
-        const nightAir = night.airatack as Record<string, unknown> | undefined;
-        if (nightAir?.e_damage) {
-          const ed = nightAir.e_damage as Record<string, unknown>;
-          const fd = nightAir.f_damage as Record<string, unknown> | undefined;
+        const nightAir = night["airatack"] as
+          | Record<string, unknown>
+          | undefined;
+        if (nightAir?.["e_damage"]) {
+          const ed = nightAir["e_damage"] as Record<string, unknown>;
+          const fd = nightAir["f_damage"] as
+            | Record<string, unknown>
+            | undefined;
           extractAirAttackEvents(
             {
-              e_damages: ed.damages,
-              f_damages: fd?.damages,
-              e_now_hps: ed.now_hps,
-              f_now_hps: fd?.now_hps,
+              e_damages: ed["damages"],
+              f_damages: fd?.["damages"],
+              e_now_hps: ed["now_hps"],
+              f_now_hps: fd?.["now_hps"],
               e_plane_from: [],
               f_plane_from: [],
             },
@@ -1056,7 +1060,7 @@ export function buildTimelineEvents(
           defenderSide: "enemy",
           defenderIdx: i,
           damage: dmg,
-          crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
+              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
           sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: [],
@@ -1065,16 +1069,20 @@ export function buildTimelineEvents(
         });
       }
     }
-    const nightAir = night?.airatack as Record<string, unknown> | undefined;
-    if (nightAir?.e_damage) {
-      const ed = nightAir.e_damage as Record<string, unknown>;
-      const fd = nightAir.f_damage as Record<string, unknown> | undefined;
+        const nightAir = night["airatack"] as
+          | Record<string, unknown>
+          | undefined;
+        if (nightAir?.["e_damage"]) {
+          const ed = nightAir["e_damage"] as Record<string, unknown>;
+          const fd = nightAir["f_damage"] as
+            | Record<string, unknown>
+            | undefined;
       extractAirAttackEvents(
         {
-          e_damages: ed.damages,
-          f_damages: fd?.damages,
-          e_now_hps: ed.now_hps,
-          f_now_hps: fd?.now_hps,
+              e_damages: ed["damages"],
+              f_damages: fd?.["damages"],
+              e_now_hps: ed["now_hps"],
+              f_now_hps: fd?.["now_hps"],
           e_plane_from: [],
           f_plane_from: [],
         },
