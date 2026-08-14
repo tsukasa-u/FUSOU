@@ -884,7 +884,7 @@ export async function verifyR2SignedUrl(
  * @returns バイナリデータ（ArrayBuffer）
  */
 export async function readR2Binary(
-  bucket: any,
+  bucket: Pick<Bindings["ASSETS_BUCKET"], "get">,
   key: string,
 ): Promise<ArrayBuffer> {
   const obj = await bucket.get(key);
@@ -903,7 +903,7 @@ export async function readR2Binary(
  * @param metadata オプションのメタデータ
  */
 export async function writeR2Binary(
-  bucket: any,
+  bucket: Pick<Bindings["ASSETS_BUCKET"], "put">,
   key: string,
   data: ArrayBuffer | Uint8Array,
   metadata?: Record<string, string>,
@@ -921,7 +921,13 @@ export async function writeR2Binary(
  * @returns メタデータ（size, contentType, lastModified）
  */
 export async function getR2ObjectMetadata(
-  bucket: any,
+  bucket: {
+    head(key: string): Promise<{
+      size?: number;
+      contentType?: string;
+      uploaded?: Date;
+    } | null>;
+  },
   key: string,
 ): Promise<{ size: number; contentType: string; lastModified: Date } | null> {
   try {
