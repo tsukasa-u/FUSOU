@@ -132,6 +132,7 @@ function RaigekiRows(props: {
     const evs = props.events;
     if (evs.length === 0) return [];
     const first = evs[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
       ? first.fHps.map((v) => Number(v ?? 0) || 0)
       : [];
@@ -327,6 +328,7 @@ function AirAttackBatchRows(props: {
       afterHp: number | null;
     }>;
     const first = rows[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
       ? first.fHps.map((v) => Number(v ?? 0) || 0)
       : [];
@@ -552,6 +554,7 @@ function UnifiedAttackRows(props: {
     const evs = props.events.filter((ev) => ev.separator !== true);
     if (evs.length === 0) return [];
     const first = evs[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
       ? first.fHps.map((v) => Number(v ?? 0) || 0)
       : [];
@@ -1079,6 +1082,7 @@ function extractPhaseEntries(
     const presentKeys = new Set<string>();
     for (const phaseType of battle["battle_order"] as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
+      if (key === undefined) continue;
       presentKeys.add(key);
       const idx = phaseType[key] as number | null;
       entries.push({
