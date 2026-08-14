@@ -24,13 +24,12 @@ import { validateCachedPeriodTag } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   QuestTreeIngestBodySchema,
+  ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
   type QuestTreeIngestBody,
 } from "../schemas/quest-tree";
 
 const app = new Hono<{ Bindings: Bindings }>();
-
-const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
 
 const GAP_THRESHOLD_MS = 30 * 60 * 1000;
 const RECENT_WINDOW_MS = 10 * 60 * 1000;
@@ -200,25 +199,22 @@ function validateIngestBody(body: IngestBody | null):
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Invalid JSON body" };
 
-  const datasetId = (body.dataset_id ?? "").trim();
-  const requestId = (body.request_id ?? "").trim();
-  const payloadHash = (body.payload_hash ?? "").trim();
-  const eventType = (body.event_type ?? "").trim();
-  const periodTag = (body.period_tag ?? "").trim();
-  const tableVersion = (body.table_version ?? "").trim();
-  const atMs = toInt(body.timestamp_ms) ?? nowMs();
-
-  if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!requestId) return { ok: false, error: "request_id is required" };
-  if (!payloadHash) return { ok: false, error: "payload_hash is required" };
-  if (!ALLOWED_EVENT_TYPES.has(eventType)) {
+  const parsed = ValidatedQuestTreeIngestBodySchema.safeParse(body);
+  if (!parsed.success) {
     return {
       ok: false,
-      error: "event_type must be one of: snapshot, start, stop, complete",
+      error: parsed.error.issues[0]?.message ?? "Invalid JSON body",
     };
   }
-  if (!periodTag) return { ok: false, error: "period_tag is required" };
-  if (!tableVersion) return { ok: false, error: "table_version is required" };
+
+  const parsedBody = parsed.data;
+  const datasetId = parsedBody.dataset_id ?? "";
+  const requestId = parsedBody.request_id ?? "";
+  const payloadHash = parsedBody.payload_hash ?? "";
+  const eventType = parsedBody.event_type ?? "";
+  const periodTag = parsedBody.period_tag ?? "";
+  const tableVersion = parsedBody.table_version ?? "";
+  const atMs = parsedBody.timestamp_ms ?? nowMs();
 
   return {
     ok: true,

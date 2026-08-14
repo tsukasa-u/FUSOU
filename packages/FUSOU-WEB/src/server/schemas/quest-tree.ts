@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
+
 function toInteger(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
     return Math.trunc(value);
@@ -61,6 +63,66 @@ export const QuestTreeIngestBodySchema = z
     file_size: z.unknown().optional(),
   })
   .passthrough();
+
+export const ValidatedQuestTreeIngestBodySchema =
+  QuestTreeIngestBodySchema.superRefine((body, context) => {
+    const datasetId = body.dataset_id ?? "";
+    const requestId = body.request_id ?? "";
+    const payloadHash = body.payload_hash ?? "";
+    const eventType = body.event_type ?? "";
+    const periodTag = body.period_tag ?? "";
+    const tableVersion = body.table_version ?? "";
+
+    if (!datasetId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dataset_id"],
+        message: "dataset_id is required",
+      });
+    } else if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dataset_id"],
+        message: "dataset_id must be a 64-character SHA-256 hex string",
+      });
+    }
+
+    if (!requestId) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["request_id"],
+        message: "request_id is required",
+      });
+    }
+    if (!payloadHash) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["payload_hash"],
+        message: "payload_hash is required",
+      });
+    }
+    if (!ALLOWED_EVENT_TYPES.has(eventType)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["event_type"],
+        message: "event_type must be one of: snapshot, start, stop, complete",
+      });
+    }
+    if (!periodTag) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["period_tag"],
+        message: "period_tag is required",
+      });
+    }
+    if (!tableVersion) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["table_version"],
+        message: "table_version is required",
+      });
+    }
+  });
 
 export type QuestTreeIngestBody = z.infer<typeof QuestTreeIngestBodySchema>;
 export type QuestListEntry = NonNullable<QuestTreeIngestBody["quests"]>[number];

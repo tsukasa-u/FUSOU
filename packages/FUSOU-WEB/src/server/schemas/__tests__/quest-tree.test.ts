@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { QuestTreeIngestBodySchema } from "../quest-tree";
+import {
+  QuestTreeIngestBodySchema,
+  ValidatedQuestTreeIngestBodySchema,
+} from "../quest-tree";
 
 describe("QuestTreeIngestBodySchema", () => {
   it("trims metadata and coerces integer-like fields", () => {
@@ -48,5 +51,32 @@ describe("QuestTreeIngestBodySchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.quests).toBeUndefined();
+  });
+
+  it("preserves validator error order and messages", () => {
+    const result = ValidatedQuestTreeIngestBodySchema.safeParse({});
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe("dataset_id is required");
+    }
+  });
+
+  it("validates the dataset id format used by the ingest route", () => {
+    const result = ValidatedQuestTreeIngestBodySchema.safeParse({
+      dataset_id: "dataset-1",
+      request_id: "request-1",
+      payload_hash: "hash",
+      event_type: "snapshot",
+      period_tag: "2026-01-01",
+      table_version: "1.0",
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.message).toBe(
+        "dataset_id must be a 64-character SHA-256 hex string",
+      );
+    }
   });
 });
