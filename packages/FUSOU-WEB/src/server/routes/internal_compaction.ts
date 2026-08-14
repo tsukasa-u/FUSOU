@@ -15,6 +15,7 @@ import {
   RegisterOutputRequestSchema,
   ClosedPeriodTagRowSchema,
 } from "../schemas/internal-compaction";
+import { parseOcfHeader } from "../../features/avro/ocf-header";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
 
@@ -63,65 +64,8 @@ function isTier(value: unknown): value is CompactionTier {
   );
 }
 
-function decodeAvroLong(
-  buffer: Uint8Array,
-  offset: number,
-): { value: number; offset: number } {
-  let n = 0;
-  let shift = 0;
-  let b: number;
-  let pos = offset;
-  do {
-    if (pos >= buffer.length) {
-      throw new Error("Avro buffer overrun while parsing header");
-    }
-    const byte = buffer[pos];
-    if (byte === undefined) {
-      throw new Error("Avro buffer overrun while parsing header");
-    }
-    b = byte;
-    pos += 1;
-    n |= (b & 0x7f) << shift;
-    shift += 7;
-  } while (b & 0x80);
-  return { value: (n >>> 1) ^ -(n & 1), offset: pos };
-}
-
 function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
-  if (buffer.length < 4) {
-    throw new Error("Buffer too small for Avro header");
-  }
-  if (
-    buffer[0] !== 0x4f ||
-    buffer[1] !== 0x62 ||
-    buffer[2] !== 0x6a ||
-    buffer[3] !== 0x01
-  ) {
-    throw new Error("Invalid Avro magic bytes");
-  }
-
-  let offset = 4;
-  const blockCount = decodeAvroLong(buffer, offset);
-  offset = blockCount.offset;
-
-  if (blockCount.value === 0) {
-    return offset + 16;
-  }
-
-  let remaining = blockCount.value;
-  while (remaining > 0) {
-    const keyLen = decodeAvroLong(buffer, offset);
-    offset = keyLen.offset + keyLen.value;
-
-    const valueLen = decodeAvroLong(buffer, offset);
-    offset = valueLen.offset + valueLen.value;
-    remaining -= 1;
-  }
-
-  const endMarker = decodeAvroLong(buffer, offset);
-  offset = endMarker.offset;
-
-  return offset + 16;
+  return parseOcfHeader(buffer).bodyOffset;
 }
 
 app.post("/list-source-blocks", async (c) => {
@@ -841,26 +785,6 @@ app.post("/register-output", async (c) => {
   }
 
   fileId = Number(existing.id);
-  await db
-    .prepare(
-      `UPDATE archived_files
-       SET file_size = ?, compression_codec = ?, table_version = ?,
-           compaction_tier = ?, window_start_ms = ?, window_end_ms = ?,
-           source_tier = ?, last_modified_at = ?
-       WHERE id = ?`,
-    )
-    .bind(
-      fileSize,
-      codec,
-      tableVersion,
-      compactionTier,
-      windowStart,
-      windowEnd,
-      sourceTier,
-      now,
-      fileId,
-    )
-    .run();
 
   const normalizedBlocks: Array<{
     datasetId: string;
@@ -916,12 +840,28 @@ app.post("/register-output", async (c) => {
     });
   }
 
-  await db
-    .prepare("DELETE FROM block_indexes WHERE file_id = ?")
-    .bind(fileId)
-    .run();
-
-  const statements: Array<ReturnType<D1Database["prepare"]>> = [];
+  const statements: Array<ReturnType<D1Database["prepare"]>> = [
+    db
+      .prepare(
+        `UPDATE archived_files
+         SET file_size = ?, compression_codec = ?, table_version = ?,
+             compaction_tier = ?, window_start_ms = ?, window_end_ms = ?,
+             source_tier = ?, last_modified_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        fileSize,
+        codec,
+        tableVersion,
+        compactionTier,
+        windowStart,
+        windowEnd,
+        sourceTier,
+        now,
+        fileId,
+      ),
+    db.prepare("DELETE FROM block_indexes WHERE file_id = ?").bind(fileId),
+  ];
   for (const block of normalizedBlocks) {
     statements.push(
       db
@@ -951,14 +891,12 @@ app.post("/register-output", async (c) => {
     );
   }
 
-  if (statements.length > 0) {
-    await db.batch(statements);
-  }
+  await db.batch(statements);
 
   return c.json({
     success: true,
     file_id: fileId,
-    inserted_blocks: statements.length,
+    inserted_blocks: normalizedBlocks.length,
     file_path: filePath,
   });
 });

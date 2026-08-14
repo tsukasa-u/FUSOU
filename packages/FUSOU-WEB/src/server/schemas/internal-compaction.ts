@@ -24,33 +24,73 @@ export const ClosedPeriodTagRowSchema = z
   .passthrough();
 
 const NumericRequestFieldSchema = z.preprocess(
-  (value) => Number(value),
-  z.number().finite(),
+  (value) => (value == null ? value : Number(value)),
+  z.number().int().nonnegative().safe(),
 );
 
 const OptionalNumericRequestFieldSchema = z.preprocess((value) => {
+  if (value == null) return undefined;
   const numericValue = Number(value);
-  return Number.isFinite(numericValue) ? numericValue : undefined;
-}, z.number().finite().optional());
+  return Number.isSafeInteger(numericValue) && numericValue >= 0
+    ? numericValue
+    : undefined;
+}, z.number().int().nonnegative().safe().optional());
 
 const SourceFileIdsRequestFieldSchema = z.preprocess(
   (value) => (Array.isArray(value) ? value : []),
-  z.array(z.unknown()),
+  z.array(
+    z.preprocess(
+      (value) => (value == null ? value : Number(value)),
+      z.number().int().positive().safe(),
+    ),
+  ),
 );
 
 const FileSizeRequestFieldSchema = z.preprocess(
-  (value) => (value === undefined ? undefined : Number(value)),
-  z.number().finite().optional(),
-);
-
-const BlocksRequestFieldSchema = z.preprocess(
-  (value) => (Array.isArray(value) ? value : []),
-  z.array(z.unknown()),
+  (value) => (value == null ? undefined : Number(value)),
+  z.number().int().nonnegative().safe().optional(),
 );
 
 const TableNameSchema = z.preprocess(
   (value) => String(value ?? "").trim(),
   z.string(),
+);
+
+const BlockStringSchema = z.preprocess(
+  (value) => String(value ?? "").trim(),
+  z.string().min(1),
+);
+
+const BlockNonNegativeIntegerSchema = z.preprocess(
+  (value) => (value == null ? value : Number(value)),
+  z.number().int().nonnegative().safe(),
+);
+
+const BlockPositiveIntegerSchema = z.preprocess(
+  (value) => (value == null ? value : Number(value)),
+  z.number().int().positive().safe(),
+);
+
+const BlocksRequestFieldSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value : []),
+  z.array(
+    z
+      .object({
+        dataset_id: BlockStringSchema,
+        table_name: BlockStringSchema,
+        period_tag: BlockStringSchema,
+        start_byte: BlockNonNegativeIntegerSchema,
+        length: BlockPositiveIntegerSchema,
+        record_count: BlockNonNegativeIntegerSchema,
+        start_timestamp: BlockNonNegativeIntegerSchema,
+        end_timestamp: BlockNonNegativeIntegerSchema,
+        source_file_count: z.preprocess(
+          (value) => (value == null ? value : Number(value)),
+          z.number().int().positive().safe(),
+        ),
+      })
+      .passthrough(),
+  ),
 );
 
 export const ListSourceGroupsRequestSchema = z
@@ -98,7 +138,10 @@ export const FetchBlockOcfRequestSchema = z
   .object({
     file_path: TrimmedStringRequestFieldSchema.optional(),
     start_byte: NumericRequestFieldSchema.optional(),
-    length: NumericRequestFieldSchema.optional(),
+    length: z.preprocess(
+      (value) => (value == null ? value : Number(value)),
+      z.number().int().positive().safe().optional(),
+    ),
   })
   .passthrough();
 

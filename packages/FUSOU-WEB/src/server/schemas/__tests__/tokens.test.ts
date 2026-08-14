@@ -1,5 +1,62 @@
 import { describe, expect, it } from "vitest";
-import { BattleDataTokenPayloadSchema } from "../tokens";
+import {
+  BattleDataTokenPayloadSchema,
+  QuestTreeUploadTokenPayloadSchema,
+  UploadTokenPayloadSchema,
+} from "../tokens";
+
+describe("quest tree upload token schema", () => {
+  it("accepts the claims emitted by quest-tree stage 1", () => {
+    expect(
+      QuestTreeUploadTokenPayloadSchema.safeParse({
+        user_id: "user-1",
+        content_hash: "hash-1",
+        declared_size: 128,
+        dataset_id: "dataset-1",
+        request_id: "request-1",
+        event_type: "snapshot",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("keeps schema_version required for the other upload routes", () => {
+    expect(
+      UploadTokenPayloadSchema.safeParse({
+        user_id: "user-1",
+        content_hash: "hash-1",
+        declared_size: 128,
+        dataset_id: "dataset-1",
+        request_id: "request-1",
+        event_type: "snapshot",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects non-numeric and unsafe numeric claims", () => {
+    const basePayload = {
+      user_id: "user-1",
+      content_hash: "hash-1",
+      declared_size: 128,
+      dataset_id: "dataset-1",
+      request_id: "request-1",
+      event_type: "snapshot",
+      schema_version: 1,
+    };
+
+    expect(
+      UploadTokenPayloadSchema.safeParse({
+        ...basePayload,
+        declared_size: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      UploadTokenPayloadSchema.safeParse({
+        ...basePayload,
+        schema_version: Number.MAX_SAFE_INTEGER + 1,
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("battle data token schema", () => {
   it("parses the battle upload token payload", () => {

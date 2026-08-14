@@ -156,6 +156,23 @@ describe("FetchBlockOcfRequestSchema", () => {
       }).success,
     ).toBe(false);
   });
+
+  it("rejects fractional and negative ranges", () => {
+    expect(
+      FetchBlockOcfRequestSchema.safeParse({
+        file_path: "source.avro",
+        start_byte: 1.5,
+        length: 10,
+      }).success,
+    ).toBe(false);
+    expect(
+      FetchBlockOcfRequestSchema.safeParse({
+        file_path: "source.avro",
+        start_byte: 0,
+        length: -1,
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("VerifyOutputVisibleRequestSchema", () => {
@@ -324,7 +341,7 @@ describe("CleanupConsumedSourcesRequestSchema", () => {
     if (result.success) {
       expect(result.data.table_name).toBe("battle");
       expect(result.data.window_start_ms).toBe(100);
-      expect(result.data.source_file_ids).toEqual([1, "2"]);
+      expect(result.data.source_file_ids).toEqual([1, 2]);
     }
   });
 
@@ -351,7 +368,19 @@ describe("RegisterOutputRequestSchema", () => {
       window_start_ms: "100",
       window_end_ms: 200,
       file_size: "300",
-      blocks: [{ dataset_id: "battle" }],
+      blocks: [
+        {
+          dataset_id: "battle",
+          table_name: "battle",
+          period_tag: "2026-01-01",
+          start_byte: 0,
+          length: 100,
+          record_count: 0,
+          start_timestamp: 0,
+          end_timestamp: 0,
+          source_file_count: 1,
+        },
+      ],
     });
 
     expect(result.success).toBe(true);
@@ -384,6 +413,56 @@ describe("RegisterOutputRequestSchema", () => {
     ).toBe(false);
     expect(
       RegisterOutputRequestSchema.safeParse({ file_size: "invalid" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects invalid block ranges and counts", () => {
+    const result = RegisterOutputRequestSchema.safeParse({
+      blocks: [
+        {
+          dataset_id: "battle",
+          table_name: "battle",
+          period_tag: "2026-01-01",
+          start_byte: -1,
+          length: 10,
+          record_count: null,
+          start_timestamp: 0,
+          end_timestamp: 0,
+          source_file_count: 1,
+        },
+      ],
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects fractional, negative, and unsafe block values", () => {
+    const baseBlock = {
+      dataset_id: "battle",
+      table_name: "battle",
+      period_tag: "2026-01-01",
+      start_byte: 0,
+      length: 10,
+      record_count: 1,
+      start_timestamp: 0,
+      end_timestamp: 0,
+      source_file_count: 1,
+    };
+
+    expect(
+      RegisterOutputRequestSchema.safeParse({
+        blocks: [{ ...baseBlock, length: 0 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      RegisterOutputRequestSchema.safeParse({
+        blocks: [{ ...baseBlock, start_timestamp: -1 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      RegisterOutputRequestSchema.safeParse({
+        blocks: [{ ...baseBlock, record_count: Number.MAX_SAFE_INTEGER + 1 }],
+      }).success,
     ).toBe(false);
   });
 });

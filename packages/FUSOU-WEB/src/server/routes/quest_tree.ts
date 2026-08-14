@@ -21,7 +21,7 @@ import {
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
-import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import { QuestTreeUploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
@@ -989,7 +989,7 @@ app.post("/ingest", async (c) => {
 
   const payloadValidation = validateTokenPayloadWithSchema(
     tokenPayload,
-    UploadTokenPayloadSchema,
+    QuestTreeUploadTokenPayloadSchema,
   );
   if (!payloadValidation.valid) {
     return c.json(
