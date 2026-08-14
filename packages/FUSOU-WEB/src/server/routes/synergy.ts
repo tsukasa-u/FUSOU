@@ -20,7 +20,10 @@ import {
   SynergyPayloadValidationError,
   validateSynergyPayload,
 } from "../utils/synergy-payload";
-import { LatestSynergyPeriodRowSchema } from "../schemas/synergy";
+import {
+  LatestSynergyPeriodRowSchema,
+  SynergyNextRevisionRowSchema,
+} from "../schemas/synergy";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -518,12 +521,15 @@ app.post("/synergy-manifest", async (c) => {
       WHERE period_tag = ?
     `);
 
-    const revisionResult = (await revisionStmt
+    const revisionResult = await revisionStmt
       .bind(body.period_tag)
-      .first()) as {
-      next_revision: number;
-    };
-    const nextRevision = revisionResult.next_revision;
+      .first();
+    const parsedRevisionResult =
+      SynergyNextRevisionRowSchema.safeParse(revisionResult);
+    if (!parsedRevisionResult.success) {
+      return c.json({ error: "Failed to allocate period_revision" }, 500);
+    }
+    const nextRevision = parsedRevisionResult.data.next_revision;
 
     // Generate content_hash (same as sp_effect_sha256 for now; can be extended)
     const contentHash = body.sp_effect_sha256;

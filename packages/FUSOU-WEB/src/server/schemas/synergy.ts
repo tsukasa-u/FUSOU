@@ -7,3 +7,7 @@ export const LatestSynergyPeriodRowSchema = z
 export type LatestSynergyPeriodRow = z.infer<
   typeof LatestSynergyPeriodRowSchema
 >;
+
+export const SynergyNextRevisionRowSchema = z
+  .object({ next_revision: z.number().int().positive() })
+  .passthrough();
