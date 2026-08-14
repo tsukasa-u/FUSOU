@@ -20,6 +20,7 @@ import {
   SynergyPayloadValidationError,
   validateSynergyPayload,
 } from "../utils/synergy-payload";
+import { LatestSynergyPeriodRowSchema } from "../schemas/synergy";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -152,13 +153,15 @@ app.get("/synergy-data", async (c) => {
       }
 
       if (!latestSynergyTag) {
-        const latestSynergyRow = (await db
+        const latestSynergyRow = await db
           .prepare(
             `SELECT period_tag FROM synergy_manifest WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
           )
-          .first()) as { period_tag: string } | null;
-        if (latestSynergyRow?.period_tag) {
-          latestSynergyTag = latestSynergyRow.period_tag;
+          .first();
+        const parsedLatestSynergyRow =
+          LatestSynergyPeriodRowSchema.safeParse(latestSynergyRow);
+        if (parsedLatestSynergyRow.success) {
+          latestSynergyTag = parsedLatestSynergyRow.data.period_tag;
           if (c.env.DATA_LOADER_CACHE_KV) {
             try {
               await c.env.DATA_LOADER_CACHE_KV.put(cacheKey, latestSynergyTag, { expirationTtl: 300 });
