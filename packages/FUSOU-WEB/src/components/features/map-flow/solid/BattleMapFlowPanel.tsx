@@ -217,12 +217,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
               cellId,
               x,
               y,
-              lineOffsetX: Number.isFinite(lineOffsetX)
-                ? lineOffsetX
-                : undefined,
-              lineOffsetY: Number.isFinite(lineOffsetY)
-                ? lineOffsetY
-                : undefined,
+              ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
+              ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
             } satisfies MapSpot;
           })
           .filter((spot): spot is MapSpot => spot !== null);
@@ -347,7 +343,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   }
 
   function getMapInfoName(mapKey: string): string {
-    const [area, no] = mapKey.split("-");
+    const parts = mapKey.split("-");
+    const area = parts[0] ?? "";
+    const no = parts[1] ?? "";
     const fromApi = mstMapinfos().find(
       (m) => String(m.maparea_id) === area && String(m.no) === no,
     );
@@ -359,7 +357,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   const mapAreaGroups = createMemo(() => {
     const grouped = new Map<string, string[]>();
     for (const mapKey of mapOptions()) {
-      const areaId = mapKey.split("-")[0];
+      const areaId = mapKey.split("-")[0] ?? "";
       if (!grouped.has(areaId)) grouped.set(areaId, []);
       grouped.get(areaId)!.push(mapKey);
     }
@@ -559,6 +557,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
       for (let i = 0; i < routeCells.length; i++) {
         const currentCell = routeCells[i];
+        if (currentCell === undefined) continue;
         let stat = statMap.get(currentCell);
         if (!stat) {
           stat = {
