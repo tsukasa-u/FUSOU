@@ -1,8 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  LatestSokuSpeedPeriodRowSchema,
   SokuSpeedIngestBodySchema,
   ValidatedSokuSpeedIngestBodySchema,
 } from "../soku-speed";
+
+describe("LatestSokuSpeedPeriodRowSchema", () => {
+  it("accepts a complete latest-period row", () => {
+    expect(
+      LatestSokuSpeedPeriodRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        table_version: "1.0",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects incomplete or malformed rows", () => {
+    expect(
+      LatestSokuSpeedPeriodRowSchema.safeParse({ period_tag: "2026-07-08" })
+        .success,
+    ).toBe(false);
+    expect(
+      LatestSokuSpeedPeriodRowSchema.safeParse({
+        period_tag: 20260708,
+        table_version: "1.0",
+      }).success,
+    ).toBe(false);
+    expect(LatestSokuSpeedPeriodRowSchema.safeParse(null).success).toBe(false);
+  });
+});
 
 describe("SokuSpeedIngestBodySchema", () => {
   it("accepts an object payload and preserves upload fields", () => {

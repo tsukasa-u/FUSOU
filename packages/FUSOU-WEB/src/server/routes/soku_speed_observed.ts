@@ -20,6 +20,7 @@ import {
 } from "../utils/period-tags";
 import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
 import {
+  LatestSokuSpeedPeriodRowSchema,
   SokuSpeedIngestBodySchema,
   ValidatedSokuSpeedIngestBodySchema,
   type SokuSpeedIngestBody,
@@ -508,14 +509,22 @@ app.get("/speed-upgrade", async (c) => {
 
     try {
       const masterDb = c.env.MASTER_DATA_INDEX_DB;
-      const latest = masterDb
-        ? (await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)) ??
-          ((await db
-            .prepare(
-              `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
-            )
-            .first()) as { period_tag: string; table_version: string } | null)
+      const latestMasterPeriod = masterDb
+        ? await getLatestMasterPeriodTag(masterDb, c.env.DATA_LOADER_CACHE_KV)
         : null;
+      let latest = latestMasterPeriod;
+      if (!latest) {
+        const latestFallbackRow = await db
+          .prepare(
+            `SELECT period_tag, table_version               FROM soku_speed_observations               ORDER BY period_tag DESC, updated_at DESC               LIMIT 1`,
+          )
+          .first();
+        const parsedLatestFallbackRow =
+          LatestSokuSpeedPeriodRowSchema.safeParse(latestFallbackRow);
+        latest = parsedLatestFallbackRow.success
+          ? parsedLatestFallbackRow.data
+          : null;
+      }
       if (!latest) {
         const empty = c.json({
           ok: true,

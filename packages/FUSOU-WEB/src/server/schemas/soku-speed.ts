@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { isValidPeriodTagDate } from "../utils/period-tags";
 
+export const LatestSokuSpeedPeriodRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+  })
+  .passthrough();
+
 export const SokuSpeedIngestBodySchema = z
   .object({
     dataset_id: z.unknown().optional(),
