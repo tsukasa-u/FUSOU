@@ -44,7 +44,7 @@ describe("ShipGrowthIngestBodySchema", () => {
     if (result.success) {
       expect(result.data.schema_version).toBe(1);
       expect(result.data.file_size).toBe("100");
-      expect(result.data.extra_field).toBe(true);
+      expect(result.data["extra_field"]).toBe(true);
     }
   });
 
