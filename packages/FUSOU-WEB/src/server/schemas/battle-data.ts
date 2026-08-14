@@ -22,3 +22,30 @@ export function parseBattleChunkRows(
   const result = BattleChunkRowsSchema.safeParse(value);
   return result.success ? result.data : null;
 }
+
+export const BattleBlockRowsSchema = z.array(
+  z
+    .object({
+      id: z.number().int(),
+      dataset_id: z.string(),
+      start_byte: z.number().int(),
+      length: z.number().int(),
+      start_timestamp: z.number().int().nullable(),
+      end_timestamp: z.number().int().nullable(),
+      period_tag: z.string().nullable(),
+      window_start_ms: z.number().int().nullable(),
+      window_end_ms: z.number().int().nullable(),
+      compaction_tier: z.string().nullable(),
+      file_path: z.string(),
+    })
+    .passthrough(),
+);
+
+export type BattleBlockRow = z.infer<typeof BattleBlockRowsSchema>[number];
+
+export function parseBattleBlockRows(
+  value: unknown,
+): BattleBlockRow[] | null {
+  const result = BattleBlockRowsSchema.safeParse(value);
+  return result.success ? result.data : null;
+}

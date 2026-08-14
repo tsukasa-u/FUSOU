@@ -27,7 +27,11 @@ import {
 import { buildBattleOverviewPayload } from "../../features/battles/resolvers/overview";
 import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
-import { parseBattleChunkRows } from "../schemas/battle-data";
+import {
+  parseBattleBlockRows,
+  parseBattleChunkRows,
+  type BattleBlockRow,
+} from "../schemas/battle-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
@@ -1718,7 +1722,9 @@ app.get("/global/records", async (c) => {
 
     const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
 
-    const fetchBlocks = async (tier: CompactionTier | null) => {
+    const fetchBlocks = async (
+      tier: CompactionTier | null,
+    ): Promise<{ results: BattleBlockRow[] } | null> => {
       let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
@@ -1766,16 +1772,24 @@ app.get("/global/records", async (c) => {
       sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
       params.push(perTierFetchLimit);
 
-      return await indexDb.prepare(sql).bind(...params).all?.();
+      const result = await indexDb.prepare(sql).bind(...params).all?.();
+      if (!result) {
+        return null;
+      }
+      const rows = parseBattleBlockRows(result.results || []);
+      if (!rows) {
+        throw new Error("D1 returned malformed results for block query");
+      }
+      return { results: rows };
     };
 
     let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
     const mergeTierRows = (
-      tierRows: Map<CompactionTier, any[]>,
-    ): { rows: any[]; tier: CompactionTier | null } => {
-      const accepted: any[] = [];
+      tierRows: Map<CompactionTier, BattleBlockRow[]>,
+    ): { rows: BattleBlockRow[]; tier: CompactionTier | null } => {
+      const accepted: BattleBlockRow[] = [];
       const seenBlockIds = new Set<number>();
       let usedTierCount = 0;
       let firstTier: CompactionTier | null = null;
@@ -1816,10 +1830,10 @@ app.get("/global/records", async (c) => {
       blockResult = await fetchBlocks(compactionTier);
       effectiveTier = compactionTier;
     } else {
-      const tierRows = new Map<CompactionTier, any[]>();
+      const tierRows = new Map<CompactionTier, BattleBlockRow[]>();
       for (const tier of TIER_PRIORITY) {
         const candidate = await fetchBlocks(tier);
-        tierRows.set(tier, (candidate?.results || []) as any[]);
+        tierRows.set(tier, candidate?.results || []);
       }
 
       const merged = mergeTierRows(tierRows);
@@ -1857,19 +1871,7 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
-    const candidateRows = (blockResult?.results || []) as Array<{
-      id: number;
-      dataset_id: string;
-      start_byte: number;
-      length: number;
-      start_timestamp: number | null;
-      end_timestamp: number | null;
-      period_tag: string | null;
-      window_start_ms: number | null;
-      window_end_ms: number | null;
-      compaction_tier: CompactionTier | null;
-      file_path: string;
-    }>;
+    const candidateRows = blockResult?.results || [];
     const sourceBlocksTruncated = candidateRows.length > limitBlocks;
     const rows = candidateRows.slice(0, limitBlocks);
 
