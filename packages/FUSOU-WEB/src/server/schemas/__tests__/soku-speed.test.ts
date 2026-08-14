@@ -3,6 +3,9 @@ import {
   LatestSokuSpeedPeriodRowSchema,
   SokuSpeedIngestBodySchema,
   ValidatedSokuSpeedIngestBodySchema,
+  parseSokuSpeedObservationRows,
+  SokuSpeedExslotSchema,
+  SokuSpeedSlotRowsSchema,
 } from "../soku-speed";
 
 describe("LatestSokuSpeedPeriodRowSchema", () => {
@@ -92,5 +95,36 @@ describe("SokuSpeedIngestBodySchema", () => {
         "ships[0] has invalid numeric fields",
       );
     }
+  });
+});
+
+describe("soku-speed observation schemas", () => {
+  it("accepts valid nested slot JSON and observation rows", () => {
+    expect(
+      SokuSpeedSlotRowsSchema.safeParse([{ slotitem_id: 2 }]).success,
+    ).toBe(true);
+    expect(SokuSpeedExslotSchema.safeParse(null).success).toBe(true);
+    expect(
+      parseSokuSpeedObservationRows([
+        {
+          master_id: 1,
+          soku_observed: 5,
+          slots_json: '[{"slotitem_id":2}]',
+          exslot_json: "",
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("drops malformed observation rows and rejects malformed slots", () => {
+    expect(
+      parseSokuSpeedObservationRows([
+        { master_id: "1", soku_observed: 5, slots_json: "[]", exslot_json: "" },
+        { master_id: 1, soku_observed: 5, slots_json: "[]", exslot_json: "" },
+      ]),
+    ).toHaveLength(1);
+    expect(SokuSpeedSlotRowsSchema.safeParse([{ slotitem_id: "2" }]).success).toBe(
+      false,
+    );
   });
 });

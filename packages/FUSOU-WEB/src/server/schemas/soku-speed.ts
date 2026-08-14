@@ -8,6 +8,36 @@ export const LatestSokuSpeedPeriodRowSchema = z
   })
   .passthrough();
 
+export const SokuSpeedSlotSchema = z
+  .object({ slotitem_id: z.number().int().positive() })
+  .passthrough();
+
+export const SokuSpeedSlotRowsSchema = SokuSpeedSlotSchema.array();
+export const SokuSpeedExslotSchema = SokuSpeedSlotSchema.nullable();
+
+export const SokuSpeedObservationRowSchema = z
+  .object({
+    master_id: z.number().int().positive(),
+    soku_observed: z.number(),
+    slots_json: z.string(),
+    exslot_json: z.string().nullable(),
+  })
+  .passthrough();
+
+export type SokuSpeedObservationRow = z.infer<
+  typeof SokuSpeedObservationRowSchema
+>;
+
+export function parseSokuSpeedObservationRows(
+  value: unknown,
+): SokuSpeedObservationRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    const parsed = SokuSpeedObservationRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 export const SokuSpeedIngestBodySchema = z
   .object({
     dataset_id: z.unknown().optional(),

@@ -21,7 +21,10 @@ import {
 import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
 import {
   LatestSokuSpeedPeriodRowSchema,
+  parseSokuSpeedObservationRows,
   SokuSpeedIngestBodySchema,
+  SokuSpeedExslotSchema,
+  SokuSpeedSlotRowsSchema,
   ValidatedSokuSpeedIngestBodySchema,
   type SokuSpeedIngestBody,
 } from "../schemas/soku-speed";
@@ -379,37 +382,34 @@ app.post("/ingest", async (c) => {
               )
               .bind(period_tag, table_version)
               .all();
-            const rows = (result.results ?? []) as {
-              master_id: number;
-              soku_observed: number;
-              slots_json: string;
-              exslot_json: string | null;
-            }[];
+            const rows = parseSokuSpeedObservationRows(result.results);
             const byMaster = new Map<
               number,
               Map<string, { soku_observed: number; item_ids: number[] }>
             >();
             for (const row of rows) {
-              let slots: Array<{ slotitem_id: number }>;
+              let parsedSlots: unknown;
               try {
-                slots = JSON.parse(row.slots_json) as Array<{
-                  slotitem_id: number;
-                }>;
+                parsedSlots = JSON.parse(row.slots_json);
               } catch {
                 continue;
               }
+              const slotsResult = SokuSpeedSlotRowsSchema.safeParse(parsedSlots);
+              if (!slotsResult.success) continue;
               const itemIds: number[] = [];
-              for (const s of slots) {
+              for (const s of slotsResult.data) {
                 if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
               }
               if (row.exslot_json) {
+                let parsedExslot: unknown;
                 try {
-                  const ex = JSON.parse(row.exslot_json) as {
-                    slotitem_id: number;
-                  } | null;
-                  if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+                  parsedExslot = JSON.parse(row.exslot_json);
                 } catch {
-                  /* skip malformed */
+                  parsedExslot = null;
+                }
+                const exslotResult = SokuSpeedExslotSchema.safeParse(parsedExslot);
+                if (exslotResult.success && exslotResult.data) {
+                  itemIds.push(exslotResult.data.slotitem_id);
                 }
               }
               itemIds.sort((a, b) => a - b);
@@ -478,12 +478,6 @@ app.get("/speed-upgrade", async (c) => {
       400,
     );
   }
-  type ObsRow = {
-    master_id: number;
-    soku_observed: number;
-    slots_json: string;
-    exslot_json: string | null;
-  };
   let periodTag = requestedPeriodTag;
   let tableVersion = requestedTableVersion;
   const cacheKV = c.env.DATA_LOADER_CACHE_KV;
@@ -567,7 +561,7 @@ app.get("/speed-upgrade", async (c) => {
       console.warn("[soku-speed] KV cache read error:", e);
     }
   }
-  let rows: ObsRow[];
+  let rows: ReturnType<typeof parseSokuSpeedObservationRows>;
   try {
     const result = await db
       .prepare(
@@ -575,7 +569,7 @@ app.get("/speed-upgrade", async (c) => {
       )
       .bind(periodTag, tableVersion)
       .all();
-    rows = (result.results ?? []) as ObsRow[];
+    rows = parseSokuSpeedObservationRows(result.results);
   } catch (err) {
     const message = [
       String(err),
@@ -615,24 +609,28 @@ app.get("/speed-upgrade", async (c) => {
   }
   const byMaster = new Map<number, Map<string, AggEntry>>();
   for (const row of rows) {
-    let slots: Array<{ slotitem_id: number }>;
+    let parsedSlots: unknown;
     try {
-      slots = JSON.parse(row.slots_json) as Array<{ slotitem_id: number }>;
+      parsedSlots = JSON.parse(row.slots_json);
     } catch {
       continue;
     }
+    const slotsResult = SokuSpeedSlotRowsSchema.safeParse(parsedSlots);
+    if (!slotsResult.success) continue;
     const itemIds: number[] = [];
-    for (const s of slots) {
+    for (const s of slotsResult.data) {
       if (s.slotitem_id > 0) itemIds.push(s.slotitem_id);
     }
     if (row.exslot_json) {
+      let parsedExslot: unknown;
       try {
-        const ex = JSON.parse(row.exslot_json) as {
-          slotitem_id: number;
-        } | null;
-        if (ex && ex.slotitem_id > 0) itemIds.push(ex.slotitem_id);
+        parsedExslot = JSON.parse(row.exslot_json);
       } catch {
-        /* skip malformed exslot */
+        parsedExslot = null;
+      }
+      const exslotResult = SokuSpeedExslotSchema.safeParse(parsedExslot);
+      if (exslotResult.success && exslotResult.data) {
+        itemIds.push(exslotResult.data.slotitem_id);
       }
     }
     itemIds.sort((a, b) => a - b);
