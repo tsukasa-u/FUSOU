@@ -51,11 +51,11 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
   clearSnapshotData();
   replaceSnapshotSlotItems(slotItemMap);
   for (const s of ships) {
-    const masterShipId = (s.s5d as number) ?? 0;
+    const masterShipId = (s["s5d"] as number) ?? 0;
     const mst = getMasterShip(masterShipId);
-    setSnapshotShipRecord(s.i0d as number, {
+    setSnapshotShipRecord(s["i0d"] as number, {
       shipId: masterShipId,
-      level: (s.l0v as number) ?? 1,
+      level: (s["l0v"] as number) ?? 1,
       name: mst?.name ?? `Ship #${masterShipId}`,
       stype: mst?.stype ?? 0,
     });
