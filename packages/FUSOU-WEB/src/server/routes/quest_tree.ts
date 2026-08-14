@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Bindings, D1Database, D1Result } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
@@ -134,7 +134,7 @@ async function invalidateQuestTreeCaches(
 }
 
 function scheduleQuestTreeTask(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   task: Promise<unknown>,
 ): void {
   safeWaitUntil(c, task);
