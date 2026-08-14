@@ -96,7 +96,7 @@ async function listAllObjectsByPrefix(
   for (let page = 0; page < MAX_R2_LIST_PAGES; page += 1) {
     const listed = await bucket.list({
       prefix,
-      cursor,
+      ...(cursor === undefined ? {} : { cursor }),
       limit: R2_LIST_PAGE_LIMIT,
     });
     out.push(...(listed.objects ?? []));
@@ -191,8 +191,10 @@ async function resolveFleetDatasetCandidates(options: {
     visited.size < MAX_CANDIDATE_DATASET_IDS;
     hop += 1
   ) {
-    const rows: Array<{ pid_from?: string | null; pid_to?: string | null }> =
-      [];
+    const rows: Array<{
+      pid_from?: string | null | undefined;
+      pid_to?: string | null | undefined;
+    }> = [];
     let queryFailed = false;
 
     for (let page = 0; page < MAX_ROTATION_QUERY_PAGES; page += 1) {
@@ -374,7 +376,7 @@ async function resolveDatasetId(
       const resolvedMember = await resolveLinkedMemberIdHashForUser({
         supabaseAdmin,
         userId: user.id,
-        jwtPayload: user.payload,
+        ...(user.payload === undefined ? {} : { jwtPayload: user.payload }),
       });
 
       console.log("[fleet] dataset resolution result:", {
@@ -728,7 +730,11 @@ app.get("/snapshot/:tag", async (c) => {
     // Sort by uploaded time descending to get the latest
     const sorted = allObjects.sort(compareSnapshotRecency);
 
-    const latestKey = sorted[0].key;
+    const latest = sorted[0];
+    if (latest === undefined) {
+      return c.json({ error: "No snapshots found for this tag" }, 404);
+    }
+    const latestKey = latest.key;
     const object = await bucket.get(latestKey);
 
     if (!object) {

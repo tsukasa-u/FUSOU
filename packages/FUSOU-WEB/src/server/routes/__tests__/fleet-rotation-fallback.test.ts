@@ -518,8 +518,10 @@ describe("fleet route rotation fallback", () => {
     };
     expect(res.status).toBe(200);
     expect(body.count).toBe(1);
-    expect(body.tags[0].tag).toBe("latest");
-    expect(body.tags[0].size).toBe(20);
+    const firstTag = body.tags[0];
+    if (firstTag === undefined) throw new Error("Expected one snapshot tag");
+    expect(firstTag.tag).toBe("latest");
+    expect(firstTag.size).toBe(20);
   });
 
   it("delete endpoint removes snapshots across rotation candidates", async () => {
