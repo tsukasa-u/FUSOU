@@ -12,7 +12,29 @@ import {
   ListSourceBlocksRequestSchema,
   CleanupConsumedSourcesRequestSchema,
   RegisterOutputRequestSchema,
+  CompactionDatasetRowSchema,
 } from "../internal-compaction";
+
+describe("CompactionDatasetRowSchema", () => {
+  it("accepts dataset rows used by compaction routes", () => {
+    expect(
+      CompactionDatasetRowSchema.safeParse({
+        id: "dataset-1",
+        user_id: "user-1",
+        dataset_name: "battle",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects dataset rows with missing ownership fields", () => {
+    expect(
+      CompactionDatasetRowSchema.safeParse({
+        id: "dataset-1",
+        dataset_name: "battle",
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("ListSourceGroupsRequestSchema", () => {
   it("coerces numeric window values and trims the table name", () => {

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
 import { SanitizeStateRequestSchema } from '../schemas/compact';
+import { CompactionDatasetRowSchema } from '../schemas/internal-compaction';
 import { validateJWT, createEnvContext, verifyAdminToken } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -99,7 +100,12 @@ app.post('/sanitize-state', async (c) => {
       return c.json({ error: 'Dataset not found' }, 404);
     }
     
-    const ds = queryResult as { id: string; user_id: string; dataset_name: string };
+    const parsedDataset = CompactionDatasetRowSchema.safeParse(queryResult);
+    if (!parsedDataset.success) {
+      console.error('[compact-sanitize] Invalid dataset row', parsedDataset.error);
+      return c.json({ error: 'Database error' }, 500);
+    }
+    const ds = parsedDataset.data;
     if (ds.user_id !== supabaseUser.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
@@ -189,7 +195,16 @@ app.post('/trigger-scheduled', async (c) => {
       'SELECT id, user_id, dataset_name FROM datasets WHERE compaction_needed = 1 AND compaction_in_progress = 0 ORDER BY created_at ASC LIMIT 10'
     ).all();
 
-    if (!datasets.results || datasets.results.length === 0) {
+    const parsedDatasets = CompactionDatasetRowSchema.array().safeParse(
+      datasets.results,
+    );
+    if (!parsedDatasets.success) {
+      console.error('[compact-scheduled] Invalid dataset rows', parsedDatasets.error);
+      return c.json({ error: 'Database error' }, 500);
+    }
+
+    const datasetRows = parsedDatasets.data;
+    if (datasetRows.length === 0) {
       console.info('[compact-scheduled] No pending datasets found');
       return c.json({
         success: true,
@@ -200,8 +215,8 @@ app.post('/trigger-scheduled', async (c) => {
     }
 
     // ===== Batch queue operations with retry logic =====
-    console.info(`[compact-scheduled] Step: About to enqueue ${datasets.results.length} datasets`, {
-      datasetIds: (datasets.results as Array<{ id: string }>).map((d) => d.id),
+    console.info(`[compact-scheduled] Step: About to enqueue ${datasetRows.length} datasets`, {
+      datasetIds: datasetRows.map((d) => d.id),
       queueExists: !!env.runtime.COMPACTION_QUEUE,
     });
 
@@ -212,7 +227,7 @@ app.post('/trigger-scheduled', async (c) => {
 
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
-    const enqueuePromises = (datasets.results as Array<{ id: string; user_id: string; dataset_name: string }>).map((dataset) =>
+    const enqueuePromises = datasetRows.map((dataset) =>
       env.runtime.COMPACTION_QUEUE.send({
         datasetId: dataset.id,
         triggeredAt: new Date().toISOString(),
@@ -242,7 +257,7 @@ app.post('/trigger-scheduled', async (c) => {
     const failureCount = enqueueResults.filter((r) => r.status === 'failed').length;
 
     console.info(`[compact-scheduled] Enqueue batch completed`, {
-      total: datasets.results.length,
+      total: datasetRows.length,
       successful: successCount,
       failed: failureCount,
       failures: enqueueResults.filter((r) => r.status === 'failed'),
@@ -262,7 +277,7 @@ app.post('/trigger-scheduled', async (c) => {
       console.info('[compact-scheduled] Marked datasets as compaction_in_progress=1', { successfulIds });
     }
 
-    const datasetIds = (datasets.results as Array<{ id: string }>).map((d) => d.id);
+    const datasetIds = datasetRows.map((d) => d.id);
     console.info('[compact-scheduled] Enqueued datasets', {
       count: datasets.results.length,
       datasetIds,
@@ -271,8 +286,8 @@ app.post('/trigger-scheduled', async (c) => {
 
     return c.json({
       success: true,
-      message: `Enqueued ${datasets.results.length} datasets for compaction`,
-      enqueued: datasets.results.length,
+      message: `Enqueued ${datasetRows.length} datasets for compaction`,
+      enqueued: datasetRows.length,
       datasets: datasetIds,
     });
   } catch (error) {

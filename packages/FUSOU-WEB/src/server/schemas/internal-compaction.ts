@@ -7,6 +7,18 @@ const CompactionTierSchema = z.enum([
   "period",
 ]);
 
+export const CompactionDatasetRowSchema = z
+  .object({
+    id: z.string().min(1),
+    user_id: z.string().min(1),
+    dataset_name: z.string().min(1),
+  })
+  .passthrough();
+
+export type CompactionDatasetRow = z.infer<
+  typeof CompactionDatasetRowSchema
+>;
+
 const NumericRequestFieldSchema = z.preprocess(
   (value) => Number(value),
   z.number().finite(),
