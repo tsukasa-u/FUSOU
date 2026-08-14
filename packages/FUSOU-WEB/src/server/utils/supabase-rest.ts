@@ -71,7 +71,7 @@ export async function supabaseRestRequest<T = unknown[]>(
   if (
     method === "GET" ||
     (
-      headers.Prefer || (method === "POST" ? "return=representation" : "")
+      headers["Prefer"] || (method === "POST" ? "return=representation" : "")
     ).includes("return=representation")
   ) {
     return response.json() as Promise<T>;
