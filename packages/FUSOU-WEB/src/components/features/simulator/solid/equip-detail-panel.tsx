@@ -575,10 +575,10 @@ function EquipDetailPanel(props: {
     const singleLengByShip = new Map<number, number>();
     for (const entry of singleEntries) {
       const maxLeng = Math.max(
-        entry.b?.leng ?? 0,
-        entry.l?.leng ?? 0,
-        entry.c2?.leng ?? 0,
-        entry.c3?.leng ?? 0,
+        entry.b?.["leng"] ?? 0,
+        entry.l?.["leng"] ?? 0,
+        entry.c2?.["leng"] ?? 0,
+        entry.c3?.["leng"] ?? 0,
       );
       if (maxLeng === 0) continue;
       for (const shipId of entry.ships) {
@@ -595,7 +595,7 @@ function EquipDetailPanel(props: {
       if (!e.single) e.single = { before: ship.leng, after };
     }
     for (const { partnerId, entry } of crossEntriesByPartner) {
-      const leng = entry.synergy.leng ?? 0;
+      const leng = entry.synergy["leng"] ?? 0;
       if (leng === 0) continue;
       const partner = getMasterSlotItem(partnerId);
       if (!partner || partner.id >= ENEMY_ID_THRESHOLD) continue;
@@ -619,7 +619,12 @@ function EquipDetailPanel(props: {
     const allSingleLengEntries: Array<{ equipId: number; entry: EquipEffect; maxLeng: number }> = [];
     if (effects.effect_rules) {
       for (const rule of effects.effect_rules) {
-        const maxLeng = Math.max(rule.b?.leng ?? 0, rule.l?.leng ?? 0, rule.c2?.leng ?? 0, rule.c3?.leng ?? 0);
+        const maxLeng = Math.max(
+          rule.b?.["leng"] ?? 0,
+          rule.l?.["leng"] ?? 0,
+          rule.c2?.["leng"] ?? 0,
+          rule.c3?.["leng"] ?? 0,
+        );
         if (maxLeng === 0) continue;
         for (const itemId of rule.items) {
            allSingleLengEntries.push({ equipId: itemId, entry: rule, maxLeng });
@@ -649,7 +654,7 @@ function EquipDetailPanel(props: {
           : normalizeCrossEffects(effects)[pairKey]?.find((e) =>
               e.ships.includes(shipId),
             );
-        const crossLeng = crossEntryLocal?.synergy.leng ?? 0;
+        const crossLeng = crossEntryLocal?.synergy["leng"] ?? 0;
         const effectiveBase = Math.max(
           ship.leng,
           equipLeng,
