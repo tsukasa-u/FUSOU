@@ -11,6 +11,8 @@ import {
   renderEquipmentBadgesFromSlotIds,
 } from "./render-helpers";
 
+const phaseName = (key: string): string => PHASE_NAMES[key] ?? key;
+
 export function shiftHpArray(raw: number[]): number[] {
   if (!raw || raw.length === 0) return [];
   const nums = raw.map((v) => Number(v ?? 0));
@@ -901,7 +903,8 @@ export function buildTimelineEvents(
                 // Only annotate events for valid defenders (matching extractShellingEvents skip pattern).
                 if (defenderIdx !== null && rowEventIdx < events.length) {
                   if (mstId && Number.isFinite(mstId) && mstId > 0) {
-                    events[rowEventIdx].attackerMstShipId = mstId;
+                    const event = events[rowEventIdx];
+                    if (event) event.attackerMstShipId = mstId;
                   }
                   rowEventIdx++;
                 }
@@ -917,7 +920,7 @@ export function buildTimelineEvents(
     ) {
       extractRaigekiEvents(
         battle["opening_raigeki"],
-        PHASE_NAMES["OpeningRaigeki"],
+        phaseName("OpeningRaigeki"),
       );
     }
     if (
@@ -926,7 +929,7 @@ export function buildTimelineEvents(
     ) {
       extractRaigekiEvents(
         battle["closing_raigeki"],
-        PHASE_NAMES["ClosingRaigeki"],
+        phaseName("ClosingRaigeki"),
       );
     }
   } else {
@@ -942,7 +945,7 @@ export function buildTimelineEvents(
           .filter((n) => n > 0) ?? [];
       extractAirAttackEvents(
         battle["air_base_assault"],
-        PHASE_NAMES["AirBaseAssult"],
+        phaseName("AirBaseAssult"),
         squads.length > 0 ? squads : undefined,
         {
           actorRole: "airbase",
@@ -954,7 +957,7 @@ export function buildTimelineEvents(
     if (battle["carrier_base_assault"]) {
       extractAirAttackEvents(
         battle["carrier_base_assault"],
-        PHASE_NAMES["CarrierBaseAssault"],
+        phaseName("CarrierBaseAssault"),
         undefined,
         {
           actorRole: "airbase",
@@ -974,7 +977,7 @@ export function buildTimelineEvents(
             .filter((n) => n > 0) ?? [];
         extractAirAttackEvents(
           a,
-          PHASE_NAMES["AirBaseAirAttack"],
+            phaseName("AirBaseAirAttack"),
           squads.length > 0 ? squads : undefined,
           {
             actorRole: "airbase",
@@ -997,7 +1000,7 @@ export function buildTimelineEvents(
         if (dmg <= 0) continue;
         const beforeHp = Number(eNow[i] ?? 0) || 0;
         events.push({
-          phase: PHASE_NAMES["SupportAttack"],
+          phase: phaseName("SupportAttack"),
           type: "shelling",
           actorRole: "support",
           affectsHp: false,
@@ -1033,7 +1036,7 @@ export function buildTimelineEvents(
           e_plane_from: [],
           f_plane_from: [],
         },
-        PHASE_NAMES["SupportAttack"],
+        phaseName("SupportAttack"),
         undefined,
         {
           actorRole: "support",
@@ -1062,7 +1065,7 @@ export function buildTimelineEvents(
         if (dmg <= 0) continue;
         const beforeHp = Number(eNow[i] ?? 0) || 0;
         events.push({
-          phase: PHASE_NAMES["NightSupportAttack"],
+          phase: phaseName("NightSupportAttack"),
           type: "shelling",
           actorRole: "support",
           affectsHp: false,
@@ -1098,7 +1101,7 @@ export function buildTimelineEvents(
           e_plane_from: [],
           f_plane_from: [],
         },
-        PHASE_NAMES["NightSupportAttack"],
+        phaseName("NightSupportAttack"),
         undefined,
         {
           actorRole: "support",
@@ -1111,14 +1114,14 @@ export function buildTimelineEvents(
     if (battle["opening_taisen"]) {
       extractShellingEvents(
         normalizeShellingRows(battle["opening_taisen"]),
-        PHASE_NAMES["OpeningTaisen"],
+        phaseName("OpeningTaisen"),
       );
     }
     if (battle["opening_air_attack"]) {
       const raw = battle["opening_air_attack"];
       const airRow = Array.isArray(raw) ? (raw[0] as unknown) : raw;
       if (airRow) {
-        extractAirAttackEvents(airRow, PHASE_NAMES["OpeningAirAttack"], undefined, {
+        extractAirAttackEvents(airRow, phaseName("OpeningAirAttack"), undefined, {
           airBatchId: ++airBatchSeq,
         });
       }
@@ -1126,7 +1129,7 @@ export function buildTimelineEvents(
     if (battle["opening_raigeki"]) {
       extractRaigekiEvents(
         battle["opening_raigeki"],
-        PHASE_NAMES["OpeningRaigeki"],
+        phaseName("OpeningRaigeki"),
       );
     }
     if (battle["hougeki"]) {
@@ -1136,14 +1139,14 @@ export function buildTimelineEvents(
       rows.forEach((h) => {
         extractShellingEvents(
           normalizeShellingRows(h),
-          PHASE_NAMES["Hougeki"],
+          phaseName("Hougeki"),
         );
       });
     }
     if (battle["closing_raigeki"]) {
       extractRaigekiEvents(
         battle["closing_raigeki"],
-        PHASE_NAMES["ClosingRaigeki"],
+        phaseName("ClosingRaigeki"),
       );
     }
     // Friendly force attack (after day battle, before midnight)
@@ -1170,7 +1173,7 @@ export function buildTimelineEvents(
         ? (ffaFallback.fleet_info.max_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
         : [];
 
-      extractShellingEvents(rows, PHASE_NAMES["FriendlyForceAttack"], {
+      extractShellingEvents(rows, phaseName("FriendlyForceAttack"), {
         actorRole: "friendly_force",
         affectsHp: true,
         friendlyForceNowHps: ffNowHps,
@@ -1212,7 +1215,7 @@ export function buildTimelineEvents(
     if (battle["midnight_hougeki"]) {
       extractShellingEvents(
         normalizeShellingRows(battle["midnight_hougeki"]),
-        PHASE_NAMES["MidnightHougeki"],
+        phaseName("MidnightHougeki"),
       );
     }
   }
