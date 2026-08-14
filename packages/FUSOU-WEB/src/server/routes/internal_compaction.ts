@@ -75,7 +75,12 @@ function decodeAvroLong(
     if (pos >= buffer.length) {
       throw new Error("Avro buffer overrun while parsing header");
     }
-    b = buffer[pos++];
+    const byte = buffer[pos];
+    if (byte === undefined) {
+      throw new Error("Avro buffer overrun while parsing header");
+    }
+    b = byte;
+    pos += 1;
     n |= (b & 0x7f) << shift;
     shift += 7;
   } while (b & 0x80);

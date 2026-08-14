@@ -87,11 +87,13 @@ function extractAccessToken(c: {
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
   if (!match) return null;
+  const token = match[1];
+  if (!token) return null;
 
   try {
-    return { token: decodeURIComponent(match[1]), fromCookie: true };
+    return { token: decodeURIComponent(token), fromCookie: true };
   } catch {
-    return { token: match[1], fromCookie: true };
+    return { token, fromCookie: true };
   }
 }
 

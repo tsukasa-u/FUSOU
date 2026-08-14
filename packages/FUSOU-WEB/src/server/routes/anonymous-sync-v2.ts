@@ -148,11 +148,13 @@ function extractAccessToken(c: {
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
   if (!match) return null;
+  const token = match[1];
+  if (!token) return null;
 
   try {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(token);
   } catch {
-    return match[1];
+    return token;
   }
 }
 

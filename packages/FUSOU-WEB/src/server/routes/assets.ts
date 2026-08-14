@@ -424,10 +424,10 @@ app.get("/ship-banner-map", async (c) => {
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
             const match = row.key.match(/\/banner\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!banners[shipId]) banners[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!banners[shipId]) banners[shipId] = row.key;
           }
         }
       } catch (d1Err) {
@@ -523,10 +523,10 @@ app.get("/ship-card-map", async (c) => {
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
             const match = row.key.match(/\/card\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!cards[shipId]) cards[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!cards[shipId]) cards[shipId] = row.key;
           }
         }
       } catch {
@@ -619,10 +619,10 @@ app.get("/ship-icon-map", async (c) => {
         if (rows.results) {
           for (const row of rows.results as { key: string }[]) {
             const match = row.key.match(/\/reward_icon\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!icons[shipId]) icons[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!icons[shipId]) icons[shipId] = row.key;
           }
         }
       } catch {
@@ -637,10 +637,10 @@ app.get("/ship-icon-map", async (c) => {
       });
       for (const obj of listed.objects) {
         const match = obj.key.match(/\/reward_icon\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
-          if (!icons[shipId]) icons[shipId] = obj.key;
-        }
+        const capture = match?.[1];
+        if (!capture) continue;
+        const shipId = String(parseInt(capture, 10));
+        if (!icons[shipId]) icons[shipId] = obj.key;
       }
     }
 
@@ -716,6 +716,7 @@ app.get("/equip-image-map", async (c) => {
         const match = row.key.match(/\/slot\/(card|item_on|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
+        if (!type || !padded) continue;
         const equipId = String(parseInt(padded, 10));
         const target = type === "card" ? card : type === "item_on" ? itemOn : itemUp;
         if (!target[equipId]) target[equipId] = row.key;

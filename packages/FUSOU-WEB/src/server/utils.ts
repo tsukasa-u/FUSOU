@@ -336,7 +336,7 @@ export function extractBearer(
 ): string | null {
   if (!header) return null;
   const [scheme, ...rest] = header.trim().split(/\s+/);
-  if (!rest.length || scheme.toLowerCase() !== "bearer") return null;
+  if (!scheme || !rest.length || scheme.toLowerCase() !== "bearer") return null;
   return rest.join(" ");
 }
 
