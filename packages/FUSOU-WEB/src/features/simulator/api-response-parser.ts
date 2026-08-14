@@ -23,25 +23,25 @@ export function stripSvdataPrefix(text: string): string {
  * Detect which API response type a parsed JSON object represents.
  */
 export function detectResponseKind(json: Record<string, unknown>): ApiResponseKind {
-  const data = (json.api_data ?? json) as Record<string, unknown>;
+  const data = (json["api_data"] ?? json) as Record<string, unknown>;
 
   // getData: has master data arrays
-  if (data.api_mst_ship || data.api_mst_slotitem) {
+  if (data["api_mst_ship"] || data["api_mst_slotitem"]) {
     return "getData";
   }
 
   // port: has ship instances + deck compositions
-  if (data.api_ship && data.api_deck_port) {
+  if (data["api_ship"] && data["api_deck_port"]) {
     return "port";
   }
 
   // require_info: has equipment instances
-  if (data.api_slot_item && !data.api_ship) {
+  if (data["api_slot_item"] && !data["api_ship"]) {
     return "requireInfo";
   }
 
   // exportedFleet: FUSOU internal format
-  if (json.v === 2 && (json.fleet1 || json.fleet2)) {
+  if (json["v"] === 2 && (json["fleet1"] || json["fleet2"])) {
     return "exportedFleet";
   }
 
