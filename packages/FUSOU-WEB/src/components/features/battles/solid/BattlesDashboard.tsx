@@ -83,15 +83,22 @@ function formatLoadError(
     url?: unknown;
   } | null;
   const details = candidate?.details ?? {};
-  const table = typeof details.table === "string" ? details.table : progress?.label;
-  const periodTag = typeof details.periodTag === "string" ? details.periodTag : period.period_tag;
-  const relativePath = typeof details.relativePath === "string" ? details.relativePath : null;
-  const phase = typeof details.phase === "string"
-    ? details.phase === "file-discovery"
+  const table =
+    typeof details["table"] === "string" ? details["table"] : progress?.label;
+  const periodTag =
+    typeof details["periodTag"] === "string"
+      ? details["periodTag"]
+      : period.period_tag;
+  const relativePath =
+    typeof details["relativePath"] === "string"
+      ? details["relativePath"]
+      : null;
+  const phase = typeof details["phase"] === "string"
+    ? details["phase"] === "file-discovery"
       ? "ファイル確認"
-      : details.phase === "decode"
+      : details["phase"] === "decode"
         ? "AVRO展開"
-        : details.phase
+        : details["phase"]
     : progress?.phase === "decode"
       ? "AVRO展開"
       : progress?.phase;
