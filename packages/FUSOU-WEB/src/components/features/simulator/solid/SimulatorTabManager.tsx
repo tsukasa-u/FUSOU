@@ -61,7 +61,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
   });
 
   onMount(() => {
-    (window as any).__fusouAccessToken = props.accessToken;
+    window.__fusouAccessToken = props.accessToken;
 
     initShipModalEvents();
     initEquipModalEvents();

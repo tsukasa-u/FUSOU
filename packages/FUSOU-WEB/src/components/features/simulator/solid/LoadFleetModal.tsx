@@ -4,10 +4,26 @@ import { createSignal, Show, For } from "solid-js";
 import { applyFleetSnapshot } from "@/features/simulator/snapshot";
 import { finalizePlaygroundLoad } from "@/features/simulator/io-handlers";
 import { authFetch } from "@/utils/authFetch";
+import { z } from "zod";
 
 export const loadFleetModalRef: { current: HTMLDialogElement | null } = { current: null };
 
-type SnapshotEntry = { tag: string; uploaded: string; size: number };
+const SnapshotEntrySchema = z.object({
+  tag: z.string(),
+  uploaded: z.string(),
+  size: z.number(),
+});
+const SnapshotListResponseSchema = z
+  .object({ ok: z.boolean(), tags: z.array(SnapshotEntrySchema) })
+  .passthrough();
+const SnapshotResponseSchema = z
+  .object({ ok: z.literal(true), snapshot: z.record(z.unknown()) })
+  .passthrough();
+const ErrorResponseSchema = z
+  .object({ error: z.string().optional() })
+  .passthrough();
+
+type SnapshotEntry = z.infer<typeof SnapshotEntrySchema>;
 
 export function LoadFleetModal() {
   const [loading, setLoading] = createSignal(false);
@@ -15,13 +31,7 @@ export function LoadFleetModal() {
   const [errorMsg, setErrorMsg] = createSignal("");
   const [requiresAuth, setRequiresAuth] = createSignal(false);
 
-  const getAccessToken = () => (window as any).__fusouAccessToken ?? null;
-
-  const authHeaders = (): Record<string, string> => {
-    const token = getAccessToken();
-    if (!token) return {};
-    return { Authorization: `Bearer ${token}` };
-  };
+  const getAccessToken = () => window.__fusouAccessToken ?? null;
 
   const loadSnapshots = async () => {
     const token = getAccessToken();
@@ -37,20 +47,26 @@ export function LoadFleetModal() {
     try {
       const res = await authFetch("/api/fleet/snapshots/list");
       if (res.status === 401 || res.status === 403) {
-        const body = (await res.json().catch(() => ({}))) as Record<string, any>;
-        setErrorMsg(body.error ?? "認証エラー");
+        const body = ErrorResponseSchema.safeParse(
+          await res.json().catch(() => ({})),
+        );
+        setErrorMsg(body.success ? body.data.error ?? "認証エラー" : "認証エラー");
         return;
       }
       if (!res.ok) {
         setErrorMsg("読込に失敗しました");
         return;
       }
-      const data = await res.json() as { ok: boolean; tags: SnapshotEntry[] };
-      if (!data.tags || data.tags.length === 0) {
+      const data = SnapshotListResponseSchema.safeParse(await res.json());
+      if (!data.success) {
+        setErrorMsg("読込に失敗しました");
+        return;
+      }
+      if (data.data.tags.length === 0) {
         setErrorMsg("保存された艦隊データがありません");
         return;
       }
-      setEntries(data.tags);
+      setEntries(data.data.tags);
     } catch {
       setErrorMsg("読込エラー");
     } finally {
@@ -62,8 +78,12 @@ export function LoadFleetModal() {
     try {
       const snapRes = await authFetch(`/api/fleet/snapshot/${encodeURIComponent(tag)}`);
       if (snapRes.ok) {
-        const result = (await snapRes.json()) as { ok: boolean; snapshot: Record<string, unknown> };
-        applyFleetSnapshot(result.snapshot);
+        const result = SnapshotResponseSchema.safeParse(await snapRes.json());
+        if (!result.success) {
+          alert("スナップショットの読込に失敗しました");
+          return;
+        }
+        applyFleetSnapshot(result.data.snapshot);
         finalizePlaygroundLoad(true);
         loadFleetModalRef.current?.close();
       } else {

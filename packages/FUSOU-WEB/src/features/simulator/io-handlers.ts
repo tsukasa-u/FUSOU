@@ -20,12 +20,7 @@ import {
 } from "./simulator-selectors";
 import { authFetch } from "@/utils/authFetch";
 
-const _accessToken: string | null = (window as any).__fusouAccessToken ?? null;
-
-function authHeaders(): HeadersInit {
-  if (!_accessToken) return {};
-  return { Authorization: `Bearer ${_accessToken}` };
-}
+const _accessToken: string | null = window.__fusouAccessToken ?? null;
 
 
 type ShortenApiResponse = {

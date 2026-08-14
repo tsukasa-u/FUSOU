@@ -1,3 +1,9 @@
+import { z } from "zod";
+
+const RefreshSessionResponseSchema = z
+  .object({ access_token: z.string().optional() })
+  .passthrough();
+
 /**
  * Automatically refreshes the access token if a 401 or 403 (Invalid or expired access token) occurs,
  * and retries the original request.
@@ -6,9 +12,9 @@ export async function authFetch(
   url: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const getAccessToken = () => (window as any).__fusouAccessToken ?? null;
+  const getAccessToken = () => window.__fusouAccessToken ?? null;
   const setAccessToken = (token: string) => {
-    (window as any).__fusouAccessToken = token;
+    window.__fusouAccessToken = token;
   };
 
   const buildHeaders = (): HeadersInit => {
@@ -50,10 +56,12 @@ export async function authFetch(
           method: "POST",
         });
         if (refreshRes.ok) {
-          const refreshData = await refreshRes.json() as { access_token?: string };
-          if (refreshData.access_token) {
+          const refreshData = RefreshSessionResponseSchema.safeParse(
+            await refreshRes.json(),
+          );
+          if (refreshData.success && refreshData.data.access_token) {
             // Update token and retry
-            setAccessToken(refreshData.access_token);
+            setAccessToken(refreshData.data.access_token);
             res = await fetch(url, {
               ...options,
               headers: buildHeaders(),
