@@ -24,9 +24,10 @@ import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
 
-function transformOpeningRaigekiData(raw: any): any {
-  if (!raw) return raw;
-  const result: any = {};
+type BattleRecord = Record<string, unknown>;
+
+function transformOpeningRaigekiData(raw: BattleRecord): BattleRecord {
+  const result: BattleRecord = {};
   if (raw.frai_list_items) {
     result.f_rai =
       typeof raw.frai_list_items === "string"
@@ -51,16 +52,18 @@ function transformOpeningRaigekiData(raw: any): any {
         ? JSON.parse(raw.enemy_damage)
         : raw.enemy_damage;
   }
-  const fDam = result.f_dam || [];
-  const eDam = result.e_dam || [];
+  const fDam = Array.isArray(result.f_dam) ? result.f_dam : [];
+  const eDam = Array.isArray(result.e_dam) ? result.e_dam : [];
   result.f_now_hps = Array(fDam.length)
     .fill(null)
     .map((_, i) => 100 + i * 20);
   result.e_now_hps = Array(eDam.length)
     .fill(null)
     .map((_, i) => 100 + i * 20);
-  result.f_cl = Array(result.f_now_hps.length).fill(2);
-  result.e_cl = Array(result.e_now_hps.length).fill(2);
+  const fNowHps = Array.isArray(result.f_now_hps) ? result.f_now_hps : [];
+  const eNowHps = Array.isArray(result.e_now_hps) ? result.e_now_hps : [];
+  result.f_cl = Array(fNowHps.length).fill(2);
+  result.e_cl = Array(eNowHps.length).fill(2);
   return result;
 }
 
@@ -2588,28 +2591,28 @@ app.get("/dev/local-records", async (c) => {
       return c.json({ error: `unsupported table: ${table}` }, 400);
     }
 
-    let records: any[] = [];
+    let records: BattleRecord[] = [];
 
     if (table === "battle") {
       const battleResult = (await indexDb
         .prepare(`SELECT * FROM battle WHERE uuid = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
 
       const openingRaigekiResult = (await indexDb
         .prepare(`SELECT * FROM opening_raigeki WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
 
       const ownShipResult = (await indexDb
         .prepare(`SELECT * FROM own_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
 
       const enemyShipResult = (await indexDb
         .prepare(`SELECT * FROM enemy_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
 
       records = battleResult.results || [];
       if (records.length > 0 && openingRaigekiResult.results?.length) {
@@ -2650,7 +2653,7 @@ app.get("/dev/local-records", async (c) => {
       const result = (await indexDb
         .prepare(`SELECT * FROM ${table} WHERE ${safeField} = ?`)
         .bind(safeValue)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
       records = result.results || [];
     } else {
       const result = (await indexDb
@@ -2658,7 +2661,7 @@ app.get("/dev/local-records", async (c) => {
           `SELECT * FROM ${table} WHERE uuid = ? OR battle_id = ? OR id = ?`,
         )
         .bind(safeValue, safeValue, safeValue)
-        .all?.()) as { results: any[] };
+        .all?.()) as { results: BattleRecord[] };
       records = result.results || [];
     }
 
