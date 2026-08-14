@@ -556,31 +556,31 @@ async function readPage(
     return null;
   }
 
-  const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
+  const itemsRaw = Array.isArray(raw["items"]) ? raw["items"] : [];
   const items: AssetIndexItem[] = [];
 
   for (const item of itemsRaw) {
     if (!isObject(item)) {
       continue;
     }
-    const key = typeof item.key === "string" ? item.key : null;
+    const key = typeof item["key"] === "string" ? item["key"] : null;
     if (!key) {
       continue;
     }
     items.push({
       key,
       contentHash:
-        typeof item.contentHash === "string" ? item.contentHash : null,
-      size: toNumber(item.size) ?? 0,
-      uploadedAt: toNumber(item.uploadedAt),
+        typeof item["contentHash"] === "string" ? item["contentHash"] : null,
+      size: toNumber(item["size"]) ?? 0,
+      uploadedAt: toNumber(item["uploadedAt"]),
     });
   }
 
   return {
     version,
     pageNo,
-    maxUploadedAtMs: toNumber(raw.maxUploadedAtMs),
-    minUploadedAtMs: toNumber(raw.minUploadedAtMs),
+    maxUploadedAtMs: toNumber(raw["maxUploadedAtMs"]),
+    minUploadedAtMs: toNumber(raw["minUploadedAtMs"]),
     items,
   };
 }
@@ -623,15 +623,15 @@ async function readManifest(
     return null;
   }
 
-  const schemaVersion = toNumber(raw.schemaVersion);
-  const version = typeof raw.version === "string" ? raw.version : null;
-  const sourceRevision = toNumber(raw.sourceRevision);
-  const refreshedAtMs = toNumber(raw.refreshedAtMs);
-  const snapshotUpperMs = toNumber(raw.snapshotUpperMs);
-  const pageSize = toNumber(raw.pageSize);
-  const pageMaxBytes = toNumber(raw.pageMaxBytes);
-  const pageCount = toNumber(raw.pageCount);
-  const total = toNumber(raw.total);
+  const schemaVersion = toNumber(raw["schemaVersion"]);
+  const version = typeof raw["version"] === "string" ? raw["version"] : null;
+  const sourceRevision = toNumber(raw["sourceRevision"]);
+  const refreshedAtMs = toNumber(raw["refreshedAtMs"]);
+  const snapshotUpperMs = toNumber(raw["snapshotUpperMs"]);
+  const pageSize = toNumber(raw["pageSize"]);
+  const pageMaxBytes = toNumber(raw["pageMaxBytes"]);
+  const pageCount = toNumber(raw["pageCount"]);
+  const total = toNumber(raw["total"]);
 
   if (
     schemaVersion === null ||
@@ -647,7 +647,7 @@ async function readManifest(
     return null;
   }
 
-  const pageRanges = normalizePageRanges(raw.pageRanges, pageCount);
+  const pageRanges = normalizePageRanges(raw["pageRanges"], pageCount);
 
   return {
     schemaVersion,
@@ -659,12 +659,14 @@ async function readManifest(
     pageMaxBytes,
     pageCount,
     total,
-    maxUploadedAtMs: toNumber(raw.maxUploadedAtMs),
-    minUploadedAtMs: toNumber(raw.minUploadedAtMs),
+    maxUploadedAtMs: toNumber(raw["maxUploadedAtMs"]),
+    minUploadedAtMs: toNumber(raw["minUploadedAtMs"]),
     pageRanges,
     previousVersion:
-      typeof raw.previousVersion === "string" ? raw.previousVersion : null,
-    previousPageCount: toNumber(raw.previousPageCount) ?? 0,
+      typeof raw["previousVersion"] === "string"
+        ? raw["previousVersion"]
+        : null,
+    previousPageCount: toNumber(raw["previousPageCount"]) ?? 0,
   };
 }
 
@@ -682,15 +684,15 @@ function normalizePageRanges(
       continue;
     }
 
-    const pageNo = toNumber(entry.pageNo);
+    const pageNo = toNumber(entry["pageNo"]);
     if (pageNo === null || pageNo < 1 || pageNo > pageCount) {
       continue;
     }
 
     ranges.push({
       pageNo,
-      maxUploadedAtMs: toNumber(entry.maxUploadedAtMs),
-      minUploadedAtMs: toNumber(entry.minUploadedAtMs),
+      maxUploadedAtMs: toNumber(entry["maxUploadedAtMs"]),
+      minUploadedAtMs: toNumber(entry["minUploadedAtMs"]),
     });
   }
 
