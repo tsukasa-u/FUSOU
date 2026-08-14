@@ -8,6 +8,7 @@ import {
   ReleaseOutputLockRequestSchema,
   AcquireOutputLockRequestSchema,
   PeriodRolloverCheckRequestSchema,
+  ResolveTableVersionRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -204,5 +205,32 @@ describe("PeriodRolloverCheckRequestSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.source_tier).toBe("daily");
+  });
+});
+
+describe("ResolveTableVersionRequestSchema", () => {
+  it("defaults source_tier to hourly", () => {
+    const result = ResolveTableVersionRequestSchema.safeParse({
+      table_name: " battle ",
+      period_tag: " 2026-01-01 ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.table_name).toBe("battle");
+      expect(result.data.period_tag).toBe("2026-01-01");
+      expect(result.data.source_tier).toBe("hourly");
+    }
+  });
+
+  it("preserves a supplied source tier", () => {
+    const result = ResolveTableVersionRequestSchema.safeParse({
+      table_name: "battle",
+      period_tag: "2026-01-01",
+      source_tier: " period ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.source_tier).toBe("period");
   });
 });

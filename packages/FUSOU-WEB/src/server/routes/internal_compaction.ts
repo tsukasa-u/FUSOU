@@ -9,6 +9,7 @@ import {
   ReleaseOutputLockRequestSchema,
   AcquireOutputLockRequestSchema,
   PeriodRolloverCheckRequestSchema,
+  ResolveTableVersionRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -1113,16 +1114,23 @@ app.post("/resolve-table-version", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tableName = String(body?.table_name ?? "").trim();
-  const periodTag = String(body?.period_tag ?? "").trim();
-  const sourceTierRaw = String(body?.source_tier ?? "hourly").trim();
+  const parsedBody = ResolveTableVersionRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return c.json({ error: "table_name is required" }, 400);
+  }
+
+  const {
+    table_name: tableName,
+    period_tag: periodTag,
+    source_tier: sourceTierRaw,
+  } = parsedBody.data;
   const sourceTier = sourceTierRaw as CompactionTier;
 
   if (!tableName) return c.json({ error: "table_name is required" }, 400);

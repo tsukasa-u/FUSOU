@@ -117,6 +117,11 @@ const DefaultWeeklyTierRequestFieldSchema = z.preprocess(
   z.string(),
 );
 
+const DefaultHourlyTierRequestFieldSchema = z.preprocess(
+  (value) => String(value ?? "hourly").trim(),
+  z.string(),
+);
+
 export const PeriodRolloverCheckRequestSchema = z
   .object({
     table_name: TrimmedStringRequestFieldSchema.optional(),
@@ -126,4 +131,16 @@ export const PeriodRolloverCheckRequestSchema = z
 
 export type PeriodRolloverCheckRequest = z.infer<
   typeof PeriodRolloverCheckRequestSchema
+>;
+
+export const ResolveTableVersionRequestSchema = z
+  .object({
+    table_name: TrimmedStringRequestFieldSchema.optional(),
+    period_tag: TrimmedStringRequestFieldSchema.optional(),
+    source_tier: DefaultHourlyTierRequestFieldSchema,
+  })
+  .passthrough();
+
+export type ResolveTableVersionRequest = z.infer<
+  typeof ResolveTableVersionRequestSchema
 >;
