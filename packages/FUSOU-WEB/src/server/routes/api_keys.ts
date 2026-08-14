@@ -9,7 +9,10 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
-import { UpdateApiKeyRequestSchema } from "../schemas/api-keys";
+import {
+  ApiKeyListRowsSchema,
+  UpdateApiKeyRequestSchema,
+} from "../schemas/api-keys";
 import {
   getSupabaseRestConfig,
   supabaseRestRequest,
@@ -205,20 +208,20 @@ app.get("/", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const apiKeys = await supabaseRestRequest<
+    const apiKeysResponse = await supabaseRestRequest(
+      config,
+      "api_keys",
       {
-        id: string;
-        key: string;
-        email: string;
-        is_active: boolean;
-        created_at: string;
-        updated_at: string;
-      }[]
-    >(config, "api_keys", {
       query: `?user_id=eq.${user.id}&order=created_at.desc&select=id,key,email,is_active,created_at,updated_at`,
-    });
+      },
+    );
+    const parsedApiKeys = ApiKeyListRowsSchema.safeParse(apiKeysResponse);
+    if (!parsedApiKeys.success) {
+      console.error("API keys list response shape invalid:", parsedApiKeys.error);
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
 
-    const maskedKeys = (apiKeys || []).map((k) => ({
+    const maskedKeys = parsedApiKeys.data.map((k) => ({
       id: k.id,
       key_masked: maskApiKey(k.key),
       email: k.email,

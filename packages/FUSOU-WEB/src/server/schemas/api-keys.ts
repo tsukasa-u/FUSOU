@@ -5,3 +5,15 @@ export const UpdateApiKeyRequestSchema = z.object({
 });
 
 export type UpdateApiKeyRequest = z.infer<typeof UpdateApiKeyRequestSchema>;
+
+export const ApiKeyListRowsSchema = z
+  .object({
+    id: z.string().min(1),
+    key: z.string().min(1),
+    email: z.string().min(1),
+    is_active: z.boolean(),
+    created_at: z.string().min(1),
+    updated_at: z.string().min(1),
+  })
+  .passthrough()
+  .array();
