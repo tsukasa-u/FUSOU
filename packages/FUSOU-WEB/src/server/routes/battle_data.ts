@@ -204,9 +204,9 @@ async function fetchMasterDataJsonDirect(
   tableName: string,
 ): Promise<MasterDataJsonPayload> {
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (!db || !bucket) throw new Error("Master data storage not configured");
 
   const latestMaster = await getLatestMasterPeriodTag(db, kv);
@@ -411,7 +411,7 @@ async function fetchBattleEnvBundleInternal(
 async function fetchWeaponIconFramesDirect(
   c: Context<{ Bindings: Bindings }>,
 ): Promise<Record<string, unknown>> {
-  const bucket = createEnvContext(c).runtime.ASSET_SYNC_BUCKET;
+  const bucket = createEnvContext(c).runtime["ASSET_SYNC_BUCKET"];
   if (!bucket) throw new Error("Asset storage not configured");
   const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
   if (!r2Object) throw new Error("Sprite atlas not found");
@@ -698,7 +698,7 @@ app.options(
  */
 app.post("/upload", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"];
   const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
@@ -716,34 +716,39 @@ app.post("/upload", async (c) => {
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+        typeof body?.["dataset_id"] === "string"
+          ? body["dataset_id"].trim()
+          : "";
       if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[battle-data] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
       }
 
       const datasetId = datasetIdFromToken || requestedDatasetId;
-      const table = typeof body?.table === "string" ? body.table.trim() : "";
+      const table =
+        typeof body?.["table"] === "string" ? body["table"].trim() : "";
       const periodTag =
-        typeof body?.kc_period_tag === "string"
-          ? body.kc_period_tag.trim()
+        typeof body?.["kc_period_tag"] === "string"
+          ? body["kc_period_tag"].trim()
           : "";
       const tableVersion =
-        typeof body?.table_version === "string"
-          ? body.table_version.trim()
-          : typeof body?.tableVersion === "string"
-            ? body.tableVersion.trim()
+        typeof body?.["table_version"] === "string"
+          ? body["table_version"].trim()
+          : typeof body?.["tableVersion"] === "string"
+            ? body["tableVersion"].trim()
             : "";
       const declaredSize = parseInt(
-        typeof body?.file_size === "string" ? body.file_size : "0",
+        typeof body?.["file_size"] === "string" ? body["file_size"] : "0",
         10,
       );
       const tableOffsets =
-        typeof body?.table_offsets === "string"
-          ? body.table_offsets.trim()
+        typeof body?.["table_offsets"] === "string"
+          ? body["table_offsets"].trim()
           : null;
-      const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
-      const isBinary = typeof body?.binary === "boolean" ? body.binary : false;
+      const pathTag =
+        typeof body?.["path"] === "string" ? body["path"].trim() : null;
+      const isBinary =
+        typeof body?.["binary"] === "boolean" ? body["binary"] : false;
 
       // Verify that client indicated binary format
       if (!isBinary) {
@@ -773,7 +778,7 @@ app.post("/upload", async (c) => {
       }
       const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
         fieldName: "kc_period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTagValidation.ok) {
         return c.json(
@@ -787,7 +792,9 @@ app.post("/upload", async (c) => {
 
       // Get content_hash from body (computed by client)
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       if (!contentHash) {
         console.warn("[battle-data] Rejecting upload without content_hash");
         return c.json({ error: "content_hash is required" }, 400);
