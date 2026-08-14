@@ -35,17 +35,17 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 
   const slotItemMap: Record<number, { slotitem_id: number; level: number; alv: number }> = {};
   for (const si of slotItems) {
-    const iid = si.i0d as number;
+    const iid = si["i0d"] as number;
     slotItemMap[iid] = {
-      slotitem_id: (si.s9d as number) ?? 0,
-      level: (si.l3l as number) ?? 0,
-      alv: (si.a1v as number) ?? 0,
+      slotitem_id: (si["s9d"] as number) ?? 0,
+      level: (si["l3l"] as number) ?? 0,
+      alv: (si["a1v"] as number) ?? 0,
     };
   }
 
   const shipMap: Record<number, Record<string, unknown>> = {};
   for (const s of ships) {
-    shipMap[s.i0d as number] = s;
+    shipMap[s["i0d"] as number] = s;
   }
 
   clearSnapshotData();
