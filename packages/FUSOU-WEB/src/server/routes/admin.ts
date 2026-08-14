@@ -100,7 +100,7 @@ adminApp.get("/fix-mime-types", async (c) => {
 
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
   const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_SYNC_BUCKET;
+  const bucket = env.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "ASSET_SYNC_BUCKET not bound" }, 500);
@@ -196,8 +196,8 @@ adminApp.get("/fix-mime-types", async (c) => {
 adminApp.get("/backfill-asset-index", async (c) => {
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
   const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_SYNC_BUCKET;
-  const db = env.runtime.ASSET_INDEX_DB;
+  const bucket = env.runtime["ASSET_SYNC_BUCKET"];
+  const db = env.runtime["ASSET_INDEX_DB"];
 
   if (!bucket || !db) {
     return c.json({ error: "Missing R2 or D1 bindings" }, 500);
