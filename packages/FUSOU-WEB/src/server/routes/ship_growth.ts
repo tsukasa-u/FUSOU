@@ -253,17 +253,17 @@ function parseMasterSlotStatsMap(
 ): Map<number, MasterSlotStats> {
   const statsMap = new Map<number, MasterSlotStats>();
   for (const row of records) {
-    const rawId = row.id;
+    const rawId = row["id"];
     const id =
       typeof rawId === "number" && Number.isFinite(rawId)
         ? Math.trunc(rawId)
         : null;
     if (id == null || id <= 0) continue;
 
-    const houkRaw = row.houk;
-    const taisRaw = row.tais;
-    const sakuRaw = row.saku;
-    const luckRaw = row.luck;
+    const houkRaw = row["houk"];
+    const taisRaw = row["tais"];
+    const sakuRaw = row["saku"];
+    const luckRaw = row["luck"];
 
     const houk =
       typeof houkRaw === "number" && Number.isFinite(houkRaw)
@@ -389,10 +389,11 @@ function toShipTotals(
   raw: Record<string, unknown> | undefined,
 ): SynergyStatTotals {
   if (!raw) return emptyTotals();
-  const kaihi = toInt(raw.kaih) + toInt(raw.houk) + toInt(raw.kaihi);
-  const taisen = toInt(raw.tais) + toInt(raw.taisen);
-  const sakuteki = toInt(raw.saku) + toInt(raw.sakuteki);
-  const lucky = toInt(raw.luck) + toInt(raw.luk) + toInt(raw.lucky);
+  const kaihi =
+    toInt(raw["kaih"]) + toInt(raw["houk"]) + toInt(raw["kaihi"]);
+  const taisen = toInt(raw["tais"]) + toInt(raw["taisen"]);
+  const sakuteki = toInt(raw["saku"]) + toInt(raw["sakuteki"]);
+  const lucky = toInt(raw["luck"]) + toInt(raw["luk"]) + toInt(raw["lucky"]);
   return { kaihi, taisen, sakuteki, lucky };
 }
 
