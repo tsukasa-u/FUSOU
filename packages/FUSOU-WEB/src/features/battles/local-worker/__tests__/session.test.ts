@@ -22,7 +22,7 @@ function entryFor(
   const entry = createLocalAvroFileEntry(parseLocalAvroPath(path), {
     size: bytes.byteLength,
     lastModified: 1,
-    tableVersion,
+    ...(tableVersion === undefined ? {} : { tableVersion }),
   });
   const buffer = new ArrayBuffer(bytes.byteLength);
   new Uint8Array(buffer).set(bytes);
@@ -153,7 +153,8 @@ describe("LocalWorkerSession", () => {
         limitRecords: 10,
         filter: { index: 0 },
       },
-      (phase, _completed, _total, label) => progress.push({ phase, label }),
+      (phase, _completed, _total, label) =>
+        progress.push({ phase, ...(label === undefined ? {} : { label }) }),
     );
 
     expect(result.records.length).toBeGreaterThan(0);
@@ -197,6 +198,7 @@ describe("LocalWorkerSession", () => {
   it("filters oversized all-period detail tables before applying the record guard", async () => {
     const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
     const target = ocfDecoder.decodeAvroOcfToJson(bytes)[0];
+    if (!target) throw new Error("fixture AVRO file has no records");
     const envUuid = String(target["env_uuid"]);
     const battleIndex = Number(target["index"]);
     const unrelatedRows = Array.from({ length: 20_000 }, (_, index) => ({
