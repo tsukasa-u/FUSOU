@@ -519,10 +519,10 @@ export async function resolveFriendlyFleet(
 
   // Collect all slot UUIDs and batch-fetch them in one request
   const sortedShips = [...selectedShips].sort(
-    (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
+    (a, b) => Number(a["index"] ?? 0) - Number(b["index"] ?? 0),
   );
   const slotUuids = sortedShips
-    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .map((s) => (typeof s["slot"] === "string" ? s["slot"] : ""))
     .filter(Boolean);
   const slotRowsByUuid = await fetchRecordsByUuids(
     "own_slotitem",
@@ -532,7 +532,7 @@ export async function resolveFriendlyFleet(
 
   const slotRowsByEnvUuid = new Map<string, Array<Record<string, unknown>>>();
   const friendlyEnvUuid =
-    String(sortedShips[0]?.env_uuid ?? battle?.env_uuid ?? "") || "";
+    String(sortedShips[0]?.["env_uuid"] ?? battle?.["env_uuid"] ?? "") || "";
   if (friendlyEnvUuid) {
     const envSlotRows = await fetchRecordsByField(
       "own_slotitem",
@@ -542,7 +542,7 @@ export async function resolveFriendlyFleet(
       options,
     );
     for (const row of envSlotRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!slotRowsByEnvUuid.has(groupId)) slotRowsByEnvUuid.set(groupId, []);
       slotRowsByEnvUuid.get(groupId)!.push(row);
@@ -590,7 +590,7 @@ export async function resolveFriendlyFleet(
         options,
       );
       for (const row of envOwnShipRows) {
-        const key = `${Number(row.index ?? -1)}|${Number(row.ship_id ?? 0)}`;
+        const key = `${Number(row["index"] ?? -1)}|${Number(row["ship_id"] ?? 0)}`;
         if (!envShipCandidatesByIndexShip.has(key)) {
           envShipCandidatesByIndexShip.set(key, []);
         }
@@ -602,9 +602,9 @@ export async function resolveFriendlyFleet(
   }
 
   return sortedShips.map((ship) => {
-    const shipId = Number(ship.ship_id ?? 0) || null;
+    const shipId = Number(ship["ship_id"] ?? 0) || null;
     const mstShip = shipId ? mstShipById.get(shipId) : null;
-    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotGroupId = typeof ship["slot"] === "string" ? ship["slot"] : null;
     let slotRows = slotGroupId
       ? (slotRowsByUuid.get(slotGroupId) ||
         slotRowsByEnvUuid.get(slotGroupId) ||
@@ -660,16 +660,16 @@ export async function resolveFriendlyFleet(
         };
       });
 
-    return {
+          const candidateKey = `${Number(ship["index"] ?? -1)}|${Number(ship["ship_id"] ?? 0)}`;
       name: mstShip
         ? String(
-            (mstShip as Record<string, unknown>).name ??
-              `艦ID:${shipId ?? "-"}`,
+            const da = Math.abs(Number(a["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
+            const db = Math.abs(Number(b["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
           )
         : `艦ID:${shipId ?? "-"}`,
       shipId,
       level: Number(ship.lv ?? 0) || null,
-      nowhp: Number(ship.nowhp ?? 0) || 0,
+              typeof candidate["slot"] === "string" ? candidate["slot"] : "";
       maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
       karyoku: ship.karyoku ?? null,
       raisou: ship.raisou ?? null,
