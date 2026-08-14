@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { AssetContentHashRowSchema, AssetKeyRowSchema } from "../assets";
+import {
+  AssetContentHashRowSchema,
+  AssetKeyRowSchema,
+  SpriteAtlasSchema,
+} from "../assets";
+
+describe("SpriteAtlasSchema", () => {
+  it("accepts a texture atlas shape and preserves metadata", () => {
+    const result = SpriteAtlasSchema.safeParse({
+      frames: { icon: { frame: { x: 0, y: 0, w: 32, h: 32 } } },
+      meta: { size: { w: 256, h: 256 }, app: "texture-packer" },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.meta).toMatchObject({ app: "texture-packer" });
+    }
+  });
+
+  it("rejects JSON values without atlas frames and metadata", () => {
+    expect(SpriteAtlasSchema.safeParse([]).success).toBe(false);
+    expect(
+      SpriteAtlasSchema.safeParse({ frames: [], meta: {} }).success,
+    ).toBe(false);
+    expect(
+      SpriteAtlasSchema.safeParse({ frames: {}, meta: "invalid" }).success,
+    ).toBe(false);
+  });
+});
 
 describe("AssetKeyRowSchema", () => {
   it("accepts a non-empty asset key and preserves extra columns", () => {

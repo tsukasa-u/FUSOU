@@ -27,7 +27,7 @@ import {
   bumpAssetIndexRevision,
   getAssetSyncKeysResponse,
 } from "../utils/asset-index-cache";
-import { AssetKeyRowSchema } from "../schemas/assets";
+import { AssetKeyRowSchema, SpriteAtlasSchema } from "../schemas/assets";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -1003,15 +1003,19 @@ app.get("/weapon-icon-frames", async (c) => {
     // Always return plain JSON. Some clients do not transparently decode
     // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
     // Fall back to async Brotli decompression if the object was stored compressed.
-    let parsedAtlas: unknown;
+    let atlasCandidate: unknown;
     try {
-      parsedAtlas = JSON.parse(new TextDecoder().decode(atlasRaw));
+      atlasCandidate = JSON.parse(new TextDecoder().decode(atlasRaw));
     } catch {
       const decompressed = await brotliDecompressAsync(atlasRaw);
-      parsedAtlas = JSON.parse(decompressed.toString("utf8"));
+      atlasCandidate = JSON.parse(decompressed.toString("utf8"));
+    }
+    const parsedAtlas = SpriteAtlasSchema.safeParse(atlasCandidate);
+    if (!parsedAtlas.success) {
+      throw new Error("Invalid weapon sprite atlas shape");
     }
 
-    return new Response(JSON.stringify(parsedAtlas), {
+    return new Response(JSON.stringify(parsedAtlas.data), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
