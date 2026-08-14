@@ -52,26 +52,26 @@ function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
 
   if (Array.isArray(data)) return data;
   const obj = data as Record<string, unknown> | null;
-  if (obj && (obj.at !== undefined || Array.isArray(obj.df))) {
+  if (obj && (obj["at"] !== undefined || Array.isArray(obj["df"]))) {
     return [
       {
         ...obj,
-        si: normalizeSi(obj.si),
+        si: normalizeSi(obj["si"]),
       },
     ];
   }
-  if (obj?.at_list) {
-    const atList = obj.at_list as unknown[];
+  if (obj?.["at_list"]) {
+    const atList = obj["at_list"] as unknown[];
     return atList.map((at, idx) => ({
       at,
-      df: (obj.df_list as unknown[])?.[idx] ?? [],
-      damage: (obj.damage as unknown[])?.[idx] ?? [],
-      cl: (obj.cl_list as unknown[])?.[idx] ?? [],
-      at_eflag: (obj.at_eflag as unknown[])?.[idx] ?? 0,
-      si: normalizeSi((obj.si_list as unknown[])?.[idx] ?? []),
-      protect_flag: (obj.protect_flag as unknown[])?.[idx] ?? [],
-      f_now_hps: (obj.f_now_hps as unknown[])?.[idx] ?? [],
-      e_now_hps: (obj.e_now_hps as unknown[])?.[idx] ?? [],
+      df: (obj["df_list"] as unknown[])?.[idx] ?? [],
+      damage: (obj["damage"] as unknown[])?.[idx] ?? [],
+      cl: (obj["cl_list"] as unknown[])?.[idx] ?? [],
+      at_eflag: (obj["at_eflag"] as unknown[])?.[idx] ?? 0,
+      si: normalizeSi((obj["si_list"] as unknown[])?.[idx] ?? []),
+      protect_flag: (obj["protect_flag"] as unknown[])?.[idx] ?? [],
+      f_now_hps: (obj["f_now_hps"] as unknown[])?.[idx] ?? [],
+      e_now_hps: (obj["e_now_hps"] as unknown[])?.[idx] ?? [],
     }));
   }
   return [];
