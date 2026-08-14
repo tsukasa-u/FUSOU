@@ -295,9 +295,9 @@ export function applyExportedFleet(data: Record<string, unknown>) {
     }
   }
 
-  if (Array.isArray(data.airBases)) {
-    for (let i = 0; i < Math.min(data.airBases.length, 3); i++) {
-      const base = data.airBases[i] as { equipIds: (number | null)[]; equipImprovement?: number[]; equipProficiency?: number[] };
+  if (Array.isArray(data["airBases"])) {
+    for (let i = 0; i < Math.min((data["airBases"] as unknown[]).length, 3); i++) {
+      const base = (data["airBases"] as unknown[])[i] as { equipIds: (number | null)[]; equipImprovement?: number[]; equipProficiency?: number[] };
       if (base) {
         replaceAirBaseSlot(i, {
           equipIds: base.equipIds ?? [null, null, null, null],
@@ -307,8 +307,8 @@ export function applyExportedFleet(data: Record<string, unknown>) {
       }
     }
   }
-  if (data.masterData) {
-    loadMasterDataFromJson(data.masterData, renderAll);
+  if (data["masterData"]) {
+    loadMasterDataFromJson(data["masterData"], renderAll);
   }
   } finally {
     endBulkLoad("all");
