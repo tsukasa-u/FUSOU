@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   MasterDataR2KeyRowSchema,
+  SpEffectItemSchema,
   ShipGrowthIngestBodySchema,
 } from "../ship-growth";
 
@@ -50,5 +51,23 @@ describe("ShipGrowthIngestBodySchema", () => {
   it("rejects null and array JSON roots", () => {
     expect(ShipGrowthIngestBodySchema.safeParse(null).success).toBe(false);
     expect(ShipGrowthIngestBodySchema.safeParse([]).success).toBe(false);
+  });
+});
+
+describe("SpEffectItemSchema", () => {
+  it("accepts numeric nullable stats and extra fields", () => {
+    const result = SpEffectItemSchema.safeParse({
+      api_kind: 1,
+      api_houg: null,
+      extra: true,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects malformed present stats", () => {
+    expect(
+      SpEffectItemSchema.safeParse({ api_kaih: "5" }).success,
+    ).toBe(false);
   });
 });

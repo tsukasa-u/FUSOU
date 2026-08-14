@@ -31,7 +31,9 @@ import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   MasterDataR2KeyRowSchema,
   ShipGrowthIngestBodySchema,
+  SpEffectItemSchema,
 } from "../schemas/ship-growth";
+import type { SpEffectItem } from "../schemas/ship-growth";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 const SHIP_GROWTH_INGEST_SCHEMA_VERSION = 1;
@@ -149,14 +151,6 @@ interface ShipGrowthArchiveCapRow {
   taisen_max: number;
   sakuteki_max: number;
 }
-
-type SpEffectItem = {
-  api_kind?: number | null;
-  api_houg?: number | null;
-  api_kaih?: number | null;
-  api_raig?: number | null;
-  api_souk?: number | null;
-};
 
 interface SpEffectStats {
   kind: number;
@@ -347,9 +341,10 @@ function parseSpEffectItems(json: string | null | undefined): SpEffectItem[] {
   try {
     const parsed = JSON.parse(json) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (item): item is SpEffectItem => typeof item === "object" && item != null,
-    );
+    return parsed.flatMap((item) => {
+      const result = SpEffectItemSchema.safeParse(item);
+      return result.success ? [result.data] : [];
+    });
   } catch {
     return [];
   }
