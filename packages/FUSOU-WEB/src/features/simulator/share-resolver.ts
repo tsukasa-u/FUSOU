@@ -106,11 +106,17 @@ async function resolveViaApi(key: string): Promise<ResolvedShare> {
   // Merge snapshotPayload into the data payload when present.
   const payload: Record<string, unknown> = { ...data.dataPayload };
   if (data.snapshotPayload) {
-    if (data.snapshotPayload.snapshotShips && !payload.snapshotShips) {
-      payload.snapshotShips = data.snapshotPayload.snapshotShips;
+    if (
+      data.snapshotPayload["snapshotShips"] &&
+      !payload["snapshotShips"]
+    ) {
+      payload["snapshotShips"] = data.snapshotPayload["snapshotShips"];
     }
-    if (data.snapshotPayload.snapshotSlotItems && !payload.snapshotSlotItems) {
-      payload.snapshotSlotItems = data.snapshotPayload.snapshotSlotItems;
+    if (
+      data.snapshotPayload["snapshotSlotItems"] &&
+      !payload["snapshotSlotItems"]
+    ) {
+      payload["snapshotSlotItems"] = data.snapshotPayload["snapshotSlotItems"];
     }
   }
 
