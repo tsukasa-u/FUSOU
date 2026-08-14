@@ -28,6 +28,7 @@ import {
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import { ShipGrowthIngestBodySchema } from "../schemas/ship-growth";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 const SHIP_GROWTH_INGEST_SCHEMA_VERSION = 1;
@@ -76,6 +77,11 @@ interface IngestBody {
   ships: ShipEntry[];
   content_hash?: string;
   file_size?: number | string;
+}
+
+function parseShipGrowthIngestBody(value: unknown): IngestBody | null {
+  const result = ShipGrowthIngestBodySchema.safeParse(value);
+  return result.success ? (result.data as IngestBody) : null;
 }
 
 interface MasterSlotStats {
@@ -3314,9 +3320,9 @@ app.post("/ingest", async (c) => {
     if (!user?.id)
       return c.json({ error: "Invalid or expired JWT token" }, 401);
 
-    const handshakeBody = (await c.req
-      .json()
-      .catch(() => null)) as IngestBody | null;
+    const handshakeBody = parseShipGrowthIngestBody(
+      await c.req.json().catch(() => null),
+    );
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
@@ -3468,12 +3474,14 @@ app.post("/ingest", async (c) => {
   }
 
   // Parse JSON payload
-  let body: IngestBody;
+  let parsedBody: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
+    parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
   } catch {
     return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
+  const body = parseShipGrowthIngestBody(parsedBody);
+  if (!body) return c.json({ error: "Invalid JSON upload payload" }, 400);
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
