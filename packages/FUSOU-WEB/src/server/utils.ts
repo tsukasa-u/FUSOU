@@ -251,6 +251,13 @@ export function injectEnv(_locals?: unknown): Bindings {
     buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
+  const optionalSecrets = {
+    questTree: getEnv(ctx, "QUEST_TREE_SIGNING_SECRET"),
+    shipGrowth: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
+    remodelData: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
+    battleDataSignedUrl: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    resend: getEnv(ctx, "RESEND_API_KEY"),
+  };
 
   return {
     ASSETS_BUCKET: ctx.runtime["ASSETS_BUCKET"]!,
@@ -281,13 +288,23 @@ export function injectEnv(_locals?: unknown): Bindings {
     )!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
-    QUEST_TREE_SIGNING_SECRET: getEnv(ctx, "QUEST_TREE_SIGNING_SECRET"),
-    SHIP_GROWTH_SIGNING_SECRET: getEnv(ctx, "SHIP_GROWTH_SIGNING_SECRET"),
-    REMODEL_DATA_SIGNING_SECRET: getEnv(ctx, "REMODEL_DATA_SIGNING_SECRET"),
-    BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    ...(optionalSecrets.questTree === undefined
+      ? {}
+      : { QUEST_TREE_SIGNING_SECRET: optionalSecrets.questTree }),
+    ...(optionalSecrets.shipGrowth === undefined
+      ? {}
+      : { SHIP_GROWTH_SIGNING_SECRET: optionalSecrets.shipGrowth }),
+    ...(optionalSecrets.remodelData === undefined
+      ? {}
+      : { REMODEL_DATA_SIGNING_SECRET: optionalSecrets.remodelData }),
+    ...(optionalSecrets.battleDataSignedUrl === undefined
+      ? {}
+      : { BATTLE_DATA_SIGNED_URL_SECRET: optionalSecrets.battleDataSignedUrl }),
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
     CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
-    RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
+    ...(optionalSecrets.resend === undefined
+      ? {}
+      : { RESEND_API_KEY: optionalSecrets.resend }),
     COMPACTION_QUEUE: ctx.runtime["COMPACTION_QUEUE"]!,
     COMPACTION_DLQ: ctx.runtime["COMPACTION_DLQ"]!,
     COMPACTION_WORKFLOW: ctx.runtime["COMPACTION_WORKFLOW"]!,
@@ -503,10 +520,12 @@ export async function validateJWT(token: string): Promise<{
       clockTolerance: 30, // Allow 30 seconds of clock skew
     });
 
+    const id = typeof payload["sub"] === "string" ? payload["sub"] : undefined;
+    const email =
+      typeof payload["email"] === "string" ? payload["email"] : undefined;
     return {
-      id: typeof payload["sub"] === "string" ? payload["sub"] : undefined,
-      email:
-        typeof payload["email"] === "string" ? payload["email"] : undefined,
+      ...(id === undefined ? {} : { id }),
+      ...(email === undefined ? {} : { email }),
       payload: payload as Record<string, unknown>,
     };
   } catch (error) {
@@ -912,9 +931,11 @@ export async function writeR2Binary(
   data: ArrayBuffer | Uint8Array,
   metadata?: Record<string, string>,
 ): Promise<void> {
-  await bucket.put(key, data, {
-    customMetadata: metadata,
-  });
+  await bucket.put(
+    key,
+    data,
+    metadata === undefined ? {} : { customMetadata: metadata },
+  );
 }
 
 /**
