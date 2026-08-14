@@ -254,10 +254,10 @@ export function applyExportedFleet(data: Record<string, unknown>) {
   }
 
   const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
-  applyFleetArray(data.fleet1, fleet1);
-  applyFleetArray(data.fleet2, fleet2);
-  applyFleetArray(data.fleet3, fleet3);
-  applyFleetArray(data.fleet4, fleet4);
+  applyFleetArray(data["fleet1"], fleet1);
+  applyFleetArray(data["fleet2"], fleet2);
+  applyFleetArray(data["fleet3"], fleet3);
+  applyFleetArray(data["fleet4"], fleet4);
 
   if (data.snapshotShips && typeof data.snapshotShips === "object") {
     for (const [k, v] of Object.entries(data.snapshotShips as Record<string, unknown>)) {
