@@ -660,21 +660,21 @@ export async function resolveFriendlyFleet(
         };
       });
 
-          const candidateKey = `${Number(ship["index"] ?? -1)}|${Number(ship["ship_id"] ?? 0)}`;
+    return {
       name: mstShip
         ? String(
-            const da = Math.abs(Number(a["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
-            const db = Math.abs(Number(b["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
+            (mstShip as Record<string, unknown>)["name"] ??
+              `艦ID:${shipId ?? "-"}`,
           )
         : `艦ID:${shipId ?? "-"}`,
       shipId,
-      level: Number(ship.lv ?? 0) || null,
-              typeof candidate["slot"] === "string" ? candidate["slot"] : "";
-      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-      karyoku: ship.karyoku ?? null,
-      raisou: ship.raisou ?? null,
-      taiku: ship.taiku ?? null,
-      soukou: ship.soukou ?? null,
+      level: Number(ship["lv"] ?? 0) || null,
+      nowhp: Number(ship["nowhp"] ?? 0) || 0,
+      maxhp: Number(ship["maxhp"] ?? ship["nowhp"] ?? 0) || 0,
+      karyoku: ship["karyoku"] ?? null,
+      raisou: ship["raisou"] ?? null,
+      taiku: ship["taiku"] ?? null,
+      soukou: ship["soukou"] ?? null,
       bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
       equipments: equips,
     } satisfies ShipInfo;
