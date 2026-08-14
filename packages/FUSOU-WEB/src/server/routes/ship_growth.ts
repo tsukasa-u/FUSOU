@@ -2661,7 +2661,7 @@ app.get("/bounds", async (c) => {
           .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
           .bind(periodTag, tableVersion)
           .first();
-        const totalRows = (countRes?.c as number) || 0;
+        const totalRows = (countRes?.["c"] as number) || 0;
 
         const BOUNDS_PAGE = 5000;
         let boundsRows: Array<BoundsRow & { updated_at: number }> = [];
@@ -2777,7 +2777,7 @@ app.get("/bounds", async (c) => {
           .prepare(`SELECT COUNT(*) as c FROM ship_growth_bounds WHERE period_tag = ? AND table_version = ?`)
           .bind(periodTag, tableVersion)
           .first();
-        const totalRows = (countRes?.c as number) || 0;
+        const totalRows = (countRes?.["c"] as number) || 0;
 
         const BOUNDS_PAGE = 5000;
         let legacyBounds: Array<BoundsRow> = [];
