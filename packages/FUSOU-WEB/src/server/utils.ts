@@ -18,6 +18,20 @@ const SUPABASE_PUBLISHABLE_KEYS = [
   "SUPABASE_ANON_KEY",
 ] as const;
 
+function asEnvRecord(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function extractRuntimeEnv(source: unknown): Record<string, unknown> {
+  const sourceRecord = asEnvRecord(source);
+  const outerEnv = sourceRecord.env ?? source;
+  const outerEnvRecord = asEnvRecord(outerEnv);
+  const runtimeEnv = outerEnvRecord.env ?? outerEnv;
+  return asEnvRecord(runtimeEnv);
+}
+
 function firstResolvedEnv(
   ctx: EnvContext,
   keys: readonly string[],
@@ -41,7 +55,7 @@ export interface EnvContext {
   /** ランタイム環境変数（Cloudflare Workers/Pages） */
   readonly runtime: Record<string, any>;
   /** ビルド時環境変数 */
-  readonly buildtime: Record<string, any>;
+  readonly buildtime: Record<string, string | undefined>;
   /** 開発環境かどうか */
   readonly isDev: boolean;
 }
@@ -50,17 +64,17 @@ export interface EnvContext {
  * Honoコンテキストから統一環境変数コンテキストを生成
  */
 export function createEnvContext(
-  c: Pick<Context, "env"> | { env?: any },
+  c: Pick<Context, "env"> | { env?: unknown },
 ): EnvContext {
-  const contextEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  const contextEnv = extractRuntimeEnv(c);
   const isDev = import.meta.env.DEV;
 
   return {
     runtime: {
-      ...(cfEnv as unknown as Record<string, any>),
+      ...(cfEnv as unknown as Record<string, unknown>),
       ...contextEnv,
     },
-    buildtime: import.meta.env as Record<string, any>,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev,
   };
 }
@@ -71,12 +85,16 @@ export function createEnvContext(
  */
 export function getEnv(ctx: EnvContext, key: string): string | undefined {
   const runtimeValue = ctx.runtime[key];
-  if (runtimeValue && !String(runtimeValue).startsWith("encrypted:")) {
+  if (
+    typeof runtimeValue === "string" &&
+    runtimeValue &&
+    !runtimeValue.startsWith("encrypted:")
+  ) {
     return runtimeValue;
   }
 
   if (ctx.isDev && typeof process !== "undefined") {
-    const processValue = (process.env as any)[key];
+    const processValue = process.env[key];
     if (processValue) return processValue;
   }
 
@@ -87,14 +105,14 @@ export function getEnv(ctx: EnvContext, key: string): string | undefined {
     buildtimeValue.startsWith("encrypted:")
   ) {
     if (typeof process !== "undefined") {
-      const processValue = (process.env as any)[key];
+      const processValue = process.env[key];
       if (processValue) return processValue;
     }
     // 暗号化文字列をそのまま返さない
     return undefined;
   }
 
-  return buildtimeValue;
+  return typeof buildtimeValue === "string" ? buildtimeValue : undefined;
 }
 
 /** 環境変数が設定されているか確認 */
@@ -177,11 +195,11 @@ export function validateDatasetTokenSecret(secret: string | undefined): {
  */
 export function getEnvValue(
   key: string,
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, unknown> = {},
 ): string | undefined {
   const ctx: EnvContext = {
     runtime: runtimeEnv,
-    buildtime: import.meta.env as Record<string, any>,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
   return getEnv(ctx, key);
@@ -206,11 +224,11 @@ export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
  * @deprecated Use createEnvContext() + resolveSupabaseConfig() instead
  */
 export function resolveSupabaseConfigLegacy(
-  runtimeEnv: Record<string, any> = {},
+  runtimeEnv: Record<string, unknown> = {},
 ): SupabaseConfig {
   const ctx: EnvContext = {
     runtime: runtimeEnv,
-    buildtime: import.meta.env as Record<string, any>,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
   return resolveSupabaseConfig(ctx);
@@ -221,16 +239,16 @@ export function resolveSupabaseConfigLegacy(
  * @deprecated Use createEnvContext() instead for unified environment access
  */
 export function getRuntimeEnv(
-  c: Pick<Context, "env"> | { env?: any },
-): Record<string, any> {
-  return ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  c: Pick<Context, "env"> | { env?: unknown },
+): Record<string, unknown> {
+  return extractRuntimeEnv(c);
 }
 
 /** Cloudflare runtime環境変数からBindingsオブジェクトを構築 */
 export function injectEnv(_locals?: unknown): Bindings {
   const ctx: EnvContext = {
     runtime: (cfEnv as unknown as Record<string, any>) ?? {},
-    buildtime: import.meta.env as Record<string, any>,
+    buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
 
@@ -422,7 +440,7 @@ export function sanitizeFileName(input: string | null): string | null {
 // that getEnv() refuses to return, leaving SUPABASE_URL=null and all JWT validation
 // failing with 401.
 function createGlobalEnvContext(): EnvContext {
-  return createEnvContext({ env: cfEnv as any });
+  return createEnvContext({ env: cfEnv as Record<string, unknown> });
 }
 
 function getCurrentSupabaseUrl(): string | null {

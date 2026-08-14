@@ -38,7 +38,7 @@ export const createSupabaseServerClient = (
     ? createEnvContext({ env: runtimeEnv })
     : {
         runtime: {},
-        buildtime: import.meta.env as Record<string, unknown>,
+        buildtime: import.meta.env as Record<string, string | undefined>,
         isDev: import.meta.env.DEV,
       };
 
