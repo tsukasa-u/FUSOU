@@ -6,6 +6,7 @@ import {
   UserMemberMapRowSchema,
   UserDeviceInsertRowSchema,
   UserDeviceLookupRowSchema,
+  UserDeviceListRowSchema,
 } from "../anonymous-sync-v2";
 
 describe("anonymous-sync diagnostics schemas", () => {
@@ -91,5 +92,30 @@ describe("anonymous-sync diagnostics schemas", () => {
 
   it("rejects device insert rows without a device id", () => {
     expect(UserDeviceInsertRowSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("accepts device list rows with nullable activity fields", () => {
+    expect(
+      UserDeviceListRowSchema.safeParse({
+        device_id: "device-1",
+        pid: "pid-1",
+        created_at: "2026-08-14T00:00:00Z",
+        last_seen_at: null,
+        revoked_at: null,
+        revoked_reason: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects device list rows without a pid", () => {
+    expect(
+      UserDeviceListRowSchema.safeParse({
+        device_id: "device-1",
+        created_at: "2026-08-14T00:00:00Z",
+        last_seen_at: null,
+        revoked_at: null,
+        revoked_reason: null,
+      }).success,
+    ).toBe(false);
   });
 });

@@ -44,6 +44,19 @@ export const UserDeviceInsertRowSchema = z
 
 export type UserDeviceLookupRow = z.infer<typeof UserDeviceLookupRowSchema>;
 
+export const UserDeviceListRowSchema = z
+  .object({
+    device_id: NonEmptyStringSchema,
+    pid: NonEmptyStringSchema,
+    created_at: NonEmptyStringSchema,
+    last_seen_at: z.string().nullable(),
+    revoked_at: z.string().nullable(),
+    revoked_reason: z.string().nullable(),
+  })
+  .passthrough();
+
+export type UserDeviceListRow = z.infer<typeof UserDeviceListRowSchema>;
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,
