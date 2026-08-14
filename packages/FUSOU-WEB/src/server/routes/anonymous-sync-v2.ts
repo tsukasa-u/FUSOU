@@ -34,7 +34,9 @@ import {
   RefreshRequestSchema,
   RegisterRequestSchema,
   RevokeRequestSchema,
+  UserIdentityAnchorRowSchema,
   UserMemberMapRowSchema,
+  type UserIdentityAnchorRow,
   type UserMemberMapRow,
 } from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
@@ -685,13 +687,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       }
     }
 
-    type AnchorRow = {
-      canonical_user_id: string;
-      recovery_id_hash: string;
-      recovery_version: string | null;
-    };
-
-    let anchor: AnchorRow | null = null;
+    let anchor: UserIdentityAnchorRow | null = null;
     let resolvedRecoveryVersion: string | null =
       recoveryConfig?.current.version ?? null;
     if (recoveryConfig && acceptedRids.length > 0) {
@@ -713,9 +709,17 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           return c.json({ error: "Database error" }, 500);
         }
       } else {
-        const anchors = Array.isArray(anchorRows)
-          ? (anchorRows as AnchorRow[])
-          : [];
+        const parsedAnchors = UserIdentityAnchorRowSchema.array().safeParse(
+          anchorRows,
+        );
+        if (!parsedAnchors.success) {
+          console.error(
+            "[anonymous-sync-v2/register] user_identity_anchor response shape invalid:",
+            parsedAnchors.error,
+          );
+          return c.json({ error: "Database error" }, 500);
+        }
+        const anchors = parsedAnchors.data;
         anchor =
           anchors.find((row) => row.recovery_id_hash === ridCurrent) ??
           anchors[0] ??

@@ -19,6 +19,18 @@ export const UserMemberMapRowSchema = z
 
 export type UserMemberMapRow = z.infer<typeof UserMemberMapRowSchema>;
 
+export const UserIdentityAnchorRowSchema = z
+  .object({
+    canonical_user_id: NonEmptyStringSchema,
+    recovery_id_hash: NonEmptyStringSchema,
+    recovery_version: z.string().nullable(),
+  })
+  .passthrough();
+
+export type UserIdentityAnchorRow = z.infer<
+  typeof UserIdentityAnchorRowSchema
+>;
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AuthConfigDiagnosticsSchema,
   AuthSettingsDiagnosticsSchema,
+  UserIdentityAnchorRowSchema,
   UserMemberMapRowSchema,
 } from "../anonymous-sync-v2";
 
@@ -54,6 +55,25 @@ describe("anonymous-sync diagnostics schemas", () => {
         user_id: 42,
         member_id_hash: "pid-1",
         salt_version: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts identity anchor rows with nullable recovery version", () => {
+    expect(
+      UserIdentityAnchorRowSchema.safeParse({
+        canonical_user_id: "user-1",
+        recovery_id_hash: "rid-1",
+        recovery_version: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects identity anchor rows without a canonical user", () => {
+    expect(
+      UserIdentityAnchorRowSchema.safeParse({
+        recovery_id_hash: "rid-1",
+        recovery_version: null,
       }).success,
     ).toBe(false);
   });
