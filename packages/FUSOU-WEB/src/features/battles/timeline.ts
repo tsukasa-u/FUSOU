@@ -1483,6 +1483,7 @@ export function renderTimelineView(
   let nightBg = "";
   for (let ri = 0; ri < phaseRegions.length; ri++) {
     const reg = phaseRegions[ri];
+    if (!reg) continue;
     const isNight = reg.phase === "夜戦";
     if (isNight) {
       const nyY = (PAD_TOP + reg.start * ROW_H).toFixed(1);
@@ -1538,6 +1539,7 @@ export function renderTimelineView(
   for (let i = 0; i < events.length; i++) {
     const yCenter = Number(yStep(i));
     const ev = events[i];
+    if (!ev) continue;
 
     if (ev.defenderIdx !== null) {
       const hpKey: "fHps" | "eHps" =
@@ -1609,6 +1611,7 @@ export function renderTimelineView(
   let lastPhaseEv = "";
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
+    if (!ev) continue;
     const phaseChanged = ev.phase !== lastPhaseEv;
     if (phaseChanged) lastPhaseEv = ev.phase;
 
