@@ -1025,7 +1025,9 @@ export function decodeCombosForDisplay(
         return;
       }
       for (let i = start; i < pool.length; i++) {
-        cur.push(pool[i]);
+        const item = pool[i];
+        if (item === undefined) continue;
+        cur.push(item);
         pick(i + 1, cur);
         cur.pop();
       }
@@ -1045,7 +1047,9 @@ export function decodeCombosForDisplay(
           return;
         }
         for (let i = start; i < free.length; i++) {
-          cur.push(free[i]);
+          const item = free[i];
+          if (item === undefined) continue;
+          cur.push(item);
           pick(i, cur);
           cur.pop();
         }
@@ -1058,7 +1062,9 @@ export function decodeCombosForDisplay(
           return;
         }
         for (let i = start; i < free.length; i++) {
-          cur.push(free[i]);
+          const item = free[i];
+          if (item === undefined) continue;
+          cur.push(item);
           pick(i + 1, cur);
           cur.pop();
         }
@@ -1070,9 +1076,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos_u16_b64 && rule.items) {
     const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) => c.charCodeAt(0));
@@ -1080,9 +1097,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos_u32_b64 && rule.items) {
     const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) => c.charCodeAt(0));
@@ -1090,9 +1118,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos) {
     result = rule.combos;
@@ -1124,8 +1163,11 @@ export function comboBaseBonus(
 
   for (let i = 0; i < comboIds.length; i++) {
     for (let j = i + 1; j < comboIds.length; j++) {
-      const a = Math.min(comboIds[i], comboIds[j]);
-      const b = Math.max(comboIds[i], comboIds[j]);
+      const firstId = comboIds[i];
+      const secondId = comboIds[j];
+      if (firstId === undefined || secondId === undefined) continue;
+      const a = Math.min(firstId, secondId);
+      const b = Math.max(firstId, secondId);
       const crossEntry = (crossMap[`${a}:${b}`] ?? []).find((e) =>
         appliesToShip(e.ships),
       );
@@ -1234,7 +1276,8 @@ export function improvementSynergyRows(
 
     // Keep last transition when multiple entries have same star.
     for (const [star, stats] of normalized) {
-      if (points.length > 0 && points[points.length - 1].star === star) {
+      const previous = points.at(-1);
+      if (previous?.star === star) {
         points[points.length - 1] = { star, stats };
         continue;
       }
@@ -1256,6 +1299,7 @@ export function improvementSynergyRows(
   const rows: ImprovementSynergyRow[] = [];
   for (let i = 0; i < points.length; i++) {
     const current = points[i];
+    if (!current) continue;
     const next = points[i + 1];
     const start = current.star;
     const end = Math.min(10, next ? next.star - 1 : 10);
