@@ -1398,9 +1398,11 @@ export function buildMultiEntries(
         kind: "category",
         pools,
         cancels_single: !!rule.cancels_single,
-        suppressed_components: rule.suppressed_components,
         correction: rule.synergy,
-        placements: rule.placements,
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
       });
     } else if (rule.item_pool) {
       const pool = rule.item_pool
@@ -1411,7 +1413,16 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
+      all.push({
+        kind: "pool",
+        pool,
+        comboSize,
+        correction: rule.synergy,
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+      });
     } else if (rule.fixed_items && rule.free_pool) {
       const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
       const pool = allPoolIds
@@ -1422,7 +1433,16 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
+      all.push({
+        kind: "pool",
+        pool,
+        comboSize,
+        correction: rule.synergy,
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+      });
     } else if (rule.implicants) {
       for (const implicant of rule.implicants) {
         const pools = implicant.map((p) =>
@@ -1439,10 +1459,12 @@ export function buildMultiEntries(
           kind: "category",
           pools,
           cancels_single: !!rule.cancels_single,
-          suppressed_components: rule.suppressed_components,
           correction: rule.synergy,
           is_implicant: true,
-          placements: rule.placements,
+          ...(rule.suppressed_components !== undefined
+            ? { suppressed_components: rule.suppressed_components }
+            : {}),
+          ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
         });
       }
     } else {
@@ -1459,8 +1481,10 @@ export function buildMultiEntries(
           combo: items as MstSlotItemData[],
           netStats: rule.synergy,
           cancels_single: !!rule.cancels_single,
-          suppressed_components: rule.suppressed_components,
-          placements: rule.placements,
+          ...(rule.suppressed_components !== undefined
+            ? { suppressed_components: rule.suppressed_components }
+            : {}),
+          ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
         });
       }
     }
