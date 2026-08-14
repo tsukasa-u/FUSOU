@@ -1147,7 +1147,7 @@ const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older tha
 function generateVerificationCode(): string {
   const array = new Uint32Array(1);
   crypto.getRandomValues(array);
-  const code = (array[0] % 900000) + 100000;
+  const code = ((array[0] ?? 0) % 900000) + 100000;
   return String(code);
 }
 

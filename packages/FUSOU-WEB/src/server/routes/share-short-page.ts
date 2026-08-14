@@ -203,8 +203,10 @@ export function buildDescription(dataParam: string): string {
     const fleetLabels = ["第一艦隊", "第二艦隊", "第三艦隊", "第四艦隊"];
     const parts: string[] = [];
     for (let i = 0; i < fleetCounts.length; i++) {
-      if (fleetCounts[i] > 0) {
-        parts.push(`${fleetLabels[i]}: ${fleetCounts[i]}隻`);
+      const count = fleetCounts[i];
+      const label = fleetLabels[i];
+      if (count !== undefined && label !== undefined && count > 0) {
+        parts.push(`${label}: ${count}隻`);
       }
     }
 
