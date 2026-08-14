@@ -854,18 +854,18 @@ export async function resolveEnemyFleet(
     ships.push({
       name: mstShip
         ? String(
-            (mstShip as Record<string, unknown>).name ??
+            (mstShip as Record<string, unknown>)["name"] ??
               `敵艦ID:${mstId ?? "-"}`,
           )
         : `敵艦ID:${mstId ?? "-"}`,
       shipId: mstId,
-      level: Number(ship.lv ?? 0) || null,
-      nowhp: Number(ship.nowhp ?? 0) || 0,
-      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-      karyoku: ship.karyoku ?? null,
-      raisou: ship.raisou ?? null,
-      taiku: ship.taiku ?? null,
-      soukou: ship.soukou ?? null,
+      level: Number(ship["lv"] ?? 0) || null,
+      nowhp: Number(ship["nowhp"] ?? 0) || 0,
+      maxhp: Number(ship["maxhp"] ?? ship["nowhp"] ?? 0) || 0,
+      karyoku: ship["karyoku"] ?? null,
+      raisou: ship["raisou"] ?? null,
+      taiku: ship["taiku"] ?? null,
+      soukou: ship["soukou"] ?? null,
       bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
       equipments: equips,
     });
