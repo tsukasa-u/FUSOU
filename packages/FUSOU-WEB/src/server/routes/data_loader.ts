@@ -21,6 +21,7 @@ import {
   TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
+  VerificationCodeRowsSchema,
 } from "../schemas/data-loader";
 import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
 
@@ -1298,21 +1299,27 @@ async function verifyCodeAndRegisterDevice(
   code: string,
 ): Promise<boolean> {
   const now = new Date().toISOString();
-  const results = await supabaseRestRequest<{ id: string }[]>(
+  const results = await supabaseRestRequest(
     config,
     "verification_codes",
     {
       query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&code=eq.${code}&is_used=eq.false&expires_at=gt.${now}&select=id`,
     },
   );
+  const parsedResults = VerificationCodeRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("Verification code response shape invalid:", parsedResults.error);
+    return false;
+  }
 
-  if (!results || results.length === 0) {
+  const verificationCode = parsedResults.data[0];
+  if (!verificationCode) {
     return false;
   }
 
   await supabaseRestRequest(config, "verification_codes", {
     method: "PATCH",
-    query: `?id=eq.${results[0].id}`,
+    query: `?id=eq.${verificationCode.id}`,
     body: { is_used: true },
   });
 

@@ -10,6 +10,7 @@ import {
   TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
+  VerificationCodeRowsSchema,
 } from "../data-loader";
 
 describe("VerifyDeviceRequestSchema", () => {
@@ -91,6 +92,26 @@ describe("TrustedDeviceTrustRowsSchema", () => {
       ]).success,
     ).toBe(false);
     expect(TrustedDeviceTrustRowsSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("VerificationCodeRowsSchema", () => {
+  it("accepts verification code id rows and extra fields", () => {
+    expect(
+      VerificationCodeRowsSchema.safeParse([
+        { id: "verification-1", expires_at: "2026-08-14T00:00:00Z" },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing or invalid verification ids", () => {
+    expect(VerificationCodeRowsSchema.safeParse([{ id: "" }]).success).toBe(
+      false,
+    );
+    expect(VerificationCodeRowsSchema.safeParse([{ id: 42 }]).success).toBe(
+      false,
+    );
+    expect(VerificationCodeRowsSchema.safeParse(null).success).toBe(false);
   });
 });
 

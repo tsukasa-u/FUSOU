@@ -32,6 +32,14 @@ export const TrustedDeviceTrustRowsSchema = z.array(
     .passthrough(),
 );
 
+export const VerificationCodeRowsSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+    })
+    .passthrough(),
+);
+
 export const TableNameRowsSchema = z.array(
   z
     .object({
