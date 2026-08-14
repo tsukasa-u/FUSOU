@@ -149,8 +149,10 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
         table_version: tableVersion,
         timestamp,
         data: toArrayBuffer(slice),
-        uploaded_by: msg.userId,
-        trust_tag: normalizeTrustTag(msg.trust_tag),
+        ...(msg.userId !== undefined ? { uploaded_by: msg.userId } : {}),
+        ...(normalizeTrustTag(msg.trust_tag) !== undefined
+          ? { trust_tag: normalizeTrustTag(msg.trust_tag) }
+          : {}),
       });
     }
 
@@ -182,8 +184,12 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
       table_version: tableVersion,
       timestamp,
       data: toArrayBuffer(avroBytes),
-      uploaded_by: legacyMsg.userId,
-      trust_tag: normalizeTrustTag(legacyMsg.trust_tag),
+      ...(legacyMsg.userId !== undefined
+        ? { uploaded_by: legacyMsg.userId }
+        : {}),
+      ...(normalizeTrustTag(legacyMsg.trust_tag) !== undefined
+        ? { trust_tag: normalizeTrustTag(legacyMsg.trust_tag) }
+        : {}),
     },
   ];
 }
@@ -238,8 +244,8 @@ export async function handleBufferConsumer(
       table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
-      uploaded_by: r.uploaded_by,
-      trust_tag: r.trust_tag,
+      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
+      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
     }));
 
     const { source, insertedCount } = await insertBufferLogs(
@@ -301,8 +307,8 @@ export async function handleBufferConsumerChunked(
       table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
-      uploaded_by: r.uploaded_by,
-      trust_tag: r.trust_tag,
+      ...(r.uploaded_by !== undefined ? { uploaded_by: r.uploaded_by } : {}),
+      ...(r.trust_tag !== undefined ? { trust_tag: r.trust_tag } : {}),
     }));
 
     const { source, insertedCount } = await insertBufferLogs(

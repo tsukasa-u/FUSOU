@@ -106,10 +106,12 @@ async function fetchHotData(env: Env, params: QueryParams): Promise<any[]> {
   const { rows } = await fetchTursoHotData(env, {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
-    from: params.from,
-    to: params.to,
-    table_version: params.table_version,
     includeProcessing,
+    ...(params.from !== undefined ? { from: params.from } : {}),
+    ...(params.to !== undefined ? { to: params.to } : {}),
+    ...(params.table_version !== undefined
+      ? { table_version: params.table_version }
+      : {}),
   });
 
   // FIXED: Deserialize Avro OCF binary data (not JSON text)
@@ -508,16 +510,16 @@ export async function handleRead(
   const params: QueryParams = {
     dataset_id: url.searchParams.get("dataset_id") ?? "",
     table_name: url.searchParams.get("table_name") ?? "",
-    from:
-      fromRaw != null && Number.isFinite(Number(fromRaw))
-        ? Number(fromRaw)
-        : undefined,
-    to:
-      toRaw != null && Number.isFinite(Number(toRaw))
-        ? Number(toRaw)
-        : undefined,
     format: url.searchParams.get("format") ?? "json",
-    table_version: url.searchParams.get("table_version") ?? undefined,
+    ...(fromRaw != null && Number.isFinite(Number(fromRaw))
+      ? { from: Number(fromRaw) }
+      : {}),
+    ...(toRaw != null && Number.isFinite(Number(toRaw))
+      ? { to: Number(toRaw) }
+      : {}),
+    ...(url.searchParams.get("table_version") != null
+      ? { table_version: url.searchParams.get("table_version")! }
+      : {}),
   };
 
   if (!params.dataset_id || !params.table_name) {
@@ -556,7 +558,11 @@ export async function handleRead(
       }
 
       // Group by file_path; choose the first group
-      const filePath = indexes[0].file_path;
+      const firstIndex = indexes[0];
+      if (firstIndex === undefined) {
+        return new Response("Not Found", { status: 404 });
+      }
+      const filePath = firstIndex.file_path;
       const blocks = indexes.filter((i) => i.file_path === filePath);
       const header = await fetchAvroHeader(env.BATTLE_DATA_BUCKET, filePath);
       const { readable, writable } = new TransformStream<
