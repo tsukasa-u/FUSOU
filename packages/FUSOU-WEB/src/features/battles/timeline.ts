@@ -1203,7 +1203,8 @@ export function buildTimelineEvents(
             const defenderIdx = toValidIndex(defs[di], defenderLimit);
             if (defenderIdx !== null && rowEventIdx < events.length) {
               if (mstId && Number.isFinite(mstId) && mstId > 0) {
-                events[rowEventIdx].attackerMstShipId = mstId;
+                const event = events[rowEventIdx];
+                if (event) event.attackerMstShipId = mstId;
               }
               rowEventIdx++;
             }
@@ -1224,9 +1225,11 @@ export function buildTimelineEvents(
   const withSeps: TimelineEvent[] = [];
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
-    if (i > 0 && events[i - 1].phase !== ev.phase) {
+    if (!ev) continue;
+    const previous = i > 0 ? events[i - 1] : undefined;
+    if (previous && previous.phase !== ev.phase) {
       withSeps.push({
-        phase: events[i - 1].phase,
+        phase: previous.phase,
         type: "separator",
         actorRole: "main",
         affectsHp: false,
