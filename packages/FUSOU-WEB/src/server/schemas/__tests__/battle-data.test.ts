@@ -1,10 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
+  BattleMasterDataRowSchema,
   parseBattleBlockRows,
   parseBattleChunkRows,
 } from "../battle-data";
 
 describe("battle data schemas", () => {
+  it("parses master-data rows used for R2 reads", () => {
+    expect(
+      BattleMasterDataRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        table_version: "0.5",
+        period_revision: 1,
+        r2_key: "master-data/mst_ship.avro",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed master-data rows", () => {
+    expect(
+      BattleMasterDataRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        table_version: "0.5",
+        period_revision: "1",
+        r2_key: "master-data/mst_ship.avro",
+      }).success,
+    ).toBe(false);
+    expect(BattleMasterDataRowSchema.safeParse(null).success).toBe(false);
+  });
+
   it("parses chunk rows returned by D1", () => {
     expect(
       parseBattleChunkRows([

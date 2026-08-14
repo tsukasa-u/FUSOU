@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const BattleMasterDataRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+    period_revision: z.number().int().positive(),
+    r2_key: z.string().min(1),
+  })
+  .passthrough();
+
 export const BattleChunkRowsSchema = z.array(
   z
     .object({

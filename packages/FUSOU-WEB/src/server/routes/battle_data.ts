@@ -28,6 +28,7 @@ import { buildBattleOverviewPayload } from "../../features/battles/resolvers/ove
 import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
 import {
+  BattleMasterDataRowSchema,
   parseBattleBlockRows,
   parseBattleChunkRows,
   type BattleBlockRow,
@@ -216,7 +217,7 @@ async function fetchMasterDataJsonDirect(
     };
   }
 
-  const row = (await db
+  const rowResult = await db
     .prepare(
       `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
        FROM master_data_tables t
@@ -226,14 +227,9 @@ async function fetchMasterDataJsonDirect(
        LIMIT 1`,
     )
     .bind(tableName, latestPeriodTag)
-    .first()) as {
-    period_tag: string;
-    table_version: string;
-    period_revision: number;
-    r2_key: string;
-  } | null;
+    .first();
 
-  if (!row) {
+  if (rowResult === null) {
     return {
       table_name: tableName,
       table_version: null,
@@ -243,6 +239,11 @@ async function fetchMasterDataJsonDirect(
       records: [],
     };
   }
+  const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
+  if (!parsedRow.success) {
+    throw new Error("Invalid master data row");
+  }
+  const row = parsedRow.data;
 
   const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
   if (kv) {
