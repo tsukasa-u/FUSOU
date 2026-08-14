@@ -897,9 +897,13 @@ export function normalizeCrossEffects(
           if (implicant.length < 2) continue;
           // Register all cross-pool pairs (pool[0] x pool[1], pool[0] x pool[2], etc.)
           for (let pi = 0; pi < implicant.length; pi++) {
+            const poolA = implicant[pi];
+            if (!poolA) continue;
             for (let pj = pi + 1; pj < implicant.length; pj++) {
-              for (const a of implicant[pi]) {
-                for (const b of implicant[pj]) {
+              const poolB = implicant[pj];
+              if (!poolB) continue;
+              for (const a of poolA) {
+                for (const b of poolB) {
                   addPair(a, b, rule);
                 }
               }
@@ -910,9 +914,13 @@ export function normalizeCrossEffects(
         // AST format: pools[0] x pools[1] x ... cross pairs
         const pools = r.category_pools;
         for (let pi = 0; pi < pools.length; pi++) {
+          const poolA = pools[pi];
+          if (!poolA) continue;
           for (let pj = pi + 1; pj < pools.length; pj++) {
-            for (const a of pools[pi]) {
-              for (const b of pools[pj]) {
+            const poolB = pools[pj];
+            if (!poolB) continue;
+            for (const a of poolA) {
+              for (const b of poolB) {
                 addPair(a, b, rule);
               }
             }
@@ -922,7 +930,10 @@ export function normalizeCrossEffects(
         // All pairs within the pool
         for (let i = 0; i < r.item_pool.length; i++) {
           for (let j = i + 1; j < r.item_pool.length; j++) {
-            addPair(r.item_pool[i], r.item_pool[j], rule);
+            const itemA = r.item_pool[i];
+            const itemB = r.item_pool[j];
+            if (itemA === undefined || itemB === undefined) continue;
+            addPair(itemA, itemB, rule);
           }
         }
       }
@@ -944,8 +955,9 @@ export function getSingleEntriesForEquip(
 ): EquipEffect[] {
   if (effects.effect_rules_equip_index) {
     const indices = effects.effect_rules_equip_index[String(equipId)] ?? [];
-    const indexedEntries = indices.map((i) => {
-      const rule = effects.effect_rules![i];
+      const indexedEntries = indices.flatMap((i) => {
+        const rule = effects.effect_rules?.[i];
+        if (!rule) return [];
       return {
         ships: rule.ships,
         b: rule.b,
