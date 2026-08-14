@@ -10,6 +10,7 @@ import {
   PeriodRolloverCheckRequestSchema,
   ResolveTableVersionRequestSchema,
   ListSourceBlocksRequestSchema,
+  CleanupConsumedSourcesRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -261,5 +262,37 @@ describe("ListSourceBlocksRequestSchema", () => {
 
   it("accepts omitted fields for route-level required-field handling", () => {
     expect(ListSourceBlocksRequestSchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("CleanupConsumedSourcesRequestSchema", () => {
+  it("accepts cleanup filters and source file ids", () => {
+    const result = CleanupConsumedSourcesRequestSchema.safeParse({
+      source_tier: "daily",
+      table_name: " battle ",
+      period_tag: " 2026-01-01 ",
+      table_version: " 1.0 ",
+      window_start_ms: "100",
+      window_end_ms: 200,
+      source_file_ids: [1, "2"],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.table_name).toBe("battle");
+      expect(result.data.window_start_ms).toBe(100);
+      expect(result.data.source_file_ids).toEqual([1, "2"]);
+    }
+  });
+
+  it("normalizes omitted and non-array source file ids to an empty list", () => {
+    expect(CleanupConsumedSourcesRequestSchema.parse({}).source_file_ids).toEqual(
+      [],
+    );
+    expect(
+      CleanupConsumedSourcesRequestSchema.parse({
+        source_file_ids: "1",
+      }).source_file_ids,
+    ).toEqual([]);
   });
 });

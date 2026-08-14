@@ -11,6 +11,7 @@ import {
   PeriodRolloverCheckRequestSchema,
   ResolveTableVersionRequestSchema,
   ListSourceBlocksRequestSchema,
+  CleanupConsumedSourcesRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -941,22 +942,37 @@ app.post("/cleanup-consumed-sources", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const sourceTier = body?.source_tier;
-  const tableName = String(body?.table_name ?? "").trim();
-  const periodTag = String(body?.period_tag ?? "").trim();
-  const tableVersion = String(body?.table_version ?? "").trim();
-  const windowStart = Number(body?.window_start_ms);
-  const windowEnd = Number(body?.window_end_ms);
-  const rawSourceFileIds: unknown[] = Array.isArray(body?.source_file_ids)
-    ? (body.source_file_ids as unknown[])
-    : [];
+  const parsedBody = CleanupConsumedSourcesRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    const errors: Record<string, string> = {
+      source_tier: "source_tier is invalid",
+      table_name: "table_name is required",
+      period_tag: "period_tag is required",
+      table_version: "table_version is required",
+      window_start_ms: "window_start_ms and window_end_ms are required",
+      window_end_ms: "window_start_ms and window_end_ms are required",
+        source_file_ids: "source_file_ids must be an array",
+    };
+    return c.json({ error: errors[String(field)] ?? "Invalid JSON" }, 400);
+  }
+
+  const {
+    source_tier: sourceTier,
+    table_name: tableName,
+    period_tag: periodTag,
+    table_version: tableVersion,
+    window_start_ms: windowStart,
+    window_end_ms: windowEnd,
+    source_file_ids: rawSourceFileIds,
+  } = parsedBody.data;
   const sourceFileIds: number[] = [];
   for (const value of rawSourceFileIds) {
     const id = Number(value);
@@ -969,7 +985,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
   if (!tableName) return c.json({ error: "table_name is required" }, 400);
   if (!periodTag) return c.json({ error: "period_tag is required" }, 400);
   if (!tableVersion) return c.json({ error: "table_version is required" }, 400);
-  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) {
+  if (windowStart === undefined || windowEnd === undefined) {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
   if (sourceFileIds.length === 0) return c.json({ success: true, deleted_source_files: 0 });

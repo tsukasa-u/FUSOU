@@ -17,6 +17,11 @@ const OptionalNumericRequestFieldSchema = z.preprocess((value) => {
   return Number.isFinite(numericValue) ? numericValue : undefined;
 }, z.number().finite().optional());
 
+const SourceFileIdsRequestFieldSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value : []),
+  z.array(z.unknown()),
+);
+
 const TableNameSchema = z.preprocess(
   (value) => String(value ?? "").trim(),
   z.string(),
@@ -160,4 +165,20 @@ export const ListSourceBlocksRequestSchema = z
 
 export type ListSourceBlocksRequest = z.infer<
   typeof ListSourceBlocksRequestSchema
+>;
+
+export const CleanupConsumedSourcesRequestSchema = z
+  .object({
+    source_tier: CompactionTierSchema.optional(),
+    table_name: TrimmedStringRequestFieldSchema.optional(),
+    period_tag: TrimmedStringRequestFieldSchema.optional(),
+    table_version: TrimmedStringRequestFieldSchema.optional(),
+    window_start_ms: OptionalNumericRequestFieldSchema,
+    window_end_ms: OptionalNumericRequestFieldSchema,
+    source_file_ids: SourceFileIdsRequestFieldSchema,
+  })
+  .passthrough();
+
+export type CleanupConsumedSourcesRequest = z.infer<
+  typeof CleanupConsumedSourcesRequestSchema
 >;
