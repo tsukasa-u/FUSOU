@@ -1,6 +1,6 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Bindings, R2ObjectLite } from "../types";
 import {
   createEnvContext,
@@ -36,7 +36,7 @@ type FleetAuthResolution = {
   actorUserId: string;
   authSource: AuthSource;
   canonicalDatasetId: string | null;
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
 };
 
 type FleetAuthFailure = {
@@ -113,7 +113,7 @@ async function listAllObjectsByPrefix(
 }
 
 async function resolveCanonicalDatasetIdBestEffort(options: {
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
   actorUserId: string;
   fallbackDatasetId?: string | null;
 }): Promise<string | null> {
@@ -149,7 +149,7 @@ async function resolveCanonicalDatasetIdBestEffort(options: {
 }
 
 async function resolveFleetDatasetCandidates(options: {
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
   actorUserId: string;
   currentDatasetId: string;
   canonicalDatasetId: string | null;
@@ -285,7 +285,7 @@ async function resolveFleetDatasetCandidates(options: {
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
  */
 async function resolveDatasetId(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
 ): Promise<FleetAuthResolution | FleetAuthFailure> {
   const env = createEnvContext(c);
 
@@ -308,7 +308,7 @@ async function resolveDatasetId(
     }
 
     const actorUserId = tokenValidation.token.user_id;
-    let supabaseAdmin: any | null = null;
+    let supabaseAdmin: SupabaseClient | null = null;
     const envCtx = createEnvContext(c);
     const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
     if (url && serviceRoleKey) {
