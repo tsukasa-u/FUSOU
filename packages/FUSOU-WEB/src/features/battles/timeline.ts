@@ -683,18 +683,18 @@ export function buildTimelineEvents(
       ) {
         let rawAirBase: unknown;
         if (key === "AirBaseAirAttack") {
-          rawAirBase = Array.isArray(battle.air_base_air_attacks)
-            ? (battle.air_base_air_attacks as unknown[])[idx ?? 0]
-            : (battle.air_base_air_attacks as any)?.attacks?.[idx ?? 0];
+          rawAirBase = Array.isArray(battle["air_base_air_attacks"])
+            ? (battle["air_base_air_attacks"] as unknown[])[idx ?? 0]
+            : (battle["air_base_air_attacks"] as any)?.attacks?.[idx ?? 0];
         } else if (key === "AirBaseAssult") {
-          rawAirBase = battle.air_base_assault;
+          rawAirBase = battle["air_base_assault"];
         } else {
-          rawAirBase = battle.carrier_base_assault;
+          rawAirBase = battle["carrier_base_assault"];
         }
         if (rawAirBase) {
           const squads = (() => {
             const raw = rawAirBase as Record<string, unknown>;
-            const sp = raw.squadron_plane;
+            const sp = raw["squadron_plane"];
             return Array.isArray(sp)
               ? (sp as unknown[])
                   .map(Number)
