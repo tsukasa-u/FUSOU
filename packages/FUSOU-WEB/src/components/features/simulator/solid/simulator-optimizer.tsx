@@ -2531,13 +2531,17 @@ function EquipOptimizer(): JSX.Element {
                     {/* Equipment row */}
                     <div class="flex flex-wrap gap-x-3 gap-y-1 pl-6">
                       <For each={row.equipIds}>
-                        {(id, index) => (
-                          <EquipChip
-                            equip={getEquip(id)}
-                            improvement={row.equipLevels[index()]}
-                            proficiency={row.equipAlvs[index()]}
-                          />
-                        )}
+                        {(id, index) => {
+                          const improvement = row.equipLevels[index()];
+                          const proficiency = row.equipAlvs[index()];
+                          return (
+                            <EquipChip
+                              equip={getEquip(id)}
+                              {...(improvement === undefined ? {} : { improvement })}
+                              {...(proficiency === undefined ? {} : { proficiency })}
+                            />
+                          );
+                        }}
                       </For>
                       <Show when={row.exSlotId != null}>
                         <EquipChip
