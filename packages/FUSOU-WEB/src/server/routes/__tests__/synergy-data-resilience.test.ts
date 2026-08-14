@@ -33,7 +33,10 @@ function createDbMock(options: {
       sql.includes("FROM master_data_index")
     ) {
       return options.latestMasterDataPeriodTag
-        ? { period_tag: options.latestMasterDataPeriodTag }
+        ? {
+            period_tag: options.latestMasterDataPeriodTag,
+            table_version: "v1",
+          }
         : null;
     }
 
