@@ -19,6 +19,10 @@ import {
   SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
+import {
+  FleetMemberMapRowSchema,
+  FleetRotationRowsSchema,
+} from "../schemas/fleet";
 
 const DATASET_ID_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_ROTATION_HOPS = 5;
@@ -95,7 +99,7 @@ async function listAllObjectsByPrefix(
       cursor,
       limit: R2_LIST_PAGE_LIMIT,
     });
-    out.push(...((listed.objects ?? []) as R2ObjectLite[]));
+    out.push(...(listed.objects ?? []));
 
     if (!listed.truncated) {
       return { objects: out, pagesScanned: page + 1 };
@@ -138,7 +142,10 @@ async function resolveCanonicalDatasetIdBestEffort(options: {
       return fallback;
     }
 
-    return normalizeDatasetId(data?.member_id_hash) ?? fallback;
+    const parsedData = FleetMemberMapRowSchema.safeParse(data);
+    return normalizeDatasetId(
+      parsedData.success ? parsedData.data.member_id_hash : null,
+    ) ?? fallback;
   } catch (err) {
     console.warn(
       "[fleet] canonical dataset lookup threw; falling back to current dataset",
@@ -225,9 +232,8 @@ async function resolveFleetDatasetCandidates(options: {
         break;
       }
 
-      const pageRows = Array.isArray(data)
-        ? (data as Array<{ pid_from?: string | null; pid_to?: string | null }>)
-        : [];
+      const parsedPageRows = FleetRotationRowsSchema.safeParse(data);
+      const pageRows = parsedPageRows.success ? parsedPageRows.data : [];
       rows.push(...pageRows);
 
       if ((dataFrom?.length || 0) < ROTATION_QUERY_PAGE_SIZE && (dataTo?.length || 0) < ROTATION_QUERY_PAGE_SIZE) {
