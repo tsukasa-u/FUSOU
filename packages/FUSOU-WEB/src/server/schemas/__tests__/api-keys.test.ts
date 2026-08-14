@@ -3,10 +3,34 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  SupabaseApiUserSchema,
   TrustedDeviceIdRowsSchema,
   TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../api-keys";
+
+describe("SupabaseApiUserSchema", () => {
+  it("accepts an authenticated user response", () => {
+    expect(
+      SupabaseApiUserSchema.safeParse({
+        id: "user-1",
+        email: "user@example.test",
+        role: "authenticated",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects incomplete user responses", () => {
+    expect(
+      SupabaseApiUserSchema.safeParse({ id: "user-1" }).success,
+    ).toBe(false);
+    expect(
+      SupabaseApiUserSchema.safeParse({ id: "", email: "user@example.test" })
+        .success,
+    ).toBe(false);
+    expect(SupabaseApiUserSchema.safeParse(null).success).toBe(false);
+  });
+});
 
 describe("UpdateApiKeyRequestSchema", () => {
   it("accepts a boolean is_active value", () => {

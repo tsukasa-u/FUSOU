@@ -6,6 +6,13 @@ export const UpdateApiKeyRequestSchema = z.object({
 
 export type UpdateApiKeyRequest = z.infer<typeof UpdateApiKeyRequestSchema>;
 
+export const SupabaseApiUserSchema = z
+  .object({
+    id: z.string().min(1),
+    email: z.string().min(1),
+  })
+  .passthrough();
+
 export const ApiKeyCreateRowsSchema = z
   .object({
     id: z.string().min(1),

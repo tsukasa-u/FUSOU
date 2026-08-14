@@ -13,6 +13,7 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  SupabaseApiUserSchema,
   TrustedDeviceIdRowsSchema,
   TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
@@ -138,8 +139,8 @@ async function verifyAccessToken(
 
     if (!response.ok) return null;
 
-    const user = (await response.json()) as { id: string; email: string };
-    return user;
+    const parsedUser = SupabaseApiUserSchema.safeParse(await response.json());
+    return parsedUser.success ? parsedUser.data : null;
   } catch (err) {
     console.warn("[api_keys] verifyAccessToken failed:", err);
     return null;
