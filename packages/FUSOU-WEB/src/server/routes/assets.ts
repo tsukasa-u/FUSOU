@@ -1067,12 +1067,17 @@ app.get("/ship-type-icon-frames", async (c) => {
 
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
     let decodedJson = new TextDecoder().decode(atlasRaw);
+    let atlasCandidate: unknown;
     try {
-      JSON.parse(decodedJson);
+      atlasCandidate = JSON.parse(decodedJson);
     } catch {
       const decompressed = await brotliDecompressAsync(atlasRaw);
       decodedJson = decompressed.toString("utf8");
-      JSON.parse(decodedJson);
+      atlasCandidate = JSON.parse(decodedJson);
+    }
+    const parsedAtlas = SpriteAtlasSchema.safeParse(atlasCandidate);
+    if (!parsedAtlas.success) {
+      throw new Error("Invalid ship type sprite atlas shape");
     }
 
     return new Response(decodedJson, {
