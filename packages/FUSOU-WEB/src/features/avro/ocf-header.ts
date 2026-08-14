@@ -34,6 +34,9 @@ function readLong(bytes: Uint8Array, cursor: Cursor): number {
     }
 
     const byte = bytes[cursor.offset];
+    if (byte === undefined) {
+      throw new OcfHeaderError("OCF header is truncated");
+    }
     cursor.offset += 1;
     unsigned += (byte & 0x7f) * multiplier;
 
