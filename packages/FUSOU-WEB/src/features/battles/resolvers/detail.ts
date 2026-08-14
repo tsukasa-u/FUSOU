@@ -135,6 +135,7 @@ export function findBattleDetailContext(options: {
       (normalizeTimestamp(left["timestamp"]) ?? Number.MAX_SAFE_INTEGER) -
       (normalizeTimestamp(right["timestamp"]) ?? Number.MAX_SAFE_INTEGER),
   )[0];
+  if (!battle) return null;
   const cell = relatedCell(
     scopeRows(options.tables.cells, options.envUuid),
     battle,
@@ -215,9 +216,11 @@ function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
   const length = Math.min(sorted.length, snapshot.length);
   let score = Math.abs(sorted.length - snapshot.length) * 20;
   for (let index = 0; index < length; index += 1) {
+    const row = sorted[index];
+    const snapshotValue = snapshot[index];
+    if (!row || snapshotValue === undefined) continue;
     score += Math.abs(
-      Number(sorted[index]["nowhp"] ?? sorted[index]["maxhp"] ?? 0) -
-        Number(snapshot[index] ?? 0),
+      Number(row["nowhp"] ?? row["maxhp"] ?? 0) - Number(snapshotValue ?? 0),
     );
   }
   return score;
