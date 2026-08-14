@@ -26,9 +26,9 @@ function asEnvRecord(value: unknown): Record<string, unknown> {
 
 function extractRuntimeEnv(source: unknown): Record<string, unknown> {
   const sourceRecord = asEnvRecord(source);
-  const outerEnv = sourceRecord.env ?? source;
+  const outerEnv = sourceRecord["env"] ?? source;
   const outerEnvRecord = asEnvRecord(outerEnv);
-  const runtimeEnv = outerEnvRecord.env ?? outerEnv;
+  const runtimeEnv = outerEnvRecord["env"] ?? outerEnv;
   return asEnvRecord(runtimeEnv);
 }
 
@@ -253,19 +253,19 @@ export function injectEnv(_locals?: unknown): Bindings {
   };
 
   return {
-    ASSETS_BUCKET: ctx.runtime.ASSETS_BUCKET!,
-    ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
-    ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
-    BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
-    QUEST_INDEX_DB: ctx.runtime.QUEST_INDEX_DB!,
-    FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
-    BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
-    MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
-    SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime.SHIP_GROWTH_ARCHIVE_BUCKET!,
-    MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
-    SHIP_GROWTH_DB: ctx.runtime.SHIP_GROWTH_DB!,
-    SOKU_SPEED_OBSERVED_DB: ctx.runtime.SOKU_SPEED_OBSERVED_DB!,
-    REMODEL_INDEX_DB: ctx.runtime.REMODEL_INDEX_DB!,
+    ASSETS_BUCKET: ctx.runtime["ASSETS_BUCKET"]!,
+    ASSET_SYNC_BUCKET: ctx.runtime["ASSET_SYNC_BUCKET"]!,
+    ASSET_INDEX_DB: ctx.runtime["ASSET_INDEX_DB"]!,
+    BATTLE_INDEX_DB: ctx.runtime["BATTLE_INDEX_DB"]!,
+    QUEST_INDEX_DB: ctx.runtime["QUEST_INDEX_DB"]!,
+    FLEET_SNAPSHOT_BUCKET: ctx.runtime["FLEET_SNAPSHOT_BUCKET"]!,
+    BATTLE_DATA_BUCKET: ctx.runtime["BATTLE_DATA_BUCKET"]!,
+    MASTER_DATA_BUCKET: ctx.runtime["MASTER_DATA_BUCKET"]!,
+    SHIP_GROWTH_ARCHIVE_BUCKET: ctx.runtime["SHIP_GROWTH_ARCHIVE_BUCKET"]!,
+    MASTER_DATA_INDEX_DB: ctx.runtime["MASTER_DATA_INDEX_DB"]!,
+    SHIP_GROWTH_DB: ctx.runtime["SHIP_GROWTH_DB"]!,
+    SOKU_SPEED_OBSERVED_DB: ctx.runtime["SOKU_SPEED_OBSERVED_DB"]!,
+    REMODEL_INDEX_DB: ctx.runtime["REMODEL_INDEX_DB"]!,
     ASSET_BASE_URL: getEnv(ctx, "ASSET_BASE_URL")!,
     // PUBLIC_SITE_URL_PRODUCTION: getEnv(ctx, "PUBLIC_SITE_URL_PRODUCTION")!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
@@ -288,10 +288,10 @@ export function injectEnv(_locals?: unknown): Bindings {
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET")!,
     CHALLENGE_HMAC_SECRET: getEnv(ctx, "CHALLENGE_HMAC_SECRET")!,
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
-    COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
-    COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
-    COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
-    SHORTENER_SERVICE: ctx.runtime.SHORTENER_SERVICE,
+    COMPACTION_QUEUE: ctx.runtime["COMPACTION_QUEUE"]!,
+    COMPACTION_DLQ: ctx.runtime["COMPACTION_DLQ"]!,
+    COMPACTION_WORKFLOW: ctx.runtime["COMPACTION_WORKFLOW"]!,
+    SHORTENER_SERVICE: ctx.runtime["SHORTENER_SERVICE"],
   };
 }
 
