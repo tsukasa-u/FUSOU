@@ -218,7 +218,9 @@ export function EquipmentBadgesFromSlotIds(props: {
 }): JSX.Element {
   const items = () =>
     normalizeSlotIds(props.slotIds ?? [], {
-      preserveDuplicates: props.preserveDuplicates,
+      ...(props.preserveDuplicates === undefined
+        ? {}
+        : { preserveDuplicates: props.preserveDuplicates }),
     })
       .map((id) => slotItemMeta(id, props.mstSlotItemById))
       .filter((m) => m.name);
