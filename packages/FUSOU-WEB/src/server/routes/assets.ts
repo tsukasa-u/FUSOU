@@ -55,8 +55,8 @@ app.options(
 // POST /upload
 app.post("/upload", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
   const signingSecret = getEnv(envCtx, "ASSET_UPLOAD_SIGNING_SECRET");
 
   if (!bucket || !db || !signingSecret) {
@@ -82,20 +82,24 @@ app.post("/upload", async (c) => {
 
     // Preparation validation - check extension, size, hash, uniqueness
     preparationValidator: async (body, _user) => {
-      const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
+      const key = sanitizeKey(
+        typeof body["key"] === "string" ? body["key"] : null,
+      );
       if (!key) {
         return c.json({ error: "Invalid or empty key" }, 400);
       }
 
       const relativePath = sanitizeKey(
-        typeof body.relative_path === "string" ? body.relative_path : null,
+        typeof body["relative_path"] === "string"
+          ? body["relative_path"]
+          : null,
       );
       if (!relativePath) {
         return c.json({ error: "Invalid relative_path" }, 400);
       }
 
       const declaredSize = parseSize(
-        typeof body.file_size === "string" ? body.file_size : undefined,
+        typeof body["file_size"] === "string" ? body["file_size"] : undefined,
       );
       if (
         !declaredSize ||
@@ -106,13 +110,15 @@ app.post("/upload", async (c) => {
       }
 
       const contentHash =
-        typeof body.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       if (!contentHash) {
         return c.json({ error: "content_hash (SHA-256) is required" }, 400);
       }
 
       const fileName = sanitizeFileName(
-        typeof body.file_name === "string" ? body.file_name : null,
+        typeof body["file_name"] === "string" ? body["file_name"] : null,
       );
       const candidateNames = [fileName, key, relativePath];
 
@@ -178,8 +184,8 @@ app.post("/upload", async (c) => {
 
     // Execution processing - validate size, upload to R2, record to D1
     executionProcessor: async (tokenPayload, data, user) => {
-      const key = tokenPayload.key;
-      const declaredSize = tokenPayload.declared_size;
+      const key = tokenPayload["key"];
+      const declaredSize = tokenPayload["declared_size"];
 
       if (!key || !declaredSize) {
         return c.json({ error: "Invalid token payload" }, 400);
@@ -187,7 +193,7 @@ app.post("/upload", async (c) => {
 
       // Verify content_hash of uploaded data against the hash committed in Stage 1.
       const expectedHash = String(
-        tokenPayload.content_hash ?? "",
+        tokenPayload["content_hash"] ?? "",
       ).toLowerCase();
       if (!expectedHash) {
         return c.json(
@@ -239,18 +245,18 @@ app.post("/upload", async (c) => {
           user.id,
           null,
           JSON.stringify({ synced_at: uploadedAt }),
-          tokenPayload.content_hash,
+          tokenPayload["content_hash"],
           new Date(uploadedAt).toISOString(),
         )
         .run();
 
       await bumpAssetIndexRevision(db, uploadedAt);
 
-      const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
-      if (kv && typeof tokenPayload.caches_to_clear === "string") {
+      const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
+      if (kv && typeof tokenPayload["caches_to_clear"] === "string") {
         try {
           const parsedCachesToClear = CacheClearKeysSchema.safeParse(
-            JSON.parse(tokenPayload.caches_to_clear),
+            JSON.parse(tokenPayload["caches_to_clear"]),
           );
           if (!parsedCachesToClear.success) {
             throw new Error("Invalid cache clear keys");
@@ -291,8 +297,8 @@ app.get("/keys", async (c) => {
   }
 
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
 
   if (!db) {
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
@@ -345,7 +351,7 @@ app.get("/check-hash", async (c) => {
   }
 
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Database not configured" }, 503);
@@ -366,9 +372,9 @@ app.get("/check-hash", async (c) => {
       return c.json({
         exists: true,
         file: {
-          key: result.key,
-          size: result.size,
-          uploadedAt: result.uploaded_at,
+          key: result["key"],
+          size: result["size"],
+          uploadedAt: result["uploaded_at"],
         },
       });
     } else {
@@ -396,9 +402,9 @@ app.get("/mime", async (c) => {
  */
 app.get("/ship-banner-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -500,9 +506,9 @@ app.get("/ship-banner-map", async (c) => {
  */
 app.get("/ship-card-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -601,9 +607,9 @@ app.get("/ship-card-map", async (c) => {
  */
 app.get("/ship-icon-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -701,8 +707,8 @@ app.get("/ship-icon-map", async (c) => {
  */
 app.get("/equip-image-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -798,8 +804,8 @@ app.get("/equip-image-map", async (c) => {
  */
 app.get("/ship-banner/:shipId", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -883,7 +889,7 @@ app.get("/ship-banner/:shipId", async (c) => {
  */
 app.get("/weapon-icons", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -943,7 +949,7 @@ app.get("/weapon-icons", async (c) => {
  */
 app.get("/ship-type-icons", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -1011,7 +1017,7 @@ app.get("/ship-type-icons", async (c) => {
  */
 app.get("/weapon-icon-frames", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -1076,7 +1082,7 @@ app.get("/weapon-icon-frames", async (c) => {
  */
 app.get("/ship-type-icon-frames", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -1182,7 +1188,7 @@ app.get("/image-proxy", async (c) => {
   // ── R2 direct access (primary path on Cloudflare Workers) ────────────────
   // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.
   // Using the binding avoids an outbound HTTP request and all associated QUIC issues.
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
   if (bucket) {
     const r2Key = target.pathname.replace(/^\//, "");
     if (!r2Key) {
