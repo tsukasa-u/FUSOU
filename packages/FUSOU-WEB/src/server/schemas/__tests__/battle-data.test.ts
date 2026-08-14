@@ -3,6 +3,7 @@ import {
   BattleMasterDataRowSchema,
   parseBattleBlockRows,
   parseBattleChunkRows,
+  parseBattleJsonRecords,
 } from "../battle-data";
 
 describe("battle data schemas", () => {
@@ -99,5 +100,16 @@ describe("battle data schemas", () => {
         },
       ]),
     ).toBeNull();
+  });
+
+  it("parses JSON records and preserves extra fields", () => {
+    expect(
+      parseBattleJsonRecords([{ id: 1, extra: true }, { api_id: 2 }]),
+    ).toEqual([{ id: 1, extra: true }, { api_id: 2 }]);
+  });
+
+  it("rejects non-record JSON values", () => {
+    expect(parseBattleJsonRecords([{ id: 1 }, null])).toBeNull();
+    expect(parseBattleJsonRecords("invalid")).toBeNull();
   });
 });

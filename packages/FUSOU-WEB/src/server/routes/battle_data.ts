@@ -31,6 +31,7 @@ import {
   BattleMasterDataRowSchema,
   parseBattleBlockRows,
   parseBattleChunkRows,
+  parseBattleJsonRecords,
   type BattleBlockRow,
 } from "../schemas/battle-data";
 import { BattleDataTokenPayloadSchema } from "../schemas/tokens";
@@ -250,15 +251,18 @@ async function fetchMasterDataJsonDirect(
     try {
       const cachedStr = await kv.get(cacheKey);
       if (cachedStr) {
-        const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
-        return {
-          table_name: tableName,
-          table_version: row.table_version,
-          period_tag: row.period_tag,
-          period_revision: row.period_revision,
-          count: decodedRecords.length,
-          records: decodedRecords,
-        };
+        const decodedRecords = parseBattleJsonRecords(JSON.parse(cachedStr));
+        if (decodedRecords) {
+          return {
+            table_name: tableName,
+            table_version: row.table_version,
+            period_tag: row.period_tag,
+            period_revision: row.period_revision,
+            count: decodedRecords.length,
+            records: decodedRecords,
+          };
+        }
+        console.warn(`[battle-data] master-data KV cache has invalid records: ${cacheKey}`);
       }
     } catch (kvErr) {
       console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
@@ -282,7 +286,12 @@ async function fetchMasterDataJsonDirect(
     throw new Error(`Master data object too large: ${r2Object.size} bytes`);
   }
   const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
-  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
+  const decodedRecords = parseBattleJsonRecords(
+    decodeAvroOcfToJson(avroBytes),
+  );
+  if (!decodedRecords) {
+    throw new Error("Decoded master data payload is not a record array");
+  }
   if (kv) {
     try {
       await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 });

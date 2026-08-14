@@ -58,3 +58,18 @@ export function parseBattleBlockRows(
   const result = BattleBlockRowsSchema.safeParse(value);
   return result.success ? result.data : null;
 }
+
+export const BattleJsonRecordSchema = z.record(z.string(), z.unknown());
+
+export function parseBattleJsonRecords(
+  value: unknown,
+): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(value)) return null;
+  const records: Array<Record<string, unknown>> = [];
+  for (const row of value) {
+    const parsed = BattleJsonRecordSchema.safeParse(row);
+    if (!parsed.success) return null;
+    records.push(parsed.data);
+  }
+  return records;
+}
