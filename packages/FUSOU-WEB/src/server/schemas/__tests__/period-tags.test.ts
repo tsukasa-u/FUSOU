@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PeriodTagRowsSchema } from "../period-tags";
+import {
+  LatestMasterPeriodRowSchema,
+  PeriodTagRowsSchema,
+} from "../period-tags";
 
 describe("PeriodTagRowsSchema", () => {
   it("accepts nullable tags and preserves extra fields", () => {
@@ -16,5 +19,25 @@ describe("PeriodTagRowsSchema", () => {
     expect(PeriodTagRowsSchema.safeParse([{ tag: 20260814 }]).success).toBe(
       false,
     );
+  });
+});
+
+describe("LatestMasterPeriodRowSchema", () => {
+  it("accepts master period rows and extra fields", () => {
+    expect(
+      LatestMasterPeriodRowSchema.safeParse({
+        period_tag: "2026-08-14",
+        table_version: "1.0",
+        extra: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects incomplete or null rows", () => {
+    expect(
+      LatestMasterPeriodRowSchema.safeParse({ period_tag: "2026-08-14" })
+        .success,
+    ).toBe(false);
+    expect(LatestMasterPeriodRowSchema.safeParse(null).success).toBe(false);
   });
 });

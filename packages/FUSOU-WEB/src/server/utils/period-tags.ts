@@ -1,5 +1,8 @@
 import type { Bindings, D1Database } from "../types";
-import { PeriodTagRowsSchema } from "../schemas/period-tags";
+import {
+  LatestMasterPeriodRowSchema,
+  PeriodTagRowsSchema,
+} from "../schemas/period-tags";
 
 type SupabaseRestConfigLike = {
   url: string;
@@ -298,19 +301,24 @@ export async function getLatestMasterPeriodTag(
   if (kv) {
     try {
       const cached = await kv.get(cacheKey, "json");
-      if (cached) return cached as { period_tag: string; table_version: string };
+      const parsedCached = LatestMasterPeriodRowSchema.safeParse(cached);
+      if (parsedCached.success) return parsedCached.data;
     } catch (e) {
       console.warn("[period-tags] failed to read from kv for latest master period", e);
     }
   }
 
-  const latestMasterData = (await db
+  const latestMasterDataResult = await db
     .prepare(
       `SELECT period_tag, table_version FROM master_data_index WHERE upload_status = 'completed' ORDER BY completed_at DESC, period_revision DESC LIMIT 1`,
     )
-    .first()) as { period_tag: string; table_version: string } | null;
+    .first();
+  const parsedLatestMasterData =
+    LatestMasterPeriodRowSchema.safeParse(latestMasterDataResult);
+  if (!parsedLatestMasterData.success) return null;
+  const latestMasterData = parsedLatestMasterData.data;
 
-  if (latestMasterData?.period_tag) {
+  if (latestMasterData.period_tag) {
     if (kv) {
       try {
         await kv.put(cacheKey, JSON.stringify(latestMasterData), { expirationTtl: 300 });

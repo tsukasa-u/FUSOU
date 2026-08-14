@@ -7,3 +7,10 @@ export const PeriodTagRowSchema = z
 export const PeriodTagRowsSchema = PeriodTagRowSchema.array();
 
 export type PeriodTagRow = z.infer<typeof PeriodTagRowSchema>;
+
+export const LatestMasterPeriodRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+  })
+  .passthrough();
