@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AuthConfigDiagnosticsSchema,
   AuthSettingsDiagnosticsSchema,
+  UserMemberMapRowSchema,
 } from "../anonymous-sync-v2";
 
 describe("anonymous-sync diagnostics schemas", () => {
@@ -31,5 +32,29 @@ describe("anonymous-sync diagnostics schemas", () => {
       }).success,
     ).toBe(true);
     expect(AuthSettingsDiagnosticsSchema.safeParse([]).success).toBe(false);
+  });
+
+  it("normalizes legacy member map rows without recovery fields", () => {
+    const result = UserMemberMapRowSchema.safeParse({
+      user_id: "user-1",
+      member_id_hash: "pid-1",
+      salt_version: null,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.recovery_id_hash).toBeNull();
+      expect(result.data.recovery_version).toBeNull();
+    }
+  });
+
+  it("rejects member map rows with invalid required fields", () => {
+    expect(
+      UserMemberMapRowSchema.safeParse({
+        user_id: 42,
+        member_id_hash: "pid-1",
+        salt_version: null,
+      }).success,
+    ).toBe(false);
   });
 });

@@ -7,6 +7,18 @@ const ApiMemberIdSchema = z.union([
 
 const NonEmptyStringSchema = z.string().min(1);
 
+export const UserMemberMapRowSchema = z
+  .object({
+    user_id: NonEmptyStringSchema,
+    member_id_hash: NonEmptyStringSchema,
+    salt_version: z.string().nullable().default(null),
+    recovery_id_hash: z.string().nullable().default(null),
+    recovery_version: z.string().nullable().default(null),
+  })
+  .passthrough();
+
+export type UserMemberMapRow = z.infer<typeof UserMemberMapRowSchema>;
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,

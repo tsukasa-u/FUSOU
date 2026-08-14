@@ -34,6 +34,8 @@ import {
   RefreshRequestSchema,
   RegisterRequestSchema,
   RevokeRequestSchema,
+  UserMemberMapRowSchema,
+  type UserMemberMapRow,
 } from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -621,14 +623,6 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     // user_member_map を accept_versions 全候補 pid で LOOKUP。
     // ローテーション途中 (旧世代 pid 残存) でも canonical owner を継承する。
-    type MappingRow = {
-      user_id: string;
-      member_id_hash: string;
-      salt_version: string | null;
-      recovery_id_hash: string | null;
-      recovery_version: string | null;
-    };
-
     const mappingWithRecovery = await supabaseAdmin
       .from("user_member_map")
       .select(
@@ -636,7 +630,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       )
       .in("member_id_hash", acceptedPids);
 
-    let mappingRows: MappingRow[] = [];
+    let mappingRows: UserMemberMapRow[] = [];
     let mappingError: unknown = mappingWithRecovery.error;
     if (isSchemaObjectMissingError(mappingWithRecovery.error)) {
       const fallbackLookup = await supabaseAdmin
@@ -645,23 +639,23 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .in("member_id_hash", acceptedPids);
 
       mappingError = fallbackLookup.error;
-      if (Array.isArray(fallbackLookup.data)) {
-        mappingRows = fallbackLookup.data.map(
-          (row: {
-            user_id: string;
-            member_id_hash: string;
-            salt_version: string | null;
-          }) => ({
-            user_id: row.user_id,
-            member_id_hash: row.member_id_hash,
-            salt_version: row.salt_version,
-            recovery_id_hash: null,
-            recovery_version: null,
-          }),
-        );
+      const parsedRows = UserMemberMapRowSchema.array().safeParse(
+        fallbackLookup.data,
+      );
+      if (parsedRows.success) {
+        mappingRows = parsedRows.data;
+      } else if (!mappingError) {
+        mappingError = parsedRows.error;
       }
-    } else if (Array.isArray(mappingWithRecovery.data)) {
-      mappingRows = mappingWithRecovery.data as MappingRow[];
+    } else {
+      const parsedRows = UserMemberMapRowSchema.array().safeParse(
+        mappingWithRecovery.data,
+      );
+      if (parsedRows.success) {
+        mappingRows = parsedRows.data;
+      } else {
+        mappingError = parsedRows.error;
+      }
     }
 
     if (mappingError) {
@@ -673,7 +667,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     }
 
     const mappings = mappingRows;
-    let mapping: MappingRow | null = null;
+    let mapping: UserMemberMapRow | null = null;
     if (mappings.length > 0) {
       mapping =
         mappings.find((row) => row.member_id_hash === pidCurrent) ??
