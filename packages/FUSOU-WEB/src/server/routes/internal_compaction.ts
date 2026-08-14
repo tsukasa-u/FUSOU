@@ -129,7 +129,7 @@ app.post("/list-source-blocks", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -225,7 +225,7 @@ app.post("/list-source-blocks", async (c) => {
   const results = rows.results ?? [];
   const nextCursor =
     results.length > 0
-      ? Number(results[results.length - 1]?.id ?? cursorId)
+      ? Number(results[results.length - 1]?.["id"] ?? cursorId)
       : cursorId;
 
   return c.json({
@@ -243,7 +243,7 @@ app.post("/list-source-groups", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -331,7 +331,7 @@ app.post("/list-source-tables", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -403,7 +403,7 @@ app.post("/resolve-source-window-range", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -469,7 +469,7 @@ app.post("/fetch-block-ocf", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const bucket = env.runtime.BATTLE_DATA_BUCKET as R2Bucket | undefined;
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
   let rawBody: unknown;
@@ -540,7 +540,7 @@ app.post("/verify-output-visible", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const bucket = env.runtime.BATTLE_DATA_BUCKET as R2Bucket | undefined;
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
   if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
   let rawBody: unknown;
@@ -577,7 +577,7 @@ app.post("/acquire-output-lock", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -718,7 +718,7 @@ app.post("/release-output-lock", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -764,7 +764,7 @@ app.post("/register-output", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -879,15 +879,15 @@ app.post("/register-output", async (c) => {
       block && typeof block === "object"
         ? (block as Record<string, unknown>)
         : {};
-    const datasetId = String(blockRecord.dataset_id ?? "").trim();
-    const tableName = String(blockRecord.table_name ?? "").trim();
-    const periodTag = String(blockRecord.period_tag ?? "").trim();
-    const startByte = Number(blockRecord.start_byte);
-    const length = Number(blockRecord.length);
-    const recordCount = Number(blockRecord.record_count ?? 0);
-    const startTs = Number(blockRecord.start_timestamp ?? 0);
-    const endTs = Number(blockRecord.end_timestamp ?? 0);
-    const sourceFileCount = Number(blockRecord.source_file_count ?? 1);
+    const datasetId = String(blockRecord["dataset_id"] ?? "").trim();
+    const tableName = String(blockRecord["table_name"] ?? "").trim();
+    const periodTag = String(blockRecord["period_tag"] ?? "").trim();
+    const startByte = Number(blockRecord["start_byte"]);
+    const length = Number(blockRecord["length"]);
+    const recordCount = Number(blockRecord["record_count"] ?? 0);
+    const startTs = Number(blockRecord["start_timestamp"] ?? 0);
+    const endTs = Number(blockRecord["end_timestamp"] ?? 0);
+    const sourceFileCount = Number(blockRecord["source_file_count"] ?? 1);
 
     if (!datasetId || !tableName || !periodTag) {
       return c.json({ error: "invalid block metadata" }, 400);
@@ -968,7 +968,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -1068,7 +1068,7 @@ app.post("/period-rollover-check", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
@@ -1095,7 +1095,7 @@ app.post("/period-rollover-check", async (c) => {
   }
 
   const currentOpenPeriod = await getLatestAllowedPeriodTag(c, {
-    cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+    cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
   });
 
   if (!currentOpenPeriod) {
@@ -1165,7 +1165,7 @@ app.post("/resolve-table-version", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
 
   const env = createEnvContext(c);
-  const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
+  const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
   let rawBody: unknown;
