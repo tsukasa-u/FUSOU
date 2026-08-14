@@ -157,7 +157,7 @@ describe("LocalWorkerSession", () => {
     );
 
     expect(result.records.length).toBeGreaterThan(0);
-    expect(result.records.every((record) => record.index === 0)).toBe(true);
+    expect(result.records.every((record) => record["index"] === 0)).toBe(true);
     expect(result.records[0]).toMatchObject({ env_uuid: expect.any(String) });
     expect(progress.map((item) => item.phase)).toContain("decode");
     expect(progress.map((item) => item.phase)).toContain("index");
@@ -197,8 +197,8 @@ describe("LocalWorkerSession", () => {
   it("filters oversized all-period detail tables before applying the record guard", async () => {
     const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
     const target = ocfDecoder.decodeAvroOcfToJson(bytes)[0];
-    const envUuid = String(target.env_uuid);
-    const battleIndex = Number(target.index);
+    const envUuid = String(target["env_uuid"]);
+    const battleIndex = Number(target["index"]);
     const unrelatedRows = Array.from({ length: 20_000 }, (_, index) => ({
       env_uuid: `unrelated-${index}`,
       index,
