@@ -440,7 +440,7 @@ app.options(
 // POST /snapshot
 app.post("/snapshot", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
   const signingSecret = getEnv(env, "FLEET_SNAPSHOT_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
@@ -453,11 +453,14 @@ app.post("/snapshot", async (c) => {
     requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _user, authContext) => {
-      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const rawTag =
+        typeof body?.["tag"] === "string" ? body["tag"].trim() : "";
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+        typeof body?.["dataset_id"] === "string"
+          ? body["dataset_id"].trim()
+          : "";
       if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
@@ -465,7 +468,9 @@ app.post("/snapshot", async (c) => {
 
       const datasetId = datasetIdFromToken || requestedDatasetId;
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
 
       if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
@@ -497,10 +502,10 @@ app.post("/snapshot", async (c) => {
     },
     executionProcessor: async (tokenPayload, data, _user) => {
       const tag =
-        typeof tokenPayload.tag === "string" ? tokenPayload.tag : "";
+        typeof tokenPayload["tag"] === "string" ? tokenPayload["tag"] : "";
       const datasetId =
-        typeof tokenPayload?.dataset_id === "string"
-          ? tokenPayload.dataset_id.trim()
+        typeof tokenPayload?.["dataset_id"] === "string"
+          ? tokenPayload["dataset_id"].trim()
           : "";
 
       if (!tag) {
@@ -518,7 +523,7 @@ app.post("/snapshot", async (c) => {
       // This ensures data integrity across the two-stage upload and matches the pattern
       // used by remodel_data.ts, ship_growth.ts and master_data.ts.
       const expectedHash = String(
-        tokenPayload.content_hash ?? "",
+        tokenPayload["content_hash"] ?? "",
       ).toLowerCase();
       if (!expectedHash) {
         return c.json(
@@ -657,7 +662,7 @@ app.post("/snapshot", async (c) => {
 app.get("/snapshot/:tag", async (c) => {
   c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -758,7 +763,7 @@ app.get("/snapshot/:tag", async (c) => {
 app.get("/snapshots/list", async (c) => {
   c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -863,7 +868,7 @@ app.get("/snapshots/list", async (c) => {
 // DELETE /snapshot/:tag - Delete all fleet snapshots for a tag
 app.delete("/snapshot/:tag", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket || typeof bucket.delete !== "function") {
     return c.json({ error: "Server misconfiguration" }, 500);
