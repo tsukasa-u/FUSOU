@@ -2134,11 +2134,11 @@ function isExpKvSnapshot(v: unknown): v is ExpKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -2147,14 +2147,14 @@ function isBoundsKvSnapshot(v: unknown): v is BoundsKvSnapshot {
   const s = v as Record<string, unknown>;
   // schema_version === 3 indicates the snapshot includes the lucky_naked field.
   // Older snapshots are treated as invalid so the cache rebuilds.
-  if (s.schema_version !== 3) return false;
+  if (s["schema_version"] !== 3) return false;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.bounds) &&
-    Array.isArray(s.caps) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["bounds"]) &&
+    Array.isArray(s["caps"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
