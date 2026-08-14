@@ -129,7 +129,12 @@ app.post('/sanitize-state', async (c) => {
       console.error(`[compact-sanitize] FAILED to enqueue dataset`, {
         datasetId,
         error: String(queueError),
-        errorMessage: (queueError as any)?.message,
+        errorMessage:
+          typeof queueError === 'object' &&
+          queueError !== null &&
+          'message' in queueError
+            ? String(queueError.message)
+            : undefined,
       });
       return c.json({ error: 'Failed to enqueue dataset for compaction. Please try again.' }, 500);
     }
@@ -222,7 +227,10 @@ app.post('/trigger-scheduled', async (c) => {
           console.error(`[compact-scheduled] Failed to enqueue dataset`, {
             datasetId: dataset.id,
             error: String(err),
-            errorMessage: (err as any)?.message,
+            errorMessage:
+              typeof err === 'object' && err !== null && 'message' in err
+                ? String(err.message)
+                : undefined,
           });
           enqueueResults.push({ datasetId: dataset.id, status: 'failed', error: String(err) });
         })
