@@ -763,7 +763,7 @@ export function parseSize(value: string | undefined): number | null {
  * Cloudflare R2 は S3 互換なので、S3署名でアクセス可能
  */
 export async function generateR2SignedUrl(
-  _bucket: any, // R2BucketBinding
+  _bucket: unknown,
   key: string,
   _expiresInSeconds: number = 3600, // デフォルト1時間
 ): Promise<string> {
