@@ -706,7 +706,8 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
 
   for (const group of poolGroups.values()) {
     if (group.length === 1) {
-      merged.push(group[0]);
+      const only = group[0];
+      if (only) merged.push(only);
       continue;
     }
 
@@ -723,6 +724,7 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
     }
 
     const sample = group[0];
+    if (!sample) continue;
     merged.push({
       ...sample,
       pool: [...mergedPoolById.values()].sort((a, b) => a.sortno - b.sortno || a.id - b.id),
@@ -741,13 +743,16 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
 
   for (const group of categoryGroups.values()) {
     if (group.length === 1) {
-      merged.push(group[0]);
+      const only = group[0];
+      if (only) merged.push(only);
       continue;
     }
-    
-    const poolCount = group[0].pools.length;
+
+    const first = group[0];
+    if (!first) continue;
+    const poolCount = first.pools.length;
     const unionedPools: MstSlotItemData[][] = Array.from({ length: poolCount }, () => []);
-    
+
     for (const entry of group) {
       const sortedPools = [...entry.pools].sort((a, b) => {
         if (a.length !== b.length) return a.length - b.length;
@@ -755,31 +760,34 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
         const minB = Math.min(...b.map((x) => x.id));
         return minA - minB;
       });
-      
+
       for (let i = 0; i < poolCount; i++) {
-        for (const item of sortedPools[i]) {
-          if (!unionedPools[i].find((x) => x.id === item.id)) {
-            unionedPools[i].push(item);
+        const sortedPool = sortedPools[i];
+        const unionedPool = unionedPools[i];
+        if (!sortedPool || !unionedPool) continue;
+        for (const item of sortedPool) {
+          if (!unionedPool.find((x) => x.id === item.id)) {
+            unionedPool.push(item);
           }
         }
       }
     }
-    
+
     for (const p of unionedPools) {
       p.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
     }
-    
+
     merged.push({
       kind: "category",
       pools: unionedPools,
-      cancels_single: group[0].cancels_single,
-      correction: group[0].correction,
-      ...(group[0].ships !== undefined ? { ships: group[0].ships } : {}),
-      ...(group[0].suppressed_components !== undefined
-        ? { suppressed_components: group[0].suppressed_components }
+      cancels_single: first.cancels_single,
+      correction: first.correction,
+      ...(first.ships !== undefined ? { ships: first.ships } : {}),
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
         : {}),
-      ...(group[0].placements !== undefined
-        ? { placements: group[0].placements }
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
         : {}),
     });
   }
