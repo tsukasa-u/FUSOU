@@ -398,17 +398,17 @@ export function buildTimelineEvents(
     }
 
     const fNow = shiftHpArray((
-      Array.isArray(d.f_now_hps)
-        ? d.f_now_hps
-        : Array.isArray(d.f_nowhps)
-          ? d.f_nowhps
+      Array.isArray(d["f_now_hps"])
+        ? d["f_now_hps"]
+        : Array.isArray(d["f_nowhps"])
+          ? d["f_nowhps"]
           : []
     ) as number[]);
     const eNow = shiftHpArray((
-      Array.isArray(d.e_now_hps)
-        ? d.e_now_hps
-        : Array.isArray(d.e_nowhps)
-          ? d.e_nowhps
+      Array.isArray(d["e_now_hps"])
+        ? d["e_now_hps"]
+        : Array.isArray(d["e_nowhps"])
+          ? d["e_nowhps"]
           : []
     ) as number[]);
     const friendLimit =
