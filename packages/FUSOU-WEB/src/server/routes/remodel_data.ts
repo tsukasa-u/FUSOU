@@ -26,6 +26,8 @@ import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
   RemodelMaxUpdatedAtRowSchema,
+  parseRemodelEffectiveSummaryRows,
+  parseRemodelPeriodSummaryRows,
   ValidatedRemodelDataIngestBodySchema,
   type RemodelDataIngestBody,
   type ValidatedRemodelDataIngestBody,
@@ -37,24 +39,14 @@ const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-type RemodelPeriodSummaryRow = {
-  period_tag: string;
-  row_count: number;
-  slotitem_count: number;
-};
+type RemodelPeriodSummaryRow = ReturnType<
+  typeof parseRemodelPeriodSummaryRows
+>[number];
 
 type RemodelSummarySnapshot = {
   periods: RemodelPeriodSummaryRow[];
   refreshed_at: number;
   db_synced_at: number;
-};
-
-type RemodelEffectiveSummaryRow = {
-  period_tag: string;
-  total_rows: number;
-  slotlist_rows: number;
-  recovered_from_detail_rows: number;
-  unresolved_fallback_rows: number;
 };
 
 function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
@@ -303,21 +295,20 @@ app.get("/summary", async (c) => {
         const byPeriod = new Map(cached.periods.map((row) => [row.period_tag, row]));
 
         for (const changed of changedPeriods) {
-          const current = ((
-            await db
-              .prepare(
-                  `SELECT period_tag,
-                        COUNT(*)                            AS row_count,
-                      COUNT(DISTINCT slotitem_master_id) AS slotitem_count
-                   FROM remodel_slotlist_effective_requirements
-                   WHERE period_tag = ?
-                   GROUP BY period_tag`,
-              )
-                .bind(changed.period_tag)
-              .all()
-          ).results ?? []) as RemodelPeriodSummaryRow[];
+          const currentResult = await db
+            .prepare(
+              `SELECT period_tag,
+                    COUNT(*)                            AS row_count,
+                    COUNT(DISTINCT slotitem_master_id) AS slotitem_count
+               FROM remodel_slotlist_effective_requirements
+               WHERE period_tag = ?
+               GROUP BY period_tag`,
+            )
+            .bind(changed.period_tag)
+            .all();
+          const current = parseRemodelPeriodSummaryRows(currentResult.results);
 
-            const key = changed.period_tag;
+          const key = changed.period_tag;
           if (current.length > 0) {
             byPeriod.set(key, current[0]);
           } else {
@@ -344,19 +335,18 @@ app.get("/summary", async (c) => {
         };
       },
       loadFull: async () => {
-        const periodRows = ((
-          await db
-            .prepare(
-              `SELECT period_tag,
-                  COUNT(*)                            AS row_count,
-                    COUNT(DISTINCT slotitem_master_id) AS slotitem_count
-                 FROM remodel_slotlist_effective_requirements
-              GROUP BY period_tag
-              ORDER BY period_tag DESC
-               LIMIT 20`,
-            )
-            .all()
-        ).results ?? []) as RemodelPeriodSummaryRow[];
+        const periodResult = await db
+          .prepare(
+            `SELECT period_tag,
+                COUNT(*)                            AS row_count,
+                COUNT(DISTINCT slotitem_master_id) AS slotitem_count
+             FROM remodel_slotlist_effective_requirements
+             GROUP BY period_tag
+             ORDER BY period_tag DESC
+             LIMIT 20`,
+          )
+          .all();
+        const periodRows = parseRemodelPeriodSummaryRows(periodResult.results);
 
         const maxUpdatedAtRow = await db
           .prepare(
@@ -402,7 +392,7 @@ app.get("/effective-summary", async (c) => {
   if (!db) return c.json({ error: "REMODEL_INDEX_DB not configured" }, 503);
 
   try {
-    const rows = ((await db
+    const result = await db
       .prepare(
         `SELECT
             period_tag,
@@ -415,7 +405,8 @@ app.get("/effective-summary", async (c) => {
          ORDER BY period_tag DESC
          LIMIT 20`,
       )
-      .all()).results ?? []) as RemodelEffectiveSummaryRow[];
+      .all();
+    const rows = parseRemodelEffectiveSummaryRows(result.results);
 
     const response = c.json({ ok: true, periods: rows });
     response.headers.set(

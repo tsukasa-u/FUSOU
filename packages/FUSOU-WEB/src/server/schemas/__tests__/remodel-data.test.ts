@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   RemodelDataIngestBodySchema,
+  parseRemodelEffectiveSummaryRows,
+  parseRemodelPeriodSummaryRows,
   RemodelMaxUpdatedAtRowSchema,
   ValidatedRemodelDataIngestBodySchema,
 } from "../remodel-data";
@@ -46,6 +48,40 @@ describe("RemodelMaxUpdatedAtRowSchema", () => {
         .success,
     ).toBe(false);
     expect(RemodelMaxUpdatedAtRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("remodel summary row parsers", () => {
+  it("keeps valid period summary and effective summary rows", () => {
+    expect(
+      parseRemodelPeriodSummaryRows([
+        { period_tag: "2026-07-08", row_count: 2, slotitem_count: 1 },
+      ]),
+    ).toHaveLength(1);
+    expect(
+      parseRemodelEffectiveSummaryRows([
+        {
+          period_tag: "2026-07-08",
+          total_rows: 2,
+          slotlist_rows: 1,
+          recovered_from_detail_rows: 1,
+          unresolved_fallback_rows: 0,
+        },
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("drops malformed summary rows", () => {
+    expect(
+      parseRemodelPeriodSummaryRows([
+        { period_tag: "2026-07-08", row_count: "2", slotitem_count: 1 },
+      ]),
+    ).toEqual([]);
+    expect(
+      parseRemodelEffectiveSummaryRows([
+        { period_tag: "2026-07-08", total_rows: 1 },
+      ]),
+    ).toEqual([]);
   });
 });
 

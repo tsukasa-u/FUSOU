@@ -5,6 +5,44 @@ export const RemodelMaxUpdatedAtRowSchema = z
   .object({ max_updated_at_ms: z.number().nullable().optional() })
   .passthrough();
 
+export const RemodelPeriodSummaryRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    row_count: z.number().int().nonnegative(),
+    slotitem_count: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export function parseRemodelPeriodSummaryRows(
+  value: unknown,
+): Array<z.infer<typeof RemodelPeriodSummaryRowSchema>> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    const parsed = RemodelPeriodSummaryRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+export const RemodelEffectiveSummaryRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    total_rows: z.number().int().nonnegative(),
+    slotlist_rows: z.number().int().nonnegative(),
+    recovered_from_detail_rows: z.number().int().nonnegative(),
+    unresolved_fallback_rows: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export function parseRemodelEffectiveSummaryRows(
+  value: unknown,
+): Array<z.infer<typeof RemodelEffectiveSummaryRowSchema>> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    const parsed = RemodelEffectiveSummaryRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 export const RemodelDataIngestBodySchema = z.record(
   z.string(),
   z.unknown(),
