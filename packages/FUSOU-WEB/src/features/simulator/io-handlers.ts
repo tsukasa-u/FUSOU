@@ -88,7 +88,7 @@ function buildSharePayload(opts: ShareOptions) {
   };
 
   if (opts.includeAirBases) {
-    payload.airBases = getAirBaseState().map((base) => ({
+    payload["airBases"] = getAirBaseState().map((base) => ({
       equipIds: [...(base.equipIds ?? [null, null, null, null])],
       equipImprovement: [...(base.equipImprovement ?? [0, 0, 0, 0])],
       equipProficiency: [...(base.equipProficiency ?? [0, 0, 0, 0])],
@@ -117,7 +117,7 @@ export async function createShareUrl(opts: ShareOptions): Promise<string> {
   const requestBody: Record<string, unknown> = { url: shareUrl };
 
   if (snapshotPayload) {
-    requestBody.snapshotPayload = snapshotPayload;
+    requestBody["snapshotPayload"] = snapshotPayload;
   }
   
   const res = await fetch("/api/shorten", {
@@ -321,14 +321,18 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
       if (parsed && typeof parsed === "object") {
         const merged = parsed as Record<string, unknown>;
         if (sharedSnapshotPayload) {
-          if (sharedSnapshotPayload.snapshotShips && !merged.snapshotShips) {
-            merged.snapshotShips = sharedSnapshotPayload.snapshotShips;
+          if (
+            sharedSnapshotPayload["snapshotShips"] &&
+            !merged["snapshotShips"]
+          ) {
+            merged["snapshotShips"] = sharedSnapshotPayload["snapshotShips"];
           }
           if (
-            sharedSnapshotPayload.snapshotSlotItems &&
-            !merged.snapshotSlotItems
+            sharedSnapshotPayload["snapshotSlotItems"] &&
+            !merged["snapshotSlotItems"]
           ) {
-            merged.snapshotSlotItems = sharedSnapshotPayload.snapshotSlotItems;
+            merged["snapshotSlotItems"] =
+              sharedSnapshotPayload["snapshotSlotItems"];
           }
         }
         applyExportedFleet(merged);
