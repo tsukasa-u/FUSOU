@@ -2100,7 +2100,9 @@ app.get("/global/overview", async (c) => {
     const deckIds = [
       ...new Set(
         battles
-          .map((b) => (typeof b.e_deck_id === "string" ? b.e_deck_id : ""))
+          .map((b) =>
+            typeof b["e_deck_id"] === "string" ? b["e_deck_id"] : "",
+          )
           .filter(Boolean),
       ),
     ];
@@ -2118,7 +2120,7 @@ app.get("/global/overview", async (c) => {
 
     const shipGroupIds = [
       ...new Set(
-        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d.ship_ids)),
+        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d["ship_ids"])),
       ),
     ];
     const enemyShips =
@@ -2530,7 +2532,7 @@ app.get("/detail", async (c) => {
  */
 app.get("/global/latest", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -2604,7 +2606,7 @@ app.get("/dev/local-records", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
   }
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -2676,15 +2678,15 @@ app.get("/dev/local-records", async (c) => {
 
       records = battleResult.results || [];
       if (records.length > 0 && openingRaigekiResult.results?.length) {
-        records[0].opening_raigeki = transformOpeningRaigekiData(
+        records[0]["opening_raigeki"] = transformOpeningRaigekiData(
           openingRaigekiResult.results[0],
         );
       }
       if (records.length > 0 && ownShipResult.results?.length) {
-        records[0].own_ship = ownShipResult.results;
+        records[0]["own_ship"] = ownShipResult.results;
       }
       if (records.length > 0 && enemyShipResult.results?.length) {
-        records[0].enemy_ship = enemyShipResult.results;
+        records[0]["enemy_ship"] = enemyShipResult.results;
       }
       // DEV: Inject synthetic hougeki (shelling) data for test UUID
       if (records.length > 0 && battleId === "test-multi-attacker-001") {
@@ -2697,7 +2699,7 @@ app.get("/dev/local-records", async (c) => {
         const eH2 = [100, 120, 110, 90, 165, 102]; // 2番艦→敵5番1/2 (-35後)
         const eH3 = [100, 120, 110, 90, 143, 102]; // 2番艦→敵5番2/2 (-22後)
         const eH4 = [100, 120, 110, 90, 125, 102]; // 3番艦→敵5番1/2 (-18後)
-        records[0].hougeki = {
+        records[0]["hougeki"] = {
           at_list: [0, 1, 1, 2, 2],
           df_list: [[5], [4], [4], [4], [4]],
           damage: [[28], [35], [22], [18], [31]],
