@@ -13,6 +13,7 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../schemas/api-keys";
 import {
@@ -494,19 +495,22 @@ app.get("/devices", async (c) => {
       return jsonResponse({ error: "Invalid token" }, 401);
     }
 
-    const devices = await supabaseRestRequest<
+    const devicesResponse = await supabaseRestRequest(
+      config,
+      "trusted_devices",
       {
-        id: string;
-        client_id: string;
-        device_name: string | null;
-        created_at: string;
-        last_used_at: string | null;
-      }[]
-    >(config, "trusted_devices", {
-      query: `?user_id=eq.${user.id}&order=last_used_at.desc.nullslast&select=id,client_id,device_name,created_at,last_used_at`,
-    });
+        query: `?user_id=eq.${user.id}&order=last_used_at.desc.nullslast&select=id,client_id,device_name,created_at,last_used_at`,
+      },
+    );
+    const parsedDevices = TrustedDeviceListRowsSchema.safeParse(
+      devicesResponse,
+    );
+    if (!parsedDevices.success) {
+      console.error("Trusted devices response shape invalid:", parsedDevices.error);
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
 
-    const maskedDevices = (devices || []).map((d) => ({
+    const maskedDevices = parsedDevices.data.map((d) => ({
       id: d.id,
       client_id_masked: `${d.client_id.slice(0, 8)}...`,
       device_name: d.device_name || "Unknown Device",

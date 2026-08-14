@@ -3,6 +3,7 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../api-keys";
 
@@ -95,5 +96,38 @@ describe("ApiKeyIdRowsSchema", () => {
     expect(ApiKeyIdRowsSchema.safeParse([{ id: "" }]).success).toBe(false);
     expect(ApiKeyIdRowsSchema.safeParse([{ id: 42 }]).success).toBe(false);
     expect(ApiKeyIdRowsSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("TrustedDeviceListRowsSchema", () => {
+  it("accepts nullable device fields and extra fields", () => {
+    expect(
+      TrustedDeviceListRowsSchema.safeParse([
+        {
+          id: "device-1",
+          client_id: "client-1",
+          device_name: null,
+          created_at: "2026-08-14T00:00:00Z",
+          last_used_at: null,
+          extra: "ignored",
+        },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing fields and invalid nullable values", () => {
+    expect(
+      TrustedDeviceListRowsSchema.safeParse([
+        {
+          id: "device-1",
+          client_id: "client-1",
+          device_name: 42,
+          created_at: "2026-08-14T00:00:00Z",
+          last_used_at: null,
+        },
+      ]).success,
+    ).toBe(false);
+    expect(TrustedDeviceListRowsSchema.safeParse([{ id: "device-1" }]).success)
+      .toBe(false);
   });
 });

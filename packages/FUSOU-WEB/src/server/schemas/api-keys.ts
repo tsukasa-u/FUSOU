@@ -21,6 +21,17 @@ export const ApiKeyIdRowsSchema = z
   .passthrough()
   .array();
 
+export const TrustedDeviceListRowsSchema = z
+  .object({
+    id: z.string().min(1),
+    client_id: z.string().min(1),
+    device_name: z.string().nullable(),
+    created_at: z.string().min(1),
+    last_used_at: z.string().nullable(),
+  })
+  .passthrough()
+  .array();
+
 export const ApiKeyListRowsSchema = z
   .object({
     id: z.string().min(1),
