@@ -1043,24 +1043,26 @@ export function buildTimelineEvents(
       );
     }
     const night = normalizeNightSupportAttack(battle);
-    const nightHourai = night?.hourai as Record<string, unknown> | undefined;
-    if (nightHourai?.damage) {
+    const nightHourai = night?.["hourai"] as
+      | Record<string, unknown>
+      | undefined;
+    if (nightHourai?.["damage"]) {
       const hourai = nightHourai;
-      const dmgs = Array.isArray(hourai.damage)
-        ? (hourai.damage as unknown[])
+      const dmgs = Array.isArray(hourai["damage"])
+        ? (hourai["damage"] as unknown[])
         : [];
-      const eNow = Array.isArray(hourai.now_hps)
-        ? (hourai.now_hps as number[])
+      const eNow = Array.isArray(hourai["now_hps"])
+        ? (hourai["now_hps"] as number[])
         : [];
-      const shipIds = Array.isArray(hourai.ship_id)
-        ? (hourai.ship_id as unknown[])
+      const shipIds = Array.isArray(hourai["ship_id"])
+        ? (hourai["ship_id"] as unknown[])
         : [];
       for (let i = 0; i < dmgs.length; i++) {
         const dmg = Number(dmgs[i] ?? 0) || 0;
         if (dmg <= 0) continue;
         const beforeHp = Number(eNow[i] ?? 0) || 0;
         events.push({
-          phase: PHASE_NAMES.NightSupportAttack,
+          phase: PHASE_NAMES["NightSupportAttack"],
           type: "shelling",
           actorRole: "support",
           affectsHp: false,
@@ -1069,8 +1071,8 @@ export function buildTimelineEvents(
           attackerGroup: [],
           defenderSide: "enemy",
           defenderIdx: i,
-          damage: dmg,
-              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
+            damage: dmg,
+            crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
           sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: [],
@@ -1079,24 +1081,24 @@ export function buildTimelineEvents(
         });
       }
     }
-        const nightAir = night["airatack"] as
-          | Record<string, unknown>
-          | undefined;
-        if (nightAir?.["e_damage"]) {
-          const ed = nightAir["e_damage"] as Record<string, unknown>;
-          const fd = nightAir["f_damage"] as
-            | Record<string, unknown>
-            | undefined;
+    const nightAir = night?.["airatack"] as
+      | Record<string, unknown>
+      | undefined;
+    if (nightAir?.["e_damage"]) {
+      const ed = nightAir["e_damage"] as Record<string, unknown>;
+      const fd = nightAir["f_damage"] as
+        | Record<string, unknown>
+        | undefined;
       extractAirAttackEvents(
         {
-              e_damages: ed["damages"],
-              f_damages: fd?.["damages"],
-              e_now_hps: ed["now_hps"],
-              f_now_hps: fd?.["now_hps"],
+          e_damages: ed["damages"],
+          f_damages: fd?.["damages"],
+          e_now_hps: ed["now_hps"],
+          f_now_hps: fd?.["now_hps"],
           e_plane_from: [],
           f_plane_from: [],
         },
-        PHASE_NAMES.NightSupportAttack,
+        PHASE_NAMES["NightSupportAttack"],
         undefined,
         {
           actorRole: "support",
