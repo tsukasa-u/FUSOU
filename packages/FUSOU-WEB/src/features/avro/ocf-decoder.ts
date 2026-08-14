@@ -64,6 +64,7 @@ function readLong(bytes: Uint8Array, cursor: Cursor): number {
     }
 
     const byte = bytes[cursor.offset];
+    if (byte === undefined) return fail("Avro value is truncated");
     cursor.offset += 1;
     unsigned += (byte & 0x7f) * multiplier;
     if (unsigned > Number.MAX_SAFE_INTEGER) {
@@ -231,7 +232,9 @@ function readValue(
     if (!Number.isSafeInteger(branch) || branch < 0 || branch >= schema.length) {
       return fail("Avro union branch is invalid");
     }
-    return readValue(bytes, cursor, schema[branch], named);
+    const branchSchema = schema[branch];
+    if (branchSchema === undefined) return fail("Avro union branch is invalid");
+    return readValue(bytes, cursor, branchSchema, named);
   }
 
   if (typeof schema === "string") {
@@ -284,7 +287,9 @@ function readValue(
       if (!Number.isSafeInteger(index) || index < 0 || index >= symbols.length) {
         return fail("Avro enum index is invalid");
       }
-      return symbols[index];
+      const symbol = symbols[index];
+      if (symbol === undefined) return fail("Avro enum index is invalid");
+      return symbol;
     }
     case "fixed": {
       const size = schema.size;
