@@ -6,6 +6,14 @@ export const AssetKeyRowSchema = z
 
 export type AssetKeyRow = z.infer<typeof AssetKeyRowSchema>;
 
+export function parseAssetKeyRows(value: unknown): AssetKeyRow[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((row) => {
+    const parsed = AssetKeyRowSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
 export const AssetContentHashRowSchema = z
   .object({ content_hash: z.string().nullable().optional() })
   .passthrough();

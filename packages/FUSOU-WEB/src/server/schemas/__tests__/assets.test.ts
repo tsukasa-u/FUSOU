@@ -3,6 +3,7 @@ import {
   AssetContentHashRowSchema,
   AssetKeyRowSchema,
   CacheClearKeysSchema,
+  parseAssetKeyRows,
   SpriteAtlasSchema,
 } from "../assets";
 
@@ -51,6 +52,22 @@ describe("AssetKeyRowSchema", () => {
     expect(AssetKeyRowSchema.safeParse({ key: "" }).success).toBe(false);
     expect(AssetKeyRowSchema.safeParse({ key: 42 }).success).toBe(false);
     expect(AssetKeyRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("parseAssetKeyRows", () => {
+  it("keeps valid rows and skips malformed external rows", () => {
+    expect(
+      parseAssetKeyRows([
+        { key: "assets/valid.png", size: 10 },
+        { key: 42 },
+        null,
+      ]),
+    ).toEqual([{ key: "assets/valid.png", size: 10 }]);
+  });
+
+  it("returns an empty list for non-array values", () => {
+    expect(parseAssetKeyRows({ key: "assets/valid.png" })).toEqual([]);
   });
 });
 

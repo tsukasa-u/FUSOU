@@ -30,6 +30,7 @@ import {
 import {
   AssetKeyRowSchema,
   CacheClearKeysSchema,
+  parseAssetKeyRows,
   SpriteAtlasSchema,
 } from "../schemas/assets";
 
@@ -431,7 +432,7 @@ app.get("/ship-banner-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/banner\/(\d{4})_/);
             const capture = match?.[1];
             if (!capture) continue;
@@ -530,7 +531,7 @@ app.get("/ship-card-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/card\/(\d{4})_/);
             const capture = match?.[1];
             if (!capture) continue;
@@ -626,7 +627,7 @@ app.get("/ship-icon-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/reward_icon\/(\d{4})_/);
             const capture = match?.[1];
             if (!capture) continue;
@@ -721,7 +722,7 @@ app.get("/equip-image-map", async (c) => {
       .all();
 
     if (rows.results) {
-      for (const row of rows.results as { key: string }[]) {
+      for (const row of parseAssetKeyRows(rows.results)) {
         const match = row.key.match(/\/slot\/(card|item_on|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
