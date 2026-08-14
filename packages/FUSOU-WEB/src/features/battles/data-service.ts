@@ -765,20 +765,20 @@ export async function resolveEnemyFleet(
               )
             : `敵艦ID:${mstId ?? "-"}`,
           shipId: mstId,
-          level: Number(ship.lv ?? 0) || null,
-          nowhp: Number(ship.nowhp ?? 0) || 0,
-          maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-          karyoku: ship.karyoku ?? null,
-          raisou: ship.raisou ?? null,
-          taiku: ship.taiku ?? null,
-          soukou: ship.soukou ?? null,
+          level: Number(ship["lv"] ?? 0) || null,
+          nowhp: Number(ship["nowhp"] ?? 0) || 0,
+          maxhp: Number(ship["maxhp"] ?? ship["nowhp"] ?? 0) || 0,
+          karyoku: ship["karyoku"] ?? null,
+          raisou: ship["raisou"] ?? null,
+          taiku: ship["taiku"] ?? null,
+          soukou: ship["soukou"] ?? null,
           bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
           equipments: [],
         } satisfies ShipInfo;
       });
   };
 
-  const deckId = battle?.e_deck_id;
+  const deckId = battle?.["e_deck_id"];
   if (!deckId) {
     const inferred = await inferEnemyByEnv();
     return inferred.length > 0 ? inferred : fallbackEnemyByHp();
@@ -795,7 +795,7 @@ export async function resolveEnemyFleet(
   const mstSlotItemById = await getMstSlotItemById();
 
   // Batch-fetch all enemy ship groups in one request
-  const groupIds = toGroupIds(deck.ship_ids);
+  const groupIds = toGroupIds(deck["ship_ids"]);
   const shipsByGroup = await fetchRecordsByUuids(
     "enemy_ship",
     groupIds,
