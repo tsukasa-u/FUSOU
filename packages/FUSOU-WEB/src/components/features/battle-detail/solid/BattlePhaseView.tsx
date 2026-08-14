@@ -33,7 +33,7 @@ function mstShipNameFromId(
   const n = Number(id ?? 0);
   if (!Number.isFinite(n) || n <= 0) return null;
   const row = mstShipById?.get(n);
-  const name = row ? String(row.name ?? "") : "";
+  const name = row ? String(row["name"] ?? "") : "";
   return name.length > 0 ? name : null;
 }
 
@@ -48,7 +48,7 @@ function pickHougekiRowsByRound(
 
   const rows = data as Array<Record<string, unknown>>;
   const byIndex1 = rows.filter(
-    (row) => Number(row.index_1 ?? Number.NaN) === roundIdx,
+    (row) => Number(row["index_1"] ?? Number.NaN) === roundIdx,
   );
   if (byIndex1.length > 0) return byIndex1;
 
@@ -58,18 +58,18 @@ function pickHougekiRowsByRound(
 function normalizeNightSupportAttackData(
   battle: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const nested = battle.night_support_attack as
+  const nested = battle["night_support_attack"] as
     | Record<string, unknown>
     | null
     | undefined;
-  const hourai = (nested?.hourai ?? battle.night_support_hourai) as
+  const hourai = (nested?.["hourai"] ?? battle["night_support_hourai"]) as
     | Record<string, unknown>
     | null
     | undefined;
-  const airatack = (nested?.airatack ??
-    nested?.airattack ??
-    battle.night_support_airatack ??
-    battle.night_support_airattack) as
+  const airatack = (nested?.["airatack"] ??
+    nested?.["airattack"] ??
+    battle["night_support_airatack"] ??
+    battle["night_support_airattack"]) as
     | Record<string, unknown>
     | null
     | undefined;
@@ -82,7 +82,7 @@ function hasRaigekiActivity(data: unknown): boolean {
   if (!data || typeof data !== "object") return false;
   const d = data as Record<string, unknown>;
 
-  const raiCandidates = [d.frai, d.f_rai, d.frai_list_items, d.erai, d.e_rai, d.erai_list_items];
+  const raiCandidates = [d["frai"], d["f_rai"], d["frai_list_items"], d["erai"], d["e_rai"], d["erai_list_items"]];
   const hasTarget = raiCandidates.some((candidate) => {
     if (!Array.isArray(candidate)) return false;
     return candidate.some((row) => {
@@ -98,7 +98,7 @@ function hasRaigekiActivity(data: unknown): boolean {
   });
   if (hasTarget) return true;
 
-  const damages = [d.fdam, d.f_dam, d.edam, d.e_dam];
+  const damages = [d["fdam"], d["f_dam"], d["edam"], d["e_dam"]];
   return damages.some(
     (arr) =>
       Array.isArray(arr) &&
