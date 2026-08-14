@@ -36,7 +36,7 @@ import {
   RevokeRequestSchema,
 } from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
 import {
   CHALLENGE_BUCKET_SECONDS,
@@ -288,7 +288,7 @@ function resolveChallengeSecret(c: { env: Bindings }): SecretResult {
  */
 async function resolvePepperBundle(options: {
   base: BaseConfig;
-  supabaseAdmin?: any;
+  supabaseAdmin?: SupabaseClient;
 }) {
   const supabaseAdmin =
     options.supabaseAdmin ??
@@ -312,7 +312,7 @@ async function resolvePepperBundle(options: {
 
 async function resolveRecoveryBundle(options: {
   base: BaseConfig;
-  supabaseAdmin?: any;
+  supabaseAdmin?: SupabaseClient;
 }) {
   const supabaseAdmin =
     options.supabaseAdmin ??
@@ -388,7 +388,7 @@ export function isSupabaseUserNotFoundError(error: unknown): boolean {
 }
 
 async function consumeDeviceNonce(options: {
-  supabaseAdmin: any;
+  supabaseAdmin: SupabaseClient;
   deviceId: string;
   nonce: string;
   context: "refresh" | "revoke";
@@ -442,7 +442,7 @@ async function consumeDeviceNonce(options: {
 }
 
 async function insertRecoveryRelinkAudit(options: {
-  supabaseAdmin: any;
+  supabaseAdmin: SupabaseClient;
   canonicalUserId: string;
   deviceId: string;
   outcome: string;
