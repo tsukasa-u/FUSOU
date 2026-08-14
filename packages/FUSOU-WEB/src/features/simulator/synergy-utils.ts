@@ -782,10 +782,10 @@ export function normalizeEffects(
       const entry: EquipEffect = {
         ships: rule.ships,
         b: rule.b,
-        l: rule.l,
-        i: rule.i,
-        c2: rule.c2,
-        c3: rule.c3,
+        ...(rule.l !== undefined ? { l: rule.l } : {}),
+        ...(rule.i !== undefined ? { i: rule.i } : {}),
+        ...(rule.c2 !== undefined ? { c2: rule.c2 } : {}),
+        ...(rule.c3 !== undefined ? { c3: rule.c3 } : {}),
       };
       for (const itemId of rule.items) {
         const key = String(itemId);
@@ -823,10 +823,19 @@ export function normalizeCrossEffects(
         ships: rule.ships,
         items: [Math.min(a, b), Math.max(a, b)],
         synergy: rule.synergy,
-        exclusive_group: (rule as { exclusive_group?: number }).exclusive_group,
         cancels_single: !!(rule as { cancels_single?: boolean }).cancels_single,
-        suppressed_components: (rule as { suppressed_components?: number[] }).suppressed_components,
-        placements: (rule as { placements?: SlotUsageSummary[] }).placements,
+        ...((rule as { exclusive_group?: number }).exclusive_group !== undefined
+          ? { exclusive_group: (rule as { exclusive_group?: number }).exclusive_group }
+          : {}),
+        ...((rule as { suppressed_components?: number[] }).suppressed_components !== undefined
+          ? {
+              suppressed_components: (rule as { suppressed_components?: number[] })
+                .suppressed_components,
+            }
+          : {}),
+        ...((rule as { placements?: SlotUsageSummary[] }).placements !== undefined
+          ? { placements: (rule as { placements?: SlotUsageSummary[] }).placements }
+          : {}),
       };
       if (!out[key]) out[key] = [];
       out[key].push(entry);
@@ -907,10 +916,10 @@ export function getSingleEntriesForEquip(
       return {
         ships: rule.ships,
         b: rule.b,
-        l: rule.l,
-        i: rule.i,
-        c2: rule.c2,
-        c3: rule.c3,
+        ...(rule.l !== undefined ? { l: rule.l } : {}),
+        ...(rule.i !== undefined ? { i: rule.i } : {}),
+        ...(rule.c2 !== undefined ? { c2: rule.c2 } : {}),
+        ...(rule.c3 !== undefined ? { c3: rule.c3 } : {}),
       };
     });
     if (indexedEntries.length > 0) {
