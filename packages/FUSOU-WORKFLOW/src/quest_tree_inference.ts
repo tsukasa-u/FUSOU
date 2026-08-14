@@ -69,7 +69,10 @@ function combinationsOfTwo(values: number[]): number[][] {
   const pairs: number[][] = [];
   for (let i = 0; i < values.length; i += 1) {
     for (let j = i + 1; j < values.length; j += 1) {
-      pairs.push([values[i], values[j]]);
+      const left = values[i];
+      const right = values[j];
+      if (left === undefined || right === undefined) continue;
+      pairs.push([left, right]);
     }
   }
   return pairs;
@@ -378,8 +381,10 @@ async function recomputeRulesForTarget(
     bestPair.support >= MIN_OBS_PAIR &&
     bestPair.confidence >= MIN_CONF_PAIR &&
     (() => {
-      const left = candidateByHash.get(prereqHash([bestPair.prereq[0]]));
-      const right = candidateByHash.get(prereqHash([bestPair.prereq[1]]));
+      const [leftId, rightId] = bestPair.prereq;
+      if (leftId === undefined || rightId === undefined) return false;
+      const left = candidateByHash.get(prereqHash([leftId]));
+      const right = candidateByHash.get(prereqHash([rightId]));
       const leftScore = left?.score ?? 0;
       const rightScore = right?.score ?? 0;
       return bestPair.score > leftScore && bestPair.score > rightScore;
@@ -548,7 +553,13 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
   for (const key of touchedTargets) {
     const [targetStr, periodTag, tableVersion] = key.split(":");
     const targetQuestId = Number(targetStr);
-    if (!Number.isFinite(targetQuestId)) continue;
+    if (
+      !Number.isFinite(targetQuestId) ||
+      periodTag === undefined ||
+      tableVersion === undefined
+    ) {
+      continue;
+    }
     await recomputeRulesForTarget(db, targetQuestId, periodTag, tableVersion);
   }
 }

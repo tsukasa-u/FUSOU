@@ -145,6 +145,13 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
       );
     }
     const [table_version, table_name, period_tag] = parts;
+    if (
+      table_version === undefined ||
+      table_name === undefined ||
+      period_tag === undefined
+    ) {
+      throw new Error(`Internal error: groupKey parts are missing: "${groupKey}"`);
+    }
     const blocks: DatasetBlock[] = [];
 
     for (const [dataset_id, rows] of datasetMap.entries()) {
@@ -456,6 +463,9 @@ export async function handleCron(env: Env): Promise<void> {
       // Process each file chunk
       for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
         const chunk = fileChunks[fileIndex];
+        if (chunk === undefined) {
+          throw new Error(`Missing file chunk at index ${fileIndex}`);
+        }
         const filePath = generateFilePath(
           group.key.table_version,
           group.key.period_tag,
@@ -473,6 +483,9 @@ export async function handleCron(env: Env): Promise<void> {
           // Single block - calculate header size to get correct data block offset
           // The file IS the singleBlock, so we need to find where data blocks start
           const singleBlock = blocksList[0];
+          if (singleBlock === undefined) {
+            throw new Error("Single-block merge has no block data");
+          }
           try {
             // Parse header to find data block start position
             const headerSize = getAvroHeaderLengthFromPrefix(singleBlock);
@@ -568,6 +581,9 @@ export async function handleCron(env: Env): Promise<void> {
           for (let i = 0; i < chunk.blocks.length; i++) {
             const block = chunk.blocks[i];
             const boundary = mergeResult.boundaries[i];
+            if (block === undefined || boundary === undefined) {
+              throw new Error(`Missing block boundary at index ${i}`);
+            }
 
             blockIndexes.push({
               dataset_id: block.dataset_id,
