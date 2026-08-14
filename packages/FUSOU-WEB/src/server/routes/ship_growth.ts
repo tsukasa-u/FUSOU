@@ -2956,12 +2956,12 @@ function isAllPeriodsKvSnapshot(v: unknown): v is AllPeriodsKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    s.schema_version === ALL_PERIODS_SCHEMA_VERSION &&
-    Array.isArray(s.entries) &&
-    typeof s.archive_object_count === "number" &&
-    Array.isArray(s.processed_keys) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    s["schema_version"] === ALL_PERIODS_SCHEMA_VERSION &&
+    Array.isArray(s["entries"]) &&
+    typeof s["archive_object_count"] === "number" &&
+    Array.isArray(s["processed_keys"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
