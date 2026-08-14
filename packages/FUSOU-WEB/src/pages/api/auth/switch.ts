@@ -81,6 +81,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Get selected tokens
   const newAccessToken = accessTokenList[index];
   const newRefreshToken = refreshTokenList[index];
+  if (newAccessToken === undefined || newRefreshToken === undefined) {
+    return new Response("Selected token is unavailable", { status: 400 });
+  }
   const newProviderToken =
     index < providerTokenList.length ? providerTokenList[index] : "";
   const newProviderRefreshToken =
