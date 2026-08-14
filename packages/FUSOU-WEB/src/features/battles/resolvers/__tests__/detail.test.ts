@@ -56,10 +56,10 @@ describe("resolveBattleDetail", () => {
     });
 
     expect(result?.payload.battle).toMatchObject({ env_uuid: "target-env", cell_id: 101 });
-    expect(result?.payload.linked?.battle_result).toEqual([
+    expect(result?.payload.linked?.["battle_result"]).toEqual([
       { env_uuid: "target-env", uuid: "result-target", index: 0, drop_ship_id: 7 },
     ]);
-    expect(result?.payload.linked?.hougeki).toEqual([
+    expect(result?.payload.linked?.["hougeki"]).toEqual([
       { env_uuid: "target-env", uuid: "detail-target", index: 0, attack: true },
     ]);
     expect(result?.payload.battle_indexes).toEqual([0]);
@@ -78,7 +78,7 @@ describe("resolveBattleDetail", () => {
       }),
     });
 
-    expect(result?.payload.linked?.battle_result?.[0]).toMatchObject({
+    expect(result?.payload.linked?.["battle_result"]?.[0]).toMatchObject({
       uuid: "result-target",
       index: 8,
     });
@@ -211,7 +211,7 @@ describe("resolveBattleDetail", () => {
       }),
     });
 
-    expect(result?.payload.derived?.enemy_fleet?.[0]?.equipments).toEqual([
+    expect(result?.payload.derived?.enemy_fleet?.[0]?.["equipments"]).toEqual([
       expect.objectContaining({ name: "有効な装備", slotItemId: 42 }),
     ]);
   });
