@@ -48,7 +48,7 @@ describe("SokuSpeedIngestBodySchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.file_size).toBe("100");
-      expect(result.data.extra_field).toBe(true);
+      expect(result.data["extra_field"]).toBe(true);
     }
   });
 
