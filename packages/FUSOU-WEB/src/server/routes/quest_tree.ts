@@ -74,13 +74,13 @@ function isRulesSnapshot(v: unknown): v is RulesSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    typeof s.target_quest_id === "number" &&
-    typeof s.include_low === "boolean" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    typeof s["target_quest_id"] === "number" &&
+    typeof s["include_low"] === "boolean" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -88,11 +88,11 @@ function isGraphSnapshot(v: unknown): v is GraphSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    typeof s.period_tag === "string" &&
-    typeof s.table_version === "string" &&
-    Array.isArray(s.rows) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    typeof s["period_tag"] === "string" &&
+    typeof s["table_version"] === "string" &&
+    Array.isArray(s["rows"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
