@@ -12,7 +12,7 @@ describe("PeriodTagRowsSchema", () => {
     ]);
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data[0]?.id).toBe(1);
+  if (result.success) expect(result.data[0]?.["id"]).toBe(1);
   });
 
   it("rejects rows with a non-string tag", () => {
