@@ -20,18 +20,17 @@ import {
   loadOrRefreshCanonicalSnapshot,
 } from "../utils/snapshot-cache";
 import {
-  isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
+  ValidatedRemodelDataIngestBodySchema,
   type RemodelDataIngestBody,
+  type ValidatedRemodelDataIngestBody,
 } from "../schemas/remodel-data";
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
-const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
-const REMODEL_INGEST_SCHEMA_VERSION = 1;
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
@@ -83,10 +82,6 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-}
-
-function isValidInt(v: unknown): v is number {
-  return typeof v === "number" && Number.isFinite(v) && Number.isInteger(v);
 }
 
 async function archiveAndResetOnPeriodSwitch(
@@ -180,6 +175,7 @@ async function pruneStalePeriodsAfterSuccessfulIngest(
 
 type ValidResult = {
   ok: true;
+  body: ValidatedRemodelDataIngestBody;
   datasetId: string;
   requestId: string;
   payloadHash: string;
@@ -203,201 +199,25 @@ function validateIngestBody(
   if (!body || typeof body !== "object") {
     return { ok: false, error: "Invalid JSON body" };
   }
-
-  const datasetId = String(body.dataset_id ?? "").trim();
-  if (!datasetId) return { ok: false, error: "dataset_id is required" };
-
-  const requestId = String(body.request_id ?? "").trim();
-  if (!requestId) return { ok: false, error: "request_id is required" };
-
-  const payloadHash = String(body.payload_hash ?? "").trim();
-  if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
+  const result = ValidatedRemodelDataIngestBodySchema.safeParse(body);
+  if (!result.success) {
     return {
       ok: false,
-      error: "payload_hash must be a valid 64-char SHA-256 hex string",
+      error: result.error.issues[0]?.message ?? "Invalid JSON body",
     };
   }
 
-  const eventType = String(body.event_type ?? "").trim();
-  if (!VALID_EVENT_TYPES.has(eventType)) {
-    return {
-      ok: false,
-      error: `event_type must be one of: ${[...VALID_EVENT_TYPES].join(", ")}`,
-    };
-  }
-
-  const schemaVersion = Number(body.schema_version);
-  if (!isValidInt(schemaVersion)) {
-    return {
-      ok: false,
-      error: "schema_version must be an integer",
-    };
-  }
-  if (schemaVersion !== REMODEL_INGEST_SCHEMA_VERSION) {
-    return {
-      ok: false,
-      error: `unsupported schema_version: ${schemaVersion} (latest=${REMODEL_INGEST_SCHEMA_VERSION})`,
-    };
-  }
-
-  const periodTag = String(body.period_tag ?? "").trim();
-  if (!isValidPeriodTagDate(periodTag)) {
-    return { ok: false, error: "period_tag must be a valid calendar date" };
-  }
-
-  const timestampMs = Number(body.timestamp_ms);
-  if (!isValidInt(timestampMs) || timestampMs <= 0) {
-    return { ok: false, error: "timestamp_ms must be a positive integer" };
-  }
-
-  // --- event_type 別フィールド検証 ---
-  if (eventType === "slotlist") {
-    if (
-      !isValidInt(body.secretary_ship_master_id) ||
-      body.secretary_ship_master_id <= 0
-    ) {
-      return {
-        ok: false,
-        error: "secretary_ship_master_id must be a positive integer",
-      };
-    }
-    if (
-      !isValidInt(body.weekday_jst) ||
-      body.weekday_jst < 0 ||
-      body.weekday_jst > 6
-    ) {
-      return { ok: false, error: "weekday_jst must be 0-6" };
-    }
-    if (!Array.isArray(body.entries) || body.entries.length === 0) {
-      return {
-        ok: false,
-        error: "entries array is required and must not be empty",
-      };
-    }
-    if (body.entries.length > 2000) {
-      return {
-        ok: false,
-        error: "entries array exceeds maximum of 2000 elements",
-      };
-    }
-    const intFields = [
-      "remodel_id",
-      "slotitem_master_id",
-      "sp_type",
-      "req_fuel",
-      "req_bull",
-      "req_steel",
-      "req_bauxite",
-      "req_buildkit",
-      "req_remodelkit",
-      "req_slot_id",
-      "req_slot_num",
-    ];
-    const entries = body.entries as unknown[];
-    for (const [i, rawEntry] of entries.entries()) {
-      const entry =
-        rawEntry && typeof rawEntry === "object"
-          ? (rawEntry as Record<string, unknown>)
-          : {};
-      if (entry.remodel_step_id != null && !isValidInt(entry.remodel_step_id)) {
-        return {
-          ok: false,
-          error: `entries[${i}].remodel_step_id must be an integer or null`,
-        };
-      }
-      if (entry.remodel_level != null && !isValidInt(entry.remodel_level)) {
-        return {
-          ok: false,
-          error: `entries[${i}].remodel_level must be an integer or null`,
-        };
-      }
-      if (!isValidInt(entry.remodel_level)) {
-        return {
-          ok: false,
-          error: `entries[${i}].remodel_level is required and must be an integer`,
-        };
-      }
-      if (entry.remodel_level < 0 || entry.remodel_level > 10) {
-        return {
-          ok: false,
-          error: `entries[${i}].remodel_level must be between 0 and 10`,
-        };
-      }
-      for (const f of intFields) {
-        if (!isValidInt(entry[f])) {
-          return { ok: false, error: `entries[${i}].${f} must be an integer` };
-        }
-      }
-    }
-  }
-
-  if (eventType === "detail") {
-    if (!isValidInt(body.slotitem_master_id) || body.slotitem_master_id <= 0) {
-      return {
-        ok: false,
-        error: "slotitem_master_id must be a positive integer",
-      };
-    }
-    if (!isValidInt(body.remodel_id)) {
-      return { ok: false, error: "remodel_id must be an integer" };
-    }
-    if (body.remodel_step_id != null && !isValidInt(body.remodel_step_id)) {
-      return {
-        ok: false,
-        error: "remodel_step_id must be an integer or null",
-      };
-    }
-    if (body.remodel_level != null && !isValidInt(body.remodel_level)) {
-      return { ok: false, error: "remodel_level must be an integer or null" };
-    }
-    if (!isValidInt(body.remodel_level)) {
-      return { ok: false, error: "remodel_level is required and must be an integer" };
-    }
-    if (body.remodel_level < 0 || body.remodel_level > 10) {
-      return { ok: false, error: "remodel_level must be between 0 and 10" };
-    }
-    if (
-      !isValidInt(body.certain_buildkit) ||
-      !isValidInt(body.certain_remodelkit)
-    ) {
-      return {
-        ok: false,
-        error: "certain_buildkit and certain_remodelkit must be integers",
-      };
-    }
-    if (!isValidInt(body.change_flag)) {
-      return { ok: false, error: "change_flag must be an integer" };
-    }
-    if (
-      (body.req_slot_id != null && !isValidInt(body.req_slot_id)) ||
-      (body.req_slot_num != null && !isValidInt(body.req_slot_num))
-    ) {
-      return {
-        ok: false,
-        error: "req_slot_id and req_slot_num must be integers or null",
-      };
-    }
-    for (const f of [
-      "req_useitem_id",
-      "req_useitem_id2",
-      "req_useitem_num",
-      "req_useitem_num2",
-    ]) {
-      if (body[f] != null && !isValidInt(body[f])) {
-        return { ok: false, error: `${f} must be an integer or null` };
-      }
-    }
-  }
-
+  const parsedBody = result.data;
   return {
     ok: true,
-    datasetId,
-    requestId,
-    payloadHash,
-    eventType: eventType as "slotlist" | "detail",
-    schemaVersion,
-    periodTag,
-    timestampMs,
+    body: parsedBody,
+    datasetId: parsedBody.dataset_id,
+    requestId: parsedBody.request_id,
+    payloadHash: parsedBody.payload_hash,
+    eventType: parsedBody.event_type,
+    schemaVersion: parsedBody.schema_version,
+    periodTag: parsedBody.period_tag,
+    timestampMs: parsedBody.timestamp_ms,
   };
 }
 
@@ -811,9 +631,10 @@ app.post("/ingest", async (c) => {
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
+  const validatedBody = verified.body;
   const periodTagValidation = await validateCachedPeriodTag(
     c,
-    String(body.period_tag ?? "").trim(),
+    validatedBody.period_tag,
     { cacheKV: c.env.DATA_LOADER_CACHE_KV },
   );
   if (!periodTagValidation.ok) {
@@ -845,9 +666,9 @@ app.post("/ingest", async (c) => {
       verified.timestampMs,
     );
 
-    if (verified.eventType === "slotlist") {
+    if (validatedBody.event_type === "slotlist") {
       // D1 does not support BEGIN/COMMIT; use db.batch() for atomicity.
-      const stmts = (body.entries as Array<Record<string, unknown>>).map(
+      const stmts = validatedBody.entries.map(
         (entry) =>
           db
             .prepare(
@@ -863,8 +684,8 @@ app.post("/ingest", async (c) => {
             )
             .bind(
               verified.periodTag,
-              body.secretary_ship_master_id,
-              body.weekday_jst,
+              validatedBody.secretary_ship_master_id,
+              validatedBody.weekday_jst,
               entry.remodel_id,
               entry.remodel_step_id ?? entry.remodel_id,
               entry.remodel_level,
@@ -885,7 +706,7 @@ app.post("/ingest", async (c) => {
       for (let i = 0; i < stmts.length; i += BATCH_SIZE) {
         await db.batch(stmts.slice(i, i + BATCH_SIZE));
       }
-    } else if (verified.eventType === "detail") {
+    } else if (validatedBody.event_type === "detail") {
       await db
         .prepare(
           `INSERT OR REPLACE INTO remodel_detail_entries (
@@ -900,19 +721,19 @@ app.post("/ingest", async (c) => {
         )
         .bind(
           verified.periodTag,
-          body.slotitem_master_id,
-          body.remodel_id,
-          body.remodel_step_id ?? body.remodel_id,
-          body.remodel_level,
-          body.certain_buildkit,
-          body.certain_remodelkit,
-          body.req_slot_id ?? null,
-          body.req_slot_num ?? null,
-          body.change_flag,
-          body.req_useitem_id ?? null,
-          body.req_useitem_id2 ?? null,
-          body.req_useitem_num ?? null,
-          body.req_useitem_num2 ?? null,
+          validatedBody.slotitem_master_id,
+          validatedBody.remodel_id,
+          validatedBody.remodel_step_id ?? validatedBody.remodel_id,
+          validatedBody.remodel_level,
+          validatedBody.certain_buildkit,
+          validatedBody.certain_remodelkit,
+          validatedBody.req_slot_id ?? null,
+          validatedBody.req_slot_num ?? null,
+          validatedBody.change_flag,
+          validatedBody.req_useitem_id ?? null,
+          validatedBody.req_useitem_id2 ?? null,
+          validatedBody.req_useitem_num ?? null,
+          validatedBody.req_useitem_num2 ?? null,
           verified.timestampMs,
         )
         .run();
