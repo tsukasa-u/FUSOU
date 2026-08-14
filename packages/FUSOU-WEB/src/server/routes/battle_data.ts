@@ -933,8 +933,8 @@ app.post("/upload", async (c) => {
         }
 
         // Get size limit from env (default 64KB per table slice)
-        const maxBytes = env.buildtime.MAX_BATTLE_SLICE_BYTES
-          ? parseInt(env.buildtime.MAX_BATTLE_SLICE_BYTES, 10)
+        const maxBytes = env.buildtime["MAX_BATTLE_SLICE_BYTES"]
+          ? parseInt(env.buildtime["MAX_BATTLE_SLICE_BYTES"], 10)
           : 65536;
 
         // Validate each table slice before batching
@@ -1477,7 +1477,7 @@ app.get("/global/summary", async (c) => {
       c,
       indexDb,
       table,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
     const summaryRows = (await indexDb
@@ -1665,7 +1665,7 @@ app.get("/global/records", async (c) => {
       periodTagParam,
       {
         fieldName: "period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       },
     );
     if (!periodTagValidation.ok) {
@@ -1695,7 +1695,9 @@ app.get("/global/records", async (c) => {
     }
   }
 
-  const cacheKV = env.runtime.DATA_LOADER_CACHE_KV as KVNamespace | undefined;
+  const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as
+    | KVNamespace
+    | undefined;
   let kvKey: string | null = null;
   if (filterJsonRaw && cacheKV) {
     const hashBytes = await crypto.subtle.digest(
@@ -1724,7 +1726,7 @@ app.get("/global/records", async (c) => {
       c,
       indexDb,
       table,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
     let resolvedPeriodTag: string | null = null;
