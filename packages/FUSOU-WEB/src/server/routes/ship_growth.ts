@@ -2682,7 +2682,7 @@ app.get("/bounds", async (c) => {
         let boundsRows: Array<BoundsRow & { updated_at: number }> = [];
 
         if (totalRows > 0) {
-          const stmts: any[] = [];
+          const stmts: ReturnType<D1Database["prepare"]>[] = [];
           for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
             stmts.push(
               db.prepare(
@@ -2798,7 +2798,7 @@ app.get("/bounds", async (c) => {
         let legacyBounds: Array<BoundsRow> = [];
 
         if (totalRows > 0) {
-          const stmts: any[] = [];
+          const stmts: ReturnType<D1Database["prepare"]>[] = [];
           for (let offset = 0; offset < totalRows; offset += BOUNDS_PAGE) {
             stmts.push(
               db.prepare(
