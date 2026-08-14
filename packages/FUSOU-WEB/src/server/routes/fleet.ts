@@ -550,7 +550,7 @@ app.post("/snapshot", async (c) => {
       }
 
       // Parse and validate payload from data
-      let payload: any;
+      let payload: unknown;
       try {
         const text = new TextDecoder().decode(data);
         payload = JSON.parse(text);
@@ -618,12 +618,12 @@ app.post("/snapshot", async (c) => {
         const toKeep = new Set(
           sorted
             .slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1))
-            .map((o: any) => o.key),
+            .map((o) => o.key),
         );
         // Ensure the just-uploaded file is always kept
         toKeep.add(fileName);
         const keysToDelete = sorted
-          .map((o: any) => o.key)
+          .map((o) => o.key)
           .filter((key: string) => !toKeep.has(key));
 
         if (typeof bucket.delete !== "function") {
