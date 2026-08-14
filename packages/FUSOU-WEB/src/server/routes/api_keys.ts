@@ -447,12 +447,21 @@ app.patch("/:id", async (c) => {
     }
 
     // Verify the key exists and belongs to this user before updating
-    const existing = await supabaseRestRequest<{ id: string }[]>(
+    const existingResponse = await supabaseRestRequest(
       config,
       "api_keys",
       { query: `?id=eq.${keyId}&user_id=eq.${user.id}&select=id` },
     );
-    if (!existing || existing.length === 0) {
+    const parsedExisting = ApiKeyIdRowsSchema.safeParse(existingResponse);
+    if (!parsedExisting.success) {
+      console.error(
+        "API key update lookup response shape invalid:",
+        parsedExisting.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    if (parsedExisting.data.length === 0) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
