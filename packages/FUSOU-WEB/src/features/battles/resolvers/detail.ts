@@ -287,35 +287,35 @@ function indexedFleet(
   masterSlotItems: JsonRecord[],
   side: "own" | "enemy",
 ): JsonRecord[] {
-  const ships = new Map(masterShips.map((row) => [Number(row.id ?? 0), row]));
-  const slotItems = new Map(masterSlotItems.map((row) => [Number(row.id ?? 0), row]));
+  const ships = new Map(masterShips.map((row) => [Number(row["id"] ?? 0), row]));
+  const slotItems = new Map(masterSlotItems.map((row) => [Number(row["id"] ?? 0), row]));
   return rows.map((row) => {
-    const shipId = Number(row.ship_id ?? row.mst_ship_id ?? 0) || null;
-    const sourceSlots = (Array.isArray(row.slot_items) ? row.slot_items : [])
+    const shipId = Number(row["ship_id"] ?? row["mst_ship_id"] ?? 0) || null;
+    const sourceSlots = (Array.isArray(row["slot_items"]) ? row["slot_items"] : [])
       .filter((slot): slot is JsonRecord => {
         if (!slot || typeof slot !== "object" || Array.isArray(slot)) return false;
-        return Number((slot as JsonRecord).mst_slotitem_id ?? 0) > 0;
+        return Number((slot as JsonRecord)["mst_slotitem_id"] ?? 0) > 0;
       });
     return {
-      name: String(ships.get(shipId ?? 0)?.name ?? (shipId ? `${side === "own" ? "艦" : "敵艦"}ID:${shipId}` : side === "own" ? "味方艦" : "敵艦")),
+      name: String(ships.get(shipId ?? 0)?.["name"] ?? (shipId ? `${side === "own" ? "艦" : "敵艦"}ID:${shipId}` : side === "own" ? "味方艦" : "敵艦")),
       shipId,
       bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
-      level: Number(row.lv ?? 0) || null,
-      nowhp: Number(row.nowhp ?? 0) || 0,
-      maxhp: Number(row.maxhp ?? row.nowhp ?? 0) || 0,
-      karyoku: row.karyoku ?? null,
-      raisou: row.raisou ?? null,
-      taiku: row.taiku ?? null,
-      soukou: row.soukou ?? null,
+      level: Number(row["lv"] ?? 0) || null,
+      nowhp: Number(row["nowhp"] ?? 0) || 0,
+      maxhp: Number(row["maxhp"] ?? row["nowhp"] ?? 0) || 0,
+      karyoku: row["karyoku"] ?? null,
+      raisou: row["raisou"] ?? null,
+      taiku: row["taiku"] ?? null,
+      soukou: row["soukou"] ?? null,
       equipments: sourceSlots.map((slot) => {
-        const slotId = Number((slot as JsonRecord).mst_slotitem_id ?? 0) || null;
+        const slotId = Number((slot as JsonRecord)["mst_slotitem_id"] ?? 0) || null;
         return {
-          name: String(slotItems.get(slotId ?? 0)?.name ?? (slotId ? `装備ID:${slotId}` : "")),
-          level: Number((slot as JsonRecord).level ?? 0) || null,
+          name: String(slotItems.get(slotId ?? 0)?.["name"] ?? (slotId ? `装備ID:${slotId}` : "")),
+          level: Number((slot as JsonRecord)["level"] ?? 0) || null,
           iconType:
-            Array.isArray(slotItems.get(slotId ?? 0)?.type) &&
-            (slotItems.get(slotId ?? 0)?.type as unknown[]).length >= 4
-              ? Number((slotItems.get(slotId ?? 0)?.type as unknown[])[3] ?? 0) || null
+            Array.isArray(slotItems.get(slotId ?? 0)?.["type"]) &&
+            (slotItems.get(slotId ?? 0)?.["type"] as unknown[]).length >= 4
+              ? Number((slotItems.get(slotId ?? 0)?.["type"] as unknown[])[3] ?? 0) || null
               : null,
           slotItemId: slotId,
         };
