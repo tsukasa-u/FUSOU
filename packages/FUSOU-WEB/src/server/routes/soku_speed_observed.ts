@@ -20,6 +20,10 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
+import {
+  SokuSpeedIngestBodySchema,
+  type SokuSpeedIngestBody,
+} from "../schemas/soku-speed";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
 
@@ -37,17 +41,9 @@ interface SokuSpeedShipEntry {
   slots: SlotEntry[];
   exslot?: SlotEntry | null;
 }
-interface SokuSpeedIngestBody {
-  dataset_id?: unknown;
-  dataset_token?: unknown;
-  request_id?: unknown;
-  payload_hash?: unknown;
-  event_type?: unknown;
-  period_tag?: unknown;
-  table_version?: unknown;
-  ships?: unknown;
-  content_hash?: unknown;
-  file_size?: unknown;
+function parseSokuSpeedIngestBody(value: unknown): SokuSpeedIngestBody | null {
+  const result = SokuSpeedIngestBodySchema.safeParse(value);
+  return result.success ? result.data : null;
 }
 function isValidInt(value: unknown): value is number {
   return (
@@ -213,9 +209,9 @@ app.post("/ingest", async (c) => {
     const user = await validateJWT(bearer);
     if (!user?.id)
       return c.json({ error: "Invalid or expired JWT token" }, 401);
-    const handshakeBody = (await c.req
-      .json()
-      .catch(() => null)) as SokuSpeedIngestBody | null;
+    const handshakeBody = parseSokuSpeedIngestBody(
+      await c.req.json().catch(() => null),
+    );
     const validated = validateSokuSpeedIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const bodyPeriodTag = String(handshakeBody?.period_tag ?? "").trim();
@@ -348,12 +344,14 @@ app.post("/ingest", async (c) => {
   if (rawBody.byteLength !== validatedPayload.declared_size) {
     return c.json({ error: "file_size mismatch" }, 400);
   }
-  let body: SokuSpeedIngestBody;
+  let parsedBody: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(rawBody)) as SokuSpeedIngestBody;
+    parsedBody = JSON.parse(new TextDecoder().decode(rawBody));
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
+  const body = parseSokuSpeedIngestBody(parsedBody);
+  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
   const bodyValidated = validateSokuSpeedIngestBody(body);
   if (!bodyValidated.ok) return c.json({ error: bodyValidated.error }, 400);
   if (
