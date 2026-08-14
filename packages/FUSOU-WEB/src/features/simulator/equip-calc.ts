@@ -776,7 +776,8 @@ export function computeEquipBonuses(
         }
 
         if (bestSoku > baseSoku) {
-          bonuses.soku = (bonuses.soku || 0) + (bestSoku - baseSoku);
+          bonuses["soku"] =
+            (bonuses["soku"] || 0) + (bestSoku - baseSoku);
         }
       }
     }
@@ -815,10 +816,10 @@ export function computeEquipSum(
       if (v) sums[k] = (sums[k] || 0) + v;
     }
     const eqKaih = eq.kaih ?? eq.houk ?? 0;
-    if (eqKaih) sums.kaih = (sums.kaih || 0) + eqKaih;
+    if (eqKaih) sums["kaih"] = (sums["kaih"] || 0) + eqKaih;
     const eqLeng = eq.leng || 0;
     if (eqLeng) {
-      sums.leng = Math.max(sums.leng || 0, eqLeng);
+      sums["leng"] = Math.max(sums["leng"] || 0, eqLeng);
     }
   }
   return sums;
