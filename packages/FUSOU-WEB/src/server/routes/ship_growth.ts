@@ -1577,15 +1577,15 @@ async function fetchAndMergeArchiveObject(
   const caps = Array.isArray(parsed.rows?.caps) ? parsed.rows!.caps! : [];
 
   for (const raw of bounds as Array<Record<string, unknown>>) {
-    const masterId = Number(raw.master_id);
-    const lv = Number(raw.lv);
+    const masterId = Number(raw["master_id"]);
+    const lv = Number(raw["lv"]);
     if (!Number.isFinite(masterId) || masterId <= 0) continue;
     if (!Number.isFinite(lv) || lv <= 0) continue;
     // The source period is the OLD period the row was observed in (stored
     // inside the archive object body as raw.period_tag / raw.table_version).
     const sourcePeriod =
-      raw.period_tag && raw.table_version
-        ? `${String(raw.period_tag)}/${String(raw.table_version)}`
+      raw["period_tag"] && raw["table_version"]
+        ? `${String(raw["period_tag"])}/${String(raw["table_version"])}`
         : undefined;
     mergeBoundsRow(boundsByKey, {
       master_id: masterId,
@@ -1594,10 +1594,10 @@ async function fetchAndMergeArchiveObject(
       // but defensive clamping prevents a corrupted archive row with a negative
       // value from permanently poisoning mergeBoundsRow's min-selection logic
       // (a negative "existing" value would block all future positive updates).
-      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
-      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
-      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
-      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
+      kaihi_naked: Math.max(0, Number(raw["kaihi_naked"]) || 0),
+      taisen_naked: Math.max(0, Number(raw["taisen_naked"]) || 0),
+      sakuteki_naked: Math.max(0, Number(raw["sakuteki_naked"]) || 0),
+      lucky_naked: Math.max(0, Number(raw["lucky_naked"]) || 0),
       kaihi_source_period: sourcePeriod,
       taisen_source_period: sourcePeriod,
       sakuteki_source_period: sourcePeriod,
@@ -1606,13 +1606,13 @@ async function fetchAndMergeArchiveObject(
   }
 
   for (const raw of caps as Array<Record<string, unknown>>) {
-    const masterId = Number(raw.master_id);
+    const masterId = Number(raw["master_id"]);
     if (!Number.isFinite(masterId) || masterId <= 0) continue;
     mergeCapsRow(capsByMaster, {
       master_id: masterId,
-      kaihi_max: Number(raw.kaihi_max) || 0,
-      taisen_max: Number(raw.taisen_max) || 0,
-      sakuteki_max: Number(raw.sakuteki_max) || 0,
+      kaihi_max: Number(raw["kaihi_max"]) || 0,
+      taisen_max: Number(raw["taisen_max"]) || 0,
+      sakuteki_max: Number(raw["sakuteki_max"]) || 0,
     });
   }
 }
