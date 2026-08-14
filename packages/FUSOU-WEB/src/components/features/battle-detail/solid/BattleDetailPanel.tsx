@@ -96,12 +96,12 @@ function formatDetailLoadError(
     url?: unknown;
   } | null;
   const details = candidate?.details ?? {};
-  const phase = typeof details.phase === "string"
-    ? details.phase === "decode"
+  const phase = typeof details["phase"] === "string"
+    ? details["phase"] === "decode"
       ? "AVRO展開"
-      : details.phase === "index"
+      : details["phase"] === "index"
         ? "索引作成"
-        : details.phase
+        : details["phase"]
     : progress?.phase;
   const cause = typeof candidate?.message === "string"
     ? candidate.message
@@ -113,8 +113,8 @@ function formatDetailLoadError(
     "操作: 戦闘詳細 query",
     `対象戦闘: env_uuid=${envUuid} / battle_index=${battleIndex}`,
     `期間: ${periodTag}`,
-    typeof details.table === "string" ? `対象 table: ${details.table}` : null,
-    typeof details.relativePath === "string" ? `ファイル: ${details.relativePath}` : null,
+    typeof details["table"] === "string" ? `対象 table: ${details["table"]}` : null,
+    typeof details["relativePath"] === "string" ? `ファイル: ${details["relativePath"]}` : null,
     phase ? `処理: ${phase}` : null,
     typeof candidate?.code === "string" ? `コード: ${candidate.code}` : null,
     typeof candidate?.status === "number" ? `HTTP: ${candidate.status}` : null,
@@ -172,7 +172,7 @@ function resolveAirBaseFormations(
     formations.push({ baseNo, slotItemIds });
   };
 
-  const rawAirBaseAttacks = battle.air_base_air_attacks as
+  const rawAirBaseAttacks = battle["air_base_air_attacks"] as
     | unknown[]
     | { attacks?: unknown[] }
     | null
@@ -186,19 +186,21 @@ function resolveAirBaseFormations(
   for (const attack of attacks) {
     if (!attack || typeof attack !== "object") continue;
     const row = attack as Record<string, unknown>;
-    const slotItemIds = toPositiveNumberArray(row.squadron_plane);
-    const rawBaseNo = Number(row.airbase_base_no ?? row.base_id ?? Number.NaN);
+    const slotItemIds = toPositiveNumberArray(row["squadron_plane"]);
+    const rawBaseNo = Number(
+      row["airbase_base_no"] ?? row["base_id"] ?? Number.NaN,
+    );
     const baseNo =
       Number.isFinite(rawBaseNo) && rawBaseNo > 0 ? Math.trunc(rawBaseNo) : null;
     register(baseNo, slotItemIds);
   }
 
   const assault =
-    battle.air_base_assault && typeof battle.air_base_assault === "object"
-      ? (battle.air_base_assault as Record<string, unknown>)
+    battle["air_base_assault"] && typeof battle["air_base_assault"] === "object"
+      ? (battle["air_base_assault"] as Record<string, unknown>)
       : null;
-  const assaultSquadron = toPositiveNumberArray(assault?.squadron_plane);
-  const assaultBaseNos = toPositiveNumberArray(assault?.airbase_base_nos);
+  const assaultSquadron = toPositiveNumberArray(assault?.["squadron_plane"]);
+  const assaultBaseNos = toPositiveNumberArray(assault?.["airbase_base_nos"]);
   if (assaultSquadron.length > 0) {
     if (assaultBaseNos.length > 0) {
       for (const baseNo of assaultBaseNos) {
@@ -365,9 +367,9 @@ export default function BattleDetailPanel(props: {
     };
 
     const hasAirbaseContext =
-      hasData(b.air_base_assault) ||
-      hasData(b.air_base_air_attacks) ||
-      hasData(b.destruction_battle);
+      hasData(b["air_base_assault"]) ||
+      hasData(b["air_base_air_attacks"]) ||
+      hasData(b["destruction_battle"]);
     if (!hasAirbaseContext) return false;
 
     const resolved = resolvedTableVersion();
@@ -396,7 +398,8 @@ export default function BattleDetailPanel(props: {
     const b = battle();
     if (!b) return "-";
     const tsValue =
-      normalizeEpochMs(b.timestamp) ?? normalizeEpochMs(b.midnight_timestamp);
+      normalizeEpochMs(b["timestamp"]) ??
+      normalizeEpochMs(b["midnight_timestamp"]);
     return tsValue
       ? new Date(tsValue).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })
       : "-";
@@ -405,8 +408,8 @@ export default function BattleDetailPanel(props: {
   const mapText = createMemo(() => {
     const b = battle();
     if (!b) return "-";
-    const mapAreaId = Number(b.maparea_id ?? NaN);
-    const mapInfoNo = Number(b.mapinfo_no ?? NaN);
+    const mapAreaId = Number(b["maparea_id"] ?? NaN);
+    const mapInfoNo = Number(b["mapinfo_no"] ?? NaN);
     if (!Number.isFinite(mapAreaId) || !Number.isFinite(mapInfoNo) || mapAreaId <= 0 || mapInfoNo <= 0) {
       const fallback = mapLabel();
       if (!fallback) return "-";
@@ -448,16 +451,16 @@ export default function BattleDetailPanel(props: {
     mapAreaIdOverride?: number,
     mapInfoNoOverride?: number,
   ): Promise<string> {
-    const rawCellId = Number(battleRecord.cell_id ?? NaN);
+    const rawCellId = Number(battleRecord["cell_id"] ?? NaN);
     if (!Number.isFinite(rawCellId)) return "-";
     if (rawCellId === 0) return "港";
 
     const mapAreaId = Number.isFinite(mapAreaIdOverride)
       ? Number(mapAreaIdOverride)
-      : Number(battleRecord.maparea_id ?? NaN);
+      : Number(battleRecord["maparea_id"] ?? NaN);
     const mapInfoNo = Number.isFinite(mapInfoNoOverride)
       ? Number(mapInfoNoOverride)
-      : Number(battleRecord.mapinfo_no ?? NaN);
+      : Number(battleRecord["mapinfo_no"] ?? NaN);
     if (
       !Number.isFinite(mapAreaId) ||
       !Number.isFinite(mapInfoNo) ||
@@ -487,8 +490,8 @@ export default function BattleDetailPanel(props: {
   const formations = createMemo(() => {
     const b = battle();
     if (!b) return { f: "-", e: "-" };
-    const fForm = b.f_formation ?? (b.formation as any)?.[0] ?? 0;
-    const eForm = b.e_formation ?? (b.formation as any)?.[1] ?? 0;
+    const fForm = b["f_formation"] ?? (b["formation"] as any)?.[0] ?? 0;
+    const eForm = b["e_formation"] ?? (b["formation"] as any)?.[1] ?? 0;
     return {
       f: FORMATION_NAMES[Number(fForm)] ?? "-",
       e: FORMATION_NAMES[Number(eForm)] ?? "-",
@@ -498,9 +501,9 @@ export default function BattleDetailPanel(props: {
   const airInfo = createMemo(() => {
     const b = battle();
     if (!b) return null;
-    const openingAir = Array.isArray(b.opening_air_attack)
-      ? (b.opening_air_attack as any)[0]
-      : b.opening_air_attack;
+    const openingAir = Array.isArray(b["opening_air_attack"])
+      ? (b["opening_air_attack"] as any)[0]
+      : b["opening_air_attack"];
     if (!openingAir || typeof openingAir !== "object") {
       return null;
     }
@@ -530,7 +533,7 @@ export default function BattleDetailPanel(props: {
   const rank = createMemo(() => {
     const b = battle();
     if (!b) return "-";
-    return String((b.battle_result as any)?.win_rank ?? "-");
+    return String((b["battle_result"] as any)?.win_rank ?? "-");
   });
 
   const rankCls = createMemo(() => RANK_COLORS[rank()] ?? "");
@@ -628,12 +631,12 @@ export default function BattleDetailPanel(props: {
             signal,
           }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined })) as BattleOverviewPayload;
           const orderedRows = (overview.battles || [])
-            .filter((row) => String(row.env_uuid ?? "") === envUuid)
+            .filter((row) => String(row["env_uuid"] ?? "") === envUuid)
             .map((row) => ({
-              index: Number(row.index ?? Number.NaN),
+              index: Number(row["index"] ?? Number.NaN),
               ts:
-                normalizeEpochMs(row.timestamp) ??
-                normalizeEpochMs(row.midnight_timestamp),
+                normalizeEpochMs(row["timestamp"]) ??
+                normalizeEpochMs(row["midnight_timestamp"]),
             }))
             .filter((row) => Number.isFinite(row.index) && row.index >= 0)
             .sort((a, b) => {
@@ -715,10 +718,10 @@ export default function BattleDetailPanel(props: {
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
           const resolvedMstShip = new Map(
-            (payload.refs?.mst_ship || []).map((row) => [Number(row.id), row]),
+            (payload.refs?.mst_ship || []).map((row) => [Number(row["id"]), row]),
           );
           const resolvedMstSlotItem = new Map(
-            (payload.refs?.mst_slotitem || []).map((row) => [Number(row.id), row]),
+            (payload.refs?.mst_slotitem || []).map((row) => [Number(row["id"]), row]),
           );
           const fullMstSlotItem = await getMstSlotItemById(signal);
           const effectiveMstSlotItem = new Map(fullMstSlotItem);
@@ -744,14 +747,14 @@ export default function BattleDetailPanel(props: {
           await getWeaponIconFrames(signal);
 
           const dropShipId =
-            Number((detailBattle.battle_result as any)?.drop_ship_id ?? 0) || 0;
+            Number((detailBattle["battle_result"] as any)?.drop_ship_id ?? 0) || 0;
           const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
-          const mapAreaId = Number(detailBattle.maparea_id ?? NaN);
-          const mapInfoNo = Number(detailBattle.mapinfo_no ?? NaN);
+          const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
+          const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
           const linkedCell = Array.isArray(payload.linked?.cells)
             ? payload.linked?.cells.find((row) => {
-                const area = Number(row.maparea_id ?? NaN);
-                const info = Number(row.mapinfo_no ?? NaN);
+                const area = Number(row["maparea_id"] ?? NaN);
+                const info = Number(row["mapinfo_no"] ?? NaN);
                 return (
                   Number.isFinite(area) &&
                   Number.isFinite(info) &&
@@ -760,8 +763,8 @@ export default function BattleDetailPanel(props: {
                 );
               })
             : undefined;
-          const fallbackMapAreaId = Number(linkedCell?.maparea_id ?? NaN);
-          const fallbackMapInfoNo = Number(linkedCell?.mapinfo_no ?? NaN);
+          const fallbackMapAreaId = Number(linkedCell?.["maparea_id"] ?? NaN);
+          const fallbackMapInfoNo = Number(linkedCell?.["mapinfo_no"] ?? NaN);
           const resolvedMapAreaId =
             Number.isFinite(mapAreaId) && mapAreaId > 0
               ? mapAreaId
@@ -797,7 +800,7 @@ export default function BattleDetailPanel(props: {
             dropShipId > 0
               ? {
                   shipId: dropShipId,
-                  name: String(dropShip?.name ?? `艦#${dropShipId}`),
+                  name: String(dropShip?.["name"] ?? `艦#${dropShipId}`),
                   bannerUrl: bannerUrl(dropShipId, { f: "auto" }),
                 }
               : null,
