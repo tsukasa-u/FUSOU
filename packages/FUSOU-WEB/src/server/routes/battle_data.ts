@@ -27,6 +27,7 @@ import {
 import { buildBattleOverviewPayload } from "../../features/battles/resolvers/overview";
 import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
+import { parseBattleChunkRows } from "../schemas/battle-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
@@ -1212,7 +1213,10 @@ app.get("/chunks", async (c) => {
       throw new Error("D1 returned no results for chunks query");
     }
 
-    const rows = (result.results || []) as any[];
+    const rows = parseBattleChunkRows(result.results || []);
+    if (!rows) {
+      throw new Error("D1 returned malformed results for chunks query");
+    }
     // Map block_indexes to response format
     const chunks = rows.map((r) => ({
       id: r.id,
