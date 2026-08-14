@@ -148,25 +148,27 @@ export function buildTimelineEvents(
     if (!Array.isArray(rows)) return;
     for (const row of rows) {
       const r = row as Record<string, unknown>;
-      const atkEnemy = Number(r.at_eflag ?? 0) !== 0;
+      const atkEnemy = Number(r["at_eflag"] ?? 0) !== 0;
       const attackerSide: "friend" | "enemy" = atkEnemy ? "enemy" : "friend";
       const defenderSide: "friend" | "enemy" = atkEnemy ? "friend" : "enemy";
-      const defs = Array.isArray(r.df) ? (r.df as unknown[]) : [];
-      const dmgs = Array.isArray(r.damage) ? (r.damage as unknown[]) : [];
-      const clsMask = Array.isArray(r.cl) ? (r.cl as unknown[]) : [];
-      const sis = Array.isArray(r.si) ? (r.si as unknown[]) : [];
+      const defs = Array.isArray(r["df"]) ? (r["df"] as unknown[]) : [];
+      const dmgs = Array.isArray(r["damage"])
+        ? (r["damage"] as unknown[])
+        : [];
+      const clsMask = Array.isArray(r["cl"]) ? (r["cl"] as unknown[]) : [];
+      const sis = Array.isArray(r["si"]) ? (r["si"] as unknown[]) : [];
       const fHps = shiftHpArray((
-        Array.isArray(r.f_now_hps)
-          ? r.f_now_hps
-          : Array.isArray(r.f_nowhps)
-            ? r.f_nowhps
+        Array.isArray(r["f_now_hps"])
+          ? r["f_now_hps"]
+          : Array.isArray(r["f_nowhps"])
+            ? r["f_nowhps"]
             : []
       ) as number[]);
       const eHps = shiftHpArray((
-        Array.isArray(r.e_now_hps)
-          ? r.e_now_hps
-          : Array.isArray(r.e_nowhps)
-            ? r.e_nowhps
+        Array.isArray(r["e_now_hps"])
+          ? r["e_now_hps"]
+          : Array.isArray(r["e_nowhps"])
+            ? r["e_nowhps"]
             : []
       ) as number[]);
 
@@ -174,7 +176,7 @@ export function buildTimelineEvents(
         attackerSide === "friend" ? fHps.length : eHps.length;
       const defenderLimit =
         defenderSide === "friend" ? fHps.length : eHps.length;
-      const attackerIdx = toValidIndex(Number(r.at ?? -1), attackerLimit);
+      const attackerIdx = toValidIndex(Number(r["at"] ?? -1), attackerLimit);
 
       for (let i = 0; i < defs.length; i++) {
         const rawDef = Number(defs[i] ?? -1);
