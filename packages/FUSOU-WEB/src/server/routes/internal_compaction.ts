@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
-import { ListSourceGroupsRequestSchema } from "../schemas/internal-compaction";
+import {
+  ListSourceGroupsRequestSchema,
+  ListSourceTablesRequestSchema,
+} from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
 
@@ -308,16 +311,21 @@ app.post("/list-source-tables", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tier = body?.tier;
-  const windowStart = Number(body?.window_start_ms);
-  const windowEnd = Number(body?.window_end_ms);
+  const parsedBody = ListSourceTablesRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) return c.json({ error: "tier is invalid" }, 400);
+
+  const {
+    tier,
+    window_start_ms: windowStart,
+    window_end_ms: windowEnd,
+  } = parsedBody.data;
 
   if (!isTier(tier)) return c.json({ error: "tier is invalid" }, 400);
 
@@ -333,13 +341,13 @@ app.post("/list-source-tables", async (c) => {
 
   const params: Array<string | number> = [tier, ...EXCLUDED_COMPACTION_TABLE_VERSIONS];
 
-  if (Number.isFinite(windowStart)) {
+  if (windowStart !== undefined) {
     sql +=
       " AND ((bi.window_start_ms IS NOT NULL AND bi.window_start_ms >= ?) OR (bi.window_start_ms IS NULL AND bi.start_timestamp >= ?))";
     params.push(windowStart, windowStart);
   }
 
-  if (Number.isFinite(windowEnd)) {
+  if (windowEnd !== undefined) {
     sql +=
       " AND ((bi.window_end_ms IS NOT NULL AND bi.window_end_ms <= ?) OR (bi.window_end_ms IS NULL AND bi.end_timestamp <= ?))";
     params.push(windowEnd, windowEnd);
