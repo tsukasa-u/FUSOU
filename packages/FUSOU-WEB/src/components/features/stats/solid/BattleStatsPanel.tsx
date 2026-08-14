@@ -220,11 +220,15 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     const dailySortiesRaw = Object.entries(dailyCounts).sort(([a], [b]) => a.localeCompare(b));
     const dailySorties: DailyPoint[] = [];
     if (dailySortiesRaw.length > 0) {
-      const firstDate = new Date(dailySortiesRaw[0][0]);
-      const lastDate = new Date(dailySortiesRaw[dailySortiesRaw.length - 1][0]);
-      for (let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
-        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-        dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+      const firstEntry = dailySortiesRaw[0];
+      const lastEntry = dailySortiesRaw[dailySortiesRaw.length - 1];
+      if (firstEntry && lastEntry) {
+        const firstDate = new Date(firstEntry[0]);
+        const lastDate = new Date(lastEntry[0]);
+        for (let d = new Date(firstDate); d <= lastDate; d.setDate(d.getDate() + 1)) {
+          const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          dailySorties.push({ date: dateStr, count: dailyCounts[dateStr] ?? 0 });
+        }
       }
     }
 
@@ -283,8 +287,12 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     Object.entries(stats().mapAreaStats).sort((a, b) => {
       if (a[0] === "不明") return 1;
       if (b[0] === "不明") return -1;
-      const [aArea, aInfo] = a[0].split("-").map(Number);
-      const [bArea, bInfo] = b[0].split("-").map(Number);
+      const aParts = a[0].split("-").map(Number);
+      const bParts = b[0].split("-").map(Number);
+      const aArea = aParts[0] ?? 0;
+      const aInfo = aParts[1] ?? 0;
+      const bArea = bParts[0] ?? 0;
+      const bInfo = bParts[1] ?? 0;
       if (aArea !== bArea) return aArea - bArea;
       return aInfo - bInfo;
     }),
@@ -330,6 +338,10 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
                 const width = 740;
                 const height = 210;
                 const stepX = points.length === 1 ? 0 : width / (points.length - 1);
+                const firstPoint = points[0];
+                if (!firstPoint) return null;
+                const middlePoint = points[Math.floor(points.length / 2)];
+                const lastPoint = points[points.length - 1];
                 const [hoveredIdx, setHoveredIdx] = createSignal<number | null>(null);
 
                 return (
@@ -352,12 +364,12 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
                       {/* X-axis labels (Start, Middle, End) */}
                       <Show when={points.length > 0}>
-                        <text x="40" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="start">{points[0].date}</text>
+                        <text x="40" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="start">{firstPoint.date}</text>
                         <Show when={points.length > 2}>
-                          <text x={40 + width / 2} y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="middle">{points[Math.floor(points.length / 2)].date}</text>
+                          <text x={40 + width / 2} y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="middle">{middlePoint?.date}</text>
                         </Show>
                         <Show when={points.length > 1}>
-                          <text x="780" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="end">{points[points.length - 1].date}</text>
+                          <text x="780" y="245" fill="currentColor" class="text-[10px] text-base-content/50" text-anchor="end">{lastPoint?.date}</text>
                         </Show>
                       </Show>
 
@@ -396,6 +408,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
                       {(() => {
                         const idx = hoveredIdx()!;
                         const p = points[idx];
+                        if (!p) return null;
                         const cx = 40 + idx * stepX;
                         const cy = 20 + height - (p.count / maxY) * height;
                         const isRightHalf = idx > points.length / 2;
