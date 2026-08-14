@@ -142,7 +142,7 @@ export function parseStrictBoolean(
 
 /** 署名付きトークンを生成 */
 export async function generateSignedToken(
-  payload: Record<string, any>,
+  payload: Record<string, unknown>,
   secret: string,
   expiresInSeconds: number,
 ): Promise<string> {
@@ -158,11 +158,11 @@ export async function generateSignedToken(
 export async function verifySignedToken(
   token: string,
   secret: string,
-): Promise<Record<string, any> | null> {
+): Promise<Record<string, unknown> | null> {
   try {
     const secretKey = new TextEncoder().encode(secret);
     const { payload } = await jwtVerify(token, secretKey);
-    return payload as Record<string, any>;
+    return payload as Record<string, unknown>;
   } catch {
     return null;
   }
@@ -481,7 +481,7 @@ function getJWKS() {
 export async function validateJWT(token: string): Promise<{
   id?: string;
   email?: string;
-  payload?: Record<string, any>;
+  payload?: Record<string, unknown>;
 } | null> {
   try {
     const { url: supabaseUrl, jwks } = getJWKS();
@@ -501,7 +501,7 @@ export async function validateJWT(token: string): Promise<{
     return {
       id: typeof payload.sub === "string" ? payload.sub : undefined,
       email: typeof payload.email === "string" ? payload.email : undefined,
-      payload: payload as Record<string, any>,
+      payload: payload as Record<string, unknown>,
     };
   } catch (error) {
     console.error("validateJWT: JWT verification failed:", error);
@@ -517,12 +517,14 @@ function isValidMemberIdHash(value: unknown): value is string {
 }
 
 export function extractMemberIdHashFromJwtPayload(
-  payload?: Record<string, any>,
+  payload?: Record<string, unknown>,
 ): string | null {
+  const userMetadata = asEnvRecord(payload?.user_metadata);
+  const appMetadata = asEnvRecord(payload?.app_metadata);
   const candidates = [
     payload?.member_id_hash,
-    payload?.user_metadata?.member_id_hash,
-    payload?.app_metadata?.member_id_hash,
+    userMetadata.member_id_hash,
+    appMetadata.member_id_hash,
   ];
 
   for (const candidate of candidates) {
@@ -537,7 +539,7 @@ export function extractMemberIdHashFromJwtPayload(
 export async function resolveLinkedMemberIdHashForUser(options: {
   supabaseAdmin: any;
   userId?: string;
-  jwtPayload?: Record<string, any>;
+  jwtPayload?: Record<string, unknown>;
 }): Promise<{
   memberIdHash: string | null;
   source: "jwt_metadata" | "canonical_owner" | null;
@@ -848,7 +850,7 @@ export async function verifyR2SignedUrl(
 
     // 有効期限確認
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return false;
+    if (typeof payload.exp === "number" && payload.exp < now) return false;
 
     return true;
   } catch (error) {
