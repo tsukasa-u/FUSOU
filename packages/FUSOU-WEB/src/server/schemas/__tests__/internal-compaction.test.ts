@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ListSourceGroupsRequestSchema,
   ListSourceTablesRequestSchema,
+  ResolveSourceWindowRangeRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -56,6 +57,26 @@ describe("ListSourceTablesRequestSchema", () => {
   it("rejects an invalid tier", () => {
     expect(
       ListSourceTablesRequestSchema.safeParse({ tier: "monthly" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ResolveSourceWindowRangeRequestSchema", () => {
+  it("accepts a tier and table name array", () => {
+    const result = ResolveSourceWindowRangeRequestSchema.safeParse({
+      tier: "weekly",
+      table_names: ["battle", 123],
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a non-array table_names value", () => {
+    expect(
+      ResolveSourceWindowRangeRequestSchema.safeParse({
+        tier: "weekly",
+        table_names: "battle",
+      }).success,
     ).toBe(false);
   });
 });

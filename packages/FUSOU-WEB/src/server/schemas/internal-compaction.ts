@@ -46,3 +46,14 @@ export const ListSourceTablesRequestSchema = z
 export type ListSourceTablesRequest = z.infer<
   typeof ListSourceTablesRequestSchema
 >;
+
+export const ResolveSourceWindowRangeRequestSchema = z
+  .object({
+    tier: CompactionTierSchema.optional(),
+    table_names: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+
+export type ResolveSourceWindowRangeRequest = z.infer<
+  typeof ResolveSourceWindowRangeRequestSchema
+>;

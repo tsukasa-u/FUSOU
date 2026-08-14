@@ -3,6 +3,7 @@ import type { Bindings } from "../types";
 import {
   ListSourceGroupsRequestSchema,
   ListSourceTablesRequestSchema,
+  ResolveSourceWindowRangeRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -383,16 +384,27 @@ app.post("/resolve-source-window-range", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tier = body?.tier;
-  const tableNames = Array.isArray(body?.table_names)
-    ? body.table_names.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
+  const parsedBody = ResolveSourceWindowRangeRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    if (field === "table_names") {
+      return c.json({ error: "table_names is required" }, 400);
+    }
+    return c.json({ error: "tier is invalid" }, 400);
+  }
+
+  const { tier } = parsedBody.data;
+  const tableNames = parsedBody.data.table_names
+    ? parsedBody.data.table_names
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
     : [];
 
   if (!isTier(tier)) return c.json({ error: "tier is invalid" }, 400);
