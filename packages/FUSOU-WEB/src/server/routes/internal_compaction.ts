@@ -12,6 +12,7 @@ import {
   ResolveTableVersionRequestSchema,
   ListSourceBlocksRequestSchema,
   CleanupConsumedSourcesRequestSchema,
+  RegisterOutputRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -760,29 +761,47 @@ app.post("/register-output", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const filePath = String(body?.file_path ?? "").trim();
-  const lockToken = String(body?.lock_token ?? "").trim();
-  const tableVersion = String(body?.table_version ?? "").trim();
-  const compactionTier = body?.compaction_tier;
-  const sourceTier = String(body?.source_tier ?? "").trim();
-  const windowStart = Number(body?.window_start_ms);
-  const windowEnd = Number(body?.window_end_ms);
-  const fileSize = Number(body?.file_size);
-  const codec = String(body?.compression_codec ?? "deflate").trim();
-  const blocks = Array.isArray(body?.blocks) ? body.blocks : [];
+  const parsedBody = RegisterOutputRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = String(parsedBody.error.issues[0]?.path[0]);
+    if (field === "compaction_tier") {
+      return c.json({ error: "compaction_tier is invalid" }, 400);
+    }
+    if (field === "file_size") {
+      return c.json({ error: "file_size is invalid" }, 400);
+    }
+    return c.json({ error: "Invalid JSON" }, 400);
+  }
+
+  const {
+    file_path: filePath = "",
+    lock_token: lockToken = "",
+    table_version: tableVersion = "",
+    compaction_tier: compactionTier,
+    source_tier: sourceTier = "",
+    window_start_ms: windowStart,
+    window_end_ms: windowEnd,
+    file_size: fileSize,
+    compression_codec: codec = "deflate",
+    blocks,
+  } = parsedBody.data;
   if (!filePath) return c.json({ error: "file_path is required" }, 400);
   if (!lockToken) return c.json({ error: "lock_token is required" }, 400);
   if (!tableVersion) return c.json({ error: "table_version is required" }, 400);
   if (!isTier(compactionTier)) return c.json({ error: "compaction_tier is invalid" }, 400);
   if (!sourceTier) return c.json({ error: "source_tier is required" }, 400);
-  if (!Number.isFinite(fileSize) || fileSize < 0) {
+  if (
+    fileSize === undefined ||
+    !Number.isFinite(fileSize) ||
+    fileSize < 0
+  ) {
     return c.json({ error: "file_size is invalid" }, 400);
   }
   if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) {
@@ -850,15 +869,19 @@ app.post("/register-output", async (c) => {
   }> = [];
 
   for (const block of blocks) {
-    const datasetId = String(block?.dataset_id ?? "").trim();
-    const tableName = String(block?.table_name ?? "").trim();
-    const periodTag = String(block?.period_tag ?? "").trim();
-    const startByte = Number(block?.start_byte);
-    const length = Number(block?.length);
-    const recordCount = Number(block?.record_count ?? 0);
-    const startTs = Number(block?.start_timestamp ?? 0);
-    const endTs = Number(block?.end_timestamp ?? 0);
-    const sourceFileCount = Number(block?.source_file_count ?? 1);
+    const blockRecord =
+      block && typeof block === "object"
+        ? (block as Record<string, unknown>)
+        : {};
+    const datasetId = String(blockRecord.dataset_id ?? "").trim();
+    const tableName = String(blockRecord.table_name ?? "").trim();
+    const periodTag = String(blockRecord.period_tag ?? "").trim();
+    const startByte = Number(blockRecord.start_byte);
+    const length = Number(blockRecord.length);
+    const recordCount = Number(blockRecord.record_count ?? 0);
+    const startTs = Number(blockRecord.start_timestamp ?? 0);
+    const endTs = Number(blockRecord.end_timestamp ?? 0);
+    const sourceFileCount = Number(blockRecord.source_file_count ?? 1);
 
     if (!datasetId || !tableName || !periodTag) {
       return c.json({ error: "invalid block metadata" }, 400);

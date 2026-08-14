@@ -22,6 +22,16 @@ const SourceFileIdsRequestFieldSchema = z.preprocess(
   z.array(z.unknown()),
 );
 
+const FileSizeRequestFieldSchema = z.preprocess(
+  (value) => (value === undefined ? undefined : Number(value)),
+  z.number().finite().optional(),
+);
+
+const BlocksRequestFieldSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value : []),
+  z.array(z.unknown()),
+);
+
 const TableNameSchema = z.preprocess(
   (value) => String(value ?? "").trim(),
   z.string(),
@@ -182,3 +192,30 @@ export const CleanupConsumedSourcesRequestSchema = z
 export type CleanupConsumedSourcesRequest = z.infer<
   typeof CleanupConsumedSourcesRequestSchema
 >;
+
+export const RegisterOutputRequestSchema = z
+  .preprocess(
+    (value) =>
+      value && typeof value === "object" && !Array.isArray(value) ? value : {},
+    z
+      .object({
+        file_path: TrimmedStringRequestFieldSchema.optional(),
+        lock_token: TrimmedStringRequestFieldSchema.optional(),
+        table_version: TrimmedStringRequestFieldSchema.optional(),
+        compaction_tier: CompactionTierSchema.optional(),
+        source_tier: TrimmedStringRequestFieldSchema.optional(),
+        window_start_ms: OptionalNumericRequestFieldSchema,
+        window_end_ms: OptionalNumericRequestFieldSchema,
+        file_size: FileSizeRequestFieldSchema,
+        compression_codec: z
+          .preprocess(
+            (value) => String(value ?? "deflate").trim(),
+            z.string(),
+          )
+          .default("deflate"),
+        blocks: BlocksRequestFieldSchema,
+      })
+      .passthrough(),
+  );
+
+export type RegisterOutputRequest = z.infer<typeof RegisterOutputRequestSchema>;

@@ -11,6 +11,7 @@ import {
   ResolveTableVersionRequestSchema,
   ListSourceBlocksRequestSchema,
   CleanupConsumedSourcesRequestSchema,
+  RegisterOutputRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -294,5 +295,53 @@ describe("CleanupConsumedSourcesRequestSchema", () => {
         source_file_ids: "1",
       }).source_file_ids,
     ).toEqual([]);
+  });
+});
+
+describe("RegisterOutputRequestSchema", () => {
+  it("coerces top-level fields and defaults codec and blocks", () => {
+    const result = RegisterOutputRequestSchema.safeParse({
+      file_path: " output.avro ",
+      lock_token: " token ",
+      table_version: " 1.0 ",
+      compaction_tier: "daily",
+      source_tier: " hourly ",
+      window_start_ms: "100",
+      window_end_ms: 200,
+      file_size: "300",
+      blocks: [{ dataset_id: "battle" }],
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.file_path).toBe("output.avro");
+      expect(result.data.source_tier).toBe("hourly");
+      expect(result.data.window_start_ms).toBe(100);
+      expect(result.data.file_size).toBe(300);
+      expect(result.data.compression_codec).toBe("deflate");
+      expect(result.data.blocks).toHaveLength(1);
+    }
+  });
+
+  it("preserves route-level required errors for omitted fields", () => {
+    const result = RegisterOutputRequestSchema.safeParse({});
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.blocks).toEqual([]);
+      expect(result.data.compression_codec).toBe("deflate");
+      expect(result.data.file_size).toBeUndefined();
+    }
+  });
+
+  it("rejects invalid compaction tiers and file sizes", () => {
+    expect(
+      RegisterOutputRequestSchema.safeParse({
+        compaction_tier: "monthly",
+      }).success,
+    ).toBe(false);
+    expect(
+      RegisterOutputRequestSchema.safeParse({ file_size: "invalid" }).success,
+    ).toBe(false);
   });
 });
