@@ -149,7 +149,7 @@ async function handlePreparation(
       // JWT user_id と一致することを要求するとマルチデバイスで 403 になる。
       // データ帰属はdataset_id (member_id_hash) の照合で担保する。
     });
-    if (!tokenValidation.ok) {
+    if (!tokenValidation.ok || !tokenValidation.token) {
       return c.json(
         { error: tokenValidation.error },
         tokenValidation.status ?? 401,
