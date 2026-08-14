@@ -111,3 +111,19 @@ export const AcquireOutputLockRequestSchema = z
 export type AcquireOutputLockRequest = z.infer<
   typeof AcquireOutputLockRequestSchema
 >;
+
+const DefaultWeeklyTierRequestFieldSchema = z.preprocess(
+  (value) => String(value ?? "weekly").trim(),
+  z.string(),
+);
+
+export const PeriodRolloverCheckRequestSchema = z
+  .object({
+    table_name: TrimmedStringRequestFieldSchema.optional(),
+    source_tier: DefaultWeeklyTierRequestFieldSchema,
+  })
+  .passthrough();
+
+export type PeriodRolloverCheckRequest = z.infer<
+  typeof PeriodRolloverCheckRequestSchema
+>;

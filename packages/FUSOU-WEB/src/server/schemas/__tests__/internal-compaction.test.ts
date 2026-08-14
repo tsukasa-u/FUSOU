@@ -7,6 +7,7 @@ import {
   VerifyOutputVisibleRequestSchema,
   ReleaseOutputLockRequestSchema,
   AcquireOutputLockRequestSchema,
+  PeriodRolloverCheckRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -179,5 +180,29 @@ describe("AcquireOutputLockRequestSchema", () => {
 
   it("accepts omitted required fields for route-level errors", () => {
     expect(AcquireOutputLockRequestSchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("PeriodRolloverCheckRequestSchema", () => {
+  it("defaults source_tier to weekly", () => {
+    const result = PeriodRolloverCheckRequestSchema.safeParse({
+      table_name: " battle ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.table_name).toBe("battle");
+      expect(result.data.source_tier).toBe("weekly");
+    }
+  });
+
+  it("preserves a supplied source tier", () => {
+    const result = PeriodRolloverCheckRequestSchema.safeParse({
+      table_name: "battle",
+      source_tier: " daily ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.source_tier).toBe("daily");
   });
 });

@@ -8,6 +8,7 @@ import {
   VerifyOutputVisibleRequestSchema,
   ReleaseOutputLockRequestSchema,
   AcquireOutputLockRequestSchema,
+  PeriodRolloverCheckRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -1016,15 +1017,22 @@ app.post("/period-rollover-check", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tableName = String(body?.table_name ?? "").trim();
-  const sourceTierRaw = String(body?.source_tier ?? "weekly").trim();
+  const parsedBody = PeriodRolloverCheckRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return c.json({ error: "table_name is required" }, 400);
+  }
+
+  const {
+    table_name: tableName,
+    source_tier: sourceTierRaw,
+  } = parsedBody.data;
   const sourceTier = sourceTierRaw as CompactionTier;
 
   if (!tableName) return c.json({ error: "table_name is required" }, 400);
