@@ -1161,7 +1161,7 @@ function buildAggregatedShipGrowthRows(
       }
     }
 
-    if (ship.lv > 0) {
+    if (ship.lv > 0 && derived) {
       const boundKey = `${ship.master_id}:${ship.lv}`;
       const existingBound = boundsByKey.get(boundKey);
       if (!existingBound) {
