@@ -43,6 +43,13 @@ const QuestListEntrySchema = z.preprocess(
     .passthrough(),
 );
 
+export const QuestIngestEventIdRowSchema = z
+  .object({
+    id: z.number().int(),
+  })
+  .passthrough()
+  .nullable();
+
 export const QuestTreeIngestBodySchema = z
   .object({
     dataset_id: OptionalTrimmedStringFieldSchema,

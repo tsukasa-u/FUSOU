@@ -23,6 +23,7 @@ import {
 import { validateCachedPeriodTag } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
+  QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
@@ -244,14 +245,21 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
     atMs,
   } = validated;
 
-  const existing = (await db
+  const existingResult = await db
     .prepare(
       `SELECT id FROM quest_ingest_events WHERE request_id = ? AND payload_hash = ? LIMIT 1`,
     )
     .bind(requestId, payloadHash)
-    .first<D1Result>()) as { id?: number } | null;
+    .first<D1Result>();
+  const parsedExisting = QuestIngestEventIdRowSchema.safeParse(existingResult);
+  if (!parsedExisting.success) {
+    return {
+      status: 500,
+      body: { error: "Invalid quest ingest lookup response" },
+    };
+  }
 
-  if (existing?.id) {
+  if (parsedExisting.data?.id) {
     return {
       status: 200,
       body: { ok: true, idempotent: true, message: "already ingested" },

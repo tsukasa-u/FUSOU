@@ -1,8 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
+  QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
 } from "../quest-tree";
+
+describe("QuestIngestEventIdRowSchema", () => {
+  it("accepts an id row and an empty lookup", () => {
+    expect(QuestIngestEventIdRowSchema.safeParse({ id: 1 }).success).toBe(
+      true,
+    );
+    expect(QuestIngestEventIdRowSchema.safeParse(null).success).toBe(true);
+  });
+
+  it("rejects malformed id rows", () => {
+    expect(QuestIngestEventIdRowSchema.safeParse({ id: "1" }).success).toBe(
+      false,
+    );
+    expect(QuestIngestEventIdRowSchema.safeParse({}).success).toBe(false);
+  });
+});
 
 describe("QuestTreeIngestBodySchema", () => {
   it("trims metadata and coerces integer-like fields", () => {
