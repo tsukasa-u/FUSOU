@@ -278,14 +278,14 @@ export function applyExportedFleet(data: Record<string, unknown>) {
     }
   }
 
-  if (data.snapshotSlotItems && typeof data.snapshotSlotItems === "object") {
-    for (const [k, v] of Object.entries(data.snapshotSlotItems as Record<string, unknown>)) {
+  if (data["snapshotSlotItems"] && typeof data["snapshotSlotItems"] === "object") {
+    for (const [k, v] of Object.entries(data["snapshotSlotItems"] as Record<string, unknown>)) {
       const rec = v as Record<string, unknown>;
       const iid = Number(k);
       if (!Number.isFinite(iid)) continue;
-      const slotitem_id = Number(rec.slotitem_id ?? 0);
-      const level = Number(rec.level ?? 0);
-      const alv = Number(rec.alv ?? 0);
+      const slotitem_id = Number(rec["slotitem_id"] ?? 0);
+      const level = Number(rec["level"] ?? 0);
+      const alv = Number(rec["alv"] ?? 0);
       if (!Number.isFinite(slotitem_id)) continue;
       setSnapshotSlotItemRecord(iid, {
         slotitem_id,
