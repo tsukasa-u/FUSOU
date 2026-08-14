@@ -1108,17 +1108,17 @@ export function buildTimelineEvents(
       );
     }
     // Main battle phases
-    if (battle.opening_taisen) {
+    if (battle["opening_taisen"]) {
       extractShellingEvents(
-        normalizeShellingRows(battle.opening_taisen),
-        PHASE_NAMES.OpeningTaisen,
+        normalizeShellingRows(battle["opening_taisen"]),
+        PHASE_NAMES["OpeningTaisen"],
       );
     }
-    if (battle.opening_air_attack) {
-      const raw = battle.opening_air_attack;
+    if (battle["opening_air_attack"]) {
+      const raw = battle["opening_air_attack"];
       const airRow = Array.isArray(raw) ? (raw[0] as unknown) : raw;
       if (airRow) {
-        extractAirAttackEvents(airRow, PHASE_NAMES.OpeningAirAttack, undefined, {
+        extractAirAttackEvents(airRow, PHASE_NAMES["OpeningAirAttack"], undefined, {
           airBatchId: ++airBatchSeq,
         });
       }
@@ -1129,12 +1129,15 @@ export function buildTimelineEvents(
         PHASE_NAMES["OpeningRaigeki"],
       );
     }
-    if (battle.hougeki) {
-      const rows = Array.isArray(battle.hougeki)
-        ? (battle.hougeki as unknown[])
-        : [battle.hougeki];
+    if (battle["hougeki"]) {
+      const rows = Array.isArray(battle["hougeki"])
+        ? (battle["hougeki"] as unknown[])
+        : [battle["hougeki"]];
       rows.forEach((h) => {
-        extractShellingEvents(normalizeShellingRows(h), PHASE_NAMES.Hougeki);
+        extractShellingEvents(
+          normalizeShellingRows(h),
+          PHASE_NAMES["Hougeki"],
+        );
       });
     }
     if (battle["closing_raigeki"]) {
@@ -1204,10 +1207,10 @@ export function buildTimelineEvents(
       }
     }
     // Midnight phase (last)
-    if (battle.midnight_hougeki) {
+    if (battle["midnight_hougeki"]) {
       extractShellingEvents(
-        normalizeShellingRows(battle.midnight_hougeki),
-        PHASE_NAMES.MidnightHougeki,
+        normalizeShellingRows(battle["midnight_hougeki"]),
+        PHASE_NAMES["MidnightHougeki"],
       );
     }
   }
