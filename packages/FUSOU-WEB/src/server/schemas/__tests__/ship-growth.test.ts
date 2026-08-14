@@ -1,5 +1,31 @@
 import { describe, expect, it } from "vitest";
-import { ShipGrowthIngestBodySchema } from "../ship-growth";
+import {
+  MasterDataR2KeyRowSchema,
+  ShipGrowthIngestBodySchema,
+} from "../ship-growth";
+
+describe("MasterDataR2KeyRowSchema", () => {
+  it("accepts a non-empty key and the nullable empty state", () => {
+    expect(
+      MasterDataR2KeyRowSchema.safeParse({ r2_key: "master-data/file.avro" })
+        .success,
+    ).toBe(true);
+    expect(MasterDataR2KeyRowSchema.safeParse({ r2_key: null }).success).toBe(
+      true,
+    );
+    expect(MasterDataR2KeyRowSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects non-string and empty keys", () => {
+    expect(
+      MasterDataR2KeyRowSchema.safeParse({ r2_key: 42 }).success,
+    ).toBe(false);
+    expect(
+      MasterDataR2KeyRowSchema.safeParse({ r2_key: "" }).success,
+    ).toBe(false);
+    expect(MasterDataR2KeyRowSchema.safeParse(null).success).toBe(false);
+  });
+});
 
 describe("ShipGrowthIngestBodySchema", () => {
   it("accepts an object payload and preserves upload fields", () => {

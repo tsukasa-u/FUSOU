@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+export const MasterDataR2KeyRowSchema = z
+  .object({ r2_key: z.string().min(1).nullable().optional() })
+  .passthrough();
+
 export const ShipGrowthIngestBodySchema = z
   .object({
     dataset_id: z.unknown().optional(),

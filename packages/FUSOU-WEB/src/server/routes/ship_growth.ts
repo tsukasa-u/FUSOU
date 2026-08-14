@@ -28,7 +28,10 @@ import {
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
-import { ShipGrowthIngestBodySchema } from "../schemas/ship-growth";
+import {
+  MasterDataR2KeyRowSchema,
+  ShipGrowthIngestBodySchema,
+} from "../schemas/ship-growth";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
 const SHIP_GROWTH_INGEST_SCHEMA_VERSION = 1;
@@ -297,7 +300,7 @@ async function loadMasterSlotStatsMap(
     return cached.statsMap;
   }
 
-  const record = (await env.MASTER_DATA_INDEX_DB.prepare(
+  const record = await env.MASTER_DATA_INDEX_DB.prepare(
     `SELECT t.r2_key
        FROM master_data_tables t
        JOIN master_data_index i ON i.id = t.master_data_id
@@ -309,17 +312,19 @@ async function loadMasterSlotStatsMap(
        LIMIT 1`,
   )
     .bind(periodTag, tableVersion)
-    .first()) as { r2_key?: string } | null;
+    .first();
+  const parsedRecord = MasterDataR2KeyRowSchema.safeParse(record);
+  const r2Key = parsedRecord.success ? parsedRecord.data.r2_key : undefined;
 
-  if (!record?.r2_key) {
+  if (!r2Key) {
     throw new Error(
       `master data not found for mst_slotitem (period_tag=${periodTag}, table_version=${tableVersion})`,
     );
   }
 
-  const r2Object = await env.MASTER_DATA_BUCKET.get(record.r2_key);
+  const r2Object = await env.MASTER_DATA_BUCKET.get(r2Key);
   if (!r2Object) {
-    throw new Error(`R2 object missing for mst_slotitem: ${record.r2_key}`);
+    throw new Error(`R2 object missing for mst_slotitem: ${r2Key}`);
   }
 
   const arrayBuffer = await r2Object.arrayBuffer();
