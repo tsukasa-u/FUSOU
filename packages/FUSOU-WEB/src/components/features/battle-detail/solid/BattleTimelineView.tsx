@@ -708,7 +708,7 @@ export default function BattleTimelineView(props: {
                       ev.attackerMstShipId,
                     );
                     if (mstShip)
-                      return String(mstShip.name ?? ev.attackerMstShipId);
+                      return String(mstShip["name"] ?? ev.attackerMstShipId);
                   }
                   if (
                     (ev.type === "air" || ev.type === "raigeki") &&
