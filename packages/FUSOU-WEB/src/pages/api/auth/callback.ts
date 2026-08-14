@@ -69,8 +69,8 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     user,
   } = data.session;
   const providerName =
-    user?.app_metadata?.provider ??
-    data.user.user_metadata?.provider ??
+    user?.app_metadata?.["provider"] ??
+    data.user.user_metadata?.["provider"] ??
     "google";
 
   if (provider_token && provider_refresh_token) {
