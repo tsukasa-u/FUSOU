@@ -143,9 +143,9 @@ export const ValidatedSokuSpeedIngestBodySchema =
 
     for (const [index, rawShip] of body.ships.entries()) {
       const ship = asRecord(rawShip);
-      const masterId = ship.master_id;
-      const level = ship.lv;
-      const observedSpeed = ship.soku_observed;
+      const masterId = ship["master_id"];
+      const level = ship["lv"];
+      const observedSpeed = ship["soku_observed"];
       if (
         !isValidInteger(masterId) ||
         !isValidInteger(level) ||
@@ -181,15 +181,15 @@ export const ValidatedSokuSpeedIngestBodySchema =
       }
 
       if (
-        !Array.isArray(ship.slots) ||
-        ship.slots.some((rawSlot) => {
+        !Array.isArray(ship["slots"]) ||
+        ship["slots"].some((rawSlot) => {
           const slot = asRecord(rawSlot);
           return (
-            !isValidInteger(slot.slotitem_id) ||
-            slot.slotitem_id <= 0 ||
-            typeof slot.locked !== "boolean" ||
-            !isValidInteger(slot.level) ||
-            !isValidInteger(slot.alv)
+            !isValidInteger(slot["slotitem_id"]) ||
+            slot["slotitem_id"] <= 0 ||
+            typeof slot["locked"] !== "boolean" ||
+            !isValidInteger(slot["level"]) ||
+            !isValidInteger(slot["alv"])
           );
         })
       ) {
@@ -200,14 +200,14 @@ export const ValidatedSokuSpeedIngestBodySchema =
         });
       }
 
-      if (ship.exslot !== undefined && ship.exslot !== null) {
-        const exslot = asRecord(ship.exslot);
+      if (ship["exslot"] !== undefined && ship["exslot"] !== null) {
+        const exslot = asRecord(ship["exslot"]);
         if (
-          !isValidInteger(exslot.slotitem_id) ||
-          exslot.slotitem_id <= 0 ||
-          typeof exslot.locked !== "boolean" ||
-          !isValidInteger(exslot.level) ||
-          !isValidInteger(exslot.alv)
+          !isValidInteger(exslot["slotitem_id"]) ||
+          exslot["slotitem_id"] <= 0 ||
+          typeof exslot["locked"] !== "boolean" ||
+          !isValidInteger(exslot["level"]) ||
+          !isValidInteger(exslot["alv"])
         ) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -217,8 +217,10 @@ export const ValidatedSokuSpeedIngestBodySchema =
         }
       }
 
-      const hasSlots = Array.isArray(ship.slots) && ship.slots.length > 0;
-      const hasExslot = ship.exslot !== undefined && ship.exslot !== null;
+      const hasSlots =
+        Array.isArray(ship["slots"]) && ship["slots"].length > 0;
+      const hasExslot =
+        ship["exslot"] !== undefined && ship["exslot"] !== null;
       if (!hasSlots && !hasExslot) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
