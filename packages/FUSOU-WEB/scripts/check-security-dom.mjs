@@ -1,19 +1,35 @@
 #!/usr/bin/env node
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const TARGET_PREFIX = "src/";
+const PACKAGE_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const TARGET_PREFIX = "packages/FUSOU-WEB/src/";
 const FORBIDDEN = /\.(?:innerHTML|outerHTML)\s*=|insertAdjacentHTML\s*\(|dangerouslySetInnerHTML\s*=/;
 const ALLOW_MARKER = "safe-innerhtml";
+const DIFF_RANGE =
+  process.env.SECURITY_DOM_DIFF_RANGE ?? process.argv[2] ?? "HEAD~1..HEAD";
 
 function getDiffText() {
   try {
-    return execSync(
-      "git diff --unified=0 --no-color HEAD~1 HEAD -- src",
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd: PACKAGE_ROOT,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    }).trim();
+    const targetPath = relative(repoRoot, resolve(PACKAGE_ROOT, "src"));
+    return execFileSync(
+      "git",
+      ["diff", "--unified=0", "--no-color", DIFF_RANGE, "--", targetPath],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
   } catch (error) {
-    const output = String(error?.stdout || "");
+    const output = String(error?.stdout ?? "");
     if (output) return output;
 
     console.warn(
