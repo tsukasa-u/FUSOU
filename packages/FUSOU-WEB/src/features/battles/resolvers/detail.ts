@@ -409,12 +409,12 @@ export function resolveBattleDetail(
 
   const mergedBattle: JsonRecord = {
     ...battle,
-    timestamp: normalizeTimestamp(battle.timestamp) ?? normalizeTimestamp(battle.midnight_timestamp),
-    maparea_id: Number(cell?.maparea_id ?? battle.maparea_id ?? 0) || null,
-    mapinfo_no: Number(cell?.mapinfo_no ?? battle.mapinfo_no ?? 0) || null,
-    battle_result: battleResult ?? battle.battle_result ?? null,
-    opening_raigeki: openingRaigeki ?? battle.opening_raigeki ?? null,
-    closing_raigeki: closingRaigeki ?? battle.closing_raigeki ?? null,
+    timestamp: normalizeTimestamp(battle["timestamp"]) ?? normalizeTimestamp(battle["midnight_timestamp"]),
+    maparea_id: Number(cell?.["maparea_id"] ?? battle["maparea_id"] ?? 0) || null,
+    mapinfo_no: Number(cell?.["mapinfo_no"] ?? battle["mapinfo_no"] ?? 0) || null,
+    battle_result: battleResult ?? battle["battle_result"] ?? null,
+    opening_raigeki: openingRaigeki ?? battle["opening_raigeki"] ?? null,
+    closing_raigeki: closingRaigeki ?? battle["closing_raigeki"] ?? null,
     support_hourai: supportHourai,
     support_airattack: supportAirattack,
     support_attack: supportHourai || supportAirattack ? { support_hourai: supportHourai, support_airatack: supportAirattack } : null,
@@ -424,21 +424,21 @@ export function resolveBattleDetail(
     friendly_force_attack: friendlySupport
       ? {
           fleet_info:
-            battle.friendly_force_attack && typeof battle.friendly_force_attack === "object"
-              ? (battle.friendly_force_attack as JsonRecord).fleet_info ?? null
+            battle["friendly_force_attack"] && typeof battle["friendly_force_attack"] === "object"
+              ? (battle["friendly_force_attack"] as JsonRecord)["fleet_info"] ?? null
               : null,
           support_hourai: friendlySupport,
         }
-      : battle.friendly_force_attack ?? null,
-    midnight_hougeki: midnight.details.length > 0 ? midnight.details : battle.midnight_hougeki,
-    opening_taisen: openingTaisen.details.length > 0 ? openingTaisen.details : battle.opening_taisen,
-    hougeki: hougeki.details.length > 0 ? hougeki.details : battle.hougeki,
-    opening_air_attack: openingAirattack.details.length > 0 ? openingAirattack.details : battle.opening_air_attack,
-    air_base_assault: airbaseAssault ?? battle.air_base_assault ?? null,
+      : battle["friendly_force_attack"] ?? null,
+    midnight_hougeki: midnight.details.length > 0 ? midnight.details : battle["midnight_hougeki"],
+    opening_taisen: openingTaisen.details.length > 0 ? openingTaisen.details : battle["opening_taisen"],
+    hougeki: hougeki.details.length > 0 ? hougeki.details : battle["hougeki"],
+    opening_air_attack: openingAirattack.details.length > 0 ? openingAirattack.details : battle["opening_air_attack"],
+    air_base_assault: airbaseAssault ?? battle["air_base_assault"] ?? null,
     air_base_air_attacks: airbaseList
       ? { ...airbaseList, attacks: airbaseAttacks }
-      : battle.air_base_air_attacks ?? null,
-    carrier_base_assault: carrierbaseAssault ?? battle.carrier_base_assault ?? null,
+      : battle["air_base_air_attacks"] ?? null,
+    carrier_base_assault: carrierbaseAssault ?? battle["carrier_base_assault"] ?? null,
     destruction_battle: destructionBattle,
   };
   const ownShips = fleetRows(mergedBattle, scopedTables.ownDeck, scopedTables.ownShip, scopedTables.ownSlotItem, "own");
