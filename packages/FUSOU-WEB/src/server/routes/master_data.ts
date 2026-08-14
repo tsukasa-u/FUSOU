@@ -13,7 +13,11 @@ import { validateCachedPeriodTag, getLatestMasterPeriodTag } from "../utils/peri
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
-import { MasterDataNextRevisionRowSchema } from "../schemas/master-data";
+import {
+  MasterDataDedupeRowSchema,
+  MasterDataInsertedRevisionRowSchema,
+  MasterDataNextRevisionRowSchema,
+} from "../schemas/master-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -354,13 +358,18 @@ app.post("/upload", async (c) => {
           ORDER BY period_revision DESC
           LIMIT 1
         `);
-        const sameHashRecord = (await sameHashStmt
+        const sameHashResult = await sameHashStmt
           .bind(periodTag, tableVersion, contentHash)
-          .first()) as {
-          id?: number;
-          period_revision?: number;
-          upload_status?: string;
-        } | null;
+          .first();
+        const parsedSameHashRecord = MasterDataDedupeRowSchema.safeParse(
+          sameHashResult,
+        );
+        if (sameHashResult !== null && !parsedSameHashRecord.success) {
+          throw new Error("Invalid master data dedupe row");
+        }
+        const sameHashRecord = parsedSameHashRecord.success
+          ? parsedSameHashRecord.data
+          : null;
 
         if (sameHashRecord && sameHashRecord.upload_status === "completed") {
           console.info(
@@ -406,7 +415,7 @@ app.post("/upload", async (c) => {
           `);
 
           const now = Date.now();
-          const inserted = (await insertStmt
+          const insertedResult = await insertStmt
             .bind(
               periodTag,
               tableVersion,
@@ -415,7 +424,14 @@ app.post("/upload", async (c) => {
               user.id,
               now,
             )
-            .first()) as { id?: number; period_revision?: number } | null;
+            .first();
+          const parsedInserted = MasterDataInsertedRevisionRowSchema.safeParse(
+            insertedResult,
+          );
+          if (insertedResult !== null && !parsedInserted.success) {
+            throw new Error("Invalid inserted master data revision row");
+          }
+          const inserted = parsedInserted.success ? parsedInserted.data : null;
 
           if (inserted?.id) {
             claimedId = Number(inserted.id);
@@ -425,13 +441,21 @@ app.post("/upload", async (c) => {
         }
 
         if (!claimedId || !claimedRevision) {
-          const conflictSameHash = (await sameHashStmt
+          const conflictSameHashResult = await sameHashStmt
             .bind(periodTag, tableVersion, contentHash)
-            .first()) as {
-            id?: number;
-            period_revision?: number;
-            upload_status?: string;
-          } | null;
+            .first();
+          const parsedConflictSameHash = MasterDataDedupeRowSchema.safeParse(
+            conflictSameHashResult,
+          );
+          if (
+            conflictSameHashResult !== null &&
+            !parsedConflictSameHash.success
+          ) {
+            throw new Error("Invalid conflicting master data dedupe row");
+          }
+          const conflictSameHash = parsedConflictSameHash.success
+            ? parsedConflictSameHash.data
+            : null;
           if (
             conflictSameHash &&
             conflictSameHash.upload_status === "completed"

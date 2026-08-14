@@ -1,5 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { MasterDataNextRevisionRowSchema } from "../master-data";
+import {
+  MasterDataDedupeRowSchema,
+  MasterDataInsertedRevisionRowSchema,
+  MasterDataNextRevisionRowSchema,
+} from "../master-data";
+
+describe("Master data revision row schemas", () => {
+  it("accepts dedupe and inserted revision rows", () => {
+    expect(
+      MasterDataDedupeRowSchema.safeParse({
+        id: 1,
+        period_revision: 2,
+        upload_status: "completed",
+      }).success,
+    ).toBe(true);
+    expect(
+      MasterDataInsertedRevisionRowSchema.safeParse({
+        id: 1,
+        period_revision: 2,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed revision rows", () => {
+    expect(
+      MasterDataDedupeRowSchema.safeParse({
+        id: 1,
+        period_revision: "2",
+        upload_status: "completed",
+      }).success,
+    ).toBe(false);
+    expect(
+      MasterDataInsertedRevisionRowSchema.safeParse({ id: 0, period_revision: 1 })
+        .success,
+    ).toBe(false);
+    expect(MasterDataDedupeRowSchema.safeParse(null).success).toBe(false);
+  });
+});
 
 describe("MasterDataNextRevisionRowSchema", () => {
   it("accepts numeric, null, and omitted aggregate values", () => {
