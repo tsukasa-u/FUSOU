@@ -504,8 +504,9 @@ export async function validateJWT(token: string): Promise<{
     });
 
     return {
-      id: typeof payload.sub === "string" ? payload.sub : undefined,
-      email: typeof payload.email === "string" ? payload.email : undefined,
+      id: typeof payload["sub"] === "string" ? payload["sub"] : undefined,
+      email:
+        typeof payload["email"] === "string" ? payload["email"] : undefined,
       payload: payload as Record<string, unknown>,
     };
   } catch (error) {
@@ -524,12 +525,12 @@ function isValidMemberIdHash(value: unknown): value is string {
 export function extractMemberIdHashFromJwtPayload(
   payload?: Record<string, unknown>,
 ): string | null {
-  const userMetadata = asEnvRecord(payload?.user_metadata);
-  const appMetadata = asEnvRecord(payload?.app_metadata);
+  const userMetadata = asEnvRecord(payload?.["user_metadata"]);
+  const appMetadata = asEnvRecord(payload?.["app_metadata"]);
   const candidates = [
-    payload?.member_id_hash,
-    userMetadata.member_id_hash,
-    appMetadata.member_id_hash,
+    payload?.["member_id_hash"],
+    userMetadata["member_id_hash"],
+    appMetadata["member_id_hash"],
   ];
 
   for (const candidate of candidates) {
@@ -584,8 +585,10 @@ export async function resolveLinkedMemberIdHashForUser(options: {
   }
 
   const canonicalMapping = asEnvRecord(canonicalMappingData);
-  const fromCanonicalOwner = isValidMemberIdHash(canonicalMapping.member_id_hash)
-    ? canonicalMapping.member_id_hash.trim().toLowerCase()
+  const fromCanonicalOwner = isValidMemberIdHash(
+    canonicalMapping["member_id_hash"],
+  )
+    ? canonicalMapping["member_id_hash"].trim().toLowerCase()
     : null;
 
   if (fromJwtMetadata) {
@@ -645,15 +648,15 @@ export async function validateDatasetToken(
     if (!payload) return null;
 
     // 必須フィールド検証
-    if (payload.typ !== "dataset") return null;
-    if (typeof payload.sub !== "string") return null;
-    if (typeof payload.dataset_id !== "string") return null;
-    if (payload.aud !== "fusou-upload") return null;
+    if (payload["typ"] !== "dataset") return null;
+    if (typeof payload["sub"] !== "string") return null;
+    if (typeof payload["dataset_id"] !== "string") return null;
+    if (payload["aud"] !== "fusou-upload") return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
-      dataset_id: payload.dataset_id,
-      user_id: payload.sub,
+      dataset_id: payload["dataset_id"],
+      user_id: payload["sub"],
     };
   } catch (error) {
     console.error("validateDatasetToken: Token verification failed:", error);
@@ -859,14 +862,15 @@ export async function verifyR2SignedUrl(
     if (!payload) return false;
 
     // キーの一致確認
-    if (payload.key !== key) return false;
+    if (payload["key"] !== key) return false;
 
     // アクション確認
-    if (payload.action !== "read") return false;
+    if (payload["action"] !== "read") return false;
 
     // 有効期限確認
     const now = Math.floor(Date.now() / 1000);
-    if (typeof payload.exp === "number" && payload.exp < now) return false;
+    if (typeof payload["exp"] === "number" && payload["exp"] < now)
+      return false;
 
     return true;
   } catch (error) {
