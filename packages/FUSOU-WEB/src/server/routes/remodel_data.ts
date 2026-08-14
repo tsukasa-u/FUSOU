@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Bindings } from "../types";
 import {
   createEnvContext,
@@ -245,7 +245,7 @@ async function invalidateRemodelCaches(
 }
 
 function scheduleRemodelTask(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   task: Promise<unknown>,
 ): void {
   safeWaitUntil(c, task);
