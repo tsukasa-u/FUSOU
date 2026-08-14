@@ -13,6 +13,7 @@ import {
   CleanupConsumedSourcesRequestSchema,
   RegisterOutputRequestSchema,
   CompactionDatasetRowSchema,
+  ClosedPeriodTagRowSchema,
 } from "../internal-compaction";
 
 describe("CompactionDatasetRowSchema", () => {
@@ -33,6 +34,25 @@ describe("CompactionDatasetRowSchema", () => {
         dataset_name: "battle",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("ClosedPeriodTagRowSchema", () => {
+  it("accepts a period tag and nullable empty state", () => {
+    expect(
+      ClosedPeriodTagRowSchema.safeParse({ period_tag: "2026-07-08" }).success,
+    ).toBe(true);
+    expect(ClosedPeriodTagRowSchema.safeParse({ period_tag: null }).success).toBe(
+      true,
+    );
+    expect(ClosedPeriodTagRowSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects malformed period tags", () => {
+    expect(
+      ClosedPeriodTagRowSchema.safeParse({ period_tag: 20260708 }).success,
+    ).toBe(false);
+    expect(ClosedPeriodTagRowSchema.safeParse(null).success).toBe(false);
   });
 });
 

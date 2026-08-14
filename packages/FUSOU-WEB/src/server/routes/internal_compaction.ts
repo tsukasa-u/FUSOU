@@ -13,6 +13,7 @@ import {
   ListSourceBlocksRequestSchema,
   CleanupConsumedSourcesRequestSchema,
   RegisterOutputRequestSchema,
+  ClosedPeriodTagRowSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -1102,7 +1103,7 @@ app.post("/period-rollover-check", async (c) => {
     });
   }
 
-  const candidate = (await db
+  const candidate = await db
     .prepare(
       `SELECT bi.period_tag
        FROM block_indexes bi
@@ -1114,11 +1115,12 @@ app.post("/period-rollover-check", async (c) => {
        LIMIT 1`,
     )
     .bind(tableName, sourceTier, currentOpenPeriod, ...EXCLUDED_COMPACTION_TABLE_VERSIONS)
-    .first()) as { period_tag?: string | null } | null;
+    .first();
+  const parsedCandidate = ClosedPeriodTagRowSchema.safeParse(candidate);
 
   const closedPeriodTag =
-    typeof candidate?.period_tag === "string" && candidate.period_tag
-      ? candidate.period_tag
+    parsedCandidate.success && parsedCandidate.data.period_tag
+      ? parsedCandidate.data.period_tag
       : null;
 
   if (!closedPeriodTag) {

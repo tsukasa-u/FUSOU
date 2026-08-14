@@ -19,6 +19,10 @@ export type CompactionDatasetRow = z.infer<
   typeof CompactionDatasetRowSchema
 >;
 
+export const ClosedPeriodTagRowSchema = z
+  .object({ period_tag: z.string().min(1).nullable().optional() })
+  .passthrough();
+
 const NumericRequestFieldSchema = z.preprocess(
   (value) => Number(value),
   z.number().finite(),
