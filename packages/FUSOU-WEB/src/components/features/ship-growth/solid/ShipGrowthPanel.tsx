@@ -152,22 +152,22 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
     .map((row) => {
       const r = row as AnyRecord;
       return {
-        master_id: toFiniteNumber(r.master_id),
-        lv: toFiniteNumber(r.lv),
-        kaihi_naked: toFiniteNumber(r.kaihi_naked),
-        taisen_naked: toFiniteNumber(r.taisen_naked),
-        sakuteki_naked: toFiniteNumber(r.sakuteki_naked),
+        master_id: toFiniteNumber(r["master_id"]),
+        lv: toFiniteNumber(r["lv"]),
+        kaihi_naked: toFiniteNumber(r["kaihi_naked"]),
+        taisen_naked: toFiniteNumber(r["taisen_naked"]),
+        sakuteki_naked: toFiniteNumber(r["sakuteki_naked"]),
         kaihi_source_period:
-          typeof r.kaihi_source_period === "string"
-            ? r.kaihi_source_period
+          typeof r["kaihi_source_period"] === "string"
+            ? r["kaihi_source_period"]
             : undefined,
         taisen_source_period:
-          typeof r.taisen_source_period === "string"
-            ? r.taisen_source_period
+          typeof r["taisen_source_period"] === "string"
+            ? r["taisen_source_period"]
             : undefined,
         sakuteki_source_period:
-          typeof r.sakuteki_source_period === "string"
-            ? r.sakuteki_source_period
+          typeof r["sakuteki_source_period"] === "string"
+            ? r["sakuteki_source_period"]
             : undefined,
       };
     })
@@ -186,10 +186,12 @@ function normalizeCapRows(rows: unknown): CapRow[] {
     .map((row) => {
       const r = row as AnyRecord;
       return {
-        master_id: toFiniteNumber(r.master_id),
-        kaihi_max: toFiniteNumber(r.kaihi_max ?? r.kaihi_cap),
-        taisen_max: toFiniteNumber(r.taisen_max ?? r.taisen_cap),
-        sakuteki_max: toFiniteNumber(r.sakuteki_max ?? r.sakuteki_cap),
+        master_id: toFiniteNumber(r["master_id"]),
+        kaihi_max: toFiniteNumber(r["kaihi_max"] ?? r["kaihi_cap"]),
+        taisen_max: toFiniteNumber(r["taisen_max"] ?? r["taisen_cap"]),
+        sakuteki_max: toFiniteNumber(
+          r["sakuteki_max"] ?? r["sakuteki_cap"],
+        ),
       };
     })
     .filter((row) => Number.isFinite(row.master_id) && row.master_id > 0);
