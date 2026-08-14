@@ -1009,7 +1009,7 @@ export function validateTokenPayloadWithSchema(
     };
   }
 
-  const data = parsed.data as Record<string, unknown>;
+  const data = parsed.data;
 
   // Check for required fields
   const missingFields = requiredFields.filter((field) => !(field in data));
