@@ -685,10 +685,10 @@ export async function resolveEnemyFleet(
   battle: Record<string, unknown>,
   options: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
-  const enemyHpSnapshot = Array.isArray(battle?.e_nowhps)
-    ? (battle.e_nowhps as unknown[])
-    : Array.isArray(battle?.midnight_e_nowhps)
-      ? (battle.midnight_e_nowhps as unknown[])
+  const enemyHpSnapshot = Array.isArray(battle?.["e_nowhps"])
+    ? (battle["e_nowhps"] as unknown[])
+    : Array.isArray(battle?.["midnight_e_nowhps"])
+      ? (battle["midnight_e_nowhps"] as unknown[])
       : [];
 
   const fallbackEnemyByHp = (): ShipInfo[] => {
@@ -711,7 +711,7 @@ export async function resolveEnemyFleet(
   };
 
   const inferEnemyByEnv = async (): Promise<ShipInfo[]> => {
-    const envUuid = String(battle?.env_uuid ?? "");
+    const envUuid = String(battle?.["env_uuid"] ?? "");
     if (!envUuid) return [];
 
     const hpSnapshot = enemyHpSnapshot;
@@ -726,7 +726,7 @@ export async function resolveEnemyFleet(
 
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of rows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
@@ -753,14 +753,14 @@ export async function resolveEnemyFleet(
 
     const mstShipById = await getMstShipById();
     return [...bestRows]
-      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .sort((a, b) => Number(a["index"] ?? 0) - Number(b["index"] ?? 0))
       .map((ship) => {
-        const mstId = Number(ship.mst_ship_id ?? 0) || null;
+        const mstId = Number(ship["mst_ship_id"] ?? 0) || null;
         const mstShip = mstId ? mstShipById.get(mstId) : null;
         return {
           name: mstShip
             ? String(
-                (mstShip as Record<string, unknown>).name ??
+                (mstShip as Record<string, unknown>)["name"] ??
                   `敵艦ID:${mstId ?? "-"}`,
               )
             : `敵艦ID:${mstId ?? "-"}`,
