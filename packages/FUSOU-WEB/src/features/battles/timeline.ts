@@ -931,18 +931,18 @@ export function buildTimelineEvents(
     }
   } else {
     // Air base / carrier base assaults (processed first in battle flow)
-    if (battle.air_base_assault) {
+    if (battle["air_base_assault"]) {
       const squads =
         (
-          (battle.air_base_assault as any)?.squadron_plane as
+          (battle["air_base_assault"] as any)?.squadron_plane as
             | unknown[]
             | undefined
         )
           ?.map(Number)
           .filter((n) => n > 0) ?? [];
       extractAirAttackEvents(
-        battle.air_base_assault,
-        PHASE_NAMES.AirBaseAssult,
+        battle["air_base_assault"],
+        PHASE_NAMES["AirBaseAssult"],
         squads.length > 0 ? squads : undefined,
         {
           actorRole: "airbase",
@@ -951,10 +951,10 @@ export function buildTimelineEvents(
         },
       );
     }
-    if (battle.carrier_base_assault) {
+    if (battle["carrier_base_assault"]) {
       extractAirAttackEvents(
-        battle.carrier_base_assault,
-        PHASE_NAMES.CarrierBaseAssault,
+        battle["carrier_base_assault"],
+        PHASE_NAMES["CarrierBaseAssault"],
         undefined,
         {
           actorRole: "airbase",
@@ -963,10 +963,10 @@ export function buildTimelineEvents(
         },
       );
     }
-    if (battle.air_base_air_attacks) {
-      const attacks = Array.isArray(battle.air_base_air_attacks)
-        ? (battle.air_base_air_attacks as unknown[])
-        : (((battle.air_base_air_attacks as any)?.attacks as unknown[]) ?? []);
+    if (battle["air_base_air_attacks"]) {
+      const attacks = Array.isArray(battle["air_base_air_attacks"])
+        ? (battle["air_base_air_attacks"] as unknown[])
+        : (((battle["air_base_air_attacks"] as any)?.attacks as unknown[]) ?? []);
       attacks.forEach((a) => {
         const squads =
           ((a as any)?.squadron_plane as unknown[] | undefined)
@@ -974,7 +974,7 @@ export function buildTimelineEvents(
             .filter((n) => n > 0) ?? [];
         extractAirAttackEvents(
           a,
-          PHASE_NAMES.AirBaseAirAttack,
+          PHASE_NAMES["AirBaseAirAttack"],
           squads.length > 0 ? squads : undefined,
           {
             actorRole: "airbase",
