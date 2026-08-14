@@ -498,7 +498,7 @@ function normalizeTimestamp(value: unknown): number | null {
   return null;
 }
 
-function attachSortieIds(records: any[]): void {
+function attachSortieIds(records: BattleRecord[]): void {
   type Item = {
     rec: Record<string, unknown>;
     ts: number | null;
