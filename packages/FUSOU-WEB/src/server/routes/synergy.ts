@@ -101,7 +101,7 @@ app.get("/synergy-manifest", async (c) => {
       api_start2_batch_hash: result.api_start2_batch_hash,
       generator_version: result.generator_version,
       r2_keys: r2Keys,
-      upload_status: result.upload_status as any,
+      upload_status: result.upload_status,
       completed_at: result.completed_at,
     };
 
