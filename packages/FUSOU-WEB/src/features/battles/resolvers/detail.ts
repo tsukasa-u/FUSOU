@@ -193,8 +193,8 @@ function airBaseAttackRows(value: unknown): JsonRecord[] {
         typeof entry === "object" && entry !== null && !Array.isArray(entry),
     );
   }
-  if (value && typeof value === "object" && Array.isArray((value as JsonRecord).attacks)) {
-    return airBaseAttackRows((value as JsonRecord).attacks);
+  if (value && typeof value === "object" && Array.isArray((value as JsonRecord)["attacks"])) {
+    return airBaseAttackRows((value as JsonRecord)["attacks"]);
   }
   return [];
 }
@@ -210,13 +210,13 @@ function addPositiveIds(value: unknown, target: Set<number>): void {
 function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
   if (rows.length === 0 || snapshot.length === 0) return Number.MAX_SAFE_INTEGER;
   const sorted = [...rows].sort(
-    (left, right) => Number(left.index ?? 0) - Number(right.index ?? 0),
+    (left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0),
   );
   const length = Math.min(sorted.length, snapshot.length);
   let score = Math.abs(sorted.length - snapshot.length) * 20;
   for (let index = 0; index < length; index += 1) {
     score += Math.abs(
-      Number(sorted[index].nowhp ?? sorted[index].maxhp ?? 0) -
+      Number(sorted[index]["nowhp"] ?? sorted[index]["maxhp"] ?? 0) -
         Number(snapshot[index] ?? 0),
     );
   }
