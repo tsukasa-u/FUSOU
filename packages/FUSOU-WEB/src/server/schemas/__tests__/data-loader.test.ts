@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseTableNames,
+  TableNameRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
 } from "../data-loader";
@@ -36,5 +38,24 @@ describe("VerifyGoogleRequestSchema", () => {
     expect(
       VerifyGoogleRequestSchema.safeParse({ google_token: 123 }).success,
     ).toBe(false);
+  });
+});
+
+describe("TableNameRowsSchema", () => {
+  it("accepts table rows and preserves extra fields", () => {
+    const result = TableNameRowsSchema.safeParse([
+      { table_name: "battles", extra: true },
+    ]);
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data[0]?.extra).toBe(true);
+  });
+
+  it("rejects malformed rows and returns no table names", () => {
+    expect(TableNameRowsSchema.safeParse([{ table_name: 123 }]).success).toBe(
+      false,
+    );
+    expect(parseTableNames([{ table_name: 123 }])).toEqual([]);
+    expect(parseTableNames(null)).toEqual([]);
   });
 });

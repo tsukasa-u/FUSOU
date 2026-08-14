@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
+  parseTableNames,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
 } from "../schemas/data-loader";
@@ -182,7 +183,7 @@ app.get("/tables", async (c) => {
       `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`,
     );
     const result = await stmt.all?.();
-    const battleTables = (result?.results || []).map((r: any) => r.table_name);
+    const battleTables = parseTableNames(result?.results ?? []);
 
     // Add master-data tables if available
     const masterTables: string[] = [];
@@ -195,11 +196,7 @@ app.get("/tables", async (c) => {
          ORDER BY mdt.table_name`,
       );
       const masterResult = await masterStmt.all?.();
-      if (masterResult?.results) {
-        masterTables.push(
-          ...(masterResult.results as any[]).map((r: any) => r.table_name),
-        );
-      }
+      masterTables.push(...parseTableNames(masterResult?.results ?? []));
     }
 
     const tables = [...battleTables, ...masterTables];
