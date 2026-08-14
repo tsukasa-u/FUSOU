@@ -22,3 +22,12 @@ export const MasterDataInsertedRevisionRowSchema = z
     period_revision: z.number().int().positive(),
   })
   .passthrough();
+
+export const MasterDataJsonLookupRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+    period_revision: z.number().int().positive(),
+    r2_key: z.string().min(1),
+  })
+  .passthrough();

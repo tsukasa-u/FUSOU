@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MasterDataDedupeRowSchema,
   MasterDataInsertedRevisionRowSchema,
+  MasterDataJsonLookupRowSchema,
   MasterDataNextRevisionRowSchema,
 } from "../master-data";
 
@@ -55,5 +56,38 @@ describe("MasterDataNextRevisionRowSchema", () => {
         .success,
     ).toBe(false);
     expect(MasterDataNextRevisionRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("MasterDataJsonLookupRowSchema", () => {
+  it("accepts a completed table lookup row and extra fields", () => {
+    const result = MasterDataJsonLookupRowSchema.safeParse({
+      period_tag: "2026-08-14",
+      table_version: "1.0",
+      period_revision: 2,
+      r2_key: "master-data/mst_ship.avro",
+      completed_at: 123,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects incomplete or malformed lookup rows", () => {
+    expect(
+      MasterDataJsonLookupRowSchema.safeParse({
+        period_tag: "2026-08-14",
+        table_version: "1.0",
+        period_revision: "2",
+        r2_key: "master-data/mst_ship.avro",
+      }).success,
+    ).toBe(false);
+    expect(
+      MasterDataJsonLookupRowSchema.safeParse({
+        period_tag: "2026-08-14",
+        table_version: "1.0",
+        period_revision: 2,
+      }).success,
+    ).toBe(false);
+    expect(MasterDataJsonLookupRowSchema.safeParse(null).success).toBe(false);
   });
 });

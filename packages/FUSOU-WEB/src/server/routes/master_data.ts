@@ -16,6 +16,7 @@ import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
 import {
   MasterDataDedupeRowSchema,
   MasterDataInsertedRevisionRowSchema,
+  MasterDataJsonLookupRowSchema,
   MasterDataNextRevisionRowSchema,
 } from "../schemas/master-data";
 
@@ -1044,17 +1045,17 @@ app.get("/json", async (c) => {
       effectiveParams.push(latestPeriodTag);
     }
 
-    let record = (await db
+    const rawLookupResult = await db
       .prepare(`${effectiveSql} ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1`)
       .bind(...effectiveParams)
-      .first()) as {
-      period_tag: string;
-      table_version: string;
-      period_revision: number;
-      r2_key: string;
-    } | null;
+      .first();
+    const parsedLookup = MasterDataJsonLookupRowSchema.safeParse(rawLookupResult);
+    if (!parsedLookup.success && rawLookupResult !== null) {
+      throw new Error("Invalid master data lookup row");
+    }
+    const lookupResult = parsedLookup.success ? parsedLookup.data : null;
 
-    if (!record) {
+    if (!lookupResult) {
       return c.json(
         {
           table_name: tableName,
@@ -1073,7 +1074,7 @@ app.get("/json", async (c) => {
       table_version,
       period_revision,
       r2_key: r2Key,
-    } = record;
+    } = lookupResult;
 
     const cacheKey = `master-data:json:${tableName}:${table_version}:${period_tag}:${period_revision}`;
     const cacheControl = requestedVersion
