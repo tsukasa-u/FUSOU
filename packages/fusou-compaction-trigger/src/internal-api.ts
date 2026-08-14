@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
   CleanupConsumedSourcesPayload,
   CompactionJobInput,
@@ -5,16 +6,96 @@ import type {
   RegisterOutputPayload,
   SourceBlock,
 } from "./types.js";
+import { CompactionTierSchema } from "./types.js";
 
 type InternalClientConfig = {
   baseUrl: string;
   token: string;
 };
 
+const sourceBlockSchema = z.object({
+  id: z.number(),
+  dataset_id: z.string(),
+  table_name: z.string(),
+  table_version: z.string(),
+  period_tag: z.string(),
+  start_byte: z.number(),
+  length: z.number(),
+  record_count: z.number(),
+  start_timestamp: z.number(),
+  end_timestamp: z.number(),
+  compaction_tier: CompactionTierSchema,
+  window_start_ms: z.number().nullable(),
+  window_end_ms: z.number().nullable(),
+  file_id: z.number(),
+  file_path: z.string(),
+  file_size: z.number(),
+});
+
+const listSourceBlocksResponseSchema = z.object({
+  blocks: z.array(sourceBlockSchema).optional(),
+  has_more: z.boolean().optional(),
+  next_cursor_id: z.number().optional(),
+});
+
+const listSourceGroupsResponseSchema = z.object({
+  groups: z.array(z.object({
+    period_tag: z.string().nullable().optional(),
+    table_version: z.string().nullable().optional(),
+    source_blocks: z.number().optional(),
+  })).optional(),
+});
+
+const listSourceTablesResponseSchema = z.object({
+  tables: z.array(z.string().nullable()).optional(),
+});
+
+const resolveSourceWindowRangeResponseSchema = z.object({
+  start_ms: z.number().nullable().optional(),
+  end_ms: z.number().nullable().optional(),
+});
+
+const verifyOutputVisibleResponseSchema = z.object({
+  success: z.boolean().optional(),
+  visible: z.boolean().optional(),
+});
+
+const acquireOutputLockResponseSchema = z.object({
+  success: z.boolean().optional(),
+  acquired: z.boolean().optional(),
+  lock_expires_ms: z.number().nullable().optional(),
+});
+
+const releaseOutputLockResponseSchema = z.object({
+  success: z.boolean().optional(),
+  released: z.boolean().optional(),
+});
+
+const periodRolloverCheckResponseSchema = z.object({
+  success: z.boolean(),
+  should_compact: z.boolean(),
+  reason: z.string(),
+  closed_period_tag: z.string().nullable(),
+  current_open_period_tag: z.string().nullable(),
+});
+
+const resolveTableVersionResponseSchema = z.object({
+  success: z.boolean(),
+  table_version: z.string(),
+});
+
 export class InternalCompactionClient {
   constructor(private readonly config: InternalClientConfig) {}
 
-  private async postJson<T>(path: string, payload: unknown): Promise<T> {
+  private async parseJson<T>(path: string, res: Response, schema: z.ZodType<T>): Promise<T> {
+    const parsed = schema.safeParse(await res.json() as unknown);
+    if (!parsed.success) {
+      throw new Error(`Internal API ${path} returned invalid JSON: ${parsed.error.message}`);
+    }
+    return parsed.data;
+  }
+
+  private async postJson<T>(path: string, payload: unknown, schema: z.ZodType<T>): Promise<T> {
     const res = await fetch(`${this.config.baseUrl}${path}`, {
       method: "POST",
       headers: {
@@ -28,7 +109,7 @@ export class InternalCompactionClient {
       throw new Error(`Internal API ${path} failed: ${res.status} ${await res.text()}`);
     }
 
-    return (await res.json()) as T;
+    return this.parseJson(path, res, schema);
   }
 
   async listSourceBlocks(input: CompactionJobInput): Promise<SourceBlock[]> {
@@ -37,11 +118,7 @@ export class InternalCompactionClient {
     const limit = input.chunk_limit ?? 200;
 
     while (true) {
-      const resp = await this.postJson<{
-        blocks: SourceBlock[];
-        has_more: boolean;
-        next_cursor_id: number;
-      }>("/internal/compaction/list-source-blocks", {
+      const resp = await this.postJson("/internal/compaction/list-source-blocks", {
         tier: input.source_tier,
         table_name: input.table_name,
         period_tag: input.period_tag,
@@ -50,7 +127,7 @@ export class InternalCompactionClient {
         window_end_ms: input.window_end_ms,
         cursor_id: cursor,
         limit,
-      });
+      }, listSourceBlocksResponseSchema);
 
       blocks.push(...(resp.blocks ?? []));
       if (!resp.has_more) break;
@@ -67,9 +144,11 @@ export class InternalCompactionClient {
     window_start_ms: number;
     window_end_ms: number;
   }): Promise<Array<{ period_tag: string; table_version: string; source_blocks: number }>> {
-    const resp = await this.postJson<{
-      groups?: Array<{ period_tag?: string; table_version?: string; source_blocks?: number }>;
-    }>("/internal/compaction/list-source-groups", payload);
+    const resp = await this.postJson(
+      "/internal/compaction/list-source-groups",
+      payload,
+      listSourceGroupsResponseSchema,
+    );
 
     return (resp.groups ?? [])
       .map((group) => ({
@@ -85,9 +164,11 @@ export class InternalCompactionClient {
     window_start_ms?: number;
     window_end_ms?: number;
   }): Promise<string[]> {
-    const resp = await this.postJson<{
-      tables?: Array<string | null | undefined>;
-    }>("/internal/compaction/list-source-tables", payload);
+    const resp = await this.postJson(
+      "/internal/compaction/list-source-tables",
+      payload,
+      listSourceTablesResponseSchema,
+    );
 
     return [...new Set((resp.tables ?? [])
       .map((value) => String(value ?? "").trim())
@@ -98,11 +179,11 @@ export class InternalCompactionClient {
     tier: "hourly" | "daily" | "weekly" | "period";
     table_names: string[];
   }): Promise<{ start_ms: number | null; end_ms: number | null }> {
-    const resp = await this.postJson<{
-      success?: boolean;
-      start_ms?: number | null;
-      end_ms?: number | null;
-    }>("/internal/compaction/resolve-source-window-range", payload);
+    const resp = await this.postJson(
+      "/internal/compaction/resolve-source-window-range",
+      payload,
+      resolveSourceWindowRangeResponseSchema,
+    );
 
     const start = Number(resp.start_ms);
     const end = Number(resp.end_ms);
@@ -131,12 +212,9 @@ export class InternalCompactionClient {
   }
 
   async verifyOutputVisible(filePath: string): Promise<boolean> {
-    const resp = await this.postJson<{
-      success?: boolean;
-      visible?: boolean;
-    }>("/internal/compaction/verify-output-visible", {
+    const resp = await this.postJson("/internal/compaction/verify-output-visible", {
       file_path: filePath,
-    });
+    }, verifyOutputVisibleResponseSchema);
     return Boolean(resp.success && resp.visible);
   }
 
@@ -164,11 +242,11 @@ export class InternalCompactionClient {
       throw new Error(`Internal API /internal/compaction/acquire-output-lock failed: ${res.status} ${await res.text()}`);
     }
 
-    const resp = (await res.json()) as {
-      success?: boolean;
-      acquired?: boolean;
-      lock_expires_ms?: number | null;
-    };
+    const resp = await this.parseJson(
+      "/internal/compaction/acquire-output-lock",
+      res,
+      acquireOutputLockResponseSchema,
+    );
 
     return {
       acquired: Boolean(resp.acquired),
@@ -182,10 +260,11 @@ export class InternalCompactionClient {
     file_path: string;
     lock_token: string;
   }): Promise<boolean> {
-    const resp = await this.postJson<{
-      success?: boolean;
-      released?: boolean;
-    }>("/internal/compaction/release-output-lock", payload);
+    const resp = await this.postJson(
+      "/internal/compaction/release-output-lock",
+      payload,
+      releaseOutputLockResponseSchema,
+    );
 
     return Boolean(resp.success && resp.released);
   }
@@ -202,11 +281,11 @@ export class InternalCompactionClient {
     compression_codec: string;
     blocks: RegisterOutputBlock[];
   } & RegisterOutputPayload): Promise<void> {
-    await this.postJson("/internal/compaction/register-output", payload);
+    await this.postJson("/internal/compaction/register-output", payload, z.unknown());
   }
 
   async cleanupConsumedSources(payload: CleanupConsumedSourcesPayload): Promise<void> {
-    await this.postJson("/internal/compaction/cleanup-consumed-sources", payload);
+    await this.postJson("/internal/compaction/cleanup-consumed-sources", payload, z.unknown());
   }
 
   async periodRolloverCheck(payload: {
@@ -219,7 +298,11 @@ export class InternalCompactionClient {
     closed_period_tag: string | null;
     current_open_period_tag: string | null;
   }> {
-    return await this.postJson("/internal/compaction/period-rollover-check", payload);
+    return await this.postJson(
+      "/internal/compaction/period-rollover-check",
+      payload,
+      periodRolloverCheckResponseSchema,
+    );
   }
 
   async resolveTableVersion(payload: {
@@ -227,10 +310,11 @@ export class InternalCompactionClient {
     period_tag: string;
     source_tier: "hourly" | "daily" | "weekly" | "period";
   }): Promise<string> {
-    const resp = await this.postJson<{
-      success: boolean;
-      table_version: string;
-    }>("/internal/compaction/resolve-table-version", payload);
+    const resp = await this.postJson(
+      "/internal/compaction/resolve-table-version",
+      payload,
+      resolveTableVersionResponseSchema,
+    );
 
     if (!resp.table_version) {
       throw new Error("table_version could not be resolved");
