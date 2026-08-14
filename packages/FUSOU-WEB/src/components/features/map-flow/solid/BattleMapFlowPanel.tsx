@@ -295,7 +295,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   );
 
   const describeEnemy = (battle: Record<string, unknown>): string => {
-    const summary = battle.enemy_summary;
+    const summary = battle["enemy_summary"];
     if (
       typeof summary === "string" &&
       summary &&
@@ -306,7 +306,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     ) {
       return summary;
     }
-    const deckId = typeof battle.e_deck_id === "string" ? battle.e_deck_id : "";
+    const deckId =
+      typeof battle["e_deck_id"] === "string" ? battle["e_deck_id"] : "";
     if (!deckId) return "-";
     const resolved = enemyDeckResolver()(deckId);
     if (
