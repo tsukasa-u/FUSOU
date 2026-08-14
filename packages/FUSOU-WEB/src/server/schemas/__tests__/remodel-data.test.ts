@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   RemodelDataIngestBodySchema,
+  RemodelMaxUpdatedAtRowSchema,
   ValidatedRemodelDataIngestBodySchema,
 } from "../remodel-data";
 
@@ -27,6 +28,26 @@ const slotlistEntry = {
   req_slot_num: 8,
   remodel_level: 0,
 };
+
+describe("RemodelMaxUpdatedAtRowSchema", () => {
+  it("accepts a numeric aggregate and null for an empty table", () => {
+    expect(
+      RemodelMaxUpdatedAtRowSchema.safeParse({ max_updated_at_ms: 123 }).success,
+    ).toBe(true);
+    expect(
+      RemodelMaxUpdatedAtRowSchema.safeParse({ max_updated_at_ms: null })
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed aggregate values", () => {
+    expect(
+      RemodelMaxUpdatedAtRowSchema.safeParse({ max_updated_at_ms: "123" })
+        .success,
+    ).toBe(false);
+    expect(RemodelMaxUpdatedAtRowSchema.safeParse(null).success).toBe(false);
+  });
+});
 
 describe("RemodelDataIngestBodySchema", () => {
   it("accepts an object payload and preserves arbitrary fields", () => {

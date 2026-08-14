@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { isValidPeriodTagDate } from "../utils/period-tags";
 
+export const RemodelMaxUpdatedAtRowSchema = z
+  .object({ max_updated_at_ms: z.number().nullable().optional() })
+  .passthrough();
+
 export const RemodelDataIngestBodySchema = z.record(
   z.string(),
   z.unknown(),

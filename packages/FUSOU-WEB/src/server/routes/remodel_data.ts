@@ -25,6 +25,7 @@ import {
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
+  RemodelMaxUpdatedAtRowSchema,
   ValidatedRemodelDataIngestBodySchema,
   type RemodelDataIngestBody,
   type ValidatedRemodelDataIngestBody,
@@ -357,18 +358,23 @@ app.get("/summary", async (c) => {
             .all()
         ).results ?? []) as RemodelPeriodSummaryRow[];
 
-        const maxUpdatedAtRow = (await db
+        const maxUpdatedAtRow = await db
           .prepare(
             `SELECT MAX(updated_at_ms) AS max_updated_at_ms FROM remodel_slotlist_effective_requirements`,
           )
-          .first()) as { max_updated_at_ms?: number } | null;
+          .first();
+        const parsedMaxUpdatedAtRow =
+          RemodelMaxUpdatedAtRowSchema.safeParse(maxUpdatedAtRow);
+        const maxUpdatedAtMs = parsedMaxUpdatedAtRow.success
+          ? parsedMaxUpdatedAtRow.data.max_updated_at_ms
+          : undefined;
 
         return {
           periods: periodRows,
           refreshed_at: Date.now(),
           db_synced_at: Math.max(
             0,
-            Number(maxUpdatedAtRow?.max_updated_at_ms) || 0,
+            Number(maxUpdatedAtMs) || 0,
           ),
         };
       },
