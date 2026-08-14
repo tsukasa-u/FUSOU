@@ -22,6 +22,11 @@ import {
 } from "../utils/snapshot-cache";
 import { validateCachedPeriodTag } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import {
+  QuestTreeIngestBodySchema,
+  type QuestListEntry,
+  type QuestTreeIngestBody,
+} from "../schemas/quest-tree";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -41,27 +46,7 @@ app.options(
   (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
 );
 
-type QuestListEntry = {
-  quest_id: number;
-  type?: number;
-  category?: number;
-  label_type?: number;
-  title?: string;
-  detail?: string;
-};
-
-type IngestBody = {
-  dataset_id?: string;
-  request_id?: string;
-  payload_hash?: string;
-  event_type?: string;
-  timestamp_ms?: number;
-  period_tag?: string;
-  table_version?: string;
-  page_no?: number;
-  quest_id?: number;
-  quests?: QuestListEntry[];
-};
+type IngestBody = QuestTreeIngestBody;
 
 type QuestRuleRow = {
   rule_id: string;
@@ -898,12 +883,17 @@ app.post("/ingest", async (c) => {
     if (!user?.id)
       return c.json({ error: "Invalid or expired JWT token" }, 401);
 
-    const handshakeBody = (await c.req.json().catch(() => null)) as
-      | (IngestBody & {
-          content_hash?: string;
-          file_size?: number | string;
-        })
-      | null;
+    const rawHandshakeBody = await c.req.json().catch(() => null);
+    const handshakeParsed = QuestTreeIngestBodySchema.safeParse(
+      rawHandshakeBody,
+    );
+    if (!handshakeParsed.success) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    const handshakeBody = {
+      ...handshakeParsed.data,
+      quests: handshakeParsed.data.quests ?? [],
+    };
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
@@ -922,7 +912,7 @@ app.post("/ingest", async (c) => {
     // Require dataset_token to prove ownership of dataset_id
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
-      (handshakeBody as Record<string, unknown>)?.dataset_token,
+      handshakeBody.dataset_token,
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
     // Validate secret length upfront
@@ -1039,16 +1029,24 @@ app.post("/ingest", async (c) => {
     );
   }
 
-  const body = (() => {
+  const rawBody = (() => {
     try {
-      return JSON.parse(new TextDecoder().decode(uploaded)) as IngestBody;
+      return JSON.parse(new TextDecoder().decode(uploaded)) as unknown;
     } catch {
       return null;
     }
   })();
-  if (!body) {
+  if (rawBody === null) {
     return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
+  const bodyParsed = QuestTreeIngestBodySchema.safeParse(rawBody);
+  if (!bodyParsed.success) {
+    return c.json({ error: "Invalid JSON upload payload" }, 400);
+  }
+  const body = {
+    ...bodyParsed.data,
+    quests: bodyParsed.data.quests ?? [],
+  };
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
   const periodTagValidation = await validateCachedPeriodTag(
