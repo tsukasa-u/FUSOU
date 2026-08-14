@@ -21,8 +21,10 @@ import {
   validateSynergyPayload,
 } from "../utils/synergy-payload";
 import {
+  CompletedSynergyManifestRowsSchema,
   LatestSynergyPeriodRowSchema,
   SynergyNextRevisionRowSchema,
+  type CompletedSynergyManifestRow,
 } from "../schemas/synergy";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -36,14 +38,6 @@ const EMPTY_SYNERGY_DATA = {
     generator_version: "unknown",
     generated_at: "1970-01-01T00:00:00.000Z",
   },
-};
-
-type CompletedSynergyManifestRow = {
-  period_tag: string;
-  period_revision: number;
-  content_hash: string;
-  sp_effect_sha256: string;
-  completed_at?: number | null;
 };
 
 /**
@@ -280,7 +274,7 @@ app.get("/synergy-data", async (c) => {
 
     // When period is not specified, avoid sticking to a manifest row with missing/corrupt payload.
     if (!resolved && !periodTagQuery) {
-      const candidates = (await db
+      const candidatesResult = await db
         .prepare(
           `SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
            FROM synergy_manifest
@@ -288,11 +282,15 @@ app.get("/synergy-data", async (c) => {
            ORDER BY completed_at DESC, period_revision DESC
            LIMIT 20`,
         )
-        .all()) as {
-        results?: CompletedSynergyManifestRow[];
-      };
+        .all();
+      const parsedCandidates = CompletedSynergyManifestRowsSchema.safeParse(
+        candidatesResult.results ?? [],
+      );
+      if (!parsedCandidates.success) {
+        throw new Error("Invalid completed synergy manifest rows");
+      }
 
-      for (const candidate of candidates.results ?? []) {
+      for (const candidate of parsedCandidates.data) {
         try {
           const candidatePayload = await loadValidatedPayload(candidate);
           if (!candidatePayload) continue;

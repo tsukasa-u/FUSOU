@@ -1,8 +1,41 @@
 import { describe, expect, it } from "vitest";
 import {
+  CompletedSynergyManifestRowSchema,
   LatestSynergyPeriodRowSchema,
   SynergyNextRevisionRowSchema,
 } from "../synergy";
+
+describe("CompletedSynergyManifestRowSchema", () => {
+  it("accepts completed manifest metadata and extra columns", () => {
+    const result = CompletedSynergyManifestRowSchema.safeParse({
+      period_tag: "2026-07-08",
+      period_revision: 2,
+      content_hash: "content-hash",
+      sp_effect_sha256: "sha256",
+      completed_at: 1_752_000_000_000,
+      upload_status: "completed",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.upload_status).toBe("completed");
+    }
+  });
+
+  it("rejects malformed completed manifest metadata", () => {
+    expect(
+      CompletedSynergyManifestRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        period_revision: "2",
+        content_hash: "content-hash",
+        sp_effect_sha256: "sha256",
+      }).success,
+    ).toBe(false);
+    expect(CompletedSynergyManifestRowSchema.safeParse(null).success).toBe(
+      false,
+    );
+  });
+});
 
 describe("LatestSynergyPeriodRowSchema", () => {
   it("accepts a period tag and preserves extra columns", () => {
