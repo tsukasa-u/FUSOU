@@ -194,11 +194,12 @@ export default function BattlesDashboard(props: {
   const dataLoadItems = () => {
     const items = [...masterDataStatus()];
     if (repository.kind === "local-avro") {
+      const diagnostic = errorDetail();
       items.push({
         name: "ローカル AVRO",
         status: loading() ? "pending" : error() ? "failed" : "success",
-        detail: errorDetail() ?? formatLocalProgress(localProgress(), false),
-        diagnostic: errorDetail() ?? undefined,
+        detail: diagnostic ?? formatLocalProgress(localProgress(), false),
+        ...(diagnostic === null ? {} : { diagnostic }),
       });
     } else if (queryErrorStatus()) {
       items.push(queryErrorStatus()!);
@@ -355,13 +356,15 @@ export default function BattlesDashboard(props: {
         masterDataLoaded = true;
         const payload = await repository.getOverview({
           periodTag: requestedPeriodTag,
-          tableVersion: requestedPeriod.table_version ?? undefined,
+          ...(requestedPeriod.table_version
+            ? { tableVersion: requestedPeriod.table_version }
+            : {}),
           masterShips: masterShipPayload.records || [],
           limitBlocks: limitBlocks(),
           limitRecords: limitRecords(),
           signal,
           forceRefresh,
-        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined });
+        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(payload.battles || []);
         setCellRecords(payload.cells || []);
@@ -415,13 +418,15 @@ export default function BattlesDashboard(props: {
         masterDataLoaded = true;
         const payload = await repository.getDrops({
           periodTag: requestedPeriodTag,
-          tableVersion: requestedPeriod.table_version ?? undefined,
+          ...(requestedPeriod.table_version
+            ? { tableVersion: requestedPeriod.table_version }
+            : {}),
           masterShips: masterShipPayload.records || [],
           limitBlocks: limitBlocks(),
           limitRecords: limitRecords(),
           signal,
           forceRefresh,
-        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined });
+        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
         setBattleRecords(payload.battles || []);
         setCellRecords([]);
