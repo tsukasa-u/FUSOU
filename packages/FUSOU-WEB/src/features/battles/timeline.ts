@@ -376,23 +376,25 @@ export function buildTimelineEvents(
 
     // Support both flat array format (ClosingRaigeki: f_rai/e_rai) and nested format (OpeningRaigeki: frai_list_items/erai_list_items).
     // Opening uses per-attacker slots (Array<Array<number>|null>), so preserve slot index instead of flattening.
-    const fRaiFromSnake = !Array.isArray(d.frai) && Array.isArray(d.f_rai);
-    let fRai = Array.isArray(d.frai)
-      ? (d.frai as unknown[])
-      : Array.isArray(d.f_rai)
-        ? (d.f_rai as unknown[])
+    const fRaiFromSnake =
+      !Array.isArray(d["frai"]) && Array.isArray(d["f_rai"]);
+    let fRai = Array.isArray(d["frai"])
+      ? (d["frai"] as unknown[])
+      : Array.isArray(d["f_rai"])
+        ? (d["f_rai"] as unknown[])
         : [];
-    if (fRai.length === 0 && Array.isArray(d.frai_list_items)) {
-      fRai = d.frai_list_items as unknown[];
+    if (fRai.length === 0 && Array.isArray(d["frai_list_items"])) {
+      fRai = d["frai_list_items"] as unknown[];
     }
-    const eRaiFromSnake = !Array.isArray(d.erai) && Array.isArray(d.e_rai);
-    let eRai = Array.isArray(d.erai)
-      ? (d.erai as unknown[])
-      : Array.isArray(d.e_rai)
-        ? (d.e_rai as unknown[])
+    const eRaiFromSnake =
+      !Array.isArray(d["erai"]) && Array.isArray(d["e_rai"]);
+    let eRai = Array.isArray(d["erai"])
+      ? (d["erai"] as unknown[])
+      : Array.isArray(d["e_rai"])
+        ? (d["e_rai"] as unknown[])
         : [];
-    if (eRai.length === 0 && Array.isArray(d.erai_list_items)) {
-      eRai = d.erai_list_items as unknown[];
+    if (eRai.length === 0 && Array.isArray(d["erai_list_items"])) {
+      eRai = d["erai_list_items"] as unknown[];
     }
 
     const fNow = shiftHpArray((
