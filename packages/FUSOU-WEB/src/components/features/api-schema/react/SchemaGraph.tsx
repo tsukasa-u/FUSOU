@@ -46,7 +46,8 @@ const DB_VERSIONS: Record<string, any> = {};
 for (const [path, mod] of Object.entries(dbVersionModules)) {
   const match = path.match(/db_(v\d+_\d+(?:_\d+)?)\.json$/);
   if (match) {
-    DB_VERSIONS[match[1]] = mod.default;
+    const version = match[1];
+    if (version !== undefined) DB_VERSIONS[version] = mod.default;
   }
 }
 
@@ -63,10 +64,11 @@ const MAJOR_VERSIONS = dbVersionsMeta.majorVersions;
 const SORTED_MAJOR_KEYS = Object.keys(MAJOR_VERSIONS).sort(
   (a, b) => parseInt(a.replace("v", ""), 10) - parseInt(b.replace("v", ""), 10),
 );
-const DEFAULT_MAJOR = SORTED_MAJOR_KEYS[SORTED_MAJOR_KEYS.length - 1];
+const DEFAULT_MAJOR = SORTED_MAJOR_KEYS[SORTED_MAJOR_KEYS.length - 1] ?? "";
 const DEFAULT_VERSION =
   MAJOR_VERSIONS[DEFAULT_MAJOR]?.latest ??
-  ALL_DB_VERSIONS[ALL_DB_VERSIONS.length - 1];
+  ALL_DB_VERSIONS[ALL_DB_VERSIONS.length - 1] ??
+  "";
 
 const NODE_WIDTH = 300;
 const NODE_HEIGHT_BASE = 52;
@@ -390,7 +392,10 @@ export default function SchemaGraph({
   }, []);
 
   const minorVersionsForMajor = useMemo(
-    () => MAJOR_VERSIONS[selectedMajor]?.versions ?? [],
+    () =>
+      selectedMajor === ""
+        ? []
+        : MAJOR_VERSIONS[selectedMajor]?.versions ?? [],
     [selectedMajor],
   );
 
@@ -513,7 +518,8 @@ export default function SchemaGraph({
 
   useEffect(() => {
     if (mode === "endpoints" && !selectedGroup && groupList.length > 0) {
-      setSelectedGroup(groupList[0]);
+      const firstGroup = groupList[0];
+      if (firstGroup !== undefined) setSelectedGroup(firstGroup);
     }
   }, [mode, selectedGroup, groupList]);
 
@@ -665,7 +671,7 @@ export default function SchemaGraph({
         {mode === "database" && (
           <VersionSelector
             majorVersions={SORTED_MAJOR_KEYS}
-            selectedMajor={selectedMajor}
+            {...(selectedMajor === "" ? {} : { selectedMajor })}
             onMajorChange={(major) => {
               setSelectedMajor(major);
               setDbVersion(MAJOR_VERSIONS[major]?.latest ?? "");
