@@ -209,7 +209,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
     const totalBattles = battles.length;
     const totalSortiesCount = uniqueSorties.size;
-    const sCount = rankCounts.S ?? 0;
+    const sCount = rankCounts["S"] ?? 0;
     const airSecured = airCounts["制空権確保"] ?? 0;
     const airTotal = Object.values(airCounts).reduce((sum, v) => sum + v, 0);
 
