@@ -16,12 +16,12 @@ import {
 } from "../utils";
 import {
   getLatestMasterPeriodTag,
-  isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
 import {
   SokuSpeedIngestBodySchema,
+  ValidatedSokuSpeedIngestBodySchema,
   type SokuSpeedIngestBody,
 } from "../schemas/soku-speed";
 
@@ -45,124 +45,25 @@ function parseSokuSpeedIngestBody(value: unknown): SokuSpeedIngestBody | null {
   const result = SokuSpeedIngestBodySchema.safeParse(value);
   return result.success ? result.data : null;
 }
-function isValidInt(value: unknown): value is number {
-  return (
-    typeof value === "number" &&
-    Number.isFinite(value) &&
-    Number.isInteger(value)
-  );
-}
 function validateSokuSpeedIngestBody(
   body: SokuSpeedIngestBody | null,
 ):
   | { ok: true; datasetId: string; requestId: string; eventType: string }
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Missing body" };
-  const datasetId = String(body.dataset_id ?? "").trim();
-  if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+  const parsed = ValidatedSokuSpeedIngestBodySchema.safeParse(body);
+  if (!parsed.success) {
     return {
       ok: false,
-      error: "dataset_id must be a 64-character SHA-256 hex string",
+      error: parsed.error.issues[0]?.message ?? "Invalid request body",
     };
   }
-  const requestId = String(body.request_id ?? "").trim();
-  if (!requestId) return { ok: false, error: "request_id is required" };
-  const payloadHash = String(body.payload_hash ?? "").trim();
-  if (!/^[a-f0-9]{64}$/i.test(payloadHash)) {
-    return {
-      ok: false,
-      error: "payload_hash must be a valid 64-char SHA-256 hex string",
-    };
-  }
-  const eventType = String(body.event_type ?? "").trim();
-  if (eventType !== "snapshot") {
-    return { ok: false, error: 'event_type must be "snapshot"' };
-  }
-  if (!body.period_tag || !isValidPeriodTagDate(String(body.period_tag))) {
-    return { ok: false, error: "Invalid period_tag (expected YYYY-MM-DD)" };
-  }
-  if (!body.table_version) {
-    return { ok: false, error: "table_version is required" };
-  }
-  if (!/^\d+\.\d+(?:\.\d+)?$/.test(String(body.table_version))) {
-    return {
-      ok: false,
-      error:
-        "table_version must be in MAJOR.MINOR or MAJOR.MINOR.PATCH format (e.g. '0.5.1')",
-    };
-  }
-  if (!Array.isArray(body.ships) || body.ships.length === 0) {
-    return {
-      ok: false,
-      error: "ships array is required and must not be empty",
-    };
-  }
-  for (const [index, ship] of (body.ships as unknown[]).entries()) {
-    const s = ship as Record<string, unknown>;
-    if (
-      !isValidInt(s.master_id) ||
-      !isValidInt(s.lv) ||
-      !isValidInt(s.soku_observed)
-    ) {
-      return { ok: false, error: `ships[${index}] has invalid numeric fields` };
-    }
-    if (![5, 10, 15, 20].includes(s.soku_observed as number)) {
-      return {
-        ok: false,
-        error: `ships[${index}].soku_observed must be one of 5, 10, 15, 20`,
-      };
-    }
-    if ((s.master_id as number) <= 0) {
-      return { ok: false, error: `ships[${index}].master_id must be > 0` };
-    }
-    if ((s.lv as number) < 1 || (s.lv as number) > 300) {
-      return {
-        ok: false,
-        error: `ships[${index}].lv must be between 1 and 300`,
-      };
-    }
-    if (
-      !Array.isArray(s.slots) ||
-      (s.slots as unknown[]).some((slot) => {
-        const sl = slot as Record<string, unknown>;
-        return (
-          !isValidInt(sl.slotitem_id) ||
-          (sl.slotitem_id as number) <= 0 ||
-          typeof sl.locked !== "boolean" ||
-          !isValidInt(sl.level) ||
-          !isValidInt(sl.alv)
-        );
-      })
-    ) {
-      return { ok: false, error: `ships[${index}].slots has invalid fields` };
-    }
-    if (s.exslot !== undefined && s.exslot !== null) {
-      const ex = s.exslot as Record<string, unknown>;
-      if (
-        !isValidInt(ex.slotitem_id) ||
-        (ex.slotitem_id as number) <= 0 ||
-        typeof ex.locked !== "boolean" ||
-        !isValidInt(ex.level) ||
-        !isValidInt(ex.alv)
-      ) {
-        return {
-          ok: false,
-          error: `ships[${index}].exslot has invalid fields`,
-        };
-      }
-    }
-    // At least one slot must be present (speed synergy requires equipment).
-    const hasSlots = (s.slots as unknown[]).length > 0;
-    const hasExslot = s.exslot !== undefined && s.exslot !== null;
-    if (!hasSlots && !hasExslot) {
-      return {
-        ok: false,
-        error: `ships[${index}] has no slots or exslot (speed synergy requires at least one item)`,
-      };
-    }
-  }
-  return { ok: true, datasetId, requestId, eventType };
+  return {
+    ok: true,
+    datasetId: String(parsed.data.dataset_id ?? "").trim(),
+    requestId: String(parsed.data.request_id ?? "").trim(),
+    eventType: String(parsed.data.event_type ?? "").trim(),
+  };
 }
 
 app.post("/ingest", async (c) => {
