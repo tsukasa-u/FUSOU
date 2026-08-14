@@ -47,7 +47,7 @@ describe("AssetKeyRowSchema", () => {
       expect(result.data.key).toBe(
         "assets/kcs2/resources/ship/banner/0001_v1.png",
       );
-      expect(result.data.content_hash).toBe("hash");
+      expect(result.data["content_hash"]).toBe("hash");
     }
   });
 
