@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { extractBearer, resolveSupabaseConfig, createEnvContext, getEnv } from "../utils";
+import { GoogleTokenResponseSchema } from "../schemas/auth";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -100,13 +101,13 @@ app.post("/google/refresh_token", async (c) => {
       return c.json({ error: "Failed to refresh token" }, 500);
     }
 
-    interface GoogleTokenResponse {
-      access_token: string;
-      expires_in: number;
-      refresh_token?: string;
+    const parsedTokenResponse = GoogleTokenResponseSchema.safeParse(
+      await response.json(),
+    );
+    if (!parsedTokenResponse.success) {
+      return c.json({ error: "Invalid token response" }, 502);
     }
-
-    const data = await response.json() as GoogleTokenResponse;
+    const data = parsedTokenResponse.data;
 
     if (data.refresh_token) {
       const { error: updateErr } = await supabase
