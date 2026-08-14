@@ -100,9 +100,9 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
         continue;
       }
 
-      const masterShipId = (ship.s5d as number) ?? 0;
-      const slots = (ship.s2t as number[]) ?? [];
-      const exSlotInstanceId = (ship.s5x as number) ?? 0;
+      const masterShipId = (ship["s5d"] as number) ?? 0;
+      const slots = (ship["s2t"] as number[]) ?? [];
+      const exSlotInstanceId = (ship["s5x"] as number) ?? 0;
 
       const equipIds: (number | null)[] = [null, null, null, null, null];
       const equipImprovement: number[] = [0, 0, 0, 0, 0];
@@ -130,7 +130,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 
       replaceFleetSlot(fleet, i, {
         shipId: masterShipId,
-        shipLevel: (ship.l0v as number) ?? null,
+        shipLevel: (ship["l0v"] as number) ?? null,
         equipIds,
         equipImprovement,
         equipProficiency,
