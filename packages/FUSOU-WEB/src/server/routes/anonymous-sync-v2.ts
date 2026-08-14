@@ -854,8 +854,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           hash_algorithm: "hmac-sha256",
         };
         if (recoveryConfig && ridCurrent) {
-          mappingUpdatePayload.recovery_id_hash = ridCurrent;
-          mappingUpdatePayload.recovery_version =
+          mappingUpdatePayload["recovery_id_hash"] = ridCurrent;
+          mappingUpdatePayload["recovery_version"] =
             resolvedRecoveryVersion ?? recoveryConfig.current.version;
         }
 
@@ -1655,8 +1655,8 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
         hash_algorithm: "hmac-sha256",
       };
       if (recoveryResolved.ok && recoveryCurrentId) {
-        mapUpsertPayload.recovery_id_hash = recoveryCurrentId;
-        mapUpsertPayload.recovery_version =
+        mapUpsertPayload["recovery_id_hash"] = recoveryCurrentId;
+        mapUpsertPayload["recovery_version"] =
           recoveryResolved.recoveryConfig.current.version;
       }
 
