@@ -380,7 +380,7 @@ export async function resolveFriendlyFleet(
   battle: Record<string, unknown>,
   options: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
-  const envUuid = battle?.env_uuid;
+  const envUuid = battle?.["env_uuid"];
   if (!envUuid) return [];
 
   const ownDecks = await fetchRecordsByField(
@@ -390,14 +390,14 @@ export async function resolveFriendlyFleet(
     ENV_DECK_LOOKUP_LIMIT,
     options,
   );
-  const hpSnapshot = (battle.f_nowhps ??
-    battle.midnight_f_nowhps ??
+  const hpSnapshot = (battle["f_nowhps"] ??
+    battle["midnight_f_nowhps"] ??
     []) as unknown[];
 
   // Collect all unique ship group IDs from all decks
   const allGroupIds: string[] = [];
   for (const deck of ownDecks) {
-    for (const gid of toGroupIds(deck.ship_ids)) {
+    for (const gid of toGroupIds(deck["ship_ids"])) {
       if (!allGroupIds.includes(gid)) allGroupIds.push(gid);
     }
   }
@@ -412,7 +412,7 @@ export async function resolveFriendlyFleet(
   let bestGroupId: string | null = null;
   let bestScore = Number.MAX_SAFE_INTEGER;
   for (const deck of ownDecks) {
-    for (const groupId of toGroupIds(deck.ship_ids)) {
+    for (const groupId of toGroupIds(deck["ship_ids"])) {
       const ships = ownShipsByGroup.get(groupId) || [];
       const score = hpScoreForDeck(
         ships as Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
@@ -438,7 +438,7 @@ export async function resolveFriendlyFleet(
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of ownShipRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
@@ -470,7 +470,7 @@ export async function resolveFriendlyFleet(
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of nearbyOwnShipRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
