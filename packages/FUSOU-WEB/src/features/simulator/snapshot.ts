@@ -92,7 +92,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
   function populateFleet(fleet: FleetSlot[], shipIds: number[]) {
     for (let i = 0; i < Math.min(shipIds.length, 6); i++) {
       const instanceId = shipIds[i];
-      if (instanceId <= 0) {
+      if (instanceId == null || instanceId <= 0) {
         continue;
       }
       const ship = shipMap[instanceId];
@@ -110,7 +110,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 
       for (let j = 0; j < Math.min(slots.length, 5); j++) {
         const slotInstanceId = slots[j];
-        if (slotInstanceId <= 0) continue;
+        if (slotInstanceId == null || slotInstanceId <= 0) continue;
         const si = slotItemMap[slotInstanceId];
         if (!si) continue;
         equipIds[j] = si.slotitem_id;
@@ -171,7 +171,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 
       for (let j = 0; j < Math.min(slots.length, 5); j++) {
         const slotInstanceId = slots[j];
-        if (slotInstanceId <= 0) continue;
+        if (slotInstanceId == null || slotInstanceId <= 0) continue;
         const si = slotItemMap[slotInstanceId];
         if (!si) continue;
         equipIds[j] = si.slotitem_id;
