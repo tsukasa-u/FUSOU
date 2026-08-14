@@ -212,11 +212,11 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
   }
 
   // ── Slot items (equipment) ──
-  if (Array.isArray(data.api_mst_slotitem)) {
-    result.mst_slot_items = (data.api_mst_slotitem as Record<string, unknown>[]).map((s) => {
-      const apiType = s.api_type as number[] | undefined;
-      let houm = (s.api_houm as number) ?? 0;
-      let houk = (s.api_houk as number) ?? 0;
+  if (Array.isArray(data["api_mst_slotitem"])) {
+    result["mst_slot_items"] = (data["api_mst_slotitem"] as Record<string, unknown>[]).map((s) => {
+      const apiType = s["api_type"] as number[] | undefined;
+      let houm = (s["api_houm"] as number) ?? 0;
+      let houk = (s["api_houk"] as number) ?? 0;
       let geigeki = 0;
       let taibaku = 0;
 
@@ -229,36 +229,36 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
       }
 
       return {
-        id: s.api_id,
-        sortno: s.api_sortno ?? 0,
-        name: s.api_name,
+        id: s["api_id"],
+        sortno: s["api_sortno"] ?? 0,
+        name: s["api_name"],
         type: apiType,
-        taik: s.api_taik ?? 0,
-        souk: s.api_souk ?? 0,
-        houg: s.api_houg ?? 0,
-        raig: s.api_raig ?? 0,
-        soku: s.api_soku ?? 0,
-        baku: s.api_baku ?? 0,
-        tyku: s.api_tyku ?? 0,
-        tais: s.api_tais ?? 0,
-        atap: s.api_atap ?? 0,
+        taik: s["api_taik"] ?? 0,
+        souk: s["api_souk"] ?? 0,
+        houg: s["api_houg"] ?? 0,
+        raig: s["api_raig"] ?? 0,
+        soku: s["api_soku"] ?? 0,
+        baku: s["api_baku"] ?? 0,
+        tyku: s["api_tyku"] ?? 0,
+        tais: s["api_tais"] ?? 0,
+        atap: s["api_atap"] ?? 0,
         houm,
-        raim: s.api_raim ?? 0,
+        raim: s["api_raim"] ?? 0,
         houk,
-        raik: s.api_raik ?? 0,
-        bakk: s.api_bakk ?? 0,
-        saku: s.api_saku ?? 0,
-        sakb: s.api_sakb ?? 0,
-        luck: s.api_luck ?? 0,
-        leng: s.api_leng ?? 0,
-        rare: s.api_rare ?? 0,
+        raik: s["api_raik"] ?? 0,
+        bakk: s["api_bakk"] ?? 0,
+        saku: s["api_saku"] ?? 0,
+        sakb: s["api_sakb"] ?? 0,
+        luck: s["api_luck"] ?? 0,
+        leng: s["api_leng"] ?? 0,
+        rare: s["api_rare"] ?? 0,
         geigeki,
         taibaku,
-        broken: s.api_broken ?? [],
-        usebull: s.api_usebull ?? "",
-        version: s.api_version ?? null,
-        cost: s.api_cost ?? null,
-        distance: s.api_distance ?? null,
+        broken: s["api_broken"] ?? [],
+        usebull: s["api_usebull"] ?? "",
+        version: s["api_version"] ?? null,
+        cost: s["api_cost"] ?? null,
+        distance: s["api_distance"] ?? null,
       };
     });
   }
