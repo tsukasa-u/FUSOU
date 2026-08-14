@@ -779,9 +779,10 @@ export async function loadMasterData(renderAll: () => void) {
       resetWeaponIconFrames();
       for (const [name, entry] of Object.entries(iconFrameData.frames)) {
         const m = name.match(/_id_(\d+)$/);
-        if (!m) continue;
+        const idText = m?.[1];
+        if (idText === undefined) continue;
         const { x, y, w, h } = entry.frame;
-        setWeaponIconFrame(parseInt(m[1], 10), [x, y, w, h]);
+        setWeaponIconFrame(parseInt(idText, 10), [x, y, w, h]);
       }
     }
 
@@ -803,8 +804,9 @@ export async function loadMasterData(renderAll: () => void) {
         shipTypeIconFrameData.frames,
       )) {
         const portMatch = name.match(/^port_ships_(\d+)$/);
-        if (!portMatch) continue;
-        const idx = Number.parseInt(portMatch[1], 10);
+        const portIndexText = portMatch?.[1];
+        if (portIndexText === undefined) continue;
+        const idx = Number.parseInt(portIndexText, 10);
         if (!Number.isFinite(idx) || idx < 0) continue;
         const { x, y, w, h } = entry.frame;
         portShipFrameByIndex.set(idx, [x, y, w, h]);
@@ -855,8 +857,9 @@ export async function loadMasterData(renderAll: () => void) {
       )) {
         if (/^port_ships_\d+$/.test(name)) continue;
         const genericMatch = name.match(/_([0-9]+)$/);
-        if (!genericMatch) continue;
-        const stype = Number.parseInt(genericMatch[1], 10);
+        const stypeText = genericMatch?.[1];
+        if (stypeText === undefined) continue;
+        const stype = Number.parseInt(stypeText, 10);
         if (!Number.isFinite(stype) || stype <= 0) continue;
         if (portShipFrameByIndex.size > 0 && stypeToPortShipsFrameIndex[stype]) {
           // port_ships がある場合はゲームコード由来マッピングを優先。
