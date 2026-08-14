@@ -18,7 +18,10 @@ export const POST: APIRoute = async ({ cookies }) => {
   }
 
   try {
-    const supabase = createSupabaseServerClient(cookies, cfEnv as any);
+    const supabase = createSupabaseServerClient(
+      cookies,
+      cfEnv as Record<string, unknown>,
+    );
 
     // Use refresh_token to get a new session
     const { data, error } = await supabase.auth.refreshSession({

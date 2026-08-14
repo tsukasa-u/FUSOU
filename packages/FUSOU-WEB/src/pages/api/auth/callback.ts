@@ -33,7 +33,9 @@ const createUserScopedClient = (
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
-  const envCtx = createEnvContext({ env: cfEnv as any });
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
   const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
   const supabasePublishableKey = getEnv(
     envCtx,

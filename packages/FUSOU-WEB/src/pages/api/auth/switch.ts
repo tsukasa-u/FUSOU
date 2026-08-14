@@ -22,7 +22,9 @@ function readStoredTokenList(
 }
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const envCtx = createEnvContext({ env: cfEnv as any });
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     return new Response("Server misconfiguration", { status: 500 });
