@@ -124,7 +124,7 @@ app.get("/tables", async (c) => {
     }
 
     // RU Check (fail-closed: reject if KV unavailable)
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return jsonResponse(
         {
@@ -159,7 +159,7 @@ app.get("/tables", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       const code = generateVerificationCode();
@@ -179,8 +179,8 @@ app.get("/tables", async (c) => {
         ruStatus,
       );
     }
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
@@ -250,7 +250,7 @@ app.get("/period-tags", async (c) => {
     }
 
     // RU Check - fail-closed if KV unavailable
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return jsonResponse(
         {
@@ -303,7 +303,7 @@ app.get("/period-tags", async (c) => {
     }
 
     const periodTags = await listAllowedPeriodTags(c, {
-      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       limit: 100,
     });
 
@@ -444,7 +444,7 @@ app.get("/data/:table", async (c) => {
     }
 
     // Pre-check RU (Base cost)
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let ruStatus:
       | {
           allowed: boolean;
@@ -481,7 +481,7 @@ app.get("/data/:table", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       const code = generateVerificationCode();
@@ -503,9 +503,9 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
-    const bucket = env.runtime.MASTER_DATA_BUCKET;
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
+    const bucket = env.runtime["MASTER_DATA_BUCKET"];
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
@@ -529,7 +529,10 @@ app.get("/data/:table", async (c) => {
       // For master-data, ignore scope parameter (always "all")
       let periodTag: string | null = null;
       if (periodTagParam === "latest") {
-        const latestMaster = await getLatestMasterPeriodTag(masterDb, env.runtime.DATA_LOADER_CACHE_KV);
+        const latestMaster = await getLatestMasterPeriodTag(
+          masterDb,
+          env.runtime["DATA_LOADER_CACHE_KV"],
+        );
         const latestPeriodTag = latestMaster?.period_tag;
 
         if (latestPeriodTag) {
@@ -621,7 +624,7 @@ app.get("/data/:table", async (c) => {
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
       periodTag = await getLatestAllowedPeriodTag(c, {
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTag) {
         return jsonResponse(
@@ -887,7 +890,7 @@ app.get("/usage", async (c) => {
       );
     }
 
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let usage = {
       remaining: 1000, // Default Default Max
       consumed: 0,
@@ -964,7 +967,7 @@ app.get("/download", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!trusted) {
       // For download, if unreachable, just error? Or 403.
@@ -974,8 +977,8 @@ app.get("/download", async (c) => {
       );
     }
 
-    const bucket = env.runtime.BATTLE_DATA_BUCKET;
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
+    const bucket = env.runtime["BATTLE_DATA_BUCKET"];
+    const indexDb = env.runtime["BATTLE_INDEX_DB"];
     if (!bucket || !indexDb) {
       return jsonResponse(
         {
@@ -1444,7 +1447,7 @@ app.get("/download-master", async (c) => {
       return new Response("Invalid API key", { status: 403 });
     }
 
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     if (!kv) {
       return new Response("Service unavailable", { status: 503 });
     }
@@ -1476,8 +1479,8 @@ app.get("/download-master", async (c) => {
       return new Response("Device unverified", { status: 403 });
     }
 
-    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
-    const bucket = env.runtime.MASTER_DATA_BUCKET;
+    const masterDb = env.runtime["MASTER_DATA_INDEX_DB"];
+    const bucket = env.runtime["MASTER_DATA_BUCKET"];
 
     if (!masterDb || !bucket) {
       return new Response("Master data service not configured", {
@@ -1549,7 +1552,7 @@ app.post("/verify", async (c) => {
 
   // Rate limiting: 5 attempts per client per 5 minutes
   const env = createEnvContext(c);
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (kv) {
     const isRateLimited = await checkRateLimit(
       kv,
@@ -1656,7 +1659,7 @@ app.post("/verify-google", async (c) => {
 
   // Rate limiting: 5 attempts per client per 5 minutes
   const env = createEnvContext(c);
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (kv) {
     const isRateLimited = await checkRateLimit(
       kv,
@@ -1776,7 +1779,7 @@ app.post("/verify-google", async (c) => {
       getSupabaseRestConfig(c),
       apiKeyData.user_id,
       clientId,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
     if (!alreadyTrusted) {
       await supabaseRestRequest(getSupabaseRestConfig(c), "trusted_devices", {
