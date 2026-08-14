@@ -143,7 +143,7 @@ describe("local_auth API handlers", () => {
   });
 
   it("POST /api/local_auth/signin redirects to provider when request is valid", async () => {
-    (mockWorkersEnv as Record<string, unknown>).PUBLIC_SITE_URL =
+    (mockWorkersEnv as Record<string, unknown>)["PUBLIC_SITE_URL"] =
       "https://fusou.dev";
 
     const cookies = createCookieJar();
@@ -170,7 +170,7 @@ describe("local_auth API handlers", () => {
   });
 
   it("POST /api/local_auth/signin rejects unsupported provider", async () => {
-    (mockWorkersEnv as Record<string, unknown>).PUBLIC_SITE_URL =
+    (mockWorkersEnv as Record<string, unknown>)["PUBLIC_SITE_URL"] =
       "https://fusou.dev";
 
     const cookies = createCookieJar();
