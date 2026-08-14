@@ -7,7 +7,12 @@ import {
 } from "@aws-sdk/client-s3";
 import { mergeAvroOCF, mergeAvroOCFWithBoundaries } from "@fusou/compaction-core";
 import { InternalCompactionClient } from "./internal-api.js";
-import type { CompactionJobInput, RegisterOutputBlock, SourceBlock } from "./types.js";
+import {
+  CompactionJobInputSchema,
+  type CompactionJobInput,
+  type RegisterOutputBlock,
+  type SourceBlock,
+} from "./types.js";
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -293,14 +298,7 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
 
 function parseJobFromEnv(): CompactionJobInput {
   const raw = requiredEnv("COMPACTION_JOB_JSON");
-  const parsed = JSON.parse(raw) as CompactionJobInput;
-  return {
-    ...parsed,
-    chunk_limit:
-      Number.isFinite(Number(parsed.chunk_limit)) && Number(parsed.chunk_limit) > 0
-        ? Number(parsed.chunk_limit)
-        : 200,
-  };
+  return CompactionJobInputSchema.parse(JSON.parse(raw) as unknown);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

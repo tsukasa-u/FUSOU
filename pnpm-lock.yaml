@@ -421,6 +421,9 @@ importers:
       '@trigger.dev/sdk':
         specifier: 4.5.3
         version: 4.5.3(react@19.2.0)(zod@3.25.76)
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
     devDependencies:
       '@trigger.dev/build':
         specifier: 4.5.3

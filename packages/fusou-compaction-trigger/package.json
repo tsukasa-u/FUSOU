@@ -43,10 +43,11 @@
     "battle-data:verify": "dotenvx run -fk ../.env.keys -f .env --overload -- node scripts/repair-d1-indexes-from-r2.mjs --remote --db dev-kc-battle-index --bucket dev-kc-battle-data --phase d1-verify"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
     "@dotenvx/dotenvx": "^1.59.1",
     "@fusou/compaction-core": "workspace:*",
     "@trigger.dev/sdk": "4.5.3",
-    "@aws-sdk/client-s3": "^3.888.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@trigger.dev/build": "4.5.3",
