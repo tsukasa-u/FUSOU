@@ -379,33 +379,33 @@ export function resolveBattleDetail(
     return { list, details };
   };
 
-  const midnight = listAndDetail(scopedTables.midnightHougekiLists, scopedTables.midnightHougekis, battle.midnight_hougeki, "midnight_hougeki");
-  const openingTaisen = listAndDetail(scopedTables.openingTaisenLists, scopedTables.openingTaisens, battle.opening_taisen, "opening_taisen");
-  const hougeki = listAndDetail(scopedTables.hougekiLists, scopedTables.hougekis, battle.hougeki, "hougeki");
-  const openingAirattack = listAndDetail(scopedTables.openingAirattackLists, scopedTables.openingAirattacks, battle.opening_air_attack, "opening_air_attack");
+  const midnight = listAndDetail(scopedTables.midnightHougekiLists, scopedTables.midnightHougekis, battle["midnight_hougeki"], "midnight_hougeki");
+  const openingTaisen = listAndDetail(scopedTables.openingTaisenLists, scopedTables.openingTaisens, battle["opening_taisen"], "opening_taisen");
+  const hougeki = listAndDetail(scopedTables.hougekiLists, scopedTables.hougekis, battle["hougeki"], "hougeki");
+  const openingAirattack = listAndDetail(scopedTables.openingAirattackLists, scopedTables.openingAirattacks, battle["opening_air_attack"], "opening_air_attack");
   const linkedValue = (row: JsonRecord | null): JsonRecord[] => row ? [row] : [];
   const resolve = (rows: JsonRecord[], reference: unknown) => {
     const value = resolveLinked(rows, reference, options.battleIndex);
     if (!value && reference) unresolvedReferences += 1;
     return value;
   };
-  const battleResult = resolve(scopedTables.battleResult, battle.battle_result);
-  const openingRaigeki = resolve(scopedTables.openingRaigeki, battle.opening_raigeki);
-  const closingRaigeki = resolve(scopedTables.closingRaigeki, battle.closing_raigeki);
-  const airbaseAssault = resolve(scopedTables.airbaseAssault, battle.air_base_assault);
-  const airbaseList = resolve(scopedTables.airbaseAirattackLists, battle.air_base_air_attacks);
-  const airbaseAttackUuids = groupIds(airbaseList?.air_base_air_attack);
+  const battleResult = resolve(scopedTables.battleResult, battle["battle_result"]);
+  const openingRaigeki = resolve(scopedTables.openingRaigeki, battle["opening_raigeki"]);
+  const closingRaigeki = resolve(scopedTables.closingRaigeki, battle["closing_raigeki"]);
+  const airbaseAssault = resolve(scopedTables.airbaseAssault, battle["air_base_assault"]);
+  const airbaseList = resolve(scopedTables.airbaseAirattackLists, battle["air_base_air_attacks"]);
+  const airbaseAttackUuids = groupIds(airbaseList?.["air_base_air_attack"]);
   const airbaseAttacks = airbaseAttackUuids.flatMap((uuid) =>
     rowsByUuid(scopedTables.airbaseAirattacks, uuid),
   );
-  const carrierbaseAssault = resolve(scopedTables.carrierbaseAssault, battle.carrier_base_assault);
-  const supportHourai = resolve(scopedTables.supportHourai, battle.support_hourai);
-  const supportAirattack = resolve(scopedTables.supportAirattack, battle.support_airattack);
-  const nightSupportHourai = resolve(scopedTables.nightSupportHourai, battle.night_support_hourai);
-  const nightSupportAirattack = resolve(scopedTables.nightSupportAirattack, battle.night_support_airattack);
-  const destructionBattle = resolve(scopedTables.destructionBattle, cell?.destruction_battles);
-  const friendlyList = resolve(scopedTables.friendlySupportHouraiLists, battle.friendly_force_attack);
-  const friendlySupport = resolve(scopedTables.friendlySupportHourai, friendlyList?.friendly_support_hourai);
+  const carrierbaseAssault = resolve(scopedTables.carrierbaseAssault, battle["carrier_base_assault"]);
+  const supportHourai = resolve(scopedTables.supportHourai, battle["support_hourai"]);
+  const supportAirattack = resolve(scopedTables.supportAirattack, battle["support_airattack"]);
+  const nightSupportHourai = resolve(scopedTables.nightSupportHourai, battle["night_support_hourai"]);
+  const nightSupportAirattack = resolve(scopedTables.nightSupportAirattack, battle["night_support_airattack"]);
+  const destructionBattle = resolve(scopedTables.destructionBattle, cell?.["destruction_battles"]);
+  const friendlyList = resolve(scopedTables.friendlySupportHouraiLists, battle["friendly_force_attack"]);
+  const friendlySupport = resolve(scopedTables.friendlySupportHourai, friendlyList?.["friendly_support_hourai"]);
 
   const mergedBattle: JsonRecord = {
     ...battle,
