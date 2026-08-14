@@ -46,42 +46,46 @@ type ValidatedTableOffset = Omit<TableOffsetMetadata, "format"> & {
 
 function transformOpeningRaigekiData(raw: BattleRecord): BattleRecord {
   const result: BattleRecord = {};
-  if (raw.frai_list_items) {
-    result.f_rai =
-      typeof raw.frai_list_items === "string"
-        ? JSON.parse(raw.frai_list_items)
-        : raw.frai_list_items;
+  if (raw["frai_list_items"]) {
+    result["f_rai"] =
+      typeof raw["frai_list_items"] === "string"
+        ? JSON.parse(raw["frai_list_items"])
+        : raw["frai_list_items"];
   }
-  if (raw.erai_list_items) {
-    result.e_rai =
-      typeof raw.erai_list_items === "string"
-        ? JSON.parse(raw.erai_list_items)
-        : raw.erai_list_items;
+  if (raw["erai_list_items"]) {
+    result["e_rai"] =
+      typeof raw["erai_list_items"] === "string"
+        ? JSON.parse(raw["erai_list_items"])
+        : raw["erai_list_items"];
   }
-  if (raw.friend_damage) {
-    result.f_dam =
-      typeof raw.friend_damage === "string"
-        ? JSON.parse(raw.friend_damage)
-        : raw.friend_damage;
+  if (raw["friend_damage"]) {
+    result["f_dam"] =
+      typeof raw["friend_damage"] === "string"
+        ? JSON.parse(raw["friend_damage"])
+        : raw["friend_damage"];
   }
-  if (raw.enemy_damage) {
-    result.e_dam =
-      typeof raw.enemy_damage === "string"
-        ? JSON.parse(raw.enemy_damage)
-        : raw.enemy_damage;
+  if (raw["enemy_damage"]) {
+    result["e_dam"] =
+      typeof raw["enemy_damage"] === "string"
+        ? JSON.parse(raw["enemy_damage"])
+        : raw["enemy_damage"];
   }
-  const fDam = Array.isArray(result.f_dam) ? result.f_dam : [];
-  const eDam = Array.isArray(result.e_dam) ? result.e_dam : [];
-  result.f_now_hps = Array(fDam.length)
+  const fDam = Array.isArray(result["f_dam"]) ? result["f_dam"] : [];
+  const eDam = Array.isArray(result["e_dam"]) ? result["e_dam"] : [];
+  result["f_now_hps"] = Array(fDam.length)
     .fill(null)
     .map((_, i) => 100 + i * 20);
-  result.e_now_hps = Array(eDam.length)
+  result["e_now_hps"] = Array(eDam.length)
     .fill(null)
     .map((_, i) => 100 + i * 20);
-  const fNowHps = Array.isArray(result.f_now_hps) ? result.f_now_hps : [];
-  const eNowHps = Array.isArray(result.e_now_hps) ? result.e_now_hps : [];
-  result.f_cl = Array(fNowHps.length).fill(2);
-  result.e_cl = Array(eNowHps.length).fill(2);
+  const fNowHps = Array.isArray(result["f_now_hps"])
+    ? result["f_now_hps"]
+    : [];
+  const eNowHps = Array.isArray(result["e_now_hps"])
+    ? result["e_now_hps"]
+    : [];
+  result["f_cl"] = Array(fNowHps.length).fill(2);
+  result["e_cl"] = Array(eNowHps.length).fill(2);
   return result;
 }
 
@@ -534,8 +538,8 @@ function attachSortieIds(records: BattleRecord[]): void {
     .map((rec) => ({
       rec,
       ts:
-        normalizeTimestamp(rec.timestamp) ??
-        normalizeTimestamp(rec.midnight_timestamp),
+        normalizeTimestamp(rec["timestamp"]) ??
+        normalizeTimestamp(rec["midnight_timestamp"]),
     }))
     .sort((a, b) => {
       const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
@@ -550,11 +554,11 @@ function attachSortieIds(records: BattleRecord[]): void {
 
   for (const item of sortable) {
     const datasetId =
-      typeof item.rec.dataset_id === "string" && item.rec.dataset_id
-        ? item.rec.dataset_id
+      typeof item.rec["dataset_id"] === "string" && item.rec["dataset_id"]
+        ? item.rec["dataset_id"]
         : "global";
-    const mapArea = Number(item.rec.maparea_id ?? 0) || 0;
-    const mapInfo = Number(item.rec.mapinfo_no ?? 0) || 0;
+    const mapArea = Number(item.rec["maparea_id"] ?? 0) || 0;
+    const mapInfo = Number(item.rec["mapinfo_no"] ?? 0) || 0;
     const mapKey = `${mapArea}-${mapInfo}`;
 
     const prev = byDataset.get(datasetId);
@@ -569,7 +573,7 @@ function attachSortieIds(records: BattleRecord[]): void {
     }
 
     byDataset.set(datasetId, { mapKey, ts: item.ts, sortieNo });
-    item.rec.__sortie_id = `${datasetId}:${mapKey}:${sortieNo}`;
+    item.rec["__sortie_id"] = `${datasetId}:${mapKey}:${sortieNo}`;
   }
 }
 
