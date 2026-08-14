@@ -16,3 +16,5 @@ export const SpriteAtlasSchema = z
     meta: z.record(z.unknown()),
   })
   .passthrough();
+
+export const CacheClearKeysSchema = z.array(z.string().min(1));

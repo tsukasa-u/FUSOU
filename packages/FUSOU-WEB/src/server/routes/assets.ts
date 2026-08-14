@@ -27,7 +27,11 @@ import {
   bumpAssetIndexRevision,
   getAssetSyncKeysResponse,
 } from "../utils/asset-index-cache";
-import { AssetKeyRowSchema, SpriteAtlasSchema } from "../schemas/assets";
+import {
+  AssetKeyRowSchema,
+  CacheClearKeysSchema,
+  SpriteAtlasSchema,
+} from "../schemas/assets";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -240,8 +244,13 @@ app.post("/upload", async (c) => {
       const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
       if (kv && typeof tokenPayload.caches_to_clear === "string") {
         try {
-          const cachesToClear = JSON.parse(tokenPayload.caches_to_clear) as string[];
-          for (const cacheKey of cachesToClear) {
+          const parsedCachesToClear = CacheClearKeysSchema.safeParse(
+            JSON.parse(tokenPayload.caches_to_clear),
+          );
+          if (!parsedCachesToClear.success) {
+            throw new Error("Invalid cache clear keys");
+          }
+          for (const cacheKey of parsedCachesToClear.data) {
             await kv.delete(cacheKey);
             console.info(`[asset-sync] Cleared KV cache: ${cacheKey}`);
           }

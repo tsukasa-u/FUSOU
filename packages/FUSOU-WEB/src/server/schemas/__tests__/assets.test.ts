@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AssetContentHashRowSchema,
   AssetKeyRowSchema,
+  CacheClearKeysSchema,
   SpriteAtlasSchema,
 } from "../assets";
 
@@ -69,5 +70,21 @@ describe("AssetContentHashRowSchema", () => {
       AssetContentHashRowSchema.safeParse({ content_hash: 42 }).success,
     ).toBe(false);
     expect(AssetContentHashRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("CacheClearKeysSchema", () => {
+  it("accepts non-empty cache keys", () => {
+    expect(CacheClearKeysSchema.safeParse(["cache:ship-banner-map"]).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects non-string and empty cache keys", () => {
+    expect(CacheClearKeysSchema.safeParse(["", "cache:key"]).success).toBe(
+      false,
+    );
+    expect(CacheClearKeysSchema.safeParse([1]).success).toBe(false);
+    expect(CacheClearKeysSchema.safeParse(null).success).toBe(false);
   });
 });
