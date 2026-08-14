@@ -170,44 +170,44 @@ export function convertRequireInfoToSnapshot(reqJson: Record<string, unknown>): 
  * (e.g. `id`, `name`, `stype`) while the raw API uses `api_id`, `api_name`, etc.
  */
 export function convertGetDataToMasterData(json: Record<string, unknown>): Record<string, unknown> {
-  const data = (json.api_data ?? json) as Record<string, unknown>;
+  const data = (json["api_data"] ?? json) as Record<string, unknown>;
   const result: Record<string, unknown> = {};
 
   // ── Ships ──
-  if (Array.isArray(data.api_mst_ship)) {
-    result.mst_ships = (data.api_mst_ship as Record<string, unknown>[]).map((s) => ({
-      id: s.api_id,
-      sortno: s.api_sortno ?? null,
-      sort_id: s.api_sort_id ?? 0,
-      name: s.api_name,
-      yomi: s.api_yomi,
-      stype: s.api_stype,
-      ctype: s.api_ctype,
-      afterlv: s.api_afterlv ?? null,
-      aftershipid: s.api_aftershipid ?? null,
-      taik: s.api_taik ?? null,
-      souk: s.api_souk ?? null,
-      houg: s.api_houg ?? null,
-      raig: s.api_raig ?? null,
-      tyku: s.api_tyku ?? null,
-      tais: s.api_tais ?? null,
-      kaih: s.api_kaih ?? s.api_houk ?? null,
-      saku: s.api_saku ?? s.api_sakuteki ?? null,
-      luck: s.api_luck ?? null,
-      soku: s.api_soku ?? 0,
-      leng: s.api_leng ?? 0,
-      slot_num: s.api_slot_num ?? 0,
-      maxeq: s.api_maxeq ?? null,
-      buildtime: s.api_buildtime ?? null,
-      broken: s.api_broken ?? null,
-      powup: s.api_powup ?? null,
-      backs: s.api_backs ?? null,
-      getmes: s.api_getmes ?? null,
-      afterfuel: s.api_afterfuel ?? null,
-      afterbull: s.api_afterbull ?? null,
-      fuel_max: s.api_fuel_max ?? null,
-      bull_max: s.api_bull_max ?? null,
-      voicef: s.api_voicef ?? null,
+  if (Array.isArray(data["api_mst_ship"])) {
+    result["mst_ships"] = (data["api_mst_ship"] as Record<string, unknown>[]).map((s) => ({
+      id: s["api_id"],
+      sortno: s["api_sortno"] ?? null,
+      sort_id: s["api_sort_id"] ?? 0,
+      name: s["api_name"],
+      yomi: s["api_yomi"],
+      stype: s["api_stype"],
+      ctype: s["api_ctype"],
+      afterlv: s["api_afterlv"] ?? null,
+      aftershipid: s["api_aftershipid"] ?? null,
+      taik: s["api_taik"] ?? null,
+      souk: s["api_souk"] ?? null,
+      houg: s["api_houg"] ?? null,
+      raig: s["api_raig"] ?? null,
+      tyku: s["api_tyku"] ?? null,
+      tais: s["api_tais"] ?? null,
+      kaih: s["api_kaih"] ?? s["api_houk"] ?? null,
+      saku: s["api_saku"] ?? s["api_sakuteki"] ?? null,
+      luck: s["api_luck"] ?? null,
+      soku: s["api_soku"] ?? 0,
+      leng: s["api_leng"] ?? 0,
+      slot_num: s["api_slot_num"] ?? 0,
+      maxeq: s["api_maxeq"] ?? null,
+      buildtime: s["api_buildtime"] ?? null,
+      broken: s["api_broken"] ?? null,
+      powup: s["api_powup"] ?? null,
+      backs: s["api_backs"] ?? null,
+      getmes: s["api_getmes"] ?? null,
+      afterfuel: s["api_afterfuel"] ?? null,
+      afterbull: s["api_afterbull"] ?? null,
+      fuel_max: s["api_fuel_max"] ?? null,
+      bull_max: s["api_bull_max"] ?? null,
+      voicef: s["api_voicef"] ?? null,
     }));
   }
 
