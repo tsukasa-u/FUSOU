@@ -143,18 +143,18 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
 
   if (deckPorts.length > 0) {
     const { fleet1, fleet2, fleet3, fleet4 } = getFleetState();
-    const sorted = [...deckPorts].sort((a, b) => ((a.i0d as number) ?? 0) - ((b.i0d as number) ?? 0));
+    const sorted = [...deckPorts].sort((a, b) => ((a["i0d"] as number) ?? 0) - ((b["i0d"] as number) ?? 0));
     if (sorted[0]) {
-      populateFleet(fleet1, (sorted[0].s3s as number[]) ?? []);
+      populateFleet(fleet1, (sorted[0]["s3s"] as number[]) ?? []);
     }
     if (sorted[1]) {
-      populateFleet(fleet2, (sorted[1].s3s as number[]) ?? []);
+      populateFleet(fleet2, (sorted[1]["s3s"] as number[]) ?? []);
     }
     if (sorted[2]) {
-      populateFleet(fleet3, (sorted[2].s3s as number[]) ?? []);
+      populateFleet(fleet3, (sorted[2]["s3s"] as number[]) ?? []);
     }
     if (sorted[3]) {
-      populateFleet(fleet4, (sorted[3].s3s as number[]) ?? []);
+      populateFleet(fleet4, (sorted[3]["s3s"] as number[]) ?? []);
     }
   } else {
     // Legacy fallback
