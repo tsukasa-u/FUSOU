@@ -155,7 +155,12 @@ function decodeLong(
         `Avro buffer overrun at offset ${offset}: varint extends past buffer end (length=${buffer.length})`,
       );
     }
-    b = buffer[pos++];
+    const byte = buffer[pos];
+    if (byte === undefined) {
+      throw new Error(`Avro buffer overrun at offset ${offset}: byte is missing`);
+    }
+    b = byte;
+    pos += 1;
     n |= (b & 0x7f) << shift;
     shift += 7;
   } while (b & 0x80);

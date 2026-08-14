@@ -133,7 +133,7 @@ export async function countProcessingRows(client: TursoClient): Promise<number> 
   const result = await client.execute(
     "SELECT COUNT(*) AS count FROM buffer_logs_processing",
   );
-  const value = result.rows[0]?.count;
+  const value = result.rows[0]?.["count"];
   return Number(value ?? 0);
 }
 
