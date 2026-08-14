@@ -303,7 +303,9 @@ export function injectEnv(_locals?: unknown): Bindings {
  * Hono の c.executionCtx に安全にアクセスする
  * Hono の仕様により、Execution Context が提供されていない状態で c.executionCtx を読むと例外が発生するため
  */
-export function safeGetExecutionCtx(c: any): any | undefined {
+export function safeGetExecutionCtx(
+  c: Pick<Context, "executionCtx">,
+): Pick<Context, "executionCtx">["executionCtx"] | undefined {
   try {
     return c.executionCtx;
   } catch {
@@ -314,7 +316,10 @@ export function safeGetExecutionCtx(c: any): any | undefined {
 /**
  * バックグラウンドタスクを安全にスケジュールする
  */
-export function safeWaitUntil(c: any, promise: Promise<unknown>): void {
+export function safeWaitUntil(
+  c: Pick<Context, "executionCtx">,
+  promise: Promise<unknown>,
+): void {
   const ctx = safeGetExecutionCtx(c);
   if (ctx && typeof ctx.waitUntil === "function") {
     ctx.waitUntil(promise);
