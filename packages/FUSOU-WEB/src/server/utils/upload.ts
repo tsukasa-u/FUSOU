@@ -139,7 +139,7 @@ async function handlePreparation(
     const env = createEnvContext(c);
     const datasetToken = resolveDatasetToken(
       request.headers.get("X-Dataset-Token"),
-      body?.dataset_token,
+      body?.["dataset_token"],
     );
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
@@ -190,10 +190,10 @@ async function handlePreparation(
 
   // If declared_size is provided in tokenPayload, calculate dynamic TTL
   if (
-    tokenPayload.declared_size &&
-    typeof tokenPayload.declared_size === "number"
+    tokenPayload["declared_size"] &&
+    typeof tokenPayload["declared_size"] === "number"
   ) {
-    const expectedSizeMB = tokenPayload.declared_size / (1024 * 1024);
+    const expectedSizeMB = tokenPayload["declared_size"] / (1024 * 1024);
     const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
     effectiveTTL = Math.min(
       3600, // max 1 hour
@@ -280,11 +280,11 @@ async function handleExecution(
   const tokenPayload = tokenPayloadValidation.data;
 
   const expectedHash =
-    typeof tokenPayload.content_hash === "string"
-      ? tokenPayload.content_hash
+    typeof tokenPayload["content_hash"] === "string"
+      ? tokenPayload["content_hash"]
       : "";
   const tokenUserId =
-    typeof tokenPayload.user_id === "string" ? tokenPayload.user_id : "";
+    typeof tokenPayload["user_id"] === "string" ? tokenPayload["user_id"] : "";
 
   if (!expectedHash || !tokenUserId) {
     return c.json({ error: "Invalid token payload" }, 400);
