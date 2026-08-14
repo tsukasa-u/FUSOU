@@ -315,15 +315,15 @@ export function applyExportedFleet(data: Record<string, unknown>) {
   }
 
   // Apply combined fleet type
-  const rawCombined = data.combinedFleetType;
+  const rawCombined = data["combinedFleetType"];
   const combinedType = (typeof rawCombined === "number" && [0, 1, 2, 3].includes(rawCombined))
     ? (rawCombined as 0 | 1 | 2 | 3)
     : 0;
   setCombinedFleetType(combinedType);
 
   // Apply per-fleet formation selections
-  if (data.fleetFormations && typeof data.fleetFormations === "object") {
-    const fms = data.fleetFormations as Record<string, unknown>;
+  if (data["fleetFormations"] && typeof data["fleetFormations"] === "object") {
+    const fms = data["fleetFormations"] as Record<string, unknown>;
     for (const k of [1, 2, 3, 4] as const) {
       const v = fms[String(k)];
       setFleetFormation(k, (typeof v === "number" && Number.isFinite(v)) ? Math.trunc(v) : 0);
