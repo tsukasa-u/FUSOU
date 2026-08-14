@@ -1,10 +1,10 @@
 # Zod 導入 & tsconfig.json 厳密化 調査報告書
 
-> **調査日**: 2026-08-13  
-> **対象**: FUSOU-WEB サーバーサイド (Hono API) + 関連 AVRO データ処理  
-> **ランタイム**: Cloudflare Workers (Astro + `@astrojs/cloudflare`)  
-> **フレームワーク**: Hono v4  
-> **現行 TypeScript**: 5.9.3  
+> **調査日**: 2026-08-13
+> **対象**: FUSOU-WEB サーバーサイド (Hono API) + 関連 AVRO データ処理
+> **ランタイム**: Cloudflare Workers (Astro + `@astrojs/cloudflare`)
+> **フレームワーク**: Hono v4
+> **現行 TypeScript**: 5.9.3
 > **関連文書**: [Effect-TS 導入可能性調査報告書](./effect-ts-feasibility-study.md)
 
 ---
@@ -266,10 +266,10 @@ alwaysStrict             ❌ 未設定 → 有効化
 
 **影響を受ける箇所の推定:**
 
-1. **`createEnvContext` の `c` パラメータ**  
+1. **`createEnvContext` の `c` パラメータ**
    `c: Pick<Context, "env"> | { env?: any }` — `any` が暗黙的に伝播
 
-2. **コールバック関数のパラメータ**  
+2. **コールバック関数のパラメータ**
    ```typescript
    // upload.ts L39
    preparationValidator: (
@@ -279,10 +279,10 @@ alwaysStrict             ❌ 未設定 → 有効化
    ) => Promise<PrepareResult | Response>;
    ```
 
-3. **D1 クエリ結果のキャスト**  
+3. **D1 クエリ結果のキャスト**
    全ての `as { ... }` キャストの前段階で `any` が推論される箇所
 
-4. **`process.env` アクセス**  
+4. **`process.env` アクセス**
    ```typescript
    const processValue = (process.env as any)[key];  // ← 明示的 any
    ```
@@ -387,7 +387,7 @@ gantt
 > [!IMPORTANT]
 > `strict: true` を一度に有効化するとコンパイルエラーが大量に発生し、修正が滞る可能性がある。以下の手順で **段階的に** 移行する。
 
-**手順 1:** `strict: true` を有効化し、`// @ts-expect-error` で既存エラーを一時的に抑制する  
+**手順 1:** `strict: true` を有効化し、`// @ts-expect-error` で既存エラーを一時的に抑制する
 
 ```bash
 # エラー数の事前調査
@@ -433,14 +433,14 @@ Zod は TypeScript ファーストのスキーマバリデーションライブ�
 // 15 行以上の手動バリデーション
 const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
 const table = typeof body?.table === "string" ? body.table.trim() : "";
-const periodTag = typeof body?.kc_period_tag === "string" 
+const periodTag = typeof body?.kc_period_tag === "string"
   ? body.kc_period_tag.trim() : "";
 const tableVersion = typeof body?.table_version === "string"
   ? body.table_version.trim()
   : typeof body?.tableVersion === "string"
     ? body.tableVersion.trim() : "";
 const fileSize = typeof body?.file_size === "string" ? body.file_size : "0";
-const contentHash = typeof body?.content_hash === "string" 
+const contentHash = typeof body?.content_hash === "string"
   ? body.content_hash.trim() : "";
 
 if (!datasetId) return c.json({ error: "dataset_id is required" }, 400);
@@ -484,7 +484,7 @@ type BattleDataPrepareBody = z.infer<typeof BattleDataPrepareSchema>;
 app.post("/upload", async (c) => {
   const rawBody = await c.req.json().catch(() => null);
   const parsed = BattleDataPrepareSchema.safeParse(rawBody);
-  
+
   if (!parsed.success) {
     return c.json({
       error: "Validation failed",
@@ -494,7 +494,7 @@ app.post("/upload", async (c) => {
       })),
     }, 400);
   }
-  
+
   const body = parsed.data; // ← 完全に型付けされている
   body.dataset_id;          // string (guaranteed trimmed, non-empty)
   body.resolvedTableVersion; // string
@@ -685,7 +685,7 @@ app.post(
 app.post("/ingest", async (c) => {
   const rawBody = await c.req.json().catch(() => null);
   const result = IngestBodySchema.safeParse(rawBody);
-  
+
   if (!result.success) {
     return c.json({
       error: "Validation failed",
@@ -693,7 +693,7 @@ app.post("/ingest", async (c) => {
       details: result.error.flatten().fieldErrors,
     }, 400);
   }
-  
+
   const body = result.data; // 完全に型付き
   // ... 以降のロジック
 });
@@ -804,10 +804,10 @@ type QuestListEntry = z.infer<typeof QuestListEntrySchema>;
 app.post("/upload", async (c) => {
   const raw = await c.req.json(); // unknown (noImplicitAny)
   // raw.dataset_id; // ← コンパイルエラー！(unknown にプロパティアクセスできない)
-  
+
   const result = UploadSchema.safeParse(raw);
   if (!result.success) return c.json({ error: result.error }, 400);
-  
+
   result.data.dataset_id; // ← string (Zod が保証)
 });
 ```
@@ -1102,7 +1102,7 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
 // ========== Zod 化 (~60行) ==========
 import { z } from "zod";
 
-const sha256Hex = z.string().trim().regex(/^[a-f0-9]{64}$/i, 
+const sha256Hex = z.string().trim().regex(/^[a-f0-9]{64}$/i,
   "Must be a valid 64-char SHA-256 hex string");
 
 const BaseIngest = {
@@ -1198,9 +1198,9 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     const firstError = parsed.error.issues[0]?.message ?? "Validation failed";
     return c.json({ error: firstError }, 400);
   }
-  
+
   const { api_member_id, device_pub, attestation } = parsed.data;
-  
+
   // device_pub の詳細バリデーション (base64 → 32 bytes チェック)
   const pubkey = normalizePubkey(device_pub);
   if (!pubkey) {
@@ -1222,7 +1222,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 +  const rawEnv = (c as { env?: Record<string, unknown> }).env ?? {};
 +  const contextEnv = (rawEnv as { env?: Record<string, unknown> }).env ?? rawEnv;
    const isDev = import.meta.env.DEV;
- 
+
    return {
      runtime: {
 -      ...(cfEnv as unknown as Record<string, any>),
@@ -1297,8 +1297,8 @@ export function requireEnv<K extends RequiredEnvKey>(
 ---
 
 > [!NOTE]
-> この報告書は FUSOU-WEB の現行 TypeScript 5.9 + Hono v4 + Cloudflare Workers 環境に基づく分析である。  
-> tsconfig のオプションは TypeScript のバージョンアップにより追加・変更される可能性がある。  
+> この報告書は FUSOU-WEB の現行 TypeScript 5.9 + Hono v4 + Cloudflare Workers 環境に基づく分析である。
+> tsconfig のオプションは TypeScript のバージョンアップにより追加・変更される可能性がある。
 > Zod v3 系の API を前提としているが、Zod v4 が安定した場合はマイグレーションガイドを参照のこと。
 
 ---

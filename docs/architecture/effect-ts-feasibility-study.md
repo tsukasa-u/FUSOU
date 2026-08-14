@@ -1,9 +1,9 @@
 # Effect-TS 導入可能性調査報告書
 
-> **調査日**: 2026-08-12  
-> **対象**: FUSOU-WEB サーバーサイド (Hono API) + AVRO データ処理パイプライン  
-> **ランタイム**: Cloudflare Workers (Astro + `@astrojs/cloudflare`)  
-> **フレームワーク**: Hono v4  
+> **調査日**: 2026-08-12
+> **対象**: FUSOU-WEB サーバーサイド (Hono API) + AVRO データ処理パイプライン
+> **ランタイム**: Cloudflare Workers (Astro + `@astrojs/cloudflare`)
+> **フレームワーク**: Hono v4
 > **現行言語**: TypeScript 5.9
 
 ---
@@ -276,8 +276,8 @@ export const decodeAvroOcf = (avroBytes: Uint8Array) =>
 // 型: Effect<AvroJsonRecord[], AvroOcfError | UnsupportedCodecError>
 ```
 
-**導入コスト:** 低 (約400行の書き換え、外部 API 変更なし)  
-**効果:** 高 (型安全なエラーチャネル、パーシャルデコード情報の保持)  
+**導入コスト:** 低 (約400行の書き換え、外部 API 変更なし)
+**効果:** 高 (型安全なエラーチャネル、パーシャルデコード情報の保持)
 **リスク:** 低 (純粋な変換ロジックで外部依存がない)
 
 ### 4.2 候補 B: pepper/recovery bundle 解決ロジック
@@ -319,8 +319,8 @@ const parseBundlePayload = (raw: unknown) =>
   });
 ```
 
-**導入コスト:** 中 (pepper.ts 全体 + anonymous-sync-v2.ts の呼び出し側の修正が必要)  
-**効果:** 中 (エラー理由の構造化と追跡可能性が向上)  
+**導入コスト:** 中 (pepper.ts 全体 + anonymous-sync-v2.ts の呼び出し側の修正が必要)
+**効果:** 中 (エラー理由の構造化と追跡可能性が向上)
 **リスク:** 中 (anonymous-sync-v2.ts は1999行の巨大ファイルであり、呼び出し側修正の波及が大きい)
 
 ### 4.3 候補 C: 新規ユーティリティモジュール ⭐ 推奨
@@ -332,8 +332,8 @@ const parseBundlePayload = (raw: unknown) =>
 - キャッシュ戦略ロジック
 - バリデーションスキーマ定義
 
-**導入コスト:** 最低 (既存コード変更なし)  
-**効果:** 中～高 (新規コードの品質向上)  
+**導入コスト:** 最低 (既存コード変更なし)
+**効果:** 中～高 (新規コードの品質向上)
 **リスク:** 最低 (既存コードへの影響ゼロ)
 
 ### 4.4 候補 D: Two-stage upload ワークフロー (非推奨)
@@ -432,8 +432,8 @@ import { HttpRouter, HttpServer } from "@effect/platform";
 
 **戦略 2（ビジネスロジックのみ Effect）** を採用し、以下のガイドラインに従う:
 
-> [!IMPORTANT]  
-> Hono のルートハンドラ (`app.get`, `app.post`) 自体は Effect 化しない。  
+> [!IMPORTANT]
+> Hono のルートハンドラ (`app.get`, `app.post`) 自体は Effect 化しない。
 > Effect はルートハンドラから呼び出される **純粋ビジネスロジック** にのみ適用する。
 
 ```
@@ -663,7 +663,7 @@ Effect の Layer 機能により、D1/R2/KV 等の外部依存を差し替え可
 
 Effect-TS は TypeScript エコシステムで最も学習曲線が急峻なライブラリの一つ。`Effect`, `Layer`, `Scope`, `Fiber`, `Runtime`, `Exit`, `Cause` 等の概念を正しく理解するには相当な時間がかかる。
 
-> [!WARNING]  
+> [!WARNING]
 > FUSOU-WEB のチーム規模が小さい場合、Effect-TS の導入はバス係数 (bus factor) を下げるリスクがある。
 
 #### D2: バンドルサイズの増加
@@ -711,8 +711,8 @@ Effect-TS の Cloudflare Workers 上での動作は、コミュニティレベ�
 - `@effect/platform-browser` は Web Workers 互換で、Cloudflare Workers でも動作する可能性が高い
 - `effect` core パッケージは Web API のみに依存しており、動作実績あり
 
-> [!CAUTION]  
-> **本番導入前に、Cloudflare Workers 環境での Effect ランタイムの動作検証が必須。**  
+> [!CAUTION]
+> **本番導入前に、Cloudflare Workers 環境での Effect ランタイムの動作検証が必須。**
 > 特に `wrangler dev` と `wrangler deploy` 両方で問題がないことを確認すること。
 
 ---
@@ -756,7 +756,7 @@ export const decodeAvroOcf: (bytes: Uint8Array) => Effect<AvroJsonRecord[], Avro
 2. バンドルサイズ、ランタイムパフォーマンス、開発者体験を計測
 3. 全面導入 or 現状維持の判断
 
-> [!NOTE]  
+> [!NOTE]
 > Phase 3 の評価結果次第で、Phase 4 以降（ルートハンドラのビジネスロジック Effect 化）への進行を判断する。Phase 1~2 だけでも十分な価値があるため、Phase 3 で「現状維持」と判断しても損失はない。
 
 ---
@@ -944,7 +944,7 @@ const loadMasterSlotStatsMapEffect = (
 
 ---
 
-> [!NOTE]  
+> [!NOTE]
 > この報告書は FUSOU-WEB のサーバーサイドコード、AVRO データ処理パイプライン、および HTTP ハンドラの現行実装に基づく分析である。Effect-TS の API は頻繁に更新されるため、導入時には最新ドキュメントを参照すること。
 
 ---
