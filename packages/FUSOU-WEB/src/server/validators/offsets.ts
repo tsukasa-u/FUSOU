@@ -1,8 +1,26 @@
+import { z } from "zod";
+
+export const TableOffsetMetadataSchema = z
+  .object({
+    table_name: z.string(),
+    start_byte: z.number(),
+    byte_length: z.number(),
+    format: z.string().optional().default("avro"),
+  })
+  .passthrough();
+
 export interface TableOffsetMetadata {
   table_name: string;
   start_byte: number;
   byte_length: number;
   format: string;
+}
+
+export function parseOffsetMetadata(
+  value: unknown,
+): TableOffsetMetadata[] | null {
+  const result = TableOffsetMetadataSchema.array().safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function validateOffsetMetadata(

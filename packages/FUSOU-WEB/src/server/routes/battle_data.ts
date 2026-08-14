@@ -10,7 +10,11 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
-import { validateOffsetMetadata } from "../validators/offsets";
+import {
+  parseOffsetMetadata,
+  validateOffsetMetadata,
+  type TableOffsetMetadata,
+} from "../validators/offsets";
 import {
   decodeAvroOcfToJson,
   type AvroJsonRecord,
@@ -28,6 +32,9 @@ const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
 
 type BattleRecord = Record<string, unknown>;
+type ValidatedTableOffset = Omit<TableOffsetMetadata, "format"> & {
+  record_count: number;
+};
 
 function transformOpeningRaigekiData(raw: BattleRecord): BattleRecord {
   const result: BattleRecord = {};
@@ -772,9 +779,18 @@ app.post("/upload", async (c) => {
           console.info(
             `[battle-data] Received table_offsets for ${table}: ${tableOffsets}`,
           );
-          const parsed = JSON.parse(tableOffsets);
+          const parsed = parseOffsetMetadata(JSON.parse(tableOffsets));
+          if (!parsed) {
+            return c.json(
+              {
+                error: "Invalid table_offsets",
+                details: ["Offset metadata must be an array of valid entries"],
+              },
+              400,
+            );
+          }
           console.info(
-            `[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`,
+            `[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p) => p.table_name))}`,
           );
           const { valid, errors } = validateOffsetMetadata(
             parsed,
@@ -868,10 +884,10 @@ app.post("/upload", async (c) => {
         }
 
         // Parse table_offsets and split data into per-table Avro slices
-        let offsets: any[] = [];
+        let offsets: TableOffsetMetadata[] = [];
         if (tableOffsets) {
           try {
-            offsets = JSON.parse(tableOffsets) as any[];
+            offsets = parseOffsetMetadata(JSON.parse(tableOffsets)) ?? [];
           } catch (e) {
             console.warn(
               "[battle-data] Failed to parse table_offsets for queue split",
@@ -888,7 +904,7 @@ app.post("/upload", async (c) => {
 
         // Validate each table slice before batching
         // This is strict validation - all tables must pass before any are queued
-        const validatedOffsets: any[] = [];
+        const validatedOffsets: ValidatedTableOffset[] = [];
         if (Array.isArray(offsets) && offsets.length) {
           for (const entry of offsets) {
             const start = Number(entry.start_byte ?? 0);
