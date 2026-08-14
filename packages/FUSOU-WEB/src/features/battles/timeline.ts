@@ -353,25 +353,25 @@ export function buildTimelineEvents(
   function extractRaigekiEvents(data: unknown, phaseLabel: string): void {
     if (!data) return;
     const d = data as Record<string, unknown>;
-    const fDam = Array.isArray(d.fdam)
-      ? (d.fdam as unknown[])
-      : Array.isArray(d.f_dam)
-        ? (d.f_dam as unknown[])
+    const fDam = Array.isArray(d["fdam"])
+      ? (d["fdam"] as unknown[])
+      : Array.isArray(d["f_dam"])
+        ? (d["f_dam"] as unknown[])
         : [];
-    const eDam = Array.isArray(d.edam)
-      ? (d.edam as unknown[])
-      : Array.isArray(d.e_dam)
-        ? (d.e_dam as unknown[])
+    const eDam = Array.isArray(d["edam"])
+      ? (d["edam"] as unknown[])
+      : Array.isArray(d["e_dam"])
+        ? (d["e_dam"] as unknown[])
         : [];
-    const fCl = Array.isArray(d.fcl_list)
-      ? (d.fcl_list as unknown[])
-      : Array.isArray(d.fcl)
-        ? (d.fcl as unknown[])
+    const fCl = Array.isArray(d["fcl_list"])
+      ? (d["fcl_list"] as unknown[])
+      : Array.isArray(d["fcl"])
+        ? (d["fcl"] as unknown[])
         : [];
-    const eCl = Array.isArray(d.ecl_list)
-      ? (d.ecl_list as unknown[])
-      : Array.isArray(d.ecl)
-        ? (d.ecl as unknown[])
+    const eCl = Array.isArray(d["ecl_list"])
+      ? (d["ecl_list"] as unknown[])
+      : Array.isArray(d["ecl"])
+        ? (d["ecl"] as unknown[])
         : [];
 
     // Support both flat array format (ClosingRaigeki: f_rai/e_rai) and nested format (OpeningRaigeki: frai_list_items/erai_list_items).
