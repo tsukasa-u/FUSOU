@@ -98,10 +98,10 @@ export function convertPortToSnapshot(portJson: Record<string, unknown>): {
   d8k: Record<string, unknown>[];
   combinedFlag?: number;
 } {
-  const data = (portJson.api_data ?? portJson) as Record<string, unknown>;
-  const rawShips = (data.api_ship ?? []) as ApiShipRaw[];
-  const rawDeckPorts = (data.api_deck_port ?? []) as ApiDeckPortRaw[];
-  const combinedFlag = data.api_combined_flag as number | undefined;
+  const data = (portJson["api_data"] ?? portJson) as Record<string, unknown>;
+  const rawShips = (data["api_ship"] ?? []) as ApiShipRaw[];
+  const rawDeckPorts = (data["api_deck_port"] ?? []) as ApiDeckPortRaw[];
+  const combinedFlag = data["api_combined_flag"] as number | undefined;
 
   const s3s = rawShips.map((ship) => ({
     i0d: ship.api_id,
