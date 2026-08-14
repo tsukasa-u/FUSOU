@@ -1547,7 +1547,7 @@ async function listAllArchiveObjects(
   for (let page = 0; page < ARCHIVE_LIST_MAX_PAGES; page += 1) {
     const listed = await env.SHIP_GROWTH_ARCHIVE_BUCKET.list({
       prefix: ARCHIVE_PREFIX,
-      cursor,
+      ...(cursor !== undefined ? { cursor } : {}),
       limit: ARCHIVE_LIST_PAGE_LIMIT,
     });
     for (const obj of listed.objects) {
