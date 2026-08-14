@@ -3,7 +3,11 @@ import {
   AssetContentHashRowSchema,
   AssetKeyRowSchema,
   CacheClearKeysSchema,
+  EquipImageMapCacheSchema,
   parseAssetKeyRows,
+  ShipBannerMapCacheSchema,
+  ShipCardMapCacheSchema,
+  ShipIconMapCacheSchema,
   SpriteAtlasSchema,
 } from "../assets";
 
@@ -103,5 +107,33 @@ describe("CacheClearKeysSchema", () => {
     );
     expect(CacheClearKeysSchema.safeParse([1]).success).toBe(false);
     expect(CacheClearKeysSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("asset map cache schemas", () => {
+  it("accepts the cached ship and equipment map shapes", () => {
+    expect(ShipBannerMapCacheSchema.safeParse({ banners: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(ShipCardMapCacheSchema.safeParse({ cards: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(ShipIconMapCacheSchema.safeParse({ icons: { "1": "a" } }).success).toBe(
+      true,
+    );
+    expect(
+      EquipImageMapCacheSchema.safeParse({
+        card: { "1": "a" },
+        item_on: {},
+        item_up: {},
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed cache values", () => {
+    expect(ShipBannerMapCacheSchema.safeParse({ banners: { "1": 42 } }).success).toBe(
+      false,
+    );
+    expect(EquipImageMapCacheSchema.safeParse({ card: {} }).success).toBe(false);
   });
 });

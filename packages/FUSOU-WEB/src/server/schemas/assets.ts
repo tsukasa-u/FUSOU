@@ -26,3 +26,23 @@ export const SpriteAtlasSchema = z
   .passthrough();
 
 export const CacheClearKeysSchema = z.array(z.string().min(1));
+
+export const ShipBannerMapCacheSchema = z
+  .object({ banners: z.record(z.string(), z.string()) })
+  .passthrough();
+
+export const ShipCardMapCacheSchema = z
+  .object({ cards: z.record(z.string(), z.string()) })
+  .passthrough();
+
+export const ShipIconMapCacheSchema = z
+  .object({ icons: z.record(z.string(), z.string()) })
+  .passthrough();
+
+export const EquipImageMapCacheSchema = z
+  .object({
+    card: z.record(z.string(), z.string()),
+    item_on: z.record(z.string(), z.string()),
+    item_up: z.record(z.string(), z.string()),
+  })
+  .passthrough();

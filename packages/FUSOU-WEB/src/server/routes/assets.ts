@@ -30,7 +30,11 @@ import {
 import {
   AssetKeyRowSchema,
   CacheClearKeysSchema,
+  EquipImageMapCacheSchema,
   parseAssetKeyRows,
+  ShipBannerMapCacheSchema,
+  ShipCardMapCacheSchema,
+  ShipIconMapCacheSchema,
   SpriteAtlasSchema,
 } from "../schemas/assets";
 
@@ -405,12 +409,17 @@ app.get("/ship-banner-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-banner-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipBannerMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -504,12 +513,17 @@ app.get("/ship-card-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-card-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipCardMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -600,12 +614,17 @@ app.get("/ship-icon-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-icon-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipIconMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -694,12 +713,17 @@ app.get("/equip-image-map", async (c) => {
     try {
       const cached = await kv.get("cache:equip-image-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = EquipImageMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
