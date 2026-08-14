@@ -613,16 +613,16 @@ export async function resolveFriendlyFleet(
       : [];
 
     if (slotRows.length === 0) {
-      const candidateKey = `${Number(ship.index ?? -1)}|${Number(ship.ship_id ?? 0)}`;
+      const candidateKey = `${Number(ship["index"] ?? -1)}|${Number(ship["ship_id"] ?? 0)}`;
       const slotCandidates = envShipCandidatesByIndexShip.get(candidateKey) || [];
       const sortedCandidates = [...slotCandidates].sort((a, b) => {
-        const da = Math.abs(Number(a.nowhp ?? 0) - Number(ship.nowhp ?? 0));
-        const db = Math.abs(Number(b.nowhp ?? 0) - Number(ship.nowhp ?? 0));
+        const da = Math.abs(Number(a["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
+        const db = Math.abs(Number(b["nowhp"] ?? 0) - Number(ship["nowhp"] ?? 0));
         return da - db;
       });
       for (const candidate of sortedCandidates) {
         const candidateSlot =
-          typeof candidate.slot === "string" ? candidate.slot : "";
+          typeof candidate["slot"] === "string" ? candidate["slot"] : "";
         if (!candidateSlot) continue;
         const candidateRows =
           slotRowsByUuid.get(candidateSlot) ||
@@ -880,8 +880,8 @@ export async function resolveEnemyFleet(
     return inferred;
   }
 
-  return Array.isArray(battle?.e_nowhps)
-    ? (battle.e_nowhps as unknown[])
+  return Array.isArray(battle?.["e_nowhps"])
+    ? (battle["e_nowhps"] as unknown[])
         .map((v) => Number(v ?? 0) || 0)
         .filter((hp) => hp > 0)
         .map((hp, idx) => ({
