@@ -123,7 +123,7 @@ describe("TableNameRowsSchema", () => {
     ]);
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data[0]?.extra).toBe(true);
+  if (result.success) expect(result.data[0]?.["extra"]).toBe(true);
   });
 
   it("rejects malformed rows and returns no table names", () => {
