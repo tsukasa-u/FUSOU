@@ -304,7 +304,7 @@ export async function resolveMidnightHougeki(
     raw,
     options,
   );
-  const detailUuid = (listRows[0] as Record<string, unknown>)?.midnight_hougeki;
+  const detailUuid = (listRows[0] as Record<string, unknown>)?.["midnight_hougeki"];
   if (!detailUuid || typeof detailUuid !== "string") return raw;
   const detailRows = await fetchRecordsByUuid(
     "midnight_hougeki",
@@ -320,7 +320,7 @@ export async function resolveOpeningTaisen(
 ): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("opening_taisen_list", raw, options);
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.opening_taisen;
+  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.["opening_taisen"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("opening_taisen", String(detailUuid), options)
     : await fetchRecordsByUuid("opening_taisen", raw, options);
@@ -333,7 +333,7 @@ export async function resolveHougeki(
 ): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("hougeki_list", raw, options);
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.hougeki;
+  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.["hougeki"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("hougeki", String(detailUuid), options)
     : await fetchRecordsByUuid("hougeki", raw, options);
@@ -351,7 +351,7 @@ export async function resolveOpeningAirAttack(
     options,
   );
   const detailUuid = (listRows?.[0] as Record<string, unknown>)
-    ?.opening_air_attack;
+    ?.["opening_air_attack"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("opening_airattack", String(detailUuid), options)
     : await fetchRecordsByUuid("opening_airattack", raw, options);
