@@ -215,10 +215,10 @@ export async function getWeaponIconFrames(signal?: AbortSignal): Promise<{
       const frame = entry?.frame;
       if (!Number.isFinite(id) || !frame) continue;
       frames[id] = {
-        x: Number(frame.x ?? 0),
-        y: Number(frame.y ?? 0),
-        w: Number(frame.w ?? 0),
-        h: Number(frame.h ?? 0),
+        x: Number(frame["x"] ?? 0),
+        y: Number(frame["y"] ?? 0),
+        w: Number(frame["w"] ?? 0),
+        h: Number(frame["h"] ?? 0),
       };
     }
     weaponIconFramesCache = frames;
