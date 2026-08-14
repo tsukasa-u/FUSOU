@@ -327,9 +327,15 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       pools: [...fixedPools, leftPool, rightPool],
       cancels_single: false,
       correction: group[0].netStats,
-      ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      ...(group[0].ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
+      ...(group[0].suppressed_components !== undefined
+        ? { suppressed_components: group[0].suppressed_components }
+        : {}),
+      ...(group[0].placements !== undefined
+        ? { placements: group[0].placements }
+        : {}),
     };
   };
 
@@ -550,9 +556,15 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         freePool,
         freePoolWithReplacement: matchedMode === "with-replacement",
         freePickCount,
-        ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
-        suppressed_components: group[0].suppressed_components,
-        placements: group[0].placements,
+        ...(group[0].ships !== undefined
+          ? { ships: [...mergedShips].sort((a, b) => a - b) }
+          : {}),
+        ...(group[0].suppressed_components !== undefined
+          ? { suppressed_components: group[0].suppressed_components }
+          : {}),
+        ...(group[0].placements !== undefined
+          ? { placements: group[0].placements }
+          : {}),
       });
 
       for (const i of matchedMembers) usedComboIndexes.add(i);
@@ -613,12 +625,15 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       kind: "grouped_combo",
       groupedPools,
       netStats: group[0].netStats,
-      ships:
-        group[0].ships != null
-          ? [...mergedShips].sort((a, b) => a - b)
-          : group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      ...(group[0].ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
+      ...(group[0].suppressed_components !== undefined
+        ? { suppressed_components: group[0].suppressed_components }
+        : {}),
+      ...(group[0].placements !== undefined
+        ? { placements: group[0].placements }
+        : {}),
     });
     return nonComboEntries;
   }
@@ -686,11 +701,16 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
     merged.push({
       ...sample,
       pool: [...mergedPoolById.values()].sort((a, b) => a.sortno - b.sortno || a.id - b.id),
-      freePool:
-        sample.freePool != null
-          ? [...mergedFreePoolById.values()].sort((a, b) => a.sortno - b.sortno || a.id - b.id)
-          : sample.freePool,
-      ships: sample.ships != null ? [...mergedShips].sort((a, b) => a - b) : sample.ships,
+      ...(sample.freePool !== undefined
+        ? {
+            freePool: [...mergedFreePoolById.values()].sort(
+              (a, b) => a.sortno - b.sortno || a.id - b.id,
+            ),
+          }
+        : {}),
+      ...(sample.ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
     });
   }
 
@@ -729,9 +749,13 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
       pools: unionedPools,
       cancels_single: group[0].cancels_single,
       correction: group[0].correction,
-      ships: group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      ...(group[0].ships !== undefined ? { ships: group[0].ships } : {}),
+      ...(group[0].suppressed_components !== undefined
+        ? { suppressed_components: group[0].suppressed_components }
+        : {}),
+      ...(group[0].placements !== undefined
+        ? { placements: group[0].placements }
+        : {}),
     });
   }
   
