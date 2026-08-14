@@ -105,18 +105,18 @@ function relatedCell(
   battle: JsonRecord,
   battleIndex: number,
 ): JsonRecord | null {
-  const battleCellId = Number(battle.cell_id ?? Number.NaN);
+  const battleCellId = Number(battle["cell_id"] ?? Number.NaN);
   const matching = cells.filter((cell) =>
-    positiveNumbers(cell.battle_index).includes(battleIndex),
+    positiveNumbers(cell["battle_index"]).includes(battleIndex),
   );
   const exact = matching.find((cell) => {
-    const indexes = positiveNumbers(cell.battle_index);
-    const cellIndexes = positiveNumbers(cell.cell_index);
+    const indexes = positiveNumbers(cell["battle_index"]);
+    const cellIndexes = positiveNumbers(cell["cell_index"]);
     const position = indexes.indexOf(battleIndex);
     return position >= 0 && Number(cellIndexes[position]) === battleCellId;
   });
   return exact ?? matching[0] ?? cells.find((cell) =>
-    positiveNumbers(cell.cell_index).includes(battleCellId),
+    positiveNumbers(cell["cell_index"]).includes(battleCellId),
   ) ?? null;
 }
 
@@ -127,13 +127,13 @@ export function findBattleDetailContext(options: {
 }): BattleDetailContext | null {
   const scopedBattles = scopeRows(options.tables.battle, options.envUuid);
   const candidates = scopedBattles.filter(
-    (row) => Number(row.index ?? Number.NaN) === options.battleIndex,
+    (row) => Number(row["index"] ?? Number.NaN) === options.battleIndex,
   );
   if (candidates.length === 0) return null;
   const battle = [...candidates].sort(
     (left, right) =>
-      (normalizeTimestamp(left.timestamp) ?? Number.MAX_SAFE_INTEGER) -
-      (normalizeTimestamp(right.timestamp) ?? Number.MAX_SAFE_INTEGER),
+      (normalizeTimestamp(left["timestamp"]) ?? Number.MAX_SAFE_INTEGER) -
+      (normalizeTimestamp(right["timestamp"]) ?? Number.MAX_SAFE_INTEGER),
   )[0];
   const cell = relatedCell(
     scopeRows(options.tables.cells, options.envUuid),
@@ -154,17 +154,17 @@ function battleIndexes(
 ): number[] {
   const availableIndexes = new Set(
     battles
-      .map((row) => Number(row.index ?? Number.NaN))
+      .map((row) => Number(row["index"] ?? Number.NaN))
       .filter((index) => Number.isSafeInteger(index) && index >= 0),
   );
-  const cellBattleIndexes = positiveNumbers(cell?.battle_index);
-  const cellIndexes = positiveNumbers(cell?.cell_index);
+  const cellBattleIndexes = positiveNumbers(cell?.["battle_index"]);
+  const cellIndexes = positiveNumbers(cell?.["cell_index"]);
   if (cellIndexes.length > 0) {
     const battleByCellId = new Map(
-      battles.map((row) => [Number(row.cell_id ?? Number.NaN), row]),
+      battles.map((row) => [Number(row["cell_id"] ?? Number.NaN), row]),
     );
     const orderedByCell = cellIndexes.map((cellId) =>
-      Number(battleByCellId.get(cellId)?.index ?? Number.NaN),
+      Number(battleByCellId.get(cellId)?.["index"] ?? Number.NaN),
     );
     if (
       orderedByCell.length === cellIndexes.length &&
