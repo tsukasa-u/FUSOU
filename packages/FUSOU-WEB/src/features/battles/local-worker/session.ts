@@ -106,8 +106,8 @@ function findReferencedRow(
 ): AvroJsonRecord | null {
   const referenceUuid = typeof reference === "string" ? reference : "";
   return (
-    rows.find((row) => referenceUuid && String(row.uuid ?? "") === referenceUuid) ??
-    rows.find((row) => Number(row.index ?? Number.NaN) === battleIndex) ??
+    rows.find((row) => referenceUuid && String(row["uuid"] ?? "") === referenceUuid) ??
+    rows.find((row) => Number(row["index"] ?? Number.NaN) === battleIndex) ??
     null
   );
 }
@@ -358,7 +358,9 @@ export class LocalWorkerSession {
     ]);
     const deckIds = new Set(
       battles
-        .map((battle) => (typeof battle.e_deck_id === "string" ? battle.e_deck_id : ""))
+        .map((battle) =>
+          typeof battle["e_deck_id"] === "string" ? battle["e_deck_id"] : "",
+        )
         .filter(Boolean),
     );
     const allEnemyDecks = await this.loadOptionalRows(
@@ -368,13 +370,17 @@ export class LocalWorkerSession {
       requestId,
       reportProgress,
     );
-    const enemyDecks = allEnemyDecks.filter((deck) => deckIds.has(String(deck.uuid ?? "")));
+    const enemyDecks = allEnemyDecks.filter((deck) =>
+      deckIds.has(String(deck["uuid"] ?? "")),
+    );
     const shipGroupIds = new Set(
       enemyDecks.flatMap((deck) =>
-        Array.isArray(deck.ship_ids)
-          ? deck.ship_ids.filter((id): id is string => typeof id === "string")
-          : typeof deck.ship_ids === "string"
-            ? [deck.ship_ids]
+        Array.isArray(deck["ship_ids"])
+          ? deck["ship_ids"].filter(
+              (id): id is string => typeof id === "string",
+            )
+          : typeof deck["ship_ids"] === "string"
+            ? [deck["ship_ids"]]
             : [],
       ),
     );
@@ -385,7 +391,9 @@ export class LocalWorkerSession {
       requestId,
       reportProgress,
     );
-    const enemyShips = allEnemyShips.filter((ship) => shipGroupIds.has(String(ship.uuid ?? "")));
+    const enemyShips = allEnemyShips.filter((ship) =>
+      shipGroupIds.has(String(ship["uuid"] ?? "")),
+    );
 
     return buildBattleOverviewPayload({
       periodTag: query.periodTag,
@@ -482,48 +490,48 @@ export class LocalWorkerSession {
       hougekiLists,
       openingAirattackLists,
     ] = await Promise.all([
-      hasReference(context.battle.battle_result)
-        ? load("battle_result", [context.battle.battle_result])
+      hasReference(context.battle["battle_result"])
+        ? load("battle_result", [context.battle["battle_result"]])
         : Promise.resolve([]),
       load("own_deck"),
       load("own_ship"),
       load("own_slotitem"),
-      hasReference(context.battle.e_deck_id)
-        ? load("enemy_deck", [context.battle.e_deck_id])
+      hasReference(context.battle["e_deck_id"])
+        ? load("enemy_deck", [context.battle["e_deck_id"]])
         : Promise.resolve([]),
-      hasReference(context.battle.e_deck_id)
-        ? load("enemy_ship", [context.battle.e_deck_id])
+      hasReference(context.battle["e_deck_id"])
+        ? load("enemy_ship", [context.battle["e_deck_id"]])
         : Promise.resolve([]),
-      hasReference(context.battle.e_deck_id)
-        ? load("enemy_slotitem", [context.battle.e_deck_id])
+      hasReference(context.battle["e_deck_id"])
+        ? load("enemy_slotitem", [context.battle["e_deck_id"]])
         : Promise.resolve([]),
-      load("midnight_hougeki_list", [context.battle.midnight_hougeki]),
-      load("opening_taisen_list", [context.battle.opening_taisen]),
-      load("hougeki_list", [context.battle.hougeki]),
-      load("opening_airattack_list", [context.battle.opening_air_attack]),
+      load("midnight_hougeki_list", [context.battle["midnight_hougeki"]]),
+      load("opening_taisen_list", [context.battle["opening_taisen"]]),
+      load("hougeki_list", [context.battle["hougeki"]]),
+      load("opening_airattack_list", [context.battle["opening_air_attack"]]),
     ]);
 
     const midnightDetailUuid = detailReference(
       midnightHougekiLists,
-      context.battle.midnight_hougeki,
+      context.battle["midnight_hougeki"],
       query.battleIndex,
       "midnight_hougeki",
     );
     const openingTaisenDetailUuid = detailReference(
       openingTaisenLists,
-      context.battle.opening_taisen,
+      context.battle["opening_taisen"],
       query.battleIndex,
       "opening_taisen",
     );
     const hougekiDetailUuid = detailReference(
       hougekiLists,
-      context.battle.hougeki,
+      context.battle["hougeki"],
       query.battleIndex,
       "hougeki",
     );
     const openingAirattackDetailUuid = detailReference(
       openingAirattackLists,
-      context.battle.opening_air_attack,
+      context.battle["opening_air_attack"],
       query.battleIndex,
       "opening_air_attack",
     );
@@ -548,53 +556,53 @@ export class LocalWorkerSession {
       openingTaisenDetailUuid ? load("opening_taisen", [openingTaisenDetailUuid]) : Promise.resolve([]),
       hougekiDetailUuid ? load("hougeki", [hougekiDetailUuid]) : Promise.resolve([]),
       openingAirattackDetailUuid ? load("opening_airattack", [openingAirattackDetailUuid]) : Promise.resolve([]),
-      hasReference(context.battle.opening_raigeki)
-        ? load("opening_raigeki", [context.battle.opening_raigeki])
+      hasReference(context.battle["opening_raigeki"])
+        ? load("opening_raigeki", [context.battle["opening_raigeki"]])
         : Promise.resolve([]),
-      hasReference(context.battle.closing_raigeki)
-        ? load("closing_raigeki", [context.battle.closing_raigeki])
+      hasReference(context.battle["closing_raigeki"])
+        ? load("closing_raigeki", [context.battle["closing_raigeki"]])
         : Promise.resolve([]),
-      hasReference(context.battle.air_base_assault)
-        ? load("airbase_assult", [context.battle.air_base_assault])
+      hasReference(context.battle["air_base_assault"])
+        ? load("airbase_assult", [context.battle["air_base_assault"]])
         : Promise.resolve([]),
-      hasReference(context.battle.air_base_air_attacks)
-        ? load("airbase_airattack_list", [context.battle.air_base_air_attacks])
+      hasReference(context.battle["air_base_air_attacks"])
+        ? load("airbase_airattack_list", [context.battle["air_base_air_attacks"]])
         : Promise.resolve([]),
-      hasReference(context.battle.carrier_base_assault)
-        ? load("carrierbase_assault", [context.battle.carrier_base_assault])
+      hasReference(context.battle["carrier_base_assault"])
+        ? load("carrierbase_assault", [context.battle["carrier_base_assault"]])
         : Promise.resolve([]),
-      hasReference(context.battle.support_hourai)
-        ? load("support_hourai", [context.battle.support_hourai])
+      hasReference(context.battle["support_hourai"])
+        ? load("support_hourai", [context.battle["support_hourai"]])
         : Promise.resolve([]),
-      hasReference(context.battle.support_airattack)
-        ? load("support_airattack", [context.battle.support_airattack])
+      hasReference(context.battle["support_airattack"])
+        ? load("support_airattack", [context.battle["support_airattack"]])
         : Promise.resolve([]),
-      hasReference(context.battle.night_support_hourai)
-        ? load("night_support_hourai", [context.battle.night_support_hourai])
+      hasReference(context.battle["night_support_hourai"])
+        ? load("night_support_hourai", [context.battle["night_support_hourai"]])
         : Promise.resolve([]),
-      hasReference(context.battle.night_support_airattack)
-        ? load("night_support_airattack", [context.battle.night_support_airattack])
+      hasReference(context.battle["night_support_airattack"])
+        ? load("night_support_airattack", [context.battle["night_support_airattack"]])
         : Promise.resolve([]),
-      hasReference(context.battle.friendly_force_attack)
-        ? load("friendly_support_hourai_list", [context.battle.friendly_force_attack])
+      hasReference(context.battle["friendly_force_attack"])
+        ? load("friendly_support_hourai_list", [context.battle["friendly_force_attack"]])
         : Promise.resolve([]),
-      hasReference(context.cell?.destruction_battles)
-        ? load("destruction_battle", [context.cell?.destruction_battles])
+      hasReference(context.cell?.["destruction_battles"])
+        ? load("destruction_battle", [context.cell?.["destruction_battles"]])
         : Promise.resolve([]),
     ]);
     const airbaseAttackUuids = referenceIds(
       findReferencedRow(
         airbaseAirattackLists,
-        context.battle.air_base_air_attacks,
+        context.battle["air_base_air_attacks"],
         query.battleIndex,
-      )?.air_base_air_attack,
+      )?.["air_base_air_attack"],
     );
     const airbaseAirattacks = airbaseAttackUuids.length
       ? await load("airbase_airattack", airbaseAttackUuids)
       : [];
     const friendlyDetailUuid = detailReference(
       friendlySupportHouraiLists,
-      context.battle.friendly_force_attack,
+      context.battle["friendly_force_attack"],
       query.battleIndex,
       "friendly_support_hourai",
     );
@@ -731,8 +739,11 @@ export class LocalWorkerSession {
       references.flatMap((reference) => referenceIds(reference)),
     );
     const matcher: RowMatcher = (row) => {
-      const belongsToEnvironment = String(row.env_uuid ?? "") === envUuid;
-      return belongsToEnvironment || (typeof row.uuid === "string" && referenceUuids.has(row.uuid));
+      const belongsToEnvironment = String(row["env_uuid"] ?? "") === envUuid;
+      return (
+        belongsToEnvironment ||
+        (typeof row["uuid"] === "string" && referenceUuids.has(row["uuid"] as string))
+      );
     };
     const fullCache = this.cache.get(this.cacheKey(table, periodTag, tableVersion));
     if (fullCache) return fullCache.index.rows.filter(matcher);
