@@ -1200,7 +1200,7 @@ export default function BattlePhaseView(props: {
       legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning,
     });
   const destructionBattle = () =>
-    (props.battle.destruction_battle as Record<string, unknown> | null) ?? null;
+    (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
   return (
     <Show
       when={phases().length > 0 || !!destructionBattle()}
