@@ -49,6 +49,7 @@ function buildSteps(
   steps.push({ fHps: [...fCur], eHps: [...eCur], eventIdx: -1 });
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
+    if (!ev) continue;
     if (ev.defenderSide === "friend" && ev.defenderIdx !== null) {
       fCur[ev.defenderIdx] = Math.max(
         0,
@@ -72,9 +73,11 @@ function buildPhaseRegions(
   let ph = "";
   let phStart = 0;
   for (let i = 0; i < events.length; i++) {
-    if (events[i].phase !== ph) {
+    const event = events[i];
+    if (!event) continue;
+    if (event.phase !== ph) {
       if (ph !== "") regions.push({ phase: ph, start: phStart, end: i });
-      ph = events[i].phase;
+      ph = event.phase;
       phStart = i;
     }
   }
@@ -113,7 +116,7 @@ function buildShipLine(
   const initArr = side === "friend" ? fInit : eInit;
   const initHp = Math.max(0, Number(initArr[si] ?? 0) || 0);
   const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
-  const color = colors[si % colors.length];
+  const color = colors[si % colors.length] ?? "currentColor";
 
   const points = steps.map((step, s) => {
     const hp = Math.max(0, Number(step[hpKey][si] ?? maxHp) || 0);
@@ -123,11 +126,24 @@ function buildShipLine(
 
   const p0 = points[0];
   const pLast = points[points.length - 1];
+  if (!p0 || !pLast) {
+    return {
+      d: "",
+      color,
+      dashed,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      sunk: initHp <= 0,
+    };
+  }
 
   let d = `M ${p0.x.toFixed(1)} ${(p0.y - EXTEND).toFixed(1)} L ${p0.x.toFixed(1)} ${p0.y.toFixed(1)}`;
   for (let p = 1; p < points.length; p++) {
     const prev = points[p - 1];
     const curr = points[p];
+    if (!prev || !curr) continue;
     const dx = Math.abs(curr.x - prev.x);
     if (dx < 0.1) {
       d += ` L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
@@ -142,9 +158,10 @@ function buildShipLine(
   const endY = pLast.y + EXTEND;
   d += ` L ${endX.toFixed(1)} ${endY.toFixed(1)}`;
 
+  const lastStep = steps.at(-1);
   const lastHp = Math.max(
     0,
-    Number(steps[steps.length - 1][hpKey][si] ?? maxHp) || 0,
+    Number(lastStep?.[hpKey]?.[si] ?? maxHp) || 0,
   );
 
   return {
@@ -234,7 +251,7 @@ function LegendRow(props: {
       </span>
       <For each={Array.from({ length: props.count }, (_, i) => i)}>
         {(si) => {
-          const color = props.colors[si % props.colors.length];
+          const color = props.colors[si % props.colors.length] ?? "currentColor";
           const short = createMemo(() => {
             const name = shipNameFromIndex(props.side, si, props.fleets);
             return name.length > 6 ? name.slice(0, 5) + "…" : name;
@@ -288,7 +305,7 @@ function buildHoverBands(
   const bands: HoverBandData[] = [];
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
-    if (ev.defenderIdx === null) continue;
+    if (!ev || ev.defenderIdx === null) continue;
     const hpKey: "fHps" | "eHps" =
       ev.defenderSide === "friend" ? "fHps" : "eHps";
     const ship = (
