@@ -654,10 +654,10 @@ export function buildTimelineEvents(
       ) {
         const raw =
           key === "Hougeki"
-            ? pickHougekiRowsByRound(battle.hougeki, idx)
+            ? pickHougekiRowsByRound(battle["hougeki"], idx)
             : key === "OpeningTaisen"
-              ? battle.opening_taisen
-              : battle.midnight_hougeki;
+              ? battle["opening_taisen"]
+              : battle["midnight_hougeki"];
         extractShellingEvents(normalizeShellingRows(raw), phaseLabel);
       } else if (key === "OpeningAirAttack") {
         const rawAir = Array.isArray(battle.opening_air_attack)
