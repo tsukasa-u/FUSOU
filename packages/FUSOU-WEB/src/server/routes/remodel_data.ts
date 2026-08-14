@@ -311,10 +311,11 @@ app.get("/summary", async (c) => {
           const current = parseRemodelPeriodSummaryRows(currentResult.results);
 
           const key = changed.period_tag;
-          if (current.length > 0) {
-            byPeriod.set(key, current[0]);
-          } else {
+          const currentRow = current[0];
+          if (currentRow === undefined) {
             byPeriod.delete(key);
+          } else {
+            byPeriod.set(key, currentRow);
           }
         }
 
