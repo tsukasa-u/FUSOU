@@ -490,7 +490,8 @@ app.post("/snapshot", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, _user) => {
-      const tag = tokenPayload.tag;
+      const tag =
+        typeof tokenPayload.tag === "string" ? tokenPayload.tag : "";
       const datasetId =
         typeof tokenPayload?.dataset_id === "string"
           ? tokenPayload.dataset_id.trim()

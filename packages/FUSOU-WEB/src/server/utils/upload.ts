@@ -1,4 +1,5 @@
-import type { R2BucketBinding } from "../types";
+import { z } from "zod";
+import type { AppContext, R2BucketBinding } from "../types";
 import { SIGNED_URL_TTL_SECONDS } from "../constants";
 
 /**
@@ -11,12 +12,17 @@ import { SIGNED_URL_TTL_SECONDS } from "../constants";
  */
 
 export interface PrepareResult {
-  tokenPayload?: Record<string, any>;
-  fields?: Record<string, any>;
+  tokenPayload?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export interface ExecuteResult {
-  response: any; // Custom response data to return
+  response: Record<string, unknown>;
+}
+
+export interface UploadUser {
+  id: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface UploadAuthContext {
@@ -33,14 +39,14 @@ export interface UploadConfig {
   maxBodySize?: number;
   requireDatasetToken?: boolean;
   preparationValidator: (
-    body: any,
-    user: { id: string; [key: string]: any },
+    body: Record<string, unknown>,
+    user: UploadUser,
     authContext: UploadAuthContext,
   ) => Promise<PrepareResult | Response>;
   executionProcessor: (
-    tokenPayload: any,
+    tokenPayload: Record<string, unknown>,
     data: Uint8Array,
-    user: { id: string; [key: string]: any },
+    user: UploadUser,
   ) => Promise<ExecuteResult | Response>;
 }
 
@@ -66,7 +72,7 @@ function extractBearerToken(request: Request): string | null {
  *   - Uploads to R2 bucket
  */
 export async function handleTwoStageUpload(
-  c: any,
+  c: AppContext,
   config: UploadConfig,
 ): Promise<Response> {
   const { bucket, signingSecret } = config;
@@ -89,7 +95,7 @@ export async function handleTwoStageUpload(
 }
 
 async function handlePreparation(
-  c: any,
+  c: AppContext,
   request: Request,
   url: URL,
   config: UploadConfig,
@@ -112,9 +118,13 @@ async function handlePreparation(
   }
 
   // Parse body
-  let body: any;
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsedBody = z.record(z.unknown()).safeParse(await request.json());
+    if (!parsedBody.success) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    body = parsedBody.data;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
@@ -151,8 +161,11 @@ async function handlePreparation(
   // actingUserId: dataset_token が存在する場合はその sub を使用（全端末で一貫した帰属者）。
   // そうでない場合は JWT user_id を使用。
   const actingUserId = authContext.datasetToken?.user_id ?? supabaseUser.id;
+  if (!actingUserId) {
+    return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
 
-  const actingUser = { id: actingUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: actingUserId };
 
   // Run custom validation
   const validationResult = await preparationValidator(
@@ -223,7 +236,7 @@ async function handlePreparation(
 }
 
 async function handleExecution(
-  c: any,
+  c: AppContext,
   request: Request,
   _url: URL,
   config: UploadConfig,
@@ -257,15 +270,23 @@ async function handleExecution(
   }
 
   // Verify signed upload token
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload) {
+  const rawTokenPayload = await verifySignedToken(uploadToken, signingSecret);
+  const tokenPayloadValidation = z
+    .record(z.unknown())
+    .safeParse(rawTokenPayload);
+  if (!tokenPayloadValidation.success) {
     return c.json({ error: "Invalid or expired upload token" }, 401);
   }
+  const tokenPayload = tokenPayloadValidation.data;
 
-  const expectedHash = tokenPayload.content_hash;
-  const tokenUserId = tokenPayload.user_id;
+  const expectedHash =
+    typeof tokenPayload.content_hash === "string"
+      ? tokenPayload.content_hash
+      : "";
+  const tokenUserId =
+    typeof tokenPayload.user_id === "string" ? tokenPayload.user_id : "";
 
-  if (!expectedHash) {
+  if (!expectedHash || !tokenUserId) {
     return c.json({ error: "Invalid token payload" }, 400);
   }
 
@@ -286,7 +307,7 @@ async function handleExecution(
     );
   }
   // actingUser は upload token 内の user_id（dataset_token.sub）を使用する。
-  const actingUser = { id: tokenUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: tokenUserId };
 
   // Read body
   const bodyStream = request.body;
