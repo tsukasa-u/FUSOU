@@ -3342,7 +3342,9 @@ app.post("/ingest", async (c) => {
     const periodTagValidation = await validateCachedPeriodTag(
       c,
       String(handshakeBody?.period_tag ?? "").trim(),
-      { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+      c.env.DATA_LOADER_CACHE_KV
+        ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+        : {},
     );
     if (!periodTagValidation.ok) {
       return c.json(
@@ -3501,7 +3503,9 @@ app.post("/ingest", async (c) => {
   const periodTagValidation = await validateCachedPeriodTag(
     c,
     body.period_tag,
-    { cacheKV: c.env.DATA_LOADER_CACHE_KV },
+    c.env.DATA_LOADER_CACHE_KV
+      ? { cacheKV: c.env.DATA_LOADER_CACHE_KV }
+      : {},
   );
   if (!periodTagValidation.ok) {
     return c.json(
