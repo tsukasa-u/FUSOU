@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
+import { SanitizeStateRequestSchema } from '../schemas/compact';
 import { validateJWT, createEnvContext, verifyAdminToken } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -70,15 +71,20 @@ app.post('/sanitize-state', async (c) => {
       return c.json({ error: 'Invalid or expired JWT token' }, 401);
     }
 
-    let body: { datasetId?: string };
+    let rawBody: unknown;
     try {
-      body = await c.req.json();
+      rawBody = await c.req.json();
     } catch (error) {
       console.error('[compact] Invalid JSON in /sanitize-state', { error });
       return c.json({ error: 'Invalid JSON format' }, 400);
     }
 
-    const { datasetId } = body;
+    const parsedBody = SanitizeStateRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: 'Invalid JSON format' }, 400);
+    }
+
+    const { datasetId } = parsedBody.data;
 
     if (!datasetId) {
       return c.json({ error: 'datasetId is required' }, 400);
