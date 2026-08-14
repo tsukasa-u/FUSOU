@@ -208,7 +208,7 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
   }
 
   // Apply combined fleet type from c11g (api_combined_flag)
-  const rawC11g = (snapshot as Record<string, unknown>).c11g;
+  const rawC11g = (snapshot as Record<string, unknown>)["c11g"];
   const combinedType = (typeof rawC11g === "number" && [0, 1, 2, 3].includes(rawC11g))
     ? (rawC11g as 0 | 1 | 2 | 3)
     : 0;
