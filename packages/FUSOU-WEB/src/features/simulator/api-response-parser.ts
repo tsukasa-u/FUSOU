@@ -149,8 +149,8 @@ export function convertPortToSnapshot(portJson: Record<string, unknown>): {
 export function convertRequireInfoToSnapshot(reqJson: Record<string, unknown>): {
   s8s: Record<string, unknown>[];
 } {
-  const data = (reqJson.api_data ?? reqJson) as Record<string, unknown>;
-  const rawItems = (data.api_slot_item ?? []) as ApiSlotItemRaw[];
+  const data = (reqJson["api_data"] ?? reqJson) as Record<string, unknown>;
+  const rawItems = (data["api_slot_item"] ?? []) as ApiSlotItemRaw[];
 
   const s8s = rawItems.map((item) => ({
     i0d: item.api_id,
