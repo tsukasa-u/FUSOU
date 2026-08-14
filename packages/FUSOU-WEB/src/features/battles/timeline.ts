@@ -277,6 +277,7 @@ export function buildTimelineEvents(
           : []
     ) as number[]);
     const effectiveSlotItems = slotItemOverride ?? [];
+    const airBatchId = options?.airBatchId;
     let eventCount = 0;
 
     for (let i = 0; i < fDam.length; i++) {
@@ -300,7 +301,7 @@ export function buildTimelineEvents(
         slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
-        airBatchId: options?.airBatchId,
+        ...(airBatchId === undefined ? {} : { airBatchId }),
       });
       eventCount++;
     }
@@ -325,7 +326,7 @@ export function buildTimelineEvents(
         slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
-        airBatchId: options?.airBatchId,
+        ...(airBatchId === undefined ? {} : { airBatchId }),
       });
       eventCount++;
     }
@@ -347,7 +348,7 @@ export function buildTimelineEvents(
         slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
-        airBatchId: options?.airBatchId,
+        ...(airBatchId === undefined ? {} : { airBatchId }),
       });
     }
   }
@@ -754,7 +755,7 @@ export function buildTimelineEvents(
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+              ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
             });
           }
         }
@@ -818,7 +819,7 @@ export function buildTimelineEvents(
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+              ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
             });
           }
         }
@@ -1015,7 +1016,7 @@ export function buildTimelineEvents(
           slotItems: [],
           fHps: [],
           eHps: eNow,
-          attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+          ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
         });
       }
     }
@@ -1080,7 +1081,7 @@ export function buildTimelineEvents(
           slotItems: [],
           fHps: [],
           eHps: eNow,
-          attackerMstShipId: shipIds[i] ? Number(shipIds[i]) : undefined,
+          ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
         });
       }
     }
