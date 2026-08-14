@@ -1282,6 +1282,7 @@ function buildSteps(
   });
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
+    if (!ev) continue;
     if (ev.affectsHp === false) {
       steps.push({
         fHps: [...fHpsCurrent],
@@ -1319,9 +1320,11 @@ function buildPhaseRegions(events: TimelineEvent[]): Array<{
   let ph = "";
   let phStart = 0;
   for (let i = 0; i < events.length; i++) {
-    if (events[i].phase !== ph) {
+    const event = events[i];
+    if (!event) continue;
+    if (event.phase !== ph) {
       if (ph !== "") regions.push({ phase: ph, start: phStart, end: i });
-      ph = events[i].phase;
+      ph = event.phase;
       phStart = i;
     }
   }
@@ -1357,6 +1360,7 @@ function renderShipLine(
 
   const p0 = points[0];
   const pLast = points[points.length - 1];
+  if (!p0 || !pLast) return "";
 
   // Build path: upward stem → diagonal/vertical segments → downward stem
   let d =
@@ -1366,6 +1370,7 @@ function renderShipLine(
   for (let p = 1; p < points.length; p++) {
     const prev = points[p - 1];
     const curr = points[p];
+    if (!prev || !curr) continue;
     const dx = Math.abs(curr.x - prev.x);
     if (dx < 0.1) {
       d += ` L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
@@ -1389,9 +1394,10 @@ function renderShipLine(
   svg += `<circle cx="${xHP(initPct)}" cy="${(Number(yStep(0)) - EXTEND).toFixed(1)}" r="3" fill="${color}" opacity="0.9"/>`;
 
   // End marker
+  const lastStep = steps[steps.length - 1];
   const lastHp = Math.max(
     0,
-    Number(steps[steps.length - 1][hpKey][si] ?? maxHp) || 0,
+    Number(lastStep?.[hpKey][si] ?? maxHp) || 0,
   );
   if (lastHp <= 0) {
     const r = 3.5;
