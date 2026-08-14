@@ -757,7 +757,8 @@ async function readItemsFromD1(opts: {
       break;
     }
 
-    const last = parsedBatch[parsedBatch.length - 1];
+    const last = parsedBatch.at(-1);
+    if (last === undefined) break;
     cursor = {
       uploadedAt: last.uploadedAt ?? 0,
       key: last.key,
