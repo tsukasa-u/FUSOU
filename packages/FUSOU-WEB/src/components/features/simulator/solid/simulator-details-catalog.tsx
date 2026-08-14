@@ -347,7 +347,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
     }
     if (!activeKey) {
       const fallback = shipRows.find((item) => item.type === "header");
-      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+      activeKey =
+        fallback?.type === "header" ? fallback.key : (entries[0]?.key ?? null);
     }
     setShipDesktopActiveQuickAccessId(activeKey ?? null);
   };
@@ -375,7 +376,8 @@ function SimulatorDetailsCatalog(): JSX.Element {
     }
     if (!activeKey) {
       const fallback = equipRows.find((item) => item.type === "header");
-      activeKey = fallback?.type === "header" ? fallback.key : entries[0]?.key;
+      activeKey =
+        fallback?.type === "header" ? fallback.key : (entries[0]?.key ?? null);
     }
     setEquipDesktopActiveQuickAccessId(activeKey ?? null);
   };
@@ -471,12 +473,14 @@ function SimulatorDetailsCatalog(): JSX.Element {
   createEffect(() => {
     if (selectedShipId() == null && allShips().length > 0) {
       if (initialShipIdFromUrl() == null) {
-        setSelectedShipId(allShips()[0].id);
+        const firstShip = allShips()[0];
+        if (firstShip) setSelectedShipId(firstShip.id);
       }
     }
     if (selectedEquipId() == null && allEquips().length > 0) {
       if (initialEquipIdFromUrl() == null) {
-        setSelectedEquipId(allEquips()[0].id);
+        const firstEquip = allEquips()[0];
+        if (firstEquip) setSelectedEquipId(firstEquip.id);
       }
     }
   });
