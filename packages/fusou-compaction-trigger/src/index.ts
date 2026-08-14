@@ -25,7 +25,7 @@ function groupByDataset(blocks: SourceBlock[]): Map<string, SourceBlock[]> {
 }
 
 function consumedSourceArchivePrefix(): string {
-  const raw = String(process.env.COMPACTION_CONSUMED_SOURCE_PREFIX ?? "compacted").trim();
+  const raw = String(process.env["COMPACTION_CONSUMED_SOURCE_PREFIX"] ?? "compacted").trim();
   return raw.replace(/^\/+|\/+$/g, "") || "compacted";
 }
 
@@ -198,11 +198,15 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
         );
       }
       datasetMergedOcf.push(mergedDataset);
+      const firstBlock = datasetBlocks[0];
+      if (firstBlock === undefined) {
+        throw new Error(`Missing source block for dataset_id=${datasetId}`);
+      }
 
       datasetMetas.push({
         dataset_id: datasetId,
-        table_name: datasetBlocks[0].table_name,
-        period_tag: datasetBlocks[0].period_tag,
+        table_name: firstBlock.table_name,
+        period_tag: firstBlock.period_tag,
         record_count: datasetBlocks.reduce((sum, b) => sum + Number(b.record_count || 0), 0),
         start_timestamp: Math.min(...datasetBlocks.map((b) => Number(b.start_timestamp || 0))),
         end_timestamp: Math.max(...datasetBlocks.map((b) => Number(b.end_timestamp || 0))),
@@ -225,6 +229,9 @@ export async function runCompactionJob(input: CompactionJobInput): Promise<void>
 
     const registerBlocks: RegisterOutputBlock[] = merged.boundaries.map((boundary, i) => {
       const meta = datasetMetas[i];
+      if (meta === undefined) {
+        throw new Error(`Missing dataset metadata for boundary index ${i}`);
+      }
       return {
         dataset_id: meta.dataset_id,
         table_name: meta.table_name,
