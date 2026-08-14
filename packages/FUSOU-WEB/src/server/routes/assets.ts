@@ -27,6 +27,7 @@ import {
   bumpAssetIndexRevision,
   getAssetSyncKeysResponse,
 } from "../utils/asset-index-cache";
+import { AssetKeyRowSchema } from "../schemas/assets";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -784,11 +785,12 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     if (db) {
       try {
-        const result = (await db
+        const result = await db
           .prepare("SELECT key FROM files WHERE key LIKE ? LIMIT 1")
           .bind(`${prefix}%`)
-          .first()) as { key: string } | null;
-        if (result) r2Key = result.key;
+          .first();
+        const parsed = AssetKeyRowSchema.safeParse(result);
+        if (parsed.success) r2Key = parsed.data.key;
       } catch {
         // D1 not available
       }
