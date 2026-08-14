@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
+import { ListSourceGroupsRequestSchema } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
 
@@ -219,21 +220,32 @@ app.post("/list-source-groups", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tier = body?.tier;
-  const tableName = String(body?.table_name ?? "").trim();
-  const windowStart = Number(body?.window_start_ms);
-  const windowEnd = Number(body?.window_end_ms);
+  const parsedBody = ListSourceGroupsRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    if (field === "tier") return c.json({ error: "tier is invalid" }, 400);
+    if (field === "table_name") {
+      return c.json({ error: "table_name is required" }, 400);
+    }
+    return c.json(
+      { error: "window_start_ms and window_end_ms are required" },
+      400,
+    );
+  }
+
+  const { tier, table_name: tableName, window_start_ms: windowStart, window_end_ms: windowEnd } =
+    parsedBody.data;
 
   if (!isTier(tier)) return c.json({ error: "tier is invalid" }, 400);
   if (!tableName) return c.json({ error: "table_name is required" }, 400);
-  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) {
+  if (windowStart === undefined || windowEnd === undefined) {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
 
