@@ -103,18 +103,18 @@ export function buildTimelineEvents(
   function normalizeNightSupportAttack(
     source: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    const nested = source.night_support_attack as
+    const nested = source["night_support_attack"] as
       | Record<string, unknown>
       | null
       | undefined;
-    const hourai = (nested?.hourai ?? source.night_support_hourai) as
+    const hourai = (nested?.["hourai"] ?? source["night_support_hourai"]) as
       | Record<string, unknown>
       | null
       | undefined;
-    const airatack = (nested?.airatack ??
-      nested?.airattack ??
-      source.night_support_airatack ??
-      source.night_support_airattack) as
+    const airatack = (nested?.["airatack"] ??
+      nested?.["airattack"] ??
+      source["night_support_airatack"] ??
+      source["night_support_airattack"]) as
       | Record<string, unknown>
       | null
       | undefined;
