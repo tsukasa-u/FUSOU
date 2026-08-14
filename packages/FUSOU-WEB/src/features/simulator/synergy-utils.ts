@@ -152,7 +152,9 @@ export type SynergyGroup<T> = { statKey: string; label: string; entries: T[] };
 function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
   if (group.length < 2) return group;
 
-  const comboSize = group[0].combo.length;
+  const first = group[0];
+  if (!first) return group;
+  const comboSize = first.combo.length;
   if (comboSize <= 1) return group;
   if (group.some((entry) => entry.combo.length !== comboSize)) return group;
 
@@ -243,13 +245,16 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
     const adjacency = new Map<number, Set<number>>();
 
     for (const i of memberIndexes) {
-      const residual = residualAfterFixed(countMaps[i], fixedCounts);
+      const countMap = countMaps[i];
+      if (!countMap) return null;
+      const residual = residualAfterFixed(countMap, fixedCounts);
       if (!residual) return null;
       const key = residualKeyWithoutReplacement(residual, 2);
       if (!key) return null;
       const parts = key.split(",").map(Number);
       if (parts.length !== 2) return null;
       const [a, b] = parts;
+      if (a === undefined || b === undefined) return null;
       if (a === b) return null;
       edges.push([a, b]);
       if (!adjacency.has(a)) adjacency.set(a, new Set<number>());
@@ -319,22 +324,24 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
     const mergedShips = new Set<number>();
     for (const i of memberIndexes) {
-      for (const shipId of group[i].ships ?? []) mergedShips.add(shipId);
+      const entry = group[i];
+      if (!entry) continue;
+      for (const shipId of entry.ships ?? []) mergedShips.add(shipId);
     }
 
     return {
       kind: "category",
       pools: [...fixedPools, leftPool, rightPool],
       cancels_single: false,
-      correction: group[0].netStats,
-      ...(group[0].ships !== undefined
+      correction: first.netStats,
+      ...(first.ships !== undefined
         ? { ships: [...mergedShips].sort((a, b) => a - b) }
         : {}),
-      ...(group[0].suppressed_components !== undefined
-        ? { suppressed_components: group[0].suppressed_components }
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
         : {}),
-      ...(group[0].placements !== undefined
-        ? { placements: group[0].placements }
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
         : {}),
     };
   };
@@ -352,7 +359,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         if (remain === 0) out.add(toSig(chosen));
         return;
       }
-      const [id, maxC] = entries[idx];
+      const entry = entries[idx];
+      if (!entry) return;
+      const [id, maxC] = entry;
       for (let take = 0; take <= Math.min(maxC, remain); take++) {
         if (take > 0) chosen.set(id, take);
         else chosen.delete(id);
@@ -373,7 +382,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
     for (let idx = 0; idx < countMaps.length; idx++) {
       if (usedComboIndexes.has(idx)) continue;
-      const fixedSigs = enumerateFixedSigs(countMaps[idx], keepCount);
+      const countMap = countMaps[idx];
+      if (!countMap) continue;
+      const fixedSigs = enumerateFixedSigs(countMap, keepCount);
       for (const sig of fixedSigs) {
         if (!families.has(sig)) families.set(sig, new Set<number>());
         families.get(sig)!.add(idx);
@@ -411,7 +422,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       const residualMaps = new Map<number, Map<number, number>>();
 
       for (const i of memberIndexes) {
-        const residual = residualAfterFixed(countMaps[i], fixedCounts);
+        const countMap = countMaps[i];
+        if (!countMap) continue;
+        const residual = residualAfterFixed(countMap, fixedCounts);
         if (!residual) continue;
         residualMaps.set(i, residual);
         const key = residualKeyWithoutReplacement(residual, freePickCount);
@@ -438,7 +451,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         const withReplacementMembers: number[] = [];
         const withReplacementFreeSet = new Set<number>();
         for (const i of memberIndexes) {
-          const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+          const countMap = countMaps[i];
+          const residual = residualMaps.get(i) ??
+            (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
           if (!residual) continue;
           const key = residualKeyWithReplacement(residual, freePickCount);
           if (!key) continue;
@@ -463,13 +478,16 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
           const loops = new Set<number>();
           const adjacency = new Map<number, Set<number>>();
           for (const i of memberIndexes) {
-            const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+            const countMap = countMaps[i];
+            const residual = residualMaps.get(i) ??
+              (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
             if (!residual) continue;
             const key = residualKeyWithReplacement(residual, freePickCount);
             if (!key) continue;
             const parts = key.split(",").map(Number);
             if (parts.length !== 2) continue;
             const [a, b] = parts;
+            if (a === undefined || b === undefined) continue;
             if (!adjacency.has(a)) adjacency.set(a, new Set<number>());
             if (!adjacency.has(b)) adjacency.set(b, new Set<number>());
             adjacency.get(a)!.add(b);
@@ -503,7 +521,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
             const cliqueMembers: number[] = [];
             const cliqueKeys = new Set<string>();
             for (const i of memberIndexes) {
-              const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+              const countMap = countMaps[i];
+              const residual = residualMaps.get(i) ??
+                (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
               if (!residual) continue;
               const key = residualKeyWithReplacement(residual, freePickCount);
               if (!key) continue;
@@ -544,26 +564,28 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
       const mergedShips = new Set<number>();
       for (const i of matchedMembers) {
-        for (const shipId of group[i].ships ?? []) mergedShips.add(shipId);
+        const entry = group[i];
+        if (!entry) continue;
+        for (const shipId of entry.ships ?? []) mergedShips.add(shipId);
       }
 
       out.push({
         kind: "pool",
         pool: [...fixedItems, ...freePool],
         comboSize,
-        correction: group[0].netStats,
+        correction: first.netStats,
         fixed: fixedItems,
         freePool,
         freePoolWithReplacement: matchedMode === "with-replacement",
         freePickCount,
-        ...(group[0].ships !== undefined
+        ...(first.ships !== undefined
           ? { ships: [...mergedShips].sort((a, b) => a - b) }
           : {}),
-        ...(group[0].suppressed_components !== undefined
-          ? { suppressed_components: group[0].suppressed_components }
+        ...(first.suppressed_components !== undefined
+          ? { suppressed_components: first.suppressed_components }
           : {}),
-        ...(group[0].placements !== undefined
-          ? { placements: group[0].placements }
+        ...(first.placements !== undefined
+          ? { placements: first.placements }
           : {}),
       });
 
@@ -574,7 +596,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       const remainingFamilies = new Map<string, Set<number>>();
       for (let idx = 0; idx < countMaps.length; idx++) {
         if (usedComboIndexes.has(idx)) continue;
-        const fixedSigs = enumerateFixedSigs(countMaps[idx], keepCount);
+        const countMap = countMaps[idx];
+        if (!countMap) continue;
+        const fixedSigs = enumerateFixedSigs(countMap, keepCount);
         for (const sig of fixedSigs) {
           if (!remainingFamilies.has(sig)) remainingFamilies.set(sig, new Set<number>());
           remainingFamilies.get(sig)!.add(idx);
@@ -606,7 +630,8 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
   }
 
   for (let i = 0; i < group.length; i++) {
-    if (!usedComboIndexes.has(i)) out.push(group[i]);
+    const entry = group[i];
+    if (!usedComboIndexes.has(i) && entry) out.push(entry);
   }
 
   // Fallback: if many explicit combos still remain, group them into a single
@@ -624,15 +649,15 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
     nonComboEntries.push({
       kind: "grouped_combo",
       groupedPools,
-      netStats: group[0].netStats,
-      ...(group[0].ships !== undefined
+      netStats: first.netStats,
+      ...(first.ships !== undefined
         ? { ships: [...mergedShips].sort((a, b) => a - b) }
         : {}),
-      ...(group[0].suppressed_components !== undefined
-        ? { suppressed_components: group[0].suppressed_components }
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
         : {}),
-      ...(group[0].placements !== undefined
-        ? { placements: group[0].placements }
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
         : {}),
     });
     return nonComboEntries;
