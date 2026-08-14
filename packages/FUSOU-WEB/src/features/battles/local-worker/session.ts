@@ -401,7 +401,7 @@ export class LocalWorkerSession {
       battles,
       cells,
       battleResults,
-      mstShips: query.masterShips,
+      ...(query.masterShips ? { mstShips: query.masterShips } : {}),
       enemyDecks,
       enemyShips,
     });
@@ -797,6 +797,7 @@ export class LocalWorkerSession {
       while (nextEntry < entries.length) {
         this.throwIfCancelled(requestId);
         const entry = entries[nextEntry++];
+        if (!entry) continue;
         try {
           const bytes = await readEntry(entry);
           if (bytes.byteLength > MAX_FILE_BYTES) {
@@ -816,7 +817,7 @@ export class LocalWorkerSession {
           validateSchema(table, bytes);
           const decodedRows = decodeAvroOcfToJson(bytes, {
             maxRecords: this.limits.maxQueryRecords,
-            recordFilter: rowMatcher,
+            ...(rowMatcher ? { recordFilter: rowMatcher } : {}),
           });
           const matchedRows = decodedRows;
           decoded += matchedRows.length;
@@ -896,7 +897,8 @@ export class LocalWorkerSession {
         .filter((version): version is string => Boolean(version)),
     );
     if (entries.some((entry) => !entry.tableVersion)) return null;
-    return versions.size === 1 ? [...versions][0] : null;
+    const [onlyVersion] = versions;
+    return versions.size === 1 ? (onlyVersion ?? null) : null;
   }
 
   private ensureReady(): void {
