@@ -766,7 +766,7 @@ function readDestructionValue(
     const n = Number(direct);
     return Number.isFinite(n) ? n : null;
   }
-  const nested = (source.air_base_attack as Record<string, unknown> | undefined)?.[key];
+  const nested = (source["air_base_attack"] as Record<string, unknown> | undefined)?.[key];
   if (nested != null) {
     const n = Number(nested);
     return Number.isFinite(n) ? n : null;
@@ -1036,36 +1036,36 @@ function extractPhaseEntries(
   ): unknown => {
     switch (key) {
       case "AirBaseAssult":
-        return battle.air_base_assault;
+        return battle["air_base_assault"];
       case "CarrierBaseAssault":
-        return battle.carrier_base_assault;
+        return battle["carrier_base_assault"];
       case "AirBaseAirAttack":
-        return Array.isArray(battle.air_base_air_attacks)
-          ? battle.air_base_air_attacks
-          : (battle.air_base_air_attacks as any)?.attacks;
+        return Array.isArray(battle["air_base_air_attacks"])
+          ? battle["air_base_air_attacks"]
+          : (battle["air_base_air_attacks"] as any)?.attacks;
       case "OpeningAirAttack":
-        return Array.isArray(battle.opening_air_attack)
-          ? (battle.opening_air_attack as unknown[])[idx ?? 0]
-          : battle.opening_air_attack;
+        return Array.isArray(battle["opening_air_attack"])
+          ? (battle["opening_air_attack"] as unknown[])[idx ?? 0]
+          : battle["opening_air_attack"];
       case "SupportAttack":
         return {
-          support_hourai: battle.support_hourai,
-          support_airatack: battle.support_airattack,
+          support_hourai: battle["support_hourai"],
+          support_airatack: battle["support_airattack"],
         };
       case "OpeningTaisen":
-        return battle.opening_taisen;
+        return battle["opening_taisen"];
       case "OpeningRaigeki":
-        return battle.opening_raigeki;
+        return battle["opening_raigeki"];
       case "Hougeki":
-        return pickHougekiRowsByRound(battle.hougeki, idx);
+        return pickHougekiRowsByRound(battle["hougeki"], idx);
       case "ClosingRaigeki":
-        return battle.closing_raigeki;
+        return battle["closing_raigeki"];
       case "FriendlyForceAttack":
-        return battle.friendly_force_attack;
+        return battle["friendly_force_attack"];
       case "NightSupportAttack":
         return normalizeNightSupportAttackData(battle);
       case "MidnightHougeki":
-        return battle.midnight_hougeki;
+        return battle["midnight_hougeki"];
       default:
         return null;
     }
