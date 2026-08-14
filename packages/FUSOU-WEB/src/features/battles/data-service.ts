@@ -60,11 +60,11 @@ export async function fetchBattleResultByUuid(
     limitRecords: BATTLE_RESULT_LOOKUP_LIMIT,
     filter: { uuid },
   });
-  const item = records.find((r) => r?.uuid === uuid && r?.win_rank);
-  if (!item?.win_rank) return null;
+  const item = records.find((r) => r?.["uuid"] === uuid && r?.["win_rank"]);
+  if (!item?.["win_rank"]) return null;
   return {
-    win_rank: String(item.win_rank),
-    drop_ship_id: item.drop_ship_id ?? null,
+    win_rank: String(item["win_rank"]),
+    drop_ship_id: item["drop_ship_id"] ?? null,
   };
 }
 
