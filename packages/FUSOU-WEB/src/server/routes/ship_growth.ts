@@ -711,9 +711,9 @@ async function loadSynergyDataSet(
       const synRule: SynergySingleRule = {
         ships: rule.ships ?? [],
         b: rule.b ?? {},
-        l: rule.l,
-        c2: rule.c2,
-        c3: rule.c3,
+        ...(rule.l !== undefined ? { l: rule.l } : {}),
+        ...(rule.c2 !== undefined ? { c2: rule.c2 } : {}),
+        ...(rule.c3 !== undefined ? { c3: rule.c3 } : {}),
       };
       for (const itemId of rule.items) {
         if (!Number.isInteger(itemId) || itemId <= 0) {
@@ -766,13 +766,19 @@ async function loadSynergyDataSet(
       const synRule: SynergyCrossRule = {
         ships: rule.ships ?? [],
         synergy: rule.synergy ?? {},
-        item_pool: rule.item_pool,
-        fixed_items: rule.fixed_items,
-        free_pool: rule.free_pool,
-        free_pool_with_replacement: rule.free_pool_with_replacement,
-        free_pick_count: rule.free_pick_count,
-        category_pools: rule.category_pools,
-        implicants: rule.implicants,
+        ...(rule.item_pool !== undefined ? { item_pool: rule.item_pool } : {}),
+        ...(rule.fixed_items !== undefined ? { fixed_items: rule.fixed_items } : {}),
+        ...(rule.free_pool !== undefined ? { free_pool: rule.free_pool } : {}),
+        ...(rule.free_pool_with_replacement !== undefined
+          ? { free_pool_with_replacement: rule.free_pool_with_replacement }
+          : {}),
+        ...(rule.free_pick_count !== undefined
+          ? { free_pick_count: rule.free_pick_count }
+          : {}),
+        ...(rule.category_pools !== undefined
+          ? { category_pools: rule.category_pools }
+          : {}),
+        ...(rule.implicants !== undefined ? { implicants: rule.implicants } : {}),
       };
       if (Array.isArray(rule.pairs) && rule.pairs.length > 0) {
         synRule.pairs = rule.pairs;
