@@ -231,7 +231,6 @@ export async function scanLocalFileList(
     options.onProgress?.({
       phase: "file-discovery",
       completed: entries.length,
-      total: undefined,
     });
     try {
       const entry = await parseEntry(relativePath, file);

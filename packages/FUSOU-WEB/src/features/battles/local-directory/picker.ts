@@ -19,6 +19,7 @@ export function supportsLocalDirectoryPicker(): boolean {
 export async function pickLocalDirectory(
   limits?: Partial<LocalAvroLoadLimits>,
 ): Promise<LocalPickerResult> {
+  const scanOptions = limits === undefined ? {} : { limits };
   if (supportsLocalDirectoryPicker()) {
     const picker = (window as DirectoryPickerWindow).showDirectoryPicker;
     if (!picker) throw new Error("Directory picker is unavailable");
@@ -26,12 +27,12 @@ export async function pickLocalDirectory(
     return {
       kind: "directory-handle",
       handle,
-      scan: await scanLocalDirectoryHandle(handle, { limits }),
+      scan: await scanLocalDirectoryHandle(handle, scanOptions),
     };
   }
 
   const files = await pickLocalFileList();
-  return { kind: "file-list", scan: await scanLocalFileList(files, { limits }) };
+  return { kind: "file-list", scan: await scanLocalFileList(files, scanOptions) };
 }
 
 function pickLocalFileList(): Promise<File[]> {

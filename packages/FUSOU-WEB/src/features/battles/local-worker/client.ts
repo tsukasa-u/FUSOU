@@ -107,7 +107,13 @@ export class LocalAvroWorkerClient {
     if (this.workerFailed) return Promise.reject(new Error("Local AVRO worker failed"));
     const id = `local-avro-${this.nextId++}`;
     const promise = new Promise<WorkerResult>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, onProgress: options.onProgress });
+      this.pending.set(id, {
+        resolve,
+        reject,
+        ...(options.onProgress === undefined
+          ? {}
+          : { onProgress: options.onProgress }),
+      });
       this.worker.postMessage({ id, ...request } satisfies WorkerRequest);
     });
     if (options.signal) {
