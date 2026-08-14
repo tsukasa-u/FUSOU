@@ -301,11 +301,12 @@ export default function BattleDetailPanel(props: {
   const dataLoadItems = () => {
     const items = [...masterDataStatus()];
     if (repository.kind === "local-avro") {
+      const diagnostic = errorDetail();
       items.push({
         name: "ローカル AVRO",
         status: loading() ? "pending" : error() ? "failed" : "success",
-        detail: errorDetail() ?? formatLocalProgress(localProgress(), false),
-        diagnostic: errorDetail() ?? undefined,
+        detail: diagnostic ?? formatLocalProgress(localProgress(), false),
+        ...(diagnostic === null ? {} : { diagnostic }),
       });
     }
     return items;
@@ -346,9 +347,11 @@ export default function BattleDetailPanel(props: {
     const tableVersion = requestedTableVersion().trim();
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
-      battleIndex: props.battleIndex,
+      ...(props.battleIndex === undefined
+        ? {}
+        : { battleIndex: props.battleIndex }),
       periodTag: requestedPeriodTag(),
-      tableVersion: tableVersion || undefined,
+      ...(tableVersion ? { tableVersion } : {}),
       view: viewMode(),
       separators: viewMode() === "timeline" && showPhaseSeparators(),
     });
@@ -625,11 +628,11 @@ export default function BattleDetailPanel(props: {
         try {
           const overview = (await repository.getOverview({
             periodTag: requestedPeriod,
-            tableVersion: tableVersion || undefined,
+            ...(tableVersion ? { tableVersion } : {}),
             limitBlocks: 120,
             limitRecords: 20000,
             signal,
-          }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined })) as BattleOverviewPayload;
+          }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleOverviewPayload;
           const orderedRows = (overview.battles || [])
             .filter((row) => String(row["env_uuid"] ?? "") === envUuid)
             .map((row) => ({
@@ -673,15 +676,15 @@ export default function BattleDetailPanel(props: {
           envUuid,
           battleIndex: requestedBattleIndex,
           periodTag: requestedPeriod,
-          tableVersion: tableVersion || undefined,
-          masterShips: localMasterData
-            ? [...localMasterData[0].values()]
-            : undefined,
-          masterSlotItems: localMasterData
-            ? [...localMasterData[1].values()]
-            : undefined,
+          ...(tableVersion ? { tableVersion } : {}),
+          ...(localMasterData
+            ? {
+                masterShips: [...localMasterData[0].values()],
+                masterSlotItems: [...localMasterData[1].values()],
+              }
+            : {}),
           signal,
-        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined })) as BattleDetailPayload;
+        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {})) as BattleDetailPayload;
       } catch (error) {
         const status =
           error instanceof BattleRepositoryHttpError ? error.status : null;
