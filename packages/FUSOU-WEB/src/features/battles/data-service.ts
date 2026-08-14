@@ -43,7 +43,9 @@ async function fetchRecordsFromRepository(
 ): Promise<Array<Record<string, unknown>>> {
   const payload = await options.repository.getRecords({
     ...query,
-    tableVersion: options.tableVersion,
+    ...(options.tableVersion === undefined
+      ? {}
+      : { tableVersion: options.tableVersion }),
     limitBlocks: GLOBAL_RECORD_LIMIT_BLOCKS,
   });
   return payload.records;
@@ -102,8 +104,10 @@ export async function fetchRecordsByUuids(
   const unique = [...new Set(uuids.filter(Boolean))];
   if (!table || unique.length === 0) return new Map();
   if (unique.length === 1) {
-    const rows = await fetchRecordsByUuid(table, unique[0], options);
-    return new Map([[unique[0], rows]]);
+    const uuid = unique[0];
+    if (uuid === undefined) return new Map();
+    const rows = await fetchRecordsByUuid(table, uuid, options);
+    return new Map([[uuid, rows]]);
   }
   const records = await fetchRecordsFromRepository(options, {
     table,

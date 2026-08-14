@@ -119,21 +119,22 @@ export function buildBattleOverviewPayload(args: {
   enemyDecks?: BattleRecord[];
   enemyShips?: BattleRecord[];
 }): BattleOverviewPayload {
+  const battles = buildBattleSummaries({
+    battles: args.battles,
+    cells: args.cells,
+    battleResults: args.battleResults,
+    ...(args.mstShips === undefined ? {} : { mstShips: args.mstShips }),
+    ...(args.enemyDecks === undefined ? {} : { enemyDecks: args.enemyDecks }),
+    ...(args.enemyShips === undefined ? {} : { enemyShips: args.enemyShips }),
+    includeEnemySummary: true,
+    includeOpeningAirAttack: false,
+  });
   return {
     success: true,
     period_tag: args.periodTag,
     table_version: args.tableVersion || null,
-    master_data: args.masterData,
-    battles: buildBattleSummaries({
-      battles: args.battles,
-      cells: args.cells,
-      battleResults: args.battleResults,
-      mstShips: args.mstShips,
-      enemyDecks: args.enemyDecks,
-      enemyShips: args.enemyShips,
-      includeEnemySummary: true,
-      includeOpeningAirAttack: false,
-    }),
+    ...(args.masterData === undefined ? {} : { master_data: args.masterData }),
+    battles,
     cells: args.cells,
   };
 }
