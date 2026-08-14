@@ -3,6 +3,7 @@ import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
+  parseQuestRuleRows,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
 } from "../quest-tree";
@@ -66,6 +67,40 @@ describe("QuestCollectionSessionRowSchema", () => {
       }).success,
     ).toBe(false);
     expect(QuestCollectionSessionRowSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("parseQuestRuleRows", () => {
+  it("keeps valid rule rows and skips malformed external rows", () => {
+    const validRow = {
+      rule_id: "rule-1",
+      target_quest_id: 100,
+      prereq_set_json: "[1,2]",
+      set_size: 2,
+      class: "same_series",
+      support: 0.5,
+      confidence: 0.8,
+      lift: 1.2,
+      score: 0.9,
+      period_tag: "2026-01-01",
+      table_version: "0.5",
+      is_primary: 1,
+      quality_tier: "high",
+      updated_at_ms: 1000,
+      extra_column: "preserved",
+    };
+
+    expect(
+      parseQuestRuleRows([
+        validRow,
+        { ...validRow, score: "bad" },
+        null,
+      ]),
+    ).toEqual([validRow]);
+  });
+
+  it("returns an empty list for non-array values", () => {
+    expect(parseQuestRuleRows({ rule_id: "rule-1" })).toEqual([]);
   });
 });
 

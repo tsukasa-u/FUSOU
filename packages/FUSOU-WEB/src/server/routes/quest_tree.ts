@@ -26,9 +26,11 @@ import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
+  parseQuestRuleRows,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
+  type QuestRuleRow,
   type QuestTreeIngestBody,
 } from "../schemas/quest-tree";
 
@@ -49,23 +51,6 @@ app.options(
 );
 
 type IngestBody = QuestTreeIngestBody;
-
-type QuestRuleRow = {
-  rule_id: string;
-  target_quest_id: number;
-  prereq_set_json: string;
-  set_size: number;
-  class: string;
-  support: number;
-  confidence: number;
-  lift: number;
-  score: number;
-  period_tag: string;
-  table_version: string;
-  is_primary: number;
-  quality_tier: string;
-  updated_at_ms: number;
-};
 
 type RulesSnapshot = {
   period_tag: string;
@@ -1175,20 +1160,22 @@ app.get("/rules", async (c) => {
 
       // Re-load the full current view for this target when anything changed.
       // This avoids stale rows when a rule's quality_tier transitions to/from low.
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND (? = 1 OR quality_tier != 'low')
-             ORDER BY is_primary DESC, score DESC`,
-          )
-          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRows(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE target_quest_id = ?
+                 AND period_tag = ?
+                 AND table_version = ?
+                 AND (? = 1 OR quality_tier != 'low')
+               ORDER BY is_primary DESC, score DESC`,
+            )
+            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = changedRows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
@@ -1206,20 +1193,22 @@ app.get("/rules", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND (? = 1 OR quality_tier != 'low')
-             ORDER BY is_primary DESC, score DESC`,
-          )
-          .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRows(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE target_quest_id = ?
+                 AND period_tag = ?
+                 AND table_version = ?
+                 AND (? = 1 OR quality_tier != 'low')
+               ORDER BY is_primary DESC, score DESC`,
+            )
+            .bind(target, periodTag, tableVersion, includeLow ? 1 : 0)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = rows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
@@ -1311,20 +1300,22 @@ app.get("/graph", async (c) => {
           if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
         }
 
-        const currentPrimaryRows = ((
-          await db
-            .prepare(
-              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-               FROM quest_rule_edges
-               WHERE period_tag = ?
-                 AND table_version = ?
-                 AND target_quest_id = ?
-                 AND is_primary = 1
-               ORDER BY score DESC`,
-            )
-            .bind(periodTag, tableVersion, target)
-            .all()
-        ).results ?? []) as QuestRuleRow[];
+        const currentPrimaryRows = parseQuestRuleRows(
+          (
+            await db
+              .prepare(
+                `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+                 FROM quest_rule_edges
+                 WHERE period_tag = ?
+                   AND table_version = ?
+                   AND target_quest_id = ?
+                   AND is_primary = 1
+                 ORDER BY score DESC`,
+              )
+              .bind(periodTag, tableVersion, target)
+              .all()
+          ).results ?? [],
+        );
 
         for (const row of currentPrimaryRows) {
           rowsByRuleId.set(row.rule_id, row);
@@ -1349,19 +1340,21 @@ app.get("/graph", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = ((
-        await db
-          .prepare(
-            `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
-             FROM quest_rule_edges
-             WHERE period_tag = ?
-               AND table_version = ?
-               AND is_primary = 1
-             ORDER BY score DESC`,
-          )
-          .bind(periodTag, tableVersion)
-          .all()
-      ).results ?? []) as QuestRuleRow[];
+      const rows = parseQuestRuleRows(
+        (
+          await db
+            .prepare(
+              `SELECT rule_id, target_quest_id, prereq_set_json, set_size, class, support, confidence, lift, score, period_tag, table_version, is_primary, quality_tier, updated_at_ms
+               FROM quest_rule_edges
+               WHERE period_tag = ?
+                 AND table_version = ?
+                 AND is_primary = 1
+               ORDER BY score DESC`,
+            )
+            .bind(periodTag, tableVersion)
+            .all()
+        ).results ?? [],
+      );
 
       const maxUpdatedAt = rows.reduce(
         (max, row) => Math.max(max, Number(row.updated_at_ms) || 0),
