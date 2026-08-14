@@ -806,14 +806,14 @@ export async function resolveEnemyFleet(
   const allShips: Array<Record<string, unknown>> = [];
   for (const groupId of groupIds) {
     const groupShips = [...(shipsByGroup.get(groupId) || [])].sort(
-      (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
+      (a, b) => Number(a["index"] ?? 0) - Number(b["index"] ?? 0),
     );
     allShips.push(...groupShips);
   }
 
   // Batch-fetch all enemy slot items in one request
   const slotUuids = allShips
-    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .map((s) => (typeof s["slot"] === "string" ? s["slot"] : ""))
     .filter(Boolean);
   const slotRowsByUuid = await fetchRecordsByUuids(
     "enemy_slotitem",
