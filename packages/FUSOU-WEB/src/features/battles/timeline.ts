@@ -714,7 +714,7 @@ export function buildTimelineEvents(
         }
       } else if (key === "SupportAttack") {
         // support_attack may be nested or top-level depending on data layout
-        const sa = (battle.support_attack as any) ?? battle;
+        const sa = (battle["support_attack"] as any) ?? battle;
         const hourai = sa.support_hourai as
           | Record<string, unknown>
           | null
@@ -722,15 +722,15 @@ export function buildTimelineEvents(
         const airatack =
           (sa.support_airatack as Record<string, unknown> | null | undefined) ??
           (sa.support_airattack as Record<string, unknown> | null | undefined);
-        if (hourai?.damage) {
-          const dmgs = Array.isArray(hourai.damage)
-            ? (hourai.damage as unknown[])
+        if (hourai?.["damage"]) {
+          const dmgs = Array.isArray(hourai["damage"])
+            ? (hourai["damage"] as unknown[])
             : [];
-          const eNow = Array.isArray(hourai.now_hps)
-            ? (hourai.now_hps as number[])
+          const eNow = Array.isArray(hourai["now_hps"])
+            ? (hourai["now_hps"] as number[])
             : [];
-          const shipIds = Array.isArray(hourai.ship_id)
-            ? (hourai.ship_id as unknown[])
+          const shipIds = Array.isArray(hourai["ship_id"])
+            ? (hourai["ship_id"] as unknown[])
             : [];
           for (let i = 0; i < dmgs.length; i++) {
             const dmg = Number(dmgs[i] ?? 0) || 0;
@@ -747,7 +747,7 @@ export function buildTimelineEvents(
               defenderSide: "enemy",
               defenderIdx: i,
               damage: dmg,
-              crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
               sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
               slotItems: [],
               fHps: [],
@@ -756,15 +756,17 @@ export function buildTimelineEvents(
             });
           }
         }
-        if (airatack?.e_damage) {
-          const ed = airatack.e_damage as Record<string, unknown>;
-          const fd = airatack.f_damage as Record<string, unknown> | undefined;
+        if (airatack?.["e_damage"]) {
+          const ed = airatack["e_damage"] as Record<string, unknown>;
+          const fd = airatack["f_damage"] as
+            | Record<string, unknown>
+            | undefined;
           extractAirAttackEvents(
             {
-              e_damages: ed.damages,
-              f_damages: fd?.damages,
-              e_now_hps: ed.now_hps,
-              f_now_hps: fd?.now_hps,
+              e_damages: ed["damages"],
+              f_damages: fd?.["damages"],
+              e_now_hps: ed["now_hps"],
+              f_now_hps: fd?.["now_hps"],
               e_plane_from: [],
               f_plane_from: [],
             },
@@ -784,15 +786,15 @@ export function buildTimelineEvents(
           | Record<string, unknown>
           | null
           | undefined;
-        if (hourai?.damage) {
-          const dmgs = Array.isArray(hourai.damage)
-            ? (hourai.damage as unknown[])
+        if (hourai?.["damage"]) {
+          const dmgs = Array.isArray(hourai["damage"])
+            ? (hourai["damage"] as unknown[])
             : [];
-          const eNow = Array.isArray(hourai.now_hps)
-            ? (hourai.now_hps as number[])
+          const eNow = Array.isArray(hourai["now_hps"])
+            ? (hourai["now_hps"] as number[])
             : [];
-          const shipIds = Array.isArray(hourai.ship_id)
-            ? (hourai.ship_id as unknown[])
+          const shipIds = Array.isArray(hourai["ship_id"])
+            ? (hourai["ship_id"] as unknown[])
             : [];
           for (let i = 0; i < dmgs.length; i++) {
             const dmg = Number(dmgs[i] ?? 0) || 0;
@@ -1054,7 +1056,7 @@ export function buildTimelineEvents(
           defenderSide: "enemy",
           defenderIdx: i,
           damage: dmg,
-          crit: Number((hourai.cl_list as unknown[])?.[i] ?? 0) >= 2,
+          crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
           sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: [],
