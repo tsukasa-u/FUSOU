@@ -136,7 +136,7 @@ adminApp.get("/fix-mime-types", async (c) => {
     }
 
     const currentMime =
-      (objData as any).httpMetadata?.contentType || "application/octet-stream";
+      objData.httpMetadata?.contentType || "application/octet-stream";
 
     // Skip if already correct or supposed to be octet-stream
     if (
@@ -154,8 +154,8 @@ adminApp.get("/fix-mime-types", async (c) => {
         const body = await objData.arrayBuffer();
 
         // Preserve existing metadata when re-uploading
-        const existingHttpMeta = (objData as any).httpMetadata || {};
-        const existingCustomMeta = (objData as any).customMetadata || {};
+        const existingHttpMeta = objData.httpMetadata || {};
+        const existingCustomMeta = objData.customMetadata || {};
 
         await bucket.put(obj.key, body, {
           httpMetadata: {
@@ -246,8 +246,7 @@ adminApp.get("/backfill-asset-index", async (c) => {
         }
 
         const contentType =
-          (r2Object as any).httpMetadata?.contentType ||
-          "application/octet-stream";
+          r2Object.httpMetadata?.contentType || "application/octet-stream";
 
         if (!dryRun) {
           await db
