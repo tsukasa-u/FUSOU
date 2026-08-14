@@ -5,6 +5,7 @@ import {
   ListSourceTablesRequestSchema,
   FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
+  VerifyOutputVisibleRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -522,14 +523,19 @@ app.post("/verify-output-visible", async (c) => {
   const bucket = env.runtime.BATTLE_DATA_BUCKET as R2Bucket | undefined;
   if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const filePath = String(body?.file_path ?? "").trim();
+  const parsedBody = VerifyOutputVisibleRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return c.json({ error: "file_path is required" }, 400);
+  }
+
+  const { file_path: filePath } = parsedBody.data;
   if (!filePath) return c.json({ error: "file_path is required" }, 400);
 
   const obj = await bucket.head(filePath);

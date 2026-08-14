@@ -4,6 +4,7 @@ import {
   ListSourceTablesRequestSchema,
   FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
+  VerifyOutputVisibleRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -105,5 +106,23 @@ describe("FetchBlockOcfRequestSchema", () => {
         start_byte: "invalid",
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("VerifyOutputVisibleRequestSchema", () => {
+  it("trims a file path", () => {
+    const result = VerifyOutputVisibleRequestSchema.safeParse({
+      file_path: "  output.avro  ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.file_path).toBe("output.avro");
+  });
+
+  it("preserves the route's string coercion", () => {
+    const result = VerifyOutputVisibleRequestSchema.safeParse({ file_path: 123 });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.file_path).toBe("123");
   });
 });

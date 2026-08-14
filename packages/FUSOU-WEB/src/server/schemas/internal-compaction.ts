@@ -72,3 +72,13 @@ export const FetchBlockOcfRequestSchema = z
   .passthrough();
 
 export type FetchBlockOcfRequest = z.infer<typeof FetchBlockOcfRequestSchema>;
+
+export const VerifyOutputVisibleRequestSchema = z
+  .object({
+    file_path: TrimmedStringRequestFieldSchema.optional(),
+  })
+  .passthrough();
+
+export type VerifyOutputVisibleRequest = z.infer<
+  typeof VerifyOutputVisibleRequestSchema
+>;
