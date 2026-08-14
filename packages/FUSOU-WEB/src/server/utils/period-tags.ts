@@ -1,4 +1,5 @@
 import type { Bindings, D1Database } from "../types";
+import { PeriodTagRowsSchema } from "../schemas/period-tags";
 
 type SupabaseRestConfigLike = {
   url: string;
@@ -8,6 +9,14 @@ type SupabaseRestConfigLike = {
 const PERIOD_TAG_CACHE_LIST_KEY = "data_loader:period_tags:list";
 const PERIOD_TAG_CACHE_LIST_TTL = 300;
 const PERIOD_TAG_FETCH_LIMIT = 200;
+
+function parsePeriodTagRows(value: unknown): Array<{ tag: string | null }> {
+  const parsed = PeriodTagRowsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Invalid period tag response");
+  }
+  return parsed.data;
+}
 
 export function isValidPeriodTagDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -50,7 +59,7 @@ async function fetchAllowedPeriodTagsFromSupabase(
     throw new Error(`Failed to fetch period tags: ${response.status}`);
   }
 
-  const rows = (await response.json()) as Array<{ tag: string | null }>;
+  const rows = parsePeriodTagRows(await response.json());
   return rows
     .map((row) => toTokyoPeriodTag(row.tag))
     .filter((tag): tag is string => Boolean(tag));
@@ -116,7 +125,7 @@ async function checkPeriodTagExistsInSupabase(
     throw new Error(`Failed to verify period tag: ${response.status}`);
   }
 
-  const rows = (await response.json()) as Array<{ tag: string | null }>;
+  const rows = parsePeriodTagRows(await response.json());
   return Array.isArray(rows) && rows.length > 0;
 }
 
