@@ -125,6 +125,17 @@ export type AuthSettingsDiagnostics = z.infer<
   typeof AuthSettingsDiagnosticsSchema
 >;
 
+export const SupabaseAccessTokenUserSchema = z
+  .object({
+    id: NonEmptyStringSchema,
+    email: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type SupabaseAccessTokenUser = z.infer<
+  typeof SupabaseAccessTokenUserSchema
+>;
+
 export function firstSchemaError(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Invalid request body";
 }

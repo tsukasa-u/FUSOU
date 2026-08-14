@@ -9,7 +9,33 @@ import {
   UserDeviceListRowSchema,
   UserDeviceRefreshRowSchema,
   UserDeviceRevokeTargetRowSchema,
+  SupabaseAccessTokenUserSchema,
 } from "../anonymous-sync-v2";
+
+describe("SupabaseAccessTokenUserSchema", () => {
+  it("accepts a user id with optional email values", () => {
+    expect(
+      SupabaseAccessTokenUserSchema.safeParse({
+        id: "user-1",
+        email: null,
+        role: "authenticated",
+      }).success,
+    ).toBe(true);
+    expect(
+      SupabaseAccessTokenUserSchema.safeParse({ id: "user-1" }).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing, empty, and non-string user ids", () => {
+    expect(SupabaseAccessTokenUserSchema.safeParse({}).success).toBe(false);
+    expect(
+      SupabaseAccessTokenUserSchema.safeParse({ id: "" }).success,
+    ).toBe(false);
+    expect(
+      SupabaseAccessTokenUserSchema.safeParse({ id: 1 }).success,
+    ).toBe(false);
+  });
+});
 
 describe("anonymous-sync diagnostics schemas", () => {
   it("accepts auth config rows and preserves extra fields", () => {

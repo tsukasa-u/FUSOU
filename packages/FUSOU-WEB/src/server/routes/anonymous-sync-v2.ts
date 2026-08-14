@@ -41,6 +41,7 @@ import {
   UserDeviceListRowSchema,
   UserDeviceRefreshRowSchema,
   UserDeviceRevokeTargetRowSchema,
+  SupabaseAccessTokenUserSchema,
   type UserIdentityAnchorRow,
   type UserMemberMapRow,
   type UserDeviceLookupRow,
@@ -199,9 +200,14 @@ async function verifySupabaseAccessToken(options: {
     });
 
     if (!response.ok) return null;
-    const user = (await response.json()) as { id?: string; email?: string };
-    if (!user?.id || typeof user.id !== "string") return null;
-    return { id: user.id, email: user.email };
+    const parsedUser = SupabaseAccessTokenUserSchema.safeParse(
+      await response.json(),
+    );
+    if (!parsedUser.success) return null;
+    return {
+      id: parsedUser.data.id,
+      email: parsedUser.data.email ?? undefined,
+    };
   } catch (err) {
     console.warn("[anonymous-sync-v2] verifySupabaseAccessToken failed:", err);
     return null;
