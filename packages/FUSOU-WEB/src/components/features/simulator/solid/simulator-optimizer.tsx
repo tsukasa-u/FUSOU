@@ -924,7 +924,9 @@ async function runOptimizer(
       return;
     }
     for (let i = startIndex; i < candidates.length; i++) {
-      combo.push(candidates[i]);
+      const candidate = candidates[i];
+      if (!candidate) continue;
+      combo.push(candidate);
       await walkSnapshotCombos(candidates, i + 1, combo, exCandidate);
       combo.pop();
     }
@@ -941,7 +943,9 @@ async function runOptimizer(
       return;
     }
     for (let i = startIndex; i < limitedNormal.length; i++) {
-      combo.push(limitedNormal[i]);
+      const candidate = limitedNormal[i];
+      if (!candidate) continue;
+      combo.push(candidate);
       await walkMasterCombos(i, combo, exCandidate);
       combo.pop();
     }
@@ -1129,7 +1133,8 @@ function EquipOptimizer(): JSX.Element {
     const ids = requireTypeIds();
     if (ids.length === 0) return;
     if (!ids.includes(addTypeId())) {
-      setAddTypeId(ids[0]);
+      const firstId = ids[0];
+      if (firstId !== undefined) setAddTypeId(firstId);
     }
   });
 
@@ -1282,10 +1287,10 @@ function EquipOptimizer(): JSX.Element {
   };
 
   const activeStats = createMemo((): ActiveStat[] =>
-    TARGET_STATS.filter((s) => (statWeights()[s.key] ?? 0) > 0).map((s) => ({
+    TARGET_STATS.map((s) => ({
       ...s,
-      weight: statWeights()[s.key],
-    })),
+      weight: statWeights()[s.key] ?? 0,
+    })).filter((s) => s.weight > 0),
   );
 
   const effectiveShip = createMemo((): MstShipData | null => {
