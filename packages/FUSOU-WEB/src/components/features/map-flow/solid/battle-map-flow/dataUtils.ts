@@ -53,18 +53,21 @@ export function resolveRouteCellsWithPort(
 ): number[] {
   if (cells.length === 0) return cells;
   if (ports.length === 0) return cells;
-  if (ports.includes(cells[0])) return cells;
+  const firstCell = cells[0];
+  const firstPort = ports[0];
+  if (firstCell === undefined || firstPort === undefined) return cells;
+  if (ports.includes(firstCell)) return cells;
 
   if (ports.length === 1) {
-    return [ports[0], ...cells];
+    return [firstPort, ...cells];
   }
 
-  const firstCellSpot = spots.find((spot) => spot.cellId === cells[0]);
+  const firstCellSpot = spots.find((spot) => spot.cellId === firstCell);
   if (!firstCellSpot) {
-    return [ports[0], ...cells];
+    return [firstPort, ...cells];
   }
 
-  let nearestPort = ports[0];
+  let nearestPort = firstPort;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const portCellId of ports) {
     const portSpot = spots.find((spot) => spot.cellId === portCellId);
@@ -146,8 +149,9 @@ export function parseMapFrameMeta(payload: MapImageMetaPayload): MapFrameMeta | 
   const routeFrames: Record<number, RouteSpriteFrame> = {};
   for (const entry of frameEntries) {
     const matched = /_route_(\d+)$/i.exec(entry.key);
-    if (!matched) continue;
-    const routeId = Number(matched[1]);
+    const routeIdText = matched?.[1];
+    if (routeIdText === undefined) continue;
+    const routeId = Number(routeIdText);
     if (!Number.isFinite(routeId)) continue;
     routeFrames[routeId] = { ...entry.rect, routeId };
   }
