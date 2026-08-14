@@ -1473,14 +1473,22 @@ function mergeBoundsRow(
     (existing.kaihi_naked === 0 || row.kaihi_naked < existing.kaihi_naked)
   ) {
     existing.kaihi_naked = row.kaihi_naked;
-    existing.kaihi_source_period = row.kaihi_source_period;
+    if (row.kaihi_source_period === undefined) {
+      delete existing.kaihi_source_period;
+    } else {
+      existing.kaihi_source_period = row.kaihi_source_period;
+    }
   }
   if (
     row.taisen_naked > 0 &&
     (existing.taisen_naked === 0 || row.taisen_naked < existing.taisen_naked)
   ) {
     existing.taisen_naked = row.taisen_naked;
-    existing.taisen_source_period = row.taisen_source_period;
+    if (row.taisen_source_period === undefined) {
+      delete existing.taisen_source_period;
+    } else {
+      existing.taisen_source_period = row.taisen_source_period;
+    }
   }
   if (
     row.sakuteki_naked > 0 &&
@@ -1488,14 +1496,22 @@ function mergeBoundsRow(
       row.sakuteki_naked < existing.sakuteki_naked)
   ) {
     existing.sakuteki_naked = row.sakuteki_naked;
-    existing.sakuteki_source_period = row.sakuteki_source_period;
+    if (row.sakuteki_source_period === undefined) {
+      delete existing.sakuteki_source_period;
+    } else {
+      existing.sakuteki_source_period = row.sakuteki_source_period;
+    }
   }
   if (
     row.lucky_naked > 0 &&
     (existing.lucky_naked === 0 || row.lucky_naked < existing.lucky_naked)
   ) {
     existing.lucky_naked = row.lucky_naked;
-    existing.lucky_source_period = row.lucky_source_period;
+    if (row.lucky_source_period === undefined) {
+      delete existing.lucky_source_period;
+    } else {
+      existing.lucky_source_period = row.lucky_source_period;
+    }
   }
 }
 
@@ -1604,10 +1620,14 @@ async function fetchAndMergeArchiveObject(
       taisen_naked: Math.max(0, Number(raw["taisen_naked"]) || 0),
       sakuteki_naked: Math.max(0, Number(raw["sakuteki_naked"]) || 0),
       lucky_naked: Math.max(0, Number(raw["lucky_naked"]) || 0),
-      kaihi_source_period: sourcePeriod,
-      taisen_source_period: sourcePeriod,
-      sakuteki_source_period: sourcePeriod,
-      lucky_source_period: sourcePeriod,
+      ...(sourcePeriod
+        ? {
+            kaihi_source_period: sourcePeriod,
+            taisen_source_period: sourcePeriod,
+            sakuteki_source_period: sourcePeriod,
+            lucky_source_period: sourcePeriod,
+          }
+        : {}),
     });
   }
 
