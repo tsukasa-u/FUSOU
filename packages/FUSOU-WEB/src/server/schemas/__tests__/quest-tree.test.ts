@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
@@ -41,6 +42,30 @@ describe("QuestIngestConflictRowSchema", () => {
       QuestIngestConflictRowSchema.safeParse({ id: 1, payload_hash: 42 })
         .success,
     ).toBe(false);
+  });
+});
+
+describe("QuestCollectionSessionRowSchema", () => {
+  it("accepts nullable session timestamps and an empty lookup", () => {
+    expect(
+      QuestCollectionSessionRowSchema.safeParse({
+        collection_session_id: "session-1",
+        ended_at_ms: null,
+        bootstrap_completed_at_ms: 1000,
+      }).success,
+    ).toBe(true);
+    expect(QuestCollectionSessionRowSchema.safeParse(null).success).toBe(true);
+  });
+
+  it("rejects malformed session rows", () => {
+    expect(
+      QuestCollectionSessionRowSchema.safeParse({
+        collection_session_id: "session-1",
+        ended_at_ms: "1000",
+        bootstrap_completed_at_ms: null,
+      }).success,
+    ).toBe(false);
+    expect(QuestCollectionSessionRowSchema.safeParse({}).success).toBe(false);
   });
 });
 

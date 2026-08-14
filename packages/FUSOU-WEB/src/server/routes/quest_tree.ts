@@ -23,6 +23,7 @@ import {
 import { validateCachedPeriodTag } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
+  QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
@@ -456,7 +457,7 @@ async function getOrCreateSession(
   datasetId: string,
   atMs: number,
 ): Promise<{ sessionId: string; isNew: boolean; bootstrapCompleted: boolean }> {
-  const latest = (await db
+  const latestResult = await db
     .prepare(
       `SELECT collection_session_id, ended_at_ms, bootstrap_completed_at_ms
        FROM quest_collection_sessions
@@ -465,11 +466,12 @@ async function getOrCreateSession(
        LIMIT 1`,
     )
     .bind(datasetId)
-    .first<D1Result>()) as {
-    collection_session_id?: string;
-    ended_at_ms?: number | null;
-    bootstrap_completed_at_ms?: number | null;
-  } | null;
+    .first<D1Result>();
+  const parsedLatest = QuestCollectionSessionRowSchema.safeParse(latestResult);
+  if (!parsedLatest.success) {
+    throw new Error("Invalid quest collection session lookup response");
+  }
+  const latest = parsedLatest.data;
 
   const latestSessionId = latest?.collection_session_id ?? null;
   const latestEndedAt = toInt(latest?.ended_at_ms) ?? null;

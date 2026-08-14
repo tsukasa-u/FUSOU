@@ -58,6 +58,15 @@ export const QuestIngestConflictRowSchema = z
   .passthrough()
   .nullable();
 
+export const QuestCollectionSessionRowSchema = z
+  .object({
+    collection_session_id: z.string().min(1),
+    ended_at_ms: z.number().int().nullable(),
+    bootstrap_completed_at_ms: z.number().int().nullable(),
+  })
+  .passthrough()
+  .nullable();
+
 export const QuestTreeIngestBodySchema = z
   .object({
     dataset_id: OptionalTrimmedStringFieldSchema,
