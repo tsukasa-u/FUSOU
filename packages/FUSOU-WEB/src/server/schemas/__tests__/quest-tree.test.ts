@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
@@ -18,6 +19,28 @@ describe("QuestIngestEventIdRowSchema", () => {
       false,
     );
     expect(QuestIngestEventIdRowSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("QuestIngestConflictRowSchema", () => {
+  it("accepts conflict rows and an empty lookup", () => {
+    expect(
+      QuestIngestConflictRowSchema.safeParse({
+        id: 1,
+        payload_hash: "hash-1",
+      }).success,
+    ).toBe(true);
+    expect(QuestIngestConflictRowSchema.safeParse(null).success).toBe(true);
+  });
+
+  it("rejects rows missing the conflict payload hash", () => {
+    expect(QuestIngestConflictRowSchema.safeParse({ id: 1 }).success).toBe(
+      false,
+    );
+    expect(
+      QuestIngestConflictRowSchema.safeParse({ id: 1, payload_hash: 42 })
+        .success,
+    ).toBe(false);
   });
 });
 

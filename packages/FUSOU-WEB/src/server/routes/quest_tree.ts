@@ -23,6 +23,7 @@ import {
 import { validateCachedPeriodTag } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
+  QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
@@ -266,7 +267,7 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
     };
   }
 
-  const sameRequestDifferentPayload = (await db
+  const conflictResult = await db
     .prepare(
       `SELECT id, payload_hash
        FROM quest_ingest_events
@@ -274,11 +275,18 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
        LIMIT 1`,
     )
     .bind(requestId)
-    .first<D1Result>()) as { id?: number; payload_hash?: string } | null;
+    .first<D1Result>();
+  const parsedConflict = QuestIngestConflictRowSchema.safeParse(conflictResult);
+  if (!parsedConflict.success) {
+    return {
+      status: 500,
+      body: { error: "Invalid quest conflict lookup response" },
+    };
+  }
 
   if (
-    sameRequestDifferentPayload?.id &&
-    sameRequestDifferentPayload.payload_hash !== payloadHash
+    parsedConflict.data?.id &&
+    parsedConflict.data.payload_hash !== payloadHash
   ) {
     return {
       status: 409,
@@ -286,7 +294,7 @@ async function ingestQuestBody(db: D1Database, body: IngestBody) {
         error: "request_id conflict",
         message: "Same request_id already exists with different payload_hash",
         existing_request_id: requestId,
-        existing_payload_hash: sameRequestDifferentPayload.payload_hash ?? null,
+        existing_payload_hash: parsedConflict.data.payload_hash,
       },
     };
   }

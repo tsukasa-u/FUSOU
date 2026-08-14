@@ -50,6 +50,14 @@ export const QuestIngestEventIdRowSchema = z
   .passthrough()
   .nullable();
 
+export const QuestIngestConflictRowSchema = z
+  .object({
+    id: z.number().int(),
+    payload_hash: z.string().min(1),
+  })
+  .passthrough()
+  .nullable();
+
 export const QuestTreeIngestBodySchema = z
   .object({
     dataset_id: OptionalTrimmedStringFieldSchema,
