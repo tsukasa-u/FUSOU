@@ -1,5 +1,10 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
+import {
+  SnapshotPayloadSchema,
+  ShortenerRequestSchema,
+} from "@/server/schemas/shortener";
+import type { SnapshotPayload } from "@/server/schemas/shortener";
 import { createEnvContext, getEnv } from "@/server/utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -11,11 +16,6 @@ type UpstreamAttempt = {
   status?: number;
   error?: string;
   detail?: string;
-};
-
-type SnapshotPayload = {
-  snapshotShips?: Record<string, unknown>;
-  snapshotSlotItems?: Record<string, unknown>;
 };
 
 type ShareRecordResponse = {
@@ -264,16 +264,16 @@ app.post("/", async (c) => {
     );
   }
 
-  const url = (body as { url?: unknown })?.url;
-  const snapshotPayload = (body as { snapshotPayload?: unknown })
-    ?.snapshotPayload;
-  if (typeof url !== "string" || url.length === 0) {
+  const parsedBody = ShortenerRequestSchema.safeParse(body);
+  if (!parsedBody.success) {
     return c.json(
       { ok: false, error: "url is required" },
       400,
       JSON_NO_STORE_HEADERS,
     );
   }
+
+  const { url, snapshotPayload } = parsedBody.data;
   if (url.length > MAX_SHARE_URL_LENGTH) {
     return c.json(
       { ok: false, error: "url is too long" },
@@ -284,7 +284,8 @@ app.post("/", async (c) => {
 
   let validatedSnapshotPayload: SnapshotPayload | null = null;
   if (snapshotPayload != null) {
-    if (typeof snapshotPayload !== "object") {
+    const parsedSnapshotPayload = SnapshotPayloadSchema.safeParse(snapshotPayload);
+    if (!parsedSnapshotPayload.success) {
       return c.json(
         { ok: false, error: "snapshotPayload must be an object" },
         400,
@@ -308,7 +309,7 @@ app.post("/", async (c) => {
           JSON_NO_STORE_HEADERS,
         );
       }
-      validatedSnapshotPayload = snapshotPayload as SnapshotPayload;
+      validatedSnapshotPayload = parsedSnapshotPayload.data;
     } catch {
       return c.json(
         { ok: false, error: "snapshotPayload is invalid" },
