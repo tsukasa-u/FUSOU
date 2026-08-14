@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
+  parseArchivedBlockRows,
   parseMasterDataFileRows,
   parseTableNames,
   VerifyDeviceRequestSchema,
@@ -711,16 +712,23 @@ app.get("/data/:table", async (c) => {
       params.push(perTierFetchLimit);
 
       const stmt = indexDb.prepare(sql);
-      return await stmt.bind(...params).all?.();
+      const result = await stmt.bind(...params).all?.();
+      return parseArchivedBlockRows(result?.results ?? []);
     };
 
     let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
     const mergeTierRows = (
-      tierRows: Map<CompactionTier, any[]>,
-    ): { rows: any[]; tier: CompactionTier | null } => {
-      const accepted: any[] = [];
+      tierRows: Map<
+        CompactionTier,
+        Awaited<ReturnType<typeof fetchArchivedRows>>
+      >,
+    ): {
+      rows: Awaited<ReturnType<typeof fetchArchivedRows>>;
+      tier: CompactionTier | null;
+    } => {
+      const accepted: Awaited<ReturnType<typeof fetchArchivedRows>> = [];
       const seenBlockIds = new Set<number>();
       let usedTierCount = 0;
       let firstTier: CompactionTier | null = null;
@@ -730,8 +738,8 @@ app.get("/data/:table", async (c) => {
         let usedThisTier = false;
 
         for (const row of rows) {
-          const id = Number(row?.id ?? NaN);
-          if (!Number.isFinite(id) || seenBlockIds.has(id)) {
+          const id = row.id;
+          if (seenBlockIds.has(id)) {
             continue;
           }
 
@@ -748,9 +756,7 @@ app.get("/data/:table", async (c) => {
         }
       }
 
-      accepted.sort(
-        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
-      );
+      accepted.sort((a, b) => b.start_timestamp - a.start_timestamp);
 
       return {
         rows: accepted,
@@ -762,29 +768,27 @@ app.get("/data/:table", async (c) => {
       result = await fetchArchivedRows(compactionTier);
       effectiveTier = compactionTier;
     } else {
-      const tierRows = new Map<CompactionTier, any[]>();
+      const tierRows = new Map<
+        CompactionTier,
+        Awaited<ReturnType<typeof fetchArchivedRows>>
+      >();
       for (const tier of TIER_PRIORITY) {
         const candidate = await fetchArchivedRows(tier);
-        tierRows.set(tier, (candidate?.results || []) as any[]);
+        tierRows.set(tier, candidate);
       }
 
       const merged = mergeTierRows(tierRows);
       effectiveTier = merged.tier;
 
       if (merged.rows.length > 0) {
-        result = { results: merged.rows } as Awaited<
-          ReturnType<typeof fetchArchivedRows>
-        >;
+        result = merged.rows;
       } else {
         result = await fetchArchivedRows(null);
         effectiveTier = null;
       }
     }
 
-    if (
-      (!result || !result.results || result.results.length === 0) &&
-      !includeBuffer
-    ) {
+    if ((!result || result.length === 0) && !includeBuffer) {
       return jsonResponse(
         {
           error: "DATASET_NOT_FOUND",
@@ -795,7 +799,7 @@ app.get("/data/:table", async (c) => {
       );
     }
 
-    const candidateRows = ((result?.results as any[]) || []) as any[];
+    const candidateRows = result ?? [];
     const filesTruncated = candidateRows.length > limit;
     const archivedFiles = candidateRows.slice(0, limit).map((r) => ({
       id: r.id,

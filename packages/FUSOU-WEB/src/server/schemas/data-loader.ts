@@ -51,5 +51,35 @@ export function parseMasterDataFileRows(
   return result.success ? result.data : null;
 }
 
+export const ArchivedBlockRowsSchema = z.array(
+  z
+    .object({
+      id: z.number().int(),
+      dataset_id: z.string(),
+      table_name: z.string(),
+      table_version: z.string(),
+      compaction_tier: z.string(),
+      size: z.number().int(),
+      record_count: z.number().int(),
+      start_timestamp: z.number().int(),
+      end_timestamp: z.number().int(),
+      window_start_ms: z.number().int().nullable(),
+      window_end_ms: z.number().int().nullable(),
+      period_tag: z.string(),
+      start_byte: z.number().int(),
+      file_path: z.string(),
+    })
+    .passthrough(),
+);
+
+export type ArchivedBlockRow = z.infer<
+  typeof ArchivedBlockRowsSchema
+>[number];
+
+export function parseArchivedBlockRows(value: unknown): ArchivedBlockRow[] {
+  const result = ArchivedBlockRowsSchema.safeParse(value);
+  return result.success ? result.data : [];
+}
+
 export type VerifyDeviceRequest = z.infer<typeof VerifyDeviceRequestSchema>;
 export type VerifyGoogleRequest = z.infer<typeof VerifyGoogleRequestSchema>;

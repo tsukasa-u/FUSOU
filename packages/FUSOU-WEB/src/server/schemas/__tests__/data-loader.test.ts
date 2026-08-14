@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  ArchivedBlockRowsSchema,
+  parseArchivedBlockRows,
   MasterDataFileRowsSchema,
   parseMasterDataFileRows,
   parseTableNames,
@@ -93,5 +95,36 @@ describe("MasterDataFileRowsSchema", () => {
         },
       ]),
     ).toBeNull();
+  });
+});
+
+describe("ArchivedBlockRowsSchema", () => {
+  it("accepts archive rows with nullable time windows", () => {
+    const result = ArchivedBlockRowsSchema.safeParse([
+      {
+        id: 1,
+        dataset_id: "dataset-1",
+        table_name: "battle",
+        table_version: "v1",
+        compaction_tier: "hourly",
+        size: 100,
+        record_count: 10,
+        start_timestamp: 1,
+        end_timestamp: 2,
+        window_start_ms: null,
+        window_end_ms: null,
+        period_tag: "2026-07-08",
+        start_byte: 0,
+        file_path: "archive/file.avro",
+      },
+    ]);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("drops malformed archive responses", () => {
+    expect(
+      parseArchivedBlockRows([{ id: 1, file_path: "archive/file.avro" }]),
+    ).toEqual([]);
   });
 });
