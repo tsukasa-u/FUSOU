@@ -46,7 +46,7 @@ describe("anonymous-sync diagnostics schemas", () => {
     });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.extra).toBe("preserved");
+    if (result.success) expect(result.data["extra"]).toBe("preserved");
   });
 
   it("rejects malformed auth config rows", () => {
