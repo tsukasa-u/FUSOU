@@ -5,7 +5,7 @@ export const prerender = false;
 export const GET: APIRoute = async ({ params, request }) => {
   const current = new URL(request.url);
   const target = new URL(
-    `/share/short/${encodeURIComponent(params.key ?? "")}`,
+    `/share/short/${encodeURIComponent(params["key"] ?? "")}`,
     current.origin,
   );
   target.search = current.search;
