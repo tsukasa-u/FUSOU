@@ -300,28 +300,28 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
   }
 
   // ── Exslot ship restrictions ──
-  if (data.api_mst_equip_exslot_ship && typeof data.api_mst_equip_exslot_ship === "object") {
-    const raw = data.api_mst_equip_exslot_ship as Record<string, unknown>;
+  if (data["api_mst_equip_exslot_ship"] && typeof data["api_mst_equip_exslot_ship"] === "object") {
+    const raw = data["api_mst_equip_exslot_ship"] as Record<string, unknown>;
     const arr: Record<string, unknown>[] = [];
     for (const [k, v] of Object.entries(raw)) {
       if (v && typeof v === "object") {
         const entry = v as Record<string, unknown>;
         arr.push({
           slotitem_id: Number(k),
-          ship_ids: entry.api_ship_ids ?? null,
-          stypes: entry.api_stypes ?? null,
-          ctypes: entry.api_ctypes ?? null,
-          req_level: entry.api_req_level ?? 0,
+          ship_ids: entry["api_ship_ids"] ?? null,
+          stypes: entry["api_stypes"] ?? null,
+          ctypes: entry["api_ctypes"] ?? null,
+          req_level: entry["api_req_level"] ?? 0,
         });
       }
     }
-    result.mst_equip_exslot_ships = arr;
+    result["mst_equip_exslot_ships"] = arr;
   }
 
   // ── Per-ship exslot equipment limits ──
   // api_mst_equip_limit_exslot: HashMap<ship_id, equip_id[]>
-  if (data.api_mst_equip_limit_exslot && typeof data.api_mst_equip_limit_exslot === "object") {
-    const raw = data.api_mst_equip_limit_exslot as Record<string, unknown>;
+  if (data["api_mst_equip_limit_exslot"] && typeof data["api_mst_equip_limit_exslot"] === "object") {
+    const raw = data["api_mst_equip_limit_exslot"] as Record<string, unknown>;
     const arr: Array<{ ship_id: number; equip: number[] }> = [];
     for (const [shipIdStr, equipList] of Object.entries(raw)) {
       const shipId = Number(shipIdStr);
@@ -334,7 +334,7 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
 
       arr.push({ ship_id: shipId, equip: equipIds });
     }
-    result.mst_equip_limit_exslots = arr;
+    result["mst_equip_limit_exslots"] = arr;
   }
 
   return result;
