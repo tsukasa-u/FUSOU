@@ -95,7 +95,7 @@ describe("RemodelDataIngestBodySchema", () => {
     });
 
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.extra_field).toBe(true);
+    if (result.success) expect(result.data["extra_field"]).toBe(true);
   });
 
   it("rejects null and array JSON roots", () => {
@@ -116,7 +116,7 @@ describe("RemodelDataIngestBodySchema", () => {
     expect(result.success).toBe(true);
     if (result.success && result.data.event_type === "slotlist") {
       expect(result.data.entries[0]?.req_fuel).toBe(1);
-      expect(result.data.extra_field).toBe(true);
+      expect(result.data["extra_field"]).toBe(true);
     }
   });
 
