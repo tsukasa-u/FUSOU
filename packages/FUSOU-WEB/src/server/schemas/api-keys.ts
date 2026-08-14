@@ -32,6 +32,13 @@ export const TrustedDeviceListRowsSchema = z
   .passthrough()
   .array();
 
+export const TrustedDeviceIdRowsSchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .passthrough()
+  .array();
+
 export const ApiKeyListRowsSchema = z
   .object({
     id: z.string().min(1),

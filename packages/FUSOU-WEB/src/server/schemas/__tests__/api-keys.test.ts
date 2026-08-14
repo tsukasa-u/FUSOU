@@ -3,6 +3,7 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  TrustedDeviceIdRowsSchema,
   TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../api-keys";
@@ -129,5 +130,22 @@ describe("TrustedDeviceListRowsSchema", () => {
     ).toBe(false);
     expect(TrustedDeviceListRowsSchema.safeParse([{ id: "device-1" }]).success)
       .toBe(false);
+  });
+});
+
+describe("TrustedDeviceIdRowsSchema", () => {
+  it("accepts trusted device id rows", () => {
+    expect(
+      TrustedDeviceIdRowsSchema.safeParse([{ id: "device-1" }]).success,
+    ).toBe(true);
+  });
+
+  it("rejects rows without a non-empty id", () => {
+    expect(TrustedDeviceIdRowsSchema.safeParse([{ id: "" }]).success).toBe(
+      false,
+    );
+    expect(TrustedDeviceIdRowsSchema.safeParse([{ id: 42 }]).success).toBe(
+      false,
+    );
   });
 });

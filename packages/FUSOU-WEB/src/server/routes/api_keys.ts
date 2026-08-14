@@ -13,6 +13,7 @@ import {
   ApiKeyCreateRowsSchema,
   ApiKeyIdRowsSchema,
   ApiKeyListRowsSchema,
+  TrustedDeviceIdRowsSchema,
   TrustedDeviceListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../schemas/api-keys";
@@ -546,12 +547,23 @@ app.delete("/devices/:id", async (c) => {
     }
 
     // Verify the device exists and belongs to this user before revoking
-    const existing = await supabaseRestRequest<{ id: string }[]>(
+    const existingResponse = await supabaseRestRequest(
       config,
       "trusted_devices",
       { query: `?id=eq.${deviceId}&user_id=eq.${user.id}&select=id` },
     );
-    if (!existing || existing.length === 0) {
+    const parsedExisting = TrustedDeviceIdRowsSchema.safeParse(
+      existingResponse,
+    );
+    if (!parsedExisting.success) {
+      console.error(
+        "Trusted device revoke lookup response shape invalid:",
+        parsedExisting.error,
+      );
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    if (parsedExisting.data.length === 0) {
       return jsonResponse({ error: "Not found" }, 404);
     }
 
