@@ -93,6 +93,7 @@
     "solid-js": "^1.9.13",
     "use-sync-external-store": "^1.6.0",
     "virtua": "^0.41.5",
+    "zod": "^3.25.76",
     "zustand": "^4.5.7"
   },
   "devDependencies": {

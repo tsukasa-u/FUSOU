@@ -12,6 +12,7 @@ import {
 import { validateCachedPeriodTag, getLatestMasterPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
+import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -489,17 +490,11 @@ app.post("/upload", async (c) => {
     // Execution phase: split data by table_offsets, upload all to R2, mark D1 as completed
     executionProcessor: async (tokenPayload, data, user) => {
       // [Issue #19] Validate token payload with type safety
-      const { validateTokenPayload } = await import("../utils");
-      const payloadValidation = validateTokenPayload(tokenPayload, [
-        "record_id",
-        "period_tag",
-        "table_version",
-        "period_revision",
-        "content_hash",
-        "table_offsets",
-        "table_count",
-        "declared_size", // [Bug Fix #3] Add missing required field
-      ]);
+      const { validateTokenPayloadWithSchema } = await import("../utils");
+      const payloadValidation = validateTokenPayloadWithSchema(
+        tokenPayload,
+        MasterDataTokenPayloadSchema,
+      );
 
       if (!payloadValidation.valid) {
         console.error(
@@ -517,12 +512,13 @@ app.post("/upload", async (c) => {
         );
       }
 
-      const recordId = tokenPayload.record_id as number;
-      const periodTag = tokenPayload.period_tag as string;
-      const tableVersion = tokenPayload.table_version as string;
-      const periodRevision = Number(tokenPayload.period_revision ?? 1);
-      const expectedContentHash = tokenPayload.content_hash as string;
-      const tableOffsetsStr = tokenPayload.table_offsets as string;
+      const validatedPayload = payloadValidation.data;
+      const recordId = validatedPayload.record_id;
+      const periodTag = validatedPayload.period_tag;
+      const tableVersion = validatedPayload.table_version;
+      const periodRevision = validatedPayload.period_revision;
+      const expectedContentHash = validatedPayload.content_hash;
+      const tableOffsetsStr = validatedPayload.table_offsets;
 
       if (!Number.isInteger(periodRevision) || periodRevision < 1) {
         return new Response(
@@ -535,11 +531,11 @@ app.post("/upload", async (c) => {
       }
 
       // [Bug Fix #2] Verify uploaded data size matches declared size
-      if (data.byteLength !== tokenPayload.declared_size) {
+      if (data.byteLength !== validatedPayload.declared_size) {
         return new Response(
           JSON.stringify({
             error: "Data size mismatch",
-            expected: tokenPayload.declared_size,
+            expected: validatedPayload.declared_size,
             actual: data.byteLength,
           }),
           {

@@ -3,6 +3,9 @@ import type { Context } from "hono";
 import { env as cfEnv } from "cloudflare:workers";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
+import { z } from "zod";
+
+type TokenPayloadSchema = z.ZodType<Record<string, unknown>>;
 
 const SUPABASE_URL_KEYS = ["PUBLIC_SUPABASE_URL", "SUPABASE_URL"] as const;
 const SUPABASE_SERVICE_ROLE_KEYS = [
@@ -904,21 +907,70 @@ export async function getR2ObjectMetadata(
  *
  * @param payload トークンペイロード
  * @param requiredFields 必須フィールド名のリスト
- * @returns { valid: boolean, error?: string, data?: any }
+ * @returns 検証成功時は型付きのトークンデータ、失敗時はエラー
  */
 export function validateTokenPayload(
-  payload: any,
-  requiredFields: string[] = [],
-): { valid: boolean; error?: string; data?: any } {
-  if (!payload || typeof payload !== "object") {
+  payload: unknown,
+  requiredFields?: readonly string[],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string } {
+  return validateTokenPayloadWithSchema(
+    payload,
+    z
+      .object({
+        user_id: z.string().min(1),
+        expectedFileSize: z.number().positive().nullable().optional(),
+      })
+      .passthrough(),
+    requiredFields ?? [],
+  );
+}
+
+export function validateTokenPayloadWithSchema<T extends TokenPayloadSchema>(
+  payload: unknown,
+  schema: T,
+):
+  | { valid: true; data: z.infer<T> }
+  | { valid: false; error: string };
+export function validateTokenPayloadWithSchema(
+  payload: unknown,
+  schema: TokenPayloadSchema,
+  requiredFields: readonly string[],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string };
+export function validateTokenPayloadWithSchema(
+  payload: unknown,
+  schema: TokenPayloadSchema,
+  requiredFields: readonly string[] = [],
+):
+  | { valid: true; data: Record<string, unknown> }
+  | { valid: false; error: string } {
+  const parsed = schema.safeParse(payload);
+
+  if (!parsed.success) {
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      return {
+        valid: false,
+        error: "Token payload must be a non-null object",
+      };
+    }
+
     return {
       valid: false,
-      error: "Token payload must be a non-null object",
+      error: "Token payload must have user_id as string",
     };
   }
 
+  const data = parsed.data as Record<string, unknown>;
+
   // Check for required fields
-  const missingFields = requiredFields.filter((field) => !(field in payload));
+  const missingFields = requiredFields.filter((field) => !(field in data));
   if (missingFields.length > 0) {
     return {
       valid: false,
@@ -926,29 +978,8 @@ export function validateTokenPayload(
     };
   }
 
-  // Validate user_id is present and is string
-  if (!payload.user_id || typeof payload.user_id !== "string") {
-    return {
-      valid: false,
-      error: "Token payload must have user_id as string",
-    };
-  }
-
-  // Validate expectedFileSize if present (should be number)
-  if ("expectedFileSize" in payload && payload.expectedFileSize !== null) {
-    if (
-      typeof payload.expectedFileSize !== "number" ||
-      payload.expectedFileSize <= 0
-    ) {
-      return {
-        valid: false,
-        error: "expectedFileSize must be a positive number if provided",
-      };
-    }
-  }
-
   return {
     valid: true,
-    data: payload,
+    data,
   };
 }

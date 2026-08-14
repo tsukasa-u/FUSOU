@@ -10,7 +10,7 @@ import {
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
   validateJWT,
-  validateTokenPayload,
+  validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
 } from "../utils";
@@ -19,6 +19,7 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { SokuSpeedTokenPayloadSchema } from "../schemas/tokens";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
 
@@ -322,8 +323,12 @@ app.post("/ingest", async (c) => {
   const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
-  const validated = validateTokenPayload(tokenPayload);
+  const validated = validateTokenPayloadWithSchema(
+    tokenPayload,
+    SokuSpeedTokenPayloadSchema,
+  );
   if (!validated.valid) return c.json({ error: validated.error }, 400);
+  const validatedPayload = validated.data;
   const contentHashHeader = c.req.header("content-hash");
   const rawBody = await c.req.arrayBuffer().catch(() => null);
   if (!rawBody) return c.json({ error: "Missing request body" }, 400);
@@ -331,7 +336,7 @@ app.post("/ingest", async (c) => {
   const actualContentHash = Array.from(new Uint8Array(digest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  if (!timingSafeEqual(actualContentHash, tokenPayload.content_hash ?? "")) {
+  if (!timingSafeEqual(actualContentHash, validatedPayload.content_hash)) {
     return c.json({ error: "content-hash mismatch" }, 400);
   }
   if (
@@ -340,7 +345,7 @@ app.post("/ingest", async (c) => {
   ) {
     return c.json({ error: "content-hash header mismatch" }, 400);
   }
-  if (rawBody.byteLength !== tokenPayload.declared_size) {
+  if (rawBody.byteLength !== validatedPayload.declared_size) {
     return c.json({ error: "file_size mismatch" }, 400);
   }
   let body: SokuSpeedIngestBody;
@@ -354,7 +359,7 @@ app.post("/ingest", async (c) => {
   if (
     !timingSafeEqual(
       String(body.request_id ?? ""),
-      tokenPayload.request_id ?? "",
+      validatedPayload.request_id ?? "",
     )
   ) {
     return c.json({ error: "request_id mismatch" }, 400);
@@ -362,7 +367,7 @@ app.post("/ingest", async (c) => {
   if (
     !timingSafeEqual(
       String(body.dataset_id ?? ""),
-      tokenPayload.dataset_id ?? "",
+      validatedPayload.dataset_id ?? "",
     )
   ) {
     return c.json({ error: "dataset_id mismatch" }, 400);
@@ -402,14 +407,14 @@ app.post("/ingest", async (c) => {
     );
   }
   if (
-    typeof tokenPayload.period_tag === "string" &&
-    !timingSafeEqual(tokenPayload.period_tag, period_tag)
+    typeof validatedPayload.period_tag === "string" &&
+    !timingSafeEqual(validatedPayload.period_tag, period_tag)
   ) {
     return c.json({ error: "period_tag mismatch" }, 400);
   }
   if (
-    typeof tokenPayload.table_version === "string" &&
-    !timingSafeEqual(tokenPayload.table_version, table_version)
+    typeof validatedPayload.table_version === "string" &&
+    !timingSafeEqual(validatedPayload.table_version, table_version)
   ) {
     return c.json({ error: "table_version mismatch" }, 400);
   }

@@ -10,7 +10,7 @@ import {
   validateDatasetTokenSecret,
   validateDatasetTokenWithConstraints,
   validateJWT,
-  validateTokenPayload,
+  validateTokenPayloadWithSchema,
   verifySignedToken,
   safeWaitUntil,
   safeGetExecutionCtx,
@@ -23,6 +23,7 @@ import {
   isValidPeriodTagDate,
   validateCachedPeriodTag,
 } from "../utils/period-tags";
+import { UploadTokenPayloadSchema } from "../schemas/tokens";
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
@@ -737,20 +738,17 @@ app.post("/ingest", async (c) => {
   if (!tokenPayload)
     return c.json({ error: "Invalid or expired upload token" }, 401);
 
-  const payloadValidation = validateTokenPayload(tokenPayload, [
-    "content_hash",
-    "declared_size",
-    "dataset_id",
-    "request_id",
-    "event_type",
-    "schema_version",
-  ]);
+  const payloadValidation = validateTokenPayloadWithSchema(
+    tokenPayload,
+    UploadTokenPayloadSchema,
+  );
   if (!payloadValidation.valid) {
     return c.json(
       { error: payloadValidation.error ?? "Invalid upload token payload" },
       400,
     );
   }
+  const validatedPayload = payloadValidation.data;
   // user_id 照合は行わない: upload token の user_id は dataset_token.sub（帰属者）であり
   // JWT user_id（端末固有）と一致しないことがある。JWT 有効性は上で確認済み。
 
@@ -760,7 +758,7 @@ app.post("/ingest", async (c) => {
   const uploaded = new Uint8Array(await new Response(bodyStream).arrayBuffer());
 
   // Size check
-  const declaredSize = Number(tokenPayload.declared_size);
+  const declaredSize = validatedPayload.declared_size;
   if (!Number.isFinite(declaredSize) || uploaded.byteLength !== declaredSize) {
     return c.json(
       {
@@ -774,7 +772,7 @@ app.post("/ingest", async (c) => {
 
   // Hash check (timing-safe)
   const actualHash = (await sha256Hex(uploaded)).toLowerCase();
-  const expectedHash = String(tokenPayload.content_hash ?? "").toLowerCase();
+  const expectedHash = validatedPayload.content_hash.toLowerCase();
   if (!timingSafeEqual(actualHash, expectedHash)) {
     return c.json(
       {
@@ -810,10 +808,10 @@ app.post("/ingest", async (c) => {
 
   // Verify claims match payload
   if (
-    verified.datasetId !== String(tokenPayload.dataset_id) ||
-    verified.requestId !== String(tokenPayload.request_id) ||
-    verified.eventType !== String(tokenPayload.event_type) ||
-    verified.schemaVersion !== Number(tokenPayload.schema_version)
+    verified.datasetId !== validatedPayload.dataset_id ||
+    verified.requestId !== validatedPayload.request_id ||
+    verified.eventType !== validatedPayload.event_type ||
+    verified.schemaVersion !== validatedPayload.schema_version
   ) {
     return c.json(
       { error: "Upload payload does not match upload token claims" },

@@ -33,7 +33,14 @@ export async function authFetch(
       (await res
         .clone()
         .json()
-        .then((data: Record<string, any>) => data?.error?.includes("Invalid or expired access token"))
+        .then((data: unknown) => {
+          if (!data || typeof data !== "object") return false;
+          const error = (data as { error?: unknown }).error;
+          return (
+            typeof error === "string" &&
+            error.includes("Invalid or expired access token")
+          );
+        })
         .catch(() => false));
 
     if (isAuthError) {

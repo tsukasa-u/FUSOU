@@ -21,6 +21,7 @@ adminApp.use("*", async (c, next) => {
   }
 
   await next();
+  return;
 });
 
 // ===== MIME Type detection helper =====

@@ -614,7 +614,7 @@ describe("fleet route rotation fallback", () => {
 
     const deletedKeys = new Set(
       (bucket.delete as ReturnType<typeof vi.fn>).mock.calls.map(
-        (args: [string]) => args[0],
+        (args) => args[0] as string,
       ),
     );
     expect(deletedKeys).toEqual(

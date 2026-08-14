@@ -29,6 +29,12 @@
  */
 
 import { Hono } from "hono";
+import {
+  firstSchemaError,
+  RefreshRequestSchema,
+  RegisterRequestSchema,
+  RevokeRequestSchema,
+} from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
 import { createClient } from "@supabase/supabase-js";
 import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
@@ -454,12 +460,17 @@ async function insertRecoveryRelinkAudit(options: {
 
 app.post("/anonymous-sync/v2/register", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RegisterRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
+    const apiMemberId = normalizeApiMemberId(body.api_member_id);
     if (!apiMemberId) {
       return c.json(
         {
@@ -469,7 +480,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       );
     }
 
-    const pubkey = normalizePubkey((body as any).device_pub);
+    const pubkey = normalizePubkey(body.device_pub);
     if (!pubkey) {
       return c.json(
         { error: "device_pub must be base64-encoded Ed25519 raw 32 bytes" },
@@ -477,10 +488,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       );
     }
 
-    const attestation = (body as any).attestation;
-    if (typeof attestation !== "string" || attestation.length === 0) {
-      return c.json({ error: "attestation is required" }, 400);
-    }
+    const attestation = body.attestation;
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -1309,17 +1317,22 @@ type RefreshCachedResult = {
 
 app.post("/anonymous-sync/v2/refresh", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RefreshRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const deviceId = normalizeDeviceId((body as any).device_id);
+    const deviceId = normalizeDeviceId(body.device_id);
     if (!deviceId) {
       return c.json({ error: "device_id must be a UUID" }, 400);
     }
 
-    const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
+    const apiMemberId = normalizeApiMemberId(body.api_member_id);
     if (!apiMemberId) {
       return c.json(
         {
@@ -1329,18 +1342,12 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       );
     }
 
-    const nonce =
-      typeof (body as any).nonce === "string"
-        ? (body as any).nonce.trim().toLowerCase()
-        : "";
+    const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) {
       return c.json({ error: "nonce malformed" }, 400);
     }
 
-    const sig = (body as any).sig;
-    if (typeof sig !== "string" || sig.length === 0) {
-      return c.json({ error: "sig is required" }, 400);
-    }
+    const sig = body.sig;
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -1740,13 +1747,18 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
 app.post("/anonymous-sync/v2/revoke", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RevokeRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const deviceId = normalizeDeviceId((body as any).device_id);
-    const targetDeviceId = normalizeDeviceId((body as any).target_device_id);
+    const deviceId = normalizeDeviceId(body.device_id);
+    const targetDeviceId = normalizeDeviceId(body.target_device_id);
     if (!deviceId || !targetDeviceId) {
       return c.json(
         { error: "device_id and target_device_id must be UUIDs" },
@@ -1754,23 +1766,14 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
     }
 
-    const nonce =
-      typeof (body as any).nonce === "string"
-        ? (body as any).nonce.trim().toLowerCase()
-        : "";
+    const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) {
       return c.json({ error: "nonce malformed" }, 400);
     }
 
-    const sig = (body as any).sig;
-    if (typeof sig !== "string" || sig.length === 0) {
-      return c.json({ error: "sig is required" }, 400);
-    }
+    const sig = body.sig;
 
-    const reason =
-      typeof (body as any).reason === "string"
-        ? (body as any).reason.trim().slice(0, 200)
-        : "user_revoke";
+    const reason = body.reason?.trim().slice(0, 200) || "user_revoke";
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {

@@ -1,0 +1,43 @@
+import { z } from "zod";
+
+const ApiMemberIdSchema = z.union([
+  z.number().int().positive(),
+  z.string().regex(/^\d+$/),
+]);
+
+const NonEmptyStringSchema = z.string().min(1);
+
+export const RegisterRequestSchema = z
+  .object({
+    api_member_id: ApiMemberIdSchema,
+    device_pub: NonEmptyStringSchema,
+    attestation: NonEmptyStringSchema,
+  })
+  .passthrough();
+
+export const RefreshRequestSchema = z
+  .object({
+    device_id: NonEmptyStringSchema,
+    api_member_id: ApiMemberIdSchema,
+    nonce: NonEmptyStringSchema,
+    sig: NonEmptyStringSchema,
+  })
+  .passthrough();
+
+export const RevokeRequestSchema = z
+  .object({
+    device_id: NonEmptyStringSchema,
+    target_device_id: NonEmptyStringSchema,
+    nonce: NonEmptyStringSchema,
+    sig: NonEmptyStringSchema,
+    reason: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+export type RevokeRequest = z.infer<typeof RevokeRequestSchema>;
+
+export function firstSchemaError(error: z.ZodError): string {
+  return error.issues[0]?.message ?? "Invalid request body";
+}

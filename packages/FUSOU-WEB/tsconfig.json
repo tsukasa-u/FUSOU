@@ -7,7 +7,9 @@
     "jsx": "preserve",
     "module": "es2020",
     "moduleResolution": "bundler",
-    "strictNullChecks": true,
+    "strict": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
     "paths": {
       "@/*": ["./src/*"],
       "@fusou/avro-wasm": ["../avro-wasm/index.ts"]
