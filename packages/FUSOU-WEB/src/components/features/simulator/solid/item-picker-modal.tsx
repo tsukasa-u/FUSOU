@@ -129,7 +129,7 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
   return (
     <SelectionModalShell
       id={props.id}
-      dialogRef={props.dialogRef}
+      {...(props.dialogRef ? { dialogRef: props.dialogRef } : {})}
       dialogClass={`xl:hidden${props.class ? " " + props.class : ""}`}
       boxClass="w-[min(96vw,72rem)] max-w-[72rem] overflow-hidden"
       onClose={props.onClose}
