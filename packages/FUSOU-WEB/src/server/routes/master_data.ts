@@ -254,6 +254,9 @@ app.post("/upload", async (c) => {
       const providedTables = new Set<string>();
       for (let i = 0; i < tableOffsets.length; i++) {
         const offset = tableOffsets[i];
+        if (!offset) {
+          return c.json({ error: `table_offsets[${i}] is required` }, 400);
+        }
 
         if (!offset.table_name || typeof offset.table_name !== "string") {
           return c.json(
@@ -335,14 +338,24 @@ app.post("/upload", async (c) => {
 
       // Validate offsets are contiguous and cover entire file
       const sortedOffsets = [...tableOffsets].sort((a, b) => a.start - b.start);
-      if (sortedOffsets[0].start !== 0) {
+      const firstOffset = sortedOffsets[0];
+      const lastOffset = sortedOffsets.at(-1);
+      if (!firstOffset || !lastOffset) {
+        return c.json({ error: "table_offsets must be a non-empty array" }, 400);
+      }
+      if (firstOffset.start !== 0) {
         return c.json({ error: "table_offsets must start at offset 0" }, 400);
       }
-      if (sortedOffsets[sortedOffsets.length - 1].end !== declaredSize) {
+      if (lastOffset.end !== declaredSize) {
         return c.json({ error: "table_offsets must cover entire file" }, 400);
       }
       for (let i = 1; i < sortedOffsets.length; i++) {
-        if (sortedOffsets[i].start !== sortedOffsets[i - 1].end) {
+        const current = sortedOffsets[i];
+        const previous = sortedOffsets[i - 1];
+        if (!current || !previous) {
+          return c.json({ error: "table_offsets must be a non-empty array" }, 400);
+        }
+        if (current.start !== previous.end) {
           return c.json(
             { error: "table_offsets must be contiguous (no gaps or overlaps)" },
             400,
@@ -880,6 +893,7 @@ app.post("/upload", async (c) => {
             console.info(`[master-data] Starting cache warming for ${tableOffsets.length} tables`);
             for (let i = 0; i < tableOffsets.length; i++) {
               const offset = tableOffsets[i];
+              if (!offset) continue;
               const tableData = data.slice(offset.start, offset.end);
               try {
                 const bytes =
