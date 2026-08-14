@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CompletedSynergyManifestRowSchema,
   LatestSynergyPeriodRowSchema,
+  SynergyPayloadSchema,
   SynergyNextRevisionRowSchema,
 } from "../synergy";
 
@@ -77,6 +78,37 @@ describe("SynergyNextRevisionRowSchema", () => {
     ).toBe(false);
     expect(
       SynergyNextRevisionRowSchema.safeParse({ next_revision: 0 }).success,
+    ).toBe(false);
+  });
+});
+
+describe("SynergyPayloadSchema", () => {
+  it("accepts legacy and current rule formats", () => {
+    const result = SynergyPayloadSchema.safeParse({
+      effects: { "100": [{ b: { kaihi: 1 } }] },
+      cross_effects: { "1:2": [] },
+      effect_rules: [{ items: [100], b: { kaihi: 1 } }],
+      cross_rules: [
+        {
+          pairs: [[1, 2]],
+          synergy: { kaihi: 1 },
+          item_pool: [100],
+        },
+      ],
+      generated_at: "2026-07-08",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.generated_at).toBe("2026-07-08");
+    }
+  });
+
+  it("rejects malformed numeric cross-rule pairs", () => {
+    expect(
+      SynergyPayloadSchema.safeParse({
+        cross_rules: [{ pairs: [[1, "2"]] }],
+      }).success,
     ).toBe(false);
   });
 });

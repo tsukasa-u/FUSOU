@@ -29,3 +29,40 @@ export type CompletedSynergyManifestRow = z.infer<
 export const CompletedSynergyManifestRowsSchema = z.array(
   CompletedSynergyManifestRowSchema,
 );
+
+const SynergyEffectRuleSchema = z
+  .object({
+    ships: z.unknown().optional(),
+    b: z.record(z.string(), z.unknown()).optional(),
+    l: z.record(z.string(), z.unknown()).optional(),
+    c2: z.record(z.string(), z.unknown()).optional(),
+    c3: z.record(z.string(), z.unknown()).optional(),
+    items: z.array(z.number()).optional(),
+  })
+  .passthrough();
+
+const SynergyCrossRuleSchema = z
+  .object({
+    ships: z.unknown().optional(),
+    synergy: z.record(z.string(), z.unknown()).optional(),
+    pairs: z.array(z.tuple([z.number(), z.number()])).optional(),
+    item_pool: z.array(z.number()).optional(),
+    fixed_items: z.array(z.number()).optional(),
+    free_pool: z.array(z.number()).optional(),
+    free_pool_with_replacement: z.boolean().optional(),
+    free_pick_count: z.number().optional(),
+    category_pools: z.array(z.array(z.number())).optional(),
+    implicants: z.array(z.array(z.array(z.number()))).optional(),
+  })
+  .passthrough();
+
+export const SynergyPayloadSchema = z
+  .object({
+    effects: z.record(z.string(), z.unknown()).optional(),
+    cross_effects: z.record(z.string(), z.unknown()).optional(),
+    effect_rules: z.array(SynergyEffectRuleSchema).optional(),
+    cross_rules: z.array(SynergyCrossRuleSchema).optional(),
+  })
+  .passthrough();
+
+export type SynergyPayload = z.infer<typeof SynergyPayloadSchema>;

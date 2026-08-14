@@ -33,6 +33,10 @@ import {
   ShipGrowthIngestBodySchema,
   SpEffectItemSchema,
 } from "../schemas/ship-growth";
+import {
+  SynergyPayloadSchema,
+  type SynergyPayload,
+} from "../schemas/synergy";
 import type { SpEffectItem } from "../schemas/ship-growth";
 
 const SHIP_GROWTH_COLLECTION_SWITCH_ENV = "SHIP_GROWTH_COLLECTION_ENABLED";
@@ -627,32 +631,7 @@ async function loadSynergyDataSet(
     content_hash: string;
     sp_effect_sha256: string;
   } | null = null;
-  type ParsedSynergyPayload = {
-    effects?: Record<string, unknown>;
-    cross_effects?: Record<string, unknown>;
-    effect_rules?: Array<{
-      ships: number[];
-      b: Record<string, number>;
-      l?: Record<string, number>;
-      c2?: Record<string, number>;
-      c3?: Record<string, number>;
-      items: number[];
-    }>;
-    cross_rules?: Array<{
-      ships: number[];
-      synergy: Record<string, number>;
-      pairs?: Array<[number, number]>;
-      item_pool?: number[];
-      fixed_items?: number[];
-      free_pool?: number[];
-      free_pool_with_replacement?: boolean;
-      free_pick_count?: number;
-      category_pools?: number[][];
-      implicants?: number[][][];
-    }>;
-  };
-
-  let parsed: ParsedSynergyPayload | null = null;
+  let parsed: SynergyPayload | null = null;
   let lastLoadError: unknown = null;
 
   for (const manifest of manifests) {
@@ -684,12 +663,17 @@ async function loadSynergyDataSet(
     }
 
     try {
-      parsed = (
-        await validateSynergyPayload(
-          new Uint8Array(await object.arrayBuffer()),
-          manifest.sp_effect_sha256,
-        )
-      ).parsed as ParsedSynergyPayload;
+      const validatedPayload = await validateSynergyPayload(
+        new Uint8Array(await object.arrayBuffer()),
+        manifest.sp_effect_sha256,
+      );
+      const parsedPayload = SynergyPayloadSchema.safeParse(
+        validatedPayload.parsed,
+      );
+      if (!parsedPayload.success) {
+        throw new Error("synergy payload has an invalid rule shape");
+      }
+      parsed = parsedPayload.data;
       selectedManifest = {
         period_tag: manifest.period_tag,
         period_revision: periodRevision,
