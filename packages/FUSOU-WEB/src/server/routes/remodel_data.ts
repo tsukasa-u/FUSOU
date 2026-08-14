@@ -24,6 +24,10 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import {
+  RemodelDataIngestBodySchema,
+  type RemodelDataIngestBody,
+} from "../schemas/remodel-data";
 
 const REMODEL_COLLECTION_SWITCH_ENV = "REMODEL_DATA_COLLECTION_ENABLED";
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
@@ -186,7 +190,16 @@ type ValidResult = {
 };
 type InvalidResult = { ok: false; error: string };
 
-function validateIngestBody(body: any): ValidResult | InvalidResult {
+function parseRemodelDataIngestBody(
+  value: unknown,
+): RemodelDataIngestBody | null {
+  const result = RemodelDataIngestBodySchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
+function validateIngestBody(
+  body: RemodelDataIngestBody | null,
+): ValidResult | InvalidResult {
   if (!body || typeof body !== "object") {
     return { ok: false, error: "Invalid JSON body" };
   }
@@ -280,7 +293,12 @@ function validateIngestBody(body: any): ValidResult | InvalidResult {
       "req_slot_id",
       "req_slot_num",
     ];
-    for (const [i, entry] of body.entries.entries()) {
+    const entries = body.entries as unknown[];
+    for (const [i, rawEntry] of entries.entries()) {
+      const entry =
+        rawEntry && typeof rawEntry === "object"
+          ? (rawEntry as Record<string, unknown>)
+          : {};
       if (entry.remodel_step_id != null && !isValidInt(entry.remodel_step_id)) {
         return {
           ok: false,
@@ -632,12 +650,9 @@ app.post("/ingest", async (c) => {
     if (!user?.id)
       return c.json({ error: "Invalid or expired JWT token" }, 401);
 
-    const handshakeBody = (await c.req.json().catch(() => null)) as
-      | (Record<string, unknown> & {
-          content_hash?: string;
-          file_size?: number | string;
-        })
-      | null;
+    const handshakeBody = parseRemodelDataIngestBody(
+      await c.req.json().catch(() => null),
+    );
 
     const validated = validateIngestBody(handshakeBody);
     if (!validated.ok) return c.json({ error: validated.error }, 400);
@@ -785,12 +800,14 @@ app.post("/ingest", async (c) => {
   }
 
   // Parse JSON payload
-  let body: Record<string, any>;
+  let parsedBody: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(uploaded));
+    parsedBody = JSON.parse(new TextDecoder().decode(uploaded));
   } catch {
     return c.json({ error: "Invalid JSON upload payload" }, 400);
   }
+  const body = parseRemodelDataIngestBody(parsedBody);
+  if (!body) return c.json({ error: "Invalid JSON body" }, 400);
 
   const verified = validateIngestBody(body);
   if (!verified.ok) return c.json({ error: verified.error }, 400);
