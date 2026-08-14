@@ -313,11 +313,19 @@ function getLiveFleet(fleetIndex: 1 | 2 | 3 | 4): FleetSlot[] {
 }
 
 function getLiveFleetSlot(fleetIndex: 1 | 2 | 3 | 4, idx: number): FleetSlot {
-  return getLiveFleet(fleetIndex)[idx];
+  const slot = getLiveFleet(fleetIndex)[idx];
+  if (!slot) {
+    throw new Error(`Fleet slot ${fleetIndex}:${idx} is unavailable`);
+  }
+  return slot;
 }
 
 function getLiveAirBase(index: number): AirBaseSlot {
-  return getAirBaseState()[index];
+  const base = getAirBaseState()[index];
+  if (!base) {
+    throw new Error(`Air base ${index} is unavailable`);
+  }
+  return base;
 }
 
 function applyShipSelectionAt(
@@ -1118,7 +1126,7 @@ function ShipCard(props: {
                             onMouseLeave={() => setRowHovered(false)}
                             onClick={() => {
                               if (!isActive) return;
-                              const current = liveSlot().equipIds[i];
+                              const current = liveSlot().equipIds[i] ?? null;
                               if (isReadOnly() && current == null) return;
                               setEquipModalTargetForFleet(
                                 props.fleetIndex,
@@ -1319,6 +1327,7 @@ function ShipCard(props: {
                   <div class="grid grid-cols-[5.9rem_0.25rem_5.9rem] gap-x-0 gap-y-0 px-1.5 py-0 text-[10px] border-t border-base-200/50 leading-none w-fit">
                     {d.leftStats.map((ls, r) => {
                       const rs = d.rightStats[r];
+                      if (!rs) return null;
                       return (
                         <>
                           <StatCell
@@ -1499,7 +1508,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                 onMouseEnter={() => setRowHovered(true)}
                 onMouseLeave={() => setRowHovered(false)}
                 onClick={() => {
-                  const current = getLiveAirBase(props.index).equipIds[i];
+                  const current = getLiveAirBase(props.index).equipIds[i] ?? null;
                   if (isReadOnly() && current == null) return;
                   setEquipModalTargetForAirBase(props.index, i);
                   openEquipModal(current, (selection) => {
