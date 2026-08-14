@@ -36,8 +36,11 @@ import {
   RevokeRequestSchema,
   UserIdentityAnchorRowSchema,
   UserMemberMapRowSchema,
+  UserDeviceInsertRowSchema,
+  UserDeviceLookupRowSchema,
   type UserIdentityAnchorRow,
   type UserMemberMapRow,
+  type UserDeviceLookupRow,
 } from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -1094,8 +1097,6 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("")}`;
 
-    type DeviceRow = { device_id: string; revoked_at: string | null };
-
     const { data: existingDeviceRaw, error: existingDeviceError } =
       await supabaseAdmin
         .from("user_devices")
@@ -1103,13 +1104,27 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .eq("pid", pid)
         .eq("device_pubkey", pubkeyHex)
         .maybeSingle();
-    const existingDevice = (existingDeviceRaw ?? null) as DeviceRow | null;
     if (existingDeviceError) {
       console.error(
         "[anonymous-sync-v2/register] user_devices lookup failed:",
         existingDeviceError,
       );
       return c.json({ error: "Database error" }, 500);
+    }
+
+    let existingDevice: UserDeviceLookupRow | null = null;
+    if (existingDeviceRaw !== null && existingDeviceRaw !== undefined) {
+      const parsedExistingDevice = UserDeviceLookupRowSchema.safeParse(
+        existingDeviceRaw,
+      );
+      if (!parsedExistingDevice.success) {
+        console.error(
+          "[anonymous-sync-v2/register] user_devices lookup response shape invalid:",
+          parsedExistingDevice.error,
+        );
+        return c.json({ error: "Database error" }, 500);
+      }
+      existingDevice = parsedExistingDevice.data;
     }
 
     let deviceId: string;
@@ -1146,17 +1161,20 @@ app.post("/anonymous-sync/v2/register", async (c) => {
               .eq("device_pubkey", pubkeyHex)
               .maybeSingle();
 
-          if (winnerDeviceErr || !winnerDevice) {
+          const parsedWinnerDevice = UserDeviceLookupRowSchema.safeParse(
+            winnerDevice,
+          );
+          if (winnerDeviceErr || !parsedWinnerDevice.success) {
             console.error(
               "[anonymous-sync-v2/register] user_devices race recovery failed:",
-              winnerDeviceErr,
+              winnerDeviceErr ?? parsedWinnerDevice.error,
             );
             return c.json({ error: "Failed to register device" }, 500);
           }
-          if (winnerDevice.revoked_at) {
+          if (parsedWinnerDevice.data.revoked_at) {
             return c.json({ error: "device_revoked" }, 409);
           }
-          deviceId = winnerDevice.device_id;
+          deviceId = parsedWinnerDevice.data.device_id;
         } else {
           console.error(
             "[anonymous-sync-v2/register] user_devices INSERT failed:",
@@ -1164,16 +1182,16 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           );
           return c.json({ error: "Failed to register device" }, 500);
         }
-      } else if (
-        !inserted ||
-        typeof (inserted as { device_id?: unknown }).device_id !== "string"
-      ) {
-        console.error(
-          "[anonymous-sync-v2/register] user_devices INSERT missing row",
-        );
-        return c.json({ error: "Failed to register device" }, 500);
       } else {
-        deviceId = (inserted as { device_id: string }).device_id;
+        const parsedInserted = UserDeviceInsertRowSchema.safeParse(inserted);
+        if (!parsedInserted.success) {
+          console.error(
+            "[anonymous-sync-v2/register] user_devices INSERT response shape invalid:",
+            parsedInserted.error,
+          );
+          return c.json({ error: "Failed to register device" }, 500);
+        }
+        deviceId = parsedInserted.data.device_id;
       }
     }
 

@@ -4,6 +4,8 @@ import {
   AuthSettingsDiagnosticsSchema,
   UserIdentityAnchorRowSchema,
   UserMemberMapRowSchema,
+  UserDeviceInsertRowSchema,
+  UserDeviceLookupRowSchema,
 } from "../anonymous-sync-v2";
 
 describe("anonymous-sync diagnostics schemas", () => {
@@ -76,5 +78,18 @@ describe("anonymous-sync diagnostics schemas", () => {
         recovery_version: null,
       }).success,
     ).toBe(false);
+  });
+
+  it("accepts device lookup rows with nullable revocation state", () => {
+    expect(
+      UserDeviceLookupRowSchema.safeParse({
+        device_id: "device-1",
+        revoked_at: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects device insert rows without a device id", () => {
+    expect(UserDeviceInsertRowSchema.safeParse({}).success).toBe(false);
   });
 });

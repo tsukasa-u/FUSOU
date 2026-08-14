@@ -31,6 +31,19 @@ export type UserIdentityAnchorRow = z.infer<
   typeof UserIdentityAnchorRowSchema
 >;
 
+export const UserDeviceLookupRowSchema = z
+  .object({
+    device_id: NonEmptyStringSchema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
+export const UserDeviceInsertRowSchema = z
+  .object({ device_id: NonEmptyStringSchema })
+  .passthrough();
+
+export type UserDeviceLookupRow = z.infer<typeof UserDeviceLookupRowSchema>;
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,
