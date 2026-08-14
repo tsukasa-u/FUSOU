@@ -1201,7 +1201,9 @@ export default function BattlePhaseView(props: {
 }): JSX.Element {
   const phases = () =>
     extractPhaseEntries(props.battle, {
-      legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning,
+      ...(props.showLegacyAirbasePhaseWarning === undefined
+        ? {}
+        : { legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning }),
     });
   const destructionBattle = () =>
     (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
@@ -1225,9 +1227,12 @@ export default function BattlePhaseView(props: {
               fleets={props.fleets}
               mstSlotItemById={props.mstSlotItemById}
               mstShipById={props.mstShipById}
-              showLegacyAirbasePhaseWarning={
-                props.showLegacyAirbasePhaseWarning
-              }
+              {...(props.showLegacyAirbasePhaseWarning === undefined
+                ? {}
+                : {
+                    showLegacyAirbasePhaseWarning:
+                      props.showLegacyAirbasePhaseWarning,
+                  })}
             />
           )}
         </For>
