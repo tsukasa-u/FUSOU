@@ -250,7 +250,12 @@ export function ShipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
-    let current = cats[0].stype;
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    let current = firstCat.stype;
     for (const cat of cats) {
       if (cat.offset <= offset + 2) current = cat.stype;
       else break;
@@ -264,8 +269,13 @@ export function ShipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
     if (!activeQuickAccessId()) {
-      setActiveQuickAccessId(String(cats[0].stype));
+      setActiveQuickAccessId(String(firstCat.stype));
     }
   });
 
