@@ -24,15 +24,15 @@ const formatSegment = (segment: string) =>
 
 const docs = rawDocs
   .map((doc) => {
-    const slug = normalizeSlug(doc.frontmatter?.slug);
+    const slug = normalizeSlug(doc.frontmatter?.["slug"]);
     const segments = slug.split("/").filter(Boolean);
     if (segments.length === 0) return null;
 
     return {
       slug,
       segments,
-      title: doc.frontmatter?.title ?? formatSegment(segments.at(-1)!),
-      description: doc.frontmatter?.description ?? "",
+      title: doc.frontmatter?.["title"] ?? formatSegment(segments.at(-1)!),
+      description: doc.frontmatter?.["description"] ?? "",
       url: `/docs/${slug}`,
     };
   })
@@ -82,9 +82,10 @@ for (const entry of docsWithSchema) {
       current.set(segment, {
         segment,
         title: isLeaf ? entry.title : formatSegment(segment),
-        url: isLeaf ? entry.url : undefined,
-        description: isLeaf ? entry.description : undefined,
         children: new Map(),
+        ...(isLeaf
+          ? { url: entry.url, description: entry.description }
+          : {}),
       });
     } else if (isLeaf) {
       const node = current.get(segment)!;
@@ -101,8 +102,10 @@ const mapToArray = (nodeMap: Map<string, any>): MenuNode[] =>
     .sort((a, b) => compareSegments(a, b))
     .map((node) => ({
       title: node.title,
-      url: node.url,
-      description: node.description,
+      ...(node.url === undefined ? {} : { url: node.url }),
+      ...(node.description === undefined
+        ? {}
+        : { description: node.description }),
       children: mapToArray(node.children),
     }));
 

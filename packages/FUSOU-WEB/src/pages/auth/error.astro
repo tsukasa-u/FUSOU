@@ -15,7 +15,7 @@ const messageMap: Record<string, string> = {
     "認証中に予期しないエラーが発生しました。もう一度サインインを試みてください。",
 };
 
-const message = messageMap[reason] ?? messageMap.unknown;
+const message = messageMap[reason] ?? messageMap["unknown"];
 ---
 
 <Layout title="認証エラー - FUSOU">

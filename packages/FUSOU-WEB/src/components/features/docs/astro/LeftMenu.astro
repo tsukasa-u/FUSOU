@@ -26,14 +26,14 @@ type Posts = {
 }[];
 const posts = rawPosts
   .map((post) => {
-    const slug = normalizeSlug(post.frontmatter?.slug);
+    const slug = normalizeSlug(post.frontmatter?.["slug"]);
     const segments = slug.split("/").filter(Boolean);
     if (segments.length === 0) return null;
 
     return {
       slug,
       segments,
-      title: post.frontmatter?.title ?? formatSegment(segments.at(-1)!),
+      title: post.frontmatter?.["title"] ?? formatSegment(segments.at(-1)!),
       url: `/docs/${slug}`,
     };
   })
@@ -72,8 +72,8 @@ for (const entry of postsWithSchema) {
       current.set(segment, {
         segment,
         title: isLeaf ? entry.title : formatSegment(segment),
-        url: isLeaf ? entry.url : undefined,
         children: new Map(),
+        ...(isLeaf ? { url: entry.url } : {}),
       });
     } else if (isLeaf) {
       const node = current.get(segment)!;
@@ -89,7 +89,7 @@ const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
     .sort(compareSegments)
     .map((node: MenuNode): MenuEntry => ({
       title: node.title,
-      url: node.url,
+      ...(node.url === undefined ? {} : { url: node.url }),
       children: mapToArray(node.children),
     }));
 

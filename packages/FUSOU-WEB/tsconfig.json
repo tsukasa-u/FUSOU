@@ -10,6 +10,9 @@
     "strict": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noPropertyAccessFromIndexSignature": true,
     "paths": {
       "@/*": ["./src/*"],
       "@fusou/avro-wasm": ["../avro-wasm/index.ts"]

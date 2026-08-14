@@ -87,7 +87,7 @@ function providerInitial(provider?: string): string {
             </span>
             <div>
               <div class="font-bold text-sm">
-                {user.user_metadata?.name || "User"}
+                {user.user_metadata?.["name"] || "User"}
               </div>
               <div class="text-xs opacity-60 font-mono">{user.email}</div>
             </div>

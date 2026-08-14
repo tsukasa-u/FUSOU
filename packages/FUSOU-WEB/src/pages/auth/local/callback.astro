@@ -433,10 +433,10 @@ cookies.delete("sb-local-expires-at", { path: "/" });
   class AstroDataCallback extends HTMLElement {
     constructor() {
       super();
-      const errorFlag = this.dataset.errorFlag === "true";
-      const errorMessage = this.dataset.errorMessage || "";
-      const isDesktopApp = this.dataset.isDesktopApp === "true";
-      const hasAppRedirect = this.dataset.hasAppRedirect === "true";
+      const errorFlag = this.dataset["errorFlag"] === "true";
+      const errorMessage = this.dataset["errorMessage"] || "";
+      const isDesktopApp = this.dataset["isDesktopApp"] === "true";
+      const hasAppRedirect = this.dataset["hasAppRedirect"] === "true";
 
       window.addEventListener("DOMContentLoaded", () => {
         const errorContent = document.getElementById("error-content");
