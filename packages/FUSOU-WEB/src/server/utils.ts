@@ -541,8 +541,20 @@ export function extractMemberIdHashFromJwtPayload(
   return null;
 }
 
+type MemberLookupQuery = {
+  select(columns: string): {
+    eq(column: string, value: string): {
+      maybeSingle(): PromiseLike<{ data: unknown; error: unknown }>;
+    };
+  };
+};
+
+type MemberLookupClient = {
+  from(table: string): unknown;
+};
+
 export async function resolveLinkedMemberIdHashForUser(options: {
-  supabaseAdmin: any;
+  supabaseAdmin: MemberLookupClient;
   userId?: string;
   jwtPayload?: Record<string, unknown>;
 }): Promise<{
@@ -560,9 +572,9 @@ export async function resolveLinkedMemberIdHashForUser(options: {
   }
 
   // Canonical owner mapping is the source of truth for user->dataset binding.
-  const { data: canonicalMapping, error: canonicalMappingError } =
-    await supabaseAdmin
-      .from("user_member_map")
+  const memberLookupQuery = supabaseAdmin.from("user_member_map") as MemberLookupQuery;
+  const { data: canonicalMappingData, error: canonicalMappingError } =
+    await memberLookupQuery
       .select("member_id_hash")
       .eq("user_id", userId)
       .maybeSingle();
@@ -571,9 +583,8 @@ export async function resolveLinkedMemberIdHashForUser(options: {
     throw canonicalMappingError;
   }
 
-  const fromCanonicalOwner = isValidMemberIdHash(
-    canonicalMapping?.member_id_hash,
-  )
+  const canonicalMapping = asEnvRecord(canonicalMappingData);
+  const fromCanonicalOwner = isValidMemberIdHash(canonicalMapping.member_id_hash)
     ? canonicalMapping.member_id_hash.trim().toLowerCase()
     : null;
 
