@@ -108,12 +108,14 @@ describe("real APP AVRO detail contract", () => {
   it("matches the shared resolver payload for a real local detail", async () => {
     const { entries, tables } = loadRealMapData();
     const sourceBattle = tables.battle.find(
-      (row) => typeof row.env_uuid === "string" && Number.isSafeInteger(row.index),
+      (row) =>
+        typeof row["env_uuid"] === "string" &&
+        Number.isSafeInteger(row["index"]),
     );
     expect(sourceBattle).toBeDefined();
 
-    const envUuid = String(sourceBattle?.env_uuid);
-    const battleIndex = Number(sourceBattle?.index);
+    const envUuid = String(sourceBattle?.["env_uuid"]);
+    const battleIndex = Number(sourceBattle?.["index"]);
     const expected = resolveBattleDetail({
       periodTag,
       envUuid,
