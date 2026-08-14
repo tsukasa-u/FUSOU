@@ -590,12 +590,12 @@ export function buildTimelineEvents(
     if (!data || typeof data !== "object") return false;
     const d = data as Record<string, unknown>;
     const raiCandidates = [
-      d.frai,
-      d.f_rai,
-      d.frai_list_items,
-      d.erai,
-      d.e_rai,
-      d.erai_list_items,
+      d["frai"],
+      d["f_rai"],
+      d["frai_list_items"],
+      d["erai"],
+      d["e_rai"],
+      d["erai_list_items"],
     ];
     const hasTarget = raiCandidates.some((candidate) => {
       if (!Array.isArray(candidate)) return false;
@@ -612,7 +612,7 @@ export function buildTimelineEvents(
     });
     if (hasTarget) return true;
 
-    const damages = [d.fdam, d.f_dam, d.edam, d.e_dam];
+    const damages = [d["fdam"], d["f_dam"], d["edam"], d["e_dam"]];
     return damages.some(
       (arr) =>
         Array.isArray(arr) &&
