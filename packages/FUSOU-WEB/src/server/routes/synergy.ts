@@ -100,7 +100,9 @@ app.get("/synergy-manifest", async (c) => {
       generator_version: result.generator_version,
       r2_keys: r2Keys,
       upload_status: result.upload_status,
-      completed_at: result.completed_at,
+      ...(result.completed_at === undefined
+        ? {}
+        : { completed_at: result.completed_at }),
     };
 
     return c.json(response, 200);
