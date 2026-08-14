@@ -57,6 +57,19 @@ export const UserDeviceListRowSchema = z
 
 export type UserDeviceListRow = z.infer<typeof UserDeviceListRowSchema>;
 
+export const UserDeviceRefreshRowSchema = z
+  .object({
+    canonical_user_id: NonEmptyStringSchema,
+    pid: NonEmptyStringSchema,
+    device_pubkey: NonEmptyStringSchema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
+export type UserDeviceRefreshRow = z.infer<
+  typeof UserDeviceRefreshRowSchema
+>;
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,

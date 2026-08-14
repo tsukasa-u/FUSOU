@@ -39,6 +39,7 @@ import {
   UserDeviceInsertRowSchema,
   UserDeviceLookupRowSchema,
   UserDeviceListRowSchema,
+  UserDeviceRefreshRowSchema,
   type UserIdentityAnchorRow,
   type UserMemberMapRow,
   type UserDeviceLookupRow,
@@ -1429,17 +1430,11 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    type DeviceLookup = {
-      canonical_user_id: string;
-      pid: string;
-      device_pubkey: string; // bytea => "\xABCD..." の hex 文字列
-      revoked_at: string | null;
-    };
-    const { data: device, error: deviceErr } = await supabaseAdmin
+    const { data: deviceRaw, error: deviceErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, pid, device_pubkey, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<DeviceLookup>();
+      .maybeSingle();
     if (deviceErr) {
       console.error(
         "[anonymous-sync-v2/refresh] user_devices lookup failed:",
@@ -1447,7 +1442,19 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!device || device.revoked_at) {
+    if (!deviceRaw) {
+      return c.json({ error: "device_unknown_or_revoked" }, 404);
+    }
+    const parsedDevice = UserDeviceRefreshRowSchema.safeParse(deviceRaw);
+    if (!parsedDevice.success) {
+      console.error(
+        "[anonymous-sync-v2/refresh] user_devices response shape invalid:",
+        parsedDevice.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const device = parsedDevice.data;
+    if (device.revoked_at) {
       return c.json({ error: "device_unknown_or_revoked" }, 404);
     }
 

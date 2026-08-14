@@ -7,6 +7,7 @@ import {
   UserDeviceInsertRowSchema,
   UserDeviceLookupRowSchema,
   UserDeviceListRowSchema,
+  UserDeviceRefreshRowSchema,
 } from "../anonymous-sync-v2";
 
 describe("anonymous-sync diagnostics schemas", () => {
@@ -115,6 +116,27 @@ describe("anonymous-sync diagnostics schemas", () => {
         last_seen_at: null,
         revoked_at: null,
         revoked_reason: null,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts refresh rows with a bytea public key", () => {
+    expect(
+      UserDeviceRefreshRowSchema.safeParse({
+        canonical_user_id: "user-1",
+        pid: "pid-1",
+        device_pubkey: "\\xabcdef",
+        revoked_at: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects refresh rows without a public key", () => {
+    expect(
+      UserDeviceRefreshRowSchema.safeParse({
+        canonical_user_id: "user-1",
+        pid: "pid-1",
+        revoked_at: null,
       }).success,
     ).toBe(false);
   });
