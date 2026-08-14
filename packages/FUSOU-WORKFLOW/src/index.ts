@@ -6,6 +6,18 @@ import {
   cleanupOrphanedMasterData,
   handleCleanupRequest,
 } from "./master_data_cleanup";
+import { z } from "zod";
+
+const UploadIngestPayloadSchema = z.object({
+  dataset_id: z.string().optional(),
+  datasetId: z.string().optional(),
+  table: z.string().optional(),
+  period_tag: z.string().optional(),
+  periodTag: z.string().optional(),
+  table_version: z.string().optional(),
+  tableVersion: z.string().optional(),
+  slices: z.array(z.string().min(1)).optional(),
+});
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -155,7 +167,15 @@ export default {
       }
       // Authenticated upload handler: accept base64 Avro slices and enqueue
       try {
-        const payload: any = await request.json();
+        const rawPayload: unknown = await request.json();
+        const parsedPayload = UploadIngestPayloadSchema.safeParse(rawPayload);
+        if (!parsedPayload.success) {
+          return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+            status: 400,
+            headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+          });
+        }
+        const payload = parsedPayload.data;
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
         const table = payload?.table;
         const period_tag =
