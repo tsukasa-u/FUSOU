@@ -62,8 +62,8 @@ export type BattleDetailContext = {
 function rowsByUuid(rows: JsonRecord[], uuid: string): JsonRecord[] {
   if (!uuid) return [];
   return rows
-    .filter((row) => String(row.uuid ?? "") === uuid)
-    .sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+    .filter((row) => String(row["uuid"] ?? "") === uuid)
+    .sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
 }
 
 function firstByUuid(rows: JsonRecord[], uuid: unknown): JsonRecord | null {
@@ -71,11 +71,11 @@ function firstByUuid(rows: JsonRecord[], uuid: unknown): JsonRecord | null {
 }
 
 function scopeRows(rows: JsonRecord[], envUuid: string): JsonRecord[] {
-  return rows.filter((row) => String(row.env_uuid ?? "") === envUuid);
+  return rows.filter((row) => String(row["env_uuid"] ?? "") === envUuid);
 }
 
 function firstByIndex(rows: JsonRecord[], index: number): JsonRecord | null {
-  return rows.find((row) => Number(row.index ?? Number.NaN) === index) ?? null;
+  return rows.find((row) => Number(row["index"] ?? Number.NaN) === index) ?? null;
 }
 
 function resolveLinked(
