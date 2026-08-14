@@ -1072,12 +1072,12 @@ function extractPhaseEntries(
   };
 
   if (
-    Array.isArray(battle.battle_order) &&
-    (battle.battle_order as unknown[]).length > 0 &&
-    typeof (battle.battle_order as unknown[])[0] === "object"
+    Array.isArray(battle["battle_order"]) &&
+    (battle["battle_order"] as unknown[]).length > 0 &&
+    typeof (battle["battle_order"] as unknown[])[0] === "object"
   ) {
     const presentKeys = new Set<string>();
-    for (const phaseType of battle.battle_order as Record<string, unknown>[]) {
+    for (const phaseType of battle["battle_order"] as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
       presentKeys.add(key);
       const idx = phaseType[key] as number | null;
@@ -1086,28 +1086,28 @@ function extractPhaseEntries(
         data: phaseDataForKey(battle, key, idx),
       });
     }
-    if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle.opening_raigeki)) {
+    if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle["opening_raigeki"])) {
       entries.push({
         type: { OpeningRaigeki: 0 },
-        data: battle.opening_raigeki,
+        data: battle["opening_raigeki"],
       });
     }
-    if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle.closing_raigeki)) {
+    if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle["closing_raigeki"])) {
       entries.push({
         type: { ClosingRaigeki: 0 },
-        data: battle.closing_raigeki,
+        data: battle["closing_raigeki"],
       });
     }
   } else {
     // Fallback for compact/legacy records
     const hasAirBaseAssault =
-      !!battle.air_base_assault && typeof battle.air_base_assault === "object";
+      !!battle["air_base_assault"] && typeof battle["air_base_assault"] === "object";
     const hasCarrierBaseAssault =
-      !!battle.carrier_base_assault &&
-      typeof battle.carrier_base_assault === "object";
+      !!battle["carrier_base_assault"] &&
+      typeof battle["carrier_base_assault"] === "object";
     const hasAirBaseAirAttacks =
-      !!(battle.air_base_air_attacks as any)?.attacks?.length ||
-      Array.isArray(battle.air_base_air_attacks);
+      !!(battle["air_base_air_attacks"] as any)?.attacks?.length ||
+      Array.isArray(battle["air_base_air_attacks"]);
 
     // Legacy (<0.6.0) data can lose air_base_air_attacks while assault is present.
     // Keep phase list explicit by showing a placeholder phase card for the unresolved segment.
@@ -1122,15 +1122,15 @@ function extractPhaseEntries(
       });
     }
 
-    if (battle.air_base_assault && typeof battle.air_base_assault === "object")
+    if (battle["air_base_assault"] && typeof battle["air_base_assault"] === "object")
       entries.push({
         type: { AirBaseAssult: 0 },
-        data: battle.air_base_assault,
+        data: battle["air_base_assault"],
       });
-    if (battle.carrier_base_assault && typeof battle.carrier_base_assault === "object")
+    if (battle["carrier_base_assault"] && typeof battle["carrier_base_assault"] === "object")
       entries.push({
         type: { CarrierBaseAssault: 0 },
-        data: battle.carrier_base_assault,
+        data: battle["carrier_base_assault"],
       });
     if (hasAirBaseAirAttacks)
       entries.push({
@@ -1138,49 +1138,49 @@ function extractPhaseEntries(
         data: phaseDataForKey(battle, "AirBaseAirAttack", 0),
       });
     if (
-      (battle.opening_air_attack as any)?.length ||
-      Array.isArray(battle.opening_air_attack)
+      (battle["opening_air_attack"] as any)?.length ||
+      Array.isArray(battle["opening_air_attack"])
     )
       entries.push({
         type: { OpeningAirAttack: 0 },
         data: phaseDataForKey(battle, "OpeningAirAttack", 0),
       });
-    if (battle.support_hourai || battle.support_airattack)
+    if (battle["support_hourai"] || battle["support_airattack"])
       entries.push({
         type: { SupportAttack: 0 },
         data: phaseDataForKey(battle, "SupportAttack", null),
       });
-    if (battle.opening_taisen)
-      entries.push({ type: { OpeningTaisen: 0 }, data: battle.opening_taisen });
-    if (battle.opening_raigeki && typeof battle.opening_raigeki === "object")
+    if (battle["opening_taisen"])
+      entries.push({ type: { OpeningTaisen: 0 }, data: battle["opening_taisen"] });
+    if (battle["opening_raigeki"] && typeof battle["opening_raigeki"] === "object")
       entries.push({
         type: { OpeningRaigeki: 0 },
-        data: battle.opening_raigeki,
+        data: battle["opening_raigeki"],
       });
-    if (battle.hougeki && (Array.isArray(battle.hougeki) || (battle.hougeki as any).length))
+    if (battle["hougeki"] && (Array.isArray(battle["hougeki"]) || (battle["hougeki"] as any).length))
       entries.push({
         type: { Hougeki: 0 },
         data: phaseDataForKey(battle, "Hougeki", 0),
       });
-    if (battle.closing_raigeki && typeof battle.closing_raigeki === "object")
+    if (battle["closing_raigeki"] && typeof battle["closing_raigeki"] === "object")
       entries.push({
         type: { ClosingRaigeki: 0 },
-        data: battle.closing_raigeki,
+        data: battle["closing_raigeki"],
       });
-    if (battle.friendly_force_attack)
+    if (battle["friendly_force_attack"])
       entries.push({
         type: { FriendlyForceAttack: 0 },
-        data: battle.friendly_force_attack,
+        data: battle["friendly_force_attack"],
       });
     if (normalizeNightSupportAttackData(battle))
       entries.push({
         type: { NightSupportAttack: 0 },
         data: phaseDataForKey(battle, "NightSupportAttack", null),
       });
-    if (battle.midnight_hougeki)
+    if (battle["midnight_hougeki"])
       entries.push({
         type: { MidnightHougeki: 0 },
-        data: battle.midnight_hougeki,
+        data: battle["midnight_hougeki"],
       });
   }
   return entries;
