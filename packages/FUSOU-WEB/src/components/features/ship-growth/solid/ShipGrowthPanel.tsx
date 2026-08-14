@@ -157,18 +157,15 @@ function normalizeBoundRows(rows: unknown): BoundRow[] {
         kaihi_naked: toFiniteNumber(r["kaihi_naked"]),
         taisen_naked: toFiniteNumber(r["taisen_naked"]),
         sakuteki_naked: toFiniteNumber(r["sakuteki_naked"]),
-        kaihi_source_period:
-          typeof r["kaihi_source_period"] === "string"
-            ? r["kaihi_source_period"]
-            : undefined,
-        taisen_source_period:
-          typeof r["taisen_source_period"] === "string"
-            ? r["taisen_source_period"]
-            : undefined,
-        sakuteki_source_period:
-          typeof r["sakuteki_source_period"] === "string"
-            ? r["sakuteki_source_period"]
-            : undefined,
+        ...(typeof r["kaihi_source_period"] === "string"
+          ? { kaihi_source_period: r["kaihi_source_period"] }
+          : {}),
+        ...(typeof r["taisen_source_period"] === "string"
+          ? { taisen_source_period: r["taisen_source_period"] }
+          : {}),
+        ...(typeof r["sakuteki_source_period"] === "string"
+          ? { sakuteki_source_period: r["sakuteki_source_period"] }
+          : {}),
       };
     })
     .filter(
@@ -308,7 +305,9 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({
         x: r.lv,
         y: r.kaihi_naked,
-        sourcePeriod: r.kaihi_source_period,
+        ...(r.kaihi_source_period
+          ? { sourcePeriod: r.kaihi_source_period }
+          : {}),
       })),
       borderColor: "rgb(34, 197, 94)",
       backgroundColor: "transparent",
@@ -320,7 +319,9 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({
         x: r.lv,
         y: r.taisen_naked,
-        sourcePeriod: r.taisen_source_period,
+        ...(r.taisen_source_period
+          ? { sourcePeriod: r.taisen_source_period }
+          : {}),
       })),
       borderColor: "rgb(249, 115, 22)",
       backgroundColor: "transparent",
@@ -332,7 +333,9 @@ function buildBoundsChartData(
       data: boundRows.map((r) => ({
         x: r.lv,
         y: r.sakuteki_naked,
-        sourcePeriod: r.sakuteki_source_period,
+        ...(r.sakuteki_source_period
+          ? { sourcePeriod: r.sakuteki_source_period }
+          : {}),
       })),
       borderColor: "rgb(168, 85, 247)",
       backgroundColor: "transparent",
@@ -412,10 +415,12 @@ function buildAllPeriodsBoundsChartData(
   // period overall (which may have been skipped for this ship).
   let lastDataIdx = -1;
   for (let i = total - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry) continue;
     const hasRows =
       masterId != null
-        ? entries[i].bounds.some((r) => r.master_id === masterId)
-        : entries[i].bounds.length > 0;
+        ? entry.bounds.some((r) => r.master_id === masterId)
+        : entry.bounds.length > 0;
     if (hasRows) {
       lastDataIdx = i;
       break;
@@ -423,6 +428,7 @@ function buildAllPeriodsBoundsChartData(
   }
   for (let i = 0; i < total; i++) {
     const entry = entries[i];
+    if (!entry) continue;
     const rows =
       masterId != null
         ? entry.bounds.filter((r) => r.master_id === masterId)
@@ -1085,19 +1091,21 @@ export default function ShipGrowthPanel() {
   createEffect(() => {
     const rows = shipMasterRows();
     if (rows.length === 0) return;
+    const firstRow = rows[0];
+    if (!firstRow) return;
     const initialId = initialMasterId();
     if (initialId != null) {
       if (rows.some((ship) => ship.id === initialId)) {
         setSelectedMasterId(initialId);
       } else if (selectedMasterId() == null) {
-        setSelectedMasterId(rows[0].id);
+        setSelectedMasterId(firstRow.id);
       }
       setInitialMasterId(null);
       return;
     }
 
     if (selectedMasterId() == null) {
-      setSelectedMasterId(rows[0].id);
+      setSelectedMasterId(firstRow.id);
     }
   });
 
