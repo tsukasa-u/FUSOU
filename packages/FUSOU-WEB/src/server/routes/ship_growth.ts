@@ -1529,7 +1529,7 @@ async function listAllArchiveObjects(
       limit: ARCHIVE_LIST_PAGE_LIMIT,
     });
     for (const obj of listed.objects) {
-      const archivedAtRaw = obj.customMetadata?.archived_at;
+      const archivedAtRaw = obj.customMetadata?.["archived_at"];
       const archivedAt = archivedAtRaw ? Number(archivedAtRaw) : NaN;
       out.push({
         key: obj.key,
