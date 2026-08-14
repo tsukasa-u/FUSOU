@@ -264,20 +264,20 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
   }
 
   // ── Ship types ──
-  if (Array.isArray(data.api_mst_stype)) {
-    result.mst_stypes = (data.api_mst_stype as Record<string, unknown>[]).map((s) => ({
-      id: s.api_id,
-      sortno: s.api_sortno ?? 0,
-      name: s.api_name,
-      equip_type: s.api_equip_type ?? {},
+  if (Array.isArray(data["api_mst_stype"])) {
+    result["mst_stypes"] = (data["api_mst_stype"] as Record<string, unknown>[]).map((s) => ({
+      id: s["api_id"],
+      sortno: s["api_sortno"] ?? 0,
+      name: s["api_name"],
+      equip_type: s["api_equip_type"] ?? {},
     }));
   }
 
   // ── Equipment type names ──
-  if (Array.isArray(data.api_mst_slotitem_equiptype)) {
-    result.mst_slotitem_equiptypes = (data.api_mst_slotitem_equiptype as Record<string, unknown>[]).map((s) => ({
-      id: s.api_id,
-      name: s.api_name,
+  if (Array.isArray(data["api_mst_slotitem_equiptype"])) {
+    result["mst_slotitem_equiptypes"] = (data["api_mst_slotitem_equiptype"] as Record<string, unknown>[]).map((s) => ({
+      id: s["api_id"],
+      name: s["api_name"],
     }));
   }
 
