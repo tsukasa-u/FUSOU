@@ -32,7 +32,7 @@ function requestInit(
 ): RequestInit | undefined {
   if (!signal && !forceRefresh) return undefined;
   return {
-    signal,
+    ...(signal === undefined ? {} : { signal }),
     ...(forceRefresh
       ? { cache: "reload" as RequestCache, headers: { "Cache-Control": "no-cache" } }
       : {}),
