@@ -19,7 +19,7 @@ describe("CompletedSynergyManifestRowSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.upload_status).toBe("completed");
+      expect(result.data["upload_status"]).toBe("completed");
     }
   });
 
@@ -48,7 +48,7 @@ describe("LatestSynergyPeriodRowSchema", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.period_tag).toBe("2026-07-08");
-      expect(result.data.completed_at).toBe(1);
+      expect(result.data["completed_at"]).toBe(1);
     }
   });
 
@@ -100,7 +100,7 @@ describe("SynergyPayloadSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.generated_at).toBe("2026-07-08");
+      expect(result.data["generated_at"]).toBe("2026-07-08");
     }
   });
 
