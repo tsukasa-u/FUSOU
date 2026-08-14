@@ -86,7 +86,7 @@ function pickHougekiRowsByRound(
 
   const rows = data as Array<Record<string, unknown>>;
   const byIndex1 = rows.filter(
-    (row) => Number(row.index_1 ?? Number.NaN) === roundIdx,
+    (row) => Number(row["index_1"] ?? Number.NaN) === roundIdx,
   );
   if (byIndex1.length > 0) return byIndex1;
 
