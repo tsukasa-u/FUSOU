@@ -70,6 +70,13 @@ export type UserDeviceRefreshRow = z.infer<
   typeof UserDeviceRefreshRowSchema
 >;
 
+export const UserDeviceRevokeTargetRowSchema = z
+  .object({
+    canonical_user_id: NonEmptyStringSchema,
+    revoked_at: z.string().nullable(),
+  })
+  .passthrough();
+
 export const RegisterRequestSchema = z
   .object({
     api_member_id: ApiMemberIdSchema,

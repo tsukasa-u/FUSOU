@@ -8,6 +8,7 @@ import {
   UserDeviceLookupRowSchema,
   UserDeviceListRowSchema,
   UserDeviceRefreshRowSchema,
+  UserDeviceRevokeTargetRowSchema,
 } from "../anonymous-sync-v2";
 
 describe("anonymous-sync diagnostics schemas", () => {
@@ -138,6 +139,21 @@ describe("anonymous-sync diagnostics schemas", () => {
         pid: "pid-1",
         revoked_at: null,
       }).success,
+    ).toBe(false);
+  });
+
+  it("accepts revoke target rows for ownership checks", () => {
+    expect(
+      UserDeviceRevokeTargetRowSchema.safeParse({
+        canonical_user_id: "user-1",
+        revoked_at: null,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects revoke target rows without an owner", () => {
+    expect(
+      UserDeviceRevokeTargetRowSchema.safeParse({ revoked_at: null }).success,
     ).toBe(false);
   });
 });

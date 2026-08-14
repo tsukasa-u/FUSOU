@@ -40,6 +40,7 @@ import {
   UserDeviceLookupRowSchema,
   UserDeviceListRowSchema,
   UserDeviceRefreshRowSchema,
+  UserDeviceRevokeTargetRowSchema,
   type UserIdentityAnchorRow,
   type UserMemberMapRow,
   type UserDeviceLookupRow,
@@ -1851,17 +1852,11 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    type DeviceLookup = {
-      canonical_user_id: string;
-      pid: string;
-      device_pubkey: string;
-      revoked_at: string | null;
-    };
-    const { data: caller, error: callerErr } = await supabaseAdmin
+    const { data: callerRaw, error: callerErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, pid, device_pubkey, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<DeviceLookup>();
+      .maybeSingle();
     if (callerErr) {
       console.error(
         "[anonymous-sync-v2/revoke] caller lookup failed:",
@@ -1869,7 +1864,19 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!caller || caller.revoked_at) {
+    if (!callerRaw) {
+      return c.json({ error: "device_unknown_or_revoked" }, 404);
+    }
+    const parsedCaller = UserDeviceRefreshRowSchema.safeParse(callerRaw);
+    if (!parsedCaller.success) {
+      console.error(
+        "[anonymous-sync-v2/revoke] caller response shape invalid:",
+        parsedCaller.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const caller = parsedCaller.data;
+    if (caller.revoked_at) {
       return c.json({ error: "device_unknown_or_revoked" }, 404);
     }
 
@@ -1909,11 +1916,11 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
     }
 
     // 自分自身の canonical_user_id 配下の端末しか失効できない
-    const { data: target, error: targetErr } = await supabaseAdmin
+    const { data: targetRaw, error: targetErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, revoked_at")
       .eq("device_id", targetDeviceId)
-      .maybeSingle<{ canonical_user_id: string; revoked_at: string | null }>();
+      .maybeSingle();
     if (targetErr) {
       console.error(
         "[anonymous-sync-v2/revoke] target lookup failed:",
@@ -1921,9 +1928,18 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!target) {
+    if (!targetRaw) {
       return c.json({ error: "target_unknown" }, 404);
     }
+    const parsedTarget = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw);
+    if (!parsedTarget.success) {
+      console.error(
+        "[anonymous-sync-v2/revoke] target response shape invalid:",
+        parsedTarget.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const target = parsedTarget.data;
     if (target.canonical_user_id !== caller.canonical_user_id) {
       return c.json({ error: "forbidden" }, 403);
     }
@@ -1999,11 +2015,11 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    const { data: target, error: targetErr } = await supabaseAdmin
+    const { data: targetRaw, error: targetErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<{ canonical_user_id: string; revoked_at: string | null }>();
+      .maybeSingle();
 
     if (targetErr) {
       console.error(
@@ -2012,7 +2028,19 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!target || target.canonical_user_id !== user.id) {
+    if (!targetRaw) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    const parsedTarget = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw);
+    if (!parsedTarget.success) {
+      console.error(
+        "[anonymous-sync-v2/devices/:id] response shape invalid:",
+        parsedTarget.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const target = parsedTarget.data;
+    if (target.canonical_user_id !== user.id) {
       return c.json({ error: "not_found" }, 404);
     }
     if (target.revoked_at) {
