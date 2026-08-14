@@ -2999,13 +2999,14 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
     : [];
 
   for (const raw of bounds) {
-    const masterId = Number(raw.master_id);
-    const lv = Number(raw.lv);
+    const masterId = Number(raw["master_id"]);
+    const lv = Number(raw["lv"]);
     if (!Number.isFinite(masterId) || masterId <= 0) continue;
     if (!Number.isFinite(lv) || lv <= 0) continue;
-    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
+    const periodTag =
+      typeof raw["period_tag"] === "string" ? raw["period_tag"] : "";
     const tableVersion =
-      typeof raw.table_version === "string" ? raw.table_version : "";
+      typeof raw["table_version"] === "string" ? raw["table_version"] : "";
     if (!periodTag || !tableVersion) continue;
 
     const pKey = `${periodTag}/${tableVersion}`;
@@ -3018,19 +3019,20 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
     mergeBoundsRow(entry.bounds, {
       master_id: masterId,
       lv,
-      kaihi_naked: Math.max(0, Number(raw.kaihi_naked) || 0),
-      taisen_naked: Math.max(0, Number(raw.taisen_naked) || 0),
-      sakuteki_naked: Math.max(0, Number(raw.sakuteki_naked) || 0),
-      lucky_naked: Math.max(0, Number(raw.lucky_naked) || 0),
+      kaihi_naked: Math.max(0, Number(raw["kaihi_naked"]) || 0),
+      taisen_naked: Math.max(0, Number(raw["taisen_naked"]) || 0),
+      sakuteki_naked: Math.max(0, Number(raw["sakuteki_naked"]) || 0),
+      lucky_naked: Math.max(0, Number(raw["lucky_naked"]) || 0),
     });
   }
 
   for (const raw of caps) {
-    const masterId = Number(raw.master_id);
+    const masterId = Number(raw["master_id"]);
     if (!Number.isFinite(masterId) || masterId <= 0) continue;
-    const periodTag = typeof raw.period_tag === "string" ? raw.period_tag : "";
+    const periodTag =
+      typeof raw["period_tag"] === "string" ? raw["period_tag"] : "";
     const tableVersion =
-      typeof raw.table_version === "string" ? raw.table_version : "";
+      typeof raw["table_version"] === "string" ? raw["table_version"] : "";
     if (!periodTag || !tableVersion) continue;
 
     const pKey = `${periodTag}/${tableVersion}`;
@@ -3039,9 +3041,9 @@ async function fetchAndMergeArchiveObjectForAllPeriods(
     const entry = byPeriod.get(pKey)!;
     mergeCapsRow(entry.caps, {
       master_id: masterId,
-      kaihi_max: Number(raw.kaihi_max) || 0,
-      taisen_max: Number(raw.taisen_max) || 0,
-      sakuteki_max: Number(raw.sakuteki_max) || 0,
+      kaihi_max: Number(raw["kaihi_max"]) || 0,
+      taisen_max: Number(raw["taisen_max"]) || 0,
+      sakuteki_max: Number(raw["sakuteki_max"]) || 0,
     });
   }
 }
