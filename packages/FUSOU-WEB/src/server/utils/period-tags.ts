@@ -139,9 +139,9 @@ export function formatPeriodTagAsTokyoRfc3339(periodTag: string): string {
 export async function listAllowedPeriodTags(
   c: { env: Bindings },
   options?: {
-    cacheKV?: KVNamespace;
+    cacheKV?: KVNamespace | undefined;
     limit?: number;
-    supabaseConfig?: SupabaseRestConfigLike;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
   },
 ): Promise<string[]> {
   const limit = Math.max(1, options?.limit ?? 200);
@@ -179,7 +179,10 @@ export async function listAllowedPeriodTags(
 
 export async function getLatestAllowedPeriodTag(
   c: { env: Bindings },
-  options?: { cacheKV?: KVNamespace; supabaseConfig?: SupabaseRestConfigLike },
+  options?: {
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
+  },
 ): Promise<string | null> {
   const tags = await listAllowedPeriodTags(c, {
     cacheKV: options?.cacheKV,
@@ -191,13 +194,17 @@ export async function getLatestAllowedPeriodTag(
 
 export async function getLatestAllowedPeriodTagWithSource(
   c: { env: Bindings },
-  options?: { cacheKV?: KVNamespace; supabaseConfig?: SupabaseRestConfigLike },
+  options?: {
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
+  },
 ): Promise<{ tag: string | null; cached: boolean }> {
   const cacheKV = options?.cacheKV;
   if (cacheKV) {
     const cached = await readCachedPeriodTags(cacheKV, 1);
-    if (cached && cached.length > 0) {
-      return { tag: cached[0], cached: true };
+    const cachedTag = cached?.[0];
+    if (cachedTag !== undefined) {
+      return { tag: cachedTag, cached: true };
     }
   }
 
@@ -224,8 +231,8 @@ export async function validateCachedPeriodTag(
   periodTag: string,
   options?: {
     fieldName?: string;
-    cacheKV?: KVNamespace;
-    supabaseConfig?: SupabaseRestConfigLike;
+    cacheKV?: KVNamespace | undefined;
+    supabaseConfig?: SupabaseRestConfigLike | undefined;
   },
 ): Promise<{ ok: true } | { ok: false; status: 400 | 503; error: string }> {
   const fieldName = options?.fieldName ?? "period_tag";
