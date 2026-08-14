@@ -60,7 +60,8 @@ for (const [path, url] of Object.entries(mapOutputSpriteEntries)) {
   const matched = /\/([0-9]+-[0-9]+)_(light|dark)\.png$/.exec(path);
   if (!matched) continue;
   const mapKey = matched[1];
-  const mode = matched[2] as "light" | "dark";
+  const mode = matched[2];
+  if (mapKey === undefined || (mode !== "light" && mode !== "dark")) continue;
   const current = mapOutputSpritesByMapKey.get(mapKey) ?? {};
   current[mode] = url;
   mapOutputSpritesByMapKey.set(mapKey, current);
@@ -88,7 +89,7 @@ function buildConventionAsset(mapKey: string): BattleMapAsset | null {
   return {
     mapKey,
     spriteUrl: resolvedSpriteUrl,
-    spriteUrls: outputSprites,
+    ...(outputSprites ? { spriteUrls: outputSprites } : {}),
     infoUrl: `${basePath}/${suffix}_info.json`,
     imageMetaUrl: `${basePath}/${suffix}_image.json`,
     labelsUrl: `${basePath}/cell_labels.json`,
