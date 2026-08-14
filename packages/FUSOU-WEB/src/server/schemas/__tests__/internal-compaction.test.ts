@@ -5,6 +5,7 @@ import {
   FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
   VerifyOutputVisibleRequestSchema,
+  ReleaseOutputLockRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -124,5 +125,24 @@ describe("VerifyOutputVisibleRequestSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.file_path).toBe("123");
+  });
+});
+
+describe("ReleaseOutputLockRequestSchema", () => {
+  it("trims both lock fields", () => {
+    const result = ReleaseOutputLockRequestSchema.safeParse({
+      file_path: " output.avro ",
+      lock_token: " token ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.file_path).toBe("output.avro");
+      expect(result.data.lock_token).toBe("token");
+    }
+  });
+
+  it("accepts omitted fields for route-level required-field handling", () => {
+    expect(ReleaseOutputLockRequestSchema.safeParse({}).success).toBe(true);
   });
 });

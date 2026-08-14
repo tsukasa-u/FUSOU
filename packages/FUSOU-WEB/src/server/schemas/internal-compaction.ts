@@ -82,3 +82,14 @@ export const VerifyOutputVisibleRequestSchema = z
 export type VerifyOutputVisibleRequest = z.infer<
   typeof VerifyOutputVisibleRequestSchema
 >;
+
+export const ReleaseOutputLockRequestSchema = z
+  .object({
+    file_path: TrimmedStringRequestFieldSchema.optional(),
+    lock_token: TrimmedStringRequestFieldSchema.optional(),
+  })
+  .passthrough();
+
+export type ReleaseOutputLockRequest = z.infer<
+  typeof ReleaseOutputLockRequestSchema
+>;

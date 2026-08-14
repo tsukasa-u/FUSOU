@@ -6,6 +6,7 @@ import {
   FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
   VerifyOutputVisibleRequestSchema,
+  ReleaseOutputLockRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -684,15 +685,23 @@ app.post("/release-output-lock", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const filePath = String(body?.file_path ?? "").trim();
-  const lockToken = String(body?.lock_token ?? "").trim();
+  const parsedBody = ReleaseOutputLockRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    return c.json(
+      { error: field === "lock_token" ? "lock_token is required" : "file_path is required" },
+      400,
+    );
+  }
+
+  const { file_path: filePath, lock_token: lockToken } = parsedBody.data;
   if (!filePath) return c.json({ error: "file_path is required" }, 400);
   if (!lockToken) return c.json({ error: "lock_token is required" }, 400);
 
