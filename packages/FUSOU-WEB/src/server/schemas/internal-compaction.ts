@@ -144,3 +144,20 @@ export const ResolveTableVersionRequestSchema = z
 export type ResolveTableVersionRequest = z.infer<
   typeof ResolveTableVersionRequestSchema
 >;
+
+export const ListSourceBlocksRequestSchema = z
+  .object({
+    tier: CompactionTierSchema.optional(),
+    table_name: TrimmedStringRequestFieldSchema.optional(),
+    period_tag: TrimmedStringRequestFieldSchema.optional(),
+    table_version: TrimmedStringRequestFieldSchema.optional(),
+    cursor_id: OptionalNumericRequestFieldSchema,
+    limit: OptionalNumericRequestFieldSchema,
+    window_start_ms: OptionalNumericRequestFieldSchema,
+    window_end_ms: OptionalNumericRequestFieldSchema,
+  })
+  .passthrough();
+
+export type ListSourceBlocksRequest = z.infer<
+  typeof ListSourceBlocksRequestSchema
+>;

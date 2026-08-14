@@ -10,6 +10,7 @@ import {
   AcquireOutputLockRequestSchema,
   PeriodRolloverCheckRequestSchema,
   ResolveTableVersionRequestSchema,
+  ListSourceBlocksRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -123,24 +124,31 @@ app.post("/list-source-blocks", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const tier = body?.tier;
-  const tableName = String(body?.table_name ?? "").trim();
-  const periodTag = String(body?.period_tag ?? "").trim();
-  const tableVersion = String(body?.table_version ?? "").trim();
-  const cursorId = Number.isFinite(Number(body?.cursor_id))
-    ? Number(body.cursor_id)
-    : 0;
-  const limitRaw = Number(body?.limit ?? 200);
-  const limit = Number.isFinite(limitRaw)
-    ? Math.max(1, Math.min(500, Math.trunc(limitRaw)))
-    : 200;
+  const parsedBody = ListSourceBlocksRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) return c.json({ error: "tier is invalid" }, 400);
+
+  const {
+    tier,
+    table_name: tableName,
+    period_tag: periodTag,
+    table_version: tableVersion,
+    cursor_id: cursorIdRaw,
+    limit: limitRaw,
+    window_start_ms: windowStartMs,
+    window_end_ms: windowEndMs,
+  } = parsedBody.data;
+  const cursorId = cursorIdRaw ?? 0;
+  const limit =
+    limitRaw !== undefined
+      ? Math.max(1, Math.min(500, Math.trunc(limitRaw)))
+      : 200;
 
   if (!isTier(tier)) return c.json({ error: "tier is invalid" }, 400);
   if (!tableName) return c.json({ error: "table_name is required" }, 400);
@@ -184,15 +192,15 @@ app.post("/list-source-blocks", async (c) => {
     params.push(tableVersion);
   }
 
-  if (Number.isFinite(Number(body?.window_start_ms))) {
-    const windowStart = Number(body.window_start_ms);
+  if (windowStartMs !== undefined) {
+    const windowStart = windowStartMs;
     sql +=
       " AND ((bi.window_start_ms IS NOT NULL AND bi.window_start_ms >= ?) OR (bi.window_start_ms IS NULL AND bi.start_timestamp >= ?))";
     params.push(windowStart, windowStart);
   }
 
-  if (Number.isFinite(Number(body?.window_end_ms))) {
-    const windowEnd = Number(body.window_end_ms);
+  if (windowEndMs !== undefined) {
+    const windowEnd = windowEndMs;
     sql +=
       " AND ((bi.window_end_ms IS NOT NULL AND bi.window_end_ms <= ?) OR (bi.window_end_ms IS NULL AND bi.end_timestamp <= ?))";
     params.push(windowEnd, windowEnd);

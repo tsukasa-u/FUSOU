@@ -9,6 +9,7 @@ import {
   AcquireOutputLockRequestSchema,
   PeriodRolloverCheckRequestSchema,
   ResolveTableVersionRequestSchema,
+  ListSourceBlocksRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -232,5 +233,33 @@ describe("ResolveTableVersionRequestSchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.source_tier).toBe("period");
+  });
+});
+
+describe("ListSourceBlocksRequestSchema", () => {
+  it("coerces query-like values and preserves optional fields", () => {
+    const result = ListSourceBlocksRequestSchema.safeParse({
+      tier: "hourly",
+      table_name: " battle ",
+      period_tag: " latest ",
+      cursor_id: "10",
+      limit: "25",
+      window_start_ms: "1000",
+      window_end_ms: "invalid",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.table_name).toBe("battle");
+      expect(result.data.period_tag).toBe("latest");
+      expect(result.data.cursor_id).toBe(10);
+      expect(result.data.limit).toBe(25);
+      expect(result.data.window_start_ms).toBe(1000);
+      expect(result.data.window_end_ms).toBeUndefined();
+    }
+  });
+
+  it("accepts omitted fields for route-level required-field handling", () => {
+    expect(ListSourceBlocksRequestSchema.safeParse({}).success).toBe(true);
   });
 });
