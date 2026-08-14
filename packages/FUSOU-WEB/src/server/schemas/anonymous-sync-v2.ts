@@ -38,6 +38,23 @@ export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
 export type RevokeRequest = z.infer<typeof RevokeRequestSchema>;
 
+export const AuthConfigDiagnosticsSchema = z
+  .object({
+    enable_anonymous_sign_ins: z.boolean().optional(),
+    external_url: z.string().optional(),
+  })
+  .passthrough();
+
+export const AuthSettingsDiagnosticsSchema = z
+  .record(z.string(), z.unknown());
+
+export type AuthConfigDiagnostics = z.infer<
+  typeof AuthConfigDiagnosticsSchema
+>;
+export type AuthSettingsDiagnostics = z.infer<
+  typeof AuthSettingsDiagnosticsSchema
+>;
+
 export function firstSchemaError(error: z.ZodError): string {
   return error.issues[0]?.message ?? "Invalid request body";
 }
