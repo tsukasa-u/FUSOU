@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 import type { Bindings } from "../types";
@@ -126,7 +126,10 @@ function toBattleDataInternalPath(path: string): string {
   return path;
 }
 
-async function fetchBattleDataJsonInternal<T>(c: any, path: string): Promise<T> {
+async function fetchBattleDataJsonInternal<T>(
+  c: Context<{ Bindings: Bindings }>,
+  path: string,
+): Promise<T> {
   const normalizedPath = toBattleDataInternalPath(path);
   const targetUrl = new URL(c.req.url);
   targetUrl.pathname = normalizedPath;
@@ -172,7 +175,7 @@ type BattleEnvBundlePayload = {
 };
 
 async function fetchMasterDataJsonDirect(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   tableName: string,
 ): Promise<MasterDataJsonPayload> {
   const env = createEnvContext(c);
@@ -278,7 +281,7 @@ async function fetchMasterDataJsonDirect(
 }
 
 async function fetchBattleEnvBundleInternal(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   envUuid: string,
   tableVersion: string,
 ): Promise<BattleEnvBundlePayload> {
@@ -372,7 +375,9 @@ async function fetchBattleEnvBundleInternal(
   return payload;
 }
 
-async function fetchWeaponIconFramesDirect(c: any): Promise<Record<string, unknown>> {
+async function fetchWeaponIconFramesDirect(
+  c: Context<{ Bindings: Bindings }>,
+): Promise<Record<string, unknown>> {
   const bucket = createEnvContext(c).runtime.ASSET_SYNC_BUCKET;
   if (!bucket) throw new Error("Asset storage not configured");
   const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
@@ -387,7 +392,7 @@ async function fetchWeaponIconFramesDirect(c: any): Promise<Record<string, unkno
 }
 
 async function fetchGlobalRecordsInternal(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   options: { table: string; periodTag: string; tableVersion: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
   const payload = await fetchBattleDataJsonInternal<{ records?: Array<Record<string, unknown>> }>(c, buildGlobalRecordsPath(options));
@@ -587,7 +592,7 @@ function matchesRecordFilter(
 }
 
 async function putCacheSafely(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   cache: Cache,
   cacheKey: Request,
   response: Response,
