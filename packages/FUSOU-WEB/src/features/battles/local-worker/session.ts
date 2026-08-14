@@ -299,7 +299,7 @@ export class LocalWorkerSession {
           periodTag,
           tableVersion:
             entries.every((entry) => entry.tableVersion) && versions.length === 1
-              ? versions[0]
+              ? (versions[0] ?? null)
               : null,
         };
       });
