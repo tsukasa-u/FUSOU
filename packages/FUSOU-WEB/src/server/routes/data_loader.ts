@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
+  parseMasterDataFileRows,
   parseTableNames,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
@@ -572,11 +573,8 @@ app.get("/data/:table", async (c) => {
       const masterStmt = masterDb.prepare(masterSql);
       const masterResult = await masterStmt.bind(...masterParams).all?.();
 
-      if (
-        !masterResult ||
-        !masterResult.results ||
-        masterResult.results.length === 0
-      ) {
+      const masterFileRows = parseMasterDataFileRows(masterResult?.results);
+      if (!masterFileRows || masterFileRows.length === 0) {
         return jsonResponse(
           {
             error: "DATASET_NOT_FOUND",
@@ -587,7 +585,7 @@ app.get("/data/:table", async (c) => {
         );
       }
 
-      const files = (masterResult.results as any[]).map((r) => ({
+      const files = masterFileRows.map((r) => ({
         id: r.id,
         period_tag: r.period_tag,
         table_version: r.table_version,

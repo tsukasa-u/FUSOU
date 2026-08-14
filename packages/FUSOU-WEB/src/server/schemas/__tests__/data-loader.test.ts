@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MasterDataFileRowsSchema,
+  parseMasterDataFileRows,
   parseTableNames,
   TableNameRowsSchema,
   VerifyDeviceRequestSchema,
@@ -57,5 +59,39 @@ describe("TableNameRowsSchema", () => {
     );
     expect(parseTableNames([{ table_name: 123 }])).toEqual([]);
     expect(parseTableNames(null)).toEqual([]);
+  });
+});
+
+describe("MasterDataFileRowsSchema", () => {
+  it("accepts nullable master-data metadata", () => {
+    const result = MasterDataFileRowsSchema.safeParse([
+      {
+        id: 1,
+        period_tag: "2026-07-08",
+        table_version: "0.5",
+        period_revision: 2,
+        table_name: "mst_ship",
+        r2_key: null,
+        completed_at: null,
+      },
+    ]);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects malformed rows instead of exposing partial file metadata", () => {
+    expect(
+      parseMasterDataFileRows([
+        {
+          id: 1,
+          period_tag: "2026-07-08",
+          table_version: "0.5",
+          period_revision: "2",
+          table_name: "mst_ship",
+          r2_key: null,
+          completed_at: null,
+        },
+      ]),
+    ).toBeNull();
   });
 });

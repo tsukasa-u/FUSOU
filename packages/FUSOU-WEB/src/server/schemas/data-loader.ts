@@ -26,5 +26,30 @@ export function parseTableNames(value: unknown): string[] {
   return result.success ? result.data.map((row) => row.table_name) : [];
 }
 
+export const MasterDataFileRowsSchema = z.array(
+  z
+    .object({
+      id: z.number().int(),
+      period_tag: z.string(),
+      table_version: z.string(),
+      period_revision: z.number().int(),
+      table_name: z.string(),
+      r2_key: z.string().nullable(),
+      completed_at: z.number().int().nullable(),
+    })
+    .passthrough(),
+);
+
+export type MasterDataFileRow = z.infer<
+  typeof MasterDataFileRowsSchema
+>[number];
+
+export function parseMasterDataFileRows(
+  value: unknown,
+): MasterDataFileRow[] | null {
+  const result = MasterDataFileRowsSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
 export type VerifyDeviceRequest = z.infer<typeof VerifyDeviceRequestSchema>;
 export type VerifyGoogleRequest = z.infer<typeof VerifyGoogleRequestSchema>;
