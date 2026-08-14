@@ -53,15 +53,15 @@ function isRemodelSummarySnapshot(v: unknown): v is RemodelSummarySnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    Array.isArray(s.periods) &&
-    s.periods.every(
+    Array.isArray(s["periods"]) &&
+    s["periods"].every(
       (p) =>
         typeof p === "object" &&
         p !== null &&
-        typeof (p as Record<string, unknown>).period_tag === "string",
+        typeof (p as Record<string, unknown>)["period_tag"] === "string",
     ) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+      typeof s["refreshed_at"] === "number" &&
+      typeof s["db_synced_at"] === "number"
   );
 }
 
@@ -92,7 +92,9 @@ async function archiveAndResetOnPeriodSwitch(
       )
       .all()
   ).results ?? [])
-    .map((row) => String((row as Record<string, unknown>).period_tag ?? "").trim())
+    .map((row) =>
+      String((row as Record<string, unknown>)["period_tag"] ?? "").trim(),
+    )
     .filter(Boolean);
 
   const stalePeriods = periods.filter((tag) => tag !== incomingPeriodTag);
@@ -475,7 +477,7 @@ app.post("/ingest", async (c) => {
     if (!validated.ok) return c.json({ error: validated.error }, 400);
     const periodTagValidation = await validateCachedPeriodTag(
       c,
-      String(handshakeBody?.period_tag ?? "").trim(),
+      String(handshakeBody?.["period_tag"] ?? "").trim(),
       { cacheKV: c.env.DATA_LOADER_CACHE_KV },
     );
     if (!periodTagValidation.ok) {
@@ -488,7 +490,7 @@ app.post("/ingest", async (c) => {
     // Require dataset_token to prove ownership of dataset_id
     const datasetToken = resolveDatasetToken(
       c.req.header("X-Dataset-Token"),
-      (handshakeBody as Record<string, unknown>)?.dataset_token,
+      (handshakeBody as Record<string, unknown>)?.["dataset_token"],
     );
     const datasetTokenSecret = getEnv(env, "DATASET_TOKEN_SECRET");
     // Validate secret length upfront
@@ -511,11 +513,11 @@ app.post("/ingest", async (c) => {
     }
     const actingUserId = tokenValidation.token!.user_id;
 
-    const contentHash = String(handshakeBody?.content_hash ?? "").trim();
+    const contentHash = String(handshakeBody?.["content_hash"] ?? "").trim();
     if (!contentHash) return c.json({ error: "content_hash is required" }, 400);
 
     const MAX_UPLOAD_SIZE = 5_000_000; // 5 MB
-    const declaredSize = Number(handshakeBody?.file_size ?? 0);
+    const declaredSize = Number(handshakeBody?.["file_size"] ?? 0);
     if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
     }
