@@ -78,11 +78,15 @@ async function requestShortener(
       ok: false,
       status: response.status,
       error: "Shortener upstream error",
-      detail: typeof json?.error === "string" ? json.error : text.slice(0, 300),
+      detail:
+        typeof json?.["error"] === "string"
+          ? json["error"]
+          : text.slice(0, 300),
     };
   }
 
-  const key = json && typeof json.key === "string" ? json.key.trim() : "";
+  const key =
+    json && typeof json["key"] === "string" ? json["key"].trim() : "";
   if (!key) {
     return {
       source: "service-binding",
@@ -204,7 +208,7 @@ function decodePayloadBase64(data: string): unknown {
 
 app.post("/", async (c) => {
   const envCtx = createEnvContext(c);
-  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
+  const shortenerService = envCtx.runtime["SHORTENER_SERVICE"] as
     | Fetcher
     | undefined;
   const currentOrigin = new URL(c.req.url).origin;
@@ -373,7 +377,7 @@ app.post("/", async (c) => {
 app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
   const envCtx = createEnvContext(c);
   const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
-  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
+  const shortenerService = envCtx.runtime["SHORTENER_SERVICE"] as
     | Fetcher
     | undefined;
 
