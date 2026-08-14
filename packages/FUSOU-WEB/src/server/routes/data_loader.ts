@@ -18,6 +18,7 @@ import {
   parseArchivedBlockRows,
   parseMasterDataFileRows,
   parseTableNames,
+  DataLoaderBlockInfoRowSchema,
   TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
@@ -996,7 +997,7 @@ app.get("/download", async (c) => {
       }
 
       // Get block info from D1
-      const blockInfo = (await indexDb
+      const blockInfoResult = await indexDb
         .prepare(
           `
         SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
@@ -1006,20 +1007,22 @@ app.get("/download", async (c) => {
       `,
         )
         .bind(blockId)
-        .first()) as {
-        id: number;
-        start_byte: number;
-        length: number;
-        dataset_id: string;
-        file_path: string;
-      } | null;
-
-      if (!blockInfo) {
+        .first();
+      if (blockInfoResult === null) {
         return jsonResponse(
           { error: "BLOCK_NOT_FOUND", message: "Block not found" },
           404,
         );
       }
+      const parsedBlockInfo =
+        DataLoaderBlockInfoRowSchema.safeParse(blockInfoResult);
+      if (!parsedBlockInfo.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid block metadata" },
+          500,
+        );
+      }
+      const blockInfo = parsedBlockInfo.data;
 
       // Ownership check: verify this block belongs to the authenticated user
       const userDatasetId = await resolveMemberIdHashForUser(

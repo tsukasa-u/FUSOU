@@ -99,6 +99,16 @@ export const ArchivedBlockRowsSchema = z.array(
     .passthrough(),
 );
 
+export const DataLoaderBlockInfoRowSchema = z
+  .object({
+    id: z.number().int(),
+    start_byte: z.number().int(),
+    length: z.number().int(),
+    dataset_id: z.string().min(1),
+    file_path: z.string().min(1),
+  })
+  .passthrough();
+
 export type ArchivedBlockRow = z.infer<
   typeof ArchivedBlockRowsSchema
 >[number];

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ApiKeyValidationRowsSchema,
   ArchivedBlockRowsSchema,
+  DataLoaderBlockInfoRowSchema,
   parseArchivedBlockRows,
   MasterDataFileRowsSchema,
   parseMasterDataFileRows,
@@ -196,5 +197,32 @@ describe("ArchivedBlockRowsSchema", () => {
     expect(
       parseArchivedBlockRows([{ id: 1, file_path: "archive/file.avro" }]),
     ).toEqual([]);
+  });
+});
+
+describe("DataLoaderBlockInfoRowSchema", () => {
+  it("accepts block metadata used for range downloads", () => {
+    expect(
+      DataLoaderBlockInfoRowSchema.safeParse({
+        id: 1,
+        start_byte: 0,
+        length: 100,
+        dataset_id: "dataset-1",
+        file_path: "archive/file.avro",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed block metadata", () => {
+    expect(
+      DataLoaderBlockInfoRowSchema.safeParse({
+        id: 1,
+        start_byte: "0",
+        length: 100,
+        dataset_id: "dataset-1",
+        file_path: "archive/file.avro",
+      }).success,
+    ).toBe(false);
+    expect(DataLoaderBlockInfoRowSchema.safeParse(null).success).toBe(false);
   });
 });
