@@ -160,7 +160,7 @@ export async function getMstShipById(signal?: AbortSignal): Promise<
       signal,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const resolved = new Map(
-      (payload?.records || []).map((row) => [Number(row.id), row]),
+      (payload?.records || []).map((row) => [Number(row["id"]), row]),
     );
     if (resolved.size > 0) {
       mstShipByIdCache = resolved;
@@ -181,7 +181,7 @@ export async function getMstSlotItemById(signal?: AbortSignal): Promise<
       signal,
     )) as { records?: Array<Record<string, unknown>> } | null;
     const resolved = new Map(
-      (payload?.records || []).map((row) => [Number(row.id), row]),
+      (payload?.records || []).map((row) => [Number(row["id"]), row]),
     );
     if (resolved.size > 0) {
       mstSlotItemByIdCache = resolved;
