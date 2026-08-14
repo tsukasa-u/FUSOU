@@ -623,7 +623,7 @@ export function buildTimelineEvents(
     );
   }
 
-  const rawOrder = battle.battle_order as unknown[] | undefined;
+  const rawOrder = battle["battle_order"] as unknown[] | undefined;
   const hasObjectOrder =
     Array.isArray(rawOrder) &&
     rawOrder.length > 0 &&
