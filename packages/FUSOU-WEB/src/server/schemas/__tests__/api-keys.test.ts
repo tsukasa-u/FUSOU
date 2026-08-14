@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { ApiKeyListRowsSchema, UpdateApiKeyRequestSchema } from "../api-keys";
+import {
+  ApiKeyCreateRowsSchema,
+  ApiKeyListRowsSchema,
+  UpdateApiKeyRequestSchema,
+} from "../api-keys";
 
 describe("UpdateApiKeyRequestSchema", () => {
   it("accepts a boolean is_active value", () => {
@@ -49,6 +53,30 @@ describe("ApiKeyListRowsSchema", () => {
           updated_at: "2026-08-14T00:00:00Z",
         },
       ]).success,
+    ).toBe(false);
+  });
+});
+
+describe("ApiKeyCreateRowsSchema", () => {
+  it("accepts created API key rows and extra fields", () => {
+    expect(
+      ApiKeyCreateRowsSchema.safeParse([
+        {
+          id: "key-1",
+          key: "secret-key",
+          created_at: "2026-08-14T00:00:00Z",
+        },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing fields and non-array responses", () => {
+    expect(
+      ApiKeyCreateRowsSchema.safeParse([{ id: "key-1" }]).success,
+    ).toBe(false);
+    expect(
+      ApiKeyCreateRowsSchema.safeParse({ id: "key-1", key: "secret-key" })
+        .success,
     ).toBe(false);
   });
 });

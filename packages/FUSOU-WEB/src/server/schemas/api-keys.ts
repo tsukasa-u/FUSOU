@@ -6,6 +6,14 @@ export const UpdateApiKeyRequestSchema = z.object({
 
 export type UpdateApiKeyRequest = z.infer<typeof UpdateApiKeyRequestSchema>;
 
+export const ApiKeyCreateRowsSchema = z
+  .object({
+    id: z.string().min(1),
+    key: z.string().min(1),
+  })
+  .passthrough()
+  .array();
+
 export const ApiKeyListRowsSchema = z
   .object({
     id: z.string().min(1),

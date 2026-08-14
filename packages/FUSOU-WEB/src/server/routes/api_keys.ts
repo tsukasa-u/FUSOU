@@ -10,6 +10,7 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
 import {
+  ApiKeyCreateRowsSchema,
   ApiKeyListRowsSchema,
   UpdateApiKeyRequestSchema,
 } from "../schemas/api-keys";
@@ -299,7 +300,7 @@ app.post("/", async (c) => {
     }
 
     const newKey = generateApiKey();
-    const result = await supabaseRestRequest<{ id: string; key: string }[]>(
+    const result = await supabaseRestRequest(
       config,
       "api_keys",
       {
@@ -314,7 +315,14 @@ app.post("/", async (c) => {
       },
     );
 
-    if (!result || result.length === 0) {
+    const parsedResult = ApiKeyCreateRowsSchema.safeParse(result);
+    if (!parsedResult.success) {
+      console.error("API key create response shape invalid:", parsedResult.error);
+      return jsonResponse({ error: "Internal error" }, 500);
+    }
+
+    const createdApiKey = parsedResult.data[0];
+    if (!createdApiKey) {
       return jsonResponse({ error: "Failed to create API key" }, 500);
     }
 
@@ -322,8 +330,8 @@ app.post("/", async (c) => {
     return jsonResponse({
       success: true,
       api_key: {
-        id: result[0].id,
-        key: result[0].key, // Full key shown only once
+        id: createdApiKey.id,
+        key: createdApiKey.key, // Full key shown only once
         email: user.email,
         message: "Copy this key now. It will not be shown again.",
       },
