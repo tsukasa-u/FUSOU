@@ -483,7 +483,7 @@ async function resolveAllowedPeriodTagsForRecords(
     if (typeof periodTag !== "string" || !periodTag) continue;
     const validation = await validateCachedPeriodTag(c, periodTag, {
       fieldName: "period_tag",
-      cacheKV,
+      ...(cacheKV ? { cacheKV } : {}),
     });
     if (validation.ok) {
       fallbackSet.add(periodTag);
@@ -2677,19 +2677,21 @@ app.get("/dev/local-records", async (c) => {
         .all?.()) as { results: BattleRecord[] };
 
       records = battleResult.results || [];
-      if (records.length > 0 && openingRaigekiResult.results?.length) {
-        records[0]["opening_raigeki"] = transformOpeningRaigekiData(
-          openingRaigekiResult.results[0],
+      const firstRecord = records[0];
+      const firstOpeningRaigeki = openingRaigekiResult.results?.[0];
+      if (firstRecord && firstOpeningRaigeki) {
+        firstRecord["opening_raigeki"] = transformOpeningRaigekiData(
+          firstOpeningRaigeki,
         );
       }
-      if (records.length > 0 && ownShipResult.results?.length) {
-        records[0]["own_ship"] = ownShipResult.results;
+      if (firstRecord && ownShipResult.results?.length) {
+        firstRecord["own_ship"] = ownShipResult.results;
       }
-      if (records.length > 0 && enemyShipResult.results?.length) {
-        records[0]["enemy_ship"] = enemyShipResult.results;
+      if (firstRecord && enemyShipResult.results?.length) {
+        firstRecord["enemy_ship"] = enemyShipResult.results;
       }
       // DEV: Inject synthetic hougeki (shelling) data for test UUID
-      if (records.length > 0 && battleId === "test-multi-attacker-001") {
+      if (firstRecord && battleId === "test-multi-attacker-001") {
         // 1番艦(idx0)→敵6番(idx5)単発、2番艦(idx1)と3番艦(idx2)→同じ敵5番(idx4)連撃
         // 友軍HP: 全ターン変化なし(被弾なし)
         const fH = [100, 120, 110, 90, 80, 70];
@@ -2699,7 +2701,7 @@ app.get("/dev/local-records", async (c) => {
         const eH2 = [100, 120, 110, 90, 165, 102]; // 2番艦→敵5番1/2 (-35後)
         const eH3 = [100, 120, 110, 90, 143, 102]; // 2番艦→敵5番2/2 (-22後)
         const eH4 = [100, 120, 110, 90, 125, 102]; // 3番艦→敵5番1/2 (-18後)
-        records[0]["hougeki"] = {
+        firstRecord["hougeki"] = {
           at_list: [0, 1, 1, 2, 2],
           df_list: [[5], [4], [4], [4], [4]],
           damage: [[28], [35], [22], [18], [31]],
