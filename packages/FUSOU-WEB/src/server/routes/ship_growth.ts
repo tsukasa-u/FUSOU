@@ -1431,14 +1431,14 @@ function isCumulativeKvSnapshot(v: unknown): v is CumulativeKvSnapshot {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return (
-    s.schema_version === CUMULATIVE_SCHEMA_VERSION &&
-    Array.isArray(s.bounds) &&
-    Array.isArray(s.caps) &&
-    typeof s.archive_object_count === "number" &&
-    typeof s.last_archived_at_sec === "number" &&
-    Array.isArray(s.processed_keys) &&
-    typeof s.refreshed_at === "number" &&
-    typeof s.db_synced_at === "number"
+    s["schema_version"] === CUMULATIVE_SCHEMA_VERSION &&
+    Array.isArray(s["bounds"]) &&
+    Array.isArray(s["caps"]) &&
+    typeof s["archive_object_count"] === "number" &&
+    typeof s["last_archived_at_sec"] === "number" &&
+    Array.isArray(s["processed_keys"]) &&
+    typeof s["refreshed_at"] === "number" &&
+    typeof s["db_synced_at"] === "number"
   );
 }
 
