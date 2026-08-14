@@ -3,6 +3,7 @@ import type { Bindings } from "../types";
 import {
   ListSourceGroupsRequestSchema,
   ListSourceTablesRequestSchema,
+  FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
@@ -450,22 +451,36 @@ app.post("/fetch-block-ocf", async (c) => {
   const bucket = env.runtime.BATTLE_DATA_BUCKET as R2Bucket | undefined;
   if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const filePath = String(body?.file_path ?? "").trim();
-  const startByte = Number(body?.start_byte);
-  const length = Number(body?.length);
+  const parsedBody = FetchBlockOcfRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    if (field === "file_path") {
+      return c.json({ error: "file_path is required" }, 400);
+    }
+    return c.json(
+      { error: field === "start_byte" ? "start_byte is invalid" : "length is invalid" },
+      400,
+    );
+  }
+
+  const {
+    file_path: filePath,
+    start_byte: startByte,
+    length,
+  } = parsedBody.data;
 
   if (!filePath) return c.json({ error: "file_path is required" }, 400);
-  if (!Number.isFinite(startByte) || startByte < 0) {
+  if (startByte === undefined || startByte < 0) {
     return c.json({ error: "start_byte is invalid" }, 400);
   }
-  if (!Number.isFinite(length) || length <= 0) {
+  if (length === undefined || length <= 0) {
     return c.json({ error: "length is invalid" }, 400);
   }
 

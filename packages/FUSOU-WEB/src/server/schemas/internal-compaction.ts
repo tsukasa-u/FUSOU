@@ -57,3 +57,18 @@ export const ResolveSourceWindowRangeRequestSchema = z
 export type ResolveSourceWindowRangeRequest = z.infer<
   typeof ResolveSourceWindowRangeRequestSchema
 >;
+
+const TrimmedStringRequestFieldSchema = z.preprocess(
+  (value) => String(value ?? "").trim(),
+  z.string(),
+);
+
+export const FetchBlockOcfRequestSchema = z
+  .object({
+    file_path: TrimmedStringRequestFieldSchema.optional(),
+    start_byte: NumericRequestFieldSchema.optional(),
+    length: NumericRequestFieldSchema.optional(),
+  })
+  .passthrough();
+
+export type FetchBlockOcfRequest = z.infer<typeof FetchBlockOcfRequestSchema>;

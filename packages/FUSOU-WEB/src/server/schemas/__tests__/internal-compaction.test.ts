@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ListSourceGroupsRequestSchema,
   ListSourceTablesRequestSchema,
+  FetchBlockOcfRequestSchema,
   ResolveSourceWindowRangeRequestSchema,
 } from "../internal-compaction";
 
@@ -76,6 +77,32 @@ describe("ResolveSourceWindowRangeRequestSchema", () => {
       ResolveSourceWindowRangeRequestSchema.safeParse({
         tier: "weekly",
         table_names: "battle",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("FetchBlockOcfRequestSchema", () => {
+  it("coerces numeric values and trims the file path", () => {
+    const result = FetchBlockOcfRequestSchema.safeParse({
+      file_path: "  archives/source.avro  ",
+      start_byte: "10",
+      length: 25,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.file_path).toBe("archives/source.avro");
+      expect(result.data.start_byte).toBe(10);
+      expect(result.data.length).toBe(25);
+    }
+  });
+
+  it("rejects non-finite numeric values", () => {
+    expect(
+      FetchBlockOcfRequestSchema.safeParse({
+        file_path: "source.avro",
+        start_byte: "invalid",
       }).success,
     ).toBe(false);
   });
