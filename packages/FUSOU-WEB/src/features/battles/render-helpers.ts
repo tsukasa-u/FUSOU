@@ -35,11 +35,11 @@ export function slotItemMeta(
     return { name: "", iconType: null };
   }
   const iconType =
-    Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
-      ? Number((mst.type as unknown[])[3] ?? 0) || null
+    Array.isArray(mst["type"]) && (mst["type"] as unknown[]).length >= 4
+      ? Number((mst["type"] as unknown[])[3] ?? 0) || null
       : null;
   return {
-    name: String(mst.name ?? ""),
+    name: String(mst["name"] ?? ""),
     iconType,
   };
 }
@@ -309,16 +309,16 @@ function getRowHpSnapshot(
   side: string,
 ): unknown[] {
   if (side === "friend") {
-    return Array.isArray(row?.f_now_hps)
-      ? (row.f_now_hps as unknown[])
-      : Array.isArray(row?.f_nowhps)
-        ? (row.f_nowhps as unknown[])
+    return Array.isArray(row?.["f_now_hps"])
+      ? (row["f_now_hps"] as unknown[])
+      : Array.isArray(row?.["f_nowhps"])
+        ? (row["f_nowhps"] as unknown[])
         : [];
   }
-  return Array.isArray(row?.e_now_hps)
-    ? (row.e_now_hps as unknown[])
-    : Array.isArray(row?.e_nowhps)
-      ? (row.e_nowhps as unknown[])
+  return Array.isArray(row?.["e_now_hps"])
+    ? (row["e_now_hps"] as unknown[])
+    : Array.isArray(row?.["e_nowhps"])
+      ? (row["e_nowhps"] as unknown[])
       : [];
 }
 
@@ -335,8 +335,8 @@ export function renderShellingRows(
 
   const body = rows
     .map((row) => {
-      const atkEnemy = Number(row.at_eflag ?? 0) !== 0;
-      const attackerIdx = Number(row.at ?? 0) || 0;
+      const atkEnemy = Number(row["at_eflag"] ?? 0) !== 0;
+      const attackerIdx = Number(row["at"] ?? 0) || 0;
       const attackerSide: "friend" | "enemy" = atkEnemy ? "enemy" : "friend";
       const attackerName = shipNameFromIndex(attackerSide, attackerIdx, fleets);
       const attackerHpSnapshot = getRowHpSnapshot(row, attackerSide);
@@ -347,13 +347,15 @@ export function renderShellingRows(
         attackerCurrentHp,
         fleets,
       );
-      const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
-      const dmgs = Array.isArray(row.damage) ? (row.damage as unknown[]) : [];
-      const cls = Array.isArray(row.cl) ? (row.cl as unknown[]) : [];
-      const protects = Array.isArray(row.protect_flag)
-        ? (row.protect_flag as unknown[])
+      const defs = Array.isArray(row["df"]) ? (row["df"] as unknown[]) : [];
+      const dmgs = Array.isArray(row["damage"])
+        ? (row["damage"] as unknown[])
         : [];
-      const sis = Array.isArray(row.si) ? (row.si as unknown[]) : [];
+      const cls = Array.isArray(row["cl"]) ? (row["cl"] as unknown[]) : [];
+      const protects = Array.isArray(row["protect_flag"])
+        ? (row["protect_flag"] as unknown[])
+        : [];
+      const sis = Array.isArray(row["si"]) ? (row["si"] as unknown[]) : [];
       const defenderSide: "friend" | "enemy" = atkEnemy ? "friend" : "enemy";
       const defenderHpSnapshot = getRowHpSnapshot(row, defenderSide);
       const targetsHtml = defs
@@ -408,8 +410,12 @@ export function renderRaigekiRows(
   title: string,
   fleets: BattleFleets | null,
 ): string {
-  const fDam = Array.isArray(data?.f_dam) ? (data.f_dam as unknown[]) : [];
-  const eDam = Array.isArray(data?.e_dam) ? (data.e_dam as unknown[]) : [];
+  const fDam = Array.isArray(data?.["f_dam"])
+    ? (data["f_dam"] as unknown[])
+    : [];
+  const eDam = Array.isArray(data?.["e_dam"])
+    ? (data["e_dam"] as unknown[])
+    : [];
   const fNow = getRowHpSnapshot(data, "friend");
   const eNow = getRowHpSnapshot(data, "enemy");
   const fHits = fDam
@@ -456,23 +462,25 @@ export function renderRaigekiRows(
 }
 
 export function renderAirAttackRows(data: Record<string, unknown>): string {
-  const fDmg = Array.isArray(data?.f_damages)
-    ? (data.f_damages as number[]).reduce(
+  const fDmg = Array.isArray(data?.["f_damages"])
+    ? (data["f_damages"] as number[]).reduce(
         (s, d) => s + (Number(d ?? 0) || 0),
         0,
       )
     : 0;
-  const eDmg = Array.isArray(data?.e_damages)
-    ? (data.e_damages as number[]).reduce(
+  const eDmg = Array.isArray(data?.["e_damages"])
+    ? (data["e_damages"] as number[]).reduce(
         (s, d) => s + (Number(d ?? 0) || 0),
         0,
       )
     : 0;
-  const sup = Number(data?.air_superiority ?? -1);
+  const sup = Number(data?.["air_superiority"] ?? -1);
   const airLabel = AIR_STATE[sup]?.label ?? "";
   const hasAnySortie =
-    (Array.isArray(data?.f_plane_from) && (data.f_plane_from as unknown[]).length > 0) ||
-    (Array.isArray(data?.e_plane_from) && (data.e_plane_from as unknown[]).length > 0);
+    (Array.isArray(data?.["f_plane_from"]) &&
+      (data["f_plane_from"] as unknown[]).length > 0) ||
+    (Array.isArray(data?.["e_plane_from"]) &&
+      (data["e_plane_from"] as unknown[]).length > 0);
   const showAirLabel = airLabel.length > 0 && (hasAnySortie || fDmg > 0 || eDmg > 0);
   return `<div class="grid gap-2 md:grid-cols-3 text-xs">
     <div class="rounded border border-base-300 bg-base-100 px-2 py-2">
