@@ -660,10 +660,10 @@ export function buildTimelineEvents(
               : battle["midnight_hougeki"];
         extractShellingEvents(normalizeShellingRows(raw), phaseLabel);
       } else if (key === "OpeningAirAttack") {
-        const rawAir = Array.isArray(battle.opening_air_attack)
-          ? ((battle.opening_air_attack as unknown[])[idx ?? 0] ??
-            battle.opening_air_attack)
-          : battle.opening_air_attack;
+        const rawAir = Array.isArray(battle["opening_air_attack"])
+          ? ((battle["opening_air_attack"] as unknown[])[idx ?? 0] ??
+            battle["opening_air_attack"])
+          : battle["opening_air_attack"];
         const airRow = Array.isArray(rawAir)
           ? ((rawAir as unknown[])[0] ?? null)
           : rawAir;
