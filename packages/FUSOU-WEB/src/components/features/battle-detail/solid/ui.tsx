@@ -87,17 +87,17 @@ export function getRowHpSnapshot(
   };
 
   if (side === "friend") {
-    const source = (Array.isArray(row?.f_now_hps)
-      ? (row.f_now_hps as unknown[])
-      : Array.isArray(row?.f_nowhps)
-        ? (row.f_nowhps as unknown[])
+    const source = (Array.isArray(row?.["f_now_hps"])
+      ? (row["f_now_hps"] as unknown[])
+      : Array.isArray(row?.["f_nowhps"])
+        ? (row["f_nowhps"] as unknown[])
         : []);
     return normalizeHpArray(source);
   }
-  const source = (Array.isArray(row?.e_now_hps)
-    ? (row.e_now_hps as unknown[])
-    : Array.isArray(row?.e_nowhps)
-      ? (row.e_nowhps as unknown[])
+  const source = (Array.isArray(row?.["e_now_hps"])
+    ? (row["e_now_hps"] as unknown[])
+    : Array.isArray(row?.["e_nowhps"])
+      ? (row["e_nowhps"] as unknown[])
       : []);
   return normalizeHpArray(source);
 }
@@ -113,10 +113,10 @@ export function slotItemMeta(
   const mst = mstSlotItemById?.get?.(id);
   if (!mst) return { name: `装備#${id}`, iconType: null };
   const iconType =
-    Array.isArray(mst.type) && (mst.type as unknown[]).length >= 4
-      ? Number((mst.type as unknown[])[3] ?? 0) || null
+    Array.isArray(mst["type"]) && (mst["type"] as unknown[]).length >= 4
+      ? Number((mst["type"] as unknown[])[3] ?? 0) || null
       : null;
-  return { name: String(mst.name ?? ""), iconType };
+  return { name: String(mst["name"] ?? ""), iconType };
 }
 
 function normalizeSlotIds(
