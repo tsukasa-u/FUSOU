@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AssetKeyRowSchema } from "../assets";
+import { AssetContentHashRowSchema, AssetKeyRowSchema } from "../assets";
 
 describe("AssetKeyRowSchema", () => {
   it("accepts a non-empty asset key and preserves extra columns", () => {
@@ -22,5 +22,24 @@ describe("AssetKeyRowSchema", () => {
     expect(AssetKeyRowSchema.safeParse({ key: "" }).success).toBe(false);
     expect(AssetKeyRowSchema.safeParse({ key: 42 }).success).toBe(false);
     expect(AssetKeyRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("AssetContentHashRowSchema", () => {
+  it("accepts hash, null, and missing legacy values", () => {
+    expect(
+      AssetContentHashRowSchema.safeParse({ content_hash: "hash" }).success,
+    ).toBe(true);
+    expect(AssetContentHashRowSchema.safeParse({ content_hash: null }).success).toBe(
+      true,
+    );
+    expect(AssetContentHashRowSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects non-string hashes", () => {
+    expect(
+      AssetContentHashRowSchema.safeParse({ content_hash: 42 }).success,
+    ).toBe(false);
+    expect(AssetContentHashRowSchema.safeParse(null).success).toBe(false);
   });
 });

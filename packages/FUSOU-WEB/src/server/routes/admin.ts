@@ -9,6 +9,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { createEnvContext, verifyAdminToken } from "../utils";
 import { bumpAssetIndexRevision } from "../utils/asset-index-cache";
+import { AssetContentHashRowSchema } from "../schemas/assets";
 
 const adminApp = new Hono<{ Bindings: Bindings }>();
 
@@ -236,11 +237,13 @@ adminApp.get("/backfill-asset-index", async (c) => {
         const contentHash = await sha256(arrayBuffer);
 
         const stmt = db.prepare("SELECT content_hash FROM files WHERE key = ?");
-        const existing = (await stmt.bind(key).first()) as {
-          content_hash: string;
-        } | null;
+        const existingResult = await stmt.bind(key).first();
+        const existing = AssetContentHashRowSchema.safeParse(existingResult);
 
-        if (existing && existing.content_hash === contentHash) {
+        if (
+          existing.success &&
+          existing.data.content_hash === contentHash
+        ) {
           skipped++;
           continue;
         }

@@ -5,3 +5,7 @@ export const AssetKeyRowSchema = z
   .passthrough();
 
 export type AssetKeyRow = z.infer<typeof AssetKeyRowSchema>;
+
+export const AssetContentHashRowSchema = z
+  .object({ content_hash: z.string().nullable().optional() })
+  .passthrough();
