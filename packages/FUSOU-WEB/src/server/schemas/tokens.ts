@@ -35,10 +35,24 @@ export const SokuSpeedTokenPayloadSchema = SignedTokenBaseSchema.extend({
   table_version: z.string().optional(),
 });
 
+export const BattleDataTokenPayloadSchema = SignedTokenBaseSchema.extend({
+  dataset_id: z.string().min(1),
+  table: z.string().min(1),
+  period_tag: z.string().min(1),
+  declared_size: z.coerce.number().int().positive(),
+  table_offsets: z.string().nullable(),
+  content_hash: z.string().min(1),
+  path_tag: z.string().min(1),
+  table_version: z.string().min(1),
+});
+
 export type UploadTokenPayload = z.infer<typeof UploadTokenPayloadSchema>;
 export type MasterDataTokenPayload = z.infer<
   typeof MasterDataTokenPayloadSchema
 >;
 export type SokuSpeedTokenPayload = z.infer<
   typeof SokuSpeedTokenPayloadSchema
+>;
+export type BattleDataTokenPayload = z.infer<
+  typeof BattleDataTokenPayloadSchema
 >;

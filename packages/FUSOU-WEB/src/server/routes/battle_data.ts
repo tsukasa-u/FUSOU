@@ -32,6 +32,7 @@ import {
   parseBattleChunkRows,
   type BattleBlockRow,
 } from "../schemas/battle-data";
+import { BattleDataTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
@@ -836,8 +837,16 @@ app.post("/upload", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
+      const payloadValidation = BattleDataTokenPayloadSchema.safeParse(
+        tokenPayload,
+      );
+      if (!payloadValidation.success) {
+        return c.json({ error: "Invalid token payload" }, 400);
+      }
+      const validatedTokenPayload = payloadValidation.data;
+
       // Content hash verification
-      const expectedContentHash = tokenPayload.content_hash as string;
+      const expectedContentHash = validatedTokenPayload.content_hash;
       if (expectedContentHash) {
         const hashBuffer = await globalThis.crypto.subtle.digest(
           "SHA-256",
@@ -860,11 +869,11 @@ app.post("/upload", async (c) => {
         }
       }
 
-      const datasetId = tokenPayload.dataset_id as string;
-      const table = tokenPayload.table as string;
-      const periodTag = (tokenPayload as any).period_tag as string;
-      let tableOffsets = (tokenPayload as any).table_offsets as string | null;
-      const tableVersion = (tokenPayload as any).table_version as string;
+      const datasetId = validatedTokenPayload.dataset_id;
+      const table = validatedTokenPayload.table;
+      const periodTag = validatedTokenPayload.period_tag;
+      let tableOffsets = validatedTokenPayload.table_offsets;
+      const tableVersion = validatedTokenPayload.table_version;
       const detectedTableVersions = new Set<string>();
 
       const triggeredAt = new Date().toISOString();
