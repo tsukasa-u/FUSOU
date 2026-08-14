@@ -23,15 +23,18 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>();
 const SHORT_KEY_LENGTH = 16;
 
-type SnapshotPayload = {
-  snapshotShips?: Record<string, unknown>;
-  snapshotSlotItems?: Record<string, unknown>;
-};
+const snapshotPayloadSchema = z.object({
+  snapshotShips: z.record(z.unknown()).optional(),
+  snapshotSlotItems: z.record(z.unknown()).optional(),
+});
 
-type StoredShareRecord = {
-  url: string;
-  snapshotPayload?: SnapshotPayload;
-};
+const storedShareRecordSchema = z.object({
+  url: z.string(),
+  snapshotPayload: snapshotPayloadSchema.optional(),
+});
+
+type SnapshotPayload = z.infer<typeof snapshotPayloadSchema>;
+type StoredShareRecord = z.infer<typeof storedShareRecordSchema>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -226,12 +229,12 @@ app.post("/api/shorten", shortenValidator, async (c) => {
 
 function parseStoredShareRecord(raw: string): { originalUrl: string; snapshotPayload: SnapshotPayload | null } {
   try {
-    const parsed = JSON.parse(raw) as Partial<StoredShareRecord>;
-    if (parsed && typeof parsed === "object" && typeof parsed.url === "string") {
-      const snapshotPayload = parsed.snapshotPayload && typeof parsed.snapshotPayload === "object"
-        ? parsed.snapshotPayload
-        : null;
-      return { originalUrl: parsed.url, snapshotPayload };
+    const parsed = storedShareRecordSchema.safeParse(JSON.parse(raw) as unknown);
+    if (parsed.success) {
+      return {
+        originalUrl: parsed.data.url,
+        snapshotPayload: parsed.data.snapshotPayload ?? null,
+      };
     }
   } catch {
     // Legacy format: raw value is the original URL string.
