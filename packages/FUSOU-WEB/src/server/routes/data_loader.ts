@@ -17,6 +17,7 @@ import {
   parseArchivedBlockRows,
   parseMasterDataFileRows,
   parseTableNames,
+  TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
 } from "../schemas/data-loader";
@@ -1206,14 +1207,17 @@ async function isDeviceTrusted(
   clientId: string,
   kv?: KVNamespace,
 ): Promise<boolean> {
-  const results = await supabaseRestRequest<
-    { id: string; last_used_at: string }[]
-  >(config, "trusted_devices", {
+  const results = await supabaseRestRequest(config, "trusted_devices", {
     query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
   });
+  const parsedResults = TrustedDeviceTrustRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("Trusted device response shape invalid:", parsedResults.error);
+    return false;
+  }
 
-  if (results && results.length > 0) {
-    const device = results[0];
+  const device = parsedResults.data[0];
+  if (device) {
     const now = new Date();
     const lastUsed = new Date(device.last_used_at);
     const hoursSinceLastUpdate =

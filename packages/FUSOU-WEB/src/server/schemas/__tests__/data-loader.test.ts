@@ -6,6 +6,7 @@ import {
   parseMasterDataFileRows,
   parseTableNames,
   TableNameRowsSchema,
+  TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
 } from "../data-loader";
@@ -42,6 +43,29 @@ describe("VerifyGoogleRequestSchema", () => {
     expect(
       VerifyGoogleRequestSchema.safeParse({ google_token: 123 }).success,
     ).toBe(false);
+  });
+});
+
+describe("TrustedDeviceTrustRowsSchema", () => {
+  it("accepts trusted device rows and extra fields", () => {
+    expect(
+      TrustedDeviceTrustRowsSchema.safeParse([
+        {
+          id: "device-1",
+          last_used_at: "2026-08-14T00:00:00Z",
+          extra: true,
+        },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed or missing device timestamps", () => {
+    expect(
+      TrustedDeviceTrustRowsSchema.safeParse([
+        { id: "device-1", last_used_at: 123 },
+      ]).success,
+    ).toBe(false);
+    expect(TrustedDeviceTrustRowsSchema.safeParse(null).success).toBe(false);
   });
 });
 

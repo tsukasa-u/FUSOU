@@ -13,6 +13,15 @@ export const VerifyGoogleRequestSchema = z
   })
   .passthrough();
 
+export const TrustedDeviceTrustRowsSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+      last_used_at: z.string().min(1),
+    })
+    .passthrough(),
+);
+
 export const TableNameRowsSchema = z.array(
   z
     .object({
