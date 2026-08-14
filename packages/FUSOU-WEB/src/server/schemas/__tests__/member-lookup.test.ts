@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { MemberLookupRequestSchema } from "../member-lookup";
+import {
+  MemberIdHashRowsSchema,
+  MemberLookupRequestSchema,
+} from "../member-lookup";
 
 describe("MemberLookupRequestSchema", () => {
   it("accepts a string hash", () => {
@@ -16,6 +19,23 @@ describe("MemberLookupRequestSchema", () => {
   it("rejects non-string hashes", () => {
     expect(
       MemberLookupRequestSchema.safeParse({ member_id_hash: 123 }).success,
+    ).toBe(false);
+  });
+});
+
+describe("MemberIdHashRowsSchema", () => {
+  it("accepts member hash rows and extra fields", () => {
+    const result = MemberIdHashRowsSchema.safeParse([
+      { member_id_hash: "hash-1", extra: true },
+      {},
+    ]);
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects non-string member hashes", () => {
+    expect(
+      MemberIdHashRowsSchema.safeParse([{ member_id_hash: 123 }]).success,
     ).toBe(false);
   });
 });

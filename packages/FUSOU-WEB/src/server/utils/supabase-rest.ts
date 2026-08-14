@@ -7,6 +7,7 @@
 
 import type { Bindings } from "../types";
 import { createEnvContext, resolveSupabaseConfig } from "../utils";
+import { MemberIdHashRowsSchema } from "../schemas/member-lookup";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -93,16 +94,20 @@ export async function resolveMemberIdHashForUser(
 ): Promise<string | null> {
   const userIdQuery = encodeURIComponent(userId);
 
-  const link = await supabaseRestRequest<{ member_id_hash?: string }[]>(
-    config,
-    "user_member_map",
-    {
-      query: `?user_id=eq.${userIdQuery}&select=member_id_hash&limit=1`,
-    },
-  );
+  const link = await supabaseRestRequest(config, "user_member_map", {
+    query: `?user_id=eq.${userIdQuery}&select=member_id_hash&limit=1`,
+  });
+  const parsedLink = MemberIdHashRowsSchema.safeParse(link);
+  if (!parsedLink.success) {
+    console.warn("[supabase-rest] invalid member id hash response", {
+      userId,
+      error: parsedLink.error,
+    });
+    return null;
+  }
 
-  if (Array.isArray(link) && link[0]?.member_id_hash) {
-    return link[0].member_id_hash;
+  if (parsedLink.data[0]?.member_id_hash) {
+    return parsedLink.data[0].member_id_hash;
   }
 
   return null;
