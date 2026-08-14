@@ -418,4 +418,5 @@ app.get("/", (c) => {
   return c.json({ status: "ok", service: "fusou-url-shorter" });
 });
 
+export { app };
 export default app;

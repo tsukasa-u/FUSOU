@@ -55,16 +55,6 @@ function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${random}`;
 }
 
-function parseJsonArray<T>(raw: unknown): T[] {
-  if (!raw || typeof raw !== "string") return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
 function combinationsOfTwo(values: number[]): number[][] {
   const pairs: number[][] = [];
   for (let i = 0; i < values.length; i += 1) {
@@ -107,12 +97,7 @@ async function getCompletedAndRecentSets(
     )
     .bind(datasetId, atMs)
     .all<{ quest_id: number; event_type: string; timestamp_ms: number; collection_session_id: string }>())
-    .results ?? []) as Array<{
-      quest_id: number;
-      event_type: string;
-      timestamp_ms: number;
-      collection_session_id: string;
-    }>;
+    .results ?? []);
 
   const latestByQuest = new Map<number, { eventType: string; ts: number; sessionId: string }>();
   const recent = new Set<number>();
@@ -166,7 +151,7 @@ async function getExposureForPrereq(
            AND p.quest_id = ?`
       )
       .bind(periodTag, tableVersion, prereq[0])
-      .first<{ c?: number }>()) as { c?: number } | null;
+      .first<{ c?: number }>());
     return Math.max(1, toInt(row?.c) ?? 0);
   }
 
@@ -188,7 +173,7 @@ async function getExposureForPrereq(
            AND p2.quest_id = ?`
       )
       .bind(periodTag, tableVersion, prereq[0], prereq[1])
-      .first<{ c?: number }>()) as { c?: number } | null;
+      .first<{ c?: number }>());
     return Math.max(1, toInt(row?.c) ?? 0);
   }
 
@@ -212,7 +197,7 @@ async function recomputeRulesForTarget(
     )
     .bind(targetQuestId, periodTag, tableVersion)
     .all<{ occurrence_id: string }>())
-    .results ?? []) as Array<{ occurrence_id: string }>;
+    .results ?? []);
 
   const totalOccurrences = occurrences.length;
   if (totalOccurrences === 0) {
@@ -247,7 +232,7 @@ async function recomputeRulesForTarget(
       )
       .bind(occurrenceId)
       .all<{ quest_id: number }>())
-      .results ?? []) as Array<{ quest_id: number }>;
+      .results ?? []);
 
     const ids = prereqs
       .map((row) => toInt(row.quest_id))
@@ -271,7 +256,7 @@ async function recomputeRulesForTarget(
        WHERE period_tag = ? AND table_version = ?`
     )
     .bind(periodTag, tableVersion)
-    .first<{ c?: number }>()) as { c?: number } | null;
+    .first<{ c?: number }>());
 
   const allAppearanceCount = Math.max(1, toInt(allAppearanceCountRow?.c) ?? totalOccurrences);
   const baseRate = totalOccurrences / allAppearanceCount;
@@ -479,7 +464,7 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
     )
     .bind(task.dataset_id, task.collection_session_id, task.from_ts, task.to_ts)
     .all<AppearanceEvent>())
-    .results ?? []) as AppearanceEvent[];
+    .results ?? []);
 
   const touchedTargets = new Set<string>();
 
@@ -489,7 +474,7 @@ async function processTask(db: D1DatabaseLike, task: InferenceTask): Promise<voi
     const existing = (await db
       .prepare(`SELECT occurrence_id FROM quest_occurrence_contexts WHERE occurrence_id = ? LIMIT 1`)
       .bind(occurrenceId)
-      .first<{ occurrence_id?: string }>()) as { occurrence_id?: string } | null;
+      .first<{ occurrence_id?: string }>());
 
     if (existing?.occurrence_id) {
       touchedTargets.add(`${appearance.target_quest_id}:${appearance.period_tag}:${appearance.table_version}`);
@@ -572,44 +557,47 @@ export async function runQuestInferenceTasks(
   const limit = Math.max(1, Math.min(200, options?.limit ?? 100));
 
   const now = nowMs();
-  const tasks = datasetId
-    ? (((await db
-        .prepare(
-          `WITH picked AS (
-             SELECT task_id
-             FROM quest_inference_tasks
-             WHERE status IN ('pending', 'failed')
-               AND retry_count < ?
-               AND dataset_id = ?
-             ORDER BY created_at ASC
-             LIMIT ?
-           )
-           UPDATE quest_inference_tasks
-           SET status = 'running', updated_at = ?
-           WHERE task_id IN (SELECT task_id FROM picked)
-           RETURNING task_id, dataset_id, collection_session_id, from_ts, to_ts, status, retry_count`
-        )
-        .bind(MAX_TASK_RETRY_COUNT, datasetId, limit, now)
-        .all<InferenceTask>())
-        .results ?? []) as InferenceTask[])
-    : (((await db
-        .prepare(
-          `WITH picked AS (
-             SELECT task_id
-             FROM quest_inference_tasks
-             WHERE status IN ('pending', 'failed')
-               AND retry_count < ?
-             ORDER BY created_at ASC
-             LIMIT ?
-           )
-           UPDATE quest_inference_tasks
-           SET status = 'running', updated_at = ?
-           WHERE task_id IN (SELECT task_id FROM picked)
-           RETURNING task_id, dataset_id, collection_session_id, from_ts, to_ts, status, retry_count`
-        )
-        .bind(MAX_TASK_RETRY_COUNT, limit, now)
-        .all<InferenceTask>())
-        .results ?? []) as InferenceTask[]);
+  let tasks: InferenceTask[];
+  if (datasetId) {
+    const result = await db
+      .prepare(
+        `WITH picked AS (
+           SELECT task_id
+           FROM quest_inference_tasks
+           WHERE status IN ('pending', 'failed')
+             AND retry_count < ?
+             AND dataset_id = ?
+           ORDER BY created_at ASC
+           LIMIT ?
+         )
+         UPDATE quest_inference_tasks
+         SET status = 'running', updated_at = ?
+         WHERE task_id IN (SELECT task_id FROM picked)
+         RETURNING task_id, dataset_id, collection_session_id, from_ts, to_ts, status, retry_count`
+      )
+      .bind(MAX_TASK_RETRY_COUNT, datasetId, limit, now)
+      .all<InferenceTask>();
+    tasks = result.results ?? [];
+  } else {
+    const result = await db
+      .prepare(
+        `WITH picked AS (
+           SELECT task_id
+           FROM quest_inference_tasks
+           WHERE status IN ('pending', 'failed')
+             AND retry_count < ?
+           ORDER BY created_at ASC
+           LIMIT ?
+         )
+         UPDATE quest_inference_tasks
+         SET status = 'running', updated_at = ?
+         WHERE task_id IN (SELECT task_id FROM picked)
+         RETURNING task_id, dataset_id, collection_session_id, from_ts, to_ts, status, retry_count`
+      )
+      .bind(MAX_TASK_RETRY_COUNT, limit, now)
+      .all<InferenceTask>();
+    tasks = result.results ?? [];
+  }
 
   let completed = 0;
   let failed = 0;

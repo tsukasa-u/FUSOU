@@ -11,6 +11,8 @@
  * This prevents accumulation of incomplete uploads due to client crashes or timeouts
  */
 
+import { R2KeysSchema } from "./schemas";
+
 interface Env {
   MASTER_DATA_BUCKET: R2Bucket;
   MASTER_DATA_INDEX_DB: D1Database;
@@ -25,6 +27,24 @@ interface MasterDataRecord {
   upload_status: string;
   created_at: number;
   table_count: number;
+}
+
+interface OrphanedMasterDataRecord {
+  id: number;
+  r2_keys: string;
+  period_tag: string;
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const values = error as Record<string, unknown>;
+  const status = values["status"] ?? values["statusCode"];
+  if (typeof status === "number") return status;
+  if (typeof status === "string" && status.trim()) {
+    const parsed = Number(status);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
 }
 
 /** Timing-safe string equality using XOR byte-by-byte comparison */
@@ -68,8 +88,8 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
       WHERE upload_status = 'pending' AND created_at < ? AND r2_keys IS NULL
     `);
 
-    const pendingRecords = await stmt.bind(oneHourAgo).all() as { results?: MasterDataRecord[] };
-    const records = pendingRecords.results || [];
+    const pendingRecords = await stmt.bind(oneHourAgo).all<MasterDataRecord>();
+    const records = pendingRecords.results ?? [];
 
     console.log(`[master-data-cleanup] Found ${records.length} orphaned pending records`);
 
@@ -102,38 +122,27 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
         WHERE (upload_status = 'failed' OR upload_status = 'pending') AND r2_keys IS NOT NULL
       `);
 
-      const orphanedRecords = await orphanStmt.all() as { results?: { id: number; r2_keys: string; period_tag: string }[] };
-      const orphans = orphanedRecords.results || [];
+      const orphanedRecords = await orphanStmt.all<OrphanedMasterDataRecord>();
+      const orphans = orphanedRecords.results ?? [];
 
       console.log(`[master-data-cleanup] Found ${orphans.length} orphaned R2 object sets to clean`);
 
       for (const orphan of orphans) {
         try {
           // Parse r2_keys JSON array
-          let r2Keys: string[] = [];
-          try {
-            r2Keys = JSON.parse(orphan.r2_keys);
-          } catch (parseErr) {
-            console.error(`[master-data-cleanup] Failed to parse r2_keys for id=${orphan.id}: ${String(parseErr)}`);
+          const parsedKeys = (() => {
+            try {
+              return R2KeysSchema.safeParse(JSON.parse(orphan.r2_keys) as unknown);
+            } catch (parseErr) {
+              console.error(`[master-data-cleanup] Failed to parse r2_keys for id=${orphan.id}: ${String(parseErr)}`);
+              return null;
+            }
+          })();
+          if (!parsedKeys || !parsedKeys.success) {
             errors.push(`Invalid r2_keys JSON for record ${orphan.id}`);
             continue;
           }
-
-          // [Bug Fix #6] Validate r2_keys is an array with string elements
-          if (!Array.isArray(r2Keys) || r2Keys.length === 0) {
-            console.error(`[master-data-cleanup] Invalid r2_keys format for id=${orphan.id}: not an array or empty`);
-            errors.push(`Invalid r2_keys array for record ${orphan.id}`);
-            continue;
-          }
-
-          // Validate all elements are strings
-          for (const key of r2Keys) {
-            if (typeof key !== 'string' || key.trim() === '') {
-              console.error(`[master-data-cleanup] Invalid r2_key element in array for id=${orphan.id}: ${JSON.stringify(key)}`);
-              errors.push(`Invalid r2_key element for record ${orphan.id}`);
-              continue; // Skip this entire record
-            }
-          }
+          const r2Keys = parsedKeys.data;
 
           console.info(`[master-data-cleanup] Deleting ${r2Keys.length} R2 objects for period=${orphan.period_tag}, id=${orphan.id}`);
 
@@ -148,8 +157,7 @@ export async function cleanupOrphanedMasterData(env: Env): Promise<{
               // [Issue #18] エラータイプを分析して適切に処理
               const errorMsg = String(deleteErr);
               // [Bug Fix #16] Improve R2 error classification - check status code if available
-              const deleteError = deleteErr as any;
-              const statusCode = deleteError?.status || deleteError?.statusCode;
+              const statusCode = getErrorStatus(deleteErr);
               
               if (statusCode === 404 || errorMsg.includes("404") || errorMsg.includes("NoSuchKey")) {
                 // R2 オブジェクトが既に存在しない → count as deleted

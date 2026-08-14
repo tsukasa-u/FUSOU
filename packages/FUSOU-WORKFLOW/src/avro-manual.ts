@@ -6,6 +6,15 @@
 
 // Avro primitive type encoders removed (unused)
 
+import { z } from "zod";
+
+const AvroRecordSchema = z.object({
+  fields: z.array(z.object({
+    name: z.string().min(1),
+    type: z.unknown(),
+  })),
+}).passthrough();
+
 function decodeZigzag(n: number): number {
   return (n >>> 1) ^ -(n & 1);
 }
@@ -381,12 +390,15 @@ export function parseAvroDataBlock(
 
     // Try to parse as JSON array first
     try {
-      const parsed = JSON.parse(decoded);
+      const parsed: unknown = JSON.parse(decoded);
       return Array.isArray(parsed) ? parsed : [parsed];
     } catch {
       // If not JSON, try parsing as newline-delimited JSON
       const lines = decoded.split("\n").filter((line) => line.trim());
-      return lines.map((line) => JSON.parse(line));
+      return lines.map((line) => {
+        const parsed: unknown = JSON.parse(line);
+        return parsed;
+      });
     }
   } catch (err) {
     console.error("Failed to parse Avro data block:", err);
@@ -567,7 +579,7 @@ function decodeBytesBuf(
 }
 
 function parseHeaderSchemaAndCodec(header: Uint8Array): {
-  schema: any;
+  schema: z.infer<typeof AvroRecordSchema> | null;
   codec: string | null;
 } {
   // Validate magic
@@ -603,8 +615,12 @@ function parseHeaderSchemaAndCodec(header: Uint8Array): {
   // sync marker: skip 16 bytes (not needed here)
   // const sync = header.slice(offset, offset + 16);
   try {
-    const schema = schemaJsonStr ? JSON.parse(schemaJsonStr) : null;
-    return { schema, codec: codecStr };
+    if (!schemaJsonStr) return { schema: null, codec: codecStr };
+    const parsedSchema = AvroRecordSchema.safeParse(JSON.parse(schemaJsonStr) as unknown);
+    return {
+      schema: parsedSchema.success ? parsedSchema.data : null,
+      codec: codecStr,
+    };
   } catch {
     return { schema: null, codec: codecStr };
   }
@@ -652,7 +668,7 @@ function decodeValue(
 function decodeArray(
   buffer: Uint8Array,
   offset: number,
-  itemsType: any,
+  itemsType: unknown,
 ): { value: any[]; offset: number } {
   const result: any[] = [];
   let pos = offset;
@@ -691,7 +707,7 @@ function decodeArray(
 function decodeComplexValue(
   buffer: Uint8Array,
   offset: number,
-  type: any,
+  type: unknown,
 ): { value: any; offset: number } {
   if (typeof type === "string") {
     return decodeValue(buffer, offset, type);
@@ -707,11 +723,11 @@ function decodeComplexValue(
     const v = decodeComplexValue(buffer, pos, t);
     return v;
   }
-  if (typeof type === "object") {
-    if (type.type === "array") {
+  if (typeof type === "object" && type !== null) {
+    if ("type" in type && type.type === "array" && "items" in type) {
       return decodeArray(buffer, offset, type.items);
     }
-    if (type.type === "string") {
+    if ("type" in type && type.type === "string") {
       return decodeValue(buffer, offset, "string");
     }
     // Fallback
@@ -723,7 +739,7 @@ function decodeComplexValue(
 function decodeRecord(
   buffer: Uint8Array,
   offset: number,
-  schema: { fields: { name: string; type: any }[] },
+  schema: z.infer<typeof AvroRecordSchema>,
 ): { record: any; offset: number } {
   const out: any = {};
   let pos = offset;

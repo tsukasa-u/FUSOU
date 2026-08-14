@@ -45,18 +45,27 @@ function normalizeBlob(data: ArrayBuffer | Uint8Array): Uint8Array {
   return new Uint8Array(data);
 }
 
-function normalizeRecord(row: any): BufferLogRecord {
-  const blob = row.data as ArrayBuffer | Uint8Array;
+function normalizeRecord(row: unknown): BufferLogRecord {
+  if (!row || typeof row !== "object") {
+    throw new Error("[Turso] Unexpected non-object row");
+  }
+
+  const values = row as Record<string, unknown>;
+  const blob = values["data"];
+  if (!(blob instanceof ArrayBuffer) && !(blob instanceof Uint8Array)) {
+    throw new Error("[Turso] Row data is not binary");
+  }
+
   return {
-    id: Number(row.id),
-    dataset_id: String(row.dataset_id),
-    table_name: String(row.table_name),
-    period_tag: String(row.period_tag),
-    table_version: String(row.table_version),
-    timestamp: Number(row.timestamp),
+    id: Number(values["id"]),
+    dataset_id: String(values["dataset_id"]),
+    table_name: String(values["table_name"]),
+    period_tag: String(values["period_tag"]),
+    table_version: String(values["table_version"]),
+    timestamp: Number(values["timestamp"]),
     data: blob,
-    uploaded_by: row.uploaded_by ? String(row.uploaded_by) : null,
-    trust_tag: row.trust_tag ? String(row.trust_tag) : null,
+    uploaded_by: values["uploaded_by"] ? String(values["uploaded_by"]) : null,
+    trust_tag: values["trust_tag"] ? String(values["trust_tag"]) : null,
   };
 }
 
@@ -159,7 +168,7 @@ export async function fetchProcessingRows(
     ORDER BY table_version, table_name, period_tag, dataset_id, id ASC
   `);
 
-  return result.rows.map((row: any) => normalizeRecord(row));
+  return result.rows.map((row) => normalizeRecord(row));
 }
 
 export async function fetchHotRows(
@@ -221,7 +230,7 @@ export async function fetchHotRows(
   sql += " ORDER BY timestamp ASC, id ASC";
 
   const result = await client.execute({ sql, args });
-  return result.rows.map((row: any) => normalizeRecord(row));
+  return result.rows.map((row) => normalizeRecord(row));
 }
 
 export async function resetProcessingTable(client: TursoClient): Promise<void> {
