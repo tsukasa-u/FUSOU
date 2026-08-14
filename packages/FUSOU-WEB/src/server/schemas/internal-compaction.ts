@@ -93,3 +93,21 @@ export const ReleaseOutputLockRequestSchema = z
 export type ReleaseOutputLockRequest = z.infer<
   typeof ReleaseOutputLockRequestSchema
 >;
+
+export const AcquireOutputLockRequestSchema = z
+  .object({
+    file_path: TrimmedStringRequestFieldSchema.optional(),
+    lock_token: TrimmedStringRequestFieldSchema.optional(),
+    table_version: TrimmedStringRequestFieldSchema.optional(),
+    compaction_tier: CompactionTierSchema.optional(),
+    source_tier: TrimmedStringRequestFieldSchema.optional(),
+    window_start_ms: NumericRequestFieldSchema.optional(),
+    window_end_ms: NumericRequestFieldSchema.optional(),
+    run_key: TrimmedStringRequestFieldSchema.optional(),
+    lock_ttl_ms: OptionalNumericRequestFieldSchema,
+  })
+  .passthrough();
+
+export type AcquireOutputLockRequest = z.infer<
+  typeof AcquireOutputLockRequestSchema
+>;

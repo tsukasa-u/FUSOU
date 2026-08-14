@@ -7,6 +7,7 @@ import {
   ResolveSourceWindowRangeRequestSchema,
   VerifyOutputVisibleRequestSchema,
   ReleaseOutputLockRequestSchema,
+  AcquireOutputLockRequestSchema,
 } from "../schemas/internal-compaction";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
 import { getLatestAllowedPeriodTag } from "../utils/period-tags";
@@ -561,23 +562,40 @@ app.post("/acquire-output-lock", async (c) => {
   const db = env.runtime.BATTLE_INDEX_DB as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
 
-  let body: any;
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON" }, 400);
   }
 
-  const filePath = String(body?.file_path ?? "").trim();
-  const lockToken = String(body?.lock_token ?? "").trim();
-  const tableVersion = String(body?.table_version ?? "").trim();
-  const compactionTier = body?.compaction_tier;
-  const sourceTier = String(body?.source_tier ?? "").trim();
-  const windowStart = Number(body?.window_start_ms);
-  const windowEnd = Number(body?.window_end_ms);
-  const runKey = String(body?.run_key ?? "").trim();
-  const lockTtlMsRaw = Number(body?.lock_ttl_ms);
-  const lockTtlMs = Number.isFinite(lockTtlMsRaw)
+  const parsedBody = AcquireOutputLockRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    const field = parsedBody.error.issues[0]?.path[0];
+    const errors: Record<string, string> = {
+      file_path: "file_path is required",
+      lock_token: "lock_token is required",
+      table_version: "table_version is required",
+      compaction_tier: "compaction_tier is invalid",
+      source_tier: "source_tier is required",
+      window_start_ms: "window_start_ms and window_end_ms are required",
+      window_end_ms: "window_start_ms and window_end_ms are required",
+    };
+    return c.json({ error: errors[String(field)] ?? "Invalid JSON" }, 400);
+  }
+
+  const {
+    file_path: filePath,
+    lock_token: lockToken,
+    table_version: tableVersion,
+    compaction_tier: compactionTier,
+    source_tier: sourceTier,
+    window_start_ms: windowStart,
+    window_end_ms: windowEnd,
+    run_key: runKey,
+    lock_ttl_ms: lockTtlMsRaw,
+  } = parsedBody.data;
+  const lockTtlMs = lockTtlMsRaw !== undefined && Number.isFinite(lockTtlMsRaw)
     ? Math.max(30_000, Math.min(24 * 60 * 60_000, Math.trunc(lockTtlMsRaw)))
     : 6 * 60 * 60_000;
 
@@ -586,7 +604,7 @@ app.post("/acquire-output-lock", async (c) => {
   if (!tableVersion) return c.json({ error: "table_version is required" }, 400);
   if (!isTier(compactionTier)) return c.json({ error: "compaction_tier is invalid" }, 400);
   if (!sourceTier) return c.json({ error: "source_tier is required" }, 400);
-  if (!Number.isFinite(windowStart) || !Number.isFinite(windowEnd)) {
+  if (windowStart === undefined || windowEnd === undefined) {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
 

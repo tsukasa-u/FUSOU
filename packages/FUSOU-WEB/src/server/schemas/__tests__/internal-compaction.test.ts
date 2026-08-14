@@ -6,6 +6,7 @@ import {
   ResolveSourceWindowRangeRequestSchema,
   VerifyOutputVisibleRequestSchema,
   ReleaseOutputLockRequestSchema,
+  AcquireOutputLockRequestSchema,
 } from "../internal-compaction";
 
 describe("ListSourceGroupsRequestSchema", () => {
@@ -144,5 +145,39 @@ describe("ReleaseOutputLockRequestSchema", () => {
 
   it("accepts omitted fields for route-level required-field handling", () => {
     expect(ReleaseOutputLockRequestSchema.safeParse({}).success).toBe(true);
+  });
+});
+
+describe("AcquireOutputLockRequestSchema", () => {
+  it("coerces strings and numeric lock settings", () => {
+    const result = AcquireOutputLockRequestSchema.safeParse({
+      file_path: " output.avro ",
+      lock_token: " token ",
+      table_version: " 1.0 ",
+      compaction_tier: "daily",
+      source_tier: " hourly ",
+      window_start_ms: "100",
+      window_end_ms: 200,
+      lock_ttl_ms: "30000",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.file_path).toBe("output.avro");
+      expect(result.data.window_start_ms).toBe(100);
+      expect(result.data.lock_ttl_ms).toBe(30000);
+    }
+  });
+
+  it("rejects an invalid compaction tier", () => {
+    expect(
+      AcquireOutputLockRequestSchema.safeParse({
+        compaction_tier: "monthly",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts omitted required fields for route-level errors", () => {
+    expect(AcquireOutputLockRequestSchema.safeParse({}).success).toBe(true);
   });
 });
