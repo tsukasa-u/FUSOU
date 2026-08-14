@@ -242,32 +242,36 @@ export function buildTimelineEvents(
     const d = data as Record<string, unknown>;
     // Do not normalize/shift damage arrays here: leading zero is often a valid
     // no-damage slot, not a 1-based dummy. Shifting causes defender index drift.
-    const fDam = Array.isArray(d.f_damages) ? (d.f_damages as number[]) : [];
-    const eDam = Array.isArray(d.e_damages) ? (d.e_damages as number[]) : [];
-    const fFrom = Array.isArray(d.f_plane_from)
-      ? (d.f_plane_from as unknown[])
+    const fDam = Array.isArray(d["f_damages"])
+      ? (d["f_damages"] as number[])
+      : [];
+    const eDam = Array.isArray(d["e_damages"])
+      ? (d["e_damages"] as number[])
+      : [];
+    const fFrom = Array.isArray(d["f_plane_from"])
+      ? (d["f_plane_from"] as unknown[])
         .map((v) => Number(v))
         .filter((v) => Number.isFinite(v) && v >= 0)
         .map((v) => v)
       : [];
-    const eFrom = Array.isArray(d.e_plane_from)
-      ? (d.e_plane_from as unknown[])
+    const eFrom = Array.isArray(d["e_plane_from"])
+      ? (d["e_plane_from"] as unknown[])
         .map((v) => Number(v))
         .filter((v) => Number.isFinite(v) && v >= 0)
         .map((v) => v)
       : [];
     const fNow = shiftHpArray((
-      Array.isArray(d.f_now_hps)
-        ? d.f_now_hps
-        : Array.isArray(d.f_nowhps)
-          ? d.f_nowhps
+      Array.isArray(d["f_now_hps"])
+        ? d["f_now_hps"]
+        : Array.isArray(d["f_nowhps"])
+          ? d["f_nowhps"]
           : []
     ) as number[]);
     const eNow = shiftHpArray((
-      Array.isArray(d.e_now_hps)
-        ? d.e_now_hps
-        : Array.isArray(d.e_nowhps)
-          ? d.e_nowhps
+      Array.isArray(d["e_now_hps"])
+        ? d["e_now_hps"]
+        : Array.isArray(d["e_nowhps"])
+          ? d["e_nowhps"]
           : []
     ) as number[]);
     const effectiveSlotItems = slotItemOverride ?? [];
