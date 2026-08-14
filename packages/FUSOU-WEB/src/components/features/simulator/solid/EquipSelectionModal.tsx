@@ -217,7 +217,12 @@ export function EquipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
-    let current = cats[0].typeId;
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
+    let current = firstCat.typeId;
     for (const cat of cats) {
       if (cat.offset <= offset + 2) current = cat.typeId;
       else break;
@@ -231,8 +236,13 @@ export function EquipSelectionModal() {
       setActiveQuickAccessId(null);
       return;
     }
+    const firstCat = cats[0];
+    if (!firstCat) {
+      setActiveQuickAccessId(null);
+      return;
+    }
     if (!activeQuickAccessId()) {
-      setActiveQuickAccessId(String(cats[0].typeId));
+      setActiveQuickAccessId(String(firstCat.typeId));
     }
   });
 
