@@ -9,6 +9,7 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { checkAndDeductRU } from "../utils/ru";
+import { UpdateApiKeyRequestSchema } from "../schemas/api-keys";
 import {
   getSupabaseRestConfig,
   supabaseRestRequest,
@@ -387,12 +388,18 @@ app.patch("/:id", async (c) => {
   }
   const config = getSupabaseRestConfig(c);
 
-  let body: { is_active?: boolean } = {};
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse({ error: "Invalid body" }, 400);
   }
+
+  const parsedBody = UpdateApiKeyRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse({ error: "Invalid body" }, 400);
+  }
+  const body = parsedBody.data;
 
   try {
     const user = await verifyAccessToken(config, auth.token);
