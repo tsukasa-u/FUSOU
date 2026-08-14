@@ -13,6 +13,7 @@ import { validateCachedPeriodTag, getLatestMasterPeriodTag } from "../utils/peri
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
+import { MasterDataNextRevisionRowSchema } from "../schemas/master-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -387,10 +388,14 @@ app.post("/upload", async (c) => {
             FROM master_data_index
             WHERE period_tag = ? AND table_version = ?
           `);
-          const nextRevisionRow = (await nextRevisionStmt
+          const nextRevisionRow = await nextRevisionStmt
             .bind(periodTag, tableVersion)
-            .first()) as { next_revision?: number } | null;
-          const nextRevision = Number(nextRevisionRow?.next_revision ?? 1);
+            .first();
+          const parsedNextRevisionRow =
+            MasterDataNextRevisionRowSchema.safeParse(nextRevisionRow);
+          const nextRevision = parsedNextRevisionRow.success
+            ? (parsedNextRevisionRow.data.next_revision ?? 1)
+            : 1;
 
           const insertStmt = db.prepare(`
             INSERT INTO master_data_index
