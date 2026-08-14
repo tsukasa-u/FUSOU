@@ -105,8 +105,8 @@ app.post("/upload", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
   const signingSecret = getEnv(env, "MASTER_DATA_SIGNING_SECRET");
 
   if (!bucket || !db || !signingSecret) {
@@ -128,25 +128,27 @@ app.post("/upload", async (c) => {
     // Preparation phase: claim ownership for entire period
     preparationValidator: async (body, user) => {
       const periodTag =
-        typeof body?.kc_period_tag === "string"
-          ? body.kc_period_tag.trim()
+        typeof body?.["kc_period_tag"] === "string"
+          ? body["kc_period_tag"].trim()
           : "";
       const tableVersion =
-        typeof body?.table_version === "string"
-          ? body.table_version.trim()
-          : typeof body?.tableVersion === "string"
-            ? body.tableVersion.trim()
+        typeof body?.["table_version"] === "string"
+          ? body["table_version"].trim()
+          : typeof body?.["tableVersion"] === "string"
+            ? body["tableVersion"].trim()
             : "";
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       const tableOffsetsStr =
-        typeof body?.table_offsets === "string"
-          ? body.table_offsets.trim()
+        typeof body?.["table_offsets"] === "string"
+          ? body["table_offsets"].trim()
           : "";
 
       const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
         fieldName: "kc_period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTagValidation.ok) {
         return c.json(
@@ -201,7 +203,7 @@ app.post("/upload", async (c) => {
 
       // Handle both number and string types (Rust sends as number, other clients may send as string)
       let declaredSize: number;
-      const fileSizeRaw = body?.file_size;
+      const fileSizeRaw = body?.["file_size"];
 
       if (typeof fileSizeRaw === "number") {
         declaredSize = fileSizeRaw;
@@ -872,7 +874,7 @@ app.post("/upload", async (c) => {
           );
         }
         // Cache Warming (Write-Through)
-        const kv = env.runtime.DATA_LOADER_CACHE_KV;
+        const kv = env.runtime["DATA_LOADER_CACHE_KV"];
         if (kv) {
           safeWaitUntil(c, (async () => {
             console.info(`[master-data] Starting cache warming for ${tableOffsets.length} tables`);
@@ -949,9 +951,9 @@ app.post("/upload", async (c) => {
  */
 app.get("/json", async (c) => {
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -989,7 +991,7 @@ app.get("/json", async (c) => {
   if (requestedPeriodTag) {
     const periodTagValidation = await validateCachedPeriodTag(c, requestedPeriodTag, {
       fieldName: "period_tag",
-      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
     });
     if (!periodTagValidation.ok) {
       return c.json({ error: periodTagValidation.error }, periodTagValidation.status);
@@ -1026,7 +1028,10 @@ app.get("/json", async (c) => {
     let effectiveParams = [...params];
 
     if (!requestedPeriodTag) {
-      const latestMaster = await getLatestMasterPeriodTag(db, env.runtime.DATA_LOADER_CACHE_KV);
+      const latestMaster = await getLatestMasterPeriodTag(
+        db,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
       const latestPeriodTag = latestMaster?.period_tag;
 
       if (!latestPeriodTag) {
@@ -1096,10 +1101,10 @@ app.get("/json", async (c) => {
                 ? decodedRecords
                 : decodedRecords.filter((row) => {
                     const rowId =
-                      typeof row.id === "number"
-                        ? row.id
-                        : typeof row.api_id === "number"
-                          ? row.api_id
+                      typeof row["id"] === "number"
+                        ? row["id"]
+                        : typeof row["api_id"] === "number"
+                          ? row["api_id"]
                           : null;
                     return rowId === requestedRecordId;
                   });
@@ -1170,10 +1175,10 @@ app.get("/json", async (c) => {
         ? decodedRecords
         : decodedRecords.filter((row) => {
             const rowId =
-              typeof row.id === "number"
-                ? row.id
-                : typeof row.api_id === "number"
-                  ? row.api_id
+              typeof row["id"] === "number"
+                ? row["id"]
+                : typeof row["api_id"] === "number"
+                  ? row["api_id"]
                   : null;
             return rowId === requestedRecordId;
           });
@@ -1228,7 +1233,7 @@ app.get("/exists", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1314,7 +1319,7 @@ app.get("/latest", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1394,8 +1399,8 @@ app.get("/download", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
