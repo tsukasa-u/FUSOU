@@ -109,10 +109,10 @@ function loadDisplaySettingsOnce(): void {
     setCombinedFleetType(0);
     return;
   }
-  setFleetSectionVisible(1, settings.fleets[1]);
-  setFleetSectionVisible(2, settings.fleets[2]);
-  setFleetSectionVisible(3, settings.fleets[3]);
-  setFleetSectionVisible(4, settings.fleets[4]);
+  setFleetSectionVisible(1, settings.fleets[1] ?? false);
+  setFleetSectionVisible(2, settings.fleets[2] ?? false);
+  setFleetSectionVisible(3, settings.fleets[3] ?? false);
+  setFleetSectionVisible(4, settings.fleets[4] ?? false);
   setAirbaseSectionVisible(settings.showAirbase);
   setVisibleAirbaseCount(settings.airbaseCount);
   setFleetSlotLayoutMode(settings.fleetSlotLayout);
