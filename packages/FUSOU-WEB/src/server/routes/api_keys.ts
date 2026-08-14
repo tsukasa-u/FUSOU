@@ -177,7 +177,7 @@ app.get("/usage", async (c) => {
 
     // Get RU Status
     const env = createEnvContext(c);
-    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    const kv = env.runtime["DATA_LOADER_CACHE_KV"];
     let usage = {
       remaining: 1000,
       consumed: 0,
@@ -445,7 +445,9 @@ app.patch("/:id", async (c) => {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (body.is_active !== undefined) updateData.is_active = body.is_active;
+    if (body.is_active !== undefined) {
+      updateData["is_active"] = body.is_active;
+    }
 
     if (Object.keys(updateData).length === 0) {
       return jsonResponse({ error: "No fields to update" }, 400);
