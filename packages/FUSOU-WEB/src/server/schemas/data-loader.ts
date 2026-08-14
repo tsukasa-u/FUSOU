@@ -13,6 +13,16 @@ export const VerifyGoogleRequestSchema = z
   })
   .passthrough();
 
+export const ApiKeyValidationRowsSchema = z.array(
+  z
+    .object({
+      id: z.string().min(1),
+      user_id: z.string().min(1),
+      email: z.string().min(1),
+    })
+    .passthrough(),
+);
+
 export const TrustedDeviceTrustRowsSchema = z.array(
   z
     .object({

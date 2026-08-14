@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
+  ApiKeyValidationRowsSchema,
   parseArchivedBlockRows,
   parseMasterDataFileRows,
   parseTableNames,
@@ -1188,13 +1189,16 @@ async function validateApiKey(
   config: SupabaseRestConfig,
   apiKey: string,
 ): Promise<{ id: string; user_id: string; email: string } | null> {
-  const results = await supabaseRestRequest<
-    { id: string; user_id: string; email: string }[]
-  >(config, "api_keys", {
+  const results = await supabaseRestRequest(config, "api_keys", {
     query: `?key=eq.${encodeURIComponent(apiKey)}&is_active=eq.true&select=id,user_id,email`,
   });
+  const parsedResults = ApiKeyValidationRowsSchema.safeParse(results);
+  if (!parsedResults.success) {
+    console.warn("API key validation response shape invalid:", parsedResults.error);
+    return null;
+  }
 
-  return results && results.length > 0 ? results[0] : null;
+  return parsedResults.data[0] ?? null;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ApiKeyValidationRowsSchema,
   ArchivedBlockRowsSchema,
   parseArchivedBlockRows,
   MasterDataFileRowsSchema,
@@ -43,6 +44,30 @@ describe("VerifyGoogleRequestSchema", () => {
     expect(
       VerifyGoogleRequestSchema.safeParse({ google_token: 123 }).success,
     ).toBe(false);
+  });
+});
+
+describe("ApiKeyValidationRowsSchema", () => {
+  it("accepts API key lookup rows and extra fields", () => {
+    expect(
+      ApiKeyValidationRowsSchema.safeParse([
+        {
+          id: "key-1",
+          user_id: "user-1",
+          email: "user@example.test",
+          extra: true,
+        },
+      ]).success,
+    ).toBe(true);
+  });
+
+  it("rejects incomplete or non-array API key responses", () => {
+    expect(
+      ApiKeyValidationRowsSchema.safeParse([
+        { id: "key-1", user_id: "user-1" },
+      ]).success,
+    ).toBe(false);
+    expect(ApiKeyValidationRowsSchema.safeParse(null).success).toBe(false);
   });
 });
 
