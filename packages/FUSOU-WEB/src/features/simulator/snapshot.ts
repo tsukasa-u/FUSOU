@@ -78,14 +78,14 @@ export function applyFleetSnapshot(snapshot: Record<string, unknown>) {
       exSlotImprovement,
     );
     return {
-      houg: ((ship.k5u as number) ?? 0) - (snapEqSum.houg || 0) - (snapBonus.houg || 0),
-      raig: ((ship.r4u as number) ?? 0) - (snapEqSum.raig || 0) - (snapBonus.raig || 0),
-      tyku: ((ship.t3u as number) ?? 0) - (snapEqSum.tyku || 0) - (snapBonus.tyku || 0),
-      souk: ((ship.s4u as number) ?? 0) - (snapEqSum.souk || 0) - (snapBonus.souk || 0),
-      kaih: ((ship.k3i as number) ?? 0) - (snapEqSum.kaih || 0) - (snapBonus.kaih || 0),
-      tais: ((ship.t4n as number) ?? 0) - (snapEqSum.tais || 0) - (snapBonus.tais || 0),
-      saku: ((ship.s6i as number) ?? 0) - (snapEqSum.saku || 0) - (snapBonus.saku || 0),
-      luck: ((ship.l3y as number) ?? 0) - (snapEqSum.luck || 0) - (snapBonus.luck || 0),
+      houg: ((ship["k5u"] as number) ?? 0) - (snapEqSum["houg"] || 0) - (snapBonus["houg"] || 0),
+      raig: ((ship["r4u"] as number) ?? 0) - (snapEqSum["raig"] || 0) - (snapBonus["raig"] || 0),
+      tyku: ((ship["t3u"] as number) ?? 0) - (snapEqSum["tyku"] || 0) - (snapBonus["tyku"] || 0),
+      souk: ((ship["s4u"] as number) ?? 0) - (snapEqSum["souk"] || 0) - (snapBonus["souk"] || 0),
+      kaih: ((ship["k3i"] as number) ?? 0) - (snapEqSum["kaih"] || 0) - (snapBonus["kaih"] || 0),
+      tais: ((ship["t4n"] as number) ?? 0) - (snapEqSum["tais"] || 0) - (snapBonus["tais"] || 0),
+      saku: ((ship["s6i"] as number) ?? 0) - (snapEqSum["saku"] || 0) - (snapBonus["saku"] || 0),
+      luck: ((ship["l3y"] as number) ?? 0) - (snapEqSum["luck"] || 0) - (snapBonus["luck"] || 0),
     };
   }
 
