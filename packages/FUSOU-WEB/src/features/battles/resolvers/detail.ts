@@ -445,30 +445,30 @@ export function resolveBattleDetail(
   const enemyShips = fleetRows(mergedBattle, scopedTables.enemyDeck, scopedTables.enemyShip, scopedTables.enemySlotItem, "enemy");
   const relevantShipIds = new Set<number>();
   for (const row of [...scopedTables.ownShip, ...scopedTables.enemyShip]) {
-    const shipId = Number(row.ship_id ?? row.mst_ship_id ?? 0);
+    const shipId = Number(row["ship_id"] ?? row["mst_ship_id"] ?? 0);
     if (shipId > 0) relevantShipIds.add(shipId);
   }
-  const dropShipId = Number((battleResult as JsonRecord | null)?.drop_ship_id ?? 0);
+  const dropShipId = Number((battleResult as JsonRecord | null)?.["drop_ship_id"] ?? 0);
   if (dropShipId > 0) relevantShipIds.add(dropShipId);
   const relevantSlotItemIds = new Set<number>();
   for (const row of [...scopedTables.ownSlotItem, ...scopedTables.enemySlotItem]) {
-    const slotItemId = Number(row.mst_slotitem_id ?? 0);
+    const slotItemId = Number(row["mst_slotitem_id"] ?? 0);
     if (slotItemId > 0) relevantSlotItemIds.add(slotItemId);
   }
-  for (const attack of airBaseAttackRows(mergedBattle.air_base_air_attacks)) {
-    addPositiveIds(attack.squadron_plane, relevantSlotItemIds);
+  for (const attack of airBaseAttackRows(mergedBattle["air_base_air_attacks"])) {
+    addPositiveIds(attack["squadron_plane"], relevantSlotItemIds);
   }
-  if (mergedBattle.air_base_assault && typeof mergedBattle.air_base_assault === "object") {
+  if (mergedBattle["air_base_assault"] && typeof mergedBattle["air_base_assault"] === "object") {
     addPositiveIds(
-      (mergedBattle.air_base_assault as JsonRecord).squadron_plane,
+      (mergedBattle["air_base_assault"] as JsonRecord)["squadron_plane"],
       relevantSlotItemIds,
     );
   }
   const filteredMasterShips = (options.masterShips ?? []).filter((row) =>
-    relevantShipIds.has(Number(row.id ?? 0)),
+    relevantShipIds.has(Number(row["id"] ?? 0)),
   );
   const filteredMasterSlotItems = (options.masterSlotItems ?? []).filter((row) =>
-    relevantSlotItemIds.has(Number(row.id ?? 0)),
+    relevantSlotItemIds.has(Number(row["id"] ?? 0)),
   );
   const payload: BattleDetailPayload = {
     success: true,
