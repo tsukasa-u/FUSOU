@@ -1391,7 +1391,10 @@ app.get("/global/chunks", async (c) => {
       throw new Error("D1 returned no results for global chunks query");
     }
 
-    const rows = (result.results || []) as any[];
+    const rows = parseBattleChunkRows(result.results || []);
+    if (!rows) {
+      throw new Error("D1 returned malformed results for global chunks query");
+    }
     const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
