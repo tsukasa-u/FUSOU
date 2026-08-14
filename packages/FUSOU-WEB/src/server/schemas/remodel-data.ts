@@ -116,13 +116,13 @@ export type ValidatedRemodelDataIngestBody = {
 
 export const ValidatedRemodelDataIngestBodySchema =
   RemodelDataIngestBodySchema.superRefine((body, context) => {
-    const datasetId = String(body.dataset_id ?? "").trim();
-    const requestId = String(body.request_id ?? "").trim();
-    const payloadHash = String(body.payload_hash ?? "").trim();
-    const eventType = String(body.event_type ?? "").trim();
-    const schemaVersion = Number(body.schema_version);
-    const periodTag = String(body.period_tag ?? "").trim();
-    const timestampMs = Number(body.timestamp_ms);
+    const datasetId = String(body["dataset_id"] ?? "").trim();
+    const requestId = String(body["request_id"] ?? "").trim();
+    const payloadHash = String(body["payload_hash"] ?? "").trim();
+    const eventType = String(body["event_type"] ?? "").trim();
+    const schemaVersion = Number(body["schema_version"]);
+    const periodTag = String(body["period_tag"] ?? "").trim();
+    const timestampMs = Number(body["timestamp_ms"]);
 
     if (!datasetId) {
       context.addIssue({
@@ -191,8 +191,8 @@ export const ValidatedRemodelDataIngestBodySchema =
 
     if (eventType === "slotlist") {
       if (
-        !isValidInt(body.secretary_ship_master_id) ||
-        body.secretary_ship_master_id <= 0
+        !isValidInt(body["secretary_ship_master_id"]) ||
+        body["secretary_ship_master_id"] <= 0
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -202,9 +202,9 @@ export const ValidatedRemodelDataIngestBodySchema =
         return;
       }
       if (
-        !isValidInt(body.weekday_jst) ||
-        body.weekday_jst < 0 ||
-        body.weekday_jst > 6
+        !isValidInt(body["weekday_jst"]) ||
+        body["weekday_jst"] < 0 ||
+        body["weekday_jst"] > 6
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -213,7 +213,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         });
         return;
       }
-      if (!Array.isArray(body.entries) || body.entries.length === 0) {
+      if (!Array.isArray(body["entries"]) || body["entries"].length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["entries"],
@@ -221,7 +221,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         });
         return;
       }
-      if (body.entries.length > 2000) {
+      if (body["entries"].length > 2000) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["entries"],
@@ -243,9 +243,12 @@ export const ValidatedRemodelDataIngestBodySchema =
         "req_slot_id",
         "req_slot_num",
       ];
-      for (const [index, rawEntry] of body.entries.entries()) {
+      for (const [index, rawEntry] of body["entries"].entries()) {
         const entry = asRecord(rawEntry);
-        if (entry.remodel_step_id != null && !isValidInt(entry.remodel_step_id)) {
+        if (
+          entry["remodel_step_id"] != null &&
+          !isValidInt(entry["remodel_step_id"])
+        ) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["entries", index, "remodel_step_id"],
@@ -253,7 +256,10 @@ export const ValidatedRemodelDataIngestBodySchema =
           });
           return;
         }
-        if (entry.remodel_level != null && !isValidInt(entry.remodel_level)) {
+        if (
+          entry["remodel_level"] != null &&
+          !isValidInt(entry["remodel_level"])
+        ) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["entries", index, "remodel_level"],
@@ -261,7 +267,7 @@ export const ValidatedRemodelDataIngestBodySchema =
           });
           return;
         }
-        if (!isValidInt(entry.remodel_level)) {
+        if (!isValidInt(entry["remodel_level"])) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["entries", index, "remodel_level"],
@@ -269,7 +275,7 @@ export const ValidatedRemodelDataIngestBodySchema =
           });
           return;
         }
-        if (entry.remodel_level < 0 || entry.remodel_level > 10) {
+        if (entry["remodel_level"] < 0 || entry["remodel_level"] > 10) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["entries", index, "remodel_level"],
@@ -291,7 +297,10 @@ export const ValidatedRemodelDataIngestBodySchema =
       return;
     }
 
-    if (!isValidInt(body.slotitem_master_id) || body.slotitem_master_id <= 0) {
+    if (
+      !isValidInt(body["slotitem_master_id"]) ||
+      body["slotitem_master_id"] <= 0
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["slotitem_master_id"],
@@ -299,7 +308,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (!isValidInt(body.remodel_id)) {
+    if (!isValidInt(body["remodel_id"])) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_id"],
@@ -307,7 +316,10 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (body.remodel_step_id != null && !isValidInt(body.remodel_step_id)) {
+    if (
+      body["remodel_step_id"] != null &&
+      !isValidInt(body["remodel_step_id"])
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_step_id"],
@@ -315,7 +327,10 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (body.remodel_level != null && !isValidInt(body.remodel_level)) {
+    if (
+      body["remodel_level"] != null &&
+      !isValidInt(body["remodel_level"])
+    ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_level"],
@@ -323,7 +338,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (!isValidInt(body.remodel_level)) {
+    if (!isValidInt(body["remodel_level"])) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_level"],
@@ -331,7 +346,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (body.remodel_level < 0 || body.remodel_level > 10) {
+    if (body["remodel_level"] < 0 || body["remodel_level"] > 10) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_level"],
@@ -340,8 +355,8 @@ export const ValidatedRemodelDataIngestBodySchema =
       return;
     }
     if (
-      !isValidInt(body.certain_buildkit) ||
-      !isValidInt(body.certain_remodelkit)
+      !isValidInt(body["certain_buildkit"]) ||
+      !isValidInt(body["certain_remodelkit"])
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -350,7 +365,7 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (!isValidInt(body.change_flag)) {
+    if (!isValidInt(body["change_flag"])) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["change_flag"],
@@ -359,8 +374,8 @@ export const ValidatedRemodelDataIngestBodySchema =
       return;
     }
     if (
-      (body.req_slot_id != null && !isValidInt(body.req_slot_id)) ||
-      (body.req_slot_num != null && !isValidInt(body.req_slot_num))
+      (body["req_slot_id"] != null && !isValidInt(body["req_slot_id"])) ||
+      (body["req_slot_num"] != null && !isValidInt(body["req_slot_num"]))
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -388,20 +403,20 @@ export const ValidatedRemodelDataIngestBodySchema =
   .transform((body) => {
     const common = {
       ...body,
-      dataset_id: String(body.dataset_id ?? "").trim(),
-      request_id: String(body.request_id ?? "").trim(),
-      payload_hash: String(body.payload_hash ?? "").trim(),
-      schema_version: Number(body.schema_version),
-      period_tag: String(body.period_tag ?? "").trim(),
-      timestamp_ms: Number(body.timestamp_ms),
+      dataset_id: String(body["dataset_id"] ?? "").trim(),
+      request_id: String(body["request_id"] ?? "").trim(),
+      payload_hash: String(body["payload_hash"] ?? "").trim(),
+      schema_version: Number(body["schema_version"]),
+      period_tag: String(body["period_tag"] ?? "").trim(),
+      timestamp_ms: Number(body["timestamp_ms"]),
     };
-    if (String(body.event_type ?? "").trim() === "slotlist") {
+    if (String(body["event_type"] ?? "").trim() === "slotlist") {
       return {
         ...common,
         event_type: "slotlist" as const,
-        secretary_ship_master_id: body.secretary_ship_master_id as number,
-        weekday_jst: body.weekday_jst as number,
-        entries: body.entries as Extract<
+        secretary_ship_master_id: body["secretary_ship_master_id"] as number,
+        weekday_jst: body["weekday_jst"] as number,
+        entries: body["entries"] as Extract<
           ValidatedRemodelDataIngestBody,
           { event_type: "slotlist" }
         >["entries"],
@@ -410,19 +425,19 @@ export const ValidatedRemodelDataIngestBodySchema =
     return {
       ...common,
       event_type: "detail" as const,
-      slotitem_master_id: body.slotitem_master_id as number,
-      remodel_id: body.remodel_id as number,
-      remodel_step_id: body.remodel_step_id as number | null | undefined,
-      remodel_level: body.remodel_level as number,
-      certain_buildkit: body.certain_buildkit as number,
-      certain_remodelkit: body.certain_remodelkit as number,
-      req_slot_id: body.req_slot_id as number | null | undefined,
-      req_slot_num: body.req_slot_num as number | null | undefined,
-      change_flag: body.change_flag as number,
-      req_useitem_id: body.req_useitem_id as number | null | undefined,
-      req_useitem_id2: body.req_useitem_id2 as number | null | undefined,
-      req_useitem_num: body.req_useitem_num as number | null | undefined,
-      req_useitem_num2: body.req_useitem_num2 as number | null | undefined,
+      slotitem_master_id: body["slotitem_master_id"] as number,
+      remodel_id: body["remodel_id"] as number,
+      remodel_step_id: body["remodel_step_id"] as number | null | undefined,
+      remodel_level: body["remodel_level"] as number,
+      certain_buildkit: body["certain_buildkit"] as number,
+      certain_remodelkit: body["certain_remodelkit"] as number,
+      req_slot_id: body["req_slot_id"] as number | null | undefined,
+      req_slot_num: body["req_slot_num"] as number | null | undefined,
+      change_flag: body["change_flag"] as number,
+      req_useitem_id: body["req_useitem_id"] as number | null | undefined,
+      req_useitem_id2: body["req_useitem_id2"] as number | null | undefined,
+      req_useitem_num: body["req_useitem_num"] as number | null | undefined,
+      req_useitem_num2: body["req_useitem_num2"] as number | null | undefined,
     } as ValidatedRemodelDataIngestBody;
   });
 
