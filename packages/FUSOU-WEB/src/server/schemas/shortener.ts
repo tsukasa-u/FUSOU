@@ -7,6 +7,13 @@ export const SnapshotPayloadSchema = z
   })
   .passthrough();
 
+export const ShareRecordResponseSchema = z
+  .object({
+    originalUrl: z.string().optional(),
+    snapshotPayload: SnapshotPayloadSchema.nullable().optional(),
+  })
+  .passthrough();
+
 export const ShortenerRequestSchema = z.object({
   url: z.string().min(1),
   snapshotPayload: z.unknown().optional(),
@@ -14,3 +21,4 @@ export const ShortenerRequestSchema = z.object({
 
 export type ShortenerRequest = z.infer<typeof ShortenerRequestSchema>;
 export type SnapshotPayload = z.infer<typeof SnapshotPayloadSchema>;
+export type ShareRecordResponse = z.infer<typeof ShareRecordResponseSchema>;

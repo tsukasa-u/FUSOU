@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
 import {
+  ShareRecordResponseSchema,
   SnapshotPayloadSchema,
   ShortenerRequestSchema,
 } from "@/server/schemas/shortener";
@@ -16,11 +17,6 @@ type UpstreamAttempt = {
   status?: number;
   error?: string;
   detail?: string;
-};
-
-type ShareRecordResponse = {
-  originalUrl?: string;
-  snapshotPayload?: Record<string, unknown> | null;
 };
 
 const JSON_NO_STORE_HEADERS = {
@@ -423,9 +419,19 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
     );
   }
 
-  let data: ShareRecordResponse;
+  let data: import("@/server/schemas/shortener").ShareRecordResponse;
   try {
-    data = (await upstream.json()) as ShareRecordResponse;
+    const parsedResponse = ShareRecordResponseSchema.safeParse(
+      await upstream.json(),
+    );
+    if (!parsedResponse.success) {
+      return c.json(
+        { ok: false, error: "Invalid upstream response" },
+        503,
+        JSON_NO_STORE_HEADERS,
+      );
+    }
+    data = parsedResponse.data;
   } catch {
     return c.json(
       { ok: false, error: "Invalid upstream response" },

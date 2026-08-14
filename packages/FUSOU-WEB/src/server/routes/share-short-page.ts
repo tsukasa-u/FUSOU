@@ -3,15 +3,11 @@ import {
   buildSocialPreviewHtml,
   isSocialPreviewBot,
 } from "@/server/utils/share-preview";
+import { ShareRecordResponseSchema } from "@/server/schemas/shortener";
 import { env as cfEnv } from "cloudflare:workers";
 
 const KEY_RE = /^[0-9a-f]{16}$/;
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
-
-type ShareRecordResponse = {
-  originalUrl?: string;
-  snapshotPayload?: Record<string, unknown> | null;
-};
 
 type ShareRecordFetchResult =
   | {
@@ -298,9 +294,26 @@ async function fetchShareRecord(
     };
   }
 
-  let data: ShareRecordResponse;
+  let data: import("@/server/schemas/shortener").ShareRecordResponse;
   try {
-    data = (await upstream.json()) as ShareRecordResponse;
+    const parsedResponse = ShareRecordResponseSchema.safeParse(
+      await upstream.json(),
+    );
+    if (!parsedResponse.success) {
+      return {
+        ok: false,
+        response: new Response("Service unavailable", {
+          status: 503,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "strict-origin-when-cross-origin",
+          },
+        }),
+      };
+    }
+    data = parsedResponse.data;
   } catch {
     return {
       ok: false,
