@@ -114,7 +114,7 @@ export async function fetchRecordsByUuids(
   const result = new Map<string, Array<Record<string, unknown>>>();
   for (const id of unique) result.set(id, []);
   for (const row of records) {
-    const id = String(row?.uuid ?? "");
+    const id = String(row?.["uuid"] ?? "");
     if (result.has(id)) result.get(id)!.push(row);
   }
   return result;
