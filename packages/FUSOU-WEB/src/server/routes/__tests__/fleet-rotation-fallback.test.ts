@@ -107,8 +107,7 @@ function createSupabaseAdminMock(options: {
       if (table === "member_id_hash_rotations") {
         return {
           select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              or: vi.fn(() => ({
+              in: vi.fn(() => ({
                 range: vi.fn(async (from: number, to: number) => {
                   if (options.rotationsError) {
                     return {
@@ -132,7 +131,6 @@ function createSupabaseAdminMock(options: {
                   };
                 }),
               })),
-            })),
           })),
         };
       }
