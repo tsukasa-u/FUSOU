@@ -253,7 +253,7 @@ export async function fetchBattleRecordsByUuid(
     limitRecords: BATTLE_LOOKUP_LIMIT,
     filter: { uuid },
   });
-  return records.filter((r) => String(r?.uuid || "") === uuid);
+  return records.filter((r) => String(r?.["uuid"] || "") === uuid);
 }
 
 export async function resolveDestructionBattleByBattleUuid(
@@ -272,13 +272,13 @@ export async function resolveDestructionBattleByBattleUuid(
   );
 
   const cellWithDestruction = cellRows.find((row) =>
-    typeof row?.destruction_battles === "string"
-      ? row.destruction_battles.length > 0
+    typeof row?.["destruction_battles"] === "string"
+      ? row["destruction_battles"].length > 0
       : false,
   );
   if (!cellWithDestruction) return null;
 
-  const destructionUuid = String(cellWithDestruction.destruction_battles ?? "");
+  const destructionUuid = String(cellWithDestruction["destruction_battles"] ?? "");
   if (!destructionUuid) return null;
 
   const rows = await fetchRecordsByUuid("destruction_battle", destructionUuid, options);
@@ -286,12 +286,12 @@ export async function resolveDestructionBattleByBattleUuid(
 
   if (Number.isFinite(Number(battleIndex))) {
     const byIndex = rows.find(
-      (row) => Number(row?.index ?? Number.NaN) === Number(battleIndex),
+      (row) => Number(row?.["index"] ?? Number.NaN) === Number(battleIndex),
     );
     if (byIndex) return byIndex;
   }
 
-  return [...rows].sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))[0] ?? null;
+  return [...rows].sort((a, b) => Number(a["index"] ?? 0) - Number(b["index"] ?? 0))[0] ?? null;
 }
 
 export async function resolveMidnightHougeki(
