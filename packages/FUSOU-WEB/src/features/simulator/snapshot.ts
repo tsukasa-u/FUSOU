@@ -259,15 +259,15 @@ export function applyExportedFleet(data: Record<string, unknown>) {
   applyFleetArray(data["fleet3"], fleet3);
   applyFleetArray(data["fleet4"], fleet4);
 
-  if (data.snapshotShips && typeof data.snapshotShips === "object") {
-    for (const [k, v] of Object.entries(data.snapshotShips as Record<string, unknown>)) {
+  if (data["snapshotShips"] && typeof data["snapshotShips"] === "object") {
+    for (const [k, v] of Object.entries(data["snapshotShips"] as Record<string, unknown>)) {
       const rec = v as Record<string, unknown>;
       const iid = Number(k);
       if (!Number.isFinite(iid)) continue;
-      const shipId = Number(rec.shipId ?? 0);
-      const level = Number(rec.level ?? 1);
-      const stype = Number(rec.stype ?? 0);
-      const name = typeof rec.name === "string" ? rec.name : `Ship #${shipId}`;
+      const shipId = Number(rec["shipId"] ?? 0);
+      const level = Number(rec["level"] ?? 1);
+      const stype = Number(rec["stype"] ?? 0);
+      const name = typeof rec["name"] === "string" ? rec["name"] : `Ship #${shipId}`;
       if (!Number.isFinite(shipId)) continue;
       setSnapshotShipRecord(iid, {
         shipId,
