@@ -344,6 +344,28 @@ function isSchemaObjectMissingError(error: unknown): boolean {
   return /does not exist/i.test(message);
 }
 
+function getErrorField(error: unknown, field: string): unknown {
+  if (typeof error !== "object" || error === null || !(field in error)) {
+    return undefined;
+  }
+  return Reflect.get(error, field);
+}
+
+function getErrorCode(error: unknown): string | null {
+  const code = getErrorField(error, "code");
+  return typeof code === "string" ? code : null;
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  const message = getErrorField(error, "message");
+  return typeof message === "string" ? message : undefined;
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  const status = getErrorField(error, "status");
+  return typeof status === "number" ? status : undefined;
+}
+
 export function isSupabaseUserNotFoundError(error: unknown): boolean {
   const err = error as {
     status?: unknown;
@@ -805,8 +827,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         console.error(
           "[anonymous-sync-v2/register] signInAnonymously failed:",
           {
-            message: (sessionError as any)?.message,
-            status: (sessionError as any)?.status,
+            message: getErrorMessage(sessionError),
+            status: getErrorStatus(sessionError),
           },
         );
         return c.json({ error: "Failed to create session" }, 500);
@@ -857,7 +879,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           );
         if (insertError) {
           // 23505 = unique_violation. 並行 register でレース敗北したケースを救う。
-          if ((insertError as any).code === "23505") {
+          if (getErrorCode(insertError) === "23505") {
             const { data: winner, error: winnerErr } = await supabaseAdmin
               .from("user_member_map")
               .select("user_id, member_id_hash")
@@ -938,7 +960,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         );
 
       if (ensureUpsertError) {
-        if ((ensureUpsertError as any).code === "23505") {
+        if (getErrorCode(ensureUpsertError) === "23505") {
           const { data: winner, error: winnerErr } = await supabaseAdmin
             .from("user_member_map")
             .select("user_id, member_id_hash")
@@ -1053,7 +1075,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           console.warn(
             "[anonymous-sync-v2/register] user_identity_anchor unavailable; skipping upsert",
           );
-        } else if ((anchorUpsertError as any).code === "23505") {
+        } else if (getErrorCode(anchorUpsertError) === "23505") {
           console.warn(
             "[anonymous-sync-v2/register] recovery id conflict during anchor upsert",
             { canonical_user_id: canonicalUserId },
@@ -1117,7 +1139,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .select("device_id")
         .single();
       if (insertDeviceError) {
-        if ((insertDeviceError as any).code === "23505") {
+        if (getErrorCode(insertDeviceError) === "23505") {
           const { data: winnerDevice, error: winnerDeviceErr } =
             await supabaseAdmin
               .from("user_devices")
@@ -1672,7 +1694,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
           console.warn(
             "[anonymous-sync-v2/refresh] user_identity_anchor unavailable; skipping upsert",
           );
-        } else if ((anchorUpsertErr as any).code === "23505") {
+        } else if (getErrorCode(anchorUpsertErr) === "23505") {
           return c.json({ error: "recovery_id_conflict" }, 409);
         } else {
           console.error(
