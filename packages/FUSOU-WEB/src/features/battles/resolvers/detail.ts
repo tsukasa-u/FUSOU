@@ -232,26 +232,26 @@ function fleetRows(
 ): JsonRecord[] {
   const hpSnapshot = (
     side === "own"
-      ? battle.f_nowhps ?? battle.midnight_f_nowhps
-      : battle.e_nowhps ?? battle.midnight_e_nowhps
+      ? battle["f_nowhps"] ?? battle["midnight_f_nowhps"]
+      : battle["e_nowhps"] ?? battle["midnight_e_nowhps"]
   );
   const candidateGroups = new Map<string, JsonRecord[]>();
   for (const ship of ships) {
-    const group = String(ship.uuid ?? "");
+    const group = String(ship["uuid"] ?? "");
     if (!group) continue;
     const rows = candidateGroups.get(group) ?? [];
     rows.push(ship);
     candidateGroups.set(group, rows);
   }
   for (const rows of candidateGroups.values()) {
-    rows.sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+    rows.sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
   }
 
   let selectedGroups: string[] = [];
   if (side === "own") {
     let bestScore = Number.MAX_SAFE_INTEGER;
     for (const deck of decks) {
-      for (const group of groupIds(deck.ship_ids)) {
+      for (const group of groupIds(deck["ship_ids"])) {
         const score = hpScore(candidateGroups.get(group) ?? [], Array.isArray(hpSnapshot) ? hpSnapshot : []);
         if (score < bestScore) {
           bestScore = score;
@@ -260,16 +260,16 @@ function fleetRows(
       }
     }
   } else {
-    const deckId = String(battle.e_deck_id ?? "");
-    selectedGroups = groupIds(decks.find((row) => String(row.uuid ?? "") === deckId)?.ship_ids);
+    const deckId = String(battle["e_deck_id"] ?? "");
+    selectedGroups = groupIds(decks.find((row) => String(row["uuid"] ?? "") === deckId)?.["ship_ids"]);
   }
   const shipGroups = new Set(selectedGroups);
   const groupRows = ships
-    .filter((row) => shipGroups.has(String(row.uuid ?? "")))
-    .sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+    .filter((row) => shipGroups.has(String(row["uuid"] ?? "")))
+    .sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
   const slotsByGroup = new Map<string, JsonRecord[]>();
   for (const row of slotItems) {
-    const group = String(row.uuid ?? "");
+    const group = String(row["uuid"] ?? "");
     if (!group) continue;
     const current = slotsByGroup.get(group) ?? [];
     current.push(row);
@@ -277,7 +277,7 @@ function fleetRows(
   }
   return groupRows.map((row) => ({
     ...row,
-    slot_items: typeof row.slot === "string" ? slotsByGroup.get(row.slot) ?? [] : [],
+    slot_items: typeof row["slot"] === "string" ? slotsByGroup.get(row["slot"]) ?? [] : [],
   }));
 }
 
