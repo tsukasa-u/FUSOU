@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { Bindings, D1Database } from "../types";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { getSynergyManifestR2Keys } from "../types/synergy";
@@ -2252,7 +2252,7 @@ async function staleMarkAllPeriodsSnapshot(
 // ── Cache helper ───────────────────────────────────────────────────
 
 async function putShipGrowthCache(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   cache: Cache,
   cacheKey: Request,
   response: Response,
@@ -2262,7 +2262,7 @@ async function putShipGrowthCache(
 }
 
 function scheduleShipGrowthTask(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   task: Promise<unknown>,
 ): void {
   safeWaitUntil(c, task);
