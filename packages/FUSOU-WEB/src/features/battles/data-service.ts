@@ -823,27 +823,27 @@ export async function resolveEnemyFleet(
 
   const ships: ShipInfo[] = [];
   for (const ship of allShips) {
-    const mstId = Number(ship.mst_ship_id ?? 0) || null;
+    const mstId = Number(ship["mst_ship_id"] ?? 0) || null;
     const mstShip = mstId ? mstShipById.get(mstId) : null;
-    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotGroupId = typeof ship["slot"] === "string" ? ship["slot"] : null;
     const slotRows = slotGroupId ? slotRowsByUuid.get(slotGroupId) || [] : [];
     const equips = slotRows
-      .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .filter((row) => Number(row["mst_slotitem_id"] ?? -1) > 0)
+      .sort((a, b) => Number(a["index"] ?? 0) - Number(b["index"] ?? 0))
       .map((row) => {
-        const slotId = Number(row.mst_slotitem_id ?? 0) || null;
+        const slotId = Number(row["mst_slotitem_id"] ?? 0) || null;
         const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
         const iconType =
-          Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
-          ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
+          Array.isArray((mstSlot as Record<string, unknown>)?.["type"]) &&
+          ((mstSlot as Record<string, unknown>)["type"] as unknown[]).length >= 4
             ? Number(
-                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ??
+                ((mstSlot as Record<string, unknown>)["type"] as unknown[])[3] ??
                   0,
               ) || null
             : null;
         return {
-          name: (mstSlot as Record<string, unknown>)?.name
-            ? String((mstSlot as Record<string, unknown>).name)
+          name: (mstSlot as Record<string, unknown>)?.["name"]
+            ? String((mstSlot as Record<string, unknown>)["name"])
             : `装備ID:${slotId}`,
           level: null,
           iconType,
