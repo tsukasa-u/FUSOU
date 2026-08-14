@@ -1147,7 +1147,7 @@ export function buildTimelineEvents(
       );
     }
     // Friendly force attack (after day battle, before midnight)
-    const ffaFallback = battle.friendly_force_attack as any;
+    const ffaFallback = battle["friendly_force_attack"] as any;
     if (ffaFallback?.support_hourai?.hougeki) {
       const ffShipIds: number[] = Array.isArray(
         ffaFallback?.fleet_info?.ship_id,
@@ -1159,8 +1159,8 @@ export function buildTimelineEvents(
         string,
         unknown
       >;
-      const atList = Array.isArray(hougeki.at_list)
-        ? (hougeki.at_list as unknown[])
+      const atList = Array.isArray(hougeki["at_list"])
+        ? (hougeki["at_list"] as unknown[])
         : [];
       const rows = normalizeShellingRows(ffaFallback.support_hourai.hougeki);
       const ffNowHps = Array.isArray(ffaFallback?.fleet_info?.now_hps)
@@ -1170,7 +1170,7 @@ export function buildTimelineEvents(
         ? (ffaFallback.fleet_info.max_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
         : [];
 
-      extractShellingEvents(rows, PHASE_NAMES.FriendlyForceAttack, {
+      extractShellingEvents(rows, PHASE_NAMES["FriendlyForceAttack"], {
         actorRole: "friendly_force",
         affectsHp: true,
         friendlyForceNowHps: ffNowHps,
@@ -1181,16 +1181,18 @@ export function buildTimelineEvents(
         let rowEventIdx = beforeCount;
         for (let ri = 0; ri < rows.length; ri++) {
           const row = rows[ri] as Record<string, unknown>;
-          const at0 = Number(row.at ?? atList[ri] ?? -1);
+          const at0 = Number(row["at"] ?? atList[ri] ?? -1);
           const mstId =
             at0 >= 0 && at0 < ffShipIds.length
               ? (ffShipIds[at0] ?? undefined)
               : undefined;
-          const defs = Array.isArray(row.df) ? (row.df as unknown[]) : [];
-          const eHpsList = Array.isArray(row.e_now_hps)
-            ? (row.e_now_hps as unknown[])
-            : Array.isArray(row.e_nowhps)
-              ? (row.e_nowhps as unknown[])
+          const defs = Array.isArray(row["df"])
+            ? (row["df"] as unknown[])
+            : [];
+          const eHpsList = Array.isArray(row["e_now_hps"])
+            ? (row["e_now_hps"] as unknown[])
+            : Array.isArray(row["e_nowhps"])
+              ? (row["e_nowhps"] as unknown[])
               : [];
           const defenderLimit = eHpsList.length;
 
