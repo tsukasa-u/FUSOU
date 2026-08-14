@@ -30,7 +30,7 @@ export function buildBattleDropsPayload(args: {
     success: true,
     period_tag: args.periodTag,
     table_version: args.tableVersion || null,
-    master_data: args.masterData,
+    ...(args.masterData === undefined ? {} : { master_data: args.masterData }),
     battles: summaries,
     mst_ships: args.mstShips.filter((ship) =>
       dropShipIds.has(Number(ship["id"] ?? 0)),

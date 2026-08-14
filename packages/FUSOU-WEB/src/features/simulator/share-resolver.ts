@@ -34,7 +34,8 @@ function extractShortKey(input: string): string | null {
     const match = parsed.pathname.match(
       /^\/(?:s|share\/short)\/([0-9a-f]{16})$/,
     );
-    if (match) return match[1];
+    const key = match?.[1];
+    if (key !== undefined) return key;
   } catch {
     /* not a URL */
   }

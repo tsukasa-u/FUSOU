@@ -46,8 +46,12 @@ function cloneFleetSlot(slot: FleetSlot): FleetSlot {
     equipIds: [...slot.equipIds],
     equipImprovement: [...slot.equipImprovement],
     equipProficiency: [...slot.equipProficiency],
-    statOverrides: slot.statOverrides ? { ...slot.statOverrides } : undefined,
-    instanceStats: slot.instanceStats ? { ...slot.instanceStats } : undefined,
+    ...(slot.statOverrides === undefined
+      ? {}
+      : { statOverrides: { ...slot.statOverrides } }),
+    ...(slot.instanceStats === undefined
+      ? {}
+      : { instanceStats: { ...slot.instanceStats } }),
   };
 }
 

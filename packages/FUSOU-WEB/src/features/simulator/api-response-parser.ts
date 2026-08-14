@@ -139,7 +139,9 @@ export function convertPortToSnapshot(portJson: Record<string, unknown>): {
     s3s: dp.api_ship,
   }));
 
-  return { s3s, d8k, combinedFlag: combinedFlag ?? undefined };
+  return combinedFlag === undefined
+    ? { s3s, d8k }
+    : { s3s, d8k, combinedFlag };
 }
 
 /**
