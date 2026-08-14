@@ -34,8 +34,7 @@ export function validateOffsetMetadata(
     return { valid: false, errors };
   }
 
-  for (let i = 0; i < offsets.length; i++) {
-    const current = offsets[i];
+  for (const [i, current] of offsets.entries()) {
 
     if (typeof current.start_byte !== 'number' || typeof current.byte_length !== 'number') {
       errors.push(`Table '${current.table_name}' has non-numeric offsets`);
@@ -57,6 +56,7 @@ export function validateOffsetMetadata(
 
     for (let j = i + 1; j < offsets.length; j++) {
       const other = offsets[j];
+      if (!other) continue;
       const otherEnd = other.start_byte + other.byte_length;
 
       const overlap = !(endByte <= other.start_byte || current.start_byte >= otherEnd);
