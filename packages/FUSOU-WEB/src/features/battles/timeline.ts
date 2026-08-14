@@ -1250,8 +1250,12 @@ export function buildInitialHps(battle: Record<string, unknown>): {
   fInit: number[];
   eInit: number[];
 } {
-  const fInit = shiftHpArray((battle.f_nowhps ?? battle.midnight_f_nowhps ?? []) as number[]);
-  const eInit = shiftHpArray((battle.e_nowhps ?? battle.midnight_e_nowhps ?? []) as number[]);
+  const fInit = shiftHpArray(
+    (battle["f_nowhps"] ?? battle["midnight_f_nowhps"] ?? []) as number[],
+  );
+  const eInit = shiftHpArray(
+    (battle["e_nowhps"] ?? battle["midnight_e_nowhps"] ?? []) as number[],
+  );
   return { fInit, eInit };
 }
 
