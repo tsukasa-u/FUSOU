@@ -913,15 +913,21 @@ export function buildTimelineEvents(
     }
     if (
       !presentKeys.has("OpeningRaigeki") &&
-      hasRaigekiActivity(battle.opening_raigeki)
+      hasRaigekiActivity(battle["opening_raigeki"])
     ) {
-      extractRaigekiEvents(battle.opening_raigeki, PHASE_NAMES.OpeningRaigeki);
+      extractRaigekiEvents(
+        battle["opening_raigeki"],
+        PHASE_NAMES["OpeningRaigeki"],
+      );
     }
     if (
       !presentKeys.has("ClosingRaigeki") &&
-      hasRaigekiActivity(battle.closing_raigeki)
+      hasRaigekiActivity(battle["closing_raigeki"])
     ) {
-      extractRaigekiEvents(battle.closing_raigeki, PHASE_NAMES.ClosingRaigeki);
+      extractRaigekiEvents(
+        battle["closing_raigeki"],
+        PHASE_NAMES["ClosingRaigeki"],
+      );
     }
   } else {
     // Air base / carrier base assaults (processed first in battle flow)
@@ -1113,8 +1119,11 @@ export function buildTimelineEvents(
         });
       }
     }
-    if (battle.opening_raigeki) {
-      extractRaigekiEvents(battle.opening_raigeki, PHASE_NAMES.OpeningRaigeki);
+    if (battle["opening_raigeki"]) {
+      extractRaigekiEvents(
+        battle["opening_raigeki"],
+        PHASE_NAMES["OpeningRaigeki"],
+      );
     }
     if (battle.hougeki) {
       const rows = Array.isArray(battle.hougeki)
@@ -1124,8 +1133,11 @@ export function buildTimelineEvents(
         extractShellingEvents(normalizeShellingRows(h), PHASE_NAMES.Hougeki);
       });
     }
-    if (battle.closing_raigeki) {
-      extractRaigekiEvents(battle.closing_raigeki, PHASE_NAMES.ClosingRaigeki);
+    if (battle["closing_raigeki"]) {
+      extractRaigekiEvents(
+        battle["closing_raigeki"],
+        PHASE_NAMES["ClosingRaigeki"],
+      );
     }
     // Friendly force attack (after day battle, before midnight)
     const ffaFallback = battle.friendly_force_attack as any;
