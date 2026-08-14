@@ -18,6 +18,7 @@ import {
   MasterDataInsertedRevisionRowSchema,
   MasterDataJsonLookupRowSchema,
   MasterDataNextRevisionRowSchema,
+  parseMasterDataJsonRecords,
 } from "../schemas/master-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -1086,35 +1087,40 @@ app.get("/json", async (c) => {
       try {
         const cachedStr = await kv.get(cacheKey);
         if (cachedStr) {
-          const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
-          const records =
-            requestedRecordId == null
-              ? decodedRecords
-              : decodedRecords.filter((row) => {
-                  const rowId =
-                    typeof row.id === "number"
-                      ? row.id
-                      : typeof row.api_id === "number"
-                        ? row.api_id
-                        : null;
-                  return rowId === requestedRecordId;
-                });
-          
-          return c.json(
-            {
-              table_name: tableName,
-              table_version,
-              period_tag,
-              period_revision,
-              count: records.length,
-              records,
-            },
-            200,
-            {
-              "Cache-Control": cacheControl,
-              ...CORS_HEADERS,
-            },
+          const decodedRecords = parseMasterDataJsonRecords(
+            JSON.parse(cachedStr),
           );
+          if (decodedRecords) {
+            const records =
+              requestedRecordId == null
+                ? decodedRecords
+                : decodedRecords.filter((row) => {
+                    const rowId =
+                      typeof row.id === "number"
+                        ? row.id
+                        : typeof row.api_id === "number"
+                          ? row.api_id
+                          : null;
+                    return rowId === requestedRecordId;
+                  });
+
+            return c.json(
+              {
+                table_name: tableName,
+                table_version,
+                period_tag,
+                period_revision,
+                count: records.length,
+                records,
+              },
+              200,
+              {
+                "Cache-Control": cacheControl,
+                ...CORS_HEADERS,
+              },
+            );
+          }
+          console.warn(`[master-data] KV cache has invalid records: ${cacheKey}`);
         }
       } catch (kvErr) {
         console.warn(`[master-data] KV read failed for ${cacheKey}:`, kvErr);
@@ -1153,9 +1159,12 @@ app.get("/json", async (c) => {
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
-    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
-      Record<string, unknown>
-    >;
+    const decodedRecords = parseMasterDataJsonRecords(
+      decodeAvroOcfToJson(avroBytes),
+    );
+    if (!decodedRecords) {
+      throw new Error("Decoded master data payload is not a record array");
+    }
     const records =
       requestedRecordId == null
         ? decodedRecords

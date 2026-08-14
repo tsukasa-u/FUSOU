@@ -3,6 +3,7 @@ import {
   MasterDataDedupeRowSchema,
   MasterDataInsertedRevisionRowSchema,
   MasterDataJsonLookupRowSchema,
+  parseMasterDataJsonRecords,
   MasterDataNextRevisionRowSchema,
 } from "../master-data";
 
@@ -89,5 +90,24 @@ describe("MasterDataJsonLookupRowSchema", () => {
       }).success,
     ).toBe(false);
     expect(MasterDataJsonLookupRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("parseMasterDataJsonRecords", () => {
+  it("accepts record arrays and preserves extra fields", () => {
+    expect(
+      parseMasterDataJsonRecords([
+        { id: 1, name: "ship", extra: true },
+        { api_id: 2 },
+      ]),
+    ).toEqual([
+      { id: 1, name: "ship", extra: true },
+      { api_id: 2 },
+    ]);
+  });
+
+  it("rejects non-arrays and malformed rows", () => {
+    expect(parseMasterDataJsonRecords({ id: 1 })).toBeNull();
+    expect(parseMasterDataJsonRecords([{ id: 1 }, null])).toBeNull();
   });
 });

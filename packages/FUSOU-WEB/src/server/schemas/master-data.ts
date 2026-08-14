@@ -31,3 +31,21 @@ export const MasterDataJsonLookupRowSchema = z
     r2_key: z.string().min(1),
   })
   .passthrough();
+
+export const MasterDataJsonRecordSchema = z.record(
+  z.string(),
+  z.unknown(),
+);
+
+export function parseMasterDataJsonRecords(
+  value: unknown,
+): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(value)) return null;
+  const records: Array<Record<string, unknown>> = [];
+  for (const row of value) {
+    const parsed = MasterDataJsonRecordSchema.safeParse(row);
+    if (!parsed.success) return null;
+    records.push(parsed.data);
+  }
+  return records;
+}
