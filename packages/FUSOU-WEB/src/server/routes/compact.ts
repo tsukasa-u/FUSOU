@@ -52,7 +52,7 @@ app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS
 app.post('/sanitize-state', async (c) => {
   try {
     const env = createEnvContext(c);
-    const db = env.runtime.BATTLE_INDEX_DB;
+    const db = env.runtime["BATTLE_INDEX_DB"];
 
     if (!db) {
       return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
@@ -114,16 +114,16 @@ app.post('/sanitize-state', async (c) => {
     console.info(`[compact-sanitize] About to enqueue dataset`, {
       datasetId,
       datasetName: ds.dataset_name,
-      queueExists: !!env.runtime.COMPACTION_QUEUE,
+      queueExists: !!env.runtime["COMPACTION_QUEUE"],
     });
 
     try {
-      if (!env.runtime.COMPACTION_QUEUE) {
+      if (!env.runtime["COMPACTION_QUEUE"]) {
         console.warn('[compact-sanitize] COMPACTION_QUEUE binding not available');
         return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
       }
       console.info(`[compact-sanitize] Calling env.runtime.COMPACTION_QUEUE.send()...`);
-      const sendResult = await env.runtime.COMPACTION_QUEUE.send({
+      const sendResult = await env.runtime["COMPACTION_QUEUE"].send({
         datasetId,
         triggeredAt: new Date().toISOString(),
         priority: 'manual',
@@ -182,7 +182,7 @@ app.post('/trigger-scheduled', async (c) => {
       return c.json({ error: check.error }, check.status);
     }
 
-    const db = env.runtime.BATTLE_INDEX_DB;
+    const db = env.runtime["BATTLE_INDEX_DB"];
 
     if (!db) {
       return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
@@ -217,10 +217,10 @@ app.post('/trigger-scheduled', async (c) => {
     // ===== Batch queue operations with retry logic =====
     console.info(`[compact-scheduled] Step: About to enqueue ${datasetRows.length} datasets`, {
       datasetIds: datasetRows.map((d) => d.id),
-      queueExists: !!env.runtime.COMPACTION_QUEUE,
+      queueExists: !!env.runtime["COMPACTION_QUEUE"],
     });
 
-    if (!env.runtime.COMPACTION_QUEUE) {
+    if (!env.runtime["COMPACTION_QUEUE"]) {
       console.warn('[compact-scheduled] COMPACTION_QUEUE binding not available');
       return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
     }
@@ -228,7 +228,7 @@ app.post('/trigger-scheduled', async (c) => {
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
     const enqueuePromises = datasetRows.map((dataset) =>
-      env.runtime.COMPACTION_QUEUE.send({
+      env.runtime["COMPACTION_QUEUE"].send({
         datasetId: dataset.id,
         triggeredAt: new Date().toISOString(),
         priority: 'scheduled',
