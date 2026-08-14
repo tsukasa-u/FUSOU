@@ -50,6 +50,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const getMapInfoName = (mapKey: string) => {
     const [area, no] = mapKey.split("-");
+    if (area === undefined || no === undefined) return resolveMapInfoName(mapKey);
     const fromApi = mstMapinfos().find(m => String(m.maparea_id) === area && String(m.no) === no);
     if (fromApi?.name) return fromApi.name;
     return resolveMapInfoName(mapKey);
@@ -82,8 +83,8 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
               cellId,
               x,
               y,
-              lineOffsetX: Number.isFinite(lineOffsetX) ? lineOffsetX : undefined,
-              lineOffsetY: Number.isFinite(lineOffsetY) ? lineOffsetY : undefined,
+              ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
+              ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
             } satisfies MapSpot;
           })
           .filter((s: MapSpot | null): s is MapSpot => s !== null);
@@ -253,6 +254,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     for (const [mapKey, stats] of mapStats.entries()) {
       if (mapKey === "-" || mapKey === "0-0") continue;
       const areaId = mapKey.split("-")[0];
+      if (areaId === undefined) continue;
       if (!grouped.has(areaId)) {
         grouped.set(areaId, { areaId, maps: [], totalAreaDrops: 0 });
       }
