@@ -282,21 +282,21 @@ export function convertGetDataToMasterData(json: Record<string, unknown>): Recor
   }
 
   // ── Equipment compatibility per ship ──
-  if (Array.isArray(data.api_mst_equip_ship)) {
-    result.mst_equip_ships = (data.api_mst_equip_ship as Record<string, unknown>[]).map((s) => ({
-      ship_id: s.api_ship_id,
-      equip_type: s.api_equip_type ?? {},
+  if (Array.isArray(data["api_mst_equip_ship"])) {
+    result["mst_equip_ships"] = (data["api_mst_equip_ship"] as Record<string, unknown>[]).map((s) => ({
+      ship_id: s["api_ship_id"],
+      equip_type: s["api_equip_type"] ?? {},
     }));
   }
 
   // ── Exslot equipment IDs ──
-  if (data.api_mst_equip_exslot && typeof data.api_mst_equip_exslot === "object") {
-    const raw = data.api_mst_equip_exslot as Record<string, unknown>;
+  if (data["api_mst_equip_exslot"] && typeof data["api_mst_equip_exslot"] === "object") {
+    const raw = data["api_mst_equip_exslot"] as Record<string, unknown>;
     const arr: { equip: number }[] = [];
     for (const [k, _v] of Object.entries(raw)) {
       arr.push({ equip: Number(k) });
     }
-    result.mst_equip_exslots = arr;
+    result["mst_equip_exslots"] = arr;
   }
 
   // ── Exslot ship restrictions ──
