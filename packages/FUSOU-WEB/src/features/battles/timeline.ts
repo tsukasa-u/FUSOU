@@ -673,9 +673,9 @@ export function buildTimelineEvents(
           });
         }
       } else if (key === "OpeningRaigeki") {
-        extractRaigekiEvents(battle.opening_raigeki, phaseLabel);
+        extractRaigekiEvents(battle["opening_raigeki"], phaseLabel);
       } else if (key === "ClosingRaigeki") {
-        extractRaigekiEvents(battle.closing_raigeki, phaseLabel);
+        extractRaigekiEvents(battle["closing_raigeki"], phaseLabel);
       } else if (
         key === "AirBaseAirAttack" ||
         key === "AirBaseAssult" ||
