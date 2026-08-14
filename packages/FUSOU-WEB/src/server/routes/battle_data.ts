@@ -11,7 +11,10 @@ import {
 } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
-import { decodeAvroOcfToJson } from "../utils/avro-decoder";
+import {
+  decodeAvroOcfToJson,
+  type AvroJsonRecord,
+} from "../utils/avro-decoder";
 import {
   validateAvroOCFSmart,
   extractSchemaFromOCF,
@@ -609,7 +612,7 @@ async function decodeIndexedBlock(
   filePath: string,
   startByte: number,
   length: number,
-): Promise<any[]> {
+): Promise<AvroJsonRecord[]> {
   if (startByte < 0 || length <= 0) {
     return [];
   }
@@ -1909,12 +1912,12 @@ app.get("/global/records", async (c) => {
               error: String(err),
             },
           );
-          return [] as any[];
+          return [];
         }),
       ),
     );
 
-    const decodedRecords: any[] = [];
+    const decodedRecords: AvroJsonRecord[] = [];
     let recordsLimitReached = false;
     outer: for (const recs of decodedBlocks) {
       for (const rec of recs) {
