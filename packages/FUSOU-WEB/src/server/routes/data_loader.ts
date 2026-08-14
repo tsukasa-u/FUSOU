@@ -13,6 +13,10 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
+import {
+  VerifyDeviceRequestSchema,
+  VerifyGoogleRequestSchema,
+} from "../schemas/data-loader";
 import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
 
 import { createEnvContext, getEnv, type EnvContext } from "../utils";
@@ -1547,9 +1551,9 @@ app.post("/verify", async (c) => {
     }
   }
 
-  let body: { code?: string };
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse(
       { error: "INVALID_BODY", message: "Invalid JSON body" },
@@ -1557,7 +1561,15 @@ app.post("/verify", async (c) => {
     );
   }
 
-  const { code } = body;
+  const parsedBody = VerifyDeviceRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse(
+      { error: "INVALID_BODY", message: "Invalid JSON body" },
+      400,
+    );
+  }
+
+  const { code } = parsedBody.data;
   if (!code) {
     return jsonResponse(
       { error: "MISSING_CODE", message: "Verification code is required" },
@@ -1646,9 +1658,9 @@ app.post("/verify-google", async (c) => {
     }
   }
 
-  let body: { email?: string; google_token?: string };
+  let rawBody: unknown;
   try {
-    body = await c.req.json();
+    rawBody = await c.req.json();
   } catch {
     return jsonResponse(
       { error: "INVALID_BODY", message: "Invalid JSON body" },
@@ -1656,7 +1668,15 @@ app.post("/verify-google", async (c) => {
     );
   }
 
-  const { email: _unusedEmail, google_token } = body;
+  const parsedBody = VerifyGoogleRequestSchema.safeParse(rawBody);
+  if (!parsedBody.success) {
+    return jsonResponse(
+      { error: "INVALID_BODY", message: "Invalid JSON body" },
+      400,
+    );
+  }
+
+  const { google_token } = parsedBody.data;
 
   // google_token is required — accepting a client-supplied email without proof of
   // ownership would allow any API key holder to register arbitrary devices by simply
