@@ -69,6 +69,7 @@
     "@astrojs/cloudflare": "^14.1.4",
     "@dagrejs/dagre": "^2.0.4",
     "@fusou/avro-wasm": "workspace:*",
+    "@fusou/compaction-core": "workspace:*",
     "@nanostores/persistent": "^1.2.0",
     "@nanostores/solid": "^1.1.1",
     "@supabase/supabase-js": "2.86.0",

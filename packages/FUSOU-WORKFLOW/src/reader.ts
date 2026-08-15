@@ -26,8 +26,8 @@ import {
   getAvroHeaderLengthFromPrefix,
   parseDeflateAvroBlock,
   parseNullAvroBlock,
-} from "./avro-manual";
-import { computeSchemaFingerprint } from "./avro-manual";
+} from "@fusou/compaction-core";
+import { computeSchemaFingerprint } from "./avro-builders";
 import { fetchHotData as fetchTursoHotData, BufferLogRecord } from "./db";
 import {
   AvroSchemaSchema,

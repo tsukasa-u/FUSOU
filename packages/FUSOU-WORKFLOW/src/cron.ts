@@ -16,7 +16,7 @@ import {
   mergeAvroOCFWithBoundaries,
   MergeResult,
 } from "@fusou/compaction-core";
-import { getAvroHeaderLengthFromPrefix } from "./avro-manual";
+import { getAvroHeaderLengthFromPrefix } from "@fusou/compaction-core";
 import {
   fetchProcessingBufferedData,
   cleanupProcessingBuffer,

@@ -4,6 +4,8 @@ export interface MergeResult {
   headerSize: number;
 }
 
+export * from "./avro.js";
+
 interface OCFHeader {
   metadataEnd: number;
   syncMarker: Uint8Array;
