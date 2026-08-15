@@ -124,54 +124,6 @@ export default defineConfig({
       // wasm(),
       // topLevelAwait(),
     ],
-    define: {
-      "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
-        process.env["PUBLIC_SUPABASE_URL"],
-      ),
-      "process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
-        process.env["PUBLIC_SUPABASE_PUBLISHABLE_KEY"],
-      ),
-      "process.env.SUPABASE_SECRET_KEY": JSON.stringify(
-        process.env["SUPABASE_SECRET_KEY"],
-      ),
-      "process.env.PUBLIC_SITE_URL": JSON.stringify(effectivePublicSiteUrl),
-      "process.env.ASSET_BASE_URL": JSON.stringify(
-        process.env["ASSET_BASE_URL"] || "",
-      ),
-      "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
-        process.env["PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN"],
-      ),
-      "process.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
-        process.env["ASSET_UPLOAD_SIGNING_SECRET"],
-      ),
-      "process.env.MASTER_DATA_SIGNING_SECRET": JSON.stringify(
-        process.env["MASTER_DATA_SIGNING_SECRET"],
-      ),
-      "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
-        process.env["FLEET_SNAPSHOT_SIGNING_SECRET"],
-      ),
-      "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
-        process.env["BATTLE_DATA_SIGNING_SECRET"],
-      ),
-      "process.env.QUEST_TREE_SIGNING_SECRET": JSON.stringify(
-        process.env["QUEST_TREE_SIGNING_SECRET"],
-      ),
-      "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
-        process.env["BATTLE_DATA_SIGNED_URL_SECRET"],
-      ),
-      "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
-        process.env["GOOGLE_CLIENT_ID"],
-      ),
-      "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
-        process.env["GOOGLE_CLIENT_SECRET"],
-      ),
-      "process.env.RESEND_API_KEY": JSON.stringify(
-        process.env["RESEND_API_KEY"],
-      ),
-      "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
-        process.env["DATASET_TOKEN_SECRET"],
-      ),
-    },
     resolve: {
       // @ts-ignore
       alias: {
