@@ -7,6 +7,7 @@ import {
 } from "@/server/schemas/shortener";
 import type { SnapshotPayload } from "@/server/schemas/shortener";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { isAllowedHost, parseAllowedHosts } from "@/server/utils/host-allowlist";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -105,28 +106,8 @@ async function requestShortener(
   };
 }
 
-function parseAllowedHosts(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => {
-      if (entry.includes("://")) {
-        try {
-          return new URL(entry).hostname.toLowerCase();
-        } catch {
-          return "";
-        }
-      }
-      return entry.replace(/^\*\./, "");
-    })
-    .filter((entry) => entry.length > 0);
-}
-
 function resolveAllowedHosts(
   envCtx: ReturnType<typeof createEnvContext>,
-  requestUrl: string,
 ): Set<string> {
   const allowed = new Set<string>();
 
@@ -139,12 +120,6 @@ function resolveAllowedHosts(
     }
   }
 
-  try {
-    allowed.add(new URL(requestUrl).hostname.toLowerCase());
-  } catch {
-    // Ignore parse error.
-  }
-
   for (const host of parseAllowedHosts(
     getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"),
   )) {
@@ -154,29 +129,18 @@ function resolveAllowedHosts(
   return allowed;
 }
 
-function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
-  const normalized = hostname.toLowerCase();
-  if (allowedHosts.has(normalized)) return true;
-  for (const allowed of allowedHosts) {
-    if (normalized.endsWith(`.${allowed}`)) return true;
-  }
-  return false;
-}
-
 function normalizeShareTargetUrl(
   value: string,
   allowedHosts: Set<string>,
-  siteOrigin: string,
 ): string | null {
   try {
     const parsed = new URL(value);
-    let siteProtocol = "https:";
-    try {
-      siteProtocol = new URL(siteOrigin).protocol;
-    } catch {
-      /* ignore */
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== siteProtocol)
+    const isLocalHttp =
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "[::1]");
+    if (parsed.protocol !== "https:" && !isLocalHttp)
       return null;
     if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
 
@@ -212,7 +176,7 @@ app.post("/", async (c) => {
     | Fetcher
     | undefined;
   const currentOrigin = new URL(c.req.url).origin;
-  const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
+  const allowedHosts = resolveAllowedHosts(envCtx);
 
   const originHeader = c.req.header("Origin");
   if (!originHeader || originHeader !== currentOrigin) {
@@ -322,7 +286,6 @@ app.post("/", async (c) => {
   const normalizedUrl = normalizeShareTargetUrl(
     url,
     allowedHosts,
-    currentOrigin,
   );
   if (!normalizedUrl) {
     return c.json(
@@ -376,7 +339,7 @@ app.post("/", async (c) => {
 
 app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
   const envCtx = createEnvContext(c);
-  const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
+  const allowedHosts = resolveAllowedHosts(envCtx);
   const shortenerService = envCtx.runtime["SHORTENER_SERVICE"] as
     | Fetcher
     | undefined;
@@ -450,7 +413,6 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
     ? normalizeShareTargetUrl(
         originalUrl,
         allowedHosts,
-        new URL(c.req.url).origin,
       )
     : null;
   if (!safeOriginalUrl) {
