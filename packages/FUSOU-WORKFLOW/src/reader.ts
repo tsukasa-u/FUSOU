@@ -27,7 +27,7 @@ import {
   parseDeflateAvroBlock,
   parseNullAvroBlock,
 } from "@fusou/compaction-core";
-import { computeSchemaFingerprint } from "./avro-builders";
+import { computeSchemaFingerprint } from "./avro-builders.js";
 import { fetchHotData as fetchTursoHotData, BufferLogRecord } from "./db";
 import {
   AvroSchemaSchema,

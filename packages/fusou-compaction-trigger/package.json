@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --dir ../fusou-compaction-core build && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:config": "tsc -p tsconfig.trigger.config.json --noEmit",
     "test": "pnpm run build && node test/internal-api-smoke.mjs && node --test test/reconciliation-classification.mjs",

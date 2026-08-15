@@ -27,6 +27,6 @@ export {
   buildOCFWithSchema,
   computeSchemaFingerprint,
   encodeRecordWithSchema,
-} from "./avro-builders";
+} from "./avro-builders.js";
 
-export type { AvroSchemaInput } from "./avro-builders";
+export type { AvroSchemaInput } from "./avro-builders.js";
