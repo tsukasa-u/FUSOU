@@ -22,18 +22,26 @@ interface AirDamageProps {
 export function AirBaseAirAttackComponent(props: AirDamageProps) {
   const [air_bases] = useAirBasesBattles();
 
+  const air_base_attacks = createMemo<AirBaseAirAttack[]>(() => {
+    const raw_attacks = props.battle_selected()?.air_base_air_attacks as
+      | AirBaseAirAttack[]
+      | { attacks?: AirBaseAirAttack[] }
+      | undefined;
+    if (!raw_attacks) return [];
+    if (Array.isArray(raw_attacks)) return raw_attacks;
+    if (Array.isArray(raw_attacks.attacks)) return raw_attacks.attacks;
+    return [];
+  });
+
   const show_air_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;
-    if (!props.battle_selected()?.air_base_air_attacks) return false;
-    return true;
+    return air_base_attacks().length > 0;
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
     const show_damage: boolean[][] = [];
     if (!show_air_attack()) return show_damage;
-    props
-      .battle_selected()
-      ?.air_base_air_attacks?.attacks.forEach((attack, attack_idx) => {
+    air_base_attacks().forEach((attack, attack_idx) => {
         show_damage.push(new Array(12).fill(false));
         if (attack.e_damage.bak_flag) {
           attack.e_damage.bak_flag.forEach((flag, idx) => {
@@ -77,8 +85,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   };
 
   const attacker_planes = (attack: AirBaseAirAttack) => {
+    const base_id = Number(attack.base_id ?? 0);
     const f_plane_list = air_bases.bases[
-      (props.area_id << 16) | attack.base_id
+      (props.area_id << 16) | base_id
     ]?.plane_info.filter((palne) => palne.slotid != 0);
     return (
       <td>
@@ -214,7 +223,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
               </thead>
               <tbody>
                 <For
-                  each={props.battle_selected()?.air_base_air_attacks?.attacks}
+                  each={air_base_attacks()}
                 >
                   {(attack, attack_idx) => (
                     <>
