@@ -12,7 +12,12 @@ import {
   getMasterShip,
   getSokuSpeedData,
 } from "./simulator-selectors";
-import type { EffectRule, CrossRule, SlotItemEffectsData } from "./types";
+import type {
+  CrossRule,
+  EffectRule,
+  MultiItemRule,
+  SlotItemEffectsData,
+} from "./types";
 
 /** Binomial coefficient C(n, k). */
 function choose(n: number, k: number): number {
@@ -211,7 +216,7 @@ export function computeSuppressedEquipIds(
   const equippedSet = new Set(allIds);
 
   const checkMultiRule = (
-    rule: any,
+    rule: MultiItemRule,
     comboSize: number,
   ) => {
     if (!rule.ships.includes(shipId)) return;

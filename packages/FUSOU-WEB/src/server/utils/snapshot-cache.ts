@@ -1,3 +1,5 @@
+import type { KVNamespace } from "@cloudflare/workers-types";
+
 export type SnapshotCacheStatus =
   | "HIT"
   | "REFRESHED"

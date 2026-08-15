@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings, D1Database } from "../types";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { getSynergyManifestR2Keys } from "../types/synergy";

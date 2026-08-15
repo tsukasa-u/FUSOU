@@ -1,4 +1,5 @@
 import { CACHE_TTL_SECONDS } from "../constants";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { D1Database } from "../types";
 
 const ASSET_INDEX_SCHEMA_VERSION = 1;

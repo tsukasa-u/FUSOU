@@ -1293,17 +1293,18 @@ app.get("/exists", async (c) => {
     return c.json({
       exists: true,
       data: {
-        id: result.id,
-        period_tag: result.period_tag,
-        table_version: result.table_version,
-        period_revision: result.period_revision,
-        table_count: result.table_count,
-        table_offsets: result.table_offsets
-          ? JSON.parse(result.table_offsets)
-          : [],
-        upload_status: result.upload_status,
-        created_at: result.created_at,
-        completed_at: result.completed_at,
+        id: result["id"],
+        period_tag: result["period_tag"],
+        table_version: result["table_version"],
+        period_revision: result["period_revision"],
+        table_count: result["table_count"],
+        table_offsets:
+          typeof result["table_offsets"] === "string"
+            ? JSON.parse(result["table_offsets"])
+            : [],
+        upload_status: result["upload_status"],
+        created_at: result["created_at"],
+        completed_at: result["completed_at"],
       },
     });
   } catch (err) {
@@ -1372,17 +1373,18 @@ app.get("/latest", async (c) => {
     return c.json({
       exists: true,
       data: {
-        id: result.id,
-        period_tag: result.period_tag,
-        table_version: result.table_version,
-        period_revision: result.period_revision,
-        table_count: result.table_count,
-        table_offsets: result.table_offsets
-          ? JSON.parse(result.table_offsets)
-          : [],
-        upload_status: result.upload_status,
-        created_at: result.created_at,
-        completed_at: result.completed_at,
+        id: result["id"],
+        period_tag: result["period_tag"],
+        table_version: result["table_version"],
+        period_revision: result["period_revision"],
+        table_count: result["table_count"],
+        table_offsets:
+          typeof result["table_offsets"] === "string"
+            ? JSON.parse(result["table_offsets"])
+            : [],
+        upload_status: result["upload_status"],
+        created_at: result["created_at"],
+        completed_at: result["completed_at"],
       },
     });
   } catch (err) {
@@ -1501,7 +1503,7 @@ app.get("/download", async (c) => {
     }
 
     // Stream from R2
-    return new Response(r2Object.body, {
+    return new Response(r2Object.body as unknown as ReadableStream, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Length": r2Object.size.toString(),

@@ -29,6 +29,7 @@
  */
 
 import { Hono } from "hono";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import {
   firstSchemaError,
   RefreshRequestSchema,

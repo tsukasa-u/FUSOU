@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import type { D1Database, KVNamespace, R2Bucket } from "@cloudflare/workers-types";
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 import type { Bindings } from "../types";
@@ -650,7 +651,9 @@ async function decodeIndexedBlock(
     return [];
   }
   const sourceBytes = new Uint8Array(
-    await new Response(sourceObject.body).arrayBuffer(),
+    await new Response(
+      sourceObject.body as unknown as ReadableStream,
+    ).arrayBuffer(),
   );
   const endByte = Math.min(sourceBytes.byteLength, startByte + length);
   if (startByte >= endByte) {
@@ -1327,13 +1330,13 @@ app.get("/latest", async (c) => {
     }
 
     const latest = {
-      id: row.id,
-      file_path: row.file_path,
-      table: row.table_name,
-      table_version: row.table_version,
-      size: row.size,
-      record_count: row.record_count,
-      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
+      id: row["id"],
+      file_path: row["file_path"],
+      table: row["table_name"],
+      table_version: row["table_version"],
+      size: row["size"],
+      record_count: row["record_count"],
+      uploaded_at: new Date(Number(row["start_timestamp"] || 0)).toISOString(),
     };
 
     c.res.headers.set(
@@ -2571,13 +2574,13 @@ app.get("/global/latest", async (c) => {
     }
 
     const latest = {
-      id: row.id,
-      file_path: row.file_path,
-      table: row.table_name,
-      table_version: row.table_version,
-      size: row.size,
-      record_count: row.record_count,
-      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
+      id: row["id"],
+      file_path: row["file_path"],
+      table: row["table_name"],
+      table_version: row["table_version"],
+      size: row["size"],
+      record_count: row["record_count"],
+      uploaded_at: new Date(Number(row["start_timestamp"] || 0)).toISOString(),
     };
 
     c.res.headers.set(

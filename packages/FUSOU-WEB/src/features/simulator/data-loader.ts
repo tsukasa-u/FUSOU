@@ -710,12 +710,16 @@ export async function loadMasterData(renderAll: () => void) {
     ]);
 
     // Record load results for each table
-    const updateLoadResult = (name: string, data: any) => {
+    const updateLoadResult = (name: string, data: unknown) => {
       const result = _dataLoadResults.find((r) => r.name === name);
       if (result) {
-        if (data && data.records && Array.isArray(data.records)) {
+        const records =
+          data !== null && typeof data === "object" && "records" in data
+            ? data.records
+            : undefined;
+        if (Array.isArray(records)) {
           result.status = "success";
-          result.recordCount = data.records.length;
+          result.recordCount = records.length;
         } else if (data) {
           result.status = "success";
           // Non-records data (assets, synergy): omit recordCount so display shows name only

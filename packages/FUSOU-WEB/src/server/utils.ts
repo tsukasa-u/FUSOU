@@ -6,6 +6,7 @@ import type { Bindings } from "./types";
 import { z } from "zod";
 
 type TokenPayloadSchema = z.ZodType<Record<string, unknown>>;
+type RuntimeBindings = Bindings & Record<string, unknown>;
 
 const SUPABASE_URL_KEYS = ["PUBLIC_SUPABASE_URL", "SUPABASE_URL"] as const;
 const SUPABASE_SERVICE_ROLE_KEYS = [
@@ -53,7 +54,7 @@ function firstResolvedEnv(
  */
 export interface EnvContext {
   /** ランタイム環境変数（Cloudflare Workers/Pages） */
-  readonly runtime: Record<string, any>;
+  readonly runtime: RuntimeBindings;
   /** ビルド時環境変数 */
   readonly buildtime: Record<string, string | undefined>;
   /** 開発環境かどうか */
@@ -73,7 +74,7 @@ export function createEnvContext(
     runtime: {
       ...(cfEnv as unknown as Record<string, unknown>),
       ...contextEnv,
-    },
+    } as RuntimeBindings,
     buildtime: import.meta.env as Record<string, string | undefined>,
     isDev,
   };
@@ -198,7 +199,7 @@ export function getEnvValue(
   runtimeEnv: Record<string, unknown> = {},
 ): string | undefined {
   const ctx: EnvContext = {
-    runtime: runtimeEnv,
+    runtime: runtimeEnv as RuntimeBindings,
     buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
@@ -227,7 +228,7 @@ export function resolveSupabaseConfigLegacy(
   runtimeEnv: Record<string, unknown> = {},
 ): SupabaseConfig {
   const ctx: EnvContext = {
-    runtime: runtimeEnv,
+    runtime: runtimeEnv as RuntimeBindings,
     buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
@@ -247,7 +248,7 @@ export function getRuntimeEnv(
 /** Cloudflare runtime環境変数からBindingsオブジェクトを構築 */
 export function injectEnv(_locals?: unknown): Bindings {
   const ctx: EnvContext = {
-    runtime: (cfEnv as unknown as Record<string, any>) ?? {},
+    runtime: (cfEnv as unknown as RuntimeBindings) ?? {},
     buildtime: import.meta.env as Record<string, string | undefined>,
     isDev: import.meta.env.DEV,
   };
@@ -308,7 +309,7 @@ export function injectEnv(_locals?: unknown): Bindings {
     COMPACTION_QUEUE: ctx.runtime["COMPACTION_QUEUE"]!,
     COMPACTION_DLQ: ctx.runtime["COMPACTION_DLQ"]!,
     COMPACTION_WORKFLOW: ctx.runtime["COMPACTION_WORKFLOW"]!,
-    SHORTENER_SERVICE: ctx.runtime["SHORTENER_SERVICE"],
+    SHORTENER_SERVICE: ctx.runtime["SHORTENER_SERVICE"]!,
   };
 }
 

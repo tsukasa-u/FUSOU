@@ -137,7 +137,7 @@ app.post("/upload", async (c) => {
         const existingRes = await existingStmt.bind(key).first();
 
         if (existingRes) {
-          const existingHash = existingRes.content_hash as string | null;
+          const existingHash = existingRes["content_hash"] as string | null;
           if (existingHash === contentHash) {
             // Content unchanged - return 409 Conflict
             return c.json(
@@ -187,7 +187,7 @@ app.post("/upload", async (c) => {
       const key = tokenPayload["key"];
       const declaredSize = tokenPayload["declared_size"];
 
-      if (!key || !declaredSize) {
+      if (typeof key !== "string" || !key || !declaredSize) {
         return c.json({ error: "Invalid token payload" }, 400);
       }
 
@@ -221,7 +221,8 @@ app.post("/upload", async (c) => {
         );
       }
 
-      const result = await bucket.put(key, data, {
+      const uploadBytes = data.slice().buffer as ArrayBuffer;
+      const result = await bucket.put(key, uploadBytes, {
         httpMetadata: {
           contentType: "application/octet-stream",
           cacheControl: CACHE_CONTROL,
@@ -471,8 +472,9 @@ app.get("/ship-banner-map", async (c) => {
       });
       for (const obj of listed.objects) {
         const match = obj.key.match(/\/banner\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
+        const shipIdPart = match?.[1];
+        if (shipIdPart) {
+          const shipId = String(parseInt(shipIdPart, 10));
           if (!banners[shipId]) banners[shipId] = obj.key;
         }
       }
@@ -572,8 +574,9 @@ app.get("/ship-card-map", async (c) => {
       });
       for (const obj of listed.objects) {
         const match = obj.key.match(/\/card\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
+        const shipIdPart = match?.[1];
+        if (shipIdPart) {
+          const shipId = String(parseInt(shipIdPart, 10));
           if (!cards[shipId]) cards[shipId] = obj.key;
         }
       }
@@ -839,8 +842,9 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     if (!r2Key && bucket) {
       const listed = await bucket.list({ prefix, limit: 1 });
-      if (listed.objects.length > 0) {
-        r2Key = listed.objects[0].key;
+      const firstObject = listed.objects[0];
+      if (firstObject) {
+        r2Key = firstObject.key;
       }
     }
 
@@ -850,9 +854,7 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     // Conditional request: check If-None-Match
     const ifNoneMatch = c.req.header("If-None-Match");
-    const r2Object = await bucket.get(r2Key, {
-      onlyIf: ifNoneMatch ? undefined : undefined,
-    });
+    const r2Object = await bucket.get(r2Key);
     if (!r2Object) {
       return new Response(null, { status: 404 });
     }
@@ -1203,7 +1205,7 @@ app.get("/image-proxy", async (c) => {
     try {
       const r2Object = await bucket.get(r2Key);
       if (r2Object) {
-        return new Response(r2Object.body, {
+        return new Response(r2Object.body as unknown as ReadableStream, {
           status: 200,
           headers: {
             "Content-Type": contentType,

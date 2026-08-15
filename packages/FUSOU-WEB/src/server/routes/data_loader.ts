@@ -11,6 +11,7 @@
  */
 
 import { Hono } from "hono";
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
@@ -1117,7 +1118,7 @@ app.get("/download", async (c) => {
       headers.set("Content-Length", String(object.size));
       headers.set("Content-Disposition", `attachment; filename="${fileName}"`);
 
-      return new Response(object.body, { headers });
+      return new Response(object.body as unknown as ReadableStream, { headers });
     }
 
     return jsonResponse(
@@ -1520,7 +1521,7 @@ app.get("/download-master", async (c) => {
       return new Response("R2 object not found", { status: 404 });
     }
 
-    return new Response(object.body, {
+    return new Response(object.body as unknown as ReadableStream, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${tableName}.avro"`,

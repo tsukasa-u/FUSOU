@@ -15,5 +15,7 @@ export default defineConfig({
     environment: "node",
     setupFiles: "./vitest.setup.ts",
     mockReset: true,
+    include: ["src/**/*.{test,spec}.{js,ts,jsx,tsx}"],
+    exclude: ["node_modules/**", "dist/**", "e2e/**", "scripts/**"],
   },
 });

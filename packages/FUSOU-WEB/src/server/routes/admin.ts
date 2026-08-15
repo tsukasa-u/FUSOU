@@ -121,7 +121,11 @@ adminApp.get("/fix-mime-types", async (c) => {
   let processed = 0;
 
   // Single list call per request - no internal looping to avoid timeout
-  const listResult = await bucket.list({ cursor, prefix, limit });
+  const listResult = await bucket.list({
+    prefix,
+    limit,
+    ...(cursor === undefined ? {} : { cursor }),
+  });
 
   for (const obj of listResult.objects) {
     results.total++;
@@ -211,7 +215,10 @@ adminApp.get("/backfill-asset-index", async (c) => {
   const cursor = c.req.query("cursor") || undefined;
 
   try {
-    const listed = await bucket.list({ limit, cursor });
+    const listed = await bucket.list({
+      limit,
+      ...(cursor === undefined ? {} : { cursor }),
+    });
     const objects = listed.objects || [];
     const nextCursor = listed.truncated ? listed.cursor : null;
 

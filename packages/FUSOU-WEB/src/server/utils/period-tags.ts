@@ -1,3 +1,4 @@
+import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings, D1Database } from "../types";
 import {
   LatestMasterPeriodRowSchema,
