@@ -293,7 +293,12 @@ CREATE TABLE IF NOT EXISTS archived_files (
   source_tier TEXT,
   lock_token TEXT,
   lock_expires_ms INTEGER,
-  lock_owner_run_key TEXT
+  lock_owner_run_key TEXT,
+  lifecycle_state TEXT NOT NULL DEFAULT 'ready',
+  output_etag TEXT,
+  output_verified_at_ms INTEGER,
+  source_cleanup_completed_at_ms INTEGER,
+  output_error TEXT
 );
 CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -317,6 +322,24 @@ CREATE INDEX IF NOT EXISTS idx_archived_files_path ON archived_files(file_path);
 CREATE INDEX IF NOT EXISTS idx_block_file_offset ON block_indexes(file_id, start_byte);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_table_period ON block_indexes(table_name, period_tag);
 CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timestamp);
+CREATE TABLE IF NOT EXISTS compaction_output_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  output_file_id INTEGER NOT NULL,
+  source_file_id INTEGER NOT NULL,
+  source_file_path TEXT NOT NULL,
+  archived_source_path TEXT NOT NULL,
+  source_r2_state TEXT NOT NULL DEFAULT 'pending',
+  source_d1_state TEXT NOT NULL DEFAULT 'active',
+  created_at_ms INTEGER NOT NULL,
+  moved_at_ms INTEGER,
+  d1_deleted_at_ms INTEGER,
+  UNIQUE(output_file_id, source_file_id),
+  FOREIGN KEY(output_file_id) REFERENCES archived_files(id)
+);
+CREATE INDEX IF NOT EXISTS idx_compaction_output_sources_output_state
+  ON compaction_output_sources(output_file_id, source_r2_state, source_d1_state);
+CREATE INDEX IF NOT EXISTS idx_compaction_output_sources_source
+  ON compaction_output_sources(source_file_id, source_d1_state);
 `;
   runWithRetry(
     `npx wrangler d1 execute ${dbName} --command "${quoteForCommand(schemaSql)}"`,
@@ -333,6 +356,11 @@ CREATE INDEX IF NOT EXISTS idx_block_indexes_time ON block_indexes(start_timesta
       lock_token: "TEXT",
       lock_expires_ms: "INTEGER",
       lock_owner_run_key: "TEXT",
+      lifecycle_state: "TEXT NOT NULL DEFAULT 'ready'",
+      output_etag: "TEXT",
+      output_verified_at_ms: "INTEGER",
+      source_cleanup_completed_at_ms: "INTEGER",
+      output_error: "TEXT",
     },
     block_indexes: {
       compaction_tier: "TEXT NOT NULL DEFAULT 'hourly'",

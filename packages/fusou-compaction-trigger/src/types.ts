@@ -50,6 +50,12 @@ export type RegisterOutputBlock = {
   source_file_count: number;
 };
 
+export type CompactionSourceObject = {
+  file_id: number;
+  file_path: string;
+  archived_path: string;
+};
+
 export type RegisterOutputPayload = {
   file_path: string;
   lock_token: string;
@@ -61,9 +67,11 @@ export type RegisterOutputPayload = {
   file_size: number;
   compression_codec: string;
   blocks: RegisterOutputBlock[];
+  source_objects: CompactionSourceObject[];
 };
 
 export type CleanupConsumedSourcesPayload = {
+  output_file_path: string;
   source_file_ids: number[];
   source_tier: CompactionTier;
   table_name: string;
@@ -71,4 +79,5 @@ export type CleanupConsumedSourcesPayload = {
   table_version: string;
   window_start_ms: number;
   window_end_ms: number;
+  source_objects: CompactionSourceObject[];
 };

@@ -48,6 +48,8 @@
     "battle-data:recover": "pnpm --dir ../fusou-compaction-trigger run battle-data:recover",
     "battle-data:recover:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:recover:apply",
     "battle-data:verify": "pnpm --dir ../fusou-compaction-trigger run battle-data:verify",
+    "battle-data:reconcile": "pnpm --dir ../fusou-compaction-trigger run battle-data:reconcile",
+    "battle-data:reconcile:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:reconcile:apply",
     "battle-data:reindex": "pnpm --dir ../fusou-compaction-trigger run battle-data:reindex",
     "battle-data:reindex:apply": "pnpm --dir ../fusou-compaction-trigger run battle-data:reindex:apply",
     "seed:ship-growth-data": "node scripts/seed-local-ship-growth-data.mjs --db dev-kc-ship-growth --period latest",

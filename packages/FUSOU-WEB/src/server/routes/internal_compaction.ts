@@ -578,8 +578,8 @@ app.post("/acquire-output-lock", async (c) => {
       `INSERT OR IGNORE INTO archived_files (
         file_path, file_size, compression_codec, created_at, last_modified_at,
         table_version, compaction_tier, window_start_ms, window_end_ms, source_tier,
-        lock_token, lock_expires_ms, lock_owner_run_key
-      ) VALUES (?, 0, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        lock_token, lock_expires_ms, lock_owner_run_key, lifecycle_state
+      ) VALUES (?, 0, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
     )
     .bind(
       filePath,
@@ -710,6 +710,8 @@ app.post("/register-output", async (c) => {
   const env = createEnvContext(c);
   const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
   let rawBody: unknown;
   try {
@@ -736,6 +738,7 @@ app.post("/register-output", async (c) => {
     table_version: tableVersion = "",
     compaction_tier: compactionTier,
     source_tier: sourceTier = "",
+    source_objects: sourceObjects,
     window_start_ms: windowStart,
     window_end_ms: windowEnd,
     file_size: fileSize,
@@ -758,6 +761,19 @@ app.post("/register-output", async (c) => {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
   if (blocks.length === 0) return c.json({ error: "blocks is required" }, 400);
+
+  const outputObject = await bucket.head(filePath);
+  if (!outputObject) {
+    return c.json({ error: "output object is not visible in R2", file_path: filePath }, 409);
+  }
+  if (Number(outputObject.size ?? -1) !== fileSize) {
+    return c.json({
+      error: "output object size does not match register-output payload",
+      file_path: filePath,
+      expected_size: fileSize,
+      actual_size: Number(outputObject.size ?? -1),
+    }, 409);
+  }
 
   const now = Date.now();
 
@@ -840,13 +856,37 @@ app.post("/register-output", async (c) => {
     });
   }
 
+  const normalizedSourceObjects = [
+    ...new Map(
+      sourceObjects
+        .map((source) => ({
+          fileId: Number(source.file_id),
+          filePath: String(source.file_path ?? "").trim(),
+          archivedPath: String(source.archived_path ?? "").trim(),
+        }))
+        .filter(
+          (source) =>
+            Number.isSafeInteger(source.fileId) &&
+            source.fileId > 0 &&
+            source.filePath.length > 0 &&
+            source.archivedPath.length > 0,
+        )
+        .map((source) => [source.fileId, source] as const),
+    ).values(),
+  ];
+
   const statements: Array<ReturnType<D1Database["prepare"]>> = [
     db
       .prepare(
         `UPDATE archived_files
          SET file_size = ?, compression_codec = ?, table_version = ?,
              compaction_tier = ?, window_start_ms = ?, window_end_ms = ?,
-             source_tier = ?, last_modified_at = ?
+             source_tier = ?, lifecycle_state = CASE
+               WHEN lifecycle_state = 'completed' THEN 'completed'
+               ELSE 'registered'
+             END,
+             output_etag = ?, output_verified_at_ms = ?, output_error = NULL,
+             last_modified_at = ?
          WHERE id = ?`,
       )
       .bind(
@@ -857,6 +897,8 @@ app.post("/register-output", async (c) => {
         windowStart,
         windowEnd,
         sourceTier,
+        outputObject.etag ?? null,
+        now,
         now,
         fileId,
       ),
@@ -891,6 +933,25 @@ app.post("/register-output", async (c) => {
     );
   }
 
+  for (const source of normalizedSourceObjects) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO compaction_output_sources (
+             output_file_id, source_file_id, source_file_path, archived_source_path,
+             source_r2_state, source_d1_state, created_at_ms
+           ) VALUES (?, ?, ?, ?, 'pending', 'active', ?)`,
+        )
+        .bind(
+          fileId,
+          source.fileId,
+          source.filePath,
+          source.archivedPath,
+          now,
+        ),
+    );
+  }
+
   await db.batch(statements);
 
   return c.json({
@@ -898,6 +959,8 @@ app.post("/register-output", async (c) => {
     file_id: fileId,
     inserted_blocks: normalizedBlocks.length,
     file_path: filePath,
+    lifecycle_state: "registered",
+    output_etag: outputObject.etag ?? null,
   });
 });
 
@@ -908,6 +971,8 @@ app.post("/cleanup-consumed-sources", async (c) => {
   const env = createEnvContext(c);
   const db = env.runtime["BATTLE_INDEX_DB"] as D1Database | undefined;
   if (!db) return c.json({ error: "BATTLE_INDEX_DB not configured" }, 500);
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"] as R2Bucket | undefined;
+  if (!bucket) return c.json({ error: "BATTLE_DATA_BUCKET not configured" }, 500);
 
   let rawBody: unknown;
   try {
@@ -920,6 +985,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
   if (!parsedBody.success) {
     const field = parsedBody.error.issues[0]?.path[0];
     const errors: Record<string, string> = {
+      output_file_path: "output_file_path is required",
       source_tier: "source_tier is invalid",
       table_name: "table_name is required",
       period_tag: "period_tag is required",
@@ -927,26 +993,21 @@ app.post("/cleanup-consumed-sources", async (c) => {
       window_start_ms: "window_start_ms and window_end_ms are required",
       window_end_ms: "window_start_ms and window_end_ms are required",
         source_file_ids: "source_file_ids must be an array",
+      source_objects: "source_objects must be an array",
     };
     return c.json({ error: errors[String(field)] ?? "Invalid JSON" }, 400);
   }
 
   const {
+    output_file_path: outputFilePath = "",
     source_tier: sourceTier,
     table_name: tableName,
     period_tag: periodTag,
     table_version: tableVersion,
     window_start_ms: windowStart,
     window_end_ms: windowEnd,
-    source_file_ids: rawSourceFileIds,
+    source_objects: sourceObjects,
   } = parsedBody.data;
-  const sourceFileIds: number[] = [];
-  for (const value of rawSourceFileIds) {
-    const id = Number(value);
-    if (Number.isFinite(id) && id > 0 && !sourceFileIds.includes(id)) {
-      sourceFileIds.push(id);
-    }
-  }
 
   if (!isTier(sourceTier)) return c.json({ error: "source_tier is invalid" }, 400);
   if (!tableName) return c.json({ error: "table_name is required" }, 400);
@@ -955,12 +1016,132 @@ app.post("/cleanup-consumed-sources", async (c) => {
   if (windowStart === undefined || windowEnd === undefined) {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
-  if (sourceFileIds.length === 0) return c.json({ success: true, deleted_source_files: 0 });
+  if (!outputFilePath) return c.json({ error: "output_file_path is required" }, 400);
 
-  const placeholders = sourceFileIds.map(() => "?").join(", ");
+  const outputObject = await bucket.head(outputFilePath);
+  if (!outputObject) {
+    return c.json({
+      error: "output object is not visible in R2; source cleanup is deferred",
+      file_path: outputFilePath,
+    }, 409);
+  }
+
+  const outputRow = (await db
+    .prepare(
+      `SELECT id, lifecycle_state, output_verified_at_ms
+       FROM archived_files
+       WHERE file_path = ?
+       LIMIT 1`,
+    )
+    .bind(outputFilePath)
+    .first()) as {
+      id?: number | null;
+      lifecycle_state?: string | null;
+      output_verified_at_ms?: number | null;
+    } | null;
+
+  const outputFileId = Number(outputRow?.id ?? 0);
+  if (!Number.isFinite(outputFileId) || outputFileId <= 0) {
+    return c.json({ error: "output registration not found; source cleanup is deferred" }, 409);
+  }
+  if (outputRow?.lifecycle_state === "completed") {
+    return c.json({
+      success: true,
+      output_file_path: outputFilePath,
+      lifecycle_state: "completed",
+      deleted_source_files: 0,
+    });
+  }
+  if (outputRow?.lifecycle_state !== "registered") {
+    return c.json({
+      error: "output is not registered; source cleanup is deferred",
+      lifecycle_state: outputRow?.lifecycle_state ?? null,
+    }, 409);
+  }
+  if (!Number.isFinite(Number(outputRow.output_verified_at_ms))) {
+    return c.json({ error: "output has not been verified; source cleanup is deferred" }, 409);
+  }
+
+  const linkedRows = (await db
+    .prepare(
+      `SELECT source_file_id, source_file_path, archived_source_path
+       FROM compaction_output_sources
+       WHERE output_file_id = ?
+       ORDER BY source_file_id ASC`,
+    )
+    .bind(outputFileId)
+    .all()) as {
+      results?: Array<{
+        source_file_id?: number | null;
+        source_file_path?: string | null;
+        archived_source_path?: string | null;
+      }>;
+    };
+
+  const linkedSourceObjects = (linkedRows.results ?? [])
+    .map((row) => ({
+      fileId: Number(row.source_file_id ?? 0),
+      filePath: String(row.source_file_path ?? "").trim(),
+      archivedPath: String(row.archived_source_path ?? "").trim(),
+    }))
+    .filter(
+      (source) =>
+        Number.isFinite(source.fileId) &&
+        source.fileId > 0 &&
+        source.filePath.length > 0 &&
+        source.archivedPath.length > 0,
+    );
+
+  const fallbackSourceObjects = sourceObjects
+    .map((source) => ({
+      fileId: Number(source.file_id),
+      filePath: String(source.file_path ?? "").trim(),
+      archivedPath: String(source.archived_path ?? "").trim(),
+    }))
+    .filter(
+      (source) =>
+        Number.isFinite(source.fileId) &&
+        source.fileId > 0 &&
+        source.filePath.length > 0 &&
+        source.archivedPath.length > 0,
+    );
+  const sourceObjectsToVerify = linkedSourceObjects.length > 0
+    ? linkedSourceObjects
+    : fallbackSourceObjects;
+  if (sourceObjectsToVerify.length === 0) {
+    return c.json({
+      error: "source R2 archive paths are not recorded; source cleanup is deferred",
+    }, 409);
+  }
+
+  const missingArchivedPaths: string[] = [];
+  for (const source of sourceObjectsToVerify) {
+    if (!(await bucket.head(source.archivedPath))) {
+      missingArchivedPaths.push(source.archivedPath);
+    }
+  }
+  if (missingArchivedPaths.length > 0) {
+    return c.json({
+      error: "consumed source objects are not archived in R2; source cleanup is deferred",
+      missing_archived_paths: missingArchivedPaths,
+    }, 409);
+  }
+
+  const sourceIdsToDelete = [
+    ...new Set(
+      sourceObjectsToVerify
+        .map((source) => source.fileId)
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+  if (sourceIdsToDelete.length === 0) {
+    return c.json({ success: true, output_file_path: outputFilePath, deleted_source_files: 0 });
+  }
+
+  const placeholders = sourceIdsToDelete.map(() => "?").join(", ");
   const rows = (await db
     .prepare(
-      `SELECT DISTINCT af.id AS file_id
+      `SELECT DISTINCT af.id AS file_id, af.file_path
        FROM archived_files af
        JOIN block_indexes bi ON bi.file_id = af.id
        WHERE af.id IN (${placeholders})
@@ -971,24 +1152,80 @@ app.post("/cleanup-consumed-sources", async (c) => {
          AND ((bi.window_start_ms IS NOT NULL AND bi.window_start_ms >= ?) OR (bi.window_start_ms IS NULL AND bi.start_timestamp >= ?))
          AND ((bi.window_end_ms IS NOT NULL AND bi.window_end_ms <= ?) OR (bi.window_end_ms IS NULL AND bi.end_timestamp <= ?))`,
     )
-    .bind(...sourceFileIds, sourceTier, tableName, periodTag, tableVersion, windowStart, windowStart, windowEnd, windowEnd)
-    .all()) as { results?: Array<{ file_id?: number | null }> };
+    .bind(...sourceIdsToDelete, sourceTier, tableName, periodTag, tableVersion, windowStart, windowStart, windowEnd, windowEnd)
+    .all()) as {
+      results?: Array<{ file_id?: number | null; file_path?: string | null }>;
+    };
 
-  const validIds = new Set((rows.results ?? []).map((row) => Number(row.file_id ?? 0)).filter((value) => Number.isFinite(value) && value > 0));
-  const targetIds = sourceFileIds.filter((id) => validIds.has(id));
-  if (targetIds.length === 0) {
+  const expectedPathById = new Map(
+    sourceObjectsToVerify.map((source) => [source.fileId, source.filePath]),
+  );
+  const validIds = new Set(
+    (rows.results ?? [])
+      .filter((row) => {
+        const fileId = Number(row.file_id ?? 0);
+        const expectedPath = expectedPathById.get(fileId);
+        return (
+          Number.isFinite(fileId) &&
+          fileId > 0 &&
+          typeof expectedPath === "string" &&
+          expectedPath === String(row.file_path ?? "")
+        );
+      })
+      .map((row) => Number(row.file_id ?? 0)),
+  );
+  const expectedSourceIds = new Set(sourceObjectsToVerify.map((source) => source.fileId));
+  if (validIds.size < expectedSourceIds.size) {
     return c.json({
-      success: true,
-      deleted_source_files: 0,
-      skipped_source_files: sourceFileIds.length,
-    });
+      error: "source D1 metadata does not match the registered source links; source cleanup is deferred",
+    }, 409);
   }
+  const targetIds = sourceIdsToDelete.filter((id) => validIds.has(id));
 
   const statements: Array<ReturnType<D1Database["prepare"]>> = [];
+  if (linkedSourceObjects.length === 0) {
+    const now = Date.now();
+    for (const source of fallbackSourceObjects) {
+      statements.push(
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO compaction_output_sources (
+               output_file_id, source_file_id, source_file_path, archived_source_path,
+               source_r2_state, source_d1_state, created_at_ms
+             ) VALUES (?, ?, ?, ?, 'pending', 'active', ?)`,
+          )
+          .bind(outputFileId, source.fileId, source.filePath, source.archivedPath, now),
+      );
+    }
+  }
+  const now = Date.now();
   for (const sourceFileId of targetIds) {
     statements.push(db.prepare("DELETE FROM block_indexes WHERE file_id = ?").bind(sourceFileId));
     statements.push(db.prepare("DELETE FROM archived_files WHERE id = ?").bind(sourceFileId));
   }
+
+  for (const source of sourceObjectsToVerify) {
+    statements.push(
+      db
+        .prepare(
+          `UPDATE compaction_output_sources
+           SET source_r2_state = 'moved', source_d1_state = 'deleted',
+               moved_at_ms = COALESCE(moved_at_ms, ?), d1_deleted_at_ms = ?
+           WHERE output_file_id = ? AND source_file_id = ?`,
+        )
+        .bind(now, now, outputFileId, source.fileId),
+    );
+  }
+  statements.push(
+    db
+      .prepare(
+        `UPDATE archived_files
+         SET lifecycle_state = 'completed', source_cleanup_completed_at_ms = ?,
+             last_modified_at = ?
+         WHERE id = ?`,
+      )
+      .bind(now, now, outputFileId),
+  );
 
   if (statements.length > 0) {
     await db.batch(statements);
@@ -996,8 +1233,10 @@ app.post("/cleanup-consumed-sources", async (c) => {
 
   return c.json({
     success: true,
+    output_file_path: outputFilePath,
+    lifecycle_state: "completed",
     deleted_source_files: targetIds.length,
-    skipped_source_files: sourceFileIds.length - targetIds.length,
+    skipped_source_files: sourceIdsToDelete.length - targetIds.length,
   });
 });
 

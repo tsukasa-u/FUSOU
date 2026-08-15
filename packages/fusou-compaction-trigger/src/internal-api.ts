@@ -2,6 +2,7 @@ import { z } from "zod";
 import type {
   CleanupConsumedSourcesPayload,
   CompactionJobInput,
+  CompactionSourceObject,
   RegisterOutputBlock,
   RegisterOutputPayload,
   SourceBlock,
@@ -280,6 +281,7 @@ export class InternalCompactionClient {
     file_size: number;
     compression_codec: string;
     blocks: RegisterOutputBlock[];
+    source_objects: CompactionSourceObject[];
   } & RegisterOutputPayload): Promise<void> {
     await this.postJson("/internal/compaction/register-output", payload, z.unknown());
   }

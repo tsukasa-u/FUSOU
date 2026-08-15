@@ -178,6 +178,7 @@ async function listR2Objects(bucket) {
         objects.push({
           key: o.Key,
           size: Number(o.Size || 0),
+          etag: String(o.ETag || "").replace(/^"|"$/g, ""),
           lastModifiedMs: o.LastModified ? new Date(o.LastModified).getTime() : Date.now(),
         });
       }
@@ -192,8 +193,60 @@ function classifyPhase(phase) {
   if (value === "d1-bootstrap-archived-files" || value === "bootstrap" || value === "bootstrap-archived-files") return "d1-bootstrap-archived-files";
   if (value === "d1-reindex" || value === "d1") return "d1-reindex";
   if (value === "d1-backfill-indexes" || value === "backfill-indexes" || value === "index-backfill") return "d1-backfill-indexes";
+  if (value === "d1-r2-reconcile" || value === "reconcile" || value === "d1-r2") return "d1-r2-reconcile";
   if (value === "d1-verify" || value === "verify") return "d1-verify";
   throw new Error(`Invalid --phase value: ${phase}`);
+}
+
+function consumedSourcePrefix() {
+  const raw = String(process.env.COMPACTION_CONSUMED_SOURCE_PREFIX || "compacted").trim();
+  return raw.replace(/^\/+|\/+$/g, "") || "compacted";
+}
+
+function isCompactionOutputKey(key) {
+  const normalized = String(key || "").replace(/^\/+/, "");
+  if (!normalized || normalized.startsWith(`${consumedSourcePrefix()}/`)) return false;
+  const parsed = parsePath(normalized);
+  return Boolean(parsed?.tier && parsed.file && /\.avro$/i.test(parsed.file));
+}
+
+export function findOrphanR2Objects(r2Objects, archivedPaths) {
+  const knownPaths = archivedPaths instanceof Set
+    ? archivedPaths
+    : new Set(archivedPaths);
+  return r2Objects.filter(
+    (object) => isCompactionOutputKey(object.key) && !knownPaths.has(object.key),
+  );
+}
+
+export function sourceIdsRequiringD1Cleanup(links) {
+  return [
+    ...new Set(
+      links
+        .filter((link) => link.sourceD1State !== "deleted")
+        .map((link) => Number(link.sourceFileId))
+        .filter((id) => Number.isFinite(id) && id > 0),
+    ),
+  ];
+}
+
+export function findMissingR2Rows(rows, r2Keys) {
+  const activeStates = new Set([
+    "ready",
+    "pending",
+    "registered",
+    "completed",
+    "recovery_pending",
+  ]);
+  return rows
+    .map((row) => ({
+      id: Number(row.id || 0),
+      filePath: String(row.file_path || ""),
+      state: String(row.lifecycle_state || ""),
+      lastModifiedMs: Number(row.last_modified_at || 0),
+    }))
+    .filter((row) =>
+      activeStates.has(row.state) && row.filePath && !r2Keys.has(row.filePath));
 }
 
 function siblingVersionAliases(v) {
@@ -511,6 +564,168 @@ async function verifyReindexState({ db, remote }) {
   console.log(`missing_index_rows: ${counts.missingIndexRows}`);
 }
 
+async function reconcileD1R2({ db, remote, bucket, apply, limit }) {
+  const r2Objects = await listR2Objects(bucket);
+  const r2ByKey = new Map(r2Objects.map((object) => [object.key, object]));
+  const allArchivedRows = d1Query(
+    db,
+    remote,
+    `SELECT id, file_path, lifecycle_state, last_modified_at
+     FROM archived_files
+     ORDER BY id`,
+  );
+  const trackedStates = new Set(["pending", "registered", "completed", "recovery_pending"]);
+  const archivedRows = allArchivedRows.filter((row) =>
+    trackedStates.has(String(row.lifecycle_state || "")),
+  );
+  const archivedPaths = new Set(
+    allArchivedRows
+      .map((row) => String(row.file_path || ""))
+      .filter(Boolean),
+  );
+
+  const missingR2 = findMissingR2Rows(allArchivedRows, r2ByKey);
+
+  const orphanR2 = findOrphanR2Objects(r2Objects, archivedPaths)
+    .map((object) => {
+      const parsed = parsePath(object.key);
+      return {
+        key: object.key,
+        size: Number(object.size || 0),
+        etag: String(object.etag || ""),
+        lastModifiedMs: Number(object.lastModifiedMs || Date.now()),
+        tableVersion: normalizeVersion(parsed?.version || "0.0.0"),
+        periodTag: String(parsed?.period || "unknown"),
+        compactionTier: String(parsed?.tier || "hourly").toLowerCase(),
+      };
+    });
+
+  const sourceLinkRows = d1Query(
+    db,
+    remote,
+    `SELECT
+       cos.output_file_id,
+       cos.source_file_id,
+       cos.archived_source_path,
+       cos.source_d1_state,
+       af.file_path AS output_file_path,
+       af.lifecycle_state AS output_lifecycle_state,
+       af.output_verified_at_ms AS output_verified_at_ms
+     FROM compaction_output_sources cos
+     JOIN archived_files af ON af.id = cos.output_file_id
+     ORDER BY cos.output_file_id, cos.source_file_id`,
+  );
+  const linksByOutput = new Map();
+  for (const row of sourceLinkRows) {
+    const outputId = Number(row.output_file_id || 0);
+    if (!Number.isFinite(outputId) || outputId <= 0) continue;
+    if (!linksByOutput.has(outputId)) {
+      linksByOutput.set(outputId, {
+        outputId,
+        outputPath: String(row.output_file_path || ""),
+        outputState: String(row.output_lifecycle_state || ""),
+        outputVerifiedAtMs: Number(row.output_verified_at_ms || 0),
+        links: [],
+      });
+    }
+    linksByOutput.get(outputId).links.push({
+      sourceFileId: Number(row.source_file_id || 0),
+      archivedPath: String(row.archived_source_path || ""),
+      sourceD1State: String(row.source_d1_state || ""),
+    });
+  }
+
+  const readySourceCleanup = [...linksByOutput.values()].filter((group) =>
+    (group.outputState === "registered" || group.outputState === "completed") &&
+    group.outputVerifiedAtMs > 0 &&
+    r2ByKey.has(group.outputPath) &&
+    group.links.length > 0 &&
+    group.links.every((link) =>
+      link.sourceFileId > 0 && link.archivedPath && r2ByKey.has(link.archivedPath)),
+  );
+
+  const staleBefore = Date.now() - 24 * 60 * 60 * 1000;
+  const staleMissingR2 = missingR2.filter(
+    (row) =>
+      (row.state === "pending" || row.state === "registered") &&
+      row.lastModifiedMs > 0 &&
+      row.lastModifiedMs < staleBefore,
+  );
+
+  console.log(`R2 objects: ${r2Objects.length}`);
+  console.log(`D1 archived file rows: ${allArchivedRows.length}`);
+  console.log(`D1 lifecycle-tracked output rows: ${archivedRows.length}`);
+  console.log(`D1 rows missing R2: ${missingR2.length}`);
+  console.log(`Stale missing R2 rows eligible for failed state: ${staleMissingR2.length}`);
+  console.log(`R2 output objects missing D1 rows: ${orphanR2.length}`);
+  console.log(`Outputs with verified source archives ready for cleanup: ${readySourceCleanup.length}`);
+
+  for (const row of missingR2.slice(0, 20)) {
+    console.log(`MISSING_R2 ${row.id} ${row.state} ${row.filePath}`);
+  }
+  for (const row of orphanR2.slice(0, 20)) {
+    console.log(`ORPHAN_R2 ${row.key} size=${row.size}`);
+  }
+  for (const group of readySourceCleanup.slice(0, 20)) {
+    console.log(`SOURCE_READY output=${group.outputPath} sources=${group.links.length}`);
+  }
+
+  if (!apply) return;
+
+  const staleBatch = limit > 0 ? staleMissingR2.slice(0, limit) : staleMissingR2;
+  for (const row of staleBatch) {
+    d1Query(
+      db,
+      remote,
+      `UPDATE archived_files
+       SET lifecycle_state='failed', output_error='R2 output missing during reconciliation', last_modified_at=${Date.now()}
+       WHERE id=${row.id}
+         AND lifecycle_state IN ('pending', 'registered');`,
+    );
+  }
+
+  const orphanBatch = limit > 0 ? orphanR2.slice(0, limit) : orphanR2;
+  for (const row of orphanBatch) {
+    d1Query(
+      db,
+      remote,
+      `INSERT OR IGNORE INTO archived_files (
+         file_path, file_size, compression_codec, created_at, last_modified_at,
+         table_version, compaction_tier, lifecycle_state, output_etag, output_verified_at_ms
+       ) VALUES (
+         '${sqlQuote(row.key)}', ${row.size}, 'deflate', ${Math.max(0, Math.trunc(row.lastModifiedMs))},
+         ${Math.max(0, Math.trunc(row.lastModifiedMs))}, '${sqlQuote(row.tableVersion)}',
+         '${sqlQuote(row.compactionTier)}', 'recovery_pending', '${sqlQuote(row.etag)}', ${Date.now()}
+       );`,
+    );
+  }
+
+  const cleanupBatch = limit > 0 ? readySourceCleanup.slice(0, limit) : readySourceCleanup;
+  for (const group of cleanupBatch) {
+    const sourceIds = sourceIdsRequiringD1Cleanup(group.links);
+    for (const sourceId of sourceIds) {
+      d1Query(db, remote, `DELETE FROM block_indexes WHERE file_id=${sourceId};`);
+      d1Query(db, remote, `DELETE FROM archived_files WHERE id=${sourceId};`);
+    }
+    const now = Date.now();
+    d1Query(
+      db,
+      remote,
+      `UPDATE compaction_output_sources
+       SET source_r2_state='moved', source_d1_state='deleted',
+           moved_at_ms=COALESCE(moved_at_ms, ${now}), d1_deleted_at_ms=${now}
+       WHERE output_file_id=${group.outputId};`,
+    );
+    d1Query(
+      db,
+      remote,
+      `UPDATE archived_files
+       SET lifecycle_state='completed', source_cleanup_completed_at_ms=${now}, last_modified_at=${now}
+       WHERE id=${group.outputId};`,
+    );
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.db) throw new Error("Missing --db");
@@ -537,13 +752,20 @@ async function main() {
     return;
   }
 
+  if (phase === "d1-r2-reconcile") {
+    await reconcileD1R2({ db: args.db, remote: args.remote, bucket: args.bucket, apply: args.apply, limit: args.limit });
+    return;
+  }
+
   if (phase === "d1-verify") {
     await verifyReindexState({ db: args.db, remote: args.remote });
     return;
   }
 }
 
-main().catch((e) => {
-  console.error(String(e?.message || e));
-  process.exit(1);
-});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((e) => {
+    console.error(String(e?.message || e));
+    process.exit(1);
+  });
+}

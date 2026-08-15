@@ -113,13 +113,13 @@ describe("ListSourceTablesRequestSchema", () => {
 });
 
 describe("ResolveSourceWindowRangeRequestSchema", () => {
-  it("accepts a tier and table name array", () => {
+  it("rejects non-string table names", () => {
     const result = ResolveSourceWindowRangeRequestSchema.safeParse({
       tier: "weekly",
       table_names: ["battle", 123],
     });
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
   it("rejects a non-array table_names value", () => {

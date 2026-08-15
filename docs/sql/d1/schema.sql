@@ -36,13 +36,42 @@ CREATE TABLE archived_files (
   compression_codec TEXT DEFAULT 'none',
   created_at INTEGER NOT NULL,
   last_modified_at INTEGER NOT NULL,
-  table_version TEXT NOT NULL DEFAULT 'v1'
+  table_version TEXT NOT NULL DEFAULT 'v1',
+  lifecycle_state TEXT NOT NULL DEFAULT 'ready',
+  output_etag TEXT,
+  output_verified_at_ms INTEGER,
+  source_cleanup_completed_at_ms INTEGER,
+  output_error TEXT
 );
 
 CREATE INDEX idx_archived_files_path
   ON archived_files(file_path);
 CREATE INDEX idx_archived_table_version
   ON archived_files(table_version);
+
+CREATE INDEX idx_archived_files_lifecycle_state
+  ON archived_files(lifecycle_state, last_modified_at);
+
+CREATE TABLE compaction_output_sources (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  output_file_id INTEGER NOT NULL,
+  source_file_id INTEGER NOT NULL,
+  source_file_path TEXT NOT NULL,
+  archived_source_path TEXT NOT NULL,
+  source_r2_state TEXT NOT NULL DEFAULT 'pending',
+  source_d1_state TEXT NOT NULL DEFAULT 'active',
+  created_at_ms INTEGER NOT NULL,
+  moved_at_ms INTEGER,
+  d1_deleted_at_ms INTEGER,
+  UNIQUE(output_file_id, source_file_id),
+  FOREIGN KEY(output_file_id) REFERENCES archived_files(id)
+);
+
+CREATE INDEX idx_compaction_output_sources_output_state
+  ON compaction_output_sources(output_file_id, source_r2_state, source_d1_state);
+
+CREATE INDEX idx_compaction_output_sources_source
+  ON compaction_output_sources(source_file_id, source_d1_state);
 
 CREATE TABLE block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

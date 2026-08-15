@@ -24,12 +24,18 @@ export const ClosedPeriodTagRowSchema = z
   .passthrough();
 
 const NumericRequestFieldSchema = z.preprocess(
-  (value) => (value == null ? value : Number(value)),
+  (value) =>
+    value == null || typeof value === "number" || typeof value === "string"
+      ? value == null
+        ? value
+        : Number(value)
+      : value,
   z.number().int().nonnegative().safe(),
 );
 
 const OptionalNumericRequestFieldSchema = z.preprocess((value) => {
   if (value == null) return undefined;
+  if (typeof value !== "number" && typeof value !== "string") return value;
   const numericValue = Number(value);
   return Number.isSafeInteger(numericValue) && numericValue >= 0
     ? numericValue
@@ -40,34 +46,79 @@ const SourceFileIdsRequestFieldSchema = z.preprocess(
   (value) => (Array.isArray(value) ? value : []),
   z.array(
     z.preprocess(
-      (value) => (value == null ? value : Number(value)),
+      (value) =>
+        value == null || typeof value === "number" || typeof value === "string"
+          ? value == null
+            ? value
+            : Number(value)
+          : value,
       z.number().int().positive().safe(),
     ),
   ),
 );
 
+const SourceObjectsRequestFieldSchema = z.preprocess(
+  (value) => (value == null ? [] : value),
+  z.array(
+    z.object({
+      file_id: z.preprocess(
+        (value) =>
+          value == null || typeof value === "number" || typeof value === "string"
+            ? value == null
+              ? value
+              : Number(value)
+            : value,
+        z.number().int().positive().safe(),
+      ),
+      file_path: z.preprocess(
+        (value) => String(value ?? "").trim(),
+        z.string().min(1),
+      ),
+      archived_path: z.preprocess(
+        (value) => String(value ?? "").trim(),
+        z.string().min(1),
+      ),
+    }),
+  ),
+);
+
 const FileSizeRequestFieldSchema = z.preprocess(
-  (value) => (value == null ? undefined : Number(value)),
+  (value) =>
+    value == null || typeof value === "number" || typeof value === "string"
+      ? value == null
+        ? undefined
+        : Number(value)
+      : value,
   z.number().int().nonnegative().safe().optional(),
 );
 
 const TableNameSchema = z.preprocess(
-  (value) => String(value ?? "").trim(),
+  (value) => (typeof value === "string" ? value.trim() : value),
   z.string(),
 );
 
 const BlockStringSchema = z.preprocess(
-  (value) => String(value ?? "").trim(),
+  (value) => (typeof value === "string" ? value.trim() : value),
   z.string().min(1),
 );
 
 const BlockNonNegativeIntegerSchema = z.preprocess(
-  (value) => (value == null ? value : Number(value)),
+  (value) =>
+    value == null || typeof value === "number" || typeof value === "string"
+      ? value == null
+        ? value
+        : Number(value)
+      : value,
   z.number().int().nonnegative().safe(),
 );
 
 const BlockPositiveIntegerSchema = z.preprocess(
-  (value) => (value == null ? value : Number(value)),
+  (value) =>
+    value == null || typeof value === "number" || typeof value === "string"
+      ? value == null
+        ? value
+        : Number(value)
+      : value,
   z.number().int().positive().safe(),
 );
 
@@ -85,7 +136,14 @@ const BlocksRequestFieldSchema = z.preprocess(
         start_timestamp: BlockNonNegativeIntegerSchema,
         end_timestamp: BlockNonNegativeIntegerSchema,
         source_file_count: z.preprocess(
-          (value) => (value == null ? value : Number(value)),
+          (value) =>
+            value == null ||
+            typeof value === "number" ||
+            typeof value === "string"
+              ? value == null
+                ? value
+                : Number(value)
+              : value,
           z.number().int().positive().safe(),
         ),
       })
@@ -121,7 +179,7 @@ export type ListSourceTablesRequest = z.infer<
 export const ResolveSourceWindowRangeRequestSchema = z
   .object({
     tier: CompactionTierSchema.optional(),
-    table_names: z.array(z.unknown()).optional(),
+    table_names: z.array(z.string().trim().min(1)).optional(),
   })
   .passthrough();
 
@@ -238,6 +296,7 @@ export type ListSourceBlocksRequest = z.infer<
 
 export const CleanupConsumedSourcesRequestSchema = z
   .object({
+    output_file_path: TrimmedStringRequestFieldSchema.optional(),
     source_tier: CompactionTierSchema.optional(),
     table_name: TrimmedStringRequestFieldSchema.optional(),
     period_tag: TrimmedStringRequestFieldSchema.optional(),
@@ -245,6 +304,7 @@ export const CleanupConsumedSourcesRequestSchema = z
     window_start_ms: OptionalNumericRequestFieldSchema,
     window_end_ms: OptionalNumericRequestFieldSchema,
     source_file_ids: SourceFileIdsRequestFieldSchema,
+    source_objects: SourceObjectsRequestFieldSchema,
   })
   .passthrough();
 
@@ -260,6 +320,7 @@ export const RegisterOutputRequestSchema = z
       .object({
         file_path: TrimmedStringRequestFieldSchema.optional(),
         lock_token: TrimmedStringRequestFieldSchema.optional(),
+        source_objects: SourceObjectsRequestFieldSchema,
         table_version: TrimmedStringRequestFieldSchema.optional(),
         compaction_tier: CompactionTierSchema.optional(),
         source_tier: TrimmedStringRequestFieldSchema.optional(),

@@ -48,13 +48,15 @@ The `handleCron` function (`src/cron.ts`) performs the following steps:
     - Metadata: Stores run info, block counts, and table version.
 
 5.  **Indexing (D1)**
-    - **`archived_files`**: Registers the new R2 file.
+  - **`archived_files`**: Registers the new R2 file only after an R2 `HEAD` confirms its existence and size.
     - **`block_indexes`**: specific byte-range offsets for each dataset within the merged file.
       - Allows efficient range-request reading of specific datasets later without downloading the whole file.
+  - **`compaction_output_sources`**: Records the deterministic output-to-source relationship needed for retries and reconciliation.
 
 6.  **Cleanup**
-    - Deletes processed records from `buffer_logs`.
-    - **Safety**: Only deletes if R2 upload and D1 indexing confirm success.
+  - Copies consumed source objects to the deterministic `compacted/` prefix and verifies the destination objects.
+  - Deletes source rows from D1 only after those archived source objects are visible through the WEB R2 binding.
+  - **Safety**: A failed source move leaves both the source R2 object and D1 source metadata retryable.
 
 ---
 
@@ -72,7 +74,33 @@ CREATE TABLE archived_files (
   compression_codec TEXT,
     table_version TEXT,
   created_at INTEGER,
-  last_modified_at INTEGER
+  last_modified_at INTEGER,
+  lifecycle_state TEXT NOT NULL DEFAULT 'ready',
+  output_etag TEXT,
+  output_verified_at_ms INTEGER,
+  source_cleanup_completed_at_ms INTEGER,
+  output_error TEXT
+);
+```
+
+`lifecycle_state` progresses from `pending` to `registered` and then `completed`. A stale output can be marked `failed` by reconciliation without deleting its source rows; an R2-only output is registered as `recovery_pending` for later index backfill.
+
+### `compaction_output_sources`
+
+Stores the source R2 path and its archived R2 path independently of the source D1 row. This allows a retry to finish cleanup after the source D1 row has already been removed.
+
+```sql
+CREATE TABLE compaction_output_sources (
+  output_file_id INTEGER NOT NULL,
+  source_file_id INTEGER NOT NULL,
+  source_file_path TEXT NOT NULL,
+  archived_source_path TEXT NOT NULL,
+  source_r2_state TEXT NOT NULL DEFAULT 'pending',
+  source_d1_state TEXT NOT NULL DEFAULT 'active',
+  created_at_ms INTEGER NOT NULL,
+  moved_at_ms INTEGER,
+  d1_deleted_at_ms INTEGER,
+  UNIQUE(output_file_id, source_file_id)
 );
 ```
 
@@ -107,8 +135,9 @@ CREATE TABLE block_indexes (
 
 ### Retries & Idempotency
 
-- **File Registration**: Uses `INSERT OR REPLACE` or checks existence to support re-runs.
-- **Cleanup**: Transactional-like safety; logic ensures data is in R2/D1 before deleting from buffer.
+- **Output key**: The deterministic output key is the idempotency key; retrying registration updates the same D1 row and block indexes.
+- **Source archival**: Copy is skipped when the deterministic archive key already exists, then the original is deleted only after the destination is confirmed.
+- **Cleanup**: D1 source deletion is deferred until both the output and every archived source object are visible. `pnpm run battle-data:reconcile` reports mismatches and `pnpm run battle-data:reconcile:apply` applies only safe repairs.
 
 ---
 
