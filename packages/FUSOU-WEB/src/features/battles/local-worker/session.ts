@@ -29,7 +29,7 @@ import {
   type WorkerRecordQuery,
 } from "./protocol";
 import { buildTableIndex, type TableIndex } from "./indexes";
-import { battleRowIndexForSort } from "../helpers";
+import { battleRowIndexForSort, compareTableVersions } from "../helpers";
 import { expectedSchemaNameForTable } from "./schema-registry";
 import {
   DEFAULT_LOCAL_AVRO_LOAD_LIMITS,
@@ -87,6 +87,20 @@ function compareEntries(left: LocalManifestEntry, right: LocalManifestEntry): nu
     Number(right.fileTimestamp ?? right.lastModified) -
       Number(left.fileTimestamp ?? left.lastModified)
   );
+}
+
+function selectLatestVersionEntries(
+  entries: LocalManifestEntry[],
+): LocalManifestEntry[] {
+  if (entries.length === 0 || entries.some((entry) => !entry.tableVersion)) {
+    return entries;
+  }
+  const latestVersion = [...new Set(entries.map((entry) => entry.tableVersion))]
+    .filter((version): version is string => version !== null)
+    .sort((left, right) => compareTableVersions(right, left))[0];
+  return latestVersion
+    ? entries.filter((entry) => entry.tableVersion === latestVersion)
+    : entries;
 }
 
 function hasReference(value: unknown): boolean {
@@ -368,7 +382,7 @@ export class LocalWorkerSession {
     );
     const allEnemyDecks = await this.loadOptionalRows(
       "enemy_deck",
-      "all",
+      query.periodTag,
       query.tableVersion,
       requestId,
       reportProgress,
@@ -389,7 +403,7 @@ export class LocalWorkerSession {
     );
     const allEnemyShips = await this.loadOptionalRows(
       "enemy_ship",
-      "all",
+      query.periodTag,
       query.tableVersion,
       requestId,
       reportProgress,
@@ -879,9 +893,13 @@ export class LocalWorkerSession {
         (value, entry) => (entry.periodTag > value ? entry.periodTag : value),
         "",
       );
-      return entries.filter((entry) => entry.periodTag === latest).sort(compareEntries);
+      return selectLatestVersionEntries(
+        entries.filter((entry) => entry.periodTag === latest),
+      ).sort(compareEntries);
     }
-    return entries.filter((entry) => entry.periodTag === periodTag).sort(compareEntries);
+    return selectLatestVersionEntries(
+      entries.filter((entry) => entry.periodTag === periodTag),
+    ).sort(compareEntries);
   }
 
   private cacheKey(table: string, periodTag: string, tableVersion?: string): string {

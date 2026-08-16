@@ -13,6 +13,8 @@ import { LocalWorkerSession } from "../session";
 const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
 const relativePath =
   "fusou/2026-07-08/transaction_data/5-4/battle/1785499200_4c78c801-1d64-4e66-bcac-82025884b215.avro";
+const enemyDeckPath = relativePath.replace("/battle/", "/enemy_deck/");
+const enemyShipPath = relativePath.replace("/battle/", "/enemy_ship/");
 
 function entryFor(
   path: string,
@@ -52,6 +54,68 @@ function handleEntryFor(
 }
 
 describe("LocalWorkerSession", () => {
+  it("selects one latest table version when the query omits it", async () => {
+    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const expectedCount = ocfDecoder.decodeAvroOcfToJson(bytes).length;
+    const secondPath = relativePath.replace("1785499200_", "1785499201_");
+    const decodeSpy = vi.spyOn(ocfDecoder, "decodeAvroOcfToJson");
+    try {
+      const session = new LocalWorkerSession();
+      session.initialize({
+        fingerprint: "implicit-version-fixture",
+        entries: [entryFor(relativePath, bytes, "v1"), entryFor(secondPath, bytes, "v2")],
+      });
+
+      const result = await session.records(
+        "request-implicit-version",
+        { table: "battle", periodTag: "2026-07-08", limitRecords: 20_000 },
+        () => undefined,
+      );
+
+      expect(result.count).toBe(expectedCount);
+      expect(result.table_version).toBe("v2");
+      expect(decodeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      decodeSpy.mockRestore();
+    }
+  });
+
+  it("does not decode enemy relations from another period in overview", async () => {
+    const battleBytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const enemyDeckBytes = new Uint8Array(
+      readFileSync(resolve(databaseRoot, enemyDeckPath)),
+    );
+    const enemyShipBytes = new Uint8Array(
+      readFileSync(resolve(databaseRoot, enemyShipPath)),
+    );
+    const previousPeriodDeckPath = enemyDeckPath.replace("2026-07-08", "2026-06-26");
+    const previousPeriodShipPath = enemyShipPath.replace("2026-07-08", "2026-06-26");
+    const decodeSpy = vi.spyOn(ocfDecoder, "decodeAvroOcfToJson");
+    try {
+      const session = new LocalWorkerSession();
+      session.initialize({
+        fingerprint: "period-scoped-overview-fixture",
+        entries: [
+          entryFor(relativePath, battleBytes),
+          entryFor(enemyDeckPath, enemyDeckBytes),
+          entryFor(previousPeriodDeckPath, enemyDeckBytes),
+          entryFor(enemyShipPath, enemyShipBytes),
+          entryFor(previousPeriodShipPath, enemyShipBytes),
+        ],
+      });
+
+      await session.overview(
+        "request-period-scoped-overview",
+        { periodTag: "2026-07-08", masterShips: [] },
+        () => undefined,
+      );
+
+      expect(decodeSpy).toHaveBeenCalledTimes(3);
+    } finally {
+      decodeSpy.mockRestore();
+    }
+  });
+
   it("filters records by the requested embedded table version", async () => {
     const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
     const secondPath = relativePath.replace("1785499200_", "1785499201_");

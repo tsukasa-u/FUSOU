@@ -38,8 +38,8 @@ export function buildBattleSummaries(args: {
       battleUuid &&
       maparea !== null &&
       mapinfo !== null &&
-      maparea >= 0 &&
-      mapinfo >= 0
+      maparea > 0 &&
+      mapinfo > 0
     ) {
       mapByBattleUuid.set(battleUuid, { maparea_id: maparea, mapinfo_no: mapinfo });
     }

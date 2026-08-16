@@ -32,6 +32,7 @@ export type RecordQuery = {
   table: string;
   periodTag: string;
   tableVersion?: string;
+  datasetId?: string;
   tier?: "hourly" | "daily" | "weekly" | "period";
   filter?: Record<string, unknown>;
   limitBlocks?: number;
@@ -43,6 +44,7 @@ export type RecordQuery = {
 export type OverviewQuery = {
   periodTag: string;
   tableVersion?: string;
+  datasetId?: string;
   masterShips?: JsonRecord[];
   limitBlocks?: number;
   limitRecords?: number;
@@ -57,6 +59,7 @@ export type BattleDetailQuery = {
   battleIndex: number;
   periodTag: string;
   tableVersion?: string;
+  datasetId?: string;
   masterShips?: JsonRecord[];
   masterSlotItems?: JsonRecord[];
   signal?: AbortSignal;

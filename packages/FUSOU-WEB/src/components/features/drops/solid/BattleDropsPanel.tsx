@@ -306,7 +306,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     
     const grouped = new Map<string, { areaId: string; maps: { mapKey: string; drops: number }[]; totalAreaDrops: number }>();
     for (const [mapKey, stats] of mapStats.entries()) {
-      if (mapKey === "-" || mapKey === "0-0") continue;
+      if (mapKey === "-" || mapKey === "unknown") continue;
       const areaId = mapKey.split("-")[0];
       if (areaId === undefined) continue;
       if (!grouped.has(areaId)) {

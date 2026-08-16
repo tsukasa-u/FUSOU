@@ -365,11 +365,11 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const values = new Set<string>();
     for (const rec of d.battleRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "0-0") values.add(key);
+      if (key !== "unknown") values.add(key);
     }
     for (const rec of d.cellRecords()) {
       const key = mapKeyOf(rec);
-      if (key !== "0-0") values.add(key);
+      if (key !== "unknown") values.add(key);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   });

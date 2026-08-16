@@ -1204,7 +1204,14 @@ async function checkRateLimit(
   const now = Date.now();
 
   const data = await kv.get(rateLimitKey);
-  let attempts = parseRateLimitAttempts(data);
+  const parsedAttempts = parseRateLimitAttempts(data);
+  if (parsedAttempts === null) {
+    console.warn("Invalid rate-limit state; rejecting the attempt", {
+      rateLimitKey,
+    });
+    return true;
+  }
+  let attempts = parsedAttempts;
 
   // Remove attempts outside the time window
   attempts = attempts.filter(

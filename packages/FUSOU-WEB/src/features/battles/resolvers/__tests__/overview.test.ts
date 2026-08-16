@@ -49,7 +49,7 @@ describe("battle overview resolver", () => {
     );
   });
 
-  it("preserves zero map coordinates when they are explicitly present", () => {
+  it("does not copy non-positive map coordinates from cells", () => {
     const payload = buildBattleOverviewPayload({
       periodTag: "2026-07-08",
       battles: [{ uuid: "battle-1", cell_id: 1 }],
@@ -57,9 +57,7 @@ describe("battle overview resolver", () => {
       battleResults: [],
     });
 
-    expect(payload.battles?.[0]).toMatchObject({
-      maparea_id: 0,
-      mapinfo_no: 0,
-    });
+    expect(payload.battles?.[0]).not.toHaveProperty("maparea_id");
+    expect(payload.battles?.[0]).not.toHaveProperty("mapinfo_no");
   });
 });

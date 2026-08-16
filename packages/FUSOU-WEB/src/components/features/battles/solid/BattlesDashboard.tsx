@@ -163,6 +163,7 @@ export default function BattlesDashboard(props: {
 
   const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
   const [selectedDetailId, setSelectedDetailId] = createSignal("");
+  const [selectedDatasetId, setSelectedDatasetId] = createSignal("");
   const [selectedBattleIndex, setSelectedBattleIndex] = createSignal<number | null>(null);
   
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
@@ -262,7 +263,7 @@ export default function BattlesDashboard(props: {
     const values = new Set<string>();
     for (const b of battleRecords()) {
       const label = mapKeyOf(b);
-      if (label !== "-") values.add(label);
+      if (label !== "-" && label !== "unknown") values.add(label);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   };
@@ -563,6 +564,8 @@ export default function BattlesDashboard(props: {
       setActiveTab(initialTab);
     }
     const initialDetailId = params.get("detail_id");
+    const initialDatasetId = params.get("dataset_id")?.trim() ?? "";
+    setSelectedDatasetId(initialDatasetId);
     if (initialDetailId) {
       setSelectedDetailId(initialDetailId);
       if (!initialTab) setActiveTab("detail");
@@ -630,6 +633,12 @@ export default function BattlesDashboard(props: {
       url.searchParams.delete("detail_id");
     }
 
+    if (currentTab === "detail" && selectedDatasetId()) {
+      url.searchParams.set("dataset_id", selectedDatasetId());
+    } else {
+      url.searchParams.delete("dataset_id");
+    }
+
     if (currentTab === "detail" && selectedBattleIndex() !== null) {
       url.searchParams.set("battle_index", String(selectedBattleIndex()));
     } else {
@@ -688,6 +697,8 @@ export default function BattlesDashboard(props: {
     setResultFilter,
     selectedDetailId,
     setSelectedDetailId,
+    selectedDatasetId,
+    setSelectedDatasetId,
     selectedBattleIndex,
     setSelectedBattleIndex,
   };
@@ -871,6 +882,7 @@ export default function BattlesDashboard(props: {
               <BattleDetailPanel
                 battleId={selectedDetailId()}
                 battleIndex={selectedBattleIndex()}
+                datasetId={selectedDatasetId()}
                 repository={repository}
                 onBattleIndexChange={(index) => setSelectedBattleIndex(index)}
                 onLoadStatusChange={setDetailLoadStatus}

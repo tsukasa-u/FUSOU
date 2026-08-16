@@ -165,7 +165,9 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
   if (
     !Number.isSafeInteger(fileTimestamp) ||
     !Number.isSafeInteger(mapAreaId) ||
-    !Number.isSafeInteger(mapInfoNo)
+    !Number.isSafeInteger(mapInfoNo) ||
+    mapAreaId <= 0 ||
+    mapInfoNo <= 0
   ) {
     throw new LocalAvroPathError(
       "INVALID_DIRECTORY_LAYOUT",

@@ -55,13 +55,13 @@ export function parseTableNames(value: unknown): string[] {
 
 const RateLimitAttemptsSchema = z.array(z.number().finite());
 
-export function parseRateLimitAttempts(value: string | null): number[] {
+export function parseRateLimitAttempts(value: string | null): number[] | null {
   if (!value) return [];
   try {
     const result = RateLimitAttemptsSchema.safeParse(JSON.parse(value));
-    return result.success ? result.data : [];
+    return result.success ? result.data : null;
   } catch {
-    return [];
+    return null;
   }
 }
 

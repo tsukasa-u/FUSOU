@@ -82,6 +82,31 @@ describe("local AVRO manifest scanner", () => {
     expect(result.manifest.entries[0]?.relativePath).not.toMatch(/^\//);
   });
 
+  it("skips zero period and non-positive map paths", async () => {
+    const validFile = fakeFile("valid.avro") as FakeFile;
+    validFile.webkitRelativePath =
+      "fusou/2026-02-13/transaction_data/6-5/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro";
+    const zeroPeriodFile = fakeFile("zero-period.avro") as FakeFile;
+    zeroPeriodFile.webkitRelativePath =
+      "fusou/0/transaction_data/6-5/battle/1783429201_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro";
+    const zeroMapFile = fakeFile("zero-map.avro") as FakeFile;
+    zeroMapFile.webkitRelativePath =
+      "fusou/2026-02-13/transaction_data/0-0/battle/1783429202_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro";
+
+    const result = await scanLocalFileList([
+      validFile,
+      zeroPeriodFile,
+      zeroMapFile,
+    ]);
+
+    expect(result.manifest.entries).toHaveLength(1);
+    expect(result.manifest.entries[0]?.relativePath).toBe(
+      validFile.webkitRelativePath,
+    );
+    expect(result.diagnostics).toHaveLength(2);
+    expect(result.diagnostics.every((diagnostic) => diagnostic.code === "INVALID_DIRECTORY_LAYOUT")).toBe(true);
+  });
+
   it("fails closed when a file exceeds the browser reader limit", async () => {
     const file = fakeFile("battle.avro", 256 * 1024 * 1024 + 1) as FakeFile;
     file.webkitRelativePath =

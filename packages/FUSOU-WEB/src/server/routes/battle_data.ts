@@ -18,8 +18,11 @@ import {
 } from "../validators/offsets";
 import {
   decodeAvroOcfToJson,
+  parseDeflateAvroBlock,
+  parseNullAvroBlock,
   type AvroJsonRecord,
 } from "../utils/avro-decoder";
+import { parseOcfHeader } from "../../features/avro/ocf-header";
 import {
   validateAvroOCFSmart,
   extractSchemaFromOCF,
@@ -28,6 +31,7 @@ import {
 import { buildBattleOverviewPayload } from "../../features/battles/resolvers/overview";
 import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
+import { compareTableVersions } from "../../features/battles/helpers";
 import {
   BattleMasterDataRowSchema,
   parseBattleBlockRows,
@@ -116,18 +120,23 @@ function buildGlobalRecordsPath(options: {
   table: string;
   periodTag: string;
   tableVersion: string;
+  datasetId?: string;
   limitBlocks: number;
   limitRecords: number;
   filter?: Record<string, unknown>;
   includeSortieKey?: boolean;
 }): string {
+  const datasetId = options.datasetId?.trim();
+  const datasetIdParam = datasetId
+    ? `&dataset_id=${encodeURIComponent(datasetId)}`
+    : "";
   const filterJson = options.filter
     ? `&filter_json=${encodeURIComponent(JSON.stringify(options.filter))}`
     : "";
   const includeSortieKey = options.includeSortieKey
     ? "&include_sortie_key=1"
     : "";
-  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
+  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}${datasetIdParam}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
 }
 
 function toBattleDataInternalPath(path: string): string {
@@ -201,13 +210,26 @@ function parseJsonRecords(value: unknown): Array<Record<string, unknown>> | null
   return records;
 }
 
-function parseRecordsPayload(
-  value: unknown,
-): { records?: Array<Record<string, unknown>> } | null {
+type BattleRecordsPayload = {
+  records?: Array<Record<string, unknown>>;
+  period_tag?: string;
+  table_version?: string | null;
+};
+
+function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
   if (!isJsonRecord(value)) return null;
   if (!("records" in value)) return {};
   const records = parseJsonRecords(value["records"]);
-  return records ? { records } : null;
+  if (!records) return null;
+  return {
+    records,
+    ...(typeof value["period_tag"] === "string"
+      ? { period_tag: value["period_tag"] }
+      : {}),
+    ...(typeof value["table_version"] === "string" || value["table_version"] === null
+      ? { table_version: value["table_version"] }
+      : {}),
+  };
 }
 
 function parseBattleEnvBundlePayload(
@@ -361,11 +383,14 @@ async function fetchBattleEnvBundleInternal(
   c: Context<{ Bindings: Bindings }>,
   envUuid: string,
   tableVersion: string,
+  periodTag: string,
+  datasetId?: string,
 ): Promise<BattleEnvBundlePayload> {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const normalizedDatasetId = datasetId?.trim() || "";
   const cacheKey = new Request(
     new URL(
-      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&table_version=${encodeURIComponent(tableVersion || "")}`,
+      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&period_tag=${encodeURIComponent(periodTag)}&table_version=${encodeURIComponent(tableVersion || "")}&dataset_id=${encodeURIComponent(normalizedDatasetId)}`,
       c.req.url,
     ).toString(),
     { method: "GET" },
@@ -379,52 +404,51 @@ async function fetchBattleEnvBundleInternal(
     }
   }
 
+  const scope = {
+    periodTag,
+    tableVersion,
+    ...(normalizedDatasetId ? { datasetId: normalizedDatasetId } : {}),
+  };
   const [ownDecks, ownShips, ownSlotItems, enemyDecks, enemyShips, enemySlotItems] =
     await Promise.all([
       fetchGlobalRecordsInternal(c, {
         table: "own_deck",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "own_ship",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "own_slotitem",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_deck",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_ship",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_slotitem",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
@@ -471,15 +495,26 @@ async function fetchWeaponIconFramesDirect(
 
 async function fetchGlobalRecordsInternal(
   c: Context<{ Bindings: Bindings }>,
-  options: { table: string; periodTag: string; tableVersion: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
+  const payload = await fetchGlobalRecordsPayloadInternal(c, options);
+  return payload.records || [];
+}
+
+async function fetchGlobalRecordsPayloadInternal(
+  c: Context<{ Bindings: Bindings }>,
+  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+): Promise<BattleRecordsPayload> {
+  const datasetId = options.datasetId ?? c.req.query("dataset_id")?.trim();
+  const pathOptions =
+    datasetId === undefined ? options : { ...options, datasetId };
   const rawPayload = await fetchBattleDataJsonInternal(
     c,
-    buildGlobalRecordsPath(options),
+    buildGlobalRecordsPath(pathOptions),
   );
   const payload = parseRecordsPayload(rawPayload);
   if (!payload) throw new Error("Invalid battle records response");
-  return payload.records || [];
+  return payload;
 }
 
 function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
@@ -586,7 +621,7 @@ function normalizeMapCoordinate(value: unknown): number | null {
     return null;
   }
   const coordinate = Number(value);
-  return Number.isSafeInteger(coordinate) && coordinate >= 0
+  return Number.isSafeInteger(coordinate) && coordinate > 0
     ? coordinate
     : null;
 }
@@ -712,35 +747,64 @@ async function decodeIndexedBlock(
   filePath: string,
   startByte: number,
   length: number,
+  headerCache: Map<string, Promise<Uint8Array>>,
 ): Promise<AvroJsonRecord[]> {
-  if (startByte < 0 || length <= 0) {
+  if (startByte <= 0 || length <= 0) {
     return [];
   }
 
-  // Read once and slice in-memory to avoid body re-use issues in local runtimes.
-  const sourceObject = await bucket.get(filePath);
-  if (!sourceObject?.body) {
+  let headerPromise = headerCache.get(filePath);
+  if (!headerPromise) {
+    headerPromise = (async () => {
+      let prefixLength = Math.min(startByte, 64 * 1024);
+      while (prefixLength > 0) {
+        const prefixObject = await bucket.get(filePath, {
+          range: { offset: 0, length: prefixLength },
+        });
+        if (!prefixObject) {
+          throw new Error(`AVRO object not found: ${filePath}`);
+        }
+
+        const prefixBytes = new Uint8Array(await prefixObject.arrayBuffer());
+        try {
+          const headerLength = parseOcfHeader(prefixBytes).bodyOffset;
+          return prefixBytes.slice(0, headerLength);
+        } catch (error) {
+          if (prefixLength >= startByte) {
+            throw error;
+          }
+          prefixLength = Math.min(startByte, prefixLength * 2);
+        }
+      }
+      throw new Error(`AVRO header range is empty: ${filePath}`);
+    })();
+    headerCache.set(filePath, headerPromise);
+  }
+
+  let headerBytes: Uint8Array;
+  try {
+    headerBytes = await headerPromise;
+  } catch (error) {
+    headerCache.delete(filePath);
+    throw error;
+  }
+
+  const dataObject = await bucket.get(filePath, {
+    range: { offset: startByte, length },
+  });
+  if (!dataObject) {
     return [];
   }
-  const sourceBytes = new Uint8Array(
-    await new Response(
-      sourceObject.body as unknown as ReadableStream,
-    ).arrayBuffer(),
-  );
-  const endByte = Math.min(sourceBytes.byteLength, startByte + length);
-  if (startByte >= endByte) {
+  const dataBytes = new Uint8Array(await dataObject.arrayBuffer());
+  if (dataBytes.length === 0) {
     return [];
   }
 
-  const headerBytes = sourceBytes.subarray(0, startByte);
-  const dataBytes = sourceBytes.subarray(startByte, endByte);
-  const combined = new Uint8Array(
-    headerBytes.byteLength + dataBytes.byteLength,
-  );
-  combined.set(headerBytes, 0);
-  combined.set(dataBytes, headerBytes.byteLength);
-
-  return decodeAvroOcfToJson(combined);
+  const header = parseOcfHeader(headerBytes);
+  if ((header.codec ?? "null") === "null") {
+    return parseNullAvroBlock(headerBytes, dataBytes);
+  }
+  return parseDeflateAvroBlock(headerBytes, dataBytes);
 }
 
 // validateAvroHeader is now imported from avro-validator
@@ -1429,7 +1493,7 @@ app.get("/health", (c) => {
 
 /**
  * GET /global/chunks - Retrieve fragments across all users by table/period
- * Query params: table, period_tag, from, to
+ * Query params: table, period_tag, dataset_id, from, to
  * Response: array of fragment metadata sorted by uploaded_at DESC
  */
 app.get("/global/chunks", async (c) => {
@@ -1440,6 +1504,8 @@ app.get("/global/chunks", async (c) => {
   }
 
   const table = c.req.query("table");
+  const periodTag = (c.req.query("period_tag") || "latest").trim();
+  const datasetId = c.req.query("dataset_id")?.trim();
   const from = c.req.query("from");
   const to = c.req.query("to");
   const rawLimit = parseInt(c.req.query("limit") || "1000", 10);
@@ -1475,9 +1541,31 @@ app.get("/global/chunks", async (c) => {
          WHERE bi.table_name = ?`;
     const params: unknown[] = [table];
 
+    if (periodTag === "latest") {
+      const allowedPeriodTags = await resolveAllowedPeriodTagsForRecords(
+        c,
+        indexDb,
+        table,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
+      if (allowedPeriodTags.size === 0) {
+        return c.json({ chunks: [], count: 0, table });
+      }
+      const placeholders = [...allowedPeriodTags].map(() => "?").join(", ");
+      sql += ` AND bi.period_tag IN (${placeholders})`;
+      params.push(...allowedPeriodTags);
+    } else if (periodTag !== "all") {
+      sql += " AND bi.period_tag = ?";
+      params.push(periodTag);
+    }
+
     if (tableVersion) {
       sql += ` AND bi.table_version = ?`;
       params.push(tableVersion);
+    }
+    if (datasetId) {
+      sql += " AND bi.dataset_id = ?";
+      params.push(datasetId);
     }
 
     const fromMs = from ? Date.parse(from) : undefined;
@@ -1782,7 +1870,7 @@ app.get("/global/records", async (c) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("")
       .slice(0, 16);
-    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
+    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${datasetId || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
     const kvCached = await cacheKV.get(kvKey, "text");
     if (kvCached) {
       return new Response(kvCached, {
@@ -1804,32 +1892,74 @@ app.get("/global/records", async (c) => {
     );
 
     let resolvedPeriodTag: string | null = null;
+    let resolvedTableVersion: string | null = tableVersionParam || null;
     if (periodTagParam === "latest") {
       let latestPeriodSql =
-        "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ?";
+        "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ?";
       const latestPeriodParams: unknown[] = [table];
       if (tableVersionParam) {
         latestPeriodSql += " AND table_version = ?";
         latestPeriodParams.push(tableVersionParam);
       }
-      latestPeriodSql += " ORDER BY period_tag DESC LIMIT 200";
+      if (datasetId) {
+        latestPeriodSql += " AND dataset_id = ?";
+        latestPeriodParams.push(datasetId);
+      }
+      latestPeriodSql += " ORDER BY period_tag DESC, table_version DESC LIMIT 200";
       const latestRowsResult = await indexDb
         .prepare(latestPeriodSql)
         .bind(...latestPeriodParams)
         .all();
-      const parsedLatestRows = BattlePeriodTagRowsSchema.safeParse(
+      const parsedLatestRows = BattleSummaryRowsSchema.safeParse(
         latestRowsResult.results ?? [],
       );
       if (!parsedLatestRows.success) {
         throw new Error("Invalid latest battle period-tag rows");
       }
       const latestAllowed = parsedLatestRows.data.find((row) => {
-        const tag = row.period_tag ?? null;
-        return typeof tag === "string" && allowedPeriodTagSet.has(tag);
+        return allowedPeriodTagSet.has(row.period_tag);
       });
       resolvedPeriodTag = latestAllowed?.period_tag ?? null;
+      const latestPeriodRows = latestAllowed
+        ? parsedLatestRows.data.filter(
+            (row) => row.period_tag === latestAllowed.period_tag,
+          )
+        : [];
+      const latestResolvedVersion = latestPeriodRows.reduce<string | null>(
+        (latestVersion, row) =>
+          latestVersion === null ||
+          compareTableVersions(row.table_version, latestVersion) > 0
+            ? row.table_version
+            : latestVersion,
+        null,
+      );
+          resolvedTableVersion = latestResolvedVersion ?? (tableVersionParam || null);
     } else if (periodTagParam !== "all") {
       resolvedPeriodTag = periodTagParam;
+      if (!tableVersionParam) {
+        const versionRowsResult = await indexDb
+          .prepare(
+            "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? AND period_tag = ?" +
+              (datasetId ? " AND dataset_id = ?" : "") +
+              " ORDER BY table_version DESC LIMIT 200",
+          )
+          .bind(...([table, periodTagParam, ...(datasetId ? [datasetId] : [])] as unknown[]))
+          .all();
+        const parsedVersionRows = BattleSummaryRowsSchema.safeParse(
+          versionRowsResult.results ?? [],
+        );
+        if (!parsedVersionRows.success) {
+          throw new Error("Invalid battle table-version rows");
+        }
+        resolvedTableVersion = parsedVersionRows.data.reduce<string | null>(
+          (latestVersion, row) =>
+            latestVersion === null ||
+            compareTableVersions(row.table_version, latestVersion) > 0
+              ? row.table_version
+              : latestVersion,
+          null,
+        );
+      }
     }
 
     const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
@@ -1843,9 +1973,9 @@ app.get("/global/records", async (c) => {
                WHERE bi.table_name = ?`;
       const params: unknown[] = [table];
 
-      if (tableVersionParam) {
+      if (resolvedTableVersion) {
         sql += " AND bi.table_version = ?";
-        params.push(tableVersionParam);
+        params.push(resolvedTableVersion);
       }
 
       if (tier) {
@@ -1968,7 +2098,7 @@ app.get("/global/records", async (c) => {
         success: true,
         table,
         period_tag: periodTagParam,
-        table_version: tableVersionParam || null,
+        table_version: resolvedTableVersion,
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
@@ -2013,7 +2143,7 @@ app.get("/global/records", async (c) => {
         success: true,
         table,
         period_tag: resolvedPeriodTag || periodTagParam,
-        table_version: tableVersionParam || null,
+        table_version: resolvedTableVersion,
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
@@ -2034,6 +2164,7 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
+    const headerCache = new Map<string, Promise<Uint8Array>>();
     const decodedBlocks = await Promise.all(
       rows.map((row) =>
         decodeIndexedBlock(
@@ -2041,6 +2172,7 @@ app.get("/global/records", async (c) => {
           row.file_path,
           Number(row.start_byte || 0),
           Number(row.length || 0),
+          headerCache,
         ).catch((err) => {
           console.warn(
             "[battle-data] failed to decode block in /global/records",
@@ -2079,7 +2211,7 @@ app.get("/global/records", async (c) => {
       success: true,
       table,
       period_tag: resolvedPeriodTag || periodTagParam,
-      table_version: tableVersionParam || null,
+      table_version: resolvedTableVersion,
       tier: effectiveTier,
       window_start_ms: windowStartMs,
       window_end_ms: windowEndMs,
@@ -2192,7 +2324,7 @@ app.get("/global/overview", async (c) => {
       deckIds.length > 0
         ? await fetchGlobalRecordsInternal(c, {
             table: "enemy_deck",
-            periodTag: "all",
+            periodTag,
             tableVersion,
             limitBlocks: 400,
             limitRecords: 2000,
@@ -2209,7 +2341,7 @@ app.get("/global/overview", async (c) => {
       shipGroupIds.length > 0
         ? await fetchGlobalRecordsInternal(c, {
             table: "enemy_ship",
-            periodTag: "all",
+            periodTag,
             tableVersion,
             limitBlocks: 400,
             limitRecords: 4000,
@@ -2329,6 +2461,7 @@ app.get("/detail", async (c) => {
   const battleIndexRaw = (c.req.query("battle_index") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
+  const datasetId = (c.req.query("dataset_id") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
@@ -2365,44 +2498,58 @@ app.get("/detail", async (c) => {
     // Keep a wider cap than the old 200-record window so per-env battle
     // ordering is not truncated for long sorties/retries.
     const DETAIL_BATTLE_LIMIT_RECORDS = 2000;
+    const datasetScope = datasetId ? { datasetId } : {};
 
     const fetchBattles = async (tag: string) =>
-      fetchGlobalRecordsInternal(c, {
+      fetchGlobalRecordsPayloadInternal(c, {
         table: "battle",
         periodTag: tag,
         tableVersion,
+        ...datasetScope,
         limitBlocks: 120,
         limitRecords: DETAIL_BATTLE_LIMIT_RECORDS,
         filter: { env_uuid: envUuid },
       });
 
-    const primaryBattles = await fetchBattles(periodTag);
-    const fallbackBattles =
-      primaryBattles.length > 0 || periodTag === "all"
-        ? primaryBattles
-        : await fetchBattles("all");
-    const battles = fallbackBattles;
+    const primaryBattlePayload = await fetchBattles(periodTag);
+    const battles = primaryBattlePayload.records || [];
+    if (battles.length === 0) {
+      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
+    }
+    const detailPeriodTag =
+      primaryBattlePayload.period_tag?.trim() || periodTag;
+    const detailTableVersion =
+      primaryBattlePayload.table_version?.trim() || tableVersion;
+    const detailScope = {
+      periodTag: detailPeriodTag,
+      tableVersion: detailTableVersion,
+      ...datasetScope,
+    };
 
     const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, airBaseAirAttacks, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
         fetchGlobalRecordsInternal(c, {
           table: "cells",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "battle_result",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         envUuid
-          ? fetchBattleEnvBundleInternal(c, envUuid, tableVersion)
+          ? fetchBattleEnvBundleInternal(
+              c,
+              envUuid,
+              detailTableVersion,
+              detailPeriodTag,
+              datasetId || undefined,
+            )
           : Promise.resolve({
               ownDecks: [],
               ownShips: [],
@@ -2416,126 +2563,111 @@ app.get("/detail", async (c) => {
         fetchWeaponIconFramesDirect(c),
         fetchGlobalRecordsInternal(c, {
           table: "midnight_hougeki_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_taisen_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "hougeki_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_airattack_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_raigeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "closing_raigeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", ...detailScope, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         fetchGlobalRecordsInternal(c, {
           table: "midnight_hougeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_taisen",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "hougeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_airattack",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "destruction_battle",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "friendly_support_hourai_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "friendly_support_hourai",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "night_support_hourai",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "night_support_airattack",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
@@ -2550,8 +2682,8 @@ app.get("/detail", async (c) => {
     const enemySlotItems = envBundle.enemySlotItems;
 
     const resolvedDetail = resolveBattleDetail({
-      periodTag,
-      tableVersion: tableVersion || null,
+      periodTag: detailPeriodTag,
+      tableVersion: detailTableVersion || null,
       envUuid,
       battleIndex,
       masterShips: mstShipPayload.records || [],
@@ -2626,7 +2758,9 @@ app.get("/global/latest", async (c) => {
   }
 
   try {
+    const periodTag = (c.req.query("period_tag") || "latest").trim();
     const tableVersion = c.req.query("table_version");
+    const datasetId = c.req.query("dataset_id")?.trim();
     let globalLatestSql = `SELECT 
          bi.id,
          bi.table_name AS table_name,
@@ -2640,9 +2774,30 @@ app.get("/global/latest", async (c) => {
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
     const globalLatestParams: unknown[] = [table];
+    if (periodTag === "latest") {
+      const allowedPeriodTags = await resolveAllowedPeriodTagsForRecords(
+        c,
+        indexDb,
+        table,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
+      if (allowedPeriodTags.size === 0) {
+        return c.json({ error: "No fragments found" }, 404);
+      }
+      const placeholders = [...allowedPeriodTags].map(() => "?").join(", ");
+      globalLatestSql += ` AND bi.period_tag IN (${placeholders})`;
+      globalLatestParams.push(...allowedPeriodTags);
+    } else if (periodTag !== "all") {
+      globalLatestSql += " AND bi.period_tag = ?";
+      globalLatestParams.push(periodTag);
+    }
     if (tableVersion) {
       globalLatestSql += ` AND bi.table_version = ?`;
       globalLatestParams.push(tableVersion);
+    }
+    if (datasetId) {
+      globalLatestSql += " AND bi.dataset_id = ?";
+      globalLatestParams.push(datasetId);
     }
     globalLatestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
 

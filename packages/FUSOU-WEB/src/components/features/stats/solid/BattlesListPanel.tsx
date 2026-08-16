@@ -137,7 +137,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     const mapStats = new Map<string, number>();
     for (const battle of resultFilteredBattles()) {
       const mapKey = mapKeyOf(battle);
-      if (!mapKey || mapKey === "-") continue;
+      if (!mapKey || mapKey === "-" || mapKey === "unknown") continue;
       mapStats.set(mapKey, (mapStats.get(mapKey) ?? 0) + 1);
     }
 
@@ -183,6 +183,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
   function moveToDetail(battle: BattleRecord) {
     const envUuid = String(battle.env_uuid ?? "").trim();
     const battleIndex = Number(battle.index ?? Number.NaN);
+    const datasetId = String(battle["dataset_id"] ?? "").trim();
     if (!envUuid || !Number.isFinite(battleIndex) || battleIndex < 0) {
       window.alert("戦闘詳細を開くために必要な env_uuid または battle_index が不足しています。");
       return;
@@ -192,6 +193,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     } catch {}
     const detailId = envUuid;
     d.setSelectedDetailId(detailId);
+    d.setSelectedDatasetId(datasetId);
     d.setSelectedBattleIndex(battleIndex);
     d.setActiveTab("detail");
   }

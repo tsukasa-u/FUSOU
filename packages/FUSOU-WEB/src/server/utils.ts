@@ -1031,7 +1031,7 @@ export function validateTokenPayloadWithSchema(
 
     return {
       valid: false,
-      error: "Token payload must have user_id as string",
+      error: "Token payload does not satisfy the required schema",
     };
   }
 

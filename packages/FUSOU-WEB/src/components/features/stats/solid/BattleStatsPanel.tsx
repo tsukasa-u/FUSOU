@@ -116,7 +116,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
     for (const c of d.cellRecords()) {
       let mapLabel = mapKeyOf(c);
-      if (mapLabel === "-" || mapLabel === "0-0") mapLabel = "不明";
+      if (mapLabel === "-" || mapLabel === "unknown") mapLabel = "不明";
       if (c.battles) {
         if (Array.isArray(c.battles)) {
           c.battles.forEach((bu: string) => battleToMap.set(bu, mapLabel));

@@ -102,6 +102,42 @@ describe("timeline payload guards", () => {
     expect(supportEvents).toMatchObject([
       { type: "shelling", defenderIdx: 0, damage: 0 },
     ]);
+    expect(supportEvents[0]).not.toHaveProperty("attackerMstShipId");
+  });
+
+  it("extracts array-format Friendly Force shelling rows", () => {
+    const events = buildTimelineEvents({
+      battle_order: [{ FriendlyForceAttack: 0 }],
+      friendly_force_attack: {
+        fleet_info: {
+          ship_id: [42],
+          now_hps: [10],
+          max_hps: [10],
+        },
+        support_hourai: {
+          hougeki: [
+            {
+              at: 0,
+              at_eflag: 0,
+              df: [0],
+              damage: [5],
+              f_now_hps: [10],
+              e_now_hps: [5],
+            },
+          ],
+        },
+      },
+    });
+
+    expect(events).toMatchObject([
+      {
+        type: "shelling",
+        actorRole: "friendly_force",
+        attackerMstShipId: 42,
+        defenderIdx: 0,
+        damage: 5,
+      },
+    ]);
   });
 
   it("normalizes initial HP arrays without trusting their runtime type", () => {

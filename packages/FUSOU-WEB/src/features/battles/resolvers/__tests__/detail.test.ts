@@ -216,7 +216,7 @@ describe("resolveBattleDetail", () => {
     ]);
   });
 
-  it("preserves zero map coordinates when they are explicitly present", () => {
+  it("normalizes non-positive map coordinates as missing", () => {
     const result = resolveBattleDetail({
       periodTag: "2026-08-11",
       envUuid: "target-env",
@@ -235,8 +235,8 @@ describe("resolveBattleDetail", () => {
     });
 
     expect(result?.payload.battle).toMatchObject({
-      maparea_id: 0,
-      mapinfo_no: 0,
+      maparea_id: null,
+      mapinfo_no: null,
     });
   });
 

@@ -289,6 +289,7 @@ export type BattleDetailLoadStatus = {
 export default function BattleDetailPanel(props: {
   battleId: string;
   battleIndex?: number | null;
+  datasetId?: string | null;
   repository?: BattleDataRepository;
   onBattleIndexChange?: (index: number) => void;
   onLoadStatusChange?: (status: BattleDetailLoadStatus) => void;
@@ -345,6 +346,8 @@ export default function BattleDetailPanel(props: {
     createSignal<string>("latest");
   const [requestedTableVersion, setRequestedTableVersion] =
     createSignal<string>("");
+  const [requestedDatasetId, setRequestedDatasetId] =
+    createSignal<string>("");
 
   const dataLoadItems = () => {
     const items = [...masterDataStatus()];
@@ -393,6 +396,10 @@ export default function BattleDetailPanel(props: {
 
   function buildCurrentShareUrl(): string {
     const tableVersion = requestedTableVersion().trim();
+    const datasetId =
+      props.datasetId !== undefined
+        ? (props.datasetId ?? "").trim()
+        : requestedDatasetId() || datasetIdFromSession(props.battleId.trim());
     return buildShareBattleUrl(window.location.origin, {
       battleId: props.battleId,
       ...(props.battleIndex === undefined
@@ -400,9 +407,24 @@ export default function BattleDetailPanel(props: {
         : { battleIndex: props.battleIndex }),
       periodTag: requestedPeriodTag(),
       ...(tableVersion ? { tableVersion } : {}),
+      ...(datasetId ? { datasetId } : {}),
       view: viewMode(),
       separators: viewMode() === "timeline" && showPhaseSeparators(),
     });
+  }
+
+  function datasetIdFromSession(envUuid: string): string {
+    try {
+      const raw = sessionStorage.getItem("battleDetail");
+      if (!raw) return "";
+      const record = jsonRecordOf(JSON.parse(raw) as unknown);
+      if (record?.["uuid"] !== envUuid) return "";
+      return typeof record["dataset_id"] === "string"
+        ? record["dataset_id"].trim()
+        : "";
+    } catch {
+      return "";
+    }
   }
 
   const showLegacyAirbaseWarning = createMemo(() => {
@@ -622,6 +644,7 @@ export default function BattleDetailPanel(props: {
     requestedBattleIndex: number;
     requestedPeriod: string;
     tableVersion: string;
+    datasetId: string;
     loadToken: number;
     signal: AbortSignal;
   }): Promise<void> {
@@ -630,6 +653,7 @@ export default function BattleDetailPanel(props: {
       requestedBattleIndex,
       requestedPeriod,
       tableVersion,
+      datasetId,
       loadToken,
       signal,
     } = params;
@@ -648,18 +672,21 @@ export default function BattleDetailPanel(props: {
     const battleData = sessionStorage.getItem("battleDetail");
     if (battleData) {
       try {
-        const parsed = JSON.parse(battleData);
+        const parsed: unknown = JSON.parse(battleData);
+        const parsedRecord = jsonRecordOf(parsed);
         // Only use the cached data if it matches the current battleId to avoid
         // showing a stale preview from a previously visited battle.
         const cachedUuid =
-          typeof parsed?.uuid === "string" ? parsed.uuid : null;
+          typeof parsedRecord?.["uuid"] === "string"
+            ? parsedRecord["uuid"]
+            : null;
         const cachedMatchesCurrent = cachedUuid === envUuid;
-        if (parsed && cachedMatchesCurrent) {
+        if (parsedRecord && cachedMatchesCurrent) {
           const preloaded = {
-            ...parsed,
+            ...parsedRecord,
             timestamp:
-              normalizeEpochMs(parsed.timestamp) ??
-              normalizeEpochMs(parsed.midnight_timestamp) ??
+              normalizeEpochMs(parsedRecord["timestamp"]) ??
+              normalizeEpochMs(parsedRecord["midnight_timestamp"]) ??
               null,
           };
           if (disposed || loadToken !== activeLoadToken) return;
@@ -678,6 +705,7 @@ export default function BattleDetailPanel(props: {
           const overview = (await repository.getOverview({
             periodTag: requestedPeriod,
             ...(tableVersion ? { tableVersion } : {}),
+            ...(datasetId ? { datasetId } : {}),
             limitBlocks: 120,
             limitRecords: 20000,
             signal,
@@ -726,6 +754,7 @@ export default function BattleDetailPanel(props: {
           battleIndex: requestedBattleIndex,
           periodTag: requestedPeriod,
           ...(tableVersion ? { tableVersion } : {}),
+          ...(datasetId ? { datasetId } : {}),
           ...(localMasterData
             ? {
                 masterShips: [...localMasterData[0].values()],
@@ -892,6 +921,10 @@ export default function BattleDetailPanel(props: {
     if (tableVersion) {
       setRequestedTableVersion(tableVersion);
     }
+    const datasetId = params.get("dataset_id")?.trim();
+    if (datasetId) {
+      setRequestedDatasetId(datasetId);
+    }
     const initialView = parseViewMode(params.get("view"));
     if (initialView) {
       setViewMode(initialView);
@@ -928,13 +961,17 @@ export default function BattleDetailPanel(props: {
     const idx = Number(props.battleIndex ?? Number.NaN);
     const requestedPeriod = requestedPeriodTag();
     const tableVersion = requestedTableVersion().trim();
+    const datasetId =
+      props.datasetId !== undefined
+        ? (props.datasetId ?? "").trim()
+        : requestedDatasetId() || datasetIdFromSession(envUuid);
     if (!envUuid || !Number.isFinite(idx) || idx < 0) {
       setBattle(null);
       setError("battle_index または env_uuid が不正です");
       return;
     }
 
-    const loadKey = `${envUuid}::${idx}::${requestedPeriod}::${tableVersion}`;
+    const loadKey = `${envUuid}::${idx}::${requestedPeriod}::${tableVersion}::${datasetId}`;
     if (loadKey === lastLoadKey) return;
     lastLoadKey = loadKey;
 
@@ -952,6 +989,7 @@ export default function BattleDetailPanel(props: {
         requestedBattleIndex: idx,
         requestedPeriod,
         tableVersion,
+        datasetId,
         loadToken,
         signal: abortController.signal,
       });

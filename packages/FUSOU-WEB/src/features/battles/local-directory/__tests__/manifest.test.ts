@@ -53,6 +53,19 @@ describe("APP local AVRO manifest paths", () => {
     ).toThrow(LocalAvroPathError);
   });
 
+  it("rejects zero period and non-positive map paths", () => {
+    expect(() =>
+      parseLocalAvroPath(
+        "0/transaction_data/1-1/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro",
+      ),
+    ).toThrow(LocalAvroPathError);
+    expect(() =>
+      parseLocalAvroPath(
+        "2026-06-26/transaction_data/0-0/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro",
+      ),
+    ).toThrow(LocalAvroPathError);
+  });
+
   it("matches the real database path and OCF header together", () => {
     const relativePath =
       "fusou/2026-02-13/master_data/mst_ships.avro";

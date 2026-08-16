@@ -683,7 +683,7 @@ export function buildTimelineEvents(
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              ...(safeNumberOrNull(shipIds[i]) !== null
+              ...(safeNumberOrNull(shipIds[i]) !== null && safeNumber(shipIds[i]) > 0
                 ? { attackerMstShipId: safeNumber(shipIds[i]) }
                 : {}),
             });
@@ -740,7 +740,7 @@ export function buildTimelineEvents(
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              ...(safeNumberOrNull(shipIds[i]) !== null
+              ...(safeNumberOrNull(shipIds[i]) !== null && safeNumber(shipIds[i]) > 0
                 ? { attackerMstShipId: safeNumber(shipIds[i]) }
                 : {}),
             });
@@ -776,10 +776,10 @@ export function buildTimelineEvents(
         const supportHourai = jsonRecordOf(ffa?.["support_hourai"]);
         if (supportHourai?.["hougeki"]) {
           const beforeCount = events.length;
-          const hougeki = jsonRecordOf(supportHourai["hougeki"]);
-          if (!hougeki) continue;
-          const atList = unknownArrayOf(hougeki["at_list"]);
-          const rows = normalizeShellingRows(supportHourai["hougeki"]);
+          const rawHougeki = supportHourai["hougeki"];
+          const hougeki = jsonRecordOf(rawHougeki);
+          const atList = unknownArrayOf(hougeki?.["at_list"]);
+          const rows = normalizeShellingRows(rawHougeki);
           const ffNowHps = nullableNumberArray(fleetInfo?.["now_hps"]);
           const ffMaxHps = nullableNumberArray(fleetInfo?.["max_hps"]);
 
@@ -987,7 +987,7 @@ export function buildTimelineEvents(
           slotItems: [],
           fHps: [],
           eHps: eNow,
-          ...(safeNumberOrNull(shipIds[i]) !== null
+          ...(safeNumberOrNull(shipIds[i]) !== null && safeNumber(shipIds[i]) > 0
             ? { attackerMstShipId: safeNumber(shipIds[i]) }
             : {}),
         });
@@ -1063,10 +1063,11 @@ export function buildTimelineEvents(
     if (fallbackSupportHourai?.["hougeki"]) {
       const ffShipIds = nullableNumberArray(fallbackFleetInfo?.["ship_id"]);
       const beforeCount = events.length;
-      const hougeki = jsonRecordOf(fallbackSupportHourai["hougeki"]);
-      if (hougeki) {
-        const atList = unknownArrayOf(hougeki["at_list"]);
-        const rows = normalizeShellingRows(fallbackSupportHourai["hougeki"]);
+      const rawHougeki = fallbackSupportHourai["hougeki"];
+      const hougeki = jsonRecordOf(rawHougeki);
+      {
+        const atList = unknownArrayOf(hougeki?.["at_list"]);
+        const rows = normalizeShellingRows(rawHougeki);
         const ffNowHps = nullableNumberArray(fallbackFleetInfo?.["now_hps"]);
         const ffMaxHps = nullableNumberArray(fallbackFleetInfo?.["max_hps"]);
 

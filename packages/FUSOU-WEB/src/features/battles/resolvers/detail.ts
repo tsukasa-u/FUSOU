@@ -79,6 +79,11 @@ function scopeRows(rows: JsonRecord[], envUuid: string): JsonRecord[] {
   return rows.filter((row) => String(row["env_uuid"] ?? "") === envUuid);
 }
 
+function normalizePositiveMapCoordinate(value: unknown): number | null {
+  const normalized = normalizeNullableNumber(value);
+  return normalized !== null && normalized > 0 ? normalized : null;
+}
+
 function firstByIndex(rows: JsonRecord[], index: number): JsonRecord | null {
   return rows.find((row) => Number(row["index"] ?? Number.NaN) === index) ?? null;
 }
@@ -429,12 +434,12 @@ export function resolveBattleDetail(
   const mergedBattle: JsonRecord = {
     ...battle,
     timestamp: normalizeTimestamp(battle["timestamp"]) ?? normalizeTimestamp(battle["midnight_timestamp"]),
-    maparea_id: normalizeNullableNumber(
-      cell?.["maparea_id"] ?? battle["maparea_id"],
-    ),
-    mapinfo_no: normalizeNullableNumber(
-      cell?.["mapinfo_no"] ?? battle["mapinfo_no"],
-    ),
+    maparea_id:
+      normalizePositiveMapCoordinate(cell?.["maparea_id"]) ??
+      normalizePositiveMapCoordinate(battle["maparea_id"]),
+    mapinfo_no:
+      normalizePositiveMapCoordinate(cell?.["mapinfo_no"]) ??
+      normalizePositiveMapCoordinate(battle["mapinfo_no"]),
     battle_result: battleResult ?? battle["battle_result"] ?? null,
     opening_raigeki: openingRaigeki ?? battle["opening_raigeki"] ?? null,
     closing_raigeki: closingRaigeki ?? battle["closing_raigeki"] ?? null,

@@ -29,6 +29,22 @@ export function battleRowIndexForSort(value: unknown): number {
     : Number.MAX_SAFE_INTEGER;
 }
 
+export function compareTableVersions(left: string, right: string): number {
+  const leftParts = left.split(".");
+  const rightParts = right.split(".");
+  const numericVersions = [...leftParts, ...rightParts].every((part) => /^\d+$/.test(part));
+  if (numericVersions) {
+    const length = Math.max(leftParts.length, rightParts.length);
+    for (let index = 0; index < length; index += 1) {
+      const leftPart = Number(leftParts[index] ?? 0);
+      const rightPart = Number(rightParts[index] ?? 0);
+      if (leftPart !== rightPart) return leftPart - rightPart;
+    }
+    return 0;
+  }
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+}
+
 export function normalizeNullableNumber(value: unknown): number | null {
   return parseFiniteNumber(value).value;
 }

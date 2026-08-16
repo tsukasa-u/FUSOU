@@ -148,9 +148,9 @@ describe("parseRateLimitAttempts", () => {
   });
 
   it("recovers from malformed or non-numeric KV values", () => {
-    expect(parseRateLimitAttempts("not-json")).toEqual([]);
-    expect(parseRateLimitAttempts('{"attempts":[]}')).toEqual([]);
-    expect(parseRateLimitAttempts("[1, null, \"2\"]")).toEqual([]);
+    expect(parseRateLimitAttempts("not-json")).toBeNull();
+    expect(parseRateLimitAttempts('{"attempts":[]}')).toBeNull();
+    expect(parseRateLimitAttempts("[1, null, \"2\"]")).toBeNull();
   });
 });
 

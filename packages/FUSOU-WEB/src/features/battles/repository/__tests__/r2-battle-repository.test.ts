@@ -31,6 +31,7 @@ describe("R2BattleRepository", () => {
       repository.getOverview({
         periodTag: "2026-02-13",
         tableVersion: "0.7.0",
+        datasetId: "dataset/one",
         limitBlocks: 120,
         limitRecords: 20000,
       }),
@@ -43,7 +44,7 @@ describe("R2BattleRepository", () => {
     );
     expect(fetcher).toHaveBeenNthCalledWith(
       2,
-      "/api/battle-data/global/overview?period_tag=2026-02-13&table_version=0.7.0&limit_blocks=120&limit_records=20000",
+      "/api/battle-data/global/overview?period_tag=2026-02-13&table_version=0.7.0&dataset_id=dataset%2Fone&limit_blocks=120&limit_records=20000",
       undefined,
     );
   });
@@ -57,6 +58,7 @@ describe("R2BattleRepository", () => {
       table: "battle_result",
       periodTag: "all",
       tableVersion: "0.7.0",
+      datasetId: "dataset/one",
       filter: { uuid: "env-1" },
       limitBlocks: 120,
       limitRecords: 50,
@@ -65,7 +67,7 @@ describe("R2BattleRepository", () => {
     });
 
     expect(fetcher).toHaveBeenCalledWith(
-      "/api/battle-data/global/records?table=battle_result&period_tag=all&table_version=0.7.0&limit_blocks=120&limit_records=50&filter_json=%7B%22uuid%22%3A%22env-1%22%7D",
+      "/api/battle-data/global/records?table=battle_result&period_tag=all&table_version=0.7.0&dataset_id=dataset%2Fone&limit_blocks=120&limit_records=50&filter_json=%7B%22uuid%22%3A%22env-1%22%7D",
       expect.objectContaining({
         signal: controller.signal,
         cache: "reload",
@@ -88,6 +90,26 @@ describe("R2BattleRepository", () => {
         name: "BattleRepositoryHttpError",
         status: 404,
       }),
+    );
+  });
+
+  it("serializes dataset scope for detail requests", async () => {
+    const fetcher = vi.fn(async () =>
+      jsonResponse({ success: true, battle: { env_uuid: "env-1" } }),
+    );
+    const repository = new R2BattleRepository(fetcher);
+
+    await repository.getDetail({
+      envUuid: "env-1",
+      battleIndex: 2,
+      periodTag: "2026-02-13",
+      tableVersion: "0.7.0",
+      datasetId: "dataset/one",
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/battle-data/detail?env_uuid=env-1&battle_index=2&period_tag=2026-02-13&table_version=0.7.0&dataset_id=dataset%2Fone",
+      undefined,
     );
   });
 });

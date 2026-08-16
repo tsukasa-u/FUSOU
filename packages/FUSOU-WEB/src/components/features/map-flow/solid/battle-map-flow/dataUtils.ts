@@ -29,8 +29,22 @@ export function parseOfficialMapThemeMode(raw: unknown): OfficialMapThemeMode {
 }
 
 export function mapKeyOf(rec: { maparea_id?: number | null; mapinfo_no?: number | null }): string {
-  if (rec.maparea_id === null || rec.maparea_id === undefined) return "unknown";
-  if (rec.mapinfo_no === null || rec.mapinfo_no === undefined) return "unknown";
+  if (
+    rec.maparea_id === null ||
+    rec.maparea_id === undefined ||
+    !Number.isFinite(rec.maparea_id) ||
+    rec.maparea_id <= 0
+  ) {
+    return "unknown";
+  }
+  if (
+    rec.mapinfo_no === null ||
+    rec.mapinfo_no === undefined ||
+    !Number.isFinite(rec.mapinfo_no) ||
+    rec.mapinfo_no <= 0
+  ) {
+    return "unknown";
+  }
   return `${rec.maparea_id}-${rec.mapinfo_no}`;
 }
 
