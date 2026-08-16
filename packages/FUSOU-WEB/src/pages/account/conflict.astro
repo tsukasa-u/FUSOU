@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // Read member_id_hash from a short-lived cookie set by local callback.
@@ -21,7 +21,13 @@ const memberIdHashFromQuery = import.meta.env.DEV
   : null;
 const memberIdHash = memberIdHashFromCookie ?? memberIdHashFromQuery;
 
-let hints: any = null;
+type ConflictHints = {
+  masked_email?: string | null;
+  last_sign_in_date?: string | null;
+  account_created_date?: string | null;
+};
+
+let hints: ConflictHints | null = null;
 let error: string | null = null;
 
 if (!memberIdHash) {

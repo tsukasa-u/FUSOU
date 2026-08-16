@@ -6,7 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -385,17 +385,79 @@ if (!user) {
 </dialog>
 
 <script>
-  // @ts-nocheck
   import { copyToClipboard } from "@/utils/clipboard";
 
   const API_BASE = "/api/api-keys";
 
-  function byId(id) {
+  type ApiKeyRow = {
+    id: string | number;
+    key_masked?: string | null;
+    is_active?: boolean;
+    created_at?: string | null;
+  };
+
+  type DeviceRow = {
+    id: string | number;
+    client_id_masked?: string | null;
+    device_name?: string | null;
+    created_at?: string | null;
+    last_used_at?: string | null;
+  };
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function parseApiKeyRows(value: unknown): ApiKeyRow[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const id = item["id"];
+      if (typeof id !== "string" && typeof id !== "number") return [];
+      return [
+        {
+          id,
+          key_masked:
+            typeof item["key_masked"] === "string" ? item["key_masked"] : null,
+          is_active:
+            typeof item["is_active"] === "boolean" ? item["is_active"] : false,
+          created_at:
+            typeof item["created_at"] === "string" ? item["created_at"] : null,
+        },
+      ];
+    });
+  }
+
+  function parseDeviceRows(value: unknown): DeviceRow[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const id = item["id"];
+      if (typeof id !== "string" && typeof id !== "number") return [];
+      return [
+        {
+          id,
+          client_id_masked:
+            typeof item["client_id_masked"] === "string"
+              ? item["client_id_masked"]
+              : null,
+          device_name:
+            typeof item["device_name"] === "string" ? item["device_name"] : null,
+          created_at:
+            typeof item["created_at"] === "string" ? item["created_at"] : null,
+          last_used_at:
+            typeof item["last_used_at"] === "string" ? item["last_used_at"] : null,
+        },
+      ];
+    });
+  }
+
+  function byId<T extends HTMLElement = HTMLElement>(id: string): T {
     const element = document.getElementById(id);
     if (!element) {
       throw new Error(`Missing expected element: ${id}`);
     }
-    return element;
+    return element as T;
   }
 
   // Modal state
@@ -403,7 +465,7 @@ if (!user) {
 
   // Modal helper
   function showDeleteModal(message: string, onConfirm: () => void | Promise<void>) {
-    const modal = byId("delete-modal") as HTMLDialogElement;
+    const modal = byId<HTMLDialogElement>("delete-modal");
     byId("delete-modal-message").textContent = message;
     pendingDeleteAction = onConfirm;
     modal.showModal();
@@ -414,8 +476,8 @@ if (!user) {
   }
 
   function setContainerMessage(
-    containerId,
-    message,
+    containerId: string,
+    message: string,
     className = "text-center py-4 text-base-content/60",
   ) {
     const container = byId(containerId);
@@ -425,7 +487,11 @@ if (!user) {
     container.replaceChildren(div);
   }
 
-  function createDangerButton(title, pathD, onClick) {
+  function createDangerButton(
+    title: string,
+    pathD: string,
+    onClick: () => void | Promise<void>,
+  ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className =
@@ -444,18 +510,18 @@ if (!user) {
     path.setAttribute("d", pathD);
     svg.appendChild(path);
     button.appendChild(svg);
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", () => {
+      void onClick();
+    });
     return button;
   }
 
   async function fetchApiKeys() {
     try {
       const response = await fetch(API_BASE);
-      const data = /** @type {{ success?: boolean; api_keys?: any[] }} */ (
-        await response.json()
-      );
-      if (data.success) {
-        renderApiKeys(data.api_keys);
+      const data: unknown = await response.json();
+      if (isRecord(data) && data["success"] === true) {
+        renderApiKeys(parseApiKeyRows(data["api_keys"]));
       } else {
         setContainerMessage(
           "api-keys-list",
@@ -475,11 +541,9 @@ if (!user) {
   async function fetchDevices() {
     try {
       const response = await fetch(`${API_BASE}/devices`);
-      const data = /** @type {{ success?: boolean; devices?: any[] }} */ (
-        await response.json()
-      );
-      if (data.success) {
-        renderDevices(data.devices);
+      const data: unknown = await response.json();
+      if (isRecord(data) && data["success"] === true) {
+        renderDevices(parseDeviceRows(data["devices"]));
       } else {
         setContainerMessage(
           "devices-list",
@@ -499,15 +563,16 @@ if (!user) {
   async function fetchUsage() {
     try {
       const response = await fetch(`${API_BASE}/usage`);
-      const data =
-        /** @type {{ success?: boolean; usage?: { remaining: number } }} */ (
-          await response.json()
-        );
-      if (data.success && data.usage) {
-        const { remaining } = data.usage;
-        const progress = /** @type {HTMLProgressElement} */ (
-          byId("ru-progress")
-        );
+      const data: unknown = await response.json();
+      if (
+        isRecord(data) &&
+        data["success"] === true &&
+        isRecord(data["usage"]) &&
+        typeof data["usage"]["remaining"] === "number" &&
+        Number.isFinite(data["usage"]["remaining"])
+      ) {
+        const remaining = data["usage"]["remaining"];
+        const progress = byId<HTMLProgressElement>("ru-progress");
         const text = byId("ru-status-text");
 
         progress.value = remaining;
@@ -527,10 +592,7 @@ if (!user) {
     }
   }
 
-  /**
-   * @param {Array<{ id: string; key_masked: string; is_active: boolean; created_at: string }>} keys
-   */
-  function renderApiKeys(keys: any[]) {
+  function renderApiKeys(keys: ApiKeyRow[]) {
     const container = byId("api-keys-list");
     if (keys.length === 0) {
       setContainerMessage(
@@ -545,7 +607,7 @@ if (!user) {
       const row = document.createElement("div");
       row.className =
         "flex items-center justify-between p-3 bg-base-200 rounded-md";
-      row.dataset.keyId = String(key.id ?? "");
+      row.dataset["keyId"] = String(key.id);
 
       const content = document.createElement("div");
       content.className = "flex-1 min-w-0";
@@ -579,10 +641,7 @@ if (!user) {
     });
   }
 
-  /**
-   * @param {Array<{ id: string; client_id_masked: string; device_name: string; created_at: string; last_used_at: string | null }>} devices
-   */
-  function renderDevices(devices: any[]) {
+  function renderDevices(devices: DeviceRow[]) {
     const container = byId("devices-list");
     if (devices.length === 0) {
       setContainerMessage("devices-list", "No trusted devices yet.");
@@ -594,7 +653,7 @@ if (!user) {
       const row = document.createElement("div");
       row.className =
         "flex items-center justify-between p-3 bg-base-200 rounded-md";
-      row.dataset.deviceId = String(device.id ?? "");
+      row.dataset["deviceId"] = String(device.id);
 
       const content = document.createElement("div");
       content.className = "flex-1 min-w-0";
@@ -642,15 +701,18 @@ if (!user) {
         },
         body: JSON.stringify({}),
       });
-      const data =
-        /** @type {{ success?: boolean; api_key?: { key: string }; message?: string; error?: string }} */ (
-          await response.json()
-        );
-      if (data.success) {
+      const data: unknown = await response.json();
+      const apiKey =
+        isRecord(data) &&
+        isRecord(data["api_key"]) &&
+        typeof data["api_key"]["key"] === "string"
+          ? data["api_key"]["key"]
+          : null;
+      if (isRecord(data) && data["success"] === true && apiKey) {
         // Show the new key
         const display = byId("new-key-display");
         const keyValue = byId("new-key-value");
-        keyValue.textContent = data.api_key.key;
+        keyValue.textContent = apiKey;
         display.classList.remove("hidden");
         byId("api-key-error").classList.add("hidden");
 
@@ -659,8 +721,13 @@ if (!user) {
       } else {
         // Show error
         const errorDiv = byId("api-key-error");
-        errorDiv.textContent =
-          data.message || data.error || "Failed to create key";
+        const message =
+          isRecord(data) && typeof data["message"] === "string"
+            ? data["message"]
+            : isRecord(data) && typeof data["error"] === "string"
+              ? data["error"]
+              : "Failed to create key";
+        errorDiv.textContent = message;
         errorDiv.classList.remove("hidden");
       }
     } catch (error) {
@@ -677,8 +744,8 @@ if (!user) {
       const response = await fetch(`${API_BASE}/${keyId}`, {
         method: "DELETE",
       });
-      const data = /** @type {{ success?: boolean }} */ (await response.json());
-      if (data.success) {
+      const data: unknown = await response.json();
+      if (isRecord(data) && data["success"] === true) {
         hideNewKeyDisplay();
         await fetchApiKeys();
       }
@@ -693,8 +760,8 @@ if (!user) {
       const response = await fetch(`${API_BASE}/devices/${deviceId}`, {
         method: "DELETE",
       });
-      const data = /** @type {{ success?: boolean }} */ (await response.json());
-      if (data.success) {
+      const data: unknown = await response.json();
+      if (isRecord(data) && data["success"] === true) {
         await fetchDevices();
       }
     } catch (error) {
@@ -703,7 +770,7 @@ if (!user) {
   }
 
   /** @param {string | null | undefined} dateStr */
-  function formatDate(dateStr: string) {
+  function formatDate(dateStr: string | null | undefined) {
     if (!dateStr) return "N/A";
     const date = new Date(dateStr);
     return date.toLocaleDateString("ja-JP", {
@@ -723,12 +790,12 @@ if (!user) {
     byId("create-key-btn").addEventListener("click", createApiKey);
 
     // Copy key button - switch to check icon on success
-    byId("copy-key-btn").addEventListener("click", () => {
-      const key = byId("new-key-value").textContent;
+    byId("copy-key-btn").addEventListener("click", async () => {
+      const key = byId("new-key-value").textContent ?? "";
       const copyIcon = byId("copy-icon");
       const checkIcon = byId("check-icon");
 
-      const success = copyToClipboard(key);
+      const success = await copyToClipboard(key);
       if (success) {
         // Switch icons
         copyIcon.classList.add("hidden");
@@ -744,12 +811,12 @@ if (!user) {
 
     // Modal handlers
     byId("delete-modal-cancel").addEventListener("click", () => {
-      /** @type {HTMLDialogElement} */ (byId("delete-modal")).close();
+      byId<HTMLDialogElement>("delete-modal").close();
       pendingDeleteAction = null;
     });
 
     byId("delete-modal-confirm").addEventListener("click", async () => {
-      /** @type {HTMLDialogElement} */ (byId("delete-modal")).close();
+      byId<HTMLDialogElement>("delete-modal").close();
       if (pendingDeleteAction) {
         await pendingDeleteAction();
         pendingDeleteAction = null;

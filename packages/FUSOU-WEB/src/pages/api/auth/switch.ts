@@ -5,17 +5,20 @@ import { env as cfEnv } from "cloudflare:workers";
 
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function readStoredTokenList(
   cookie: { json: () => unknown } | undefined,
 ): string[] {
   if (!cookie) return [];
   try {
-    const parsed = cookie.json() as { data?: unknown };
-    return Array.isArray(parsed.data)
-      ? parsed.data.filter(
+    const parsed = cookie.json();
+    if (!isJsonRecord(parsed) || !Array.isArray(parsed["data"])) return [];
+    return parsed["data"].filter(
           (value): value is string => typeof value === "string",
-        )
-      : [];
+        );
   } catch {
     return [];
   }

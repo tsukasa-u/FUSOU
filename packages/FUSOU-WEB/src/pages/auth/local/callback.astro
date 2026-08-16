@@ -8,7 +8,7 @@ import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // For local app flow: read from local auth tokens (sb-local-*)

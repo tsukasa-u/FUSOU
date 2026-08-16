@@ -10,11 +10,13 @@ const rawDocsGlobResult = import.meta.glob("@docs/**/*.md", {
   eager: true,
 });
 const rawDocs = Object.values(rawDocsGlobResult).reverse() as MarkdownInstance<
-  Record<string, any>
+  Record<string, unknown>
 >[];
 
-const normalizeSlug = (value: string | undefined) =>
-  (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+const normalizeSlug = (value: unknown) =>
+  (typeof value === "string" ? value : "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/^docs\//, "");
 
 const formatSegment = (segment: string) =>
   segment
@@ -63,16 +65,15 @@ type MenuNode = {
   children: MenuNode[];
 };
 
-const root = new Map<
-  string,
-  {
-    segment: string;
-    title: string;
-    url?: string;
-    description?: string;
-    children: Map<string, any>;
-  }
->();
+type MutableMenuNode = {
+  segment: string;
+  title: string;
+  url?: string;
+  description?: string;
+  children: Map<string, MutableMenuNode>;
+};
+
+const root = new Map<string, MutableMenuNode>();
 
 for (const entry of docsWithSchema) {
   let current = root;
@@ -97,7 +98,7 @@ for (const entry of docsWithSchema) {
   });
 }
 
-const mapToArray = (nodeMap: Map<string, any>): MenuNode[] =>
+const mapToArray = (nodeMap: Map<string, MutableMenuNode>): MenuNode[] =>
   Array.from(nodeMap.values())
     .sort((a, b) => compareSegments(a, b))
     .map((node) => ({

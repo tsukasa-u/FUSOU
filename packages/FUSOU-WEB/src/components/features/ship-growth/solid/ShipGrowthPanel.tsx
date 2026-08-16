@@ -14,12 +14,22 @@ import {
   registerables,
   type ChartData,
   type ChartDataset,
+  type ChartOptions,
 } from "chart.js";
 import { cachedFetch } from "@/utils/fetchCache";
 import {
   ENEMY_ID_THRESHOLD,
   STYPE_NAMES,
 } from "@/features/simulator/constants";
+import {
+  ShipGrowthAllPeriodsResponseSchema,
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthExpResponseSchema,
+  ShipGrowthSummaryResponseSchema,
+} from "@/features/simulator/ship-growth-utils";
+import {
+  MasterShipListResponseSchema,
+} from "@/features/simulator/api-response-schemas";
 import { buildShareGrowthUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
 import { ShipListRow, type ShipListItem } from "@/components/common/solid/ship-list-row";
@@ -33,7 +43,6 @@ import { VList, type VListHandle } from "virtua/solid";
 
 Chart.register(...registerables);
 
-// ── Types ──────────────────────────────────────────────────────────
 
 type PeriodSource = "live" | "latest" | "cumulative" | "all";
 
@@ -122,6 +131,9 @@ type ShipMasterRow = {
 };
 
 type AnyRecord = Record<string, unknown>;
+type FlatShipItem =
+  | { type: "header"; key: string }
+  | { type: "ship"; data: ShipListItem };
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -500,7 +512,7 @@ const CHART_OPTIONS_EXP = {
   },
 } as const;
 
-const CHART_OPTIONS_BOUNDS = {
+const CHART_OPTIONS_BOUNDS: ChartOptions<"line"> = {
   responsive: true,
   animation: false as const,
   plugins: {
@@ -521,7 +533,7 @@ const CHART_OPTIONS_BOUNDS = {
 // shows only that line's label (= period tag) and value in the tooltip.
 // Using "index" would show 3N entries (N periods × 3 stats) simultaneously,
 // which is unreadable when many archive periods are present.
-const CHART_OPTIONS_BOUNDS_ALL_PERIODS = {
+const CHART_OPTIONS_BOUNDS_ALL_PERIODS: ChartOptions<"line"> = {
   responsive: true,
   animation: false as const,
   interaction: {
@@ -548,7 +560,7 @@ const CHART_OPTIONS_BOUNDS_ALL_PERIODS = {
 
 // Cumulative-mode bounds chart: adds a per-dataset tooltip afterLabel line
 // showing which period contributed the minimum ("winning") value.
-const CHART_OPTIONS_BOUNDS_CUMULATIVE = {
+const CHART_OPTIONS_BOUNDS_CUMULATIVE: ChartOptions<"line"> = {
   responsive: true,
   animation: false as const,
   plugins: {
@@ -557,10 +569,7 @@ const CHART_OPTIONS_BOUNDS_CUMULATIVE = {
       mode: "index" as const,
       intersect: false,
       callbacks: {
-        afterLabel: (item: {
-          raw: unknown;
-          dataset: { label?: string };
-        }): string | string[] => {
+        afterLabel: (item): string | string[] => {
           const raw = item.raw as { sourcePeriod?: string };
           return raw?.sourcePeriod ? `  出典: ${raw.sourcePeriod}` : [];
         },
@@ -686,7 +695,7 @@ export default function ShipGrowthPanel() {
   });
 
   const flatShips = createMemo(() => {
-    const flat: Array<{ type: "header"; key: string } | { type: "ship"; data: ShipListItem }> = [];
+    const flat: FlatShipItem[] = [];
     for (const group of groupedShips()) {
       flat.push({ type: "header", key: group.key });
       for (const ship of group.items) {
@@ -716,11 +725,9 @@ export default function ShipGrowthPanel() {
     try {
       const res = await cachedFetch("/api/ship-growth/summary");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as {
-        ok: boolean;
-        periods: PeriodSummary[];
-        cumulative_available?: boolean;
-      };
+      const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+      if (!parsed.success) throw new Error("Unexpected response");
+      const json = parsed.data;
       if (!json.ok || !Array.isArray(json.periods))
         throw new Error("Unexpected response");
       const base: PeriodSummary[] = json.periods.map((p) => ({
@@ -774,11 +781,9 @@ export default function ShipGrowthPanel() {
         "/api/master-data/json?table_name=mst_ship",
       );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as {
-        period_tag?: string;
-        period_revision?: number;
-        records?: Array<{ id?: number; name?: string; stype?: number }>;
-      };
+      const parsed = MasterShipListResponseSchema.safeParse(await res.json());
+      if (!parsed.success) throw new Error("Unexpected response");
+      const json = parsed.data;
       const rows = (json.records ?? [])
         .map((r) => ({
           id: Number(r.id),
@@ -871,10 +876,12 @@ export default function ShipGrowthPanel() {
         const expUrl = `/api/ship-growth/exp?period_tag=${encodeURIComponent(expPeriod.period_tag)}&table_version=${encodeURIComponent(expPeriod.table_version)}`;
         const expRes = await cachedFetch(expUrl);
         if (!expRes.ok) throw new Error(`exp HTTP ${expRes.status}`);
-        const expJson = (await expRes.json()) as {
-          ok: boolean;
-          exp: ExpRow[];
-        };
+        const parsedExp = ShipGrowthExpResponseSchema.safeParse(
+          await expRes.json(),
+        );
+        if (!parsedExp.success || !parsedExp.data.ok)
+          throw new Error("Unexpected exp response");
+        const expJson = parsedExp.data;
         // Guard: discard if period changed while awaiting exp data.
         if (!isCurrentFetch()) return;
         setExpRows(expJson.exp ?? []);
@@ -898,15 +905,12 @@ export default function ShipGrowthPanel() {
             : Promise.resolve(null),
         ]);
         if (!apRes.ok) throw new Error(`all-periods HTTP ${apRes.status}`);
-        const apJson = (await apRes.json()) as {
-          ok: boolean;
-          entries: Array<{
-            period_tag: string;
-            table_version: string;
-            bounds: unknown;
-            caps: unknown;
-          }>;
-        };
+        const parsedAllPeriods = ShipGrowthAllPeriodsResponseSchema.safeParse(
+          await apRes.json(),
+        );
+        if (!parsedAllPeriods.success || !parsedAllPeriods.data.ok)
+          throw new Error("Unexpected all-periods response");
+        const apJson = parsedAllPeriods.data;
         const archivedEntries: AllPeriodsEntry[] = (apJson.entries ?? []).map(
           (e) => ({
             period_tag: e.period_tag,
@@ -918,11 +922,11 @@ export default function ShipGrowthPanel() {
 
         const combined: AllPeriodsEntry[] = [...archivedEntries];
         if (liveRes && liveRes.ok) {
-          const liveJson = (await liveRes.json()) as {
-            ok: boolean;
-            bounds?: unknown;
-            caps?: unknown;
-          };
+          const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
+            await liveRes.json(),
+          );
+          if (!parsedLive.success) throw new Error("Unexpected bounds response");
+          const liveJson = parsedLive.data;
           // Use the pre-computed livePeriodForBounds (same reference, no
           // re-read of periods() after the await point).
           if (liveJson.ok && livePeriodForBounds) {
@@ -960,20 +964,22 @@ export default function ShipGrowthPanel() {
           throw new Error(`cumulative HTTP ${cumulativeRes.status}`);
         }
 
-        const cumulativeJson = (await cumulativeRes.json()) as {
-          ok: boolean;
-          bounds?: unknown;
-          caps?: unknown;
-        };
+        const parsedCumulative = ShipGrowthBoundsResponseSchema.safeParse(
+          await cumulativeRes.json(),
+        );
+        if (!parsedCumulative.success || !parsedCumulative.data.ok)
+          throw new Error("Unexpected cumulative response");
+        const cumulativeJson = parsedCumulative.data;
         let mergedBounds = normalizeBoundRows(cumulativeJson.bounds);
         let mergedCaps = normalizeCapRows(cumulativeJson.caps);
 
         if (liveRes?.ok && firstLivePeriod) {
-          const liveJson = (await liveRes.json()) as {
-            ok: boolean;
-            bounds?: unknown;
-            caps?: unknown;
-          };
+          const parsedLive = ShipGrowthBoundsResponseSchema.safeParse(
+            await liveRes.json(),
+          );
+          if (!parsedLive.success || !parsedLive.data.ok)
+            throw new Error("Unexpected bounds response");
+          const liveJson = parsedLive.data;
           const liveBounds = normalizeBoundRows(liveJson.bounds);
           const liveCaps = normalizeCapRows(liveJson.caps);
           const liveSourcePeriod = `${firstLivePeriod.period_tag}/${firstLivePeriod.table_version}`;
@@ -1003,11 +1009,12 @@ export default function ShipGrowthPanel() {
       const boundsUrl = `/api/ship-growth/bounds?period_tag=${encodeURIComponent(resolvedLivePeriod.period_tag)}&table_version=${encodeURIComponent(resolvedLivePeriod.table_version)}`;
       const boundsRes = await cachedFetch(boundsUrl);
       if (!boundsRes.ok) throw new Error(`bounds HTTP ${boundsRes.status}`);
-      const boundsJson = (await boundsRes.json()) as {
-        ok: boolean;
-        bounds: BoundRow[];
-        caps?: CapRow[];
-      };
+      const parsedBounds = ShipGrowthBoundsResponseSchema.safeParse(
+        await boundsRes.json(),
+      );
+      if (!parsedBounds.success || !parsedBounds.data.ok)
+        throw new Error("Unexpected bounds response");
+      const boundsJson = parsedBounds.data;
       // Guard: discard if period changed while awaiting bounds data.
       if (!isCurrentFetch()) return;
       batch(() => {
@@ -1184,7 +1191,7 @@ export default function ShipGrowthPanel() {
       return false;
     }
 
-    const copied = copyToClipboard(shareUrl);
+    const copied = await copyToClipboard(shareUrl);
     if (copied) {
       return true;
     }
@@ -1260,11 +1267,10 @@ export default function ShipGrowthPanel() {
     if (!ctx) return;
 
     boundsChart?.destroy();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    boundsChart = new Chart<"line">(ctx, {
+    boundsChart = new Chart<"line", BoundsDataPoint[]>(ctx, {
       type: "line",
-      data: chartData as any,
-      options: boundsChartOptions() as any,
+      data: chartData,
+      options: boundsChartOptions(),
     });
   });
 
@@ -1383,7 +1389,7 @@ export default function ShipGrowthPanel() {
             <Show when={!loadingShips()}>
               <div class="h-[74vh] pr-1">
                 <VList ref={(el) => { shipVListRef = el; }} data={flatShips()} class="h-full overflow-y-auto overflow-x-hidden">
-                  {(item: any) =>
+                  {(item: FlatShipItem) =>
                     item.type === "header" ? (
                       <div class="mb-2 mt-1 first:mt-0">
                         <h4 class="px-2.5 py-1 text-[11px] font-semibold tracking-wide text-base-content/45 uppercase bg-base-100/95 backdrop-blur-sm z-10">

@@ -7,10 +7,12 @@ const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
 });
 const rawPosts = Object.values(
   rawPostsGlobResult
-).reverse() as MarkdownInstance<Record<string, any>>[];
+).reverse() as MarkdownInstance<Record<string, unknown>>[];
 
-const normalizeSlug = (value: string | undefined) =>
-  (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+const normalizeSlug = (value: unknown) =>
+  (typeof value === "string" ? value : "")
+    .replace(/^\/+|\/+$/g, "")
+    .replace(/^docs\//, "");
 
 const formatSegment = (segment: string) =>
   segment

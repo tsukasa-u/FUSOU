@@ -13,7 +13,9 @@ type Props = {
 export function ShareUrlButton(props: Props): JSX.Element {
   const [status, setStatus] = createSignal<"idle" | "loading" | "success" | "error">("idle");
 
-  const handleClick = async (e: MouseEvent) => {
+  const handleClick = async (
+    e: MouseEvent & { currentTarget: HTMLButtonElement; target: Element },
+  ) => {
     if (props.onShare) {
       e.preventDefault();
       setStatus("loading");
@@ -32,9 +34,9 @@ export function ShareUrlButton(props: Props): JSX.Element {
       }
     } else if (props.onClick) {
       if (typeof props.onClick === "function") {
-        props.onClick(e as any);
+        props.onClick(e);
       } else {
-        props.onClick[0](props.onClick[1], e as any);
+        props.onClick[0](props.onClick[1], e);
       }
     }
   };
