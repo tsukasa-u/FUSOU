@@ -2,6 +2,7 @@ import type { KVNamespace } from "@cloudflare/workers-types";
 import type { Bindings, D1Database } from "../types";
 import {
   LatestMasterPeriodRowSchema,
+  PeriodTagCacheSchema,
   PeriodTagRowsSchema,
 } from "../schemas/period-tags";
 
@@ -75,13 +76,10 @@ async function readCachedPeriodTags(
 ): Promise<string[] | null> {
   try {
     const cached = await cacheKV.get(PERIOD_TAG_CACHE_LIST_KEY, "json");
-    if (
-      cached &&
-      typeof cached === "object" &&
-      Array.isArray((cached as { tags?: unknown[] }).tags)
-    ) {
-      const tags = ((cached as { tags: unknown[] }).tags ?? [])
-        .map((value) => (typeof value === "string" ? value.trim() : ""))
+    const parsed = PeriodTagCacheSchema.safeParse(cached);
+    if (parsed.success) {
+      const tags = parsed.data.tags
+        .map((value) => value.trim())
         .filter((value) => isValidPeriodTagDate(value));
       if (tags.length > 0) {
         return tags.slice(0, limit);

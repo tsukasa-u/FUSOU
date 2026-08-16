@@ -4,6 +4,10 @@ import { CORS_HEADERS } from '../constants';
 import { SanitizeStateRequestSchema } from '../schemas/compact';
 import { CompactionDatasetRowSchema } from '../schemas/internal-compaction';
 import { validateJWT, createEnvContext, verifyAdminToken } from '../utils';
+import {
+  getQueueErrorStatus,
+  sendQueueMessageWithRetry,
+} from '../utils/queue-retry';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -123,13 +127,12 @@ app.post('/sanitize-state', async (c) => {
         return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
       }
       console.info(`[compact-sanitize] Calling env.runtime.COMPACTION_QUEUE.send()...`);
-      const sendResult = await env.runtime["COMPACTION_QUEUE"].send({
+      await sendQueueMessageWithRetry(env.runtime["COMPACTION_QUEUE"], {
         datasetId,
         triggeredAt: new Date().toISOString(),
         priority: 'manual',
         userId: supabaseUser.id,
       });
-      console.info(`[compact-sanitize] Queue send result:`, { sendResult });
       console.info(`[compact-sanitize] Successfully enqueued dataset`, { datasetId, datasetName: ds.dataset_name });
     } catch (queueError) {
       console.error(`[compact-sanitize] FAILED to enqueue dataset`, {
@@ -142,7 +145,12 @@ app.post('/sanitize-state', async (c) => {
             ? String(queueError.message)
             : undefined,
       });
-      return c.json({ error: 'Failed to enqueue dataset for compaction. Please try again.' }, 500);
+      const status = getQueueErrorStatus(queueError) === 429 ? 429 : 503;
+      return c.json(
+        { error: 'Failed to enqueue dataset for compaction. Please try again.' },
+        status,
+        status === 429 ? { 'Retry-After': '1' } : undefined,
+      );
     }
 
     return c.json({
@@ -227,18 +235,17 @@ app.post('/trigger-scheduled', async (c) => {
 
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
-    const enqueuePromises = datasetRows.map((dataset) =>
-      env.runtime["COMPACTION_QUEUE"].send({
-        datasetId: dataset.id,
-        triggeredAt: new Date().toISOString(),
-        priority: 'scheduled',
-        userId: dataset.user_id,
-      })
-        .then(() => {
+    const enqueuePromises = datasetRows.map(async (dataset) => {
+      try {
+        await sendQueueMessageWithRetry(env.runtime["COMPACTION_QUEUE"], {
+          datasetId: dataset.id,
+          triggeredAt: new Date().toISOString(),
+          priority: 'scheduled',
+          userId: dataset.user_id,
+        });
           console.info(`[compact-scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
           enqueueResults.push({ datasetId: dataset.id, status: 'success' });
-        })
-        .catch((err: unknown) => {
+      } catch (err: unknown) {
           console.error(`[compact-scheduled] Failed to enqueue dataset`, {
             datasetId: dataset.id,
             error: String(err),
@@ -248,8 +255,8 @@ app.post('/trigger-scheduled', async (c) => {
                 : undefined,
           });
           enqueueResults.push({ datasetId: dataset.id, status: 'failed', error: String(err) });
-        })
-    );
+      }
+    });
 
     await Promise.allSettled(enqueuePromises);
 
@@ -277,17 +284,30 @@ app.post('/trigger-scheduled', async (c) => {
       console.info('[compact-scheduled] Marked datasets as compaction_in_progress=1', { successfulIds });
     }
 
-    const datasetIds = datasetRows.map((d) => d.id);
+    const datasetIds = successfulIds;
     console.info('[compact-scheduled] Enqueued datasets', {
-      count: datasets.results.length,
+      count: successCount,
       datasetIds,
       timestamp: new Date().toISOString(),
     });
 
+    if (failureCount > 0) {
+      return c.json(
+        {
+          success: false,
+          message: `Enqueued ${successCount} of ${datasetRows.length} datasets for compaction`,
+          enqueued: successCount,
+          datasets: datasetIds,
+          failed: enqueueResults.filter((r) => r.status === 'failed'),
+        },
+        503,
+      );
+    }
+
     return c.json({
       success: true,
-      message: `Enqueued ${datasetRows.length} datasets for compaction`,
-      enqueued: datasetRows.length,
+      message: `Enqueued ${successCount} datasets for compaction`,
+      enqueued: successCount,
       datasets: datasetIds,
     });
   } catch (error) {

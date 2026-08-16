@@ -15,10 +15,14 @@ import { decodeAvroOcfToJson } from "../utils/avro-decoder";
 import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
 import {
   MasterDataDedupeRowSchema,
+  MasterDataDownloadRowSchema,
   MasterDataInsertedRevisionRowSchema,
   MasterDataJsonLookupRowSchema,
+  MasterDataMetadataRowSchema,
   MasterDataNextRevisionRowSchema,
   parseMasterDataJsonRecords,
+  parseMasterDataTableOffsets,
+  parseMasterDataJsonRecordsText,
 } from "../schemas/master-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -238,16 +242,12 @@ app.post("/upload", async (c) => {
         start: number;
         end: number;
       }> = [];
-      try {
-        tableOffsets = JSON.parse(tableOffsetsStr);
-        if (!Array.isArray(tableOffsets) || tableOffsets.length === 0) {
-          return c.json(
-            { error: "table_offsets must be a non-empty array" },
-            400,
-          );
-        }
-      } catch (e) {
-        return c.json({ error: "table_offsets must be valid JSON" }, 400);
+      tableOffsets = parseMasterDataTableOffsets(tableOffsetsStr);
+      if (tableOffsets.length === 0) {
+        return c.json(
+          { error: "table_offsets must be a non-empty array of valid offsets" },
+          400,
+        );
       }
 
       // Validate all tables are present and valid
@@ -645,16 +645,10 @@ app.post("/upload", async (c) => {
         }
 
         // Parse table_offsets and split data
-        let tableOffsets: Array<{
-          table_name: string;
-          start: number;
-          end: number;
-        }> = [];
-        try {
-          tableOffsets = JSON.parse(tableOffsetsStr);
-        } catch (e) {
+        const tableOffsets = parseMasterDataTableOffsets(tableOffsetsStr);
+        if (tableOffsets.length === 0) {
           console.error(
-            `[master-data] Failed to parse table_offsets: ${String(e)}`,
+            "[master-data] Failed to parse table_offsets",
           );
           return new Response(
             JSON.stringify({ error: "Invalid table_offsets in token" }),
@@ -900,7 +894,12 @@ app.post("/upload", async (c) => {
                   tableData.buffer instanceof ArrayBuffer && tableData.byteOffset === 0
                     ? tableData
                     : new Uint8Array(tableData);
-                const decodedRecords = decodeAvroOcfToJson(bytes as Uint8Array) as Array<Record<string, unknown>>;
+                const decodedRecords = parseMasterDataJsonRecords(
+                  decodeAvroOcfToJson(bytes as Uint8Array),
+                );
+                if (!decodedRecords) {
+                  throw new Error("Decoded master data payload is not a record array");
+                }
                 const cacheKey = `master-data:json:${offset.table_name}:${tableVersion}:${periodTag}:${periodRevision}`;
                 await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
                 console.info(`[master-data] Warmed cache for ${cacheKey}`);
@@ -1106,9 +1105,7 @@ app.get("/json", async (c) => {
       try {
         const cachedStr = await kv.get(cacheKey);
         if (cachedStr) {
-          const decodedRecords = parseMasterDataJsonRecords(
-            JSON.parse(cachedStr),
-          );
+          const decodedRecords = parseMasterDataJsonRecordsText(cachedStr);
           if (decodedRecords) {
             const records =
               requestedRecordId == null
@@ -1290,21 +1287,24 @@ app.get("/exists", async (c) => {
       return c.json({ exists: false }, 404);
     }
 
+    const parsedResult = MasterDataMetadataRowSchema.safeParse(result);
+    if (!parsedResult.success) {
+      return c.json({ error: "Invalid master data metadata row" }, 500);
+    }
+    const metadata = parsedResult.data;
+
     return c.json({
       exists: true,
       data: {
-        id: result["id"],
-        period_tag: result["period_tag"],
-        table_version: result["table_version"],
-        period_revision: result["period_revision"],
-        table_count: result["table_count"],
-        table_offsets:
-          typeof result["table_offsets"] === "string"
-            ? JSON.parse(result["table_offsets"])
-            : [],
-        upload_status: result["upload_status"],
-        created_at: result["created_at"],
-        completed_at: result["completed_at"],
+        id: metadata.id,
+        period_tag: metadata.period_tag,
+        table_version: metadata.table_version,
+        period_revision: metadata.period_revision,
+        table_count: metadata.table_count,
+        table_offsets: parseMasterDataTableOffsets(metadata.table_offsets),
+        upload_status: metadata.upload_status,
+        created_at: metadata.created_at,
+        completed_at: metadata.completed_at,
       },
     });
   } catch (err) {
@@ -1370,21 +1370,24 @@ app.get("/latest", async (c) => {
       return c.json({ exists: false }, 404);
     }
 
+    const parsedResult = MasterDataMetadataRowSchema.safeParse(result);
+    if (!parsedResult.success) {
+      return c.json({ error: "Invalid master data metadata row" }, 500);
+    }
+    const metadata = parsedResult.data;
+
     return c.json({
       exists: true,
       data: {
-        id: result["id"],
-        period_tag: result["period_tag"],
-        table_version: result["table_version"],
-        period_revision: result["period_revision"],
-        table_count: result["table_count"],
-        table_offsets:
-          typeof result["table_offsets"] === "string"
-            ? JSON.parse(result["table_offsets"])
-            : [],
-        upload_status: result["upload_status"],
-        created_at: result["created_at"],
-        completed_at: result["completed_at"],
+        id: metadata.id,
+        period_tag: metadata.period_tag,
+        table_version: metadata.table_version,
+        period_revision: metadata.period_revision,
+        table_count: metadata.table_count,
+        table_offsets: parseMasterDataTableOffsets(metadata.table_offsets),
+        upload_status: metadata.upload_status,
+        created_at: metadata.created_at,
+        completed_at: metadata.completed_at,
       },
     });
   } catch (err) {
@@ -1484,10 +1487,14 @@ app.get("/download", async (c) => {
     sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
     const stmt = db.prepare(sql);
 
-    const record = (await stmt.bind(...params).first()) as {
-      period_revision: number;
-      r2_key: string;
-    } | null;
+    const rawRecord = await stmt.bind(...params).first();
+    const parsedRecord = MasterDataDownloadRowSchema.nullable().safeParse(
+      rawRecord,
+    );
+    if (!parsedRecord.success) {
+      return c.json({ error: "Invalid master data download row" }, 500);
+    }
+    const record = parsedRecord.data;
 
     if (!record?.r2_key) {
       return c.json({ error: "Master data not found for this period" }, 404);

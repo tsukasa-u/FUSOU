@@ -25,7 +25,11 @@ import {
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
 import {
   RemodelDataIngestBodySchema,
+  RemodelDetailArchiveRowSchema,
+  RemodelChangedPeriodRowSchema,
   RemodelMaxUpdatedAtRowSchema,
+  RemodelPeriodTagRowSchema,
+  RemodelSlotlistArchiveRowSchema,
   parseRemodelEffectiveSummaryRows,
   parseRemodelPeriodSummaryRows,
   ValidatedRemodelDataIngestBodySchema,
@@ -83,19 +87,20 @@ async function archiveAndResetOnPeriodSwitch(
   incomingPeriodTag: string,
   nowMs: number,
 ): Promise<{ stalePeriods: string[] }> {
-  const periods = ((
-    await db
-      .prepare(
-        `SELECT DISTINCT period_tag FROM remodel_slotlist_entries
-         UNION
-         SELECT DISTINCT period_tag FROM remodel_detail_entries`,
-      )
-      .all()
-  ).results ?? [])
-    .map((row) =>
-      String((row as Record<string, unknown>)["period_tag"] ?? "").trim(),
+  const periodsResult = await db
+    .prepare(
+      `SELECT DISTINCT period_tag FROM remodel_slotlist_entries
+       UNION
+       SELECT DISTINCT period_tag FROM remodel_detail_entries`,
     )
-    .filter(Boolean);
+    .all();
+  const parsedPeriods = RemodelPeriodTagRowSchema.array().safeParse(
+    periodsResult.results ?? [],
+  );
+  if (!parsedPeriods.success) {
+    throw new Error("Invalid remodel period rows");
+  }
+  const periods = parsedPeriods.data.map((row) => row.period_tag.trim()).filter(Boolean);
 
   const stalePeriods = periods.filter((tag) => tag !== incomingPeriodTag);
   if (stalePeriods.length === 0) return { stalePeriods: [] };
@@ -106,27 +111,47 @@ async function archiveAndResetOnPeriodSwitch(
     );
   }
 
-  const slotlistEntries = (
-    await db
-      .prepare(
-        `SELECT * FROM remodel_slotlist_entries
-         WHERE period_tag <> ?
-         ORDER BY secretary_ship_master_id, weekday_jst, slotitem_master_id, remodel_level`,
-      )
-      .bind(incomingPeriodTag)
-      .all()
-  ).results ?? [];
+  const slotlistResult = await db
+    .prepare(
+      `SELECT period_tag, secretary_ship_master_id, weekday_jst,
+              remodel_id, remodel_step_id, remodel_level, slotitem_master_id,
+              sp_type, req_fuel, req_bull, req_steel, req_bauxite,
+              req_buildkit, req_remodelkit, req_slot_id, req_slot_num,
+              updated_at_ms
+       FROM remodel_slotlist_entries
+       WHERE period_tag <> ?
+       ORDER BY secretary_ship_master_id, weekday_jst, slotitem_master_id, remodel_level`,
+    )
+    .bind(incomingPeriodTag)
+    .all();
+  const parsedSlotlistEntries = RemodelSlotlistArchiveRowSchema.array().safeParse(
+    slotlistResult.results ?? [],
+  );
+  if (!parsedSlotlistEntries.success) {
+    throw new Error("Invalid remodel slotlist archive rows");
+  }
 
-  const detailEntries = (
-    await db
-      .prepare(
-        `SELECT * FROM remodel_detail_entries
-         WHERE period_tag <> ?
-         ORDER BY slotitem_master_id, remodel_level`,
-      )
-      .bind(incomingPeriodTag)
-      .all()
-  ).results ?? [];
+  const detailResult = await db
+    .prepare(
+      `SELECT period_tag, slotitem_master_id, remodel_id, remodel_step_id,
+              remodel_level, certain_buildkit, certain_remodelkit,
+              req_slot_id, req_slot_num, change_flag,
+              req_useitem_id, req_useitem_id2, req_useitem_num, req_useitem_num2,
+              updated_at_ms
+       FROM remodel_detail_entries
+       WHERE period_tag <> ?
+       ORDER BY slotitem_master_id, remodel_level`,
+    )
+    .bind(incomingPeriodTag)
+    .all();
+  const parsedDetailEntries = RemodelDetailArchiveRowSchema.array().safeParse(
+    detailResult.results ?? [],
+  );
+  if (!parsedDetailEntries.success) {
+    throw new Error("Invalid remodel detail archive rows");
+  }
+  const slotlistEntries = parsedSlotlistEntries.data;
+  const detailEntries = parsedDetailEntries.data;
 
   const archiveKey =
     `remodel/period-switch/${incomingPeriodTag}/${nowMs}-` +
@@ -269,20 +294,22 @@ app.get("/summary", async (c) => {
       probeWhenFresh: true,
       isValidSnapshot: isRemodelSummarySnapshot,
       refreshFromDelta: async (cached) => {
-        const changedPeriods = ((
-          await db
-            .prepare(
-                `SELECT period_tag, MAX(updated_at_ms) AS max_updated_at_ms
-               FROM remodel_slotlist_effective_requirements
-               WHERE updated_at_ms > ?
-                 GROUP BY period_tag`,
-            )
-            .bind(cached.db_synced_at)
-            .all()
-        ).results ?? []) as Array<{
-          period_tag: string;
-          max_updated_at_ms: number;
-        }>;
+        const changedPeriodsResult = await db
+          .prepare(
+            `SELECT period_tag, MAX(updated_at_ms) AS max_updated_at_ms
+             FROM remodel_slotlist_effective_requirements
+             WHERE updated_at_ms > ?
+               GROUP BY period_tag`,
+          )
+          .bind(cached.db_synced_at)
+          .all();
+        const parsedChangedPeriods = RemodelChangedPeriodRowSchema.array().safeParse(
+          changedPeriodsResult.results ?? [],
+        );
+        if (!parsedChangedPeriods.success) {
+          throw new Error("Invalid remodel changed-period rows");
+        }
+        const changedPeriods = parsedChangedPeriods.data;
 
         if (changedPeriods.length === 0) {
           return {

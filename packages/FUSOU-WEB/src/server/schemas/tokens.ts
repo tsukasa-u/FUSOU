@@ -53,6 +53,21 @@ export const MasterDataTokenPayloadSchema = SignedTokenBaseSchema.extend({
   declared_size: PositiveIntegerClaimSchema,
 });
 
+export const AssetUploadTokenPayloadSchema = SignedTokenBaseSchema.extend({
+  key: z.string().min(1),
+  relative_path: z.string().min(1),
+  declared_size: PositiveIntegerClaimSchema,
+  file_name: z.string().nullable(),
+  content_hash: z.string().min(1),
+  caches_to_clear: z.string(),
+});
+
+export const FleetSnapshotTokenPayloadSchema = SignedTokenBaseSchema.extend({
+  tag: z.string().min(1),
+  dataset_id: z.string().min(1),
+  content_hash: z.string().min(1),
+});
+
 export const SokuSpeedTokenPayloadSchema = SignedTokenBaseSchema.extend({
   content_hash: z.string().min(1),
   declared_size: PositiveIntegerClaimSchema,
@@ -79,6 +94,12 @@ export type QuestTreeUploadTokenPayload = z.infer<
 >;
 export type MasterDataTokenPayload = z.infer<
   typeof MasterDataTokenPayloadSchema
+>;
+export type AssetUploadTokenPayload = z.infer<
+  typeof AssetUploadTokenPayloadSchema
+>;
+export type FleetSnapshotTokenPayload = z.infer<
+  typeof FleetSnapshotTokenPayloadSchema
 >;
 export type SokuSpeedTokenPayload = z.infer<
   typeof SokuSpeedTokenPayloadSchema

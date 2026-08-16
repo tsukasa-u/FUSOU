@@ -15,7 +15,7 @@ vi.mock("@fusou/avro-wasm", () => ({
 	get_schema_json: vi.fn(),
 }));
 
-import battleDataApp from "../battle_data";
+import battleDataApp, { attachSortieIds } from "../battle_data";
 
 type QueryResult = { results?: Array<Record<string, unknown>> };
 
@@ -57,6 +57,32 @@ function installCacheHit(payload: unknown) {
 }
 
 describe("battle-data route integration", () => {
+	it("keeps missing map coordinates separate from valid zero coordinates", () => {
+				const records: Array<Record<string, unknown>> = [
+			{
+				dataset_id: "dataset",
+				maparea_id: null,
+				mapinfo_no: null,
+				timestamp: 1,
+			},
+			{
+				dataset_id: "dataset",
+				maparea_id: 0,
+				mapinfo_no: 0,
+				timestamp: 2,
+			},
+		];
+
+		attachSortieIds(records);
+
+		expect(records[0]?.["__sortie_id"]).toBe(
+			"dataset:unknown:1",
+		);
+		expect(records[1]?.["__sortie_id"]).toBe(
+			"dataset:0-0:2",
+		);
+	});
+
 	it("returns the available period summary with cache headers", async () => {
 		const response = await request("/global/summary", {
 			BATTLE_INDEX_DB: createD1([

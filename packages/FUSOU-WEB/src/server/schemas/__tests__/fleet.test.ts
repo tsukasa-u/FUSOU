@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   FleetMemberMapRowSchema,
   FleetRotationRowsSchema,
+  FleetSnapshotPayloadSchema,
+  parseFleetSnapshotPayload,
 } from "../fleet";
 
 describe("fleet external row schemas", () => {
@@ -30,5 +32,23 @@ describe("fleet external row schemas", () => {
     expect(
       FleetRotationRowsSchema.safeParse([{ pid_from: 1 }]).success,
     ).toBe(false);
+  });
+
+  it("accepts snapshot arrays and preserves a valid zero combined flag", () => {
+    const result = FleetSnapshotPayloadSchema.safeParse({
+      s3s: [],
+      s8s: [],
+      d8k: [],
+      c11g: 0,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.c11g).toBe(0);
+  });
+
+  it("rejects arbitrary JSON without fleet snapshot arrays", () => {
+    expect(parseFleetSnapshotPayload({ source: "invalid" })).toBeNull();
+    expect(parseFleetSnapshotPayload([])).toBeNull();
+    expect(parseFleetSnapshotPayload({ s3s: "invalid" })).toBeNull();
   });
 });

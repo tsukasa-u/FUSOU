@@ -21,6 +21,29 @@ describe("ShortenerRequestSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("validates the nested snapshot payload and strips request extras", () => {
+    const result = ShortenerRequestSchema.safeParse({
+      url: "https://example.com",
+      snapshotPayload: { snapshotShips: {} },
+      unexpected: true,
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.snapshotPayload).toEqual({ snapshotShips: {} });
+      expect(result.data).not.toHaveProperty("unexpected");
+    }
+  });
+
+  it("rejects an invalid nested snapshot payload at the request boundary", () => {
+    expect(
+      ShortenerRequestSchema.safeParse({
+        url: "https://example.com",
+        snapshotPayload: "invalid",
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects a missing URL", () => {
     expect(ShortenerRequestSchema.safeParse({}).success).toBe(false);
   });

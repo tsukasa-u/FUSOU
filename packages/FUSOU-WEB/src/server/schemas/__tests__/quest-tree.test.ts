@@ -3,6 +3,8 @@ import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
+  QuestSnapshotPageRowSchema,
+  QuestStateEventRowSchema,
   parseQuestRuleRows,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
@@ -70,6 +72,57 @@ describe("QuestCollectionSessionRowSchema", () => {
   });
 });
 
+describe("QuestSnapshotPageRowSchema", () => {
+  it("accepts a snapshot page with a nullable JSON column", () => {
+    expect(
+      QuestSnapshotPageRowSchema.safeParse({
+        page_no: 2,
+        visible_quest_ids_json: "[100,101]",
+      }).success,
+    ).toBe(true);
+    expect(
+      QuestSnapshotPageRowSchema.safeParse({ page_no: 1, visible_quest_ids_json: null })
+        .success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed page numbers and JSON column types", () => {
+    expect(QuestSnapshotPageRowSchema.safeParse({ page_no: "2" }).success).toBe(
+      false,
+    );
+    expect(
+      QuestSnapshotPageRowSchema.safeParse({ page_no: 1, visible_quest_ids_json: [] })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe("QuestStateEventRowSchema", () => {
+  it("accepts the persisted quest state vocabulary", () => {
+    expect(
+      QuestStateEventRowSchema.safeParse({
+        quest_id: 100,
+        event_type: "start",
+        state_after: "active",
+        timestamp_ms: 1000,
+        collection_session_id: "session-1",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects unknown state values", () => {
+    expect(
+      QuestStateEventRowSchema.safeParse({
+        quest_id: 100,
+        event_type: "start",
+        state_after: "unknown",
+        timestamp_ms: 1000,
+        collection_session_id: "session-1",
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("parseQuestRuleRows", () => {
   it("keeps valid rule rows and skips malformed external rows", () => {
     const validRow = {
@@ -116,6 +169,9 @@ describe("QuestTreeIngestBodySchema", () => {
       table_version: " 1.0 ",
       page_no: "2.9",
       quest_id: "123",
+      dataset_token: " dataset-token ",
+      content_hash: " content-hash ",
+      file_size: "100",
       quests: [
         {
           quest_id: "456",
@@ -132,6 +188,9 @@ describe("QuestTreeIngestBodySchema", () => {
       expect(result.data.timestamp_ms).toBe(1000);
       expect(result.data.page_no).toBe(2);
       expect(result.data.quest_id).toBe(123);
+      expect(result.data.dataset_token).toBe("dataset-token");
+      expect(result.data.content_hash).toBe("content-hash");
+      expect(result.data.file_size).toBe(100);
       expect(result.data.quests?.[0]?.quest_id).toBe(456);
     }
   });
@@ -151,6 +210,19 @@ describe("QuestTreeIngestBodySchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.quests).toBeUndefined();
+  });
+
+  it("rejects non-string tokens and invalid file sizes at the schema boundary", () => {
+    expect(
+      QuestTreeIngestBodySchema.safeParse({ dataset_token: 123 }).success,
+    ).toBe(false);
+    expect(
+      QuestTreeIngestBodySchema.safeParse({ content_hash: 123 }).success,
+    ).toBe(false);
+    expect(
+      QuestTreeIngestBodySchema.safeParse({ file_size: "not-a-number" })
+        .success,
+    ).toBe(false);
   });
 
   it("preserves validator error order and messages", () => {

@@ -2,9 +2,55 @@ import { describe, expect, it } from "vitest";
 import {
   CompletedSynergyManifestRowSchema,
   LatestSynergyPeriodRowSchema,
+  SynergyManifestRequestSchema,
   SynergyPayloadSchema,
   SynergyNextRevisionRowSchema,
+  parseSynergyShipIds,
+  parseSynergyStatBonus,
 } from "../synergy";
+
+describe("SynergyManifestRequestSchema", () => {
+  const validRequest = {
+    period_tag: "2026-07-08",
+    sp_effect_sha256: "a".repeat(64),
+    api_start2_batch_hash: "b".repeat(64),
+    generator_version: "v1.2.3",
+    generated_at: "2026-07-08T00:00:00.000Z",
+  };
+
+  it("accepts a valid manifest allocation request", () => {
+    expect(SynergyManifestRequestSchema.safeParse(validRequest).success).toBe(
+      true,
+    );
+  });
+
+  it("rejects malformed hashes, versions, dates, and option types", () => {
+    expect(
+      SynergyManifestRequestSchema.safeParse({
+        ...validRequest,
+        sp_effect_sha256: "invalid",
+      }).success,
+    ).toBe(false);
+    expect(
+      SynergyManifestRequestSchema.safeParse({
+        ...validRequest,
+        generator_version: "1.2.3",
+      }).success,
+    ).toBe(false);
+    expect(
+      SynergyManifestRequestSchema.safeParse({
+        ...validRequest,
+        generated_at: "not-a-date",
+      }).success,
+    ).toBe(false);
+    expect(
+      SynergyManifestRequestSchema.safeParse({
+        ...validRequest,
+        allow_duplicate_content: "true",
+      }).success,
+    ).toBe(false);
+  });
+});
 
 describe("CompletedSynergyManifestRowSchema", () => {
   it("accepts completed manifest metadata and extra columns", () => {
@@ -110,5 +156,20 @@ describe("SynergyPayloadSchema", () => {
         cross_rules: [{ pairs: [[1, "2"]] }],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("synergy consumer parsers", () => {
+  it("keeps known numeric stat aliases and strips unknown keys", () => {
+    expect(
+      parseSynergyStatBonus({ kaih: 1, tais: 2, extra: 3 }),
+    ).toEqual({ kaih: 1, tais: 2 });
+    expect(parseSynergyShipIds([1, 2])).toEqual([1, 2]);
+  });
+
+  it("rejects malformed stat and ship-id values", () => {
+    expect(parseSynergyStatBonus({ kaih: "1" })).toBeUndefined();
+    expect(parseSynergyStatBonus(null)).toBeUndefined();
+    expect(parseSynergyShipIds([1, "2"])).toEqual([]);
   });
 });

@@ -6,6 +6,8 @@ import {
   parseSokuSpeedObservationRows,
   SokuSpeedExslotSchema,
   SokuSpeedSlotRowsSchema,
+  SokuSpeedUpgradeResponseSchema,
+  parseSokuSpeedUpgradeResponse,
 } from "../soku-speed";
 
 describe("LatestSokuSpeedPeriodRowSchema", () => {
@@ -33,6 +35,55 @@ describe("LatestSokuSpeedPeriodRowSchema", () => {
   });
 });
 
+describe("SokuSpeedUpgradeResponseSchema", () => {
+  it("accepts a cached response and preserves valid zero item arrays", () => {
+    const result = SokuSpeedUpgradeResponseSchema.safeParse({
+      ok: true,
+      period_tag: "2026-07-08",
+      table_version: "1.0",
+      data: { "1": [{ soku_observed: 5, item_ids: [10] }] },
+    });
+
+    expect(result.success).toBe(true);
+    expect(
+      parseSokuSpeedUpgradeResponse({
+        ok: true,
+        period_tag: null,
+        table_version: null,
+        data: {},
+      })?.data,
+    ).toEqual({});
+  });
+
+  it("rejects malformed cached response roots and mismatched period metadata", () => {
+    expect(parseSokuSpeedUpgradeResponse({ ok: true, data: {} })).toBeNull();
+    expect(
+      parseSokuSpeedUpgradeResponse({
+        ok: true,
+        period_tag: "2026-07-08",
+        table_version: null,
+        data: {},
+      }),
+    ).toBeNull();
+    expect(
+      parseSokuSpeedUpgradeResponse({
+        ok: true,
+        period_tag: "2026-07-08",
+        table_version: "1.0",
+        data: { "1": [{ soku_observed: 0, item_ids: [0] }] },
+      }),
+    ).toBeNull();
+    expect(
+      parseSokuSpeedUpgradeResponse({
+        ok: true,
+        period_tag: "2026-07-08",
+        table_version: "1.0",
+        data: { "1": [{ soku_observed: 7, item_ids: [10] }] },
+      }),
+    ).toBeNull();
+  });
+});
+
 describe("SokuSpeedIngestBodySchema", () => {
   it("accepts an object payload and preserves upload fields", () => {
     const result = SokuSpeedIngestBodySchema.safeParse({
@@ -47,8 +98,24 @@ describe("SokuSpeedIngestBodySchema", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.file_size).toBe("100");
+      expect(result.data.file_size).toBe(100);
       expect(result.data["extra_field"]).toBe(true);
+    }
+  });
+
+  it("normalizes numeric file sizes and preserves string metadata", () => {
+    const result = SokuSpeedIngestBodySchema.safeParse({
+      dataset_id: " dataset-1 ",
+      request_id: " request-1 ",
+      file_size: "100",
+      content_hash: " hash ",
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.dataset_id).toBe("dataset-1");
+      expect(result.data.file_size).toBe(100);
+      expect(result.data.content_hash).toBe("hash");
     }
   });
 

@@ -22,7 +22,9 @@ import { handleTwoStageUpload } from "../utils/upload";
 import {
   FleetMemberMapRowSchema,
   FleetRotationRowsSchema,
+  parseFleetSnapshotPayload,
 } from "../schemas/fleet";
+import { FleetSnapshotTokenPayloadSchema } from "../schemas/tokens";
 
 const DATASET_ID_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_ROTATION_HOPS = 5;
@@ -452,6 +454,7 @@ app.post("/snapshot", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    tokenPayloadSchema: FleetSnapshotTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _user, authContext) => {
@@ -551,8 +554,21 @@ app.post("/snapshot", async (c) => {
         );
       }
 
-      // Treat very small payloads as empty and skip upload
-      if (data && data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
+      // Parse and validate payload from data
+      let payload: ReturnType<typeof parseFleetSnapshotPayload>;
+      try {
+        const text = new TextDecoder().decode(data);
+        payload = parseFleetSnapshotPayload(JSON.parse(text));
+      } catch {
+        return c.json({ error: "Invalid JSON payload" }, 400);
+      }
+
+      if (!payload) {
+        return c.json({ error: "Invalid fleet snapshot payload" }, 400);
+      }
+
+      // Treat very small valid payloads as empty and skip upload
+      if (data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
         return {
           response: {
             ok: true,
@@ -561,26 +577,6 @@ app.post("/snapshot", async (c) => {
             tag,
           },
         };
-      }
-
-      // Parse and validate payload from data
-      let payload: unknown;
-      try {
-        const text = new TextDecoder().decode(data);
-        payload = JSON.parse(text);
-      } catch {
-        return c.json({ error: "Invalid JSON payload" }, 400);
-      }
-
-      const isEmptyObject =
-        payload !== null &&
-        typeof payload === "object" &&
-        !Array.isArray(payload) &&
-        Object.keys(payload).length === 0;
-      const isEmptyArray = Array.isArray(payload) && payload.length === 0;
-
-      if (isEmptyObject || isEmptyArray) {
-        return c.json({ error: "Empty payload is not allowed" }, 400);
       }
 
       // Compress JSON payload
@@ -753,7 +749,13 @@ app.get("/snapshot/:tag", async (c) => {
       jsonText = new TextDecoder().decode(compressed);
     }
 
-    const data = JSON.parse(jsonText);
+    const data = parseFleetSnapshotPayload(JSON.parse(jsonText));
+    if (!data) {
+      console.error("[fleet-snapshot] Stored payload failed schema validation", {
+        key: latestKey,
+      });
+      return c.json({ error: "Stored fleet snapshot is invalid" }, 502);
+    }
     return c.json({
       ok: true,
       tag,

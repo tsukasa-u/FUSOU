@@ -37,6 +37,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 import fleetApp from "../fleet";
+import type { Bindings } from "../../types";
 
 type ListPage = {
   objects: Array<{ key: string; uploaded: Date; size: number }>;
@@ -144,20 +145,25 @@ describe("fleet route rotation fallback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockCreateEnvContext.mockImplementation((c: any) => ({
+    mockCreateEnvContext.mockImplementation(
+      (c: { env?: Record<string, unknown> }) => ({
       runtime: c?.env ?? {},
       buildtime: {},
       isDev: false,
-    }));
+      }),
+    );
     mockGetEnv.mockImplementation(
-      (ctx: any, key: string) => ctx.runtime?.[key],
+      (ctx: { runtime?: Record<string, unknown> }, key: string) =>
+        ctx.runtime?.[key],
     );
 
-    mockResolveSupabaseConfig.mockImplementation((ctx: any) => ({
-      url: ctx.runtime?.PUBLIC_SUPABASE_URL ?? null,
-      serviceRoleKey: ctx.runtime?.SUPABASE_SECRET_KEY ?? null,
-      publishableKey: ctx.runtime?.PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? null,
-    }));
+    mockResolveSupabaseConfig.mockImplementation(
+      (ctx: { runtime?: Record<string, unknown> }) => ({
+      url: ctx.runtime?.["PUBLIC_SUPABASE_URL"] ?? null,
+      serviceRoleKey: ctx.runtime?.["SUPABASE_SECRET_KEY"] ?? null,
+      publishableKey: ctx.runtime?.["PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ?? null,
+      }),
+    );
 
     mockValidateJWT.mockResolvedValue(null);
     mockResolveLinkedMemberIdHashForUser.mockResolvedValue({
@@ -196,7 +202,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [key]: { source: "dataset-token-fallback" },
+        [key]: { s3s: [], source: "dataset-token-fallback" },
       },
     });
 
@@ -212,7 +218,7 @@ describe("fleet route rotation fallback", () => {
       {
         FLEET_SNAPSHOT_BUCKET: bucket,
         DATASET_TOKEN_SECRET: "x".repeat(32),
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -278,7 +284,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [oldKey2]: { source: "historical-latest" },
+        [oldKey2]: { s3s: [], source: "historical-latest" },
       },
     });
 
@@ -296,7 +302,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -339,7 +345,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [key]: { source: "current-only" },
+        [key]: { s3s: [], source: "current-only" },
       },
     });
 
@@ -357,7 +363,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     expect(res.status).toBe(200);
@@ -416,7 +422,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [oldKey]: { source: "paged-rotation" },
+        [oldKey]: { s3s: [], source: "paged-rotation" },
       },
     });
 
@@ -434,7 +440,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -509,7 +515,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -598,7 +604,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -675,7 +681,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {

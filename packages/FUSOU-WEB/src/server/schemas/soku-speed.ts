@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { isValidPeriodTagDate } from "../utils/period-tags";
 
+export const SokuObservedSpeedSchema = z.union([
+  z.literal(5),
+  z.literal(10),
+  z.literal(15),
+  z.literal(20),
+]);
+
 export const LatestSokuSpeedPeriodRowSchema = z
   .object({
     period_tag: z.string().min(1),
@@ -18,11 +25,47 @@ export const SokuSpeedExslotSchema = SokuSpeedSlotSchema.nullable();
 export const SokuSpeedObservationRowSchema = z
   .object({
     master_id: z.number().int().positive(),
-    soku_observed: z.number(),
+    soku_observed: SokuObservedSpeedSchema,
     slots_json: z.string(),
     exslot_json: z.string().nullable(),
   })
   .passthrough();
+
+const SokuSpeedAggregateEntrySchema = z
+  .object({
+    soku_observed: SokuObservedSpeedSchema,
+    item_ids: z.number().int().positive().array(),
+  })
+  .passthrough();
+
+export const SokuSpeedUpgradeResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    period_tag: z.string().min(1).nullable(),
+    table_version: z.string().min(1).nullable(),
+    data: z.record(SokuSpeedAggregateEntrySchema.array()),
+  })
+  .passthrough()
+  .superRefine((response, context) => {
+    if ((response.period_tag === null) !== (response.table_version === null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["period_tag"],
+        message: "period_tag and table_version must both be null or present",
+      });
+    }
+  });
+
+export type SokuSpeedUpgradeResponse = z.infer<
+  typeof SokuSpeedUpgradeResponseSchema
+>;
+
+export function parseSokuSpeedUpgradeResponse(
+  value: unknown,
+): SokuSpeedUpgradeResponse | null {
+  const result = SokuSpeedUpgradeResponseSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
 
 export type SokuSpeedObservationRow = z.infer<
   typeof SokuSpeedObservationRowSchema
@@ -38,18 +81,83 @@ export function parseSokuSpeedObservationRows(
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+const OptionalStringInputSchema = z.preprocess(
+  (value) => (value == null ? undefined : String(value).trim()),
+  z.string().optional(),
+);
+
+const OptionalNumberInputSchema = z.preprocess(
+  (value) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "") {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
+  },
+  z.number().finite().optional(),
+);
+
+const OptionalBooleanInputSchema = z.preprocess(
+  (value) => (typeof value === "boolean" ? value : undefined),
+  z.boolean().optional(),
+);
+
+const SokuSpeedSlotInputSchema = z.preprocess(
+  (value) => (isRecord(value) ? value : {}),
+  z
+    .object({
+      slotitem_id: OptionalNumberInputSchema,
+      locked: OptionalBooleanInputSchema,
+      level: OptionalNumberInputSchema,
+      alv: OptionalNumberInputSchema,
+    })
+    .passthrough(),
+);
+
+const SokuSpeedShipInputSchema = z.preprocess(
+  (value) => (isRecord(value) ? value : {}),
+  z
+    .object({
+      master_id: OptionalNumberInputSchema,
+      lv: OptionalNumberInputSchema,
+      soku_observed: OptionalNumberInputSchema,
+      slots: z.preprocess(
+        (value) => (Array.isArray(value) ? value : []),
+        z.array(SokuSpeedSlotInputSchema),
+      ),
+      exslot: z.preprocess(
+        (value) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return isRecord(value) ? value : {};
+        },
+        SokuSpeedSlotInputSchema.nullable().optional(),
+      ),
+    })
+    .passthrough(),
+);
+
 export const SokuSpeedIngestBodySchema = z
   .object({
-    dataset_id: z.unknown().optional(),
-    dataset_token: z.unknown().optional(),
-    request_id: z.unknown().optional(),
-    payload_hash: z.unknown().optional(),
-    event_type: z.unknown().optional(),
-    period_tag: z.unknown().optional(),
-    table_version: z.unknown().optional(),
-    ships: z.unknown().optional(),
-    content_hash: z.unknown().optional(),
-    file_size: z.unknown().optional(),
+    dataset_id: OptionalStringInputSchema,
+    dataset_token: OptionalStringInputSchema,
+    request_id: OptionalStringInputSchema,
+    payload_hash: OptionalStringInputSchema,
+    event_type: OptionalStringInputSchema,
+    period_tag: OptionalStringInputSchema,
+    table_version: OptionalStringInputSchema,
+    timestamp_ms: OptionalNumberInputSchema,
+    ships: z.preprocess(
+      (value) => (Array.isArray(value) ? value : undefined),
+      z.array(SokuSpeedShipInputSchema).optional(),
+    ),
+    content_hash: OptionalStringInputSchema,
+    file_size: OptionalNumberInputSchema,
   })
   .passthrough();
 
@@ -61,20 +169,14 @@ function isValidInteger(value: unknown): value is number {
   );
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object"
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
 export const ValidatedSokuSpeedIngestBodySchema =
   SokuSpeedIngestBodySchema.superRefine((body, context) => {
-    const datasetId = String(body.dataset_id ?? "").trim();
-    const requestId = String(body.request_id ?? "").trim();
-    const payloadHash = String(body.payload_hash ?? "").trim();
-    const eventType = String(body.event_type ?? "").trim();
-    const periodTag = String(body.period_tag ?? "");
-    const tableVersion = String(body.table_version ?? "");
+    const datasetId = body.dataset_id ?? "";
+    const requestId = body.request_id ?? "";
+    const payloadHash = body.payload_hash ?? "";
+    const eventType = body.event_type ?? "";
+    const periodTag = body.period_tag ?? "";
+    const tableVersion = body.table_version ?? "";
 
     if (!datasetId) {
       context.addIssue({
@@ -132,7 +234,7 @@ export const ValidatedSokuSpeedIngestBodySchema =
       });
     }
 
-    if (!Array.isArray(body.ships) || body.ships.length === 0) {
+    if (!body.ships || body.ships.length === 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["ships"],
@@ -141,11 +243,10 @@ export const ValidatedSokuSpeedIngestBodySchema =
       return;
     }
 
-    for (const [index, rawShip] of body.ships.entries()) {
-      const ship = asRecord(rawShip);
-      const masterId = ship["master_id"];
-      const level = ship["lv"];
-      const observedSpeed = ship["soku_observed"];
+    for (const [index, ship] of body.ships.entries()) {
+      const masterId = ship.master_id;
+      const level = ship.lv;
+      const observedSpeed = ship.soku_observed;
       if (
         !isValidInteger(masterId) ||
         !isValidInteger(level) ||
@@ -181,15 +282,14 @@ export const ValidatedSokuSpeedIngestBodySchema =
       }
 
       if (
-        !Array.isArray(ship["slots"]) ||
-        ship["slots"].some((rawSlot) => {
-          const slot = asRecord(rawSlot);
+        !ship.slots ||
+        ship.slots.some((slot) => {
           return (
-            !isValidInteger(slot["slotitem_id"]) ||
-            slot["slotitem_id"] <= 0 ||
-            typeof slot["locked"] !== "boolean" ||
-            !isValidInteger(slot["level"]) ||
-            !isValidInteger(slot["alv"])
+            !isValidInteger(slot.slotitem_id) ||
+            slot.slotitem_id <= 0 ||
+            typeof slot.locked !== "boolean" ||
+            !isValidInteger(slot.level) ||
+            !isValidInteger(slot.alv)
           );
         })
       ) {
@@ -200,14 +300,14 @@ export const ValidatedSokuSpeedIngestBodySchema =
         });
       }
 
-      if (ship["exslot"] !== undefined && ship["exslot"] !== null) {
-        const exslot = asRecord(ship["exslot"]);
+      if (ship.exslot !== undefined && ship.exslot !== null) {
+        const exslot = ship.exslot;
         if (
-          !isValidInteger(exslot["slotitem_id"]) ||
-          exslot["slotitem_id"] <= 0 ||
-          typeof exslot["locked"] !== "boolean" ||
-          !isValidInteger(exslot["level"]) ||
-          !isValidInteger(exslot["alv"])
+          !isValidInteger(exslot.slotitem_id) ||
+          exslot.slotitem_id <= 0 ||
+          typeof exslot.locked !== "boolean" ||
+          !isValidInteger(exslot.level) ||
+          !isValidInteger(exslot.alv)
         ) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
@@ -217,10 +317,8 @@ export const ValidatedSokuSpeedIngestBodySchema =
         }
       }
 
-      const hasSlots =
-        Array.isArray(ship["slots"]) && ship["slots"].length > 0;
-      const hasExslot =
-        ship["exslot"] !== undefined && ship["exslot"] !== null;
+      const hasSlots = ship.slots.length > 0;
+      const hasExslot = ship.exslot !== undefined && ship.exslot !== null;
       if (!hasSlots && !hasExslot) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -229,6 +327,38 @@ export const ValidatedSokuSpeedIngestBodySchema =
         });
       }
     }
-  });
+  })
+  .transform((body) => ({
+    ...body,
+    dataset_id: body.dataset_id!,
+    request_id: body.request_id!,
+    payload_hash: body.payload_hash!,
+    event_type: body.event_type!,
+    period_tag: body.period_tag!,
+    table_version: body.table_version!,
+    ships: body.ships!.map((ship) => ({
+      master_id: ship.master_id!,
+      lv: ship.lv!,
+      soku_observed: ship.soku_observed!,
+      slots: ship.slots.map((slot) => ({
+        slotitem_id: slot.slotitem_id!,
+        locked: slot.locked!,
+        level: slot.level!,
+        alv: slot.alv!,
+      })),
+      exslot:
+        ship.exslot == null
+          ? null
+          : {
+              slotitem_id: ship.exslot.slotitem_id!,
+              locked: ship.exslot.locked!,
+              level: ship.exslot.level!,
+              alv: ship.exslot.alv!,
+            },
+    })),
+  }));
 
 export type SokuSpeedIngestBody = z.infer<typeof SokuSpeedIngestBodySchema>;
+export type ValidatedSokuSpeedIngestBody = z.infer<
+  typeof ValidatedSokuSpeedIngestBodySchema
+>;

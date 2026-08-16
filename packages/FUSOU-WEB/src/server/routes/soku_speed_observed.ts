@@ -25,26 +25,56 @@ import {
   SokuSpeedIngestBodySchema,
   SokuSpeedExslotSchema,
   SokuSpeedSlotRowsSchema,
+  parseSokuSpeedUpgradeResponse,
   ValidatedSokuSpeedIngestBodySchema,
   type SokuSpeedIngestBody,
+  type ValidatedSokuSpeedIngestBody,
 } from "../schemas/soku-speed";
 
 const SOKU_SPEED_COLLECTION_SWITCH_ENV = "SOKU_SPEED_COLLECTION_ENABLED";
 
 const app = new Hono<{ Bindings: Bindings }>();
-interface SlotEntry {
-  slotitem_id: number;
-  locked: boolean;
-  level: number;
-  alv: number;
+
+function cachedSokuSpeedResponse(cachedString: string): Response | null {
+  try {
+    const parsed = parseSokuSpeedUpgradeResponse(JSON.parse(cachedString));
+    if (!parsed) return null;
+    return new Response(JSON.stringify(parsed), {
+      headers: {
+        "Content-Type": "application/json",
+        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+        "X-FUSOU-Cache": "HIT",
+      },
+    });
+  } catch {
+    return null;
+  }
 }
-interface SokuSpeedShipEntry {
-  master_id: number;
-  lv: number;
-  soku_observed: number;
-  slots: SlotEntry[];
-  exslot?: SlotEntry | null;
+
+async function readCachedSokuSpeedResponse(
+  cacheKV: NonNullable<Bindings["DATA_LOADER_CACHE_KV"]>,
+  cacheKey: string,
+): Promise<Response | null> {
+  const cachedString = await cacheKV.get(cacheKey, "text");
+  if (!cachedString) return null;
+
+  const response = cachedSokuSpeedResponse(cachedString);
+  if (response) return response;
+
+  console.warn("[soku-speed] Invalid KV cache payload; deleting cache", {
+    cacheKey,
+  });
+  try {
+    await cacheKV.delete(cacheKey);
+  } catch (error) {
+    console.warn("[soku-speed] Failed to delete invalid KV cache", {
+      cacheKey,
+      error,
+    });
+  }
+  return null;
 }
+
 function parseSokuSpeedIngestBody(value: unknown): SokuSpeedIngestBody | null {
   const result = SokuSpeedIngestBodySchema.safeParse(value);
   return result.success ? result.data : null;
@@ -52,7 +82,13 @@ function parseSokuSpeedIngestBody(value: unknown): SokuSpeedIngestBody | null {
 function validateSokuSpeedIngestBody(
   body: SokuSpeedIngestBody | null,
 ):
-  | { ok: true; datasetId: string; requestId: string; eventType: string }
+  | {
+      ok: true;
+      data: ValidatedSokuSpeedIngestBody;
+      datasetId: string;
+      requestId: string;
+      eventType: string;
+    }
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "Missing body" };
   const parsed = ValidatedSokuSpeedIngestBodySchema.safeParse(body);
@@ -64,6 +100,7 @@ function validateSokuSpeedIngestBody(
   }
   return {
     ok: true,
+    data: parsed.data,
     datasetId: String(parsed.data.dataset_id ?? "").trim(),
     requestId: String(parsed.data.request_id ?? "").trim(),
     eventType: String(parsed.data.event_type ?? "").trim(),
@@ -259,9 +296,10 @@ app.post("/ingest", async (c) => {
   if (!body) return c.json({ error: "Invalid JSON body" }, 400);
   const bodyValidated = validateSokuSpeedIngestBody(body);
   if (!bodyValidated.ok) return c.json({ error: bodyValidated.error }, 400);
+  const validatedBody = bodyValidated.data;
   if (
     !timingSafeEqual(
-      String(body.request_id ?? ""),
+      validatedBody.request_id,
       validatedPayload.request_id ?? "",
     )
   ) {
@@ -269,16 +307,13 @@ app.post("/ingest", async (c) => {
   }
   if (
     !timingSafeEqual(
-      String(body.dataset_id ?? ""),
+      validatedBody.dataset_id,
       validatedPayload.dataset_id ?? "",
     )
   ) {
     return c.json({ error: "dataset_id mismatch" }, 400);
   }
-  const { period_tag, table_version } = body as {
-    period_tag: string;
-    table_version: string;
-  };
+  const { period_tag, table_version } = validatedBody;
   const periodTagValidation = await validateCachedPeriodTag(c, period_tag, {
     cacheKV: c.env.DATA_LOADER_CACHE_KV,
   });
@@ -321,12 +356,12 @@ app.post("/ingest", async (c) => {
   ) {
     return c.json({ error: "table_version mismatch" }, 400);
   }
-  const ships = body.ships as SokuSpeedShipEntry[];
+  const ships = validatedBody.ships;
   const nowSec = Math.floor(Date.now() / 1000);
   const stmts: ReturnType<D1Database["prepare"]>[] = [];
-  const requestId = String(body.request_id ?? "").trim();
-  const payloadHash = String(body.payload_hash ?? "").trim();
-  const datasetId = String(body.dataset_id ?? "").trim();
+  const requestId = validatedBody.request_id;
+  const payloadHash = validatedBody.payload_hash;
+  const datasetId = validatedBody.dataset_id;
   stmts.push(
     db
       .prepare(
@@ -485,17 +520,11 @@ app.get("/speed-upgrade", async (c) => {
   if (!periodTag || !tableVersion) {
     if (cacheKV) {
       try {
-        const cachedString = await cacheKV.get("soku-speed-upgrade:v1:latest", "text");
-        if (cachedString) {
-          const response = new Response(cachedString, {
-            headers: {
-              "Content-Type": "application/json",
-              "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-              "X-FUSOU-Cache": "HIT",
-            }
-          });
-          return response;
-        }
+        const response = await readCachedSokuSpeedResponse(
+          cacheKV,
+          "soku-speed-upgrade:v1:latest",
+        );
+        if (response) return response;
       } catch (e) {
         console.warn("[soku-speed] KV latest cache read error:", e);
       }
@@ -546,17 +575,8 @@ app.get("/speed-upgrade", async (c) => {
 
   if (cacheKV) {
     try {
-      const cachedString = await cacheKV.get(cacheKey, "text");
-      if (cachedString) {
-        const response = new Response(cachedString, {
-          headers: {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-            "X-FUSOU-Cache": "HIT",
-          }
-        });
-        return response;
-      }
+      const response = await readCachedSokuSpeedResponse(cacheKV, cacheKey);
+      if (response) return response;
     } catch (e) {
       console.warn("[soku-speed] KV cache read error:", e);
     }

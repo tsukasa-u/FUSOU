@@ -28,6 +28,29 @@ const OptionalStringFieldSchema = z.preprocess(
   z.string().optional(),
 );
 
+const OptionalInputStringSchema = z.preprocess(
+  (value) => (typeof value === "string" ? value.trim() : value),
+  z.string().optional(),
+);
+
+const OptionalPositiveIntegerInputSchema = z.preprocess(
+  (value) => {
+    if (value == null || (typeof value === "string" && value.trim() === "")) {
+      return undefined;
+    }
+    const parsed =
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : value;
+    return typeof parsed === "number" && Number.isSafeInteger(parsed) && parsed > 0
+      ? parsed
+      : value;
+  },
+  z.number().int().positive().optional(),
+);
+
 const QuestListEntrySchema = z.preprocess(
   (value) =>
     value && typeof value === "object" && !Array.isArray(value) ? value : {},
@@ -67,6 +90,11 @@ export const QuestCollectionSessionRowSchema = z
   .passthrough()
   .nullable();
 
+export const QuestCollectionSessionIdRowSchema = z
+  .object({ collection_session_id: z.string().min(1) })
+  .passthrough()
+  .nullable();
+
 export const QuestRuleRowSchema = z
   .object({
     rule_id: z.string().min(1),
@@ -88,6 +116,41 @@ export const QuestRuleRowSchema = z
 
 export type QuestRuleRow = z.infer<typeof QuestRuleRowSchema>;
 
+export const QuestRuleRowsSchema = z.array(QuestRuleRowSchema);
+
+export const QuestRuleUpdatedRowSchema = z
+  .object({
+    target_quest_id: z.number().int(),
+    updated_at_ms: z.number().finite(),
+  })
+  .passthrough();
+
+export const QuestAppearanceEventRowSchema = z
+  .object({
+    target_quest_id: z.number().int(),
+    appeared_at_ms: z.number().finite(),
+    collection_session_id: z.string().min(1),
+    is_bootstrap_unknown: z.number().int(),
+  })
+  .passthrough();
+
+export const QuestStateEventRowSchema = z
+  .object({
+    quest_id: z.number().int(),
+    event_type: z.string().min(1),
+    state_after: z.enum(["active", "visible_inactive", "claimed"]),
+    timestamp_ms: z.number().finite(),
+    collection_session_id: z.string().min(1),
+  })
+  .passthrough();
+
+export const QuestSnapshotPageRowSchema = z
+  .object({
+    page_no: z.number().int(),
+    visible_quest_ids_json: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 export function parseQuestRuleRows(value: unknown): QuestRuleRow[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((row) => {
@@ -99,7 +162,7 @@ export function parseQuestRuleRows(value: unknown): QuestRuleRow[] {
 export const QuestTreeIngestBodySchema = z
   .object({
     dataset_id: OptionalTrimmedStringFieldSchema,
-    dataset_token: z.unknown().optional(),
+    dataset_token: OptionalInputStringSchema,
     request_id: OptionalTrimmedStringFieldSchema,
     payload_hash: OptionalTrimmedStringFieldSchema,
     event_type: OptionalTrimmedStringFieldSchema,
@@ -112,8 +175,8 @@ export const QuestTreeIngestBodySchema = z
       (value) => (Array.isArray(value) ? value : []),
       z.array(QuestListEntrySchema),
     ).optional(),
-    content_hash: z.unknown().optional(),
-    file_size: z.unknown().optional(),
+    content_hash: OptionalInputStringSchema,
+    file_size: OptionalPositiveIntegerInputSchema,
   })
   .passthrough();
 

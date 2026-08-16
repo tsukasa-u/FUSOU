@@ -18,10 +18,48 @@ export const AssetContentHashRowSchema = z
   .object({ content_hash: z.string().nullable().optional() })
   .passthrough();
 
+export const AssetHashLookupRowSchema = z
+  .object({
+    key: z.string().min(1),
+    size: z.number().nonnegative(),
+    uploaded_at: z.number().finite(),
+  })
+  .passthrough();
+
+const SpriteAtlasNumberSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" && value.trim() !== ""
+      ? Number(value)
+      : value,
+  z.number().finite(),
+);
+
+const SpriteAtlasFrameSchema = z
+  .object({
+    frame: z
+      .object({
+        x: SpriteAtlasNumberSchema,
+        y: SpriteAtlasNumberSchema,
+        w: SpriteAtlasNumberSchema,
+        h: SpriteAtlasNumberSchema,
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 export const SpriteAtlasSchema = z
   .object({
-    frames: z.record(z.unknown()),
-    meta: z.record(z.unknown()),
+    frames: z.record(SpriteAtlasFrameSchema),
+    meta: z
+      .object({
+        size: z
+          .object({
+            w: SpriteAtlasNumberSchema,
+            h: SpriteAtlasNumberSchema,
+          })
+          .passthrough(),
+      })
+      .passthrough(),
   })
   .passthrough();
 

@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import { z } from "zod";
 import type { Bindings, D1Database, D1Result } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
@@ -26,7 +27,11 @@ import {
   QuestCollectionSessionRowSchema,
   QuestIngestConflictRowSchema,
   QuestIngestEventIdRowSchema,
-  parseQuestRuleRows,
+  QuestAppearanceEventRowSchema,
+  QuestRuleRowsSchema,
+  QuestRuleUpdatedRowSchema,
+  QuestSnapshotPageRowSchema,
+  QuestStateEventRowSchema,
   QuestTreeIngestBodySchema,
   ValidatedQuestTreeIngestBodySchema,
   type QuestListEntry,
@@ -40,6 +45,14 @@ const GAP_THRESHOLD_MS = 30 * 60 * 1000;
 const RECENT_WINDOW_MS = 10 * 60 * 1000;
 
 const KV_SNAPSHOT_TTL_MS = 60 * 60 * 1000;
+
+function parseQuestRuleRowsStrict(value: unknown): QuestRuleRow[] {
+  const parsed = QuestRuleRowsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error("Invalid quest rule rows");
+  }
+  return parsed.data;
+}
 const KV_EXPIRATION_TTL_S = 7 * 24 * 60 * 60;
 
 const QUEST_TREE_COLLECTION_SWITCH_ENV =
@@ -70,9 +83,13 @@ type GraphSnapshot = {
   db_synced_at: number;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isRulesSnapshot(v: unknown): v is RulesSnapshot {
-  if (!v || typeof v !== "object") return false;
-  const s = v as Record<string, unknown>;
+  if (!isRecord(v)) return false;
+  const s = v;
   return (
     typeof s["period_tag"] === "string" &&
     typeof s["table_version"] === "string" &&
@@ -85,8 +102,8 @@ function isRulesSnapshot(v: unknown): v is RulesSnapshot {
 }
 
 function isGraphSnapshot(v: unknown): v is GraphSnapshot {
-  if (!v || typeof v !== "object") return false;
-  const s = v as Record<string, unknown>;
+  if (!isRecord(v)) return false;
+  const s = v;
   return (
     typeof s["period_tag"] === "string" &&
     typeof s["table_version"] === "string" &&
@@ -153,11 +170,18 @@ function isQuestTreeCollectionEnabled(
   return parseStrictBoolean(raw, QUEST_TREE_COLLECTION_SWITCH_ENV);
 }
 
-function parseJsonArray<T>(raw: unknown): T[] {
+function parseJsonArray<T>(
+  raw: unknown,
+  parseItem: (value: unknown) => T | null,
+): T[] {
   if (!raw || typeof raw !== "string") return [];
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed
+          .map(parseItem)
+          .filter((value): value is T => value !== null)
+      : [];
   } catch {
     return [];
   }
@@ -437,7 +461,7 @@ async function upsertQuestMasterEntries(
   }
 }
 
-async function getOrCreateSession(
+export async function getOrCreateSession(
   db: D1Database,
   datasetId: string,
   atMs: number,
@@ -510,25 +534,37 @@ async function getOrCreateSession(
   // INSERT OR IGNORE returns rows_written = 0 when UNIQUE(dataset_id, started_at_ms) fires,
   // meaning a concurrent request already inserted a session for this exact millisecond.
   // Re-query to get the canonical (winning) session so both requests converge on the same row.
-  const effectiveSessionId =
-    (insertResult.meta?.rows_written ?? 1) === 0
-      ? ((
-          (await db
-            .prepare(
-              `SELECT collection_session_id FROM quest_collection_sessions
-               WHERE dataset_id = ? AND started_at_ms = ?`,
-            )
-            .bind(datasetId, atMs)
-            .first<{ collection_session_id: string }>()) as {
-            collection_session_id?: string;
-          } | null
-        )?.collection_session_id ?? sessionId)
-      : sessionId;
+  const inserted = (insertResult.meta?.rows_written ?? 1) > 0;
+  let effectiveSessionId = sessionId;
+  let effectiveBootstrapCompleted = false;
+  if (!inserted) {
+    const concurrentSessionResult = await db
+      .prepare(
+        `SELECT collection_session_id, ended_at_ms, bootstrap_completed_at_ms
+         FROM quest_collection_sessions
+         WHERE dataset_id = ? AND started_at_ms = ?`,
+      )
+      .bind(datasetId, atMs)
+      .first<D1Result>();
+    const parsedConcurrentSession = QuestCollectionSessionRowSchema.safeParse(
+      concurrentSessionResult,
+    );
+    if (!parsedConcurrentSession.success) {
+      throw new Error("Invalid concurrent quest session lookup response");
+    }
+    const concurrentSession = parsedConcurrentSession.data;
+    if (!concurrentSession) {
+      throw new Error("Concurrent quest collection session was not found");
+    }
+    effectiveSessionId = concurrentSession.collection_session_id;
+    effectiveBootstrapCompleted =
+      concurrentSession.bootstrap_completed_at_ms != null;
+  }
 
   return {
     sessionId: effectiveSessionId,
-    isNew: true,
-    bootstrapCompleted: false,
+    isNew: inserted,
+    bootstrapCompleted: inserted ? false : effectiveBootstrapCompleted,
   };
 }
 
@@ -536,15 +572,16 @@ async function markBootstrapCompleted(
   db: D1Database,
   sessionId: string,
   atMs: number,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const result = await db
     .prepare(
       `UPDATE quest_collection_sessions
        SET bootstrap_completed_at_ms = ?, ended_at_ms = ?
-       WHERE collection_session_id = ?`,
+       WHERE collection_session_id = ? AND bootstrap_completed_at_ms IS NULL`,
     )
     .bind(atMs, atMs, sessionId)
     .run();
+  return Number(result.meta?.changes ?? 1) > 0;
 }
 
 function toVisibleQuestIds(quests: QuestListEntry[]): number[] {
@@ -662,21 +699,23 @@ async function processIngestEvents(
     );
     const visibleQuestIds = toVisibleQuestIds(quests);
 
-    const previousSnapshots = ((
-      await db
-        .prepare(
-          `SELECT page_no, visible_quest_ids_json
-         FROM questlist_snapshots
-         WHERE dataset_id = ?
-           AND collection_session_id = ?
-         ORDER BY captured_at_ms DESC`,
-        )
-        .bind(params.datasetId, params.sessionId)
-        .all<{ page_no: number; visible_quest_ids_json?: string }>()
-    ).results ?? []) as Array<{
-      page_no: number;
-      visible_quest_ids_json?: string;
-    }>;
+    const previousSnapshotsResult = await db
+      .prepare(
+        `SELECT page_no, visible_quest_ids_json
+       FROM questlist_snapshots
+       WHERE dataset_id = ?
+         AND collection_session_id = ?
+       ORDER BY captured_at_ms DESC`,
+      )
+      .bind(params.datasetId, params.sessionId)
+      .all();
+    const parsedPreviousSnapshots = QuestSnapshotPageRowSchema.array().safeParse(
+      previousSnapshotsResult.results ?? [],
+    );
+    if (!parsedPreviousSnapshots.success) {
+      throw new Error("Invalid quest snapshot page rows");
+    }
+    const previousSnapshots = parsedPreviousSnapshots.data;
 
     const latestByPage = new Map<number, number[]>();
     for (const snap of previousSnapshots) {
@@ -684,7 +723,7 @@ async function processIngestEvents(
       if (page == null || latestByPage.has(page)) continue;
       latestByPage.set(
         page,
-        parseJsonArray<number>(snap.visible_quest_ids_json),
+        parseJsonArray(snap.visible_quest_ids_json, toInt),
       );
     }
 
@@ -725,8 +764,11 @@ async function processIngestEvents(
       .run();
 
     if (!params.isBootstrapCompleted) {
-      await markBootstrapCompleted(db, params.sessionId, params.atMs);
-      bootstrapNowCompleted = true;
+      bootstrapNowCompleted = await markBootstrapCompleted(
+        db,
+        params.sessionId,
+        params.atMs,
+      );
     } else {
       const appeared = setDiff(visibleQuestIds, [...previousGlobalVisible]);
       if (appeared.length > 0) {
@@ -935,13 +977,13 @@ app.post("/ingest", async (c) => {
     // dataset_token.sub を actingUserId として使う（全端末で一貫した帰属者）
     const actingUserId = tokenValidation.token!.user_id;
 
-    const contentHash = (handshakeBody?.content_hash ?? "").toString().trim();
+    const contentHash = handshakeBody.content_hash ?? "";
     if (!contentHash) {
       return c.json({ error: "content_hash is required" }, 400);
     }
 
-    const declaredSize = Number(handshakeBody?.file_size ?? 0);
-    if (!Number.isFinite(declaredSize) || declaredSize <= 0) {
+    const declaredSize = handshakeBody.file_size ?? 0;
+    if (declaredSize <= 0) {
       return c.json({ error: "file_size must be > 0" }, 400);
     }
 
@@ -1030,7 +1072,8 @@ app.post("/ingest", async (c) => {
 
   const rawBody = (() => {
     try {
-      return JSON.parse(new TextDecoder().decode(uploaded)) as unknown;
+      const parsed: unknown = JSON.parse(new TextDecoder().decode(uploaded));
+      return parsed;
     } catch {
       return null;
     }
@@ -1133,20 +1176,25 @@ app.get("/rules", async (c) => {
     probeWhenFresh: true,
     isValidSnapshot: isRulesSnapshot,
     refreshFromDelta: async (cached) => {
-      const changedRows = ((
-        await db
-          .prepare(
-            `SELECT updated_at_ms
-             FROM quest_rule_edges
-             WHERE target_quest_id = ?
-               AND period_tag = ?
-               AND table_version = ?
-               AND updated_at_ms > ?
-             ORDER BY updated_at_ms DESC`,
-          )
-          .bind(target, periodTag, tableVersion, cached.db_synced_at)
-          .all()
-      ).results ?? []) as Array<{ updated_at_ms: number }>;
+      const changedRowsResult = await db
+        .prepare(
+          `SELECT updated_at_ms
+           FROM quest_rule_edges
+           WHERE target_quest_id = ?
+             AND period_tag = ?
+             AND table_version = ?
+             AND updated_at_ms > ?
+           ORDER BY updated_at_ms DESC`,
+        )
+        .bind(target, periodTag, tableVersion, cached.db_synced_at)
+        .all();
+      const parsedChangedRows = z
+        .array(z.object({ updated_at_ms: z.number().finite() }).passthrough())
+        .safeParse(changedRowsResult.results ?? []);
+      if (!parsedChangedRows.success) {
+        throw new Error("Invalid quest rule change rows");
+      }
+      const changedRows = parsedChangedRows.data;
 
       if (changedRows.length === 0) {
         return {
@@ -1160,7 +1208,7 @@ app.get("/rules", async (c) => {
 
       // Re-load the full current view for this target when anything changed.
       // This avoids stale rows when a rule's quality_tier transitions to/from low.
-      const rows = parseQuestRuleRows(
+      const rows = parseQuestRuleRowsStrict(
         (
           await db
             .prepare(
@@ -1193,7 +1241,7 @@ app.get("/rules", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = parseQuestRuleRows(
+      const rows = parseQuestRuleRowsStrict(
         (
           await db
             .prepare(
@@ -1260,21 +1308,23 @@ app.get("/graph", async (c) => {
     probeWhenFresh: true,
     isValidSnapshot: isGraphSnapshot,
     refreshFromDelta: async (cached) => {
-      const changedTargets = ((
-        await db
-          .prepare(
-            `SELECT DISTINCT target_quest_id, updated_at_ms
-             FROM quest_rule_edges
-             WHERE period_tag = ?
-               AND table_version = ?
-               AND updated_at_ms > ?`,
-          )
-          .bind(periodTag, tableVersion, cached.db_synced_at)
-          .all()
-      ).results ?? []) as Array<{
-        target_quest_id: number;
-        updated_at_ms: number;
-      }>;
+      const changedTargetsResult = await db
+        .prepare(
+          `SELECT DISTINCT target_quest_id, updated_at_ms
+           FROM quest_rule_edges
+           WHERE period_tag = ?
+             AND table_version = ?
+             AND updated_at_ms > ?`,
+        )
+        .bind(periodTag, tableVersion, cached.db_synced_at)
+        .all();
+      const parsedChangedTargets = z
+        .array(QuestRuleUpdatedRowSchema)
+        .safeParse(changedTargetsResult.results ?? []);
+      if (!parsedChangedTargets.success) {
+        throw new Error("Invalid quest rule target change rows");
+      }
+      const changedTargets = parsedChangedTargets.data;
 
       if (changedTargets.length === 0) {
         return {
@@ -1300,7 +1350,7 @@ app.get("/graph", async (c) => {
           if (row.target_quest_id === target) rowsByRuleId.delete(ruleId);
         }
 
-        const currentPrimaryRows = parseQuestRuleRows(
+        const currentPrimaryRows = parseQuestRuleRowsStrict(
           (
             await db
               .prepare(
@@ -1340,7 +1390,7 @@ app.get("/graph", async (c) => {
       };
     },
     loadFull: async () => {
-      const rows = parseQuestRuleRows(
+      const rows = parseQuestRuleRowsStrict(
         (
           await db
             .prepare(
@@ -1382,9 +1432,7 @@ app.get("/graph", async (c) => {
   for (const row of snapshot.rows) {
     const target = toInt(row.target_quest_id);
     if (target == null) continue;
-    const prereqs = parseJsonArray<number>(row.prereq_set_json)
-      .map((v) => toInt(v))
-      .filter((v): v is number => v != null);
+    const prereqs = parseJsonArray(row.prereq_set_json, toInt);
 
     nodes.add(target);
     for (const from of prereqs) {
@@ -1448,44 +1496,46 @@ app.get("/changes", async (c) => {
     );
   }
 
-  const appearances = ((
-    await db
-      .prepare(
-        `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
-       FROM quest_appearance_events
-       WHERE dataset_id = ? AND appeared_at_ms >= ?
-       ORDER BY appeared_at_ms ASC
-       LIMIT 500`,
-      )
-      .bind(datasetId, since)
-      .all()
-  ).results ?? []) as Array<{
-    target_quest_id: number;
-    appeared_at_ms: number;
-    collection_session_id: string;
-    is_bootstrap_unknown: number;
-  }>;
+  const appearanceResult = await db
+    .prepare(
+      `SELECT target_quest_id, appeared_at_ms, collection_session_id, is_bootstrap_unknown
+     FROM quest_appearance_events
+     WHERE dataset_id = ? AND appeared_at_ms >= ?
+     ORDER BY appeared_at_ms ASC
+     LIMIT 500`,
+    )
+    .bind(datasetId, since)
+    .all();
+  const parsedAppearances = z
+    .array(QuestAppearanceEventRowSchema)
+    .safeParse(appearanceResult.results ?? []);
+  if (!parsedAppearances.success) {
+    return c.json({ error: "Invalid quest appearance rows" }, 500);
+  }
 
-  const states =
-    (
-      await db
-        .prepare(
-          `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
-       FROM quest_state_events
-       WHERE dataset_id = ? AND timestamp_ms >= ?
-       ORDER BY timestamp_ms ASC
-       LIMIT 500`,
-        )
-        .bind(datasetId, since)
-        .all()
-    ).results ?? [];
+  const stateResult = await db
+    .prepare(
+      `SELECT quest_id, event_type, state_after, timestamp_ms, collection_session_id
+     FROM quest_state_events
+     WHERE dataset_id = ? AND timestamp_ms >= ?
+     ORDER BY timestamp_ms ASC
+     LIMIT 500`,
+    )
+    .bind(datasetId, since)
+    .all();
+  const parsedStates = z
+    .array(QuestStateEventRowSchema)
+    .safeParse(stateResult.results ?? []);
+  if (!parsedStates.success) {
+    return c.json({ error: "Invalid quest state rows" }, 500);
+  }
 
   return c.json({
     ok: true,
     dataset_id: datasetId,
     since,
-    appearances,
-    states,
+    appearances: parsedAppearances.data,
+    states: parsedStates.data,
   });
 });
 

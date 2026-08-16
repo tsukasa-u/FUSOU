@@ -6,6 +6,13 @@ export const PeriodTagRowSchema = z
 
 export const PeriodTagRowsSchema = PeriodTagRowSchema.array();
 
+export const PeriodTagCacheSchema = z
+  .object({
+    tags: z.string().array(),
+    updated_at: z.number().finite().optional(),
+  })
+  .passthrough();
+
 export type PeriodTagRow = z.infer<typeof PeriodTagRowSchema>;
 
 export const LatestMasterPeriodRowSchema = z

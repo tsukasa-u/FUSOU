@@ -7,6 +7,95 @@ const CompactionTierSchema = z.enum([
   "period",
 ]);
 
+const NullableNumberSchema = z.number().finite().nullable().optional();
+
+export const ListSourceBlockRowSchema = z
+  .object({
+    id: z.number().int().positive(),
+    dataset_id: z.string().min(1),
+    table_name: z.string().min(1),
+    table_version: z.string().min(1),
+    period_tag: z.string().min(1),
+    start_byte: z.number().int().nonnegative(),
+    length: z.number().int().positive(),
+    record_count: z.number().int().nonnegative(),
+    start_timestamp: z.number().finite(),
+    end_timestamp: z.number().finite(),
+    compaction_tier: CompactionTierSchema,
+    window_start_ms: NullableNumberSchema,
+    window_end_ms: NullableNumberSchema,
+    file_id: z.number().int().positive(),
+    file_path: z.string().min(1),
+    file_size: z.number().nonnegative(),
+  })
+  .passthrough();
+
+export const SourceGroupRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+    source_blocks: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const SourceTableRowSchema = z
+  .object({ table_name: z.string().min(1) })
+  .passthrough();
+
+export const SourceWindowRangeRowSchema = z
+  .object({
+    start_ms: NullableNumberSchema,
+    end_ms: NullableNumberSchema,
+  })
+  .passthrough();
+
+export const OutputLockOwnerRowSchema = z
+  .object({
+    lock_token: z.string().nullable().optional(),
+    lock_expires_ms: NullableNumberSchema,
+    lock_owner_run_key: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const RegisteredOutputLockRowSchema = z
+  .object({
+    id: z.number().int().positive(),
+    lock_token: z.string().nullable().optional(),
+    lock_expires_ms: NullableNumberSchema,
+  })
+  .passthrough();
+
+export const CleanupOutputRowSchema = z
+  .object({
+    id: z.number().int().positive(),
+    lifecycle_state: z.string().min(1),
+    output_verified_at_ms: NullableNumberSchema,
+  })
+  .passthrough();
+
+export const LinkedSourceRowSchema = z
+  .object({
+    source_file_id: z.number().int().positive(),
+    source_file_path: z.string().min(1),
+    archived_source_path: z.string().min(1),
+  })
+  .passthrough();
+
+export const CleanupSourceRowSchema = z
+  .object({
+    file_id: z.number().int().positive(),
+    file_path: z.string().min(1),
+  })
+  .passthrough();
+
+export const CompletedCompactionRunRowSchema = z
+  .object({ ok: z.number().optional() })
+  .passthrough();
+
+export const TableVersionRowSchema = z
+  .object({ table_version: z.string().min(1) })
+  .passthrough();
+
 export const CompactionDatasetRowSchema = z
   .object({
     id: z.string().min(1),

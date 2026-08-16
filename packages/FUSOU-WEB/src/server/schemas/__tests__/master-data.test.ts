@@ -3,7 +3,10 @@ import {
   MasterDataDedupeRowSchema,
   MasterDataInsertedRevisionRowSchema,
   MasterDataJsonLookupRowSchema,
+  MasterDataMetadataRowSchema,
   parseMasterDataJsonRecords,
+  parseMasterDataJsonRecordsText,
+  parseMasterDataTableOffsets,
   MasterDataNextRevisionRowSchema,
 } from "../master-data";
 
@@ -109,5 +112,50 @@ describe("parseMasterDataJsonRecords", () => {
   it("rejects non-arrays and malformed rows", () => {
     expect(parseMasterDataJsonRecords({ id: 1 })).toBeNull();
     expect(parseMasterDataJsonRecords([{ id: 1 }, null])).toBeNull();
+  });
+});
+
+describe("MasterDataMetadataRowSchema", () => {
+  it("accepts the exists/latest projection", () => {
+    expect(
+      MasterDataMetadataRowSchema.safeParse({
+        id: 1,
+        period_tag: "2026-08-14",
+        table_version: "1.0",
+        period_revision: 2,
+        table_count: 3,
+        table_offsets: "[]",
+        upload_status: "completed",
+        created_at: 1,
+        completed_at: 2,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed projection columns and malformed offsets", () => {
+    expect(
+      MasterDataMetadataRowSchema.safeParse({
+        id: 1,
+        period_tag: "2026-08-14",
+        table_version: "1.0",
+        period_revision: "2",
+        table_count: 3,
+        table_offsets: "[]",
+        upload_status: "completed",
+        created_at: 1,
+        completed_at: null,
+      }).success,
+    ).toBe(false);
+    expect(parseMasterDataTableOffsets("not-json")).toEqual([]);
+    expect(parseMasterDataTableOffsets("[{\"table_name\":\"mst_ship\"}]")).toEqual([]);
+    expect(
+      parseMasterDataTableOffsets(
+        "[{\"table_name\":\"mst_ship\",\"start\":0,\"end\":10}]",
+      ),
+    ).toEqual([{ table_name: "mst_ship", start: 0, end: 10 }]);
+    expect(parseMasterDataJsonRecordsText("not-json")).toBeNull();
+    expect(parseMasterDataJsonRecordsText("[{\"id\":1}]")).toEqual([
+      { id: 1 },
+    ]);
   });
 });

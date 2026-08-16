@@ -8,7 +8,7 @@ export const VerifyDeviceRequestSchema = z
 
 export const VerifyGoogleRequestSchema = z
   .object({
-    email: z.unknown().optional(),
+    email: z.string().optional(),
     google_token: z.string().optional(),
   })
   .passthrough();
@@ -53,6 +53,18 @@ export function parseTableNames(value: unknown): string[] {
   return result.success ? result.data.map((row) => row.table_name) : [];
 }
 
+const RateLimitAttemptsSchema = z.array(z.number().finite());
+
+export function parseRateLimitAttempts(value: string | null): number[] {
+  if (!value) return [];
+  try {
+    const result = RateLimitAttemptsSchema.safeParse(JSON.parse(value));
+    return result.success ? result.data : [];
+  } catch {
+    return [];
+  }
+}
+
 export const MasterDataFileRowsSchema = z.array(
   z
     .object({
@@ -66,6 +78,10 @@ export const MasterDataFileRowsSchema = z.array(
     })
     .passthrough(),
 );
+
+export const MasterDataR2KeyRowSchema = z
+  .object({ r2_key: z.string().min(1) })
+  .passthrough();
 
 export type MasterDataFileRow = z.infer<
   typeof MasterDataFileRowsSchema

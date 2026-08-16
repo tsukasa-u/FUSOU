@@ -1,12 +1,6 @@
 import { Hono } from "hono";
-import type {
-  SynergyManifest,
-  SynergyManifestRequest,
-  SynergyManifestResponse,
-} from "../types/synergy";
+import type { SynergyManifestResponse } from "../types/synergy";
 import {
-  validateSHA256,
-  validateGeneratorVersion,
   getSynergyManifestR2Keys,
 } from "../types/synergy";
 import type { Bindings } from "../types";
@@ -22,8 +16,17 @@ import {
 } from "../utils/synergy-payload";
 import {
   CompletedSynergyManifestRowsSchema,
+  CompletedSynergyManifestRowSchema,
   LatestSynergyPeriodRowSchema,
+  MasterDataHashRowSchema,
+  SynergyExistingManifestRowSchema,
+  SynergyInsertedManifestRowSchema,
+  SynergyManifestRequestSchema,
   SynergyNextRevisionRowSchema,
+  SynergyPendingManifestRowSchema,
+  SynergyUpdatedManifestRowSchema,
+  SynergyValidationManifestRowSchema,
+  SynergyManifestRowSchema,
   type CompletedSynergyManifestRow,
 } from "../schemas/synergy";
 
@@ -73,9 +76,14 @@ app.get("/synergy-manifest", async (c) => {
       LIMIT 1
     `);
 
-    const result = (await stmt
-      .bind(periodTag)
-      .first()) as SynergyManifest | null;
+    const parsedResult = SynergyManifestRowSchema.nullable().safeParse(
+      await stmt.bind(periodTag).first(),
+    );
+    if (!parsedResult.success) {
+      console.error("Invalid synergy manifest row:", parsedResult.error);
+      return c.json({ error: "Invalid synergy manifest row" }, 500);
+    }
+    const result = parsedResult.data;
 
     if (!result) {
       return c.json(
@@ -100,7 +108,7 @@ app.get("/synergy-manifest", async (c) => {
       generator_version: result.generator_version,
       r2_keys: r2Keys,
       upload_status: result.upload_status,
-      ...(result.completed_at === undefined
+      ...(typeof result.completed_at !== "number"
         ? {}
         : { completed_at: result.completed_at }),
     };
@@ -200,21 +208,31 @@ app.get("/synergy-data", async (c) => {
       sql += " ORDER BY completed_at DESC, period_revision DESC LIMIT 1";
     }
 
-    let manifest = (await db
-      .prepare(sql)
-      .bind(...params)
-      .first()) as CompletedSynergyManifestRow | null;
+    const parsedManifest = CompletedSynergyManifestRowSchema.nullable().safeParse(
+      await db.prepare(sql).bind(...params).first(),
+    );
+    if (!parsedManifest.success) {
+      throw new Error("Invalid completed synergy manifest row");
+    }
+    let manifest = parsedManifest.data;
 
     if (!manifest && !periodTagQuery) {
-      manifest = (await db
-        .prepare(
-          `SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
-           FROM synergy_manifest
-           WHERE upload_status = 'completed'
-           ORDER BY completed_at DESC, period_revision DESC
-           LIMIT 1`,
-        )
-        .first()) as CompletedSynergyManifestRow | null;
+      const parsedFallbackManifest =
+        CompletedSynergyManifestRowSchema.nullable().safeParse(
+          await db
+            .prepare(
+              `SELECT period_tag, period_revision, content_hash, sp_effect_sha256, completed_at
+               FROM synergy_manifest
+               WHERE upload_status = 'completed'
+               ORDER BY completed_at DESC, period_revision DESC
+               LIMIT 1`,
+            )
+            .first(),
+        );
+      if (!parsedFallbackManifest.success) {
+        throw new Error("Invalid fallback synergy manifest row");
+      }
+      manifest = parsedFallbackManifest.data;
     }
 
     if (!manifest) {
@@ -413,13 +431,16 @@ app.post("/synergy-manifest", async (c) => {
     return c.json({ error: adminCheck.error }, adminCheck.status as 401 | 403);
   }
 
-  let body: SynergyManifestRequest;
+  let body: ReturnType<typeof SynergyManifestRequestSchema.parse>;
   try {
-    const parsed = await c.req.json();
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return c.json({ error: "Request body must be a JSON object" }, 400);
+    const parsed = SynergyManifestRequestSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid request body" },
+        400,
+      );
     }
-    body = parsed as SynergyManifestRequest;
+    body = parsed.data;
   } catch {
     return c.json({ error: "Invalid JSON request body" }, 400);
   }
@@ -439,44 +460,7 @@ app.post("/synergy-manifest", async (c) => {
     );
   }
 
-  if (!body.sp_effect_sha256 || !validateSHA256(body.sp_effect_sha256)) {
-    return c.json(
-      { error: "Invalid sp_effect_sha256 (expected 64-char SHA256 hex)" },
-      400,
-    );
-  }
-
-  if (
-    !body.api_start2_batch_hash ||
-    !validateSHA256(body.api_start2_batch_hash)
-  ) {
-    return c.json(
-      { error: "Invalid api_start2_batch_hash (expected 64-char SHA256 hex)" },
-      400,
-    );
-  }
-
-  if (
-    !body.generator_version ||
-    !validateGeneratorVersion(body.generator_version)
-  ) {
-    return c.json(
-      { error: "Invalid generator_version (expected format: vX.Y.Z)" },
-      400,
-    );
-  }
-
-  if (!body.generated_at) {
-    return c.json({ error: "generated_at is required (ISO8601 format)" }, 400);
-  }
-
   const generatedAtMs = new Date(body.generated_at).getTime();
-  if (Number.isNaN(generatedAtMs)) {
-    return c.json(
-      { error: "Invalid generated_at (must be a valid ISO8601 date string)" },
-      400,
-    );
-  }
   const generatedAtEpoch = Math.floor(generatedAtMs / 1000);
 
   const db = c.env.MASTER_DATA_INDEX_DB;
@@ -495,12 +479,15 @@ app.post("/synergy-manifest", async (c) => {
       LIMIT 1
     `);
 
-    const existing = (await existingStmt
-      .bind(body.period_tag, body.sp_effect_sha256)
-      .first()) as {
-      id: number;
-      period_revision: number;
-    } | null;
+    const parsedExisting = SynergyExistingManifestRowSchema.nullable().safeParse(
+      await existingStmt
+        .bind(body.period_tag, body.sp_effect_sha256)
+        .first(),
+    );
+    if (!parsedExisting.success) {
+      return c.json({ error: "Invalid existing synergy manifest row" }, 500);
+    }
+    const existing = parsedExisting.data;
 
     if (existing && existing.id && body.allow_duplicate_content !== true) {
       return c.json(
@@ -543,22 +530,23 @@ app.post("/synergy-manifest", async (c) => {
       RETURNING id, period_tag, period_revision, content_hash
     `);
 
-    const inserted = (await insertStmt
-      .bind(
-        body.period_tag,
-        nextRevision,
-        contentHash,
-        body.sp_effect_sha256,
-        body.api_start2_batch_hash,
-        body.generator_version,
-        generatedAtEpoch,
-      )
-      .first()) as {
-      id: number;
-      period_tag: string;
-      period_revision: number;
-      content_hash: string;
-    } | null;
+    const parsedInserted = SynergyInsertedManifestRowSchema.nullable().safeParse(
+      await insertStmt
+        .bind(
+          body.period_tag,
+          nextRevision,
+          contentHash,
+          body.sp_effect_sha256,
+          body.api_start2_batch_hash,
+          body.generator_version,
+          generatedAtEpoch,
+        )
+        .first(),
+    );
+    if (!parsedInserted.success) {
+      return c.json({ error: "Invalid inserted synergy manifest row" }, 500);
+    }
+    const inserted = parsedInserted.data;
 
     if (!inserted || !inserted.id) {
       return c.json({ error: "Failed to allocate period_revision" }, 500);
@@ -658,20 +646,15 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
       WHERE period_tag = ? AND period_revision = ? AND upload_status = 'pending'
     `);
 
-    const pending = (await lookupStmt
-      .bind(periodTag, periodRevision)
-      .first()) as {
-      id?: number;
-      content_hash?: string;
-      sp_effect_sha256?: string;
-    } | null;
+    const parsedPending = SynergyPendingManifestRowSchema.nullable().safeParse(
+      await lookupStmt.bind(periodTag, periodRevision).first(),
+    );
+    if (!parsedPending.success) {
+      return c.json({ error: "Invalid pending synergy manifest row" }, 500);
+    }
+    const pending = parsedPending.data;
 
-    if (
-      !pending ||
-      !pending.id ||
-      !pending.content_hash ||
-      !pending.sp_effect_sha256
-    ) {
+    if (!pending) {
       return c.json(
         {
           error: `No pending manifest found for period_tag=${periodTag}, period_revision=${periodRevision}`,
@@ -778,15 +761,15 @@ app.post("/synergy-manifest/complete/:periodTag/:periodRevision", async (c) => {
       RETURNING id, period_tag, period_revision, upload_status, completed_at
     `);
 
-    const updated = (await updateStmt.bind(pending.id).first()) as {
-      id?: number;
-      period_tag?: string;
-      period_revision?: number;
-      upload_status?: string;
-      completed_at?: number;
-    } | null;
+    const parsedUpdated = SynergyUpdatedManifestRowSchema.nullable().safeParse(
+      await updateStmt.bind(pending.id).first(),
+    );
+    if (!parsedUpdated.success) {
+      return c.json({ error: "Invalid updated synergy manifest row" }, 500);
+    }
+    const updated = parsedUpdated.data;
 
-    if (!updated || !updated.id) {
+    if (!updated) {
       return c.json(
         {
           error:
@@ -845,24 +828,23 @@ app.get("/synergy-manifest/validate", async (c) => {
 
   try {
     // 1. Query latest completed synergy manifest
-    const manifest = (await db
-      .prepare(
-        `SELECT period_tag, period_revision, sp_effect_sha256, api_start2_batch_hash,
-                generator_version, completed_at
-         FROM synergy_manifest
-         WHERE period_tag = ? AND upload_status = 'completed'
-         ORDER BY period_revision DESC
-         LIMIT 1`,
-      )
-      .bind(periodTag)
-      .first()) as {
-      period_tag: string;
-      period_revision: number;
-      sp_effect_sha256: string;
-      api_start2_batch_hash: string;
-      generator_version: string;
-      completed_at: number;
-    } | null;
+    const parsedManifest = SynergyValidationManifestRowSchema.nullable().safeParse(
+      await db
+        .prepare(
+          `SELECT period_tag, period_revision, sp_effect_sha256, api_start2_batch_hash,
+                  generator_version, completed_at
+           FROM synergy_manifest
+           WHERE period_tag = ? AND upload_status = 'completed'
+           ORDER BY period_revision DESC
+           LIMIT 1`,
+        )
+        .bind(periodTag)
+        .first(),
+    );
+    if (!parsedManifest.success) {
+      throw new Error("Invalid synergy validation manifest row");
+    }
+    const manifest = parsedManifest.data;
 
     if (!manifest) {
       return c.json(
@@ -876,16 +858,22 @@ app.get("/synergy-manifest/validate", async (c) => {
     }
 
     // 2. Query latest completed master_data_index to compare batch hash
-    const masterData = (await db
-      .prepare(
-        `SELECT content_hash, period_revision
-         FROM master_data_index
-         WHERE period_tag = ? AND upload_status = 'completed'
-         ORDER BY period_revision DESC
-         LIMIT 1`,
-      )
-      .bind(periodTag)
-      .first()) as { content_hash: string; period_revision: number } | null;
+    const parsedMasterData = MasterDataHashRowSchema.nullable().safeParse(
+      await db
+        .prepare(
+          `SELECT content_hash, period_revision
+           FROM master_data_index
+           WHERE period_tag = ? AND upload_status = 'completed'
+           ORDER BY period_revision DESC
+           LIMIT 1`,
+        )
+        .bind(periodTag)
+        .first(),
+    );
+    if (!parsedMasterData.success) {
+      throw new Error("Invalid master data hash row");
+    }
+    const masterData = parsedMasterData.data;
 
     const hashMatch = masterData
       ? masterData.content_hash === manifest.api_start2_batch_hash

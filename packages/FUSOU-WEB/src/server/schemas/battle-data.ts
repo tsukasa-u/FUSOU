@@ -61,6 +61,21 @@ export function parseBattleBlockRows(
 
 export const BattleJsonRecordSchema = z.record(z.string(), z.unknown());
 
+export const BattlePeriodTagRowsSchema = z.array(
+  z
+    .object({ period_tag: z.string().min(1).nullable().optional() })
+    .passthrough(),
+);
+
+export const BattleSummaryRowsSchema = z.array(
+  z
+    .object({
+      period_tag: z.string().min(1),
+      table_version: z.string().min(1),
+    })
+    .passthrough(),
+);
+
 export function parseBattleJsonRecords(
   value: unknown,
 ): Array<Record<string, unknown>> | null {

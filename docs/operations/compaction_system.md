@@ -135,9 +135,12 @@ CREATE TABLE block_indexes (
 
 ### Retries & Idempotency
 
-- **Output key**: The deterministic output key is the idempotency key; retrying registration updates the same D1 row and block indexes.
-- **Source archival**: Copy is skipped when the deterministic archive key already exists, then the original is deleted only after the destination is confirmed.
-- **Cleanup**: D1 source deletion is deferred until both the output and every archived source object are visible. `pnpm run battle-data:reconcile` reports mismatches and `pnpm run battle-data:reconcile:apply` applies only safe repairs.
+
+### Recovery boundary: R2-only objects
+
+An R2 object by itself is not a complete archival recovery. The object bytes do not prove the D1 `dataset_id` mapping or the exact `block_indexes` rows required for range reads. An object found in R2 without matching D1 metadata must remain `recovery_pending`; do not create synthetic indexes from a listing or `HEAD` result alone.
+
+Recovery must use the original D1 metadata, a verified D1 backup, or a local rebuild manifest that preserves source-to-output boundaries. Run `pnpm run battle-data:reconcile` first and apply only classifications with sufficient source metadata. Treat an R2-only object as quarantined until its output row, source relationship, and block indexes have been reconstructed and verified.
 
 ---
 

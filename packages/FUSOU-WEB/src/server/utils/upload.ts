@@ -35,6 +35,7 @@ export interface UploadAuthContext {
 export interface UploadConfig {
   bucket: R2BucketBinding;
   signingSecret: string;
+  tokenPayloadSchema?: z.ZodType<Record<string, unknown>>;
   tokenTTL?: number;
   maxBodySize?: number;
   requireDatasetToken?: boolean;
@@ -241,7 +242,7 @@ async function handleExecution(
   _url: URL,
   config: UploadConfig,
 ): Promise<Response> {
-  const { signingSecret, executionProcessor } = config;
+  const { signingSecret, executionProcessor, tokenPayloadSchema } = config;
 
   const { verifySignedToken, validateJWT } = await import("../utils");
   const jwtToken = extractBearerToken(request);
@@ -277,7 +278,14 @@ async function handleExecution(
   if (!tokenPayloadValidation.success) {
     return c.json({ error: "Invalid or expired upload token" }, 401);
   }
-  const tokenPayload = tokenPayloadValidation.data;
+  const rawTokenPayloadRecord = tokenPayloadValidation.data;
+  const typedTokenPayload = tokenPayloadSchema?.safeParse(rawTokenPayloadRecord);
+  if (typedTokenPayload && !typedTokenPayload.success) {
+    return c.json({ error: "Invalid token payload" }, 400);
+  }
+  const tokenPayload = typedTokenPayload?.success
+    ? typedTokenPayload.data
+    : rawTokenPayloadRecord;
 
   const expectedHash =
     typeof tokenPayload["content_hash"] === "string"

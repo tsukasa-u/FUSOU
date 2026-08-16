@@ -32,9 +32,11 @@ export function getSupabaseRestConfig(c: {
 // ─── Generic REST Request ───────────────────────────────────────────────────
 
 /**
- * Make a typed request to the Supabase REST API (PostgREST).
+ * Make a raw request to the Supabase REST API (PostgREST).
+ *
+ * Callers must validate table-specific responses with their Zod schema.
  */
-export async function supabaseRestRequest<T = unknown[]>(
+export async function supabaseRestRequest(
   config: SupabaseRestConfig,
   table: string,
   options: {
@@ -43,7 +45,7 @@ export async function supabaseRestRequest<T = unknown[]>(
     body?: object | null;
     headers?: Record<string, string>;
   } = {},
-): Promise<T | null> {
+): Promise<unknown | null> {
   const { method = "GET", query = "", body = null, headers = {} } = options;
   const { url, key } = config;
 
@@ -74,7 +76,8 @@ export async function supabaseRestRequest<T = unknown[]>(
       headers["Prefer"] || (method === "POST" ? "return=representation" : "")
     ).includes("return=representation")
   ) {
-    return response.json() as Promise<T>;
+    const payload: unknown = await response.json();
+    return payload;
   }
 
   return null;

@@ -2,7 +2,6 @@ import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
 import {
   ShareRecordResponseSchema,
-  SnapshotPayloadSchema,
   ShortenerRequestSchema,
 } from "@/server/schemas/shortener";
 import type { SnapshotPayload } from "@/server/schemas/shortener";
@@ -27,6 +26,10 @@ const JSON_NO_STORE_HEADERS = {
 
 const MAX_SHARE_URL_LENGTH = 16_000;
 const MAX_SNAPSHOT_PAYLOAD_BYTES = 1_000_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 async function requestShortener(
   fetcher: () => Promise<Response>,
@@ -68,7 +71,8 @@ async function requestShortener(
 
   let json: Record<string, unknown> | null = null;
   try {
-    json = JSON.parse(text) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(text);
+    json = isRecord(parsed) ? parsed : null;
   } catch {
     json = null;
   }
@@ -248,15 +252,6 @@ app.post("/", async (c) => {
 
   let validatedSnapshotPayload: SnapshotPayload | null = null;
   if (snapshotPayload != null) {
-    const parsedSnapshotPayload = SnapshotPayloadSchema.safeParse(snapshotPayload);
-    if (!parsedSnapshotPayload.success) {
-      return c.json(
-        { ok: false, error: "snapshotPayload must be an object" },
-        400,
-        JSON_NO_STORE_HEADERS,
-      );
-    }
-
     try {
       const encoded = JSON.stringify(snapshotPayload);
       if (typeof encoded !== "string") {
@@ -273,7 +268,7 @@ app.post("/", async (c) => {
           JSON_NO_STORE_HEADERS,
         );
       }
-      validatedSnapshotPayload = parsedSnapshotPayload.data;
+      validatedSnapshotPayload = snapshotPayload;
     } catch {
       return c.json(
         { ok: false, error: "snapshotPayload is invalid" },
@@ -443,7 +438,14 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
         JSON_NO_STORE_HEADERS,
       );
     }
-    dataPayload = decoded as Record<string, unknown>;
+    if (!isRecord(decoded)) {
+      return c.json(
+        { ok: false, error: "Invalid data payload" },
+        422,
+        JSON_NO_STORE_HEADERS,
+      );
+    }
+    dataPayload = decoded;
   } catch {
     return c.json(
       { ok: false, error: "Invalid data payload" },

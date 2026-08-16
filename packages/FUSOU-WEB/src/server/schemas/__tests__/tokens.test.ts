@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  AssetUploadTokenPayloadSchema,
   BattleDataTokenPayloadSchema,
+  FleetSnapshotTokenPayloadSchema,
   QuestTreeUploadTokenPayloadSchema,
   UploadTokenPayloadSchema,
 } from "../tokens";
@@ -86,6 +88,50 @@ describe("battle data token schema", () => {
         table_offsets: null,
         content_hash: "hash",
         path_tag: "battle.avro",
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("shared two-stage upload token schemas", () => {
+  it("accepts asset and fleet claims emitted by stage 1", () => {
+    expect(
+      AssetUploadTokenPayloadSchema.safeParse({
+        user_id: "user",
+        key: "assets/ship/banner/0001.png",
+        relative_path: "ship/banner/0001.png",
+        declared_size: 128,
+        file_name: "0001.png",
+        content_hash: "hash",
+        caches_to_clear: "[]",
+      }).success,
+    ).toBe(true);
+    expect(
+      FleetSnapshotTokenPayloadSchema.safeParse({
+        user_id: "user",
+        tag: "latest",
+        dataset_id: "dataset",
+        content_hash: "hash",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects asset and fleet claims missing integrity fields", () => {
+    expect(
+      AssetUploadTokenPayloadSchema.safeParse({
+        user_id: "user",
+        key: "assets/ship/banner/0001.png",
+        relative_path: "ship/banner/0001.png",
+        declared_size: 128,
+        file_name: null,
+        caches_to_clear: "[]",
+      }).success,
+    ).toBe(false);
+    expect(
+      FleetSnapshotTokenPayloadSchema.safeParse({
+        user_id: "user",
+        tag: "latest",
+        dataset_id: "dataset",
       }).success,
     ).toBe(false);
   });

@@ -5,6 +5,55 @@ export const RemodelMaxUpdatedAtRowSchema = z
   .object({ max_updated_at_ms: z.number().nullable().optional() })
   .passthrough();
 
+export const RemodelChangedPeriodRowSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    max_updated_at_ms: z.number().finite(),
+  })
+  .passthrough();
+
+export const RemodelPeriodTagRowSchema = z
+  .object({ period_tag: z.string().min(1) })
+  .passthrough();
+
+export const RemodelSlotlistArchiveRowSchema = z.object({
+  period_tag: z.string().min(1),
+  secretary_ship_master_id: z.number().int(),
+  weekday_jst: z.number().int(),
+  remodel_id: z.number().int(),
+  remodel_step_id: z.number().int(),
+  remodel_level: z.number().int(),
+  slotitem_master_id: z.number().int(),
+  sp_type: z.number().int(),
+  req_fuel: z.number().int(),
+  req_bull: z.number().int(),
+  req_steel: z.number().int(),
+  req_bauxite: z.number().int(),
+  req_buildkit: z.number().int(),
+  req_remodelkit: z.number().int(),
+  req_slot_id: z.number().int(),
+  req_slot_num: z.number().int(),
+  updated_at_ms: z.number().int(),
+});
+
+export const RemodelDetailArchiveRowSchema = z.object({
+  period_tag: z.string().min(1),
+  slotitem_master_id: z.number().int(),
+  remodel_id: z.number().int(),
+  remodel_step_id: z.number().int(),
+  remodel_level: z.number().int(),
+  certain_buildkit: z.number().int(),
+  certain_remodelkit: z.number().int(),
+  req_slot_id: z.number().int().nullable(),
+  req_slot_num: z.number().int().nullable(),
+  change_flag: z.number().int(),
+  req_useitem_id: z.number().int().nullable(),
+  req_useitem_id2: z.number().int().nullable(),
+  req_useitem_num: z.number().int().nullable(),
+  req_useitem_num2: z.number().int().nullable(),
+  updated_at_ms: z.number().int(),
+});
+
 export const RemodelPeriodSummaryRowSchema = z
   .object({
     period_tag: z.string().min(1),
@@ -43,9 +92,28 @@ export function parseRemodelEffectiveSummaryRows(
   });
 }
 
+type RemodelJsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | RemodelJsonValue[]
+  | { [key: string]: RemodelJsonValue };
+
+const RemodelJsonValueSchema: z.ZodType<RemodelJsonValue> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.number().finite(),
+    z.string(),
+    z.array(RemodelJsonValueSchema),
+    z.record(RemodelJsonValueSchema),
+  ]),
+);
+
 export const RemodelDataIngestBodySchema = z.record(
   z.string(),
-  z.unknown(),
+  RemodelJsonValueSchema,
 );
 
 const VALID_EVENT_TYPES = new Set(["slotlist", "detail"]);
@@ -190,9 +258,10 @@ export const ValidatedRemodelDataIngestBodySchema =
     }
 
     if (eventType === "slotlist") {
+      const secretaryShipMasterId = body["secretary_ship_master_id"];
       if (
-        !isValidInt(body["secretary_ship_master_id"]) ||
-        body["secretary_ship_master_id"] <= 0
+        !isValidInt(secretaryShipMasterId) ||
+        secretaryShipMasterId <= 0
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -201,10 +270,11 @@ export const ValidatedRemodelDataIngestBodySchema =
         });
         return;
       }
+      const weekdayJst = body["weekday_jst"];
       if (
-        !isValidInt(body["weekday_jst"]) ||
-        body["weekday_jst"] < 0 ||
-        body["weekday_jst"] > 6
+        !isValidInt(weekdayJst) ||
+        weekdayJst < 0 ||
+        weekdayJst > 6
       ) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
@@ -213,7 +283,8 @@ export const ValidatedRemodelDataIngestBodySchema =
         });
         return;
       }
-      if (!Array.isArray(body["entries"]) || body["entries"].length === 0) {
+      const entries = body["entries"];
+      if (!Array.isArray(entries) || entries.length === 0) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["entries"],
@@ -221,7 +292,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         });
         return;
       }
-      if (body["entries"].length > 2000) {
+      if (entries.length > 2000) {
         context.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["entries"],
@@ -243,7 +314,7 @@ export const ValidatedRemodelDataIngestBodySchema =
         "req_slot_id",
         "req_slot_num",
       ];
-      for (const [index, rawEntry] of body["entries"].entries()) {
+      for (const [index, rawEntry] of entries.entries()) {
         const entry = asRecord(rawEntry);
         if (
           entry["remodel_step_id"] != null &&
@@ -297,10 +368,8 @@ export const ValidatedRemodelDataIngestBodySchema =
       return;
     }
 
-    if (
-      !isValidInt(body["slotitem_master_id"]) ||
-      body["slotitem_master_id"] <= 0
-    ) {
+    const slotitemMasterId = body["slotitem_master_id"];
+    if (!isValidInt(slotitemMasterId) || slotitemMasterId <= 0) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["slotitem_master_id"],
@@ -346,7 +415,11 @@ export const ValidatedRemodelDataIngestBodySchema =
       });
       return;
     }
-    if (body["remodel_level"] < 0 || body["remodel_level"] > 10) {
+    const remodelLevel = body["remodel_level"];
+    if (!isValidInt(remodelLevel)) {
+      return;
+    }
+    if (remodelLevel < 0 || remodelLevel > 10) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["remodel_level"],

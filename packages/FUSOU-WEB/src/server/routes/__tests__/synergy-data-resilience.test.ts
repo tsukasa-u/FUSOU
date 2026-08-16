@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import synergyApp from "../synergy";
 import { getSynergyManifestR2Keys } from "../../types/synergy";
 import { sha256Hex } from "../../utils/synergy-payload";
+import type { Bindings } from "../../types";
 
 const { mockCreateEnvContext, mockVerifyAdminToken } = vi.hoisted(() => ({
   mockCreateEnvContext: vi.fn(),
@@ -109,11 +110,13 @@ function createBucketMock(
 describe("synergy-data route resilience", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateEnvContext.mockImplementation((ctx: any) => ({
+    mockCreateEnvContext.mockImplementation(
+      (ctx: { env?: Record<string, unknown> }) => ({
       runtime: ctx?.env ?? {},
       buildtime: {},
       isDev: false,
-    }));
+      }),
+    );
     mockVerifyAdminToken.mockReturnValue({ ok: true });
   });
 
@@ -134,7 +137,7 @@ describe("synergy-data route resilience", () => {
       {
         MASTER_DATA_INDEX_DB: db,
         MASTER_DATA_BUCKET: bucket,
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await response.json()) as { error: string };
@@ -195,7 +198,7 @@ describe("synergy-data route resilience", () => {
       {
         MASTER_DATA_INDEX_DB: db,
         MASTER_DATA_BUCKET: bucket,
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await response.json()) as typeof validPayload;
@@ -234,7 +237,7 @@ describe("synergy-data route resilience", () => {
       {
         MASTER_DATA_INDEX_DB: db,
         MASTER_DATA_BUCKET: bucket,
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await response.json()) as { error: string; detail: string };

@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { z } from "zod";
 import type { Bindings } from "../types";
 import {
   ListSourceGroupsRequestSchema,
@@ -14,6 +15,17 @@ import {
   CleanupConsumedSourcesRequestSchema,
   RegisterOutputRequestSchema,
   ClosedPeriodTagRowSchema,
+  ListSourceBlockRowSchema,
+  SourceGroupRowSchema,
+  SourceTableRowSchema,
+  SourceWindowRangeRowSchema,
+  OutputLockOwnerRowSchema,
+  RegisteredOutputLockRowSchema,
+  CleanupOutputRowSchema,
+  LinkedSourceRowSchema,
+  CleanupSourceRowSchema,
+  CompletedCompactionRunRowSchema,
+  TableVersionRowSchema,
 } from "../schemas/internal-compaction";
 import { parseOcfHeader } from "../../features/avro/ocf-header";
 import { createEnvContext, getEnv, timingSafeEqual } from "../utils";
@@ -161,12 +173,16 @@ app.post("/list-source-blocks", async (c) => {
   sql += " ORDER BY bi.id ASC LIMIT ?";
   params.push(limit);
 
-  const rows = (await db
+  const rows = await db
     .prepare(sql)
     .bind(...params)
-    .all()) as { results?: Array<Record<string, unknown>> };
+    .all();
+  const parsedRows = z.array(ListSourceBlockRowSchema).safeParse(rows.results ?? []);
+  if (!parsedRows.success) {
+    return c.json({ error: "Invalid source block row" }, 500);
+  }
 
-  const results = rows.results ?? [];
+  const results = parsedRows.data;
   const nextCursor =
     results.length > 0
       ? Number(results[results.length - 1]?.["id"] ?? cursorId)
@@ -219,7 +235,7 @@ app.post("/list-source-groups", async (c) => {
     return c.json({ error: "window_start_ms and window_end_ms are required" }, 400);
   }
 
-  const rows = (await db
+  const rows = await db
     .prepare(
       `SELECT
          bi.period_tag,
@@ -247,21 +263,13 @@ app.post("/list-source-groups", async (c) => {
       windowEnd,
       ...EXCLUDED_COMPACTION_TABLE_VERSIONS,
     )
-    .all()) as {
-    results?: Array<{
-      period_tag?: string | null;
-      table_version?: string | null;
-      source_blocks?: number;
-    }>;
-  };
+    .all();
+  const parsedRows = z.array(SourceGroupRowSchema).safeParse(rows.results ?? []);
+  if (!parsedRows.success) {
+    return c.json({ error: "Invalid source group row" }, 500);
+  }
 
-  const groups = (rows.results ?? [])
-    .map((row) => ({
-      period_tag: typeof row.period_tag === "string" ? row.period_tag : "",
-      table_version: typeof row.table_version === "string" ? row.table_version : "",
-      source_blocks: Number(row.source_blocks ?? 0),
-    }))
-    .filter((row) => row.period_tag.length > 0 && row.table_version.length > 0);
+  const groups = parsedRows.data;
 
   return c.json({
     success: true,
@@ -322,17 +330,17 @@ app.post("/list-source-tables", async (c) => {
 
   sql += " ORDER BY bi.table_name ASC";
 
-  const rows = (await db
+  const rows = await db
     .prepare(sql)
     .bind(...params)
-    .all()) as {
-    results?: Array<{
-      table_name?: string | null;
-    }>;
-  };
+    .all();
+  const parsedRows = z.array(SourceTableRowSchema).safeParse(rows.results ?? []);
+  if (!parsedRows.success) {
+    return c.json({ error: "Invalid source table row" }, 500);
+  }
 
-  const tables = (rows.results ?? [])
-    .map((row) => (typeof row.table_name === "string" ? row.table_name.trim() : ""))
+  const tables = parsedRows.data
+    .map((row) => row.table_name.trim())
     .filter(Boolean);
 
   return c.json({
@@ -379,7 +387,7 @@ app.post("/resolve-source-window-range", async (c) => {
   }
 
   const placeholders = tableNames.map(() => "?").join(", ");
-  const rows = (await db
+  const rows = await db
     .prepare(
       `SELECT
          MIN(COALESCE(bi.window_start_ms, bi.start_timestamp)) AS start_ms,
@@ -390,16 +398,17 @@ app.post("/resolve-source-window-range", async (c) => {
          AND bi.table_version NOT IN (${EXCLUDED_COMPACTION_TABLE_VERSIONS.map(() => "?").join(", ")})`,
     )
     .bind(tier, ...tableNames, ...EXCLUDED_COMPACTION_TABLE_VERSIONS)
-    .all()) as {
-    results?: Array<{
-      start_ms?: number | null;
-      end_ms?: number | null;
-    }>;
-  };
+    .all();
+  const parsedRows = SourceWindowRangeRowSchema.nullable().safeParse(
+    rows.results?.[0] ?? null,
+  );
+  if (!parsedRows.success) {
+    return c.json({ error: "Invalid source window range row" }, 500);
+  }
 
-  const row = rows.results?.[0] ?? {};
-  const startMs = Number(row.start_ms);
-  const endMs = Number(row.end_ms);
+  const row = parsedRows.data;
+  const startMs = Number(row?.start_ms);
+  const endMs = Number(row?.end_ms);
 
   return c.json({
     success: true,
@@ -623,7 +632,7 @@ app.post("/acquire-output-lock", async (c) => {
     )
     .run();
 
-  const owner = (await db
+  const ownerResult = await db
     .prepare(
       `SELECT lock_token, lock_expires_ms, lock_owner_run_key
        FROM archived_files
@@ -631,11 +640,12 @@ app.post("/acquire-output-lock", async (c) => {
        LIMIT 1`,
     )
     .bind(filePath)
-    .first()) as {
-      lock_token?: string | null;
-      lock_expires_ms?: number | null;
-      lock_owner_run_key?: string | null;
-    } | null;
+    .first();
+  const parsedOwner = OutputLockOwnerRowSchema.nullable().safeParse(ownerResult);
+  if (!parsedOwner.success) {
+    return c.json({ error: "Invalid output lock row" }, 500);
+  }
+  const owner = parsedOwner.data;
 
   const acquired = String(owner?.lock_token ?? "") === lockToken;
   if (!acquired) {
@@ -778,10 +788,15 @@ app.post("/register-output", async (c) => {
   const now = Date.now();
 
   let fileId = 0;
-  const existing = (await db
+  const existingResult = await db
     .prepare("SELECT id, lock_token, lock_expires_ms FROM archived_files WHERE file_path = ?")
     .bind(filePath)
-    .first()) as { id?: number; lock_token?: string | null; lock_expires_ms?: number | null } | null;
+    .first();
+  const parsedExisting = RegisteredOutputLockRowSchema.nullable().safeParse(existingResult);
+  if (!parsedExisting.success) {
+    return c.json({ error: "Invalid output lock row" }, 500);
+  }
+  const existing = parsedExisting.data;
 
   if (!existing?.id) {
     return c.json({
@@ -1026,7 +1041,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
     }, 409);
   }
 
-  const outputRow = (await db
+  const outputRowResult = await db
     .prepare(
       `SELECT id, lifecycle_state, output_verified_at_ms
        FROM archived_files
@@ -1034,11 +1049,12 @@ app.post("/cleanup-consumed-sources", async (c) => {
        LIMIT 1`,
     )
     .bind(outputFilePath)
-    .first()) as {
-      id?: number | null;
-      lifecycle_state?: string | null;
-      output_verified_at_ms?: number | null;
-    } | null;
+    .first();
+  const parsedOutputRow = CleanupOutputRowSchema.nullable().safeParse(outputRowResult);
+  if (!parsedOutputRow.success) {
+    return c.json({ error: "Invalid cleanup output row" }, 500);
+  }
+  const outputRow = parsedOutputRow.data;
 
   const outputFileId = Number(outputRow?.id ?? 0);
   if (!Number.isFinite(outputFileId) || outputFileId <= 0) {
@@ -1062,7 +1078,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
     return c.json({ error: "output has not been verified; source cleanup is deferred" }, 409);
   }
 
-  const linkedRows = (await db
+  const linkedRows = await db
     .prepare(
       `SELECT source_file_id, source_file_path, archived_source_path
        FROM compaction_output_sources
@@ -1070,27 +1086,17 @@ app.post("/cleanup-consumed-sources", async (c) => {
        ORDER BY source_file_id ASC`,
     )
     .bind(outputFileId)
-    .all()) as {
-      results?: Array<{
-        source_file_id?: number | null;
-        source_file_path?: string | null;
-        archived_source_path?: string | null;
-      }>;
-    };
+    .all();
+  const parsedLinkedRows = z.array(LinkedSourceRowSchema).safeParse(linkedRows.results ?? []);
+  if (!parsedLinkedRows.success) {
+    return c.json({ error: "Invalid linked source row" }, 500);
+  }
 
-  const linkedSourceObjects = (linkedRows.results ?? [])
-    .map((row) => ({
-      fileId: Number(row.source_file_id ?? 0),
-      filePath: String(row.source_file_path ?? "").trim(),
-      archivedPath: String(row.archived_source_path ?? "").trim(),
-    }))
-    .filter(
-      (source) =>
-        Number.isFinite(source.fileId) &&
-        source.fileId > 0 &&
-        source.filePath.length > 0 &&
-        source.archivedPath.length > 0,
-    );
+  const linkedSourceObjects = parsedLinkedRows.data.map((row) => ({
+    fileId: row.source_file_id,
+    filePath: row.source_file_path,
+    archivedPath: row.archived_source_path,
+  }));
 
   const fallbackSourceObjects = sourceObjects
     .map((source) => ({
@@ -1139,7 +1145,7 @@ app.post("/cleanup-consumed-sources", async (c) => {
   }
 
   const placeholders = sourceIdsToDelete.map(() => "?").join(", ");
-  const rows = (await db
+  const rows = await db
     .prepare(
       `SELECT DISTINCT af.id AS file_id, af.file_path
        FROM archived_files af
@@ -1153,15 +1159,17 @@ app.post("/cleanup-consumed-sources", async (c) => {
          AND ((bi.window_end_ms IS NOT NULL AND bi.window_end_ms <= ?) OR (bi.window_end_ms IS NULL AND bi.end_timestamp <= ?))`,
     )
     .bind(...sourceIdsToDelete, sourceTier, tableName, periodTag, tableVersion, windowStart, windowStart, windowEnd, windowEnd)
-    .all()) as {
-      results?: Array<{ file_id?: number | null; file_path?: string | null }>;
-    };
+    .all();
+  const parsedRows = z.array(CleanupSourceRowSchema).safeParse(rows.results ?? []);
+  if (!parsedRows.success) {
+    return c.json({ error: "Invalid cleanup source row" }, 500);
+  }
 
   const expectedPathById = new Map(
     sourceObjectsToVerify.map((source) => [source.fileId, source.filePath]),
   );
   const validIds = new Set(
-    (rows.results ?? [])
+    parsedRows.data
       .filter((row) => {
         const fileId = Number(row.file_id ?? 0);
         const expectedPath = expectedPathById.get(fileId);
@@ -1315,7 +1323,7 @@ app.post("/period-rollover-check", async (c) => {
     });
   }
 
-  const alreadyCompleted = (await db
+  const alreadyCompletedResult = await db
     .prepare(
       `SELECT 1 AS ok
        FROM compaction_runs
@@ -1326,7 +1334,14 @@ app.post("/period-rollover-check", async (c) => {
        LIMIT 1`,
     )
       .bind(tableName, closedPeriodTag)
-    .first()) as { ok?: number } | null;
+    .first();
+  const parsedAlreadyCompleted = CompletedCompactionRunRowSchema.nullable().safeParse(
+    alreadyCompletedResult,
+  );
+  if (!parsedAlreadyCompleted.success) {
+    return c.json({ error: "Invalid compaction run row" }, 500);
+  }
+  const alreadyCompleted = parsedAlreadyCompleted.data;
 
   return c.json({
     success: true,
@@ -1370,7 +1385,7 @@ app.post("/resolve-table-version", async (c) => {
     return c.json({ error: "source_tier is invalid" }, 400);
   }
 
-  const row = (await db
+  const rowResult = await db
     .prepare(
       `SELECT table_version
        FROM block_indexes
@@ -1384,7 +1399,12 @@ app.post("/resolve-table-version", async (c) => {
        LIMIT 1`,
     )
     .bind(tableName, periodTag, sourceTier, ...EXCLUDED_COMPACTION_TABLE_VERSIONS)
-    .first()) as { table_version?: string | null } | null;
+    .first();
+  const parsedRow = TableVersionRowSchema.nullable().safeParse(rowResult);
+  if (!parsedRow.success) {
+    return c.json({ error: "Invalid table version row" }, 500);
+  }
+  const row = parsedRow.data;
 
   const tableVersion =
     typeof row?.table_version === "string" && row.table_version

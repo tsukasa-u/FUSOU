@@ -14,10 +14,12 @@ export const ShareRecordResponseSchema = z
   })
   .passthrough();
 
-export const ShortenerRequestSchema = z.object({
-  url: z.string().min(1),
-  snapshotPayload: z.unknown().optional(),
-}).passthrough();
+export const ShortenerRequestSchema = z
+  .object({
+    url: z.string().min(1),
+    snapshotPayload: SnapshotPayloadSchema.nullable().optional(),
+  })
+  .strip();
 
 export type ShortenerRequest = z.infer<typeof ShortenerRequestSchema>;
 export type SnapshotPayload = z.infer<typeof SnapshotPayloadSchema>;

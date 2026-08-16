@@ -33,6 +33,8 @@ import {
   parseBattleBlockRows,
   parseBattleChunkRows,
   parseBattleJsonRecords,
+  BattlePeriodTagRowsSchema,
+  BattleSummaryRowsSchema,
   type BattleBlockRow,
 } from "../schemas/battle-data";
 import { BattleDataTokenPayloadSchema } from "../schemas/tokens";
@@ -71,22 +73,6 @@ function transformOpeningRaigekiData(raw: BattleRecord): BattleRecord {
         ? JSON.parse(raw["enemy_damage"])
         : raw["enemy_damage"];
   }
-  const fDam = Array.isArray(result["f_dam"]) ? result["f_dam"] : [];
-  const eDam = Array.isArray(result["e_dam"]) ? result["e_dam"] : [];
-  result["f_now_hps"] = Array(fDam.length)
-    .fill(null)
-    .map((_, i) => 100 + i * 20);
-  result["e_now_hps"] = Array(eDam.length)
-    .fill(null)
-    .map((_, i) => 100 + i * 20);
-  const fNowHps = Array.isArray(result["f_now_hps"])
-    ? result["f_now_hps"]
-    : [];
-  const eNowHps = Array.isArray(result["e_now_hps"])
-    ? result["e_now_hps"]
-    : [];
-  result["f_cl"] = Array(fNowHps.length).fill(2);
-  result["e_cl"] = Array(eNowHps.length).fill(2);
   return result;
 }
 
@@ -152,10 +138,10 @@ function toBattleDataInternalPath(path: string): string {
   return path;
 }
 
-async function fetchBattleDataJsonInternal<T>(
+async function fetchBattleDataJsonInternal(
   c: Context<{ Bindings: Bindings }>,
   path: string,
-): Promise<T> {
+): Promise<unknown> {
   const normalizedPath = toBattleDataInternalPath(path);
   const targetUrl = new URL(c.req.url);
   targetUrl.pathname = normalizedPath;
@@ -179,7 +165,8 @@ async function fetchBattleDataJsonInternal<T>(
   if (!response.ok) {
     throw new Error(`Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`);
   }
-  return (await response.json()) as T;
+  const payload: unknown = await response.json();
+  return payload;
 }
 
 type MasterDataJsonPayload = {
@@ -199,6 +186,62 @@ type BattleEnvBundlePayload = {
   enemyShips: Array<Record<string, unknown>>;
   enemySlotItems: Array<Record<string, unknown>>;
 };
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseJsonRecords(value: unknown): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(value)) return null;
+  const records: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    if (!isJsonRecord(item)) return null;
+    records.push(item);
+  }
+  return records;
+}
+
+function parseRecordsPayload(
+  value: unknown,
+): { records?: Array<Record<string, unknown>> } | null {
+  if (!isJsonRecord(value)) return null;
+  if (!("records" in value)) return {};
+  const records = parseJsonRecords(value["records"]);
+  return records ? { records } : null;
+}
+
+function parseBattleEnvBundlePayload(
+  value: unknown,
+): BattleEnvBundlePayload | null {
+  if (!isJsonRecord(value)) return null;
+  const payload: BattleEnvBundlePayload = {
+    ownDecks: [],
+    ownShips: [],
+    ownSlotItems: [],
+    enemyDecks: [],
+    enemyShips: [],
+    enemySlotItems: [],
+  };
+  for (const key of [
+    "ownDecks",
+    "ownShips",
+    "ownSlotItems",
+    "enemyDecks",
+    "enemyShips",
+    "enemySlotItems",
+  ] as const) {
+    const records = parseJsonRecords(value[key]);
+    if (!records) return null;
+    payload[key] = records;
+  }
+  return payload;
+}
+
+function parseJsonObjectText(text: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(text);
+  if (!isJsonRecord(parsed)) throw new Error("Expected JSON object");
+  return parsed;
+}
 
 async function fetchMasterDataJsonDirect(
   c: Context<{ Bindings: Bindings }>,
@@ -331,7 +374,8 @@ async function fetchBattleEnvBundleInternal(
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      return (await cached.json()) as BattleEnvBundlePayload;
+      const payload = parseBattleEnvBundlePayload(await cached.json());
+      if (payload) return payload;
     }
   }
 
@@ -418,10 +462,10 @@ async function fetchWeaponIconFramesDirect(
   if (!r2Object) throw new Error("Sprite atlas not found");
   const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
   try {
-    return JSON.parse(new TextDecoder().decode(atlasRaw)) as Record<string, unknown>;
+    return parseJsonObjectText(new TextDecoder().decode(atlasRaw));
   } catch {
     const decompressed = await brotliDecompressAsync(atlasRaw);
-    return JSON.parse(decompressed.toString("utf8")) as Record<string, unknown>;
+    return parseJsonObjectText(decompressed.toString("utf8"));
   }
 }
 
@@ -429,7 +473,12 @@ async function fetchGlobalRecordsInternal(
   c: Context<{ Bindings: Bindings }>,
   options: { table: string; periodTag: string; tableVersion: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
-  const payload = await fetchBattleDataJsonInternal<{ records?: Array<Record<string, unknown>> }>(c, buildGlobalRecordsPath(options));
+  const rawPayload = await fetchBattleDataJsonInternal(
+    c,
+    buildGlobalRecordsPath(options),
+  );
+  const payload = parseRecordsPayload(rawPayload);
+  if (!payload) throw new Error("Invalid battle records response");
   return payload.records || [];
 }
 
@@ -471,15 +520,21 @@ async function resolveAllowedPeriodTagsForRecords(
     );
   }
 
-  const fallbackRows = (await indexDb
+  const fallbackRowsResult = await indexDb
     .prepare(
       "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC LIMIT 200",
     )
     .bind(table)
-    .all()) as { results?: Array<{ period_tag?: string | null }> };
+    .all();
+  const parsedFallbackRows = BattlePeriodTagRowsSchema.safeParse(
+    fallbackRowsResult.results ?? [],
+  );
+  if (!parsedFallbackRows.success) {
+    throw new Error("Invalid battle period-tag rows");
+  }
 
   const fallbackSet = new Set<string>();
-  for (const row of fallbackRows.results || []) {
+  for (const row of parsedFallbackRows.data) {
     const periodTag = row?.period_tag;
     if (typeof periodTag !== "string" || !periodTag) continue;
     const validation = await validateCachedPeriodTag(c, periodTag, {
@@ -526,7 +581,22 @@ function normalizeTimestamp(value: unknown): number | null {
   return null;
 }
 
-function attachSortieIds(records: BattleRecord[]): void {
+function normalizeMapCoordinate(value: unknown): number | null {
+  if (value == null || (typeof value === "string" && value.trim() === "")) {
+    return null;
+  }
+  const coordinate = Number(value);
+  return Number.isSafeInteger(coordinate) && coordinate >= 0
+    ? coordinate
+    : null;
+}
+
+function formatTimestamp(value: unknown): string | null {
+  const timestamp = normalizeTimestamp(value);
+  return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+export function attachSortieIds(records: BattleRecord[]): void {
   type Item = {
     rec: Record<string, unknown>;
     ts: number | null;
@@ -550,7 +620,7 @@ function attachSortieIds(records: BattleRecord[]): void {
 
   const byDataset = new Map<
     string,
-    { mapKey: string; ts: number | null; sortieNo: number }
+    { mapKey: string | null; ts: number | null; sortieNo: number }
   >();
 
   for (const item of sortable) {
@@ -558,14 +628,16 @@ function attachSortieIds(records: BattleRecord[]): void {
       typeof item.rec["dataset_id"] === "string" && item.rec["dataset_id"]
         ? item.rec["dataset_id"]
         : "global";
-    const mapArea = Number(item.rec["maparea_id"] ?? 0) || 0;
-    const mapInfo = Number(item.rec["mapinfo_no"] ?? 0) || 0;
-    const mapKey = `${mapArea}-${mapInfo}`;
+    const mapArea = normalizeMapCoordinate(item.rec["maparea_id"]);
+    const mapInfo = normalizeMapCoordinate(item.rec["mapinfo_no"]);
+    const mapKey =
+      mapArea === null || mapInfo === null ? null : `${mapArea}-${mapInfo}`;
 
     const prev = byDataset.get(datasetId);
     let sortieNo = 1;
     if (prev) {
-      const sameMap = prev.mapKey === mapKey;
+      const sameMap =
+        prev.mapKey !== null && mapKey !== null && prev.mapKey === mapKey;
       const withinGap =
         prev.ts != null && item.ts != null
           ? Math.abs(item.ts - prev.ts) <= SORTIE_SPLIT_GAP_MS
@@ -574,7 +646,7 @@ function attachSortieIds(records: BattleRecord[]): void {
     }
 
     byDataset.set(datasetId, { mapKey, ts: item.ts, sortieNo });
-    item.rec["__sortie_id"] = `${datasetId}:${mapKey}:${sortieNo}`;
+    item.rec["__sortie_id"] = `${datasetId}:${mapKey ?? "unknown"}:${sortieNo}`;
   }
 }
 
@@ -1336,7 +1408,7 @@ app.get("/latest", async (c) => {
       table_version: row["table_version"],
       size: row["size"],
       record_count: row["record_count"],
-      uploaded_at: new Date(Number(row["start_timestamp"] || 0)).toISOString(),
+      uploaded_at: formatTimestamp(row["start_timestamp"]),
     };
 
     c.res.headers.set(
@@ -1483,25 +1555,24 @@ app.get("/global/summary", async (c) => {
       env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
-    const summaryRows = (await indexDb
+    const summaryRowsResult = await indexDb
       .prepare(
         "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC, table_version DESC LIMIT 500",
       )
       .bind(table)
-      .all()) as {
-      results?: Array<{
-        period_tag?: string | null;
-        table_version?: string | null;
-      }>;
-    };
+      .all();
+    const parsedSummaryRows = BattleSummaryRowsSchema.safeParse(
+      summaryRowsResult.results ?? [],
+    );
+    if (!parsedSummaryRows.success) {
+      throw new Error("Invalid battle summary rows");
+    }
 
     const seen = new Set<string>();
     const periods: Array<{ period_tag: string; table_version: string }> = [];
-    for (const row of summaryRows.results || []) {
-      const periodTag = row?.period_tag;
-      const tableVersion = row?.table_version;
-      if (typeof periodTag !== "string" || !periodTag) continue;
-      if (typeof tableVersion !== "string" || !tableVersion) continue;
+    for (const row of parsedSummaryRows.data) {
+      const periodTag = row.period_tag;
+      const tableVersion = row.table_version;
       if (!allowedPeriodTagSet.has(periodTag)) continue;
       const key = `${periodTag}\u0000${tableVersion}`;
       if (seen.has(key)) continue;
@@ -1589,8 +1660,8 @@ app.get("/global/records", async (c) => {
   let recordFilter: Record<string, unknown> | null = null;
   if (filterJsonRaw) {
     try {
-      const parsed = JSON.parse(filterJsonRaw) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      const parsed: unknown = JSON.parse(filterJsonRaw);
+      if (!isJsonRecord(parsed)) {
         return c.json(
           {
             error: "INVALID_FILTER",
@@ -1599,7 +1670,7 @@ app.get("/global/records", async (c) => {
           400,
         );
       }
-      recordFilter = parsed as Record<string, unknown>;
+      recordFilter = parsed;
     } catch {
       return c.json(
         { error: "INVALID_FILTER", message: "filter_json must be valid JSON" },
@@ -1742,12 +1813,18 @@ app.get("/global/records", async (c) => {
         latestPeriodParams.push(tableVersionParam);
       }
       latestPeriodSql += " ORDER BY period_tag DESC LIMIT 200";
-      const latestRows = (await indexDb
+      const latestRowsResult = await indexDb
         .prepare(latestPeriodSql)
         .bind(...latestPeriodParams)
-        .all()) as { results?: Array<{ period_tag?: string | null }> };
-      const latestAllowed = (latestRows.results || []).find((row) => {
-        const tag = row?.period_tag ?? null;
+        .all();
+      const parsedLatestRows = BattlePeriodTagRowsSchema.safeParse(
+        latestRowsResult.results ?? [],
+      );
+      if (!parsedLatestRows.success) {
+        throw new Error("Invalid latest battle period-tag rows");
+      }
+      const latestAllowed = parsedLatestRows.data.find((row) => {
+        const tag = row.period_tag ?? null;
         return typeof tag === "string" && allowedPeriodTagSet.has(tag);
       });
       resolvedPeriodTag = latestAllowed?.period_tag ?? null;
@@ -1852,7 +1929,9 @@ app.get("/global/records", async (c) => {
       }
 
       accepted.sort(
-        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
+        (a, b) =>
+          (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
+          (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
       );
 
       return {
@@ -2580,7 +2659,7 @@ app.get("/global/latest", async (c) => {
       table_version: row["table_version"],
       size: row["size"],
       record_count: row["record_count"],
-      uploaded_at: new Date(Number(row["start_timestamp"] || 0)).toISOString(),
+      uploaded_at: formatTimestamp(row["start_timestamp"]),
     };
 
     c.res.headers.set(
@@ -2658,40 +2737,51 @@ app.get("/dev/local-records", async (c) => {
 
     let records: BattleRecord[] = [];
 
+    const parseDetailRows = (value: unknown): BattleRecord[] => {
+      const parsed = parseBattleJsonRecords(value);
+      if (!parsed) {
+        throw new Error("Invalid battle detail D1 rows");
+      }
+      return parsed;
+    };
+
     if (table === "battle") {
-      const battleResult = (await indexDb
+      const battleResult = await indexDb
         .prepare(`SELECT * FROM battle WHERE uuid = ?`)
         .bind(battleId)
-        .all?.()) as { results: BattleRecord[] };
+        .all?.();
 
-      const openingRaigekiResult = (await indexDb
+      const openingRaigekiResult = await indexDb
         .prepare(`SELECT * FROM opening_raigeki WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: BattleRecord[] };
+        .all?.();
 
-      const ownShipResult = (await indexDb
+      const ownShipResult = await indexDb
         .prepare(`SELECT * FROM own_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: BattleRecord[] };
+        .all?.();
 
-      const enemyShipResult = (await indexDb
+      const enemyShipResult = await indexDb
         .prepare(`SELECT * FROM enemy_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: BattleRecord[] };
+        .all?.();
 
-      records = battleResult.results || [];
+      records = parseDetailRows(battleResult?.results);
+      const openingRaigekiRecords = parseDetailRows(openingRaigekiResult?.results);
+      const ownShipRecords = parseDetailRows(ownShipResult?.results);
+      const enemyShipRecords = parseDetailRows(enemyShipResult?.results);
       const firstRecord = records[0];
-      const firstOpeningRaigeki = openingRaigekiResult.results?.[0];
+      const firstOpeningRaigeki = openingRaigekiRecords[0];
       if (firstRecord && firstOpeningRaigeki) {
         firstRecord["opening_raigeki"] = transformOpeningRaigekiData(
           firstOpeningRaigeki,
         );
       }
-      if (firstRecord && ownShipResult.results?.length) {
-        firstRecord["own_ship"] = ownShipResult.results;
+      if (firstRecord && ownShipRecords.length) {
+        firstRecord["own_ship"] = ownShipRecords;
       }
-      if (firstRecord && enemyShipResult.results?.length) {
-        firstRecord["enemy_ship"] = enemyShipResult.results;
+      if (firstRecord && enemyShipRecords.length) {
+        firstRecord["enemy_ship"] = enemyShipRecords;
       }
       // DEV: Inject synthetic hougeki (shelling) data for test UUID
       if (firstRecord && battleId === "test-multi-attacker-001") {
@@ -2717,19 +2807,19 @@ app.get("/dev/local-records", async (c) => {
         };
       }
     } else if (safeField && safeValue) {
-      const result = (await indexDb
+      const result = await indexDb
         .prepare(`SELECT * FROM ${table} WHERE ${safeField} = ?`)
         .bind(safeValue)
-        .all?.()) as { results: BattleRecord[] };
-      records = result.results || [];
+        .all?.();
+      records = parseDetailRows(result?.results);
     } else {
-      const result = (await indexDb
+      const result = await indexDb
         .prepare(
           `SELECT * FROM ${table} WHERE uuid = ? OR battle_id = ? OR id = ?`,
         )
         .bind(safeValue, safeValue, safeValue)
-        .all?.()) as { results: BattleRecord[] };
-      records = result.results || [];
+        .all?.();
+      records = parseDetailRows(result?.results);
     }
 
     if (table === "opening_raigeki") {

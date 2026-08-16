@@ -16,10 +16,12 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import {
   ApiKeyValidationRowsSchema,
-  parseArchivedBlockRows,
-  parseMasterDataFileRows,
-  parseTableNames,
+  ArchivedBlockRowsSchema,
   DataLoaderBlockInfoRowSchema,
+  MasterDataFileRowsSchema,
+  MasterDataR2KeyRowSchema,
+  parseRateLimitAttempts,
+  TableNameRowsSchema,
   TrustedDeviceTrustRowsSchema,
   VerifyDeviceRequestSchema,
   VerifyGoogleRequestSchema,
@@ -39,6 +41,10 @@ import {
   getLatestMasterPeriodTag,
   listAllowedPeriodTags,
 } from "../utils/period-tags";
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -190,7 +196,14 @@ app.get("/tables", async (c) => {
       `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`,
     );
     const result = await stmt.all?.();
-    const battleTables = parseTableNames(result?.results ?? []);
+    const parsedBattleTables = TableNameRowsSchema.safeParse(result?.results ?? []);
+    if (!parsedBattleTables.success) {
+      return jsonResponse(
+        { error: "INTERNAL_ERROR", message: "Invalid battle table rows" },
+        500,
+      );
+    }
+    const battleTables = parsedBattleTables.data.map((row) => row.table_name);
 
     // Add master-data tables if available
     const masterTables: string[] = [];
@@ -203,7 +216,18 @@ app.get("/tables", async (c) => {
          ORDER BY mdt.table_name`,
       );
       const masterResult = await masterStmt.all?.();
-      masterTables.push(...parseTableNames(masterResult?.results ?? []));
+      const parsedMasterTables = TableNameRowsSchema.safeParse(
+        masterResult?.results ?? [],
+      );
+      if (!parsedMasterTables.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid master table rows" },
+          500,
+        );
+      }
+      masterTables.push(
+        ...parsedMasterTables.data.map((row) => row.table_name),
+      );
     }
 
     const tables = [...battleTables, ...masterTables];
@@ -582,8 +606,18 @@ app.get("/data/:table", async (c) => {
       const masterStmt = masterDb.prepare(masterSql);
       const masterResult = await masterStmt.bind(...masterParams).all?.();
 
-      const masterFileRows = parseMasterDataFileRows(masterResult?.results);
-      if (!masterFileRows || masterFileRows.length === 0) {
+      const parsedMasterFileRows = MasterDataFileRowsSchema.safeParse(
+        masterResult?.results ?? [],
+      );
+      if (!parsedMasterFileRows.success) {
+        return jsonResponse(
+          { error: "INTERNAL_ERROR", message: "Invalid master data file rows" },
+          500,
+          ruStatus,
+        );
+      }
+      const masterFileRows = parsedMasterFileRows.data;
+      if (masterFileRows.length === 0) {
         return jsonResponse(
           {
             error: "DATASET_NOT_FOUND",
@@ -721,7 +755,11 @@ app.get("/data/:table", async (c) => {
 
       const stmt = indexDb.prepare(sql);
       const result = await stmt.bind(...params).all?.();
-      return parseArchivedBlockRows(result?.results ?? []);
+      const parsedRows = ArchivedBlockRowsSchema.safeParse(result?.results ?? []);
+      if (!parsedRows.success) {
+        throw new Error("Invalid archived block rows");
+      }
+      return parsedRows.data;
     };
 
     let result: Awaited<ReturnType<typeof fetchArchivedRows>> | undefined;
@@ -1166,7 +1204,7 @@ async function checkRateLimit(
   const now = Date.now();
 
   const data = await kv.get(rateLimitKey);
-  let attempts: number[] = data ? JSON.parse(data) : [];
+  let attempts = parseRateLimitAttempts(data);
 
   // Remove attempts outside the time window
   attempts = attempts.filter(
@@ -1509,7 +1547,11 @@ app.get("/download-master", async (c) => {
     sql += " ORDER BY mdi.completed_at DESC, mdi.period_revision DESC LIMIT 1";
     const stmt = masterDb.prepare(sql);
     const row = await stmt.bind(...params).first();
-    const r2Key = (row as { r2_key?: string } | null)?.r2_key;
+    const parsedRow = MasterDataR2KeyRowSchema.nullable().safeParse(row);
+    if (!parsedRow.success) {
+      return new Response("Invalid master data download row", { status: 500 });
+    }
+    const r2Key = parsedRow.data?.r2_key;
 
     if (!r2Key) {
       return new Response("Master data not found", { status: 404 });
@@ -1735,8 +1777,11 @@ app.post("/verify-google", async (c) => {
         },
       );
       if (userinfoResp.ok) {
-        const userinfo = (await userinfoResp.json()) as { email?: string };
-        verifiedEmail = userinfo.email;
+        const userinfo = await userinfoResp.json();
+        verifiedEmail = isJsonRecord(userinfo) &&
+          typeof userinfo["email"] === "string"
+          ? userinfo["email"]
+          : undefined;
       } else if (userinfoResp.status === 401) {
         throw new Error("Invalid or expired Google token");
       } else {

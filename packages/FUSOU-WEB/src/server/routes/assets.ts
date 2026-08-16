@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 const brotliDecompressAsync = promisify(brotliDecompress);
-import type { Bindings } from "../types";
+import type { Bindings, R2BucketBinding } from "../types";
 import {
   MAX_UPLOAD_BYTES,
   CACHE_CONTROL,
@@ -29,6 +29,8 @@ import {
 } from "../utils/asset-index-cache";
 import {
   AssetKeyRowSchema,
+  AssetContentHashRowSchema,
+  AssetHashLookupRowSchema,
   CacheClearKeysSchema,
   EquipImageMapCacheSchema,
   parseAssetKeyRows,
@@ -37,6 +39,7 @@ import {
   ShipIconMapCacheSchema,
   SpriteAtlasSchema,
 } from "../schemas/assets";
+import { AssetUploadTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -45,6 +48,25 @@ const TRANSPARENT_PNG_1X1 = new Uint8Array([
   156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68,
   174, 66, 96, 130,
 ]);
+
+async function listAllAssetKeys(
+  bucket: R2BucketBinding,
+  prefix: string,
+): Promise<Array<{ key: string }>> {
+  const objects: Array<{ key: string }> = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const listed = cursor === undefined
+      ? await bucket.list({ prefix, limit: 1000 })
+      : await bucket.list({ prefix, limit: 1000, cursor });
+    objects.push(...listed.objects.map(({ key }) => ({ key })));
+    if (!listed.truncated || !listed.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  return objects;
+}
 
 // OPTIONS（CORS）
 app.options(
@@ -76,6 +98,7 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    tokenPayloadSchema: AssetUploadTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SIGNED_URL_TTL_SECONDS,
     maxBodySize: MAX_UPLOAD_BYTES,
@@ -137,7 +160,11 @@ app.post("/upload", async (c) => {
         const existingRes = await existingStmt.bind(key).first();
 
         if (existingRes) {
-          const existingHash = existingRes["content_hash"] as string | null;
+          const parsedExisting = AssetContentHashRowSchema.safeParse(existingRes);
+          if (!parsedExisting.success) {
+            return c.json({ error: "Invalid asset index row" }, 500);
+          }
+          const existingHash = parsedExisting.data.content_hash ?? null;
           if (existingHash === contentHash) {
             // Content unchanged - return 409 Conflict
             return c.json(
@@ -370,12 +397,17 @@ app.get("/check-hash", async (c) => {
     const result = await stmt.bind(contentHash).first();
 
     if (result) {
+      const parsedResult = AssetHashLookupRowSchema.safeParse(result);
+      if (!parsedResult.success) {
+        return c.json({ error: "Invalid asset lookup row" }, 500);
+      }
+      const file = parsedResult.data;
       return c.json({
         exists: true,
         file: {
-          key: result["key"],
-          size: result["size"],
-          uploadedAt: result["uploaded_at"],
+          key: file.key,
+          size: file.size,
+          uploadedAt: file.uploaded_at,
         },
       });
     } else {
@@ -466,11 +498,11 @@ app.get("/ship-banner-map", async (c) => {
 
     // Fallback: R2 list if D1 was empty
     if (Object.keys(banners).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/banner/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/banner/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/banner\/(\d{4})_/);
         const shipIdPart = match?.[1];
         if (shipIdPart) {
@@ -568,11 +600,11 @@ app.get("/ship-card-map", async (c) => {
 
     // Fallback: R2 list if D1 was empty
     if (Object.keys(cards).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/card/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/card/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/card\/(\d{4})_/);
         const shipIdPart = match?.[1];
         if (shipIdPart) {
@@ -669,11 +701,11 @@ app.get("/ship-icon-map", async (c) => {
     }
 
     if (Object.keys(icons).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/reward_icon/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/reward_icon/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/reward_icon\/(\d{4})_/);
         const capture = match?.[1];
         if (!capture) continue;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AssetContentHashRowSchema,
+  AssetHashLookupRowSchema,
   AssetKeyRowSchema,
   CacheClearKeysSchema,
   EquipImageMapCacheSchema,
@@ -31,6 +32,33 @@ describe("SpriteAtlasSchema", () => {
     ).toBe(false);
     expect(
       SpriteAtlasSchema.safeParse({ frames: {}, meta: "invalid" }).success,
+    ).toBe(false);
+  });
+
+  it("rejects non-finite frame and metadata values without changing valid zeroes", () => {
+    const result = SpriteAtlasSchema.safeParse({
+      frames: {
+        icon: { frame: { x: 0, y: 0, w: "32", h: "32" } },
+      },
+      meta: { size: { w: 0, h: 256 } },
+    });
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.frames["icon"]?.frame).toMatchObject({
+        x: 0,
+        y: 0,
+        w: 32,
+        h: 32,
+      });
+      expect(result.data.meta.size.w).toBe(0);
+    }
+
+    expect(
+      SpriteAtlasSchema.safeParse({
+        frames: { icon: { frame: { x: "NaN", y: 0, w: 32, h: 32 } } },
+        meta: { size: { w: 256, h: 256 } },
+      }).success,
     ).toBe(false);
   });
 });
@@ -91,6 +119,28 @@ describe("AssetContentHashRowSchema", () => {
       AssetContentHashRowSchema.safeParse({ content_hash: 42 }).success,
     ).toBe(false);
     expect(AssetContentHashRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("AssetHashLookupRowSchema", () => {
+  it("accepts the file lookup projection", () => {
+    expect(
+      AssetHashLookupRowSchema.safeParse({
+        key: "assets/file.png",
+        size: 12,
+        uploaded_at: 1_752_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed lookup columns", () => {
+    expect(
+      AssetHashLookupRowSchema.safeParse({
+        key: "assets/file.png",
+        size: "12",
+        uploaded_at: 1,
+      }).success,
+    ).toBe(false);
   });
 });
 

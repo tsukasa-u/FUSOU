@@ -6,6 +6,7 @@ import {
   parseArchivedBlockRows,
   MasterDataFileRowsSchema,
   parseMasterDataFileRows,
+  parseRateLimitAttempts,
   parseTableNames,
   TableNameRowsSchema,
   TrustedDeviceTrustRowsSchema,
@@ -45,6 +46,12 @@ describe("VerifyGoogleRequestSchema", () => {
   it("rejects a non-string Google token", () => {
     expect(
       VerifyGoogleRequestSchema.safeParse({ google_token: 123 }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-string legacy email value", () => {
+    expect(
+      VerifyGoogleRequestSchema.safeParse({ email: 123 }).success,
     ).toBe(false);
   });
 });
@@ -132,6 +139,18 @@ describe("TableNameRowsSchema", () => {
     );
     expect(parseTableNames([{ table_name: 123 }])).toEqual([]);
     expect(parseTableNames(null)).toEqual([]);
+  });
+});
+
+describe("parseRateLimitAttempts", () => {
+  it("accepts finite timestamp arrays", () => {
+    expect(parseRateLimitAttempts("[1, 2, 3]")).toEqual([1, 2, 3]);
+  });
+
+  it("recovers from malformed or non-numeric KV values", () => {
+    expect(parseRateLimitAttempts("not-json")).toEqual([]);
+    expect(parseRateLimitAttempts('{"attempts":[]}')).toEqual([]);
+    expect(parseRateLimitAttempts("[1, null, \"2\"]")).toEqual([]);
   });
 });
 

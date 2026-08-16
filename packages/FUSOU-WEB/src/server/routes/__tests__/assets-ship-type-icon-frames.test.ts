@@ -1,5 +1,6 @@
 import { brotliCompressSync } from "node:zlib";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Bindings } from "../../types";
 
 const { mockCreateEnvContext, mockGetEnv, mockResolveAllowedExtensions } =
   vi.hoisted(() => ({
@@ -44,13 +45,16 @@ function createBucketMock(payloadByKey: Record<string, Uint8Array | null>) {
 describe("assets /ship-type-icon-frames", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockCreateEnvContext.mockImplementation((ctx: any) => ({
+    mockCreateEnvContext.mockImplementation(
+      (ctx: { env?: Record<string, unknown> }) => ({
       runtime: ctx?.env ?? {},
       buildtime: {},
       isDev: false,
-    }));
+      }),
+    );
     mockGetEnv.mockImplementation(
-      (ctx: any, key: string) => ctx.runtime?.[key],
+      (ctx: { runtime?: Record<string, unknown> }, key: string) =>
+        ctx.runtime?.[key],
     );
     mockResolveAllowedExtensions.mockReturnValue([]);
   });
@@ -70,7 +74,7 @@ describe("assets /ship-type-icon-frames", () => {
       { method: "GET" },
       {
         ASSET_SYNC_BUCKET: bucket,
-      } as any,
+      } as unknown as Bindings,
     );
 
     expect(response.status).toBe(200);
@@ -93,7 +97,7 @@ describe("assets /ship-type-icon-frames", () => {
       { method: "GET" },
       {
         ASSET_SYNC_BUCKET: bucket,
-      } as any,
+      } as unknown as Bindings,
     );
 
     expect(response.status).toBe(200);

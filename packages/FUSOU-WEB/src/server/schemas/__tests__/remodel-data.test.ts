@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   RemodelDataIngestBodySchema,
+  RemodelChangedPeriodRowSchema,
+  RemodelDetailArchiveRowSchema,
+  RemodelPeriodTagRowSchema,
+  RemodelSlotlistArchiveRowSchema,
   parseRemodelEffectiveSummaryRows,
   parseRemodelPeriodSummaryRows,
   RemodelMaxUpdatedAtRowSchema,
@@ -48,6 +52,78 @@ describe("RemodelMaxUpdatedAtRowSchema", () => {
         .success,
     ).toBe(false);
     expect(RemodelMaxUpdatedAtRowSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("remodel archive projection schemas", () => {
+  it("accepts changed-period, period-tag, and typed archive rows", () => {
+    expect(
+      RemodelChangedPeriodRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        max_updated_at_ms: 1_752_000_000_000,
+      }).success,
+    ).toBe(true);
+    expect(
+      RemodelPeriodTagRowSchema.safeParse({ period_tag: "2026-07-08" }).success,
+    ).toBe(true);
+    const slotlistResult = RemodelSlotlistArchiveRowSchema.safeParse({
+      period_tag: "2026-07-08",
+      secretary_ship_master_id: 1,
+      weekday_jst: 0,
+      remodel_id: 2,
+      remodel_step_id: 2,
+      remodel_level: 0,
+      slotitem_master_id: 3,
+      sp_type: 0,
+      req_fuel: 1,
+      req_bull: 2,
+      req_steel: 3,
+      req_bauxite: 4,
+      req_buildkit: 5,
+      req_remodelkit: 6,
+      req_slot_id: 7,
+      req_slot_num: 8,
+      updated_at_ms: 9,
+      future_column: "ignored",
+    });
+    expect(slotlistResult.success).toBe(true);
+    if (slotlistResult.success) {
+      expect(slotlistResult.data).not.toHaveProperty("future_column");
+    }
+
+    expect(
+      RemodelDetailArchiveRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        slotitem_master_id: 3,
+        remodel_id: 2,
+        remodel_step_id: 2,
+        remodel_level: 0,
+        certain_buildkit: 1,
+        certain_remodelkit: 2,
+        req_slot_id: null,
+        req_slot_num: null,
+        change_flag: 0,
+        req_useitem_id: 10,
+        req_useitem_id2: null,
+        req_useitem_num: 1,
+        req_useitem_num2: null,
+        updated_at_ms: 9,
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed required projection fields", () => {
+    expect(
+      RemodelChangedPeriodRowSchema.safeParse({
+        period_tag: "2026-07-08",
+        max_updated_at_ms: "bad",
+      }).success,
+    ).toBe(false);
+    expect(RemodelPeriodTagRowSchema.safeParse({ period_tag: "" }).success).toBe(
+      false,
+    );
+    expect(RemodelSlotlistArchiveRowSchema.safeParse(null).success).toBe(false);
+    expect(RemodelDetailArchiveRowSchema.safeParse(null).success).toBe(false);
   });
 });
 
@@ -101,6 +177,16 @@ describe("RemodelDataIngestBodySchema", () => {
   it("rejects null and array JSON roots", () => {
     expect(RemodelDataIngestBodySchema.safeParse(null).success).toBe(false);
     expect(RemodelDataIngestBodySchema.safeParse([]).success).toBe(false);
+  });
+
+  it("rejects non-JSON values at the raw boundary", () => {
+    expect(
+      RemodelDataIngestBodySchema.safeParse({ entries: [undefined] }).success,
+    ).toBe(false);
+    expect(
+      RemodelDataIngestBodySchema.safeParse({ generated_at: new Date() })
+        .success,
+    ).toBe(false);
   });
 
   it("validates slotlist payloads and preserves typed entries", () => {
