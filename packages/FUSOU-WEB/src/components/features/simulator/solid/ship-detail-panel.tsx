@@ -30,11 +30,11 @@ import type {
 } from "@/features/simulator/types";
 import {
   type NormalizedShipGrowthCaps,
-  type ShipGrowthSummary,
-  type ShipGrowthBoundsResponse,
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
 } from "@/features/simulator/ship-growth-utils";
 import {
   statRangeLabel,
@@ -92,7 +92,11 @@ function ShipDetailPanel(props: {
         const summaryRes = await cachedFetch("/api/ship-growth/summary");
         if (!summaryRes.ok) return;
 
-        const summaryJson = (await summaryRes.json()) as ShipGrowthSummary;
+        const parsedSummary = ShipGrowthSummaryResponseSchema.safeParse(
+          await summaryRes.json(),
+        );
+        if (!parsedSummary.success || !parsedSummary.data.ok) return;
+        const summaryJson = parsedSummary.data;
         const latest = summaryJson.periods?.[0];
         if (!latest) return;
 
@@ -101,7 +105,11 @@ function ShipDetailPanel(props: {
         );
         if (!boundsRes.ok) return;
 
-        const boundsJson = (await boundsRes.json()) as ShipGrowthBoundsResponse;
+        const parsedBounds = ShipGrowthBoundsResponseSchema.safeParse(
+          await boundsRes.json(),
+        );
+        if (!parsedBounds.success || !parsedBounds.data.ok) return;
+        const boundsJson = parsedBounds.data;
         const capFromCaps = normalizeShipGrowthCaps(
           (boundsJson.caps ?? []).find((row) => row.master_id === shipId) ??
             null,

@@ -37,7 +37,7 @@ export function ShareSettingsModal() {
         includeDetailedStats: includeDetailedStats(),
         includeSnapshotData: includeSnapshot(),
       });
-      const copied = copyToClipboard(url);
+      const copied = await copyToClipboard(url);
       if (copied) {
         setShareStatus("success");
         setTimeout(() => {
@@ -48,9 +48,11 @@ export function ShareSettingsModal() {
         setShareStatus("error");
         window.prompt("自動コピーに失敗しました。以下を手動でコピーしてください:", url);
       }
-    } catch (e: any) {
+    } catch (e: unknown) {
       setShareStatus("error");
-      setErrorMessage(e.message || "共有URLの生成に失敗しました");
+      setErrorMessage(
+        e instanceof Error ? e.message : "共有URLの生成に失敗しました",
+      );
     }
   };
 

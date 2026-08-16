@@ -1337,7 +1337,7 @@ export function groupByMultiStat(entries: MultiEntry[]): MultiGroup[] {
     else map.set(key, [entry]);
   }
   const result: MultiGroup[] = [];
-  const ordered = [...(SYNERGY_STAT_ORDER as unknown as string[]), "other"];
+  const ordered = [...SYNERGY_STAT_ORDER, "other"];
   for (const k of ordered) {
     const list = map.get(k);
     if (!list) continue;
@@ -1384,7 +1384,7 @@ export function groupByGenericStat<T>(
     else map.set(key, [entry]);
   }
   const result: SynergyGroup<T>[] = [];
-  const ordered = [...(SYNERGY_STAT_ORDER as unknown as string[]), "other"];
+  const ordered = [...SYNERGY_STAT_ORDER, "other"];
   for (const k of ordered) {
     const list = map.get(k);
     if (!list) continue;

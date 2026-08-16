@@ -14,17 +14,7 @@ import {
 } from "solid-js";
 import { render } from "solid-js/web";
 import { authFetch } from "@/utils/authFetch";
-
-type FleetEntry = {
-  tag: string;
-  uploaded?: string;
-  size?: number;
-};
-
-type FleetsResponse = {
-  ok: boolean;
-  tags: FleetEntry[];
-};
+import { FleetSnapshotsListResponseSchema } from "@/features/simulator/api-response-schemas";
 
 function formatUploadedAt(input: string | Date | undefined): string {
   if (!input) return "-";
@@ -40,8 +30,11 @@ function FleetListPanel(props: { accessToken: string | null }): JSX.Element {
     if (!props.accessToken) return null;
     const res = await authFetch("/api/fleet/snapshots/list");
     if (!res.ok) throw new Error("Failed to load fleet list");
-    const data = (await res.json()) as FleetsResponse;
-    return data.tags ?? [];
+    const parsed = FleetSnapshotsListResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) {
+      throw new Error("Invalid fleet list response");
+    }
+    return parsed.data.tags;
   });
 
   const visibleFleets = () => {

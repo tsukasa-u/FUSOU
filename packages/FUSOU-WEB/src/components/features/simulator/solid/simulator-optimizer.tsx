@@ -48,6 +48,11 @@ import type {
   MstShipData,
   MstSlotItemData,
 } from "@/features/simulator/types";
+import {
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
+} from "@/features/simulator/ship-growth-utils";
+import { ShortUrlResponseSchema } from "@/features/simulator/api-response-schemas";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -94,7 +99,62 @@ const NON_EDITABLE_PARAM_KEYS = new Set(["maxeq", "soku", "leng"]);
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function rawStat(equip: MstSlotItemData, statKey: string): number {
-  return (equip as unknown as Record<string, number>)[statKey] ?? 0;
+  switch (statKey) {
+    case "houg":
+      return equip.houg;
+    case "raig":
+      return equip.raig;
+    case "tyku":
+      return equip.tyku;
+    case "tais":
+      return equip.tais;
+    case "baku":
+      return equip.baku;
+    case "saku":
+      return equip.saku;
+    case "houm":
+      return equip.houm;
+    case "souk":
+      return equip.souk;
+    case "kaih":
+      return equip.kaih ?? 0;
+    case "luck":
+      return equip.luck ?? 0;
+    case "soku":
+      return equip.soku ?? 0;
+    case "leng":
+      return equip.leng ?? 0;
+    default:
+      return 0;
+  }
+}
+
+function shipStatArray(
+  ship: MstShipData,
+  key: string,
+): number[] | null | undefined {
+  switch (key) {
+    case "taik":
+      return ship.taik;
+    case "souk":
+      return ship.souk;
+    case "houg":
+      return ship.houg;
+    case "raig":
+      return ship.raig;
+    case "tyku":
+      return ship.tyku;
+    case "tais":
+      return ship.tais;
+    case "saku":
+      return ship.saku;
+    case "kaih":
+      return ship.kaih;
+    case "luck":
+      return ship.luck;
+    default:
+      return undefined;
+  }
 }
 
 function isCompatibleNormal(
@@ -234,7 +294,7 @@ function shipBaseStat(ship: MstShipData, key: string): number {
       : 0;
   }
 
-  const v = (ship as unknown as Record<string, number[] | null>)[key];
+  const v = shipStatArray(ship, key);
   // Use max-level value (index 1) for optimization; fall back to level-1 (index 0)
   return v?.[1] ?? v?.[0] ?? 0;
 }
@@ -247,9 +307,7 @@ function shipBaseStatOrNull(ship: MstShipData, key: string): number | null {
     return ship.maxeq.reduce((sum, slot) => sum + Number(slot || 0), 0);
   }
 
-  const value = (
-    ship as unknown as Record<string, number[] | null | undefined>
-  )[key];
+  const value = shipStatArray(ship, key);
   if (!Array.isArray(value) || value.length === 0) return null;
   const maxValue = value[1] ?? value[0];
   return typeof maxValue === "number" && Number.isFinite(maxValue)
@@ -267,9 +325,7 @@ function shipMinStatOrNull(ship: MstShipData, key: string): number | null {
   if (key === "leng") return Number.isFinite(ship.leng) ? 0 : null;
   if (key === "maxeq") return 0;
 
-  const value = (
-    ship as unknown as Record<string, number[] | null | undefined>
-  )[key];
+  const value = shipStatArray(ship, key);
   if (!Array.isArray(value) || value.length === 0) return null;
   const minValue = value[0];
   return typeof minValue === "number" && Number.isFinite(minValue)
@@ -346,7 +402,9 @@ async function getOptimizerShipGrowthPeriod(): Promise<ShipGrowthPeriod | null> 
   _optimizerShipGrowthPeriodPromise = (async () => {
     const res = await fetch("/api/ship-growth/summary");
     if (!res.ok) return null;
-    const json = (await res.json()) as ShipGrowthSummary;
+    const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return null;
+    const json = parsed.data;
     const latest = json.periods?.[0];
     return latest
       ? { period_tag: latest.period_tag, table_version: latest.table_version }
@@ -383,7 +441,12 @@ async function getOptimizerShipGrowthCaps(
       return null;
     }
 
-    const json = (await res.json()) as ShipGrowthBoundsResponse;
+    const parsed = ShipGrowthBoundsResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) {
+      _optimizerShipGrowthCapsCache.set(cacheKey, null);
+      return null;
+    }
+    const json = parsed.data;
     const fromCaps = normalizeShipGrowthCaps(json.caps?.[0] ?? null);
     const fromBounds = deriveShipGrowthCapsFromBounds(
       masterId,
@@ -408,9 +471,7 @@ function buildDefaultShipParams(
       const statArray =
         key === "soku" || key === "leng" || key === "maxeq"
           ? [shipBaseStat(ship, key)]
-          : (ship as unknown as Record<string, number[] | null | undefined>)[
-              key
-            ];
+          : shipStatArray(ship, key);
       const capKey = SHIP_GROWTH_CAP_KEYS[key];
       const capValue = capKey ? (caps?.[capKey] ?? null) : null;
 
@@ -541,11 +602,6 @@ type OptimizerSharePayload = {
 
 type OptimizerShipParams = Record<string, number | null>;
 
-type ShipGrowthSummary = {
-  ok: boolean;
-  periods?: Array<{ period_tag: string; table_version: string }>;
-};
-
 type ShipGrowthCaps = {
   master_id: number;
   kaihi_max?: number;
@@ -561,11 +617,6 @@ type ShipGrowthBoundRow = {
   kaihi_naked: number;
   taisen_naked: number;
   sakuteki_naked: number;
-};
-
-type ShipGrowthBoundsResponse = {
-  caps?: ShipGrowthCaps[];
-  bounds?: ShipGrowthBoundRow[];
 };
 
 type NormalizedShipGrowthCaps = {
@@ -1350,9 +1401,7 @@ function EquipOptimizer(): JSX.Element {
       const original =
         stat.key === "soku" || stat.key === "leng" || stat.key === "maxeq"
           ? [shipBaseStat(ship, stat.key)]
-          : (ship as unknown as Record<string, number[] | null | undefined>)[
-              stat.key
-            ];
+          : shipStatArray(ship, stat.key);
       return {
         key: stat.key,
         label: stat.label,
@@ -1583,20 +1632,22 @@ function EquipOptimizer(): JSX.Element {
         body: JSON.stringify({ url: longUrl }),
       });
       if (res.ok) {
-        const data = (await res.json()) as { ok: boolean; shortUrl?: string };
-        if (data.ok && data.shortUrl) finalUrl = data.shortUrl;
+        const parsed = ShortUrlResponseSchema.safeParse(await res.json());
+        if (parsed.success && parsed.data.ok && parsed.data.shortUrl) {
+          finalUrl = parsed.data.shortUrl;
+        }
       }
     } catch {
       /* fallback to long URL */
     }
 
     try {
-      const copied = copyToClipboard(finalUrl);
+      const copied = await copyToClipboard(finalUrl);
       if (copied) {
         return true;
       }
       return false;
-    } catch (e: any) {
+    } catch {
       window.prompt("以下を手動でコピーしてください:", finalUrl);
       return false;
     }
@@ -1803,7 +1854,7 @@ function EquipOptimizer(): JSX.Element {
               style={
                 {
                   background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct()}%, var(--color-base-300) ${pct()}%, var(--color-base-300) 100%)`,
-                } as any
+                }
               }
               onInput={(e) => {
                 if (isDisabled()) return;

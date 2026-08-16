@@ -1,6 +1,6 @@
 /* @jsxImportSource solid-js */
 import { createSignal, createMemo, createEffect, Show, For } from "solid-js";
-import { VList } from "virtua/solid";
+import { VList, type VListHandle } from "virtua/solid";
 import { useStore } from "@nanostores/solid";
 import type { MstSlotItemData } from "@/features/simulator/types";
 import { AIRCRAFT_TYPES, EQUIP_TYPE_NAMES, EQUIP_TYPE_SHORT, ENEMY_ID_THRESHOLD, RANGE_NAMES } from "@/features/simulator/constants";
@@ -20,6 +20,10 @@ import { SelectionModalShell } from "./selection-modal-shell";
 export const [equipModalTrigger, setEquipModalTrigger] = createSignal(0);
 
 type EquipRuntimeMeta = MstSlotItemData & { _snapshotLevel?: number; _snapshotAlv?: number; _snapshotCount?: number; _requiredLevel?: number; _requiredAlv?: number; };
+type EquipVariant = { slotitem_id: number; level: number; alv: number; count: number };
+type EquipRow =
+  | { kind: "header"; typeId: number }
+  | { kind: "item"; equip: EquipRuntimeMeta };
 type SideFilter = "ally" | "enemy" | "all";
 
 function getCandidateLevel(equip: MstSlotItemData): number {
@@ -47,7 +51,10 @@ function getEquipTypeName(typeId: number): string {
 
 export function EquipSelectionModal() {
   let dialogRef!: HTMLDialogElement;
-  let vlistRef: any;
+  let vlistRef: VListHandle | undefined;
+  const setVlistRef = (handle?: VListHandle) => {
+    vlistRef = handle;
+  };
   const masterDataStatus = useStore(masterDataStatusStore);
 
   const [search, setSearch] = createSignal("");
@@ -94,11 +101,11 @@ export function EquipSelectionModal() {
     masterDataStatus();
     equipModalTrigger();
     if (!hasMasterData()) return [];
-    let items: MstSlotItemData[];
+    let items: EquipRuntimeMeta[];
     const isAirBase = isAirBaseEquipModalTarget();
     
     if (source() === "snapshot" && hasSnapshotSlotItems()) {
-      const variantMap = new Map<string, any>();
+      const variantMap = new Map<string, EquipVariant>();
       for (const si of Object.values(getSnapshotSlotItems())) {
         const key = `${si.slotitem_id}_${si.level ?? 0}_${si.alv ?? 0}`;
         const existing = variantMap.get(key);
@@ -106,12 +113,12 @@ export function EquipSelectionModal() {
         else variantMap.set(key, { slotitem_id: si.slotitem_id, level: si.level ?? 0, alv: si.alv ?? 0, count: 1 });
       }
       items = [...variantMap.values()]
-        .map((v) => {
+        .map((v): EquipRuntimeMeta | null => {
           const mst = getMasterSlotItem(v.slotitem_id);
           if (!mst) return null;
           return { ...mst, _snapshotLevel: v.level, _snapshotAlv: v.alv, _snapshotCount: v.count };
         })
-        .filter((e): e is any => e != null)
+        .filter((e): e is EquipRuntimeMeta => e != null)
         .sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
     } else {
       items = Object.values(getMasterSlotItems()).sort((a, b) => (a.sortno ?? a.id) - (b.sortno ?? b.id));
@@ -135,7 +142,7 @@ export function EquipSelectionModal() {
         items = items.map((item) => {
           const req = getExslotSelectionRequirement(equipTarget.shipId!, item);
           if (!req || (req.level <= 0 && req.alv <= 0)) return item;
-          return { ...item, _requiredLevel: req.level, _requiredAlv: req.alv } as any;
+          return { ...item, _requiredLevel: req.level, _requiredAlv: req.alv };
         });
       }
     }
@@ -153,7 +160,7 @@ export function EquipSelectionModal() {
 
   const listData = createMemo(() => {
     const items = filteredEquips();
-    const rows: any[] = [];
+    const rows: EquipRow[] = [];
     let catOffsets: { typeId: number; offset: number }[] = [];
     let virtualOffset = 0;
     const filter = typeFilter();
@@ -313,8 +320,8 @@ export function EquipSelectionModal() {
                 <p class="text-sm text-base-content/30 text-center py-12">該当する装備が見つかりません</p>
              </Show>
              <div id="equip-modal-grid" class="flex-1 min-h-0 overflow-hidden">
-               <VList data={listData().rows} ref={vlistRef} style={{ height: "100%" }} class="overflow-x-hidden" onScroll={updateActiveQuickAccessByOffset}>
-                 {(row: any) => {
+              <VList data={listData().rows} ref={setVlistRef} style={{ height: "100%" }} class="overflow-x-hidden" onScroll={updateActiveQuickAccessByOffset}>
+                 {(row: EquipRow) => {
                    if (row.kind === "header") {
                      return <div class="bg-base-100/90 backdrop-blur-sm px-2 text-xs font-bold text-base-content/50 border-b border-base-200/50 flex items-center" style={{ height: `${HEADER_HEIGHT}px` }}>{getEquipTypeName(row.typeId)}</div>;
                    }
@@ -327,6 +334,9 @@ export function EquipSelectionModal() {
                    const displayAlv = getCandidateAlv(equip);
                    const reqLv = equip._requiredLevel ?? 0;
                    const reqAlv = equip._requiredAlv ?? 0;
+                   const snapshotAlv = equip._snapshotAlv ?? 0;
+                   const snapshotLevel = equip._snapshotLevel ?? 0;
+                   const snapshotCount = equip._snapshotCount ?? 0;
                    const hasRequiredMeta = reqLv > 0 || reqAlv > 0;
                    const isSnapshot = source() === "snapshot";
                    const profSymbols = ["|", "|", "||", "|||", "\\", "\\\\", "\\\\\\", ">>"];
@@ -346,9 +356,9 @@ export function EquipSelectionModal() {
                                </Show>
                              </span>
                              <Show when={isSnapshot}>
-                               <span class={`text-right font-mono ${equip._snapshotAlv > 0 ? (equip._snapshotAlv <= 3 ? "text-blue-700 font-bold" : equip._snapshotAlv <= 6 ? "text-amber-700 font-bold" : "text-orange-700 font-bold") : "text-base-content/30"}`}>{equip._snapshotAlv > 0 ? (profSymbols[equip._snapshotAlv] ?? ">>") : ""}</span>
-                               <span class={`text-right font-mono ${equip._snapshotLevel > 0 ? "text-teal-700 font-bold" : "text-base-content/30"}`}>{equip._snapshotLevel > 0 ? `★${equip._snapshotLevel}` : ""}</span>
-                               <span class={`text-right font-mono ${equip._snapshotCount > 1 ? "font-bold text-base-content/60" : "text-base-content/30"}`}>{equip._snapshotCount > 1 ? `×${equip._snapshotCount}` : ""}</span>
+                               <span class={`text-right font-mono ${snapshotAlv > 0 ? (snapshotAlv <= 3 ? "text-blue-700 font-bold" : snapshotAlv <= 6 ? "text-amber-700 font-bold" : "text-orange-700 font-bold") : "text-base-content/30"}`}>{snapshotAlv > 0 ? (profSymbols[snapshotAlv] ?? ">>") : ""}</span>
+                               <span class={`text-right font-mono ${snapshotLevel > 0 ? "text-teal-700 font-bold" : "text-base-content/30"}`}>{snapshotLevel > 0 ? `★${snapshotLevel}` : ""}</span>
+                               <span class={`text-right font-mono ${snapshotCount > 1 ? "font-bold text-base-content/60" : "text-base-content/30"}`}>{snapshotCount > 1 ? `×${snapshotCount}` : ""}</span>
                              </Show>
                            </div>
                          </div>
@@ -420,7 +430,7 @@ function EquipDetail(props: { equip: MstSlotItemData }) {
     const delta: Record<string, number> = {};
     const bonusKeys = new Set([...Object.keys(bonusWith), ...Object.keys(bonusWithout)]);
     for (const k of bonusKeys) {
-      const d = ((bonusWith as any)[k] || 0) - ((bonusWithout as any)[k] || 0);
+      const d = (bonusWith[k] || 0) - (bonusWithout[k] || 0);
       if (d !== 0) delta[k] = d;
     }
     return { delta, shipName: shipData?.name };

@@ -10,7 +10,12 @@ import {
   clearActive,
   type ViewerEntry,
 } from "./viewer-workspace";
-import { decodePayloadBase64, pickNumericRecord } from "./payload-codec";
+import {
+  decodePayloadBase64,
+  isLikelySimulatorPayload,
+  jsonRecordOf,
+  pickNumericRecord,
+} from "./payload-codec";
 import {
   getAirBaseState,
   getCombinedFleetType,
@@ -19,17 +24,20 @@ import {
   hasSnapshotData,
 } from "./simulator-selectors";
 import { authFetch } from "@/utils/authFetch";
+import { z } from "zod";
 
 const _accessToken: string | null = window.__fusouAccessToken ?? null;
 
 
-type ShortenApiResponse = {
-  ok: boolean;
-  shortUrl?: string;
-  error?: string;
-  detail?: string;
-  status?: number;
-};
+const ShortenApiResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    shortUrl: z.string().optional(),
+    error: z.string().optional(),
+    detail: z.string().optional(),
+    status: z.number().optional(),
+  })
+  .passthrough();
 
 export type ShareOptions = {
   includeAirBases: boolean;
@@ -130,7 +138,11 @@ export async function createShareUrl(opts: ShareOptions): Promise<string> {
     throw new Error(`API error: ${res.status}`);
   }
 
-  const json = await res.json() as ShortenApiResponse;
+  const parsed = ShortenApiResponseSchema.safeParse(await res.json());
+  if (!parsed.success) {
+    throw new Error("Invalid shorten API response");
+  }
+  const json = parsed.data;
   if (!json.ok || !json.shortUrl) {
     throw new Error(json.error || "Failed to shorten URL");
   }
@@ -245,10 +257,11 @@ export function switchToPlayground(): void {
 
 
 function applyViewerEntry(entry: ViewerEntry): void {
+  if (!isLikelySimulatorPayload(entry.payload)) return;
   if (entry.payloadKind === "exportedFleet") {
-    applyExportedFleet(entry.payload as Record<string, unknown>);
+    applyExportedFleet(entry.payload);
   } else {
-    applyFleetSnapshot(entry.payload as Record<string, unknown>);
+    applyFleetSnapshot(entry.payload);
   }
 }
 
@@ -304,10 +317,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
       SHARED_SNAPSHOT_SESSION_KEY,
     );
     if (rawSnapshotPayload) {
-      const parsed = JSON.parse(rawSnapshotPayload);
-      if (parsed && typeof parsed === "object") {
-        sharedSnapshotPayload = parsed as Record<string, unknown>;
-      }
+      const parsed: unknown = JSON.parse(rawSnapshotPayload);
+      if (isLikelySimulatorPayload(parsed)) sharedSnapshotPayload = parsed;
       sessionStorage.removeItem(SHARED_SNAPSHOT_SESSION_KEY);
     }
   } catch {
@@ -318,8 +329,8 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
   if (data) {
     try {
       const parsed = decodePayloadBase64(data);
-      if (parsed && typeof parsed === "object") {
-        const merged = parsed as Record<string, unknown>;
+      if (isLikelySimulatorPayload(parsed)) {
+        const merged = parsed;
         if (sharedSnapshotPayload) {
           if (
             sharedSnapshotPayload["snapshotShips"] &&
@@ -358,12 +369,10 @@ export async function loadFromUrl(): Promise<ViewerEntry | null> {
         `/api/fleet/snapshot/${encodeURIComponent(fleetTag)}`
       );
       if (res.ok) {
-        const payload = (await res.json()) as {
-          ok?: boolean;
-          snapshot?: Record<string, unknown>;
-        };
-        if (payload.snapshot) {
-          applyFleetSnapshot(payload.snapshot);
+        const payload: unknown = await res.json();
+        const snapshot = jsonRecordOf(payload)?.["snapshot"];
+        if (isLikelySimulatorPayload(snapshot)) {
+          applyFleetSnapshot(snapshot);
           _playgroundDraft = buildCurrentPlaygroundPayload();
           setSnapshotPlaygroundMode(true);
           clearActive();

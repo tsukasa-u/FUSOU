@@ -1,5 +1,6 @@
 // ── Data loader: master data import, normalization, asset loading ──
 
+import { z } from "zod";
 import {
   addEquipExslotId,
   resetWeaponIconFrames,
@@ -43,11 +44,348 @@ import type {
   SlotItemEffectsData,
   SlotItemEffectsMeta,
   MstStypeData,
-  MstEquipExslotData,
   MstEquipShipData,
   MstEquipExslotShipData,
   MstEquipLimitExslotData,
 } from "./types";
+import {
+  finiteNumberOrNull,
+  jsonRecordOf,
+  nullableNumberArray,
+} from "./payload-codec";
+
+function numberArrayOrNull(value: unknown): number[] | null {
+  if (value == null) return null;
+  const parsed = nullableNumberArray(value);
+  const result: number[] = [];
+  for (const item of parsed) {
+    if (item === null) return null;
+    result.push(item);
+  }
+  return result;
+}
+
+function numberOrDefault(value: unknown, fallback = 0): number {
+  return finiteNumberOrNull(value) ?? fallback;
+}
+
+function parseMstShip(value: unknown, idOverride?: unknown): MstShipData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const id = finiteNumberOrNull(idOverride ?? record["id"]);
+  const name = typeof record["name"] === "string" ? record["name"] : null;
+  const stype = finiteNumberOrNull(record["stype"]);
+  const ctype = finiteNumberOrNull(record["ctype"]);
+  if (id === null || name === null || stype === null || ctype === null) {
+    return null;
+  }
+  return {
+    id,
+    name,
+    stype,
+    ctype,
+    sort_id: numberOrDefault(record["sort_id"]),
+    taik: numberArrayOrNull(record["taik"]),
+    souk: numberArrayOrNull(record["souk"]),
+    houg: numberArrayOrNull(record["houg"]),
+    raig: numberArrayOrNull(record["raig"]),
+    tyku: numberArrayOrNull(record["tyku"]),
+    tais: numberArrayOrNull(record["tais"]),
+    kaih: numberArrayOrNull(record["kaih"]),
+    saku: numberArrayOrNull(record["saku"]),
+    luck: numberArrayOrNull(record["luck"]),
+    soku: numberOrDefault(record["soku"]),
+    leng: numberOrDefault(record["leng"]),
+    slot_num: numberOrDefault(record["slot_num"]),
+    maxeq: numberArrayOrNull(record["maxeq"]),
+  };
+}
+
+function parseMstSlotItem(value: unknown, idOverride?: unknown): MstSlotItemData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const id = finiteNumberOrNull(idOverride ?? record["id"]);
+  const name = typeof record["name"] === "string" ? record["name"] : null;
+  const type = numberArrayOrNull(record["type"]);
+  if (id === null || name === null || type === null) return null;
+  const kaih = finiteNumberOrNull(record["kaih"]);
+  const houk = finiteNumberOrNull(record["houk"]);
+  const luck = finiteNumberOrNull(record["luck"]);
+  const leng = finiteNumberOrNull(record["leng"]);
+  const soku = finiteNumberOrNull(record["soku"]);
+  return {
+    id,
+    name,
+    sortno: numberOrDefault(record["sortno"]),
+    type,
+    houg: numberOrDefault(record["houg"]),
+    raig: numberOrDefault(record["raig"]),
+    tyku: numberOrDefault(record["tyku"]),
+    tais: numberOrDefault(record["tais"]),
+    baku: numberOrDefault(record["baku"]),
+    saku: numberOrDefault(record["saku"]),
+    houm: numberOrDefault(record["houm"]),
+    souk: numberOrDefault(record["souk"]),
+    distance: finiteNumberOrNull(record["distance"]),
+    ...(kaih === null ? {} : { kaih }),
+    ...(houk === null ? {} : { houk }),
+    ...(luck === null ? {} : { luck }),
+    ...(leng === null ? {} : { leng }),
+    ...(soku === null ? {} : { soku }),
+  };
+}
+
+function numericRecordOrNull(value: unknown): Record<string, number> | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const result: Record<string, number> = {};
+  for (const [key, item] of Object.entries(record)) {
+    const number = finiteNumberOrNull(item);
+    if (number === null) return null;
+    result[key] = number;
+  }
+  return result;
+}
+
+function nullableNumericRecordOrNull(
+  value: unknown,
+): Record<string, number> | null {
+  if (value === null || value === undefined) return null;
+  return numericRecordOrNull(value);
+}
+
+function numberArrayRecordOrNull(
+  value: unknown,
+): Record<string, number[] | null> | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const result: Record<string, number[] | null> = {};
+  for (const [key, item] of Object.entries(record)) {
+    if (item === null) {
+      result[key] = null;
+      continue;
+    }
+    const numbers = numberArrayOrNull(item);
+    if (numbers === null) return null;
+    result[key] = numbers;
+  }
+  return result;
+}
+
+function parseMstStype(value: unknown, idOverride?: unknown): MstStypeData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const id = finiteNumberOrNull(idOverride ?? record["id"]);
+  const equipType = numericRecordOrNull(record["equip_type"]);
+  if (id === null || equipType === null) return null;
+  return {
+    id,
+    sortno: numberOrDefault(record["sortno"]),
+    name: typeof record["name"] === "string" ? record["name"] : "",
+    equip_type: equipType,
+  };
+}
+
+function parseMstEquipShip(value: unknown, idOverride?: unknown): MstEquipShipData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const shipId = finiteNumberOrNull(idOverride ?? record["ship_id"]);
+  const equipType = numberArrayRecordOrNull(record["equip_type"]);
+  if (shipId === null || equipType === null) return null;
+  return { ship_id: shipId, equip_type: equipType };
+}
+
+function parseMstEquipExslotShip(
+  value: unknown,
+  idOverride?: unknown,
+): MstEquipExslotShipData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const slotitemId = finiteNumberOrNull(idOverride ?? record["slotitem_id"]);
+  const reqLevel = finiteNumberOrNull(record["req_level"]);
+  if (slotitemId === null || reqLevel === null) return null;
+  const shipIds = nullableNumericRecordOrNull(record["ship_ids"]);
+  const stypes = nullableNumericRecordOrNull(record["stypes"]);
+  const ctypes = nullableNumericRecordOrNull(record["ctypes"]);
+  const reqAlv = finiteNumberOrNull(record["req_alv"]);
+  return {
+    slotitem_id: slotitemId,
+    ship_ids: shipIds,
+    stypes,
+    ctypes,
+    req_level: reqLevel,
+    ...(reqAlv === null ? {} : { req_alv: reqAlv }),
+  };
+}
+
+function parseMstEquipLimitExslot(
+  value: unknown,
+  idOverride?: unknown,
+): MstEquipLimitExslotData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const shipId = finiteNumberOrNull(idOverride ?? record["ship_id"]);
+  const equip = numberArrayOrNull(record["equip"]);
+  if (shipId === null || equip === null) return null;
+  return { ship_id: shipId, equip };
+}
+
+function parseMstEquipType(
+  value: unknown,
+  idOverride?: unknown,
+): MstSlotItemEquipTypeData | null {
+  const record = jsonRecordOf(value);
+  if (!record) return null;
+  const id = finiteNumberOrNull(idOverride ?? record["id"]);
+  const name = typeof record["name"] === "string" ? record["name"] : null;
+  return id === null || name === null ? null : { id, name };
+}
+
+const responseMetadataShape = {
+  period_tag: z.string().optional(),
+  period_revision: z.number().int().optional(),
+  table_version: z.string().optional(),
+};
+
+function parsedRecordsSchema<T>(
+  parse: (value: unknown) => T | null,
+ ) {
+  return z.array(z.unknown()).transform((values) =>
+    values.flatMap((value) => {
+      const parsed = parse(value);
+      return parsed === null ? [] : [parsed];
+    }),
+  );
+}
+
+function masterRecordsResponseSchema<T>(
+  parse: (value: unknown) => T | null,
+) {
+  return z
+    .object({
+      records: parsedRecordsSchema(parse),
+      ...responseMetadataShape,
+    })
+    .passthrough();
+}
+
+const MasterShipResponseSchema = masterRecordsResponseSchema(parseMstShip);
+const MasterSlotItemResponseSchema = masterRecordsResponseSchema(
+  parseMstSlotItem,
+);
+const MasterSlotItemEquipTypeResponseSchema = masterRecordsResponseSchema(
+  parseMstEquipType,
+);
+const MasterStypeResponseSchema = masterRecordsResponseSchema(parseMstStype);
+const MasterEquipShipResponseSchema = masterRecordsResponseSchema(
+  parseMstEquipShip,
+);
+const MasterEquipExslotShipResponseSchema = masterRecordsResponseSchema(
+  parseMstEquipExslotShip,
+);
+const MasterEquipLimitExslotResponseSchema = masterRecordsResponseSchema(
+  parseMstEquipLimitExslot,
+);
+const MasterEquipExslotResponseSchema = z
+  .object({
+    records: z.array(
+      z.object({ equip: z.number().finite() }).passthrough(),
+    ),
+    ...responseMetadataShape,
+  })
+  .passthrough();
+
+const AssetMapResponseSchema = z
+  .object({
+    base_url: z.string(),
+    banners: z.record(z.string()),
+  })
+  .passthrough();
+const CardMapResponseSchema = z
+  .object({
+    base_url: z.string(),
+    cards: z.record(z.string()),
+  })
+  .passthrough();
+const ShipIconMapResponseSchema = z
+  .object({
+    base_url: z.string(),
+    icons: z.record(z.string()),
+  })
+  .passthrough();
+const EquipImageMapResponseSchema = z
+  .object({
+    base_url: z.string(),
+    card: z.record(z.string()),
+    item_on: z.record(z.string()),
+    item_up: z.record(z.string()),
+  })
+  .passthrough();
+
+const IconFrameSchema = z
+  .object({
+    frame: z
+      .object({
+        x: z.number().finite(),
+        y: z.number().finite(),
+        w: z.number().finite(),
+        h: z.number().finite(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+const IconFramesResponseSchema = z
+  .object({
+    frames: z.record(IconFrameSchema),
+    meta: z
+      .object({
+        size: z
+          .object({ w: z.number().finite(), h: z.number().finite() })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+const SokuSpeedResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    data: z.record(
+      z.array(
+        z
+          .object({
+            soku_observed: z.union([
+              z.literal(5),
+              z.literal(10),
+              z.literal(15),
+              z.literal(20),
+            ]),
+            item_ids: z.array(z.number().int().positive()),
+          })
+          .passthrough(),
+      ),
+    ),
+  })
+  .passthrough();
+
+function filterRecords(value: unknown): Array<{
+  record: Record<string, unknown>;
+  key: string | null;
+}> {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      const record = jsonRecordOf(item);
+      return record ? [{ record, key: null }] : [];
+    });
+  }
+  const object = jsonRecordOf(value);
+  return Object.entries(object ?? {}).flatMap(([key, item]) => {
+    const record = jsonRecordOf(item);
+    return record ? [{ record, key }] : [];
+  });
+}
 
 export function normalizeMstSlotItem(raw: MstSlotItemData): MstSlotItemData {
   if (raw.kaih == null && raw.houk != null) {
@@ -62,11 +400,10 @@ export function normalizeMstSlotItem(raw: MstSlotItemData): MstSlotItemData {
  * downstream stat computations (range bonuses) never see undefined/null base.
  */
 export function normalizeMstShip(raw: MstShipData): MstShipData {
-  const out = raw as MstShipData;
-  if (out.leng == null) {
-    return { ...out, leng: 0 };
+  if (raw.leng == null) {
+    return { ...raw, leng: 0 };
   }
-  return out;
+  return raw;
 }
 
 function formatEpochSecondsToJst(value: number | null): string | null {
@@ -107,6 +444,142 @@ function parseIntHeader(value: string | null): number | null {
   const n = Number(value);
   if (!Number.isFinite(n) || !Number.isInteger(n)) return null;
   return n;
+}
+
+type SynergyResponse = SlotItemEffectsData & {
+  _meta?: {
+    generator_version?: string;
+    table_version?: string;
+  };
+};
+
+function isFiniteNumberArray(value: unknown): value is number[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item): item is number =>
+        typeof item === "number" && Number.isFinite(item),
+    )
+  );
+}
+
+function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
+  const record = jsonRecordOf(value);
+  return (
+    record !== null &&
+    Object.values(record).every(
+      (item): item is number =>
+        typeof item === "number" && Number.isFinite(item),
+    )
+  );
+}
+
+function isNumberArrayField(record: Record<string, unknown>, key: string): boolean {
+  return !(key in record) || isFiniteNumberArray(record[key]);
+}
+
+function isSynergyRule(value: unknown, effectRule: boolean): boolean {
+  const record = jsonRecordOf(value);
+  if (!record || !isFiniteNumberArray(record["ships"])) return false;
+  const mainMapKey = effectRule ? "b" : "synergy";
+  if (!isFiniteNumberRecord(record[mainMapKey])) return false;
+
+  for (const key of [
+    "items",
+    "item_pool",
+    "fixed_items",
+    "free_pool",
+    "suppressed_components",
+  ]) {
+    if (!isNumberArrayField(record, key)) return false;
+  }
+  if (
+    !isNumberArrayField(record, "category_pools") &&
+    !(
+      Array.isArray(record["category_pools"]) &&
+      record["category_pools"].every(isFiniteNumberArray)
+    )
+  ) {
+    return false;
+  }
+  if (
+    "free_pool_with_replacement" in record &&
+    typeof record["free_pool_with_replacement"] !== "boolean"
+  ) {
+    return false;
+  }
+  if (
+    "free_pick_count" in record &&
+    (typeof record["free_pick_count"] !== "number" ||
+      !Number.isFinite(record["free_pick_count"]))
+  ) {
+    return false;
+  }
+  for (const key of ["combos_gz_b64", "combos_b64", "combos_u16_b64", "combos_u32_b64"]) {
+    if (key in record && typeof record[key] !== "string") return false;
+  }
+  if (
+    "combos_codec" in record &&
+    record["combos_codec"] !== "u8" &&
+    record["combos_codec"] !== "u16" &&
+    record["combos_codec"] !== "u32"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isSynergyResponse(value: unknown): value is SynergyResponse {
+  const record = jsonRecordOf(value);
+  if (!record) return false;
+
+  for (const key of [
+    "effect_rules",
+    "cross_rules",
+    "triple_rules",
+    "quad_rules",
+    "penta_rules",
+    "hexa_rules",
+  ]) {
+    if (!(key in record)) continue;
+    if (!Array.isArray(record[key])) return false;
+    const effectRule = key === "effect_rules";
+    if (!record[key].every((item) => isSynergyRule(item, effectRule))) {
+      return false;
+    }
+  }
+
+  for (const key of [
+    "effect_rules_equip_index",
+    "cross_rules_equip_index",
+    "triple_rules_equip_index",
+    "quad_rules_equip_index",
+    "penta_rules_equip_index",
+    "hexa_rules_equip_index",
+  ]) {
+    if (!(key in record)) continue;
+    const index = jsonRecordOf(record[key]);
+    if (!index || !Object.values(index).every(isFiniteNumberArray)) return false;
+  }
+
+  for (const key of ["effects", "cross_effects"]) {
+    if (!(key in record)) continue;
+    const legacy = jsonRecordOf(record[key]);
+    if (!legacy || !Object.values(legacy).every(Array.isArray)) return false;
+  }
+
+  if ("_meta" in record) {
+    const meta = jsonRecordOf(record["_meta"]);
+    if (
+      !meta ||
+      ("generator_version" in meta &&
+        typeof meta["generator_version"] !== "string") ||
+      ("table_version" in meta && typeof meta["table_version"] !== "string")
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -187,17 +660,11 @@ async function fetchSynergyDataWithMeta(): Promise<{
       return { data: null, meta: null };
     }
 
-    let parsed:
-      | (SlotItemEffectsData & {
-          _meta?: {
-            generator_version?: string;
-            table_version?: string;
-          };
-        })
-      | null = null;
+    let parsed: SynergyResponse | null = null;
     try {
-      parsed = (await res.json()) as SlotItemEffectsData;
-      if (parsed) {
+      const responseJson = await res.json();
+      if (isSynergyResponse(responseJson)) {
+        parsed = responseJson;
         parsed = await normalizeCompressedComboRules(parsed);
       }
     } catch (err) {
@@ -306,120 +773,35 @@ export function updateDataStatus() {
  *   mst_equip_limit_exslots: Record<number, MstEquipLimitExslotData> | MstEquipLimitExslotData[]
  */
 export function loadEquipFilterFromJson(obj: Record<string, unknown>) {
-  // mst_stypes
-  if (obj["mst_stypes"] && typeof obj["mst_stypes"] === "object") {
-    if (Array.isArray(obj["mst_stypes"])) {
-      for (const v of obj["mst_stypes"]) {
-        if (v && typeof v === "object" && "id" in v) {
-          setMasterStype(v as MstStypeData);
-        }
-      }
-    } else {
-      for (const [k, v] of Object.entries(
-        obj["mst_stypes"] as Record<string, unknown>,
-      )) {
-        if (v && typeof v === "object" && "id" in v) {
-          setMasterStype({ ...(v as MstStypeData), id: Number(k) });
-        }
-      }
-    }
+  for (const { record, key } of filterRecords(obj["mst_stypes"])) {
+    const stype = parseMstStype(record, key);
+    if (stype) setMasterStype(stype);
   }
 
-  // mst_equip_exslots
-  if (obj["mst_equip_exslots"] && typeof obj["mst_equip_exslots"] === "object") {
-    if (Array.isArray(obj["mst_equip_exslots"])) {
-      for (const v of obj["mst_equip_exslots"]) {
-        if (v && typeof v === "object" && "equip" in v) {
-          addEquipExslotId((v as MstEquipExslotData).equip);
-        }
-      }
-    } else {
-      for (const v of Object.values(
-        obj["mst_equip_exslots"] as Record<string, unknown>,
-      )) {
-        if (v && typeof v === "object" && "equip" in v) {
-          addEquipExslotId((v as MstEquipExslotData).equip);
-        }
-      }
-    }
+  for (const { record } of filterRecords(obj["mst_equip_exslots"])) {
+    const equip = finiteNumberOrNull(record["equip"]);
+    if (equip !== null) addEquipExslotId(equip);
   }
 
-  // mst_equip_ships — supports both keyed object and array (with ship_id field)
-  if (obj["mst_equip_ships"] && typeof obj["mst_equip_ships"] === "object") {
-    if (Array.isArray(obj["mst_equip_ships"])) {
-      for (const v of obj["mst_equip_ships"]) {
-        if (v && typeof v === "object" && "ship_id" in v && "equip_type" in v) {
-          setMasterEquipShip(v as MstEquipShipData);
-        }
-      }
-    } else {
-      for (const [k, v] of Object.entries(
-        obj["mst_equip_ships"] as Record<string, unknown>,
-      )) {
-        if (v && typeof v === "object" && "equip_type" in v) {
-          setMasterEquipShip({
-            ...(v as MstEquipShipData),
-            ship_id: Number(k),
-          });
-        }
-      }
-    }
+  for (const { record, key } of filterRecords(obj["mst_equip_ships"])) {
+    const equipShip = parseMstEquipShip(record, key);
+    if (equipShip) setMasterEquipShip(equipShip);
   }
 
-  // mst_equip_exslot_ships — supports both keyed object and array (with slotitem_id field)
-  if (
-    obj["mst_equip_exslot_ships"] &&
-    typeof obj["mst_equip_exslot_ships"] === "object"
-  ) {
-    if (Array.isArray(obj["mst_equip_exslot_ships"])) {
-      for (const v of obj["mst_equip_exslot_ships"]) {
-        if (v && typeof v === "object" && "slotitem_id" in v) {
-          setMasterEquipExslotShip(v as MstEquipExslotShipData);
-        }
-      }
-    } else {
-      for (const [k, v] of Object.entries(
-        obj["mst_equip_exslot_ships"] as Record<string, unknown>,
-      )) {
-        if (v && typeof v === "object" && "req_level" in v) {
-          setMasterEquipExslotShip({
-            ...(v as MstEquipExslotShipData),
-            slotitem_id: Number(k),
-          });
-        }
-      }
-    }
+  for (const { record, key } of filterRecords(obj["mst_equip_exslot_ships"])) {
+    const equipExslotShip = parseMstEquipExslotShip(record, key);
+    if (equipExslotShip) setMasterEquipExslotShip(equipExslotShip);
   }
 
-  // mst_equip_limit_exslots — supports both keyed object and array (with ship_id field)
-  if (
-    obj["mst_equip_limit_exslots"] &&
-    typeof obj["mst_equip_limit_exslots"] === "object"
-  ) {
-    if (Array.isArray(obj["mst_equip_limit_exslots"])) {
-      for (const v of obj["mst_equip_limit_exslots"]) {
-        if (v && typeof v === "object" && "ship_id" in v && "equip" in v) {
-          setMasterEquipLimitExslot(v as MstEquipLimitExslotData);
-        }
-      }
-    } else {
-      for (const [k, v] of Object.entries(
-        obj["mst_equip_limit_exslots"] as Record<string, unknown>,
-      )) {
-        if (v && typeof v === "object" && "equip" in v) {
-          setMasterEquipLimitExslot({
-            ...(v as MstEquipLimitExslotData),
-            ship_id: Number(k),
-          });
-        }
-      }
-    }
+  for (const { record, key } of filterRecords(obj["mst_equip_limit_exslots"])) {
+    const equipLimitExslot = parseMstEquipLimitExslot(record, key);
+    if (equipLimitExslot) setMasterEquipLimitExslot(equipLimitExslot);
   }
 }
 
 export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
-  if (typeof json !== "object" || json === null) return;
-  const obj = json as Record<string, unknown>;
+  const obj = jsonRecordOf(json);
+  if (!obj) return;
 
   // Track load results for JSON import
   _dataLoadResults = [
@@ -436,25 +818,11 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
   beginBulkLoad();
   try {
     let shipCount = 0;
-    if (obj["mst_ships"] && typeof obj["mst_ships"] === "object") {
-      if (Array.isArray(obj["mst_ships"])) {
-        for (const v of obj["mst_ships"]) {
-          if (v && typeof v === "object" && "id" in v && "name" in v) {
-            setMasterShip(normalizeMstShip(v as MstShipData));
-            shipCount++;
-          }
-        }
-      } else {
-        for (const [k, v] of Object.entries(
-          obj["mst_ships"] as Record<string, unknown>,
-        )) {
-          if (v && typeof v === "object" && "id" in v && "name" in v) {
-            setMasterShip(
-              normalizeMstShip({ ...(v as MstShipData), id: Number(k) }),
-            );
-            shipCount++;
-          }
-        }
+    for (const { record, key } of filterRecords(obj["mst_ships"])) {
+      const ship = parseMstShip(record, key ?? undefined);
+      if (ship) {
+        setMasterShip(normalizeMstShip(ship));
+        shipCount++;
       }
     }
     const shipResult = _dataLoadResults.find((r) => r.name === "mst_ship");
@@ -465,27 +833,11 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
 
     let equipCount = 0;
-    if (obj["mst_slot_items"] && typeof obj["mst_slot_items"] === "object") {
-      if (Array.isArray(obj["mst_slot_items"])) {
-        for (const v of obj["mst_slot_items"]) {
-          if (v && typeof v === "object" && "id" in v && "name" in v) {
-            const item = normalizeMstSlotItem(v as MstSlotItemData);
-            setMasterSlotItem(item);
-            equipCount++;
-          }
-        }
-      } else {
-        for (const [k, v] of Object.entries(
-          obj["mst_slot_items"] as Record<string, unknown>,
-        )) {
-          if (v && typeof v === "object" && "id" in v && "name" in v) {
-            setMasterSlotItem({
-              ...normalizeMstSlotItem(v as MstSlotItemData),
-              id: Number(k),
-            });
-            equipCount++;
-          }
-        }
+    for (const { record, key } of filterRecords(obj["mst_slot_items"])) {
+      const item = parseMstSlotItem(record, key ?? undefined);
+      if (item) {
+        setMasterSlotItem(normalizeMstSlotItem(item));
+        equipCount++;
       }
     }
     const equipResult = _dataLoadResults.find((r) => r.name === "mst_slotitem");
@@ -496,27 +848,10 @@ export function loadMasterDataFromJson(json: unknown, renderAll: () => void) {
     }
 
     // Optional: equipment type master for category display
-    const equipTypeObj =
-      (obj["mst_slotitem_equiptypes"] as unknown) ??
-      (obj["mst_slotitem_equiptype"] as unknown);
-    if (equipTypeObj && typeof equipTypeObj === "object") {
-      if (Array.isArray(equipTypeObj)) {
-        for (const v of equipTypeObj) {
-          if (v && typeof v === "object" && "id" in v && "name" in v) {
-            const rec = v as MstSlotItemEquipTypeData;
-            setMasterEquipType(rec);
-          }
-        }
-      } else {
-        for (const [k, v] of Object.entries(
-          equipTypeObj as Record<string, unknown>,
-        )) {
-          if (v && typeof v === "object" && "name" in v) {
-            const rec = v as MstSlotItemEquipTypeData;
-            setMasterEquipType({ ...rec, id: Number(k) });
-          }
-        }
-      }
+    const equipTypeObj = obj["mst_slotitem_equiptypes"] ?? obj["mst_slotitem_equiptype"];
+    for (const { record, key } of filterRecords(equipTypeObj)) {
+      const equipType = parseMstEquipType(record, key ?? undefined);
+      if (equipType) setMasterEquipType(equipType);
     }
 
     if (obj["ships"] && !obj["mst_ships"]) {
@@ -572,7 +907,11 @@ export function getDataLoadResults(): DataLoadResult[] {
   return [..._dataLoadResults];
 }
 
-async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
+async function fetchJsonSafe<T>(
+  url: string,
+  label: string,
+  schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+): Promise<T | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) {
@@ -584,7 +923,15 @@ async function fetchJsonSafe<T>(url: string, label: string): Promise<T | null> {
     }
 
     try {
-      return (await res.json()) as T;
+      const parsed = schema.safeParse(await res.json());
+      if (!parsed.success) {
+        console.error(`[simulator] ${label} response validation failed`, {
+          url,
+          error: parsed.error,
+        });
+        return null;
+      }
+      return parsed.data;
     } catch (err) {
       console.error(`[simulator] ${label} json parse failed`, {
         url,
@@ -641,71 +988,75 @@ export async function loadMasterData(renderAll: () => void) {
       equipLimitExslotData,
     ] = await Promise.all([
       fetchSynergyDataWithMeta(),
-      fetchJsonSafe<{
-        records: MstShipData[];
-        period_tag?: string;
-        period_revision?: number;
-        table_version?: string;
-      }>("/api/master-data/json?table_name=mst_ship", "mst_ship"),
-      fetchJsonSafe<{ records: MstSlotItemData[] }>(
+      fetchJsonSafe(
+        "/api/master-data/json?table_name=mst_ship",
+        "mst_ship",
+        MasterShipResponseSchema,
+      ),
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_slotitem",
         "mst_slotitem",
+        MasterSlotItemResponseSchema,
       ),
-      fetchJsonSafe<{
-        base_url: string;
-        banners: Record<string, string>;
-      }>("/api/asset-sync/ship-banner-map", "ship-banner-map"),
-      fetchJsonSafe<{
-        base_url: string;
-        cards: Record<string, string>;
-      }>("/api/asset-sync/ship-card-map", "ship-card-map"),
-      fetchJsonSafe<{
-        base_url: string;
-        icons: Record<string, string>;
-      }>("/api/asset-sync/ship-icon-map", "ship-icon-map"),
-      fetchJsonSafe<{
-        base_url: string;
-        card: Record<string, string>;
-        item_on: Record<string, string>;
-        item_up: Record<string, string>;
-      }>("/api/asset-sync/equip-image-map", "equip-image-map"),
-      fetchJsonSafe<{
-        frames: Record<
-          string,
-          { frame: { x: number; y: number; w: number; h: number } }
-        >;
-        meta?: { size?: { w: number; h: number } };
-      }>("/api/asset-sync/weapon-icon-frames?v=2", "weapon-icon-frames"),
-      fetchJsonSafe<{
-        frames: Record<
-          string,
-          { frame: { x: number; y: number; w: number; h: number } }
-        >;
-        meta?: { size?: { w: number; h: number } };
-      }>("/api/asset-sync/ship-type-icon-frames?v=1", "ship-type-icon-frames"),
-      fetchJsonSafe<{ records: MstSlotItemEquipTypeData[] }>(
+      fetchJsonSafe(
+        "/api/asset-sync/ship-banner-map",
+        "ship-banner-map",
+        AssetMapResponseSchema,
+      ),
+      fetchJsonSafe(
+        "/api/asset-sync/ship-card-map",
+        "ship-card-map",
+        CardMapResponseSchema,
+      ),
+      fetchJsonSafe(
+        "/api/asset-sync/ship-icon-map",
+        "ship-icon-map",
+        ShipIconMapResponseSchema,
+      ),
+      fetchJsonSafe(
+        "/api/asset-sync/equip-image-map",
+        "equip-image-map",
+        EquipImageMapResponseSchema,
+      ),
+      fetchJsonSafe(
+        "/api/asset-sync/weapon-icon-frames?v=2",
+        "weapon-icon-frames",
+        IconFramesResponseSchema,
+      ),
+      fetchJsonSafe(
+        "/api/asset-sync/ship-type-icon-frames?v=1",
+        "ship-type-icon-frames",
+        IconFramesResponseSchema,
+      ),
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_slotitem_equiptype",
         "mst_slotitem_equiptype",
+        MasterSlotItemEquipTypeResponseSchema,
       ),
-      fetchJsonSafe<{ records: MstStypeData[] }>(
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_stype",
         "mst_stype",
+        MasterStypeResponseSchema,
       ),
-      fetchJsonSafe<{ records: MstEquipExslotData[] }>(
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_equip_exslot",
         "mst_equip_exslot",
+        MasterEquipExslotResponseSchema,
       ),
-      fetchJsonSafe<{ records: MstEquipShipData[] }>(
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_equip_ship",
         "mst_equip_ship",
+        MasterEquipShipResponseSchema,
       ),
-      fetchJsonSafe<{ records: MstEquipExslotShipData[] }>(
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_equip_exslot_ship",
         "mst_equip_exslot_ship",
+        MasterEquipExslotShipResponseSchema,
       ),
-      fetchJsonSafe<{ records: MstEquipLimitExslotData[] }>(
+      fetchJsonSafe(
         "/api/master-data/json?table_name=mst_equip_limit_exslot",
         "mst_equip_limit_exslot",
+        MasterEquipLimitExslotResponseSchema,
       ),
     ]);
 
@@ -969,10 +1320,11 @@ export async function loadMasterData(renderAll: () => void) {
       speedUpgradeUrl.searchParams.set("period_tag", shipData.period_tag);
       speedUpgradeUrl.searchParams.set("table_version", shipData.table_version);
     }
-    const speedUpgradeData = await fetchJsonSafe<{
-      ok: boolean;
-      data: import("./types").SokuSpeedData;
-    }>(speedUpgradeUrl.toString(), "soku-speed-upgrade");
+    const speedUpgradeData = await fetchJsonSafe(
+      speedUpgradeUrl.toString(),
+      "soku-speed-upgrade",
+      SokuSpeedResponseSchema,
+    );
     setSokuSpeedData(
       speedUpgradeData?.ok && speedUpgradeData.data
         ? speedUpgradeData.data

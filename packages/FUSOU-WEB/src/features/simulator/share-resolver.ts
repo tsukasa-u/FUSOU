@@ -5,6 +5,7 @@ import {
   isLikelySimulatorPayload,
 } from "./payload-codec";
 import type { ViewerEntry } from "./viewer-workspace";
+import { z } from "zod";
 
 type ResolvedShare =
   | {
@@ -16,14 +17,16 @@ type ResolvedShare =
     }
   | { ok: false; error: string };
 
-type ResolveApiResponse = {
-  ok: boolean;
-  key?: string;
-  originalUrl?: string;
-  dataPayload?: Record<string, unknown>;
-  snapshotPayload?: Record<string, unknown> | null;
-  error?: string;
-};
+const ResolveApiResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    key: z.string().optional(),
+    originalUrl: z.string().optional(),
+    dataPayload: z.record(z.unknown()).optional(),
+    snapshotPayload: z.record(z.unknown()).nullable().optional(),
+    error: z.string().optional(),
+  })
+  .passthrough();
 
 /** Extract a 16-char hex key from a short URL or a bare key string. */
 function extractShortKey(input: string): string | null {
@@ -93,9 +96,13 @@ async function resolveViaApi(key: string): Promise<ResolvedShare> {
     return { ok: false, error: `APIエラー (${res.status})` };
   }
 
-  let data: ResolveApiResponse;
+  let data: z.infer<typeof ResolveApiResponseSchema>;
   try {
-    data = (await res.json()) as ResolveApiResponse;
+    const parsed = ResolveApiResponseSchema.safeParse(await res.json());
+    if (!parsed.success) {
+      return { ok: false, error: "APIレスポンスの形式が不正です" };
+    }
+    data = parsed.data;
   } catch {
     return { ok: false, error: "APIレスポンスの形式が不正です" };
   }

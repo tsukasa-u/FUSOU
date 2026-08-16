@@ -67,12 +67,11 @@ import {
   isWorkspaceReadOnly,
 } from "@/features/simulator/simulator-selectors";
 import type {
-  ShipGrowthSummary,
-  ShipGrowthCaps,
   NormalizedShipGrowthCaps,
-  ShipGrowthBoundRow,
 } from "@/features/simulator/ship-growth-utils";
 import {
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
@@ -99,7 +98,9 @@ async function getLatestShipGrowthPeriod(): Promise<{
   shipGrowthPeriodPromise = (async () => {
     const res = await cachedFetch("/api/ship-growth/summary");
     if (!res.ok) return null;
-    const json = (await res.json()) as ShipGrowthSummary;
+    const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return null;
+    const json = parsed.data;
     const latest = json.periods?.[0];
     return latest
       ? { period_tag: latest.period_tag, table_version: latest.table_version }
@@ -126,10 +127,14 @@ async function getShipGrowthCaps(
       shipGrowthCapsCache.set(masterId, null);
       return null;
     }
-    const boundsJson = (await boundsRes.json()) as {
-      caps?: ShipGrowthCaps[];
-      bounds?: ShipGrowthBoundRow[];
-    };
+    const parsed = ShipGrowthBoundsResponseSchema.safeParse(
+      await boundsRes.json(),
+    );
+    if (!parsed.success || !parsed.data.ok) {
+      shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+    const boundsJson = parsed.data;
     const capFromCaps = normalizeShipGrowthCaps(
       (boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null,
     );
@@ -952,7 +957,7 @@ function ShipCard(props: {
                           style={
                             {
                               background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct()}%, var(--color-base-300) ${pct()}%, var(--color-base-300) 100%)`,
-                            } as any
+                            }
                           }
                           onInput={(e) => {
                             const next = Number(

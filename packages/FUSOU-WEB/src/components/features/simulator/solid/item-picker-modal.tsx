@@ -7,7 +7,7 @@
  */
 
 import { For, createEffect, createSignal, type JSX } from "solid-js";
-import { VList } from "virtua/solid";
+import { VList, type VListHandle } from "virtua/solid";
 import {
   PickerQuickAccess,
   type PickerQuickAccessEntry,
@@ -15,11 +15,11 @@ import {
 import { SelectionModalShell } from "./selection-modal-shell";
 
 /** flatItems の各要素の型 */
-export type FlatPickerItem =
+export type FlatPickerItem<T = unknown> =
   | { type: "header"; key: string }
-  | { type: string; data: unknown };
+  | { type: string; data: T };
 
-export interface ItemPickerModalProps {
+export interface ItemPickerModalProps<T = unknown> {
   /** <dialog> の id 属性 */
   id: string;
   /** <dialog> の ref コールバック（catalog 側が showModal/close を呼ぶ用） */
@@ -49,7 +49,7 @@ export interface ItemPickerModalProps {
   /** 検索 input 変更ハンドラ */
   onSearchInput: (q: string) => void;
   /** VList に渡すフラット化済みデータ */
-  flatItems: FlatPickerItem[];
+  flatItems: FlatPickerItem<T>[];
   /** カテゴリのクイックアクセス（左サイドに表示） */
   quickAccessItems?: Array<{
     key: string;
@@ -59,11 +59,14 @@ export interface ItemPickerModalProps {
   /** ダイアログ close 時のハンドラ */
   onClose: () => void;
   /** 非ヘッダー行の描画コールバック（item.data を受け取る） */
-  renderRow: (item: unknown) => JSX.Element;
+  renderRow: (item: T) => JSX.Element;
 }
 
-export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
-  let vlistRef: any;
+export function ItemPickerModal<T>(props: ItemPickerModalProps<T>): JSX.Element {
+  let vlistRef: VListHandle | undefined;
+  const setVlistRef = (handle?: VListHandle) => {
+    vlistRef = handle;
+  };
   const [activeQuickAccessId, setActiveQuickAccessId] = createSignal<string | null>(null);
 
   const scrollToCategory = (categoryKey: string) => {
@@ -187,7 +190,7 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
           <div class="p-2 flex-1 min-h-0">
             <VList
               data={props.flatItems}
-              ref={vlistRef}
+              ref={setVlistRef}
               class="h-full overflow-y-auto overflow-x-hidden"
               onScroll={updateActiveQuickAccessByScroll}
             >
@@ -200,7 +203,7 @@ export function ItemPickerModal(props: ItemPickerModalProps): JSX.Element {
                   </div>
                 ) : (
                   <div class="mb-0.5">
-                    {props.renderRow((item as { type: string; data: unknown }).data)}
+                    {props.renderRow((item as { type: string; data: T }).data)}
                   </div>
                 )
               }
