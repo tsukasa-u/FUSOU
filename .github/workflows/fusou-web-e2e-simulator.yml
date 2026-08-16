@@ -70,6 +70,12 @@ jobs:
       - name: Run Astro check
         run: pnpm --dir packages/FUSOU-WEB exec astro check
 
+      - name: Run server tests
+        run: pnpm --dir packages/FUSOU-WEB exec vitest run src/server
+
+      - name: Verify battle data contracts
+        run: pnpm --dir packages/FUSOU-WEB run verify:battle-data
+
   simulator-e2e-smoke:
     needs: web-quality-check
     runs-on: ubuntu-latest

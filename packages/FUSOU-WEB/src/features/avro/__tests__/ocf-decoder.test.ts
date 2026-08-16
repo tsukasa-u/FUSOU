@@ -44,7 +44,7 @@ describe("decodeAvroOcfToJson", () => {
     expect(index).toBeGreaterThanOrEqual(0);
     bytes.set(replacement, index);
 
-    expect(() => decodeAvroOcfToJson(bytes)).toThrowError(
+    expect(() => decodeAvroOcfToJson(bytes)).toThrow(
       expect.objectContaining({ code: "UNSUPPORTED_CODEC" }),
     );
   });
@@ -52,7 +52,7 @@ describe("decodeAvroOcfToJson", () => {
   it("stops decoding before materializing records beyond the limit", () => {
     const bytes = new Uint8Array(readFileSync(battlePath));
 
-    expect(() => decodeAvroOcfToJson(bytes, { maxRecords: 1 })).toThrowError(
+    expect(() => decodeAvroOcfToJson(bytes, { maxRecords: 1 })).toThrow(
       expect.objectContaining({ code: "OUT_OF_MEMORY_GUARD" }),
     );
   });
