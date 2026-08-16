@@ -2,6 +2,7 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
 
 type DailyPoint = { date: string; count: number };
 
@@ -128,13 +129,14 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
     const dailySortiesByDate = new Map<string, Set<string>>();
 
     for (const b of battles) {
-      const rank = b.battle_result?.win_rank ?? "未記録";
+      const result = battleResultOf(b);
+      const rank = result?.win_rank ?? "未記録";
       rankCounts[rank] = (rankCounts[rank] ?? 0) + 1;
 
-      if (b.battle_result?.drop_ship_id) drops++;
+      if (result?.drop_ship_id) drops++;
 
-      const mvpIndexes = Array.isArray(b.battle_result?.mvp_ship_indexes)
-        ? b.battle_result.mvp_ship_indexes
+      const mvpIndexes = Array.isArray(result?.mvp_ship_indexes)
+        ? result.mvp_ship_indexes
         : [];
       for (const idx of mvpIndexes) {
         const normalized = Number(idx);
@@ -167,7 +169,7 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
         (Array.isArray(openingAir?.e_plane_from) && openingAir.e_plane_from.length > 0);
       const airSup = openingAir?.air_superiority;
       if ((hasAnyAirDamage || hasAnyAirSortie) && airSup != null) {
-        const name = AIR_NAMES[airSup] ?? `不明(${airSup})`;
+        const name = AIR_NAMES[Number(airSup)] ?? `不明(${airSup})`;
         airCounts[name] = (airCounts[name] ?? 0) + 1;
       }
 
@@ -189,13 +191,15 @@ export default function BattleStatsPanel(props: { dashboardState: SharedDashboar
 
       uniqueSorties.add(sortieId);
       
-      const mapLabel = battleToMap.get(b.uuid) || "不明";
+      const mapLabel = (b.uuid ? battleToMap.get(b.uuid) : undefined) || "不明";
       if (!mapStats[mapLabel]) {
         mapStats[mapLabel] = { sorties: new Set(), sRanks: 0, battles: 0 };
       }
-      mapStats[mapLabel].battles++;
-      mapStats[mapLabel].sorties.add(sortieId);
-      if (rank === "S") mapStats[mapLabel].sRanks++;
+      const mapStat = mapStats[mapLabel];
+      if (!mapStat) continue;
+      mapStat.battles++;
+      mapStat.sorties.add(sortieId);
+      if (rank === "S") mapStat.sRanks++;
     }
 
     const compiledMapStats: Record<string, { sorties: number; sRanks: number; battles: number }> = {};

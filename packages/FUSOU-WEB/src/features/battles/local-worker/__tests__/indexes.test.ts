@@ -31,4 +31,20 @@ describe("local worker table indexes", () => {
     expect(sortRowsByIndex(rows)).toEqual([{ index: 1 }, { index: 2 }, { index: 3 }]);
     expect(rows).toEqual([{ index: 3 }, { index: 1 }, { index: 2 }]);
   });
+
+  it("keeps valid zero before missing indexes", () => {
+    expect(
+      sortRowsByIndex([
+        { label: "missing", index: null },
+        { label: "zero", index: 0 },
+        { label: "empty", index: "" },
+        { label: "one", index: 1 },
+      ]),
+    ).toEqual([
+      { label: "zero", index: 0 },
+      { label: "one", index: 1 },
+      { label: "missing", index: null },
+      { label: "empty", index: "" },
+    ]);
+  });
 });

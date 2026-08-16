@@ -2,6 +2,11 @@
 import { For, Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import type { SharedDashboardState } from "../../battles/solid/types";
 import { mapKeyOf, formatTimestamp } from "../../map-flow/solid/battle-map-flow/dataUtils";
+import type { BattleRecord } from "../../map-flow/solid/battle-map-flow/types";
+import {
+  battleResultOf as battleResultOfRecord,
+} from "../../map-flow/solid/battle-map-flow/recordParsers";
+import { firstJsonRecordOf } from "@/features/battles/payload-guards";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 
 const WIN_RANK_BADGES: Record<string, string> = {
@@ -34,31 +39,27 @@ const AIR_SUPERIORITY_NAMES: Record<number, string> = {
   4: "制空権喪失",
 };
 
-function airSuperiorityLabelOf(battle: any): string {
-  const openingAir = Array.isArray(battle?.opening_air_attack)
-    ? battle.opening_air_attack[0]
-    : battle?.opening_air_attack;
-  if (!openingAir || typeof openingAir !== "object") {
-    return "";
-  }
+function airSuperiorityLabelOf(battle: BattleRecord): string {
+  const openingAir = firstJsonRecordOf(battle.opening_air_attack);
+  if (!openingAir) return "";
 
-  const fDamages = Array.isArray(openingAir.f_damages)
-    ? openingAir.f_damages
+  const fDamages = Array.isArray(openingAir["f_damages"])
+    ? openingAir["f_damages"]
     : [];
-  const eDamages = Array.isArray(openingAir.e_damages)
-    ? openingAir.e_damages
+  const eDamages = Array.isArray(openingAir["e_damages"])
+    ? openingAir["e_damages"]
     : [];
   const hasAnyAirDamage =
     fDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0) ||
     eDamages.some((d: unknown) => (Number(d ?? 0) || 0) > 0);
   const hasAnyAirSortie =
-    (Array.isArray(openingAir.f_plane_from) && openingAir.f_plane_from.length > 0) ||
-    (Array.isArray(openingAir.e_plane_from) && openingAir.e_plane_from.length > 0);
+    (Array.isArray(openingAir["f_plane_from"]) && openingAir["f_plane_from"].length > 0) ||
+    (Array.isArray(openingAir["e_plane_from"]) && openingAir["e_plane_from"].length > 0);
   if (!hasAnyAirDamage && !hasAnyAirSortie) {
     return "";
   }
 
-  const airSup = Number(openingAir.air_superiority);
+  const airSup = Number(openingAir["air_superiority"]);
   if (!Number.isFinite(airSup)) {
     return "";
   }
@@ -67,9 +68,8 @@ function airSuperiorityLabelOf(battle: any): string {
 
 const PAGE_SIZE = 50;
 
-function battleResultOf(b: any): { win_rank: string; drop_ship_id: number | null; drop_ship_name?: string | null } | null {
-  if (!b.battle_result || typeof b.battle_result !== "object") return null;
-  return b.battle_result;
+function battleResultOf(b: BattleRecord) {
+  return battleResultOfRecord(b);
 }
 
 export default function BattlesListPanel(props: { dashboardState: SharedDashboardState }) {
@@ -108,7 +108,7 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     return label;
   };
 
-  const cellDisplayLabelOf = (b: any): string => {
+  const cellDisplayLabelOf = (b: BattleRecord): string => {
     const cellId = Number(b.cell_id ?? NaN);
     if (!Number.isFinite(cellId)) return "-";
     if (cellId === 0) return "港";
@@ -180,9 +180,9 @@ export default function BattlesListPanel(props: { dashboardState: SharedDashboar
     setCurrentPage(0);
   });
 
-  function moveToDetail(battle: any) {
-    const envUuid = String(battle?.env_uuid ?? "").trim();
-    const battleIndex = Number(battle?.index ?? Number.NaN);
+  function moveToDetail(battle: BattleRecord) {
+    const envUuid = String(battle.env_uuid ?? "").trim();
+    const battleIndex = Number(battle.index ?? Number.NaN);
     if (!envUuid || !Number.isFinite(battleIndex) || battleIndex < 0) {
       window.alert("戦闘詳細を開くために必要な env_uuid または battle_index が不足しています。");
       return;

@@ -1,27 +1,38 @@
-import type { BattleFleets, TimelineEvent, TimelineStep } from "./types";
+import type {
+  MstSlotItemRecord,
+  TimelineEvent,
+  TimelineStep,
+} from "./types";
+import type { BattleFleets } from "./types";
 import {
   PHASE_NAMES,
   FRIEND_COLORS,
   ENEMY_COLORS,
   DAMAGE_ZONES,
 } from "./constants";
-import { escHtml } from "./helpers";
+import { escHtml, normalizeNullableNumber } from "./helpers";
 import {
   shipNameFromIndex,
   renderEquipmentBadgesFromSlotIds,
 } from "./render-helpers";
+import {
+  jsonRecordOf,
+  jsonRecordsOf,
+  safeNumber,
+  safeNumberArray,
+  safeNumberOrNull,
+  nullableNumberArray,
+  unknownArrayOf,
+} from "./payload-guards";
 
 const phaseName = (key: string): string => PHASE_NAMES[key] ?? key;
 
-export function shiftHpArray(raw: number[]): number[] {
-  if (!raw || raw.length === 0) return [];
-  const nums = raw.map((v) => Number(v ?? 0));
-  // Backward-compatible handling:
-  // trim only when the payload clearly uses a 1-based dummy at index 0.
-  if (nums.length >= 2 && nums[0] === 0 && nums.slice(1).some((v) => v > 0)) {
-    return raw.slice(1);
-  }
-  return raw;
+function normalizeSlotItemIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const id = normalizeNullableNumber(item);
+    return id === null ? [] : [id];
+  });
 }
 
 // ── Layout constants (shared by builder + renderer) ───────────────────────
@@ -48,12 +59,12 @@ function yStep(si: number): string {
 function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
   const normalizeSi = (value: unknown): unknown[] => {
     if (Array.isArray(value)) return value;
-    const n = Number(value ?? 0);
+    const n = safeNumber(value);
     return Number.isFinite(n) && n > 0 ? [n] : [];
   };
 
-  if (Array.isArray(data)) return data;
-  const obj = data as Record<string, unknown> | null;
+  if (Array.isArray(data)) return jsonRecordsOf(data);
+  const obj = jsonRecordOf(data);
   if (obj && (obj["at"] !== undefined || Array.isArray(obj["df"]))) {
     return [
       {
@@ -63,17 +74,24 @@ function normalizeShellingRows(data: unknown): Array<Record<string, unknown>> {
     ];
   }
   if (obj?.["at_list"]) {
-    const atList = obj["at_list"] as unknown[];
+    const atList = unknownArrayOf(obj["at_list"]);
+    const dfList = unknownArrayOf(obj["df_list"]);
+    const damageList = unknownArrayOf(obj["damage"]);
+    const clList = unknownArrayOf(obj["cl_list"]);
+    const siList = unknownArrayOf(obj["si_list"]);
+    const protectFlagList = unknownArrayOf(obj["protect_flag"]);
+    const fNowHpsList = unknownArrayOf(obj["f_now_hps"]);
+    const eNowHpsList = unknownArrayOf(obj["e_now_hps"]);
     return atList.map((at, idx) => ({
       at,
-      df: (obj["df_list"] as unknown[])?.[idx] ?? [],
-      damage: (obj["damage"] as unknown[])?.[idx] ?? [],
-      cl: (obj["cl_list"] as unknown[])?.[idx] ?? [],
-      at_eflag: (obj["at_eflag"] as unknown[])?.[idx] ?? 0,
-      si: normalizeSi((obj["si_list"] as unknown[])?.[idx] ?? []),
-      protect_flag: (obj["protect_flag"] as unknown[])?.[idx] ?? [],
-      f_now_hps: (obj["f_now_hps"] as unknown[])?.[idx] ?? [],
-      e_now_hps: (obj["e_now_hps"] as unknown[])?.[idx] ?? [],
+      df: dfList[idx] ?? [],
+      damage: damageList[idx] ?? [],
+      cl: clList[idx] ?? [],
+      at_eflag: unknownArrayOf(obj["at_eflag"])[idx] ?? 0,
+      si: normalizeSi(siList[idx] ?? []),
+      protect_flag: protectFlagList[idx] ?? [],
+      f_now_hps: fNowHpsList[idx] ?? [],
+      e_now_hps: eNowHpsList[idx] ?? [],
     }));
   }
   return [];
@@ -86,7 +104,7 @@ function pickHougekiRowsByRound(
   if (!Array.isArray(data)) return data;
   if (roundIdx == null) return data;
 
-  const rows = data as Array<Record<string, unknown>>;
+  const rows = jsonRecordsOf(data);
   const byIndex1 = rows.filter(
     (row) => Number(row["index_1"] ?? Number.NaN) === roundIdx,
   );
@@ -105,21 +123,15 @@ export function buildTimelineEvents(
   function normalizeNightSupportAttack(
     source: Record<string, unknown>,
   ): Record<string, unknown> | null {
-    const nested = source["night_support_attack"] as
-      | Record<string, unknown>
-      | null
-      | undefined;
-    const hourai = (nested?.["hourai"] ?? source["night_support_hourai"]) as
-      | Record<string, unknown>
-      | null
-      | undefined;
-    const airatack = (nested?.["airatack"] ??
-      nested?.["airattack"] ??
-      source["night_support_airatack"] ??
-      source["night_support_airattack"]) as
-      | Record<string, unknown>
-      | null
-      | undefined;
+    const nested = jsonRecordOf(source["night_support_attack"]);
+    const hourai =
+      jsonRecordOf(nested?.["hourai"]) ??
+      jsonRecordOf(source["night_support_hourai"]);
+    const airatack =
+      jsonRecordOf(nested?.["airatack"]) ??
+      jsonRecordOf(nested?.["airattack"]) ??
+      jsonRecordOf(source["night_support_airatack"]) ??
+      jsonRecordOf(source["night_support_airattack"]);
 
     if (!hourai && !airatack) return null;
     return { hourai, airatack };
@@ -137,8 +149,8 @@ export function buildTimelineEvents(
   type EventOptions = {
     actorRole?: "main" | "airbase" | "support" | "friendly_force";
     affectsHp?: boolean;
-    friendlyForceNowHps?: number[];
-    friendlyForceMaxHps?: number[];
+    friendlyForceNowHps?: Array<number | null>;
+    friendlyForceMaxHps?: Array<number | null>;
     airBatchId?: number;
   };
 
@@ -149,68 +161,55 @@ export function buildTimelineEvents(
   ): void {
     if (!Array.isArray(rows)) return;
     for (const row of rows) {
-      const r = row as Record<string, unknown>;
-      const atkEnemy = Number(r["at_eflag"] ?? 0) !== 0;
+      const r = jsonRecordOf(row);
+      if (!r) continue;
+      const atkEnemy = safeNumber(r["at_eflag"]) !== 0;
       const attackerSide: "friend" | "enemy" = atkEnemy ? "enemy" : "friend";
       const defenderSide: "friend" | "enemy" = atkEnemy ? "friend" : "enemy";
-      const defs = Array.isArray(r["df"]) ? (r["df"] as unknown[]) : [];
-      const dmgs = Array.isArray(r["damage"])
-        ? (r["damage"] as unknown[])
-        : [];
-      const clsMask = Array.isArray(r["cl"]) ? (r["cl"] as unknown[]) : [];
-      const sis = Array.isArray(r["si"]) ? (r["si"] as unknown[]) : [];
-      const fHps = shiftHpArray((
-        Array.isArray(r["f_now_hps"])
-          ? r["f_now_hps"]
-          : Array.isArray(r["f_nowhps"])
-            ? r["f_nowhps"]
-            : []
-      ) as number[]);
-      const eHps = shiftHpArray((
-        Array.isArray(r["e_now_hps"])
-          ? r["e_now_hps"]
-          : Array.isArray(r["e_nowhps"])
-            ? r["e_nowhps"]
-            : []
-      ) as number[]);
+      const defs = unknownArrayOf(r["df"]);
+      const dmgs = unknownArrayOf(r["damage"]);
+      const clsMask = unknownArrayOf(r["cl"]);
+      const sis = normalizeSlotItemIds(r["si"]);
+      const fHps = nullableNumberArray(r["f_now_hps"] ?? r["f_nowhps"]);
+      const eHps = nullableNumberArray(r["e_now_hps"] ?? r["e_nowhps"]);
 
       const attackerLimit =
         attackerSide === "friend" ? fHps.length : eHps.length;
       const defenderLimit =
         defenderSide === "friend" ? fHps.length : eHps.length;
-      const attackerIdx = toValidIndex(Number(r["at"] ?? -1), attackerLimit);
+      const attackerIdx = toValidIndex(safeNumber(r["at"], -1), attackerLimit);
 
       for (let i = 0; i < defs.length; i++) {
-        const rawDef = Number(defs[i] ?? -1);
+        const rawDef = safeNumber(defs[i], -1);
         const defenderIdx = toValidIndex(rawDef, defenderLimit);
         if (defenderIdx === null) continue;
-        const dmg = Number(dmgs[i] ?? 0) || 0;
-        const crit = Number(clsMask[i] ?? 0) >= 2;
+        const dmg = safeNumberOrNull(dmgs[i]);
+        if (dmg === null) continue;
+        const crit = safeNumber(clsMask[i]) >= 2;
         const beforeHp =
           defenderSide === "friend"
-            ? Number(fHps[defenderIdx] ?? 0)
-            : Number(eHps[defenderIdx] ?? 0);
-        const afterHp = Math.max(0, beforeHp - dmg);
+            ? fHps[defenderIdx] ?? null
+            : eHps[defenderIdx] ?? null;
+        const afterHp =
+          beforeHp === null ? null : Math.max(0, beforeHp - dmg);
         const ffNowHp =
           options?.actorRole === "friendly_force" &&
           attackerSide === "friend" &&
           attackerIdx !== null
-            ? Number(
+            ? safeNumberOrNull(
                 (options.friendlyForceNowHps ?? [])[attackerIdx] ??
-                  fHps[attackerIdx] ??
-                  0,
-              ) || 0
+                  fHps[attackerIdx],
+              )
             : null;
         const ffMaxHp =
           options?.actorRole === "friendly_force" &&
           attackerSide === "friend" &&
           attackerIdx !== null
-            ? Number(
+            ? safeNumberOrNull(
                 (options.friendlyForceMaxHps ?? [])[attackerIdx] ??
                   (options.friendlyForceNowHps ?? [])[attackerIdx] ??
-                  fHps[attackerIdx] ??
-                  0,
-              ) || 0
+                  fHps[attackerIdx],
+              )
             : null;
         events.push({
           phase: phaseLabel,
@@ -225,7 +224,7 @@ export function buildTimelineEvents(
           defenderIdx,
           damage: dmg,
           crit,
-          sunk: afterHp <= 0 && beforeHp > 0,
+          sunk: afterHp !== null && beforeHp !== null && afterHp <= 0 && beforeHp > 0,
           slotItems: sis,
           fHps,
           eHps,
@@ -240,51 +239,26 @@ export function buildTimelineEvents(
     slotItemOverride?: number[],
     options?: EventOptions,
   ): void {
-    if (!data || typeof data === "string") return;
-    const d = data as Record<string, unknown>;
+    const d = jsonRecordOf(data);
+    if (!d) return;
     // Do not normalize/shift damage arrays here: leading zero is often a valid
     // no-damage slot, not a 1-based dummy. Shifting causes defender index drift.
-    const fDam = Array.isArray(d["f_damages"])
-      ? (d["f_damages"] as number[])
-      : [];
-    const eDam = Array.isArray(d["e_damages"])
-      ? (d["e_damages"] as number[])
-      : [];
-    const fFrom = Array.isArray(d["f_plane_from"])
-      ? (d["f_plane_from"] as unknown[])
-        .map((v) => Number(v))
-        .filter((v) => Number.isFinite(v) && v >= 0)
-        .map((v) => v)
-      : [];
-    const eFrom = Array.isArray(d["e_plane_from"])
-      ? (d["e_plane_from"] as unknown[])
-        .map((v) => Number(v))
-        .filter((v) => Number.isFinite(v) && v >= 0)
-        .map((v) => v)
-      : [];
-    const fNow = shiftHpArray((
-      Array.isArray(d["f_now_hps"])
-        ? d["f_now_hps"]
-        : Array.isArray(d["f_nowhps"])
-          ? d["f_nowhps"]
-          : []
-    ) as number[]);
-    const eNow = shiftHpArray((
-      Array.isArray(d["e_now_hps"])
-        ? d["e_now_hps"]
-        : Array.isArray(d["e_nowhps"])
-          ? d["e_nowhps"]
-          : []
-    ) as number[]);
+    const fDam = nullableNumberArray(d["f_damages"]);
+    const eDam = nullableNumberArray(d["e_damages"]);
+    const fFrom = safeNumberArray(d["f_plane_from"]).filter((v) => v >= 0);
+    const eFrom = safeNumberArray(d["e_plane_from"]).filter((v) => v >= 0);
+    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]);
+    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]);
     const effectiveSlotItems = slotItemOverride ?? [];
     const airBatchId = options?.airBatchId;
     let eventCount = 0;
 
     for (let i = 0; i < fDam.length; i++) {
-      const dmg = Number(fDam[i] ?? 0) || 0;
-      if (dmg <= 0) continue;
-      const beforeHp = Number(fNow[i] ?? 0) || 0;
-      const afterHp = Math.max(0, beforeHp - dmg);
+      const dmg = fDam[i] ?? null;
+      if (dmg === null || dmg < 0) continue;
+      const beforeHp = fNow[i] ?? null;
+      const afterHp =
+        beforeHp === null ? null : Math.max(0, beforeHp - dmg);
       events.push({
         phase: phaseLabel,
         type: "air",
@@ -297,7 +271,7 @@ export function buildTimelineEvents(
         defenderIdx: i,
         damage: dmg,
         crit: false,
-        sunk: afterHp <= 0 && beforeHp > 0,
+        sunk: afterHp !== null && beforeHp !== null && afterHp <= 0 && beforeHp > 0,
         slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
@@ -306,10 +280,11 @@ export function buildTimelineEvents(
       eventCount++;
     }
     for (let i = 0; i < eDam.length; i++) {
-      const dmg = Number(eDam[i] ?? 0) || 0;
-      if (dmg <= 0) continue;
-      const beforeHp = Number(eNow[i] ?? 0) || 0;
-      const afterHp = Math.max(0, beforeHp - dmg);
+      const dmg = eDam[i] ?? null;
+      if (dmg === null || dmg < 0) continue;
+      const beforeHp = eNow[i] ?? null;
+      const afterHp =
+        beforeHp === null ? null : Math.max(0, beforeHp - dmg);
       events.push({
         phase: phaseLabel,
         type: "air",
@@ -322,7 +297,7 @@ export function buildTimelineEvents(
         defenderIdx: i,
         damage: dmg,
         crit: false,
-        sunk: afterHp <= 0 && beforeHp > 0,
+        sunk: afterHp !== null && beforeHp !== null && afterHp <= 0 && beforeHp > 0,
         slotItems: effectiveSlotItems,
         fHps: fNow,
         eHps: eNow,
@@ -354,66 +329,30 @@ export function buildTimelineEvents(
   }
 
   function extractRaigekiEvents(data: unknown, phaseLabel: string): void {
-    if (!data) return;
-    const d = data as Record<string, unknown>;
-    const fDam = Array.isArray(d["fdam"])
-      ? (d["fdam"] as unknown[])
-      : Array.isArray(d["f_dam"])
-        ? (d["f_dam"] as unknown[])
-        : [];
-    const eDam = Array.isArray(d["edam"])
-      ? (d["edam"] as unknown[])
-      : Array.isArray(d["e_dam"])
-        ? (d["e_dam"] as unknown[])
-        : [];
-    const fCl = Array.isArray(d["fcl_list"])
-      ? (d["fcl_list"] as unknown[])
-      : Array.isArray(d["fcl"])
-        ? (d["fcl"] as unknown[])
-        : [];
-    const eCl = Array.isArray(d["ecl_list"])
-      ? (d["ecl_list"] as unknown[])
-      : Array.isArray(d["ecl"])
-        ? (d["ecl"] as unknown[])
-        : [];
+    const d = jsonRecordOf(data);
+    if (!d) return;
+    const fDam = unknownArrayOf(d["fdam"] ?? d["f_dam"]);
+    const eDam = unknownArrayOf(d["edam"] ?? d["e_dam"]);
+    const fCl = unknownArrayOf(d["fcl_list"] ?? d["fcl"]);
+    const eCl = unknownArrayOf(d["ecl_list"] ?? d["ecl"]);
 
     // Support both flat array format (ClosingRaigeki: f_rai/e_rai) and nested format (OpeningRaigeki: frai_list_items/erai_list_items).
     // Opening uses per-attacker slots (Array<Array<number>|null>), so preserve slot index instead of flattening.
     const fRaiFromSnake =
       !Array.isArray(d["frai"]) && Array.isArray(d["f_rai"]);
-    let fRai = Array.isArray(d["frai"])
-      ? (d["frai"] as unknown[])
-      : Array.isArray(d["f_rai"])
-        ? (d["f_rai"] as unknown[])
-        : [];
+    let fRai = unknownArrayOf(d["frai"] ?? d["f_rai"]);
     if (fRai.length === 0 && Array.isArray(d["frai_list_items"])) {
-      fRai = d["frai_list_items"] as unknown[];
+      fRai = unknownArrayOf(d["frai_list_items"]);
     }
     const eRaiFromSnake =
       !Array.isArray(d["erai"]) && Array.isArray(d["e_rai"]);
-    let eRai = Array.isArray(d["erai"])
-      ? (d["erai"] as unknown[])
-      : Array.isArray(d["e_rai"])
-        ? (d["e_rai"] as unknown[])
-        : [];
+    let eRai = unknownArrayOf(d["erai"] ?? d["e_rai"]);
     if (eRai.length === 0 && Array.isArray(d["erai_list_items"])) {
-      eRai = d["erai_list_items"] as unknown[];
+      eRai = unknownArrayOf(d["erai_list_items"]);
     }
 
-    const fNow = shiftHpArray((
-      Array.isArray(d["f_now_hps"])
-        ? d["f_now_hps"]
-        : Array.isArray(d["f_nowhps"])
-          ? d["f_nowhps"]
-          : []
-    ) as number[]);
-    const eNow = shiftHpArray((
-      Array.isArray(d["e_now_hps"])
-        ? d["e_now_hps"]
-        : Array.isArray(d["e_nowhps"])
-          ? d["e_nowhps"]
-          : []
-    ) as number[]);
+    const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]);
+    const eNow = nullableNumberArray(d["e_now_hps"] ?? d["e_nowhps"]);
     const friendLimit =
       fleets?.friendlyShips && fleets.friendlyShips.length > 0
         ? fleets.friendlyShips.length
@@ -435,14 +374,13 @@ export function buildTimelineEvents(
       const toNumericTarget = (raw: unknown): number | null => {
         if (raw == null) return null;
         if (typeof raw === "string" && raw.trim() === "") return null;
-        const n = Number(raw);
-        if (!Number.isFinite(n)) return null;
-        return Math.trunc(n);
+        const n = safeNumberOrNull(raw);
+        return n === null ? null : Math.trunc(n);
       };
       const numericTargets: number[] = [];
       for (const row of raiRows) {
         if (Array.isArray(row)) {
-          for (const target of row as unknown[]) {
+          for (const target of unknownArrayOf(row)) {
             const n = toNumericTarget(target);
             if (n != null) numericTargets.push(n);
           }
@@ -480,7 +418,7 @@ export function buildTimelineEvents(
         if (attackerLimit > 0 && atkIdx >= attackerLimit) break;
         const row = raiRows[atkIdx];
         if (Array.isArray(row)) {
-          for (const target of row as unknown[]) addTarget(atkIdx, target);
+          for (const target of unknownArrayOf(row)) addTarget(atkIdx, target);
           continue;
         }
         addTarget(atkIdx, row);
@@ -497,9 +435,11 @@ export function buildTimelineEvents(
         friendLimit,
       );
       for (const [defIdx, atkList] of fDefToAtk) {
-        const dmg = Number(eDam[defIdx] ?? 0) || 0;
-        const beforeHp = Number(eNow[defIdx] ?? 0) || 0;
-        const afterHp = Math.max(0, beforeHp - dmg);
+        const dmg = safeNumberOrNull(eDam[defIdx]);
+        if (dmg === null) continue;
+        const beforeHp = eNow[defIdx] ?? null;
+        const afterHp =
+          beforeHp === null ? null : Math.max(0, beforeHp - dmg);
         events.push({
           phase: phaseLabel,
           type: "raigeki",
@@ -510,7 +450,7 @@ export function buildTimelineEvents(
           defenderIdx: defIdx,
           damage: dmg,
           crit: dmg > 0 && Number(eCl[defIdx] ?? 0) >= 2,
-          sunk: afterHp <= 0 && beforeHp > 0,
+          sunk: afterHp !== null && beforeHp !== null && afterHp <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: fNow,
           eHps: eNow,
@@ -525,9 +465,11 @@ export function buildTimelineEvents(
         enemyLimit,
       );
       for (const [defIdx, atkList] of eDefToAtk) {
-        const dmg = Number(fDam[defIdx] ?? 0) || 0;
-        const beforeHp = Number(fNow[defIdx] ?? 0) || 0;
-        const afterHp = Math.max(0, beforeHp - dmg);
+        const dmg = safeNumberOrNull(fDam[defIdx]);
+        if (dmg === null) continue;
+        const beforeHp = fNow[defIdx] ?? null;
+        const afterHp =
+          beforeHp === null ? null : Math.max(0, beforeHp - dmg);
         events.push({
           phase: phaseLabel,
           type: "raigeki",
@@ -538,7 +480,7 @@ export function buildTimelineEvents(
           defenderIdx: defIdx,
           damage: dmg,
           crit: dmg > 0 && Number(fCl[defIdx] ?? 0) >= 2,
-          sunk: afterHp <= 0 && beforeHp > 0,
+          sunk: afterHp !== null && beforeHp !== null && afterHp <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: fNow,
           eHps: eNow,
@@ -547,9 +489,9 @@ export function buildTimelineEvents(
     } else {
       // Fallback: no rai data, emit damage-only events (no MISS)
       for (let i = 0; i < Math.min(eDam.length, enemyLimit); i++) {
-        const dmg = Number(eDam[i] ?? 0) || 0;
-        if (dmg <= 0) continue;
-        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        const dmg = safeNumberOrNull(eDam[i]);
+        if (dmg === null || dmg < 0) continue;
+        const beforeHp = eNow[i] ?? null;
         events.push({
           phase: phaseLabel,
           type: "raigeki",
@@ -560,16 +502,16 @@ export function buildTimelineEvents(
           defenderIdx: i,
           damage: dmg,
           crit: Number(eCl[i] ?? 0) >= 2,
-          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: fNow,
           eHps: eNow,
         });
       }
       for (let i = 0; i < Math.min(fDam.length, friendLimit); i++) {
-        const dmg = Number(fDam[i] ?? 0) || 0;
-        if (dmg <= 0) continue;
-        const beforeHp = Number(fNow[i] ?? 0) || 0;
+        const dmg = safeNumberOrNull(fDam[i]);
+        if (dmg === null || dmg < 0) continue;
+        const beforeHp = fNow[i] ?? null;
         events.push({
           phase: phaseLabel,
           type: "raigeki",
@@ -580,7 +522,7 @@ export function buildTimelineEvents(
           defenderIdx: i,
           damage: dmg,
           crit: Number(fCl[i] ?? 0) >= 2,
-          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: fNow,
           eHps: eNow,
@@ -590,8 +532,8 @@ export function buildTimelineEvents(
   }
 
   function hasRaigekiActivity(data: unknown): boolean {
-    if (!data || typeof data !== "object") return false;
-    const d = data as Record<string, unknown>;
+    const d = jsonRecordOf(data);
+    if (!d) return false;
     const raiCandidates = [
       d["frai"],
       d["f_rai"],
@@ -605,12 +547,10 @@ export function buildTimelineEvents(
       return candidate.some((row) => {
         if (Array.isArray(row)) {
           return row.some((v) => {
-            const n = Number(v);
-            return Number.isFinite(n) && n >= 0;
+            return safeNumberOrNull(v) !== null && safeNumber(v) >= 0;
           });
         }
-        const n = Number(row);
-        return Number.isFinite(n) && n >= 0;
+        return safeNumberOrNull(row) !== null && safeNumber(row) >= 0;
       });
     });
     if (hasTarget) return true;
@@ -620,13 +560,13 @@ export function buildTimelineEvents(
       (arr) =>
         Array.isArray(arr) &&
         arr.some((v) => {
-          const n = Number(v ?? 0) || 0;
-          return n > 0;
+          const n = safeNumberOrNull(v);
+          return n !== null && n >= 0;
         }),
     );
   }
 
-  const rawOrder = battle["battle_order"] as unknown[] | undefined;
+  const rawOrder = unknownArrayOf(battle["battle_order"]);
   const hasObjectOrder =
     Array.isArray(rawOrder) &&
     rawOrder.length > 0 &&
@@ -635,19 +575,13 @@ export function buildTimelineEvents(
 
   if (hasObjectOrder) {
     const presentKeys = new Set<string>();
-    for (const phaseType of rawOrder!) {
-      if (
-        !phaseType ||
-        typeof phaseType !== "object" ||
-        Array.isArray(phaseType)
-      ) {
-        continue;
-      }
-      const phaseObj = phaseType as Record<string, unknown>;
+    for (const phaseType of rawOrder) {
+      const phaseObj = jsonRecordOf(phaseType);
+      if (!phaseObj) continue;
       const key = Object.keys(phaseObj)[0];
       if (!key) continue;
       presentKeys.add(key);
-      const idx = phaseObj[key] as number | null;
+      const idx = safeNumberOrNull(phaseObj[key]);
       const phaseLabel = PHASE_NAMES[key] ?? key;
 
       if (
@@ -664,11 +598,11 @@ export function buildTimelineEvents(
         extractShellingEvents(normalizeShellingRows(raw), phaseLabel);
       } else if (key === "OpeningAirAttack") {
         const rawAir = Array.isArray(battle["opening_air_attack"])
-          ? ((battle["opening_air_attack"] as unknown[])[idx ?? 0] ??
+          ? (unknownArrayOf(battle["opening_air_attack"])[idx ?? 0] ??
             battle["opening_air_attack"])
           : battle["opening_air_attack"];
         const airRow = Array.isArray(rawAir)
-          ? ((rawAir as unknown[])[0] ?? null)
+          ? (unknownArrayOf(rawAir)[0] ?? null)
           : rawAir;
         if (airRow) {
           extractAirAttackEvents(airRow, phaseLabel, undefined, {
@@ -687,8 +621,13 @@ export function buildTimelineEvents(
         let rawAirBase: unknown;
         if (key === "AirBaseAirAttack") {
           rawAirBase = Array.isArray(battle["air_base_air_attacks"])
-            ? (battle["air_base_air_attacks"] as unknown[])[idx ?? 0]
-            : (battle["air_base_air_attacks"] as any)?.attacks?.[idx ?? 0];
+            ? unknownArrayOf(battle["air_base_air_attacks"])[idx ?? 0]
+            : (() => {
+                const attacks = jsonRecordOf(
+                  battle["air_base_air_attacks"],
+                )?.["attacks"];
+                return Array.isArray(attacks) ? attacks[idx ?? 0] : null;
+              })();
         } else if (key === "AirBaseAssult") {
           rawAirBase = battle["air_base_assault"];
         } else {
@@ -696,12 +635,9 @@ export function buildTimelineEvents(
         }
         if (rawAirBase) {
           const squads = (() => {
-            const raw = rawAirBase as Record<string, unknown>;
-            const sp = raw["squadron_plane"];
-            return Array.isArray(sp)
-              ? (sp as unknown[])
-                  .map(Number)
-                  .filter((n) => Number.isFinite(n) && n > 0)
+            const raw = jsonRecordOf(rawAirBase);
+            return raw
+              ? safeNumberArray(raw["squadron_plane"]).filter((n) => n > 0)
               : [];
           })();
           extractAirAttackEvents(
@@ -717,28 +653,20 @@ export function buildTimelineEvents(
         }
       } else if (key === "SupportAttack") {
         // support_attack may be nested or top-level depending on data layout
-        const sa = (battle["support_attack"] as any) ?? battle;
-        const hourai = sa.support_hourai as
-          | Record<string, unknown>
-          | null
-          | undefined;
+        const sa = jsonRecordOf(battle["support_attack"]) ?? battle;
+        const hourai = jsonRecordOf(sa["support_hourai"]);
         const airatack =
-          (sa.support_airatack as Record<string, unknown> | null | undefined) ??
-          (sa.support_airattack as Record<string, unknown> | null | undefined);
+          jsonRecordOf(sa["support_airatack"]) ??
+          jsonRecordOf(sa["support_airattack"]);
         if (hourai?.["damage"]) {
-          const dmgs = Array.isArray(hourai["damage"])
-            ? (hourai["damage"] as unknown[])
-            : [];
-          const eNow = Array.isArray(hourai["now_hps"])
-            ? (hourai["now_hps"] as number[])
-            : [];
-          const shipIds = Array.isArray(hourai["ship_id"])
-            ? (hourai["ship_id"] as unknown[])
-            : [];
+          const dmgs = unknownArrayOf(hourai["damage"]);
+          const eNow = nullableNumberArray(hourai["now_hps"]);
+          const shipIds = unknownArrayOf(hourai["ship_id"]);
+          const cls = unknownArrayOf(hourai["cl_list"]);
           for (let i = 0; i < dmgs.length; i++) {
-            const dmg = Number(dmgs[i] ?? 0) || 0;
-            if (dmg <= 0) continue;
-            const beforeHp = Number(eNow[i] ?? 0) || 0;
+            const dmg = safeNumberOrNull(dmgs[i]);
+            if (dmg === null || dmg < 0) continue;
+            const beforeHp = eNow[i] ?? null;
             events.push({
               phase: phaseLabel,
               type: "shelling",
@@ -750,20 +678,21 @@ export function buildTimelineEvents(
               defenderSide: "enemy",
               defenderIdx: i,
               damage: dmg,
-              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
-              sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+              crit: safeNumber(cls[i]) >= 2,
+              sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
+              ...(safeNumberOrNull(shipIds[i]) !== null
+                ? { attackerMstShipId: safeNumber(shipIds[i]) }
+                : {}),
             });
           }
         }
         if (airatack?.["e_damage"]) {
-          const ed = airatack["e_damage"] as Record<string, unknown>;
-          const fd = airatack["f_damage"] as
-            | Record<string, unknown>
-            | undefined;
+          const ed = jsonRecordOf(airatack["e_damage"]);
+          const fd = jsonRecordOf(airatack["f_damage"]);
+          if (!ed) continue;
           extractAirAttackEvents(
             {
               e_damages: ed["damages"],
@@ -785,24 +714,16 @@ export function buildTimelineEvents(
       } else if (key === "NightSupportAttack") {
         const night = normalizeNightSupportAttack(battle);
         if (!night) continue;
-        const hourai = night["hourai"] as
-          | Record<string, unknown>
-          | null
-          | undefined;
+        const hourai = jsonRecordOf(night["hourai"]);
         if (hourai?.["damage"]) {
-          const dmgs = Array.isArray(hourai["damage"])
-            ? (hourai["damage"] as unknown[])
-            : [];
-          const eNow = Array.isArray(hourai["now_hps"])
-            ? (hourai["now_hps"] as number[])
-            : [];
-          const shipIds = Array.isArray(hourai["ship_id"])
-            ? (hourai["ship_id"] as unknown[])
-            : [];
+          const dmgs = unknownArrayOf(hourai["damage"]);
+          const eNow = nullableNumberArray(hourai["now_hps"]);
+          const shipIds = unknownArrayOf(hourai["ship_id"]);
+          const cls = unknownArrayOf(hourai["cl_list"]);
           for (let i = 0; i < dmgs.length; i++) {
-            const dmg = Number(dmgs[i] ?? 0) || 0;
-            if (dmg <= 0) continue;
-            const beforeHp = Number(eNow[i] ?? 0) || 0;
+            const dmg = safeNumberOrNull(dmgs[i]);
+            if (dmg === null || dmg < 0) continue;
+            const beforeHp = eNow[i] ?? null;
             events.push({
               phase: phaseLabel,
               type: "shelling",
@@ -814,23 +735,22 @@ export function buildTimelineEvents(
               defenderSide: "enemy",
               defenderIdx: i,
               damage: dmg,
-              crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
-              sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+              crit: safeNumber(cls[i]) >= 2,
+              sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
               slotItems: [],
               fHps: [],
               eHps: eNow,
-              ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
+              ...(safeNumberOrNull(shipIds[i]) !== null
+                ? { attackerMstShipId: safeNumber(shipIds[i]) }
+                : {}),
             });
           }
         }
-        const nightAir = night["airatack"] as
-          | Record<string, unknown>
-          | undefined;
+        const nightAir = jsonRecordOf(night["airatack"]);
         if (nightAir?.["e_damage"]) {
-          const ed = nightAir["e_damage"] as Record<string, unknown>;
-          const fd = nightAir["f_damage"] as
-            | Record<string, unknown>
-            | undefined;
+          const ed = jsonRecordOf(nightAir["e_damage"]);
+          const fd = jsonRecordOf(nightAir["f_damage"]);
+          if (!ed) continue;
           extractAirAttackEvents(
             {
               e_damages: ed["damages"],
@@ -850,23 +770,18 @@ export function buildTimelineEvents(
           );
         }
       } else if (key === "FriendlyForceAttack") {
-        const ffa = battle["friendly_force_attack"] as any;
-        const ffShipIds: number[] = Array.isArray(ffa?.fleet_info?.ship_id)
-          ? (ffa.fleet_info.ship_id as unknown[]).map(Number)
-          : [];
-        if (ffa?.support_hourai?.hougeki) {
+        const ffa = jsonRecordOf(battle["friendly_force_attack"]);
+        const fleetInfo = jsonRecordOf(ffa?.["fleet_info"]);
+        const ffShipIds = nullableNumberArray(fleetInfo?.["ship_id"]);
+        const supportHourai = jsonRecordOf(ffa?.["support_hourai"]);
+        if (supportHourai?.["hougeki"]) {
           const beforeCount = events.length;
-          const hougeki = ffa.support_hourai.hougeki as Record<string, unknown>;
-          const atList = Array.isArray(hougeki["at_list"])
-            ? (hougeki["at_list"] as unknown[])
-            : [];
-          const rows = normalizeShellingRows(ffa.support_hourai.hougeki);
-          const ffNowHps = Array.isArray(ffa?.fleet_info?.now_hps)
-            ? (ffa.fleet_info.now_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
-            : [];
-          const ffMaxHps = Array.isArray(ffa?.fleet_info?.max_hps)
-            ? (ffa.fleet_info.max_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
-            : [];
+          const hougeki = jsonRecordOf(supportHourai["hougeki"]);
+          if (!hougeki) continue;
+          const atList = unknownArrayOf(hougeki["at_list"]);
+          const rows = normalizeShellingRows(supportHourai["hougeki"]);
+          const ffNowHps = nullableNumberArray(fleetInfo?.["now_hps"]);
+          const ffMaxHps = nullableNumberArray(fleetInfo?.["max_hps"]);
 
           extractShellingEvents(rows, phaseLabel, {
             actorRole: "friendly_force",
@@ -881,21 +796,18 @@ export function buildTimelineEvents(
           if (ffShipIds.length > 0) {
             let rowEventIdx = beforeCount;
             for (let ri = 0; ri < rows.length; ri++) {
-              const row = rows[ri] as Record<string, unknown>;
-              const at0 = Number(row["at"] ?? atList[ri] ?? -1);
+              const row = rows[ri];
+              if (!row) continue;
+              const at0 = safeNumber(row["at"] ?? atList[ri], -1);
               const mstId =
                 at0 >= 0 && at0 < ffShipIds.length
                   ? (ffShipIds[at0] ?? undefined)
                   : undefined;
-              const defs = Array.isArray(row["df"])
-                ? (row["df"] as unknown[])
-                : [];
+              const defs = unknownArrayOf(row["df"]);
               // Use the same HP array length that extractShellingEvents does (e_now_hps or e_nowhps)
-              const eHpsList = Array.isArray(row["e_now_hps"])
-                ? (row["e_now_hps"] as unknown[])
-                : Array.isArray(row["e_nowhps"])
-                  ? (row["e_nowhps"] as unknown[])
-                  : [];
+              const eHpsList = unknownArrayOf(
+                row["e_now_hps"] ?? row["e_nowhps"],
+              );
               const defenderLimit = eHpsList.length;
 
               // Iterate through defenders in same order as extractShellingEvents.
@@ -937,11 +849,9 @@ export function buildTimelineEvents(
     // Air base / carrier base assaults (processed first in battle flow)
     if (battle["air_base_assault"]) {
       const squads =
-        (
-          (battle["air_base_assault"] as any)?.squadron_plane as
-            | unknown[]
-            | undefined
-        )
+        (jsonRecordOf(battle["air_base_assault"])?.["squadron_plane"] as
+          | unknown[]
+          | undefined)
           ?.map(Number)
           .filter((n) => n > 0) ?? [];
       extractAirAttackEvents(
@@ -969,15 +879,15 @@ export function buildTimelineEvents(
     }
     if (battle["air_base_air_attacks"]) {
       const attacks = Array.isArray(battle["air_base_air_attacks"])
-        ? (battle["air_base_air_attacks"] as unknown[])
-        : (((battle["air_base_air_attacks"] as any)?.attacks as unknown[]) ?? []);
+        ? unknownArrayOf(battle["air_base_air_attacks"])
+        : unknownArrayOf(jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"]);
       attacks.forEach((a) => {
-        const squads =
-          ((a as any)?.squadron_plane as unknown[] | undefined)
-            ?.map(Number)
-            .filter((n) => n > 0) ?? [];
+        const attack = jsonRecordOf(a);
+        const squads = safeNumberArray(attack?.["squadron_plane"]).filter(
+          (n) => n > 0,
+        );
         extractAirAttackEvents(
-          a,
+          attack ?? {},
             phaseName("AirBaseAirAttack"),
           squads.length > 0 ? squads : undefined,
           {
@@ -989,17 +899,18 @@ export function buildTimelineEvents(
       });
     }
     // Support attack
-    const sa = (battle["support_attack"] as any) ?? battle;
-    if (sa?.support_hourai?.damage) {
-      const hourai = sa.support_hourai as Record<string, unknown>;
-      const dmgs = shiftHpArray(Array.isArray(hourai["damage"]) ? (hourai["damage"] as number[]) : []);
-      const eNow = shiftHpArray(Array.isArray(hourai["now_hps"]) ? (hourai["now_hps"] as number[]) : []);
-      const shipIds = shiftHpArray(Array.isArray(hourai["ship_id"]) ? (hourai["ship_id"] as number[]) : []);
-      const cls = shiftHpArray(Array.isArray(hourai["cl_list"]) ? (hourai["cl_list"] as number[]) : []);
+    const sa = jsonRecordOf(battle["support_attack"]) ?? battle;
+    const hourai = jsonRecordOf(sa["support_hourai"]);
+    if (hourai?.["damage"]) {
+      const dmgs = nullableNumberArray(hourai["damage"]);
+      const eNow = nullableNumberArray(hourai["now_hps"]);
+      const shipIds = nullableNumberArray(hourai["ship_id"]);
+      const cls = nullableNumberArray(hourai["cl_list"]);
       for (let i = 0; i < dmgs.length; i++) {
-        const dmg = Number(dmgs[i] ?? 0) || 0;
-        if (dmg <= 0) continue;
-        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        const dmg = dmgs[i] ?? null;
+        if (dmg === null || dmg < 0) continue;
+        const beforeHp = eNow[i] ?? null;
+        const shipId = safeNumberOrNull(shipIds[i]);
         events.push({
           phase: phaseName("SupportAttack"),
           type: "shelling",
@@ -1011,60 +922,55 @@ export function buildTimelineEvents(
           defenderSide: "enemy",
           defenderIdx: i,
           damage: dmg,
-          crit: Number(cls[i] ?? 0) >= 2,
-          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+          crit: safeNumber(cls[i]) >= 2,
+          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: [],
           eHps: eNow,
-          ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
+          ...(shipId !== null && shipId > 0
+            ? { attackerMstShipId: shipId }
+            : {}),
         });
       }
     }
-    const supportAir = (sa?.support_airatack ?? sa?.support_airattack) as
-      | Record<string, unknown>
-      | undefined;
+    const supportAir =
+      jsonRecordOf(sa["support_airatack"]) ??
+      jsonRecordOf(sa["support_airattack"]);
     if (supportAir?.["e_damage"]) {
-      const ed = supportAir["e_damage"] as Record<string, unknown>;
-      const fd = supportAir["f_damage"] as
-        | Record<string, unknown>
-        | undefined;
-      extractAirAttackEvents(
-        {
-          e_damages: ed["damages"],
-          f_damages: fd?.["damages"],
-          e_now_hps: ed["now_hps"],
-          f_now_hps: fd?.["now_hps"],
-          e_plane_from: [],
-          f_plane_from: [],
-        },
-        phaseName("SupportAttack"),
-        undefined,
-        {
-          actorRole: "support",
-          affectsHp: false,
-          airBatchId: ++airBatchSeq,
-        },
-      );
+      const ed = jsonRecordOf(supportAir["e_damage"]);
+      const fd = jsonRecordOf(supportAir["f_damage"]);
+      if (ed) {
+        extractAirAttackEvents(
+          {
+            e_damages: ed["damages"],
+            f_damages: fd?.["damages"],
+            e_now_hps: ed["now_hps"],
+            f_now_hps: fd?.["now_hps"],
+            e_plane_from: [],
+            f_plane_from: [],
+          },
+          phaseName("SupportAttack"),
+          undefined,
+          {
+            actorRole: "support",
+            affectsHp: false,
+            airBatchId: ++airBatchSeq,
+          },
+        );
+      }
     }
     const night = normalizeNightSupportAttack(battle);
-    const nightHourai = night?.["hourai"] as
-      | Record<string, unknown>
-      | undefined;
+    const nightHourai = jsonRecordOf(night?.["hourai"]);
     if (nightHourai?.["damage"]) {
       const hourai = nightHourai;
-      const dmgs = Array.isArray(hourai["damage"])
-        ? (hourai["damage"] as unknown[])
-        : [];
-      const eNow = Array.isArray(hourai["now_hps"])
-        ? (hourai["now_hps"] as number[])
-        : [];
-      const shipIds = Array.isArray(hourai["ship_id"])
-        ? (hourai["ship_id"] as unknown[])
-        : [];
+      const dmgs = unknownArrayOf(hourai["damage"]);
+      const eNow = nullableNumberArray(hourai["now_hps"]);
+      const shipIds = unknownArrayOf(hourai["ship_id"]);
+      const cls = unknownArrayOf(hourai["cl_list"]);
       for (let i = 0; i < dmgs.length; i++) {
-        const dmg = Number(dmgs[i] ?? 0) || 0;
-        if (dmg <= 0) continue;
-        const beforeHp = Number(eNow[i] ?? 0) || 0;
+        const dmg = safeNumberOrNull(dmgs[i]);
+        if (dmg === null || dmg < 0) continue;
+        const beforeHp = eNow[i] ?? null;
         events.push({
           phase: phaseName("NightSupportAttack"),
           type: "shelling",
@@ -1076,40 +982,40 @@ export function buildTimelineEvents(
           defenderSide: "enemy",
           defenderIdx: i,
             damage: dmg,
-            crit: Number((hourai["cl_list"] as unknown[])?.[i] ?? 0) >= 2,
-          sunk: Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
+            crit: safeNumber(cls[i]) >= 2,
+          sunk: beforeHp !== null && Math.max(0, beforeHp - dmg) <= 0 && beforeHp > 0,
           slotItems: [],
           fHps: [],
           eHps: eNow,
-          ...(shipIds[i] ? { attackerMstShipId: Number(shipIds[i]) } : {}),
+          ...(safeNumberOrNull(shipIds[i]) !== null
+            ? { attackerMstShipId: safeNumber(shipIds[i]) }
+            : {}),
         });
       }
     }
-    const nightAir = night?.["airatack"] as
-      | Record<string, unknown>
-      | undefined;
+    const nightAir = jsonRecordOf(night?.["airatack"]);
     if (nightAir?.["e_damage"]) {
-      const ed = nightAir["e_damage"] as Record<string, unknown>;
-      const fd = nightAir["f_damage"] as
-        | Record<string, unknown>
-        | undefined;
-      extractAirAttackEvents(
-        {
-          e_damages: ed["damages"],
-          f_damages: fd?.["damages"],
-          e_now_hps: ed["now_hps"],
-          f_now_hps: fd?.["now_hps"],
-          e_plane_from: [],
-          f_plane_from: [],
-        },
-        phaseName("NightSupportAttack"),
-        undefined,
-        {
-          actorRole: "support",
-          affectsHp: false,
-          airBatchId: ++airBatchSeq,
-        },
-      );
+      const ed = jsonRecordOf(nightAir["e_damage"]);
+      const fd = jsonRecordOf(nightAir["f_damage"]);
+      if (ed) {
+        extractAirAttackEvents(
+          {
+            e_damages: ed["damages"],
+            f_damages: fd?.["damages"],
+            e_now_hps: ed["now_hps"],
+            f_now_hps: fd?.["now_hps"],
+            e_plane_from: [],
+            f_plane_from: [],
+          },
+          phaseName("NightSupportAttack"),
+          undefined,
+          {
+            actorRole: "support",
+            affectsHp: false,
+            airBatchId: ++airBatchSeq,
+          },
+        );
+      }
     }
     // Main battle phases
     if (battle["opening_taisen"]) {
@@ -1120,7 +1026,7 @@ export function buildTimelineEvents(
     }
     if (battle["opening_air_attack"]) {
       const raw = battle["opening_air_attack"];
-      const airRow = Array.isArray(raw) ? (raw[0] as unknown) : raw;
+      const airRow = Array.isArray(raw) ? unknownArrayOf(raw)[0] : raw;
       if (airRow) {
         extractAirAttackEvents(airRow, phaseName("OpeningAirAttack"), undefined, {
           airBatchId: ++airBatchSeq,
@@ -1135,7 +1041,7 @@ export function buildTimelineEvents(
     }
     if (battle["hougeki"]) {
       const rows = Array.isArray(battle["hougeki"])
-        ? (battle["hougeki"] as unknown[])
+        ? unknownArrayOf(battle["hougeki"])
         : [battle["hougeki"]];
       rows.forEach((h) => {
         extractShellingEvents(
@@ -1151,28 +1057,18 @@ export function buildTimelineEvents(
       );
     }
     // Friendly force attack (after day battle, before midnight)
-    const ffaFallback = battle["friendly_force_attack"] as any;
-    if (ffaFallback?.support_hourai?.hougeki) {
-      const ffShipIds: number[] = Array.isArray(
-        ffaFallback?.fleet_info?.ship_id,
-      )
-        ? (ffaFallback.fleet_info.ship_id as unknown[]).map(Number)
-        : [];
+    const ffaFallback = jsonRecordOf(battle["friendly_force_attack"]);
+    const fallbackFleetInfo = jsonRecordOf(ffaFallback?.["fleet_info"]);
+    const fallbackSupportHourai = jsonRecordOf(ffaFallback?.["support_hourai"]);
+    if (fallbackSupportHourai?.["hougeki"]) {
+      const ffShipIds = nullableNumberArray(fallbackFleetInfo?.["ship_id"]);
       const beforeCount = events.length;
-      const hougeki = ffaFallback.support_hourai.hougeki as Record<
-        string,
-        unknown
-      >;
-      const atList = Array.isArray(hougeki["at_list"])
-        ? (hougeki["at_list"] as unknown[])
-        : [];
-      const rows = normalizeShellingRows(ffaFallback.support_hourai.hougeki);
-      const ffNowHps = Array.isArray(ffaFallback?.fleet_info?.now_hps)
-        ? (ffaFallback.fleet_info.now_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
-        : [];
-      const ffMaxHps = Array.isArray(ffaFallback?.fleet_info?.max_hps)
-        ? (ffaFallback.fleet_info.max_hps as unknown[]).map((v) => Number(v ?? 0) || 0)
-        : [];
+      const hougeki = jsonRecordOf(fallbackSupportHourai["hougeki"]);
+      if (hougeki) {
+        const atList = unknownArrayOf(hougeki["at_list"]);
+        const rows = normalizeShellingRows(fallbackSupportHourai["hougeki"]);
+        const ffNowHps = nullableNumberArray(fallbackFleetInfo?.["now_hps"]);
+        const ffMaxHps = nullableNumberArray(fallbackFleetInfo?.["max_hps"]);
 
       extractShellingEvents(rows, phaseName("FriendlyForceAttack"), {
         actorRole: "friendly_force",
@@ -1181,23 +1077,20 @@ export function buildTimelineEvents(
         friendlyForceMaxHps: ffMaxHps,
       });
 
-      if (ffShipIds.length > 0) {
+        if (ffShipIds.length > 0) {
         let rowEventIdx = beforeCount;
         for (let ri = 0; ri < rows.length; ri++) {
-          const row = rows[ri] as Record<string, unknown>;
-          const at0 = Number(row["at"] ?? atList[ri] ?? -1);
+          const row = rows[ri];
+          if (!row) continue;
+          const at0 = safeNumber(row["at"] ?? atList[ri], -1);
           const mstId =
             at0 >= 0 && at0 < ffShipIds.length
               ? (ffShipIds[at0] ?? undefined)
               : undefined;
-          const defs = Array.isArray(row["df"])
-            ? (row["df"] as unknown[])
-            : [];
-          const eHpsList = Array.isArray(row["e_now_hps"])
-            ? (row["e_now_hps"] as unknown[])
-            : Array.isArray(row["e_nowhps"])
-              ? (row["e_nowhps"] as unknown[])
-              : [];
+          const defs = unknownArrayOf(row["df"]);
+          const eHpsList = unknownArrayOf(
+            row["e_now_hps"] ?? row["e_nowhps"],
+          );
           const defenderLimit = eHpsList.length;
 
           for (let di = 0; di < defs.length; di++) {
@@ -1210,6 +1103,7 @@ export function buildTimelineEvents(
               rowEventIdx++;
             }
           }
+        }
         }
       }
     }
@@ -1254,14 +1148,14 @@ export function buildTimelineEvents(
 }
 
 export function buildInitialHps(battle: Record<string, unknown>): {
-  fInit: number[];
-  eInit: number[];
+  fInit: Array<number | null>;
+  eInit: Array<number | null>;
 } {
-  const fInit = shiftHpArray(
-    (battle["f_nowhps"] ?? battle["midnight_f_nowhps"] ?? []) as number[],
+  const fInit = nullableNumberArray(
+    battle["f_nowhps"] ?? battle["midnight_f_nowhps"],
   );
-  const eInit = shiftHpArray(
-    (battle["e_nowhps"] ?? battle["midnight_e_nowhps"] ?? []) as number[],
+  const eInit = nullableNumberArray(
+    battle["e_nowhps"] ?? battle["midnight_e_nowhps"],
   );
   return { fInit, eInit };
 }
@@ -1270,8 +1164,8 @@ export function buildInitialHps(battle: Record<string, unknown>): {
 
 function buildSteps(
   events: TimelineEvent[],
-  fInit: number[],
-  eInit: number[],
+  fInit: Array<number | null>,
+  eInit: Array<number | null>,
 ): TimelineStep[] {
   const steps: TimelineStep[] = [];
   const fHpsCurrent = fInit.length > 0 ? [...fInit] : [];
@@ -1293,15 +1187,15 @@ function buildSteps(
       continue;
     }
     if (ev.defenderSide === "friend" && ev.defenderIdx !== null) {
-      fHpsCurrent[ev.defenderIdx] = Math.max(
-        0,
-        (fHpsCurrent[ev.defenderIdx] ?? 0) - ev.damage,
-      );
+      const current = fHpsCurrent[ev.defenderIdx];
+      if (current !== null && current !== undefined) {
+        fHpsCurrent[ev.defenderIdx] = Math.max(0, current - ev.damage);
+      }
     } else if (ev.defenderSide === "enemy" && ev.defenderIdx !== null) {
-      eHpsCurrent[ev.defenderIdx] = Math.max(
-        0,
-        (eHpsCurrent[ev.defenderIdx] ?? 0) - ev.damage,
-      );
+      const current = eHpsCurrent[ev.defenderIdx];
+      if (current !== null && current !== undefined) {
+        eHpsCurrent[ev.defenderIdx] = Math.max(0, current - ev.damage);
+      }
     }
     steps.push({
       fHps: [...fHpsCurrent],
@@ -1341,26 +1235,30 @@ function renderShipLine(
   colors: string[],
   dashed: boolean,
   steps: TimelineStep[],
-  fInit: number[],
-  eInit: number[],
+  fInit: Array<number | null>,
+  eInit: Array<number | null>,
   fleets: BattleFleets | null,
 ): string {
   const ship = (
     side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
   )?.[si];
   const initArr = side === "friend" ? fInit : eInit;
-  const initHp = Math.max(0, Number(initArr[si] ?? 0) || 0);
-  const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
+  const initHp = initArr[si];
+  const maxHp = ship?.maxhp ?? initHp ?? null;
+  if (initHp === null || initHp === undefined || maxHp === null || maxHp <= 0) {
+    return "";
+  }
   const color = colors[si % colors.length];
 
   const points = steps.map((step, s) => {
-    const hp = Math.max(0, Number(step[hpKey][si] ?? maxHp) || 0);
+    const hp = step[hpKey][si];
+    if (hp === null || hp === undefined) return null;
     const pct = Math.min(100, (hp / maxHp) * 100);
     return { x: Number(xHP(pct)), y: Number(yStep(s)) };
   });
 
-  const p0 = points[0];
-  const pLast = points[points.length - 1];
+  const p0 = points.find((point) => point !== null) ?? null;
+  const pLast = [...points].reverse().find((point) => point !== null) ?? null;
   if (!p0 || !pLast) return "";
 
   // Build path: upward stem → diagonal/vertical segments → downward stem
@@ -1396,11 +1294,8 @@ function renderShipLine(
 
   // End marker
   const lastStep = steps[steps.length - 1];
-  const lastHp = Math.max(
-    0,
-    Number(lastStep?.[hpKey][si] ?? maxHp) || 0,
-  );
-  if (lastHp <= 0) {
+  const lastHp = lastStep?.[hpKey][si] ?? null;
+  if (lastHp !== null && lastHp !== undefined && lastHp <= 0) {
     const r = 3.5;
     svg +=
       `<line x1="${(endX - r).toFixed(1)}" y1="${(endY - r).toFixed(1)}" x2="${(endX + r).toFixed(1)}" y2="${(endY + r).toFixed(1)}" stroke="${color}" stroke-width="2"/>` +
@@ -1438,7 +1333,7 @@ function renderLegendRow(
 export function renderTimelineView(
   battle: Record<string, unknown>,
   fleets: BattleFleets | null,
-  mstSlotItemById: Map<number, Record<string, unknown>> | null = null,
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null = null,
 ): string {
   const events = buildTimelineEvents(battle, fleets);
   const { fInit, eInit } = buildInitialHps(battle);
@@ -1551,16 +1446,22 @@ export function renderTimelineView(
           : fleets?.enemyShips
       )?.[ev.defenderIdx];
       const initArr = ev.defenderSide === "friend" ? fInit : eInit;
-      const initHp = Math.max(0, Number(initArr[ev.defenderIdx] ?? 0) || 0);
-      const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
-      const hpFrom = Math.max(
-        0,
-        Number(steps[i]?.[hpKey]?.[ev.defenderIdx] ?? maxHp) || 0,
-      );
-      const hpTo = Math.max(
-        0,
-        Number(steps[i + 1]?.[hpKey]?.[ev.defenderIdx] ?? hpFrom) || 0,
-      );
+      const initHp = initArr[ev.defenderIdx];
+      const maxHp = ship?.maxhp ?? initHp ?? null;
+      const hpFrom = steps[i]?.[hpKey]?.[ev.defenderIdx] ?? null;
+      const hpTo = steps[i + 1]?.[hpKey]?.[ev.defenderIdx] ?? null;
+      if (
+        initHp === null ||
+        initHp === undefined ||
+        maxHp === null ||
+        maxHp <= 0 ||
+        hpFrom === null ||
+        hpFrom === undefined ||
+        hpTo === null ||
+        hpTo === undefined
+      ) {
+        continue;
+      }
       const xFrom = Number(xHP(Math.min(100, (hpFrom / maxHp) * 100)));
       const xTo = Number(xHP(Math.min(100, (hpTo / maxHp) * 100)));
       const yFrom = Number(yStep(i));

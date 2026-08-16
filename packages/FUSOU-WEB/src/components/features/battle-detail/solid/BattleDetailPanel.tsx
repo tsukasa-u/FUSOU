@@ -10,7 +10,13 @@ import {
   untrack,
 } from "solid-js";
 import type { JSX } from "solid-js";
-import type { BattleFleets } from "@/features/battles/types";
+import type {
+  BattleFleets,
+  EquipmentInfo,
+  MstShipRecord,
+  MstSlotItemRecord,
+  ShipInfo,
+} from "@/features/battles/types";
 import { getBattleMapAsset } from "@/data/battleMapAssets";
 import { buildShareBattleUrl } from "@/utils/share-url";
 import { copyToClipboard } from "@/utils/clipboard";
@@ -21,12 +27,15 @@ import {
 } from "@/features/battles/constants";
 import { formatMapTextByIds } from "@/features/battles/map-labels";
 import {
+  normalizeNullableNumber,
   normalizeEpochMs,
 } from "@/features/battles/helpers";
 import {
   getMstShipById,
   getMstSlotItemById,
   getWeaponIconFrames,
+  parseMstShipMap,
+  parseMstSlotItemMap,
 } from "@/features/battles/data-service";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 import { EquipmentBadge, ShipBanner, ShipRows, slotItemMeta } from "./ui";
@@ -42,6 +51,10 @@ import {
   type BattleDataRepository,
 } from "@/features/battles/repository/types";
 import { R2BattleRepository } from "@/features/battles/repository/r2-battle-repository";
+import {
+  firstJsonRecordOf,
+  jsonRecordOf,
+} from "@/features/battles/payload-guards";
 
 type DropShipInfo = {
   shipId: number;
@@ -156,6 +169,41 @@ function toPositiveNumberArray(value: unknown): number[] {
     .filter((entry) => Number.isFinite(entry) && entry > 0);
 }
 
+function toNullableNumber(value: unknown): number | null {
+  const number = Number(value ?? Number.NaN);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function parseEquipmentInfos(value: unknown): EquipmentInfo[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const row = jsonRecordOf(item);
+    if (!row) return [];
+    return [{
+      name: String(row["name"] ?? ""),
+      level: toNullableNumber(row["level"]),
+      iconType: toNullableNumber(row["iconType"]),
+      slotItemId: toNullableNumber(row["slotItemId"]),
+    }];
+  });
+}
+
+function parseFleetRecords(value: Array<Record<string, unknown>> | undefined): ShipInfo[] {
+  return (value ?? []).map((row) => ({
+    name: String(row["name"] ?? "艦"),
+    shipId: toNullableNumber(row["shipId"]),
+    level: toNullableNumber(row["level"]),
+    nowhp: normalizeNullableNumber(row["nowhp"]),
+    maxhp: normalizeNullableNumber(row["maxhp"]),
+    karyoku: normalizeNullableNumber(row["karyoku"]),
+    raisou: normalizeNullableNumber(row["raisou"]),
+    taiku: normalizeNullableNumber(row["taiku"]),
+    soukou: normalizeNullableNumber(row["soukou"]),
+    bannerUrl: String(row["bannerUrl"] ?? ""),
+    equipments: parseEquipmentInfos(row["equipments"]),
+  }));
+}
+
 function resolveAirBaseFormations(
   battle: Record<string, unknown> | null,
 ): AirBaseFormation[] {
@@ -264,11 +312,11 @@ export default function BattleDetailPanel(props: {
   const [fleets, setFleets] = createSignal<BattleFleets | null>(null);
   const [mstSlotItemById, setMstSlotItemById] = createSignal<Map<
     number,
-    Record<string, unknown>
+    MstSlotItemRecord
   > | null>(null);
   const [mstShipById, setMstShipById] = createSignal<Map<
     number,
-    Record<string, unknown>
+    MstShipRecord
   > | null>(null);
   const [mapLabel, setMapLabel] = createSignal<string | null>(null);
   const [cellLabel, setCellLabel] = createSignal<string>("-");
@@ -384,7 +432,7 @@ export default function BattleDetailPanel(props: {
 
   async function issueShareUrl(): Promise<boolean> {
     const shareUrl = buildCurrentShareUrl();
-    const copied = copyToClipboard(shareUrl);
+    const copied = await copyToClipboard(shareUrl);
     if (copied) {
       return true;
     }
@@ -480,8 +528,10 @@ export default function BattleDetailPanel(props: {
     try {
       const response = await fetch(asset.labelsUrl);
       if (!response.ok) return alphaCellLabel(rawCellId);
-      const payload = (await response.json()) as Record<string, string>;
-      const label = payload?.[String(rawCellId)];
+      const payload = await response.json();
+      const payloadRecord = jsonRecordOf(payload);
+      if (!payloadRecord) return alphaCellLabel(rawCellId);
+      const label = payloadRecord[String(rawCellId)];
       return typeof label === "string" && label
         ? label
         : alphaCellLabel(rawCellId);
@@ -493,8 +543,11 @@ export default function BattleDetailPanel(props: {
   const formations = createMemo(() => {
     const b = battle();
     if (!b) return { f: "-", e: "-" };
-    const fForm = b["f_formation"] ?? (b["formation"] as any)?.[0] ?? 0;
-    const eForm = b["e_formation"] ?? (b["formation"] as any)?.[1] ?? 0;
+    const formation = Array.isArray(b["formation"])
+      ? b["formation"]
+      : [];
+    const fForm = b["f_formation"] ?? formation[0] ?? 0;
+    const eForm = b["e_formation"] ?? formation[1] ?? 0;
     return {
       f: FORMATION_NAMES[Number(fForm)] ?? "-",
       e: FORMATION_NAMES[Number(eForm)] ?? "-",
@@ -504,39 +557,35 @@ export default function BattleDetailPanel(props: {
   const airInfo = createMemo(() => {
     const b = battle();
     if (!b) return null;
-    const openingAir = Array.isArray(b["opening_air_attack"])
-      ? (b["opening_air_attack"] as any)[0]
-      : b["opening_air_attack"];
-    if (!openingAir || typeof openingAir !== "object") {
-      return null;
-    }
-    const fDamages = Array.isArray(openingAir?.f_damages)
-      ? (openingAir.f_damages as unknown[])
+    const openingAir = firstJsonRecordOf(b["opening_air_attack"]);
+    if (!openingAir) return null;
+    const fDamages = Array.isArray(openingAir["f_damages"])
+      ? openingAir["f_damages"]
       : [];
-    const eDamages = Array.isArray(openingAir?.e_damages)
-      ? (openingAir.e_damages as unknown[])
+    const eDamages = Array.isArray(openingAir["e_damages"])
+      ? openingAir["e_damages"]
       : [];
     const hasAnyAirDamage =
       fDamages.some((d) => (Number(d ?? 0) || 0) > 0) ||
       eDamages.some((d) => (Number(d ?? 0) || 0) > 0);
-    const fPlaneFrom = Array.isArray(openingAir?.f_plane_from)
-      ? (openingAir.f_plane_from as unknown[])
+    const fPlaneFrom = Array.isArray(openingAir["f_plane_from"])
+      ? openingAir["f_plane_from"]
       : [];
-    const ePlaneFrom = Array.isArray(openingAir?.e_plane_from)
-      ? (openingAir.e_plane_from as unknown[])
+    const ePlaneFrom = Array.isArray(openingAir["e_plane_from"])
+      ? openingAir["e_plane_from"]
       : [];
     const hasAnyAirSortie = fPlaneFrom.length > 0 || ePlaneFrom.length > 0;
     if (!hasAnyAirDamage && !hasAnyAirSortie) {
       return null;
     }
-    const airSup = openingAir?.air_superiority;
+    const airSup = openingAir["air_superiority"];
     return AIR_STATE[Number(airSup)] ?? null;
   });
 
   const rank = createMemo(() => {
     const b = battle();
     if (!b) return "-";
-    return String((b["battle_result"] as any)?.win_rank ?? "-");
+    return String(jsonRecordOf(b["battle_result"])?.["win_rank"] ?? "-");
   });
 
   const rankCls = createMemo(() => RANK_COLORS[rank()] ?? "");
@@ -720,11 +769,9 @@ export default function BattleDetailPanel(props: {
       );
       const detailBattle = payload.battle ?? null;
       if (detailBattle) {
-          const resolvedMstShip = new Map(
-            (payload.refs?.mst_ship || []).map((row) => [Number(row["id"]), row]),
-          );
-          const resolvedMstSlotItem = new Map(
-            (payload.refs?.mst_slotitem || []).map((row) => [Number(row["id"]), row]),
+          const resolvedMstShip = parseMstShipMap(payload.refs?.mst_ship);
+          const resolvedMstSlotItem = parseMstSlotItemMap(
+            payload.refs?.mst_slotitem,
           );
           const fullMstSlotItem = await getMstSlotItemById(signal);
           const effectiveMstSlotItem = new Map(fullMstSlotItem);
@@ -750,7 +797,7 @@ export default function BattleDetailPanel(props: {
           await getWeaponIconFrames(signal);
 
           const dropShipId =
-            Number((detailBattle["battle_result"] as any)?.drop_ship_id ?? 0) || 0;
+            Number(jsonRecordOf(detailBattle["battle_result"])?.["drop_ship_id"] ?? 0) || 0;
           const dropShip = dropShipId > 0 ? resolvedMstShip.get(dropShipId) : null;
           const mapAreaId = Number(detailBattle["maparea_id"] ?? NaN);
           const mapInfoNo = Number(detailBattle["mapinfo_no"] ?? NaN);
@@ -785,8 +832,8 @@ export default function BattleDetailPanel(props: {
           );
           setBattle(detailBattle);
           setFleets({
-            friendlyShips: (payload.derived?.friendly_fleet || []) as any,
-            enemyShips: (payload.derived?.enemy_fleet || []) as any,
+            friendlyShips: parseFleetRecords(payload.derived?.friendly_fleet),
+            enemyShips: parseFleetRecords(payload.derived?.enemy_fleet),
           });
           setMstSlotItemById(effectiveMstSlotItem);
           setMstShipById(resolvedMstShip);

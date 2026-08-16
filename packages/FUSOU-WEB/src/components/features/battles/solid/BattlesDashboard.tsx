@@ -10,7 +10,10 @@ import {
   For,
 } from "solid-js";
 import { cachedFetch, clearFetchCache } from "@/utils/fetchCache";
-import type { PeriodSummary, MasterDataStatusItem } from "./types";
+import type {
+  PeriodSummary,
+  MasterDataStatusItem,
+} from "./types";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
 
@@ -37,6 +40,26 @@ import type {
   BattleDataRepository,
 } from "@/features/battles/repository/types";
 import type { LocalAvroLoadLimits } from "@/features/battles/local-directory/limits";
+import { MasterDataJsonResponseSchema } from "@/features/simulator/api-response-schemas";
+import type {
+  BattleRecord,
+  CellRecord,
+  EnemyDeckRecord,
+  EnemyShipRecord,
+  EnemySlotItemRecord,
+  MstShipRecord,
+  MstSlotItemRecord,
+} from "../../map-flow/solid/battle-map-flow/types";
+import type { WeaponIconFrame } from "@/features/battles/types";
+import {
+  parseBattleRecords,
+  parseCellRecords,
+  parseEnemyDeckRecords,
+  parseEnemyShipRecords,
+  parseEnemySlotItemRecords,
+  parseMasterShipRecords,
+  parseMasterSlotItemRecords,
+} from "../../map-flow/solid/battle-map-flow/recordParsers";
 
 function formatLocalProgress(
   progress: BattleDataProgress | null,
@@ -169,14 +192,14 @@ export default function BattlesDashboard(props: {
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
 
-  const [battleRecords, setBattleRecords] = createSignal<any[]>([]);
-  const [cellRecords, setCellRecords] = createSignal<any[]>([]);
-  const [enemyDecks, setEnemyDecks] = createSignal<any[]>([]);
-  const [enemyShips, setEnemyShips] = createSignal<any[]>([]);
-  const [enemySlotItems, setEnemySlotItems] = createSignal<any[]>([]);
-  const [mstShips, setMstShips] = createSignal<any[]>([]);
-  const [mstSlotItems, setMstSlotItems] = createSignal<any[]>([]);
-  const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, any>>({});
+  const [battleRecords, setBattleRecords] = createSignal<BattleRecord[]>([]);
+  const [cellRecords, setCellRecords] = createSignal<CellRecord[]>([]);
+  const [enemyDecks, setEnemyDecks] = createSignal<EnemyDeckRecord[]>([]);
+  const [enemyShips, setEnemyShips] = createSignal<EnemyShipRecord[]>([]);
+  const [enemySlotItems, setEnemySlotItems] = createSignal<EnemySlotItemRecord[]>([]);
+  const [mstShips, setMstShips] = createSignal<MstShipRecord[]>([]);
+  const [mstSlotItems, setMstSlotItems] = createSignal<MstSlotItemRecord[]>([]);
+  const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, WeaponIconFrame>>({});
   const [weaponIconMeta, setWeaponIconMeta] = createSignal<{ width: number; height: number }>({ width: 0, height: 0 });
   const [loadedDatasetKind, setLoadedDatasetKind] = createSignal<"overview" | "drops" | null>(null);
 
@@ -323,18 +346,17 @@ export default function BattlesDashboard(props: {
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
         }
-        const masterShipPayload = (await masterShipResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
-        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
+        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
+          await masterShipResponse.json(),
+        );
+        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
+          await masterSlotItemResponse.json(),
+        );
+        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
+          throw new Error("Invalid master data response");
+        }
+        const masterShipPayload = parsedMasterShip.data;
+        const masterSlotItemPayload = parsedMasterSlotItem.data;
         setMasterDataStatus([
           {
             name: "mst_ship",
@@ -366,16 +388,26 @@ export default function BattlesDashboard(props: {
           forceRefresh,
         }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
-        setBattleRecords(payload.battles || []);
-        setCellRecords(payload.cells || []);
-        setEnemyDecks(payload.enemy_decks || []);
-        setEnemyShips(payload.enemy_ships || []);
-        setEnemySlotItems([]);
-        setMstShips(masterShipPayload.records || []);
-        setMstSlotItems(masterSlotItemPayload.records || []);
+        setBattleRecords(parseBattleRecords(payload.battles));
+        setCellRecords(parseCellRecords(payload.cells));
+        setEnemyDecks(parseEnemyDeckRecords(payload.enemy_decks));
+        setEnemyShips(parseEnemyShipRecords(payload.enemy_ships));
+        setEnemySlotItems(parseEnemySlotItemRecords([]));
+        setMstShips(parseMasterShipRecords(masterShipPayload.records));
+        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
         setWeaponIconFrames({});
         setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataMeta({
+          ...(masterShipPayload.period_tag !== undefined
+            ? { period_tag: masterShipPayload.period_tag }
+            : {}),
+          ...(masterShipPayload.period_revision !== undefined
+            ? { period_revision: masterShipPayload.period_revision }
+            : {}),
+          ...(masterShipPayload.table_version !== undefined
+            ? { table_version: masterShipPayload.table_version }
+            : {}),
+        });
         setLoadedDatasetKind("overview");
       } else {
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
@@ -385,18 +417,17 @@ export default function BattlesDashboard(props: {
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
         }
-        const masterShipPayload = (await masterShipResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
-        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
+        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
+          await masterShipResponse.json(),
+        );
+        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
+          await masterSlotItemResponse.json(),
+        );
+        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
+          throw new Error("Invalid master data response");
+        }
+        const masterShipPayload = parsedMasterShip.data;
+        const masterSlotItemPayload = parsedMasterSlotItem.data;
         setMasterDataStatus([
           {
             name: "mst_ship",
@@ -428,23 +459,35 @@ export default function BattlesDashboard(props: {
           forceRefresh,
         }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
-        setBattleRecords(payload.battles || []);
+        setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords([]);
         setEnemyDecks([]);
         setEnemyShips([]);
         setEnemySlotItems([]);
-        setMstShips(masterShipPayload.records || []);
-        setMstSlotItems(masterSlotItemPayload.records || []);
+        setMstShips(parseMasterShipRecords(masterShipPayload.records));
+        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
         setWeaponIconFrames({});
         setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataMeta({
+          ...(masterShipPayload.period_tag !== undefined
+            ? { period_tag: masterShipPayload.period_tag }
+            : {}),
+          ...(masterShipPayload.period_revision !== undefined
+            ? { period_revision: masterShipPayload.period_revision }
+            : {}),
+          ...(masterShipPayload.table_version !== undefined
+            ? { table_version: masterShipPayload.table_version }
+            : {}),
+        });
         setLoadedDatasetKind("drops");
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const errorRecord =
+        e && typeof e === "object" ? (e as Record<string, unknown>) : {};
       if (
-        e.name === "AbortError" ||
-        e.code === "CANCELLED" ||
+        errorRecord["name"] === "AbortError" ||
+        errorRecord["code"] === "CANCELLED" ||
         signal.aborted ||
         loadDataAbortController !== abortController
       ) return;
@@ -456,7 +499,9 @@ export default function BattlesDashboard(props: {
             repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
           )
         : `データソース: R2 / 対象: マスターデータ（mst_ship, mst_slotitem） / 原因: ${
-            e.message ?? "原因不明のエラー"
+            typeof errorRecord["message"] === "string"
+              ? errorRecord["message"]
+              : "原因不明のエラー"
           }`;
       setError(
         masterDataLoaded

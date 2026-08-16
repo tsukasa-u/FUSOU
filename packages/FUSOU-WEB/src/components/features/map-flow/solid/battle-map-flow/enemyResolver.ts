@@ -5,6 +5,7 @@ import type {
   MstShipRecord,
   MstSlotItemRecord,
 } from "./types";
+import { battleRowIndexForSort } from "@/features/battles/helpers";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 
 type EnemyEquipment = {
@@ -46,7 +47,9 @@ export function buildEnemyDeckResolver(
     }
   }
   for (const group of shipsByGroupId.values()) {
-    group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+    group.sort(
+      (a, b) => battleRowIndexForSort(a.index) - battleRowIndexForSort(b.index),
+    );
   }
   const mstById = new Map(mstShips.map((s) => [s.id, s.name]));
 
@@ -100,7 +103,9 @@ export function buildEnemyFleetResolver(
     }
   }
   for (const group of shipsByGroupId.values()) {
-    group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+    group.sort(
+      (a, b) => battleRowIndexForSort(a.index) - battleRowIndexForSort(b.index),
+    );
   }
   const mstById = new Map(mstShips.map((s) => [s.id, s.name]));
   const slotItemsByGroupId = new Map<string, EnemySlotItemRecord[]>();
@@ -113,7 +118,9 @@ export function buildEnemyFleetResolver(
     }
   }
   for (const group of slotItemsByGroupId.values()) {
-    group.sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0));
+    group.sort(
+      (a, b) => battleRowIndexForSort(a.index) - battleRowIndexForSort(b.index),
+    );
   }
   const mstSlotItemById = new Map(mstSlotItems.map((item) => [item.id, item]));
 

@@ -47,10 +47,10 @@ describe("APP local AVRO manifest paths", () => {
   it("rejects kcsapi and unknown AVRO paths", () => {
     expect(() =>
       parseLocalAvroPath("2026-06-26/kcsapi/1783051200S@api_req_map/start2"),
-    ).toThrowError(LocalAvroPathError);
+    ).toThrow(LocalAvroPathError);
     expect(() =>
       parseLocalAvroPath("2026-06-26/transaction_data/6-5/unknown/1_uuid.avro"),
-    ).toThrowError(LocalAvroPathError);
+    ).toThrow(LocalAvroPathError);
   });
 
   it("matches the real database path and OCF header together", () => {

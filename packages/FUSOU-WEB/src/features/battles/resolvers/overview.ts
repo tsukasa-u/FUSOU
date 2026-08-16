@@ -7,6 +7,7 @@ import {
   normalizeTimestamp,
   type BattleRecord,
 } from "./indexes";
+import { normalizeNullableNumber } from "../helpers";
 
 export type { BattleRecord } from "./indexes";
 
@@ -31,9 +32,15 @@ export function buildBattleSummaries(args: {
   const mapByBattleUuid = new Map<string, { maparea_id: number; mapinfo_no: number }>();
   for (const cell of args.cells) {
     const battleUuid = String(cell["battles"] ?? "");
-    const maparea = Number(cell["maparea_id"] ?? 0);
-    const mapinfo = Number(cell["mapinfo_no"] ?? 0);
-    if (battleUuid && maparea > 0 && mapinfo > 0) {
+    const maparea = normalizeNullableNumber(cell["maparea_id"]);
+    const mapinfo = normalizeNullableNumber(cell["mapinfo_no"]);
+    if (
+      battleUuid &&
+      maparea !== null &&
+      mapinfo !== null &&
+      maparea >= 0 &&
+      mapinfo >= 0
+    ) {
       mapByBattleUuid.set(battleUuid, { maparea_id: maparea, mapinfo_no: mapinfo });
     }
   }

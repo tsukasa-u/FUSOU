@@ -1,3 +1,5 @@
+import { battleRowIndexForSort } from "../helpers";
+
 export type BattleRecord = Record<string, unknown>;
 
 export function normalizeTimestamp(value: unknown): number | null {
@@ -13,6 +15,8 @@ export function normalizeTimestamp(value: unknown): number | null {
   }
   return null;
 }
+
+export { battleRowIndexForSort } from "../helpers";
 
 export function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
   if (Array.isArray(rawIds)) {
@@ -44,7 +48,8 @@ export function buildEnemySummaryResolver(args: {
   for (const ships of shipsByGroupId.values()) {
     ships.sort(
       (left, right) =>
-        Number(left["index"] ?? 0) - Number(right["index"] ?? 0),
+        battleRowIndexForSort(left["index"]) -
+        battleRowIndexForSort(right["index"]),
     );
   }
   const mstNameById = new Map(

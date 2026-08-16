@@ -1,6 +1,7 @@
 import { bannerUrl } from "@/features/simulator/equip-calc";
+import { normalizeNullableNumber } from "@/features/battles/helpers";
 import type { BattleDetailPayload, JsonRecord } from "../repository/types";
-import { normalizeTimestamp } from "./indexes";
+import { battleRowIndexForSort, normalizeTimestamp } from "./indexes";
 
 export type BattleDetailTables = {
   battle: JsonRecord[];
@@ -63,7 +64,11 @@ function rowsByUuid(rows: JsonRecord[], uuid: string): JsonRecord[] {
   if (!uuid) return [];
   return rows
     .filter((row) => String(row["uuid"] ?? "") === uuid)
-    .sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
+    .sort(
+      (left, right) =>
+        battleRowIndexForSort(left["index"]) -
+        battleRowIndexForSort(right["index"]),
+    );
 }
 
 function firstByUuid(rows: JsonRecord[], uuid: unknown): JsonRecord | null {
@@ -211,7 +216,9 @@ function addPositiveIds(value: unknown, target: Set<number>): void {
 function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
   if (rows.length === 0 || snapshot.length === 0) return Number.MAX_SAFE_INTEGER;
   const sorted = [...rows].sort(
-    (left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0),
+    (left, right) =>
+      battleRowIndexForSort(left["index"]) -
+      battleRowIndexForSort(right["index"]),
   );
   const length = Math.min(sorted.length, snapshot.length);
   let score = Math.abs(sorted.length - snapshot.length) * 20;
@@ -219,9 +226,10 @@ function hpScore(rows: JsonRecord[], snapshot: unknown[]): number {
     const row = sorted[index];
     const snapshotValue = snapshot[index];
     if (!row || snapshotValue === undefined) continue;
-    score += Math.abs(
-      Number(row["nowhp"] ?? row["maxhp"] ?? 0) - Number(snapshotValue ?? 0),
-    );
+    const rowHp = normalizeNullableNumber(row["nowhp"] ?? row["maxhp"]);
+    const snapshotHp = normalizeNullableNumber(snapshotValue);
+    if (rowHp === null || snapshotHp === null) continue;
+    score += Math.abs(rowHp - snapshotHp);
   }
   return score;
 }
@@ -247,7 +255,11 @@ function fleetRows(
     candidateGroups.set(group, rows);
   }
   for (const rows of candidateGroups.values()) {
-    rows.sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
+    rows.sort(
+      (left, right) =>
+        battleRowIndexForSort(left["index"]) -
+        battleRowIndexForSort(right["index"]),
+    );
   }
 
   let selectedGroups: string[] = [];
@@ -269,7 +281,11 @@ function fleetRows(
   const shipGroups = new Set(selectedGroups);
   const groupRows = ships
     .filter((row) => shipGroups.has(String(row["uuid"] ?? "")))
-    .sort((left, right) => Number(left["index"] ?? 0) - Number(right["index"] ?? 0));
+    .sort(
+      (left, right) =>
+        battleRowIndexForSort(left["index"]) -
+        battleRowIndexForSort(right["index"]),
+    );
   const slotsByGroup = new Map<string, JsonRecord[]>();
   for (const row of slotItems) {
     const group = String(row["uuid"] ?? "");
@@ -303,18 +319,18 @@ function indexedFleet(
       name: String(ships.get(shipId ?? 0)?.["name"] ?? (shipId ? `${side === "own" ? "艦" : "敵艦"}ID:${shipId}` : side === "own" ? "味方艦" : "敵艦")),
       shipId,
       bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
-      level: Number(row["lv"] ?? 0) || null,
-      nowhp: Number(row["nowhp"] ?? 0) || 0,
-      maxhp: Number(row["maxhp"] ?? row["nowhp"] ?? 0) || 0,
-      karyoku: row["karyoku"] ?? null,
-      raisou: row["raisou"] ?? null,
-      taiku: row["taiku"] ?? null,
-      soukou: row["soukou"] ?? null,
+      level: normalizeNullableNumber(row["lv"]),
+      nowhp: normalizeNullableNumber(row["nowhp"]),
+      maxhp: normalizeNullableNumber(row["maxhp"]),
+      karyoku: normalizeNullableNumber(row["karyoku"]),
+      raisou: normalizeNullableNumber(row["raisou"]),
+      taiku: normalizeNullableNumber(row["taiku"]),
+      soukou: normalizeNullableNumber(row["soukou"]),
       equipments: sourceSlots.map((slot) => {
         const slotId = Number((slot as JsonRecord)["mst_slotitem_id"] ?? 0) || null;
         return {
           name: String(slotItems.get(slotId ?? 0)?.["name"] ?? (slotId ? `装備ID:${slotId}` : "")),
-          level: Number((slot as JsonRecord)["level"] ?? 0) || null,
+          level: normalizeNullableNumber((slot as JsonRecord)["level"]),
           iconType:
             Array.isArray(slotItems.get(slotId ?? 0)?.["type"]) &&
             (slotItems.get(slotId ?? 0)?.["type"] as unknown[]).length >= 4
@@ -413,8 +429,12 @@ export function resolveBattleDetail(
   const mergedBattle: JsonRecord = {
     ...battle,
     timestamp: normalizeTimestamp(battle["timestamp"]) ?? normalizeTimestamp(battle["midnight_timestamp"]),
-    maparea_id: Number(cell?.["maparea_id"] ?? battle["maparea_id"] ?? 0) || null,
-    mapinfo_no: Number(cell?.["mapinfo_no"] ?? battle["mapinfo_no"] ?? 0) || null,
+    maparea_id: normalizeNullableNumber(
+      cell?.["maparea_id"] ?? battle["maparea_id"],
+    ),
+    mapinfo_no: normalizeNullableNumber(
+      cell?.["mapinfo_no"] ?? battle["mapinfo_no"],
+    ),
     battle_result: battleResult ?? battle["battle_result"] ?? null,
     opening_raigeki: openingRaigeki ?? battle["opening_raigeki"] ?? null,
     closing_raigeki: closingRaigeki ?? battle["closing_raigeki"] ?? null,

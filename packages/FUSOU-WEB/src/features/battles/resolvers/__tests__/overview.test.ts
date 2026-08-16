@@ -26,4 +26,40 @@ describe("battle overview resolver", () => {
     ]);
     expect(battles[0]).not.toHaveProperty("timestamp", 1_700_000_000_000);
   });
+
+  it("keeps indexed ships before ships with a missing index", () => {
+    const payload = buildBattleOverviewPayload({
+      periodTag: "2026-07-08",
+      battles: [{ uuid: "battle-1", cell_id: 1, e_deck_id: "deck-1" }],
+      cells: [],
+      battleResults: [],
+      enemyDecks: [{ uuid: "deck-1", ship_ids: ["ships-1"] }],
+      enemyShips: [
+        { uuid: "ships-1", mst_ship_id: 2 },
+        { uuid: "ships-1", index: 0, mst_ship_id: 1 },
+      ],
+      mstShips: [
+        { id: 1, name: "indexed" },
+        { id: 2, name: "missing-index" },
+      ],
+    });
+
+    expect(payload.battles?.[0]?.["enemy_summary"]).toBe(
+      "indexed / missing-index",
+    );
+  });
+
+  it("preserves zero map coordinates when they are explicitly present", () => {
+    const payload = buildBattleOverviewPayload({
+      periodTag: "2026-07-08",
+      battles: [{ uuid: "battle-1", cell_id: 1 }],
+      cells: [{ battles: "battle-1", maparea_id: 0, mapinfo_no: 0 }],
+      battleResults: [],
+    });
+
+    expect(payload.battles?.[0]).toMatchObject({
+      maparea_id: 0,
+      mapinfo_no: 0,
+    });
+  });
 });

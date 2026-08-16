@@ -29,6 +29,7 @@ import {
   type WorkerRecordQuery,
 } from "./protocol";
 import { buildTableIndex, type TableIndex } from "./indexes";
+import { battleRowIndexForSort } from "../helpers";
 import { expectedSchemaNameForTable } from "./schema-registry";
 import {
   DEFAULT_LOCAL_AVRO_LOAD_LIMITS,
@@ -78,8 +79,10 @@ function asLocalBattleError(error: unknown): LocalBattleError {
 function compareEntries(left: LocalManifestEntry, right: LocalManifestEntry): number {
   return (
     right.periodTag.localeCompare(left.periodTag) ||
-    Number(left.mapAreaId ?? 0) - Number(right.mapAreaId ?? 0) ||
-    Number(left.mapInfoNo ?? 0) - Number(right.mapInfoNo ?? 0) ||
+    battleRowIndexForSort(left.mapAreaId) -
+      battleRowIndexForSort(right.mapAreaId) ||
+    battleRowIndexForSort(left.mapInfoNo) -
+      battleRowIndexForSort(right.mapInfoNo) ||
     left.table.localeCompare(right.table) ||
     Number(right.fileTimestamp ?? right.lastModified) -
       Number(left.fileTimestamp ?? left.lastModified)

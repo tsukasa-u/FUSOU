@@ -18,9 +18,6 @@ import type { SharedDashboardState } from "../../battles/solid/types";
 import type {
   BattleRecord,
   MapFrameMeta,
-  MapImageMetaPayload,
-  MapInfoPayload,
-  MapLabelsPayload,
   MapSpot,
   OfficialMapThemeMode,
   OverlayMarker,
@@ -50,8 +47,11 @@ import { buildEnemyDeckResolver } from "./battle-map-flow/enemyResolver";
 import {
   cellLabel as pureCellLabel,
   cellOverlayLabel as pureCellOverlayLabel,
+  compareNullableTimestamps,
   formatTimestamp,
   mapKeyOf,
+  parseMapInfoPayload,
+  parseMapLabelsPayload,
   parseMapFrameMeta,
   resolveRouteCellsWithPort,
 } from "./battle-map-flow/dataUtils";
@@ -63,6 +63,36 @@ import {
   resolveMapAreaName,
   resolveMapInfoName,
 } from "@/features/battles/map-labels";
+
+type JsonRecord = Record<string, unknown>;
+type MapAreaRecord = { id: string | number; name: string };
+type MapInfoRecord = { maparea_id: string | number; no: string | number; name: string };
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isMapAreaRecord(value: unknown): value is MapAreaRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["id"] === "string" || typeof value["id"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function isMapInfoRecord(value: unknown): value is MapInfoRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["maparea_id"] === "string" || typeof value["maparea_id"] === "number") &&
+    (typeof value["no"] === "string" || typeof value["no"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function recordsMatching<T>(payload: unknown, predicate: (value: unknown) => value is T): T[] {
+  if (!isJsonRecord(payload) || !Array.isArray(payload["records"])) return [];
+  return payload["records"].filter(predicate);
+}
 
 
 
@@ -100,17 +130,17 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
   let mapMetadataAbortController: AbortController | null = null;
 
   // ── Master data for area/map names ─────────────────────────────────────────
-  const [mstMapareas, setMstMapareas] = createSignal<any[]>([]);
-  const [mstMapinfos, setMstMapinfos] = createSignal<any[]>([]);
+  const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
+  const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
 
   onMount(() => {
     fetch("/api/master-data/json?table_name=mst_map_area")
       .then((res) => res.json())
-      .then((payload: any) => setMstMapareas(payload.records || []))
+      .then((payload: unknown) => setMstMapareas(recordsMatching(payload, isMapAreaRecord)))
       .catch(() => {});
     fetch("/api/master-data/json?table_name=mst_map_info")
       .then((res) => res.json())
-      .then((payload: any) => setMstMapinfos(payload.records || []))
+      .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
       .catch(() => {});
 
     const openSettings = () => displaySettingsModalRef.showModal();
@@ -171,9 +201,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           const imageMetaResponse = await fetch(asset.imageMetaUrl, { signal });
           if (signal.aborted) return;
           if (imageMetaResponse.ok) {
-            const imageMetaPayload =
-              (await imageMetaResponse.json()) as MapImageMetaPayload;
-            const parsed = parseMapFrameMeta(imageMetaPayload);
+            const parsed = parseMapFrameMeta(await imageMetaResponse.json());
             if (parsed) {
               setMapFrameMetaByKey((prev) => ({ ...prev, [mapKey]: parsed }));
             } else {
@@ -199,7 +227,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           );
           return;
         }
-        const payload = (await response.json()) as MapInfoPayload;
+        const payload = parseMapInfoPayload(await response.json());
+        if (!payload) {
+          addMetadataWarning(
+            `${mapKey} のマップ情報を読み取れませんでした。`,
+          );
+          return;
+        }
         const spots = (payload.spots || [])
           .map((spot): MapSpot | null => {
             const cellId = Number(spot.no ?? NaN);
@@ -239,8 +273,15 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
             const labelsResponse = await fetch(asset.labelsUrl, { signal });
             if (signal.aborted) return;
             if (labelsResponse.ok) {
-              const labelsPayload =
-                (await labelsResponse.json()) as MapLabelsPayload;
+              const labelsPayload = parseMapLabelsPayload(
+                await labelsResponse.json(),
+              );
+              if (!labelsPayload) {
+                addMetadataWarning(
+                  `${mapKey} のラベル情報を読み取れませんでした。`,
+                );
+                return;
+              }
               const labels: Record<number, string> = {};
               for (const [rawId, label] of Object.entries(labelsPayload)) {
                 const id = Number(rawId);
@@ -377,7 +418,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
     const selected = d.mapFilter();
     return d.battleRecords()
       .filter((r) => !selected || mapKeyOf(r) === selected)
-      .sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      .sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
   });
 
   const filteredCellRecords = createMemo(() => {
@@ -397,7 +438,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       }
     }
     for (const list of groups.values()) {
-      list.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      list.sort((a, b) => compareNullableTimestamps(a.timestamp, b.timestamp));
     }
     return groups;
   });
@@ -407,8 +448,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
       .map((cellRecord) => {
         const mapKey = mapKeyOf(cellRecord);
         const cells = (cellRecord.cell_index || [])
-          .map((cellId: any) => Number(cellId ?? NaN))
-          .filter((cellId: any) => Number.isFinite(cellId));
+          .map((cellId: unknown) => Number(cellId ?? NaN))
+          .filter((cellId: number) => Number.isFinite(cellId));
         if (cells.length === 0) return null;
 
         const ports = mapPortsByKey()[mapKey] || [];
@@ -441,12 +482,13 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
           };
         });
 
-        const routeTimestamp = Math.max(
-          0,
-          ...battles
-            .map((battle) => Number(battle.timestamp ?? 0))
-            .filter((ts) => Number.isFinite(ts)),
-        );
+        const timestamps = battles
+          .map((battle) => battle.timestamp)
+          .filter((ts): ts is number => ts !== null && Number.isFinite(ts));
+        const routeTimestamp =
+          timestamps.length > 0
+            ? Math.max(...timestamps)
+            : Number.MIN_SAFE_INTEGER;
 
         const sortieId =
           cellRecord.uuid ||
@@ -533,8 +575,8 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
 
     for (const route of filteredCellRecords()) {
       const cells = (route.cell_index || [])
-        .map((cellId: any) => Number(cellId ?? NaN))
-        .filter((cellId: any) => Number.isFinite(cellId));
+        .map((cellId: unknown) => Number(cellId ?? NaN))
+        .filter((cellId: number) => Number.isFinite(cellId));
       if (cells.length === 0) continue;
 
       const mapKey = mapKeyOf(route);
@@ -858,7 +900,9 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         (battle) =>
           mapKeyOf(battle) === filter.mapKey && cellIdSet.has(battle.cell_id),
       )
-      .sort((a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0));
+      .sort((a, b) =>
+        compareNullableTimestamps(a.timestamp, b.timestamp, "desc"),
+      );
 
     const enemyLabelCounts = new Map<string, number>();
     const resultCounts = new Map<string, number>();
@@ -919,7 +963,7 @@ export default function BattleMapFlowPanel(props: { dashboardState: SharedDashbo
         uuid:
           battle.uuid ??
           battle.env_uuid ??
-          `${battle.cell_id}-${battle.timestamp ?? 0}`,
+          `${battle.cell_id}-${battle.index ?? "unknown"}-${battle.timestamp ?? "unknown"}`,
         timestamp: formatTimestamp(battle.timestamp),
         enemy: describeEnemy(battle),
         result:

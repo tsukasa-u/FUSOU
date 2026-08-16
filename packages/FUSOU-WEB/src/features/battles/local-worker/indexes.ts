@@ -1,4 +1,5 @@
 import type { AvroJsonRecord } from "@/features/avro/ocf-decoder";
+import { battleRowIndexForSort } from "../helpers";
 
 export type TableIndex = {
   rows: AvroJsonRecord[];
@@ -80,6 +81,7 @@ export function rowsForIndexes(
 export function sortRowsByIndex(rows: AvroJsonRecord[]): AvroJsonRecord[] {
   return [...rows].sort(
     (left, right) =>
-      Number(left["index"] ?? 0) - Number(right["index"] ?? 0),
+      battleRowIndexForSort(left["index"]) -
+      battleRowIndexForSort(right["index"]),
   );
 }

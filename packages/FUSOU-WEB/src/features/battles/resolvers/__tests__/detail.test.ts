@@ -215,4 +215,75 @@ describe("resolveBattleDetail", () => {
       expect.objectContaining({ name: "有効な装備", slotItemId: 42 }),
     ]);
   });
+
+  it("preserves zero map coordinates when they are explicitly present", () => {
+    const result = resolveBattleDetail({
+      periodTag: "2026-08-11",
+      envUuid: "target-env",
+      battleIndex: 0,
+      tables: tables({
+        cells: [
+          {
+            env_uuid: "target-env",
+            battle_index: [0],
+            cell_index: [101],
+            maparea_id: 0,
+            mapinfo_no: 0,
+          },
+        ],
+      }),
+    });
+
+    expect(result?.payload.battle).toMatchObject({
+      maparea_id: 0,
+      mapinfo_no: 0,
+    });
+  });
+
+  it("preserves valid zero ship and equipment levels", () => {
+    const result = resolveBattleDetail({
+      periodTag: "2026-08-11",
+      envUuid: "target-env",
+      battleIndex: 0,
+      tables: tables({
+        battle: [
+          {
+            env_uuid: "target-env",
+            index: 0,
+            cell_id: 101,
+            e_deck_id: "enemy-deck",
+          },
+        ],
+        enemyDeck: [
+          { env_uuid: "target-env", uuid: "enemy-deck", ship_ids: ["enemy-ships"] },
+        ],
+        enemyShip: [
+          {
+            env_uuid: "target-env",
+            uuid: "enemy-ships",
+            index: 0,
+            mst_ship_id: 1,
+            lv: 0,
+            slot: "enemy-slots",
+          },
+        ],
+        enemySlotItem: [
+          {
+            env_uuid: "target-env",
+            uuid: "enemy-slots",
+            index: 0,
+            mst_slotitem_id: 42,
+            level: 0,
+          },
+        ],
+      }),
+      masterShips: [{ id: 1, name: "敵艦" }],
+      masterSlotItems: [{ id: 42, name: "装備", type: [0, 0, 0, 1] }],
+    });
+
+    expect(result?.payload.derived?.enemy_fleet?.[0]).toMatchObject({
+      level: 0,
+      equipments: [expect.objectContaining({ level: 0 })],
+    });
+  });
 });

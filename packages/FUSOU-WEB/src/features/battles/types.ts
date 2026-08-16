@@ -9,12 +9,12 @@ export interface ShipInfo {
   name: string;
   shipId: number | null;
   level: number | null;
-  nowhp: number;
-  maxhp: number;
-  karyoku: unknown;
-  raisou: unknown;
-  taiku: unknown;
-  soukou: unknown;
+  nowhp: number | null;
+  maxhp: number | null;
+  karyoku: number | null;
+  raisou: number | null;
+  taiku: number | null;
+  soukou: number | null;
   bannerUrl: string;
   equipments: EquipmentInfo[];
 }
@@ -24,6 +24,19 @@ export interface WeaponIconFrame {
   y: number;
   w: number;
   h: number;
+}
+
+export interface MstShipRecord {
+  id: number;
+  name?: string;
+  [field: string]: unknown;
+}
+
+export interface MstSlotItemRecord {
+  id: number;
+  name?: string;
+  type?: number[];
+  [field: string]: unknown;
 }
 
 export interface BattleFleets {
@@ -46,9 +59,9 @@ export interface TimelineEvent {
   damage: number;
   crit: boolean;
   sunk: boolean;
-  slotItems: unknown[];
-  fHps: number[];
-  eHps: number[];
+  slotItems: number[];
+  fHps: Array<number | null>;
+  eHps: Array<number | null>;
   /**
    * mst_ship ID of the attacker, used when the attacker is not in the main
    * fleet arrays (friendly force ships, support ships, etc.).
@@ -61,7 +74,7 @@ export interface TimelineEvent {
 }
 
 export interface TimelineStep {
-  fHps: number[];
-  eHps: number[];
+  fHps: Array<number | null>;
+  eHps: Array<number | null>;
   eventIdx: number;
 }
