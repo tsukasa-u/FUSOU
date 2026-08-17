@@ -174,13 +174,12 @@ function battleIndexes(
     const battleByCellId = new Map(
       battles.map((row) => [Number(row["cell_id"] ?? Number.NaN), row]),
     );
-    const orderedByCell = cellIndexes.map((cellId) =>
-      Number(battleByCellId.get(cellId)?.["index"] ?? Number.NaN),
-    );
-    if (
-      orderedByCell.length === cellIndexes.length &&
-      orderedByCell.every((index) => availableIndexes.has(index))
-    ) {
+    const orderedByCell = cellIndexes
+      .map((cellId) =>
+        Number(battleByCellId.get(cellId)?.["index"] ?? Number.NaN),
+      )
+      .filter((index) => availableIndexes.has(index));
+    if (orderedByCell.length > 0) {
       return [...new Set(orderedByCell)];
     }
   }

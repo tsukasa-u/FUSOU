@@ -169,6 +169,30 @@ describe("resolveBattleDetail", () => {
     expect(result?.payload.battle_indexes).toEqual([3, 4, 2, 1, 0]);
   });
 
+  it("ignores non-battle cells when deriving order from cell ids", () => {
+    const result = resolveBattleDetail({
+      periodTag: "2026-08-05",
+      envUuid: "target-env",
+      battleIndex: 1,
+      tables: tables({
+        battle: [
+          { env_uuid: "target-env", index: 0, cell_id: 101 },
+          { env_uuid: "target-env", index: 1, cell_id: 103 },
+          { env_uuid: "target-env", index: 2, cell_id: 102 },
+        ],
+        cells: [
+          {
+            env_uuid: "target-env",
+            battle_index: [18, 10, 17, 2, 6],
+            cell_index: [999, 102, 777, 103, 101],
+          },
+        ],
+      }),
+    });
+
+    expect(result?.payload.battle_indexes).toEqual([2, 1, 0]);
+  });
+
   it("does not expose unequipped slot items in the derived fleet", () => {
     const result = resolveBattleDetail({
       periodTag: "2026-08-11",

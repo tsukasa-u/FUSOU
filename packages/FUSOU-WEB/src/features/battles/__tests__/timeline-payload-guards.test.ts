@@ -105,6 +105,29 @@ describe("timeline payload guards", () => {
     expect(supportEvents[0]).not.toHaveProperty("attackerMstShipId");
   });
 
+  it("uses air attack flags to exclude zero-filled non-target slots", () => {
+    const events = buildTimelineEvents({
+      battle_order: [{ OpeningAirAttack: 0 }],
+      opening_air_attack: {
+        f_damages: [0, 10, 0],
+        f_rai_flag: [0, 1, 0],
+        f_bak_flag: [0, 0, 1],
+        f_now_hps: [30, 30, 30],
+        e_damages: [0, 0, 5],
+        e_rai_flag: [0, 0, 0],
+        e_bak_flag: [0, 1, 0],
+        e_now_hps: [40, 40, 40],
+      },
+    });
+
+    expect(events.filter((event) => event.type === "air")).toMatchObject([
+      { attackerSide: "enemy", defenderIdx: 1, damage: 10 },
+      { attackerSide: "enemy", defenderIdx: 2, damage: 0 },
+      { attackerSide: "friend", defenderIdx: 1, damage: 0 },
+      { attackerSide: "friend", defenderIdx: 2, damage: 5 },
+    ]);
+  });
+
   it("extracts array-format Friendly Force shelling rows", () => {
     const events = buildTimelineEvents({
       battle_order: [{ FriendlyForceAttack: 0 }],

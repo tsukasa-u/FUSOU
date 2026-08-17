@@ -245,6 +245,25 @@ export function buildTimelineEvents(
     // no-damage slot, not a 1-based dummy. Shifting causes defender index drift.
     const fDam = nullableNumberArray(d["f_damages"]);
     const eDam = nullableNumberArray(d["e_damages"]);
+    const fRaiFlag = nullableNumberArray(d["f_rai_flag"]);
+    const fBakFlag = nullableNumberArray(d["f_bak_flag"]);
+    const eRaiFlag = nullableNumberArray(d["e_rai_flag"]);
+    const eBakFlag = nullableNumberArray(d["e_bak_flag"]);
+    const hasAirTargetFlags = (side: "friend" | "enemy"): boolean =>
+      side === "friend"
+        ? Array.isArray(d["f_rai_flag"]) || Array.isArray(d["f_bak_flag"])
+        : Array.isArray(d["e_rai_flag"]) || Array.isArray(d["e_bak_flag"]);
+    const isAirTarget = (
+      damage: number,
+      index: number,
+      raiFlags: Array<number | null>,
+      bakFlags: Array<number | null>,
+      hasTargetFlags: boolean,
+    ): boolean =>
+      damage > 0 ||
+      !hasTargetFlags ||
+      (raiFlags[index] ?? 0) > 0 ||
+      (bakFlags[index] ?? 0) > 0;
     const fFrom = safeNumberArray(d["f_plane_from"]).filter((v) => v >= 0);
     const eFrom = safeNumberArray(d["e_plane_from"]).filter((v) => v >= 0);
     const fNow = nullableNumberArray(d["f_now_hps"] ?? d["f_nowhps"]);
@@ -255,7 +274,17 @@ export function buildTimelineEvents(
 
     for (let i = 0; i < fDam.length; i++) {
       const dmg = fDam[i] ?? null;
-      if (dmg === null || dmg < 0) continue;
+      if (
+        dmg === null ||
+        dmg < 0 ||
+        !isAirTarget(
+          dmg,
+          i,
+          fRaiFlag,
+          fBakFlag,
+          hasAirTargetFlags("friend"),
+        )
+      ) continue;
       const beforeHp = fNow[i] ?? null;
       const afterHp =
         beforeHp === null ? null : Math.max(0, beforeHp - dmg);
@@ -281,7 +310,17 @@ export function buildTimelineEvents(
     }
     for (let i = 0; i < eDam.length; i++) {
       const dmg = eDam[i] ?? null;
-      if (dmg === null || dmg < 0) continue;
+      if (
+        dmg === null ||
+        dmg < 0 ||
+        !isAirTarget(
+          dmg,
+          i,
+          eRaiFlag,
+          eBakFlag,
+          hasAirTargetFlags("enemy"),
+        )
+      ) continue;
       const beforeHp = eNow[i] ?? null;
       const afterHp =
         beforeHp === null ? null : Math.max(0, beforeHp - dmg);
