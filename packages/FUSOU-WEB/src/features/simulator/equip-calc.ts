@@ -12,7 +12,12 @@ import {
   getMasterShip,
   getSokuSpeedData,
 } from "./simulator-selectors";
-import type { EffectRule, CrossRule, SlotItemEffectsData } from "./types";
+import type {
+  CrossRule,
+  EffectRule,
+  MultiItemRule,
+  SlotItemEffectsData,
+} from "./types";
 
 /** Binomial coefficient C(n, k). */
 function choose(n: number, k: number): number {
@@ -53,6 +58,23 @@ function countBoundedMultisets(available: number[], pick: number): number {
     for (let i = 0; i <= pick; i++) dp[i] = next[i];
   }
   return dp[pick];
+}
+
+function decodeIndexedCombo(
+  items: number[],
+  indexes: ArrayLike<number>,
+  base: number,
+  comboSize: number,
+): number[] | null {
+  const combo: number[] = [];
+  for (let j = 0; j < comboSize; j++) {
+    const itemIndex = indexes[base + j];
+    if (itemIndex === undefined) return null;
+    const item = items[itemIndex];
+    if (item === undefined) return null;
+    combo.push(item);
+  }
+  return combo;
 }
 
 // ── Lazy-built lookup indices for effect_rules and cross_rules ─────
@@ -136,10 +158,13 @@ function isSortedMultisetSubset(subset: number[], superset: number[]): boolean {
   let si = 0;
   let pi = 0;
   while (si < subset.length && pi < superset.length) {
-    if (subset[si] === superset[pi]) {
+    const subsetItem = subset[si];
+    const supersetItem = superset[pi];
+    if (subsetItem === undefined || supersetItem === undefined) return false;
+    if (subsetItem === supersetItem) {
       si++;
       pi++;
-    } else if (superset[pi] < subset[si]) {
+    } else if (supersetItem < subsetItem) {
       pi++;
     } else return false; // subset[si] < superset[pi]: element not in superset
   }
@@ -155,11 +180,14 @@ export function intersectSorted(a: number[], b: number[]): number[] {
   let ai = 0;
   let bi = 0;
   while (ai < a.length && bi < b.length) {
-    if (a[ai] === b[bi]) {
-      result.push(a[ai]);
+    const aItem = a[ai];
+    const bItem = b[bi];
+    if (aItem === undefined || bItem === undefined) break;
+    if (aItem === bItem) {
+      result.push(aItem);
       ai++;
       bi++;
-    } else if (a[ai] < b[bi]) {
+    } else if (aItem < bItem) {
       ai++;
     } else {
       bi++;
@@ -188,7 +216,7 @@ export function computeSuppressedEquipIds(
   const equippedSet = new Set(allIds);
 
   const checkMultiRule = (
-    rule: any,
+    rule: MultiItemRule,
     comboSize: number,
   ) => {
     if (!rule.ships.includes(shipId)) return;
@@ -206,7 +234,8 @@ export function computeSuppressedEquipIds(
       for (const { pool, count } of poolMap.values()) {
         let overlap = 0;
         for (let i = 0; i < pool.length; i++) {
-          if (equippedSet.has(pool[i])) overlap++;
+          const itemId = pool[i];
+          if (itemId !== undefined && equippedSet.has(itemId)) overlap++;
         }
         if (overlap < count) {
           times = 0;
@@ -228,7 +257,8 @@ export function computeSuppressedEquipIds(
         for (const { pool, count } of poolMap.values()) {
           let overlap = 0;
           for (let i = 0; i < pool.length; i++) {
-            if (equippedSet.has(pool[i])) overlap++;
+            const itemId = pool[i];
+            if (itemId !== undefined && equippedSet.has(itemId)) overlap++;
           }
           if (overlap < count) {
             times = 0;
@@ -268,8 +298,8 @@ export function computeSuppressedEquipIds(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (hasEnoughItems(itemCountMap, comboIds)) {
           isActive = true;
           break outer;
@@ -285,8 +315,8 @@ export function computeSuppressedEquipIds(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (hasEnoughItems(itemCountMap, comboIds)) {
           isActive = true;
           break outer;
@@ -302,8 +332,8 @@ export function computeSuppressedEquipIds(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (hasEnoughItems(itemCountMap, comboIds)) {
           isActive = true;
           break outer;
@@ -438,14 +468,15 @@ export function computeEquipBonuses(
 
   const itemGroups: Record<number, number[]> = {};
   for (const item of allItems) {
-    if (!itemGroups[item.id]) itemGroups[item.id] = [];
-    itemGroups[item.id].push(item.improvement);
+    const levels = itemGroups[item.id] ?? (itemGroups[item.id] = []);
+    levels.push(item.improvement);
   }
 
   // Single-item bonuses
   for (const idStr of Object.keys(itemGroups)) {
     const id = parseInt(idStr, 10);
     const levels = itemGroups[id];
+    if (!levels) continue;
     const count = levels.length;
     const entries = _effectIndex.get(id);
     if (!entries) continue;
@@ -501,8 +532,11 @@ export function computeEquipBonuses(
   const uniqueIds = Object.keys(itemGroups).map(Number);
   for (let i = 0; i < uniqueIds.length; i++) {
     for (let j = i + 1; j < uniqueIds.length; j++) {
-      const a = Math.min(uniqueIds[i], uniqueIds[j]);
-      const b = Math.max(uniqueIds[i], uniqueIds[j]);
+      const firstId = uniqueIds[i];
+      const secondId = uniqueIds[j];
+      if (firstId === undefined || secondId === undefined) continue;
+      const a = Math.min(firstId, secondId);
+      const b = Math.max(firstId, secondId);
       const entries = _crossIndex.get(`${a}:${b}`);
       if (!entries) continue;
       for (const entry of entries) {
@@ -561,7 +595,8 @@ export function computeEquipBonuses(
       for (const { pool, count } of poolMap.values()) {
         let overlap = 0;
         for (let i = 0; i < pool.length; i++) {
-          if (equippedSet.has(pool[i])) overlap++;
+          const itemId = pool[i];
+          if (itemId !== undefined && equippedSet.has(itemId)) overlap++;
         }
         if (overlap < count) {
           times = 0;
@@ -584,7 +619,8 @@ export function computeEquipBonuses(
         for (const { pool, count } of poolMap.values()) {
           let overlap = 0;
           for (let i = 0; i < pool.length; i++) {
-            if (equippedSet.has(pool[i])) overlap++;
+            const itemId = pool[i];
+            if (itemId !== undefined && equippedSet.has(itemId)) overlap++;
           }
           if (overlap < count) {
             times = 0;
@@ -638,8 +674,8 @@ export function computeEquipBonuses(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
         applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
@@ -659,8 +695,8 @@ export function computeEquipBonuses(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
         applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
@@ -680,8 +716,8 @@ export function computeEquipBonuses(
       const count = buf.length / comboSize;
       outer: for (let ci = 0; ci < count; ci++) {
         const base = ci * comboSize;
-        const comboIds: number[] = [];
-        for (let j = 0; j < comboSize; j++) comboIds.push(rule.items[buf[base + j]]);
+        const comboIds = decodeIndexedCombo(rule.items, buf, base, comboSize);
+        if (!comboIds) continue outer;
         if (!hasEnoughItems(itemCountMap, comboIds)) continue outer;
         applyRuleContribution(rule.synergy, 1, rule.exclusive_group);
       }
@@ -752,9 +788,13 @@ export function computeEquipBonuses(
         for (const [sokuTier, idArrays] of tierMap) {
           // Intersect all item_id arrays for this tier to derive the minimal
           // required item set (items present in every observation of this tier).
-          let required = [...idArrays[0]];
+          const firstIds = idArrays[0];
+          if (!firstIds) continue;
+          let required = [...firstIds];
           for (let k = 1; k < idArrays.length; k++) {
-            required = intersectSorted(required, idArrays[k]);
+            const ids = idArrays[k];
+            if (!ids) continue;
+            required = intersectSorted(required, ids);
           }
 
           if (required.length > 0) {
@@ -776,7 +816,8 @@ export function computeEquipBonuses(
         }
 
         if (bestSoku > baseSoku) {
-          bonuses.soku = (bonuses.soku || 0) + (bestSoku - baseSoku);
+          bonuses["soku"] =
+            (bonuses["soku"] || 0) + (bestSoku - baseSoku);
         }
       }
     }
@@ -815,10 +856,10 @@ export function computeEquipSum(
       if (v) sums[k] = (sums[k] || 0) + v;
     }
     const eqKaih = eq.kaih ?? eq.houk ?? 0;
-    if (eqKaih) sums.kaih = (sums.kaih || 0) + eqKaih;
+    if (eqKaih) sums["kaih"] = (sums["kaih"] || 0) + eqKaih;
     const eqLeng = eq.leng || 0;
     if (eqLeng) {
-      sums.leng = Math.max(sums.leng || 0, eqLeng);
+      sums["leng"] = Math.max(sums["leng"] || 0, eqLeng);
     }
   }
   return sums;

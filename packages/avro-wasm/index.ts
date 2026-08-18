@@ -88,9 +88,13 @@ export async function validateAvroOCF(
   return {
     valid: result.valid,
     recordCount: result.record_count ?? 0,
-    errorMessage: result.error_message ?? undefined,
-    tableName: result.table_name ?? undefined,
-    tableVersion: result.table_version ?? undefined,
+    ...(result.error_message === undefined
+      ? {}
+      : { errorMessage: result.error_message }),
+    ...(result.table_name === undefined ? {} : { tableName: result.table_name }),
+    ...(result.table_version === undefined
+      ? {}
+      : { tableVersion: result.table_version }),
   };
 }
 
@@ -115,9 +119,13 @@ export async function validateAvroOCFSmart(
   return {
     valid: result.valid,
     recordCount: result.record_count ?? 0,
-    errorMessage: result.error_message ?? undefined,
-    tableName: result.table_name ?? undefined,
-    tableVersion: result.table_version ?? undefined,
+    ...(result.error_message === undefined
+      ? {}
+      : { errorMessage: result.error_message }),
+    ...(result.table_name === undefined ? {} : { tableName: result.table_name }),
+    ...(result.table_version === undefined
+      ? {}
+      : { tableVersion: result.table_version }),
   };
 }
 
@@ -136,9 +144,13 @@ export async function validateAvroOCFByTable(
   return {
     valid: result.valid,
     recordCount: result.record_count ?? 0,
-    errorMessage: result.error_message ?? undefined,
+    ...(result.error_message === undefined
+      ? {}
+      : { errorMessage: result.error_message }),
     tableName: result.table_name ?? tableName,
-    tableVersion: result.table_version ?? undefined,
+    ...(result.table_version === undefined
+      ? {}
+      : { tableVersion: result.table_version }),
   };
 }
 
@@ -166,9 +178,9 @@ export async function matchClientSchema(
 
   return {
     matched: result.matched,
-    tableName: result.table_name ?? undefined,
-    version: result.version ?? undefined,
-    error: result.error ?? undefined,
+    ...(result.table_name === undefined ? {} : { tableName: result.table_name }),
+    ...(result.version === undefined ? {} : { version: result.version }),
+    ...(result.error === undefined ? {} : { error: result.error }),
   };
 }
 

@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 const brotliDecompressAsync = promisify(brotliDecompress);
-import type { Bindings } from "../types";
+import type { Bindings, R2BucketBinding } from "../types";
 import {
   MAX_UPLOAD_BYTES,
   CACHE_CONTROL,
@@ -27,6 +27,19 @@ import {
   bumpAssetIndexRevision,
   getAssetSyncKeysResponse,
 } from "../utils/asset-index-cache";
+import {
+  AssetKeyRowSchema,
+  AssetContentHashRowSchema,
+  AssetHashLookupRowSchema,
+  CacheClearKeysSchema,
+  EquipImageMapCacheSchema,
+  parseAssetKeyRows,
+  ShipBannerMapCacheSchema,
+  ShipCardMapCacheSchema,
+  ShipIconMapCacheSchema,
+  SpriteAtlasSchema,
+} from "../schemas/assets";
+import { AssetUploadTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const TRANSPARENT_PNG_1X1 = new Uint8Array([
@@ -35,6 +48,25 @@ const TRANSPARENT_PNG_1X1 = new Uint8Array([
   156, 99, 0, 1, 0, 0, 5, 0, 1, 13, 10, 45, 180, 0, 0, 0, 0, 73, 69, 78, 68,
   174, 66, 96, 130,
 ]);
+
+async function listAllAssetKeys(
+  bucket: R2BucketBinding,
+  prefix: string,
+): Promise<Array<{ key: string }>> {
+  const objects: Array<{ key: string }> = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const listed = cursor === undefined
+      ? await bucket.list({ prefix, limit: 1000 })
+      : await bucket.list({ prefix, limit: 1000, cursor });
+    objects.push(...listed.objects.map(({ key }) => ({ key })));
+    if (!listed.truncated || !listed.cursor) break;
+    cursor = listed.cursor;
+  }
+
+  return objects;
+}
 
 // OPTIONS（CORS）
 app.options(
@@ -45,8 +77,8 @@ app.options(
 // POST /upload
 app.post("/upload", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
   const signingSecret = getEnv(envCtx, "ASSET_UPLOAD_SIGNING_SECRET");
 
   if (!bucket || !db || !signingSecret) {
@@ -66,26 +98,31 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    tokenPayloadSchema: AssetUploadTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SIGNED_URL_TTL_SECONDS,
     maxBodySize: MAX_UPLOAD_BYTES,
 
     // Preparation validation - check extension, size, hash, uniqueness
     preparationValidator: async (body, _user) => {
-      const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
+      const key = sanitizeKey(
+        typeof body["key"] === "string" ? body["key"] : null,
+      );
       if (!key) {
         return c.json({ error: "Invalid or empty key" }, 400);
       }
 
       const relativePath = sanitizeKey(
-        typeof body.relative_path === "string" ? body.relative_path : null,
+        typeof body["relative_path"] === "string"
+          ? body["relative_path"]
+          : null,
       );
       if (!relativePath) {
         return c.json({ error: "Invalid relative_path" }, 400);
       }
 
       const declaredSize = parseSize(
-        typeof body.file_size === "string" ? body.file_size : undefined,
+        typeof body["file_size"] === "string" ? body["file_size"] : undefined,
       );
       if (
         !declaredSize ||
@@ -96,13 +133,15 @@ app.post("/upload", async (c) => {
       }
 
       const contentHash =
-        typeof body.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       if (!contentHash) {
         return c.json({ error: "content_hash (SHA-256) is required" }, 400);
       }
 
       const fileName = sanitizeFileName(
-        typeof body.file_name === "string" ? body.file_name : null,
+        typeof body["file_name"] === "string" ? body["file_name"] : null,
       );
       const candidateNames = [fileName, key, relativePath];
 
@@ -121,7 +160,11 @@ app.post("/upload", async (c) => {
         const existingRes = await existingStmt.bind(key).first();
 
         if (existingRes) {
-          const existingHash = existingRes.content_hash as string | null;
+          const parsedExisting = AssetContentHashRowSchema.safeParse(existingRes);
+          if (!parsedExisting.success) {
+            return c.json({ error: "Invalid asset index row" }, 500);
+          }
+          const existingHash = parsedExisting.data.content_hash ?? null;
           if (existingHash === contentHash) {
             // Content unchanged - return 409 Conflict
             return c.json(
@@ -168,16 +211,16 @@ app.post("/upload", async (c) => {
 
     // Execution processing - validate size, upload to R2, record to D1
     executionProcessor: async (tokenPayload, data, user) => {
-      const key = tokenPayload.key;
-      const declaredSize = tokenPayload.declared_size;
+      const key = tokenPayload["key"];
+      const declaredSize = tokenPayload["declared_size"];
 
-      if (!key || !declaredSize) {
+      if (typeof key !== "string" || !key || !declaredSize) {
         return c.json({ error: "Invalid token payload" }, 400);
       }
 
       // Verify content_hash of uploaded data against the hash committed in Stage 1.
       const expectedHash = String(
-        tokenPayload.content_hash ?? "",
+        tokenPayload["content_hash"] ?? "",
       ).toLowerCase();
       if (!expectedHash) {
         return c.json(
@@ -205,7 +248,8 @@ app.post("/upload", async (c) => {
         );
       }
 
-      const result = await bucket.put(key, data, {
+      const uploadBytes = data.slice().buffer as ArrayBuffer;
+      const result = await bucket.put(key, uploadBytes, {
         httpMetadata: {
           contentType: "application/octet-stream",
           cacheControl: CACHE_CONTROL,
@@ -229,18 +273,23 @@ app.post("/upload", async (c) => {
           user.id,
           null,
           JSON.stringify({ synced_at: uploadedAt }),
-          tokenPayload.content_hash,
+          tokenPayload["content_hash"],
           new Date(uploadedAt).toISOString(),
         )
         .run();
 
       await bumpAssetIndexRevision(db, uploadedAt);
 
-      const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
-      if (kv && typeof tokenPayload.caches_to_clear === "string") {
+      const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
+      if (kv && typeof tokenPayload["caches_to_clear"] === "string") {
         try {
-          const cachesToClear = JSON.parse(tokenPayload.caches_to_clear) as string[];
-          for (const cacheKey of cachesToClear) {
+          const parsedCachesToClear = CacheClearKeysSchema.safeParse(
+            JSON.parse(tokenPayload["caches_to_clear"]),
+          );
+          if (!parsedCachesToClear.success) {
+            throw new Error("Invalid cache clear keys");
+          }
+          for (const cacheKey of parsedCachesToClear.data) {
             await kv.delete(cacheKey);
             console.info(`[asset-sync] Cleared KV cache: ${cacheKey}`);
           }
@@ -276,8 +325,8 @@ app.get("/keys", async (c) => {
   }
 
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
 
   if (!db) {
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
@@ -330,7 +379,7 @@ app.get("/check-hash", async (c) => {
   }
 
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Database not configured" }, 503);
@@ -348,12 +397,17 @@ app.get("/check-hash", async (c) => {
     const result = await stmt.bind(contentHash).first();
 
     if (result) {
+      const parsedResult = AssetHashLookupRowSchema.safeParse(result);
+      if (!parsedResult.success) {
+        return c.json({ error: "Invalid asset lookup row" }, 500);
+      }
+      const file = parsedResult.data;
       return c.json({
         exists: true,
         file: {
-          key: result.key,
-          size: result.size,
-          uploadedAt: result.uploaded_at,
+          key: file.key,
+          size: file.size,
+          uploadedAt: file.uploaded_at,
         },
       });
     } else {
@@ -381,9 +435,9 @@ app.get("/mime", async (c) => {
  */
 app.get("/ship-banner-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -394,12 +448,17 @@ app.get("/ship-banner-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-banner-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipBannerMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -421,12 +480,12 @@ app.get("/ship-banner-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/banner\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!banners[shipId]) banners[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!banners[shipId]) banners[shipId] = row.key;
           }
         }
       } catch (d1Err) {
@@ -439,14 +498,15 @@ app.get("/ship-banner-map", async (c) => {
 
     // Fallback: R2 list if D1 was empty
     if (Object.keys(banners).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/banner/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/banner/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/banner\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
+        const shipIdPart = match?.[1];
+        if (shipIdPart) {
+          const shipId = String(parseInt(shipIdPart, 10));
           if (!banners[shipId]) banners[shipId] = obj.key;
         }
       }
@@ -480,9 +540,9 @@ app.get("/ship-banner-map", async (c) => {
  */
 app.get("/ship-card-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -493,12 +553,17 @@ app.get("/ship-card-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-card-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipCardMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -520,12 +585,12 @@ app.get("/ship-card-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/card\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!cards[shipId]) cards[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!cards[shipId]) cards[shipId] = row.key;
           }
         }
       } catch {
@@ -535,14 +600,15 @@ app.get("/ship-card-map", async (c) => {
 
     // Fallback: R2 list if D1 was empty
     if (Object.keys(cards).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/card/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/card/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/card\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
+        const shipIdPart = match?.[1];
+        if (shipIdPart) {
+          const shipId = String(parseInt(shipIdPart, 10));
           if (!cards[shipId]) cards[shipId] = obj.key;
         }
       }
@@ -576,9 +642,9 @@ app.get("/ship-card-map", async (c) => {
  */
 app.get("/ship-icon-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -589,12 +655,17 @@ app.get("/ship-icon-map", async (c) => {
     try {
       const cached = await kv.get("cache:ship-icon-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = ShipIconMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -616,12 +687,12 @@ app.get("/ship-icon-map", async (c) => {
           )
           .all();
         if (rows.results) {
-          for (const row of rows.results as { key: string }[]) {
+          for (const row of parseAssetKeyRows(rows.results)) {
             const match = row.key.match(/\/reward_icon\/(\d{4})_/);
-            if (match) {
-              const shipId = String(parseInt(match[1], 10));
-              if (!icons[shipId]) icons[shipId] = row.key;
-            }
+            const capture = match?.[1];
+            if (!capture) continue;
+            const shipId = String(parseInt(capture, 10));
+            if (!icons[shipId]) icons[shipId] = row.key;
           }
         }
       } catch {
@@ -630,16 +701,16 @@ app.get("/ship-icon-map", async (c) => {
     }
 
     if (Object.keys(icons).length === 0 && bucket) {
-      const listed = await bucket.list({
-        prefix: "assets/kcs2/resources/ship/reward_icon/",
-        limit: 1000,
-      });
-      for (const obj of listed.objects) {
+      const listed = await listAllAssetKeys(
+        bucket,
+        "assets/kcs2/resources/ship/reward_icon/",
+      );
+      for (const obj of listed) {
         const match = obj.key.match(/\/reward_icon\/(\d{4})_/);
-        if (match) {
-          const shipId = String(parseInt(match[1], 10));
-          if (!icons[shipId]) icons[shipId] = obj.key;
-        }
+        const capture = match?.[1];
+        if (!capture) continue;
+        const shipId = String(parseInt(capture, 10));
+        if (!icons[shipId]) icons[shipId] = obj.key;
       }
     }
 
@@ -671,8 +742,8 @@ app.get("/ship-icon-map", async (c) => {
  */
 app.get("/equip-image-map", async (c) => {
   const envCtx = createEnvContext(c);
-  const db = envCtx.runtime.ASSET_INDEX_DB;
-  const kv = envCtx.runtime.ASSET_SYNC_INDEX_KV;
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
+  const kv = envCtx.runtime["ASSET_SYNC_INDEX_KV"];
   const assetBaseUrl = getEnv(envCtx, "ASSET_BASE_URL") || "";
 
   const cacheControl = envCtx.isDev
@@ -683,12 +754,17 @@ app.get("/equip-image-map", async (c) => {
     try {
       const cached = await kv.get("cache:equip-image-map");
       if (cached) {
-        const parsed = JSON.parse(cached);
-        parsed.base_url = assetBaseUrl;
-        return c.json(parsed, 200, {
-          "Cache-Control": cacheControl,
-          ...CORS_HEADERS,
-        });
+        const parsed = EquipImageMapCacheSchema.safeParse(JSON.parse(cached));
+        if (parsed.success) {
+          return c.json(
+            { ...parsed.data, base_url: assetBaseUrl },
+            200,
+            {
+              "Cache-Control": cacheControl,
+              ...CORS_HEADERS,
+            },
+          );
+        }
       }
     } catch (e) {
       console.warn("[asset-sync] KV get error:", e);
@@ -711,10 +787,11 @@ app.get("/equip-image-map", async (c) => {
       .all();
 
     if (rows.results) {
-      for (const row of rows.results as { key: string }[]) {
+      for (const row of parseAssetKeyRows(rows.results)) {
         const match = row.key.match(/\/slot\/(card|item_on|item_up)\/(\d{4})_/);
         if (!match) continue;
         const [, type, padded] = match;
+        if (!type || !padded) continue;
         const equipId = String(parseInt(padded, 10));
         const target = type === "card" ? card : type === "item_on" ? itemOn : itemUp;
         if (!target[equipId]) target[equipId] = row.key;
@@ -762,8 +839,8 @@ app.get("/equip-image-map", async (c) => {
  */
 app.get("/ship-banner/:shipId", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
-  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
+  const db = envCtx.runtime["ASSET_INDEX_DB"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -784,11 +861,12 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     if (db) {
       try {
-        const result = (await db
+        const result = await db
           .prepare("SELECT key FROM files WHERE key LIKE ? LIMIT 1")
           .bind(`${prefix}%`)
-          .first()) as { key: string } | null;
-        if (result) r2Key = result.key;
+          .first();
+        const parsed = AssetKeyRowSchema.safeParse(result);
+        if (parsed.success) r2Key = parsed.data.key;
       } catch {
         // D1 not available
       }
@@ -796,8 +874,9 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     if (!r2Key && bucket) {
       const listed = await bucket.list({ prefix, limit: 1 });
-      if (listed.objects.length > 0) {
-        r2Key = listed.objects[0].key;
+      const firstObject = listed.objects[0];
+      if (firstObject) {
+        r2Key = firstObject.key;
       }
     }
 
@@ -807,9 +886,7 @@ app.get("/ship-banner/:shipId", async (c) => {
 
     // Conditional request: check If-None-Match
     const ifNoneMatch = c.req.header("If-None-Match");
-    const r2Object = await bucket.get(r2Key, {
-      onlyIf: ifNoneMatch ? undefined : undefined,
-    });
+    const r2Object = await bucket.get(r2Key);
     if (!r2Object) {
       return new Response(null, { status: 404 });
     }
@@ -846,7 +923,7 @@ app.get("/ship-banner/:shipId", async (c) => {
  */
 app.get("/weapon-icons", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -906,7 +983,7 @@ app.get("/weapon-icons", async (c) => {
  */
 app.get("/ship-type-icons", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -974,7 +1051,7 @@ app.get("/ship-type-icons", async (c) => {
  */
 app.get("/weapon-icon-frames", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -1001,15 +1078,19 @@ app.get("/weapon-icon-frames", async (c) => {
     // Always return plain JSON. Some clients do not transparently decode
     // ad-hoc Content-Encoding from this endpoint, which breaks JSON parsing.
     // Fall back to async Brotli decompression if the object was stored compressed.
-    let parsedAtlas: unknown;
+    let atlasCandidate: unknown;
     try {
-      parsedAtlas = JSON.parse(new TextDecoder().decode(atlasRaw));
+      atlasCandidate = JSON.parse(new TextDecoder().decode(atlasRaw));
     } catch {
       const decompressed = await brotliDecompressAsync(atlasRaw);
-      parsedAtlas = JSON.parse(decompressed.toString("utf8"));
+      atlasCandidate = JSON.parse(decompressed.toString("utf8"));
+    }
+    const parsedAtlas = SpriteAtlasSchema.safeParse(atlasCandidate);
+    if (!parsedAtlas.success) {
+      throw new Error("Invalid weapon sprite atlas shape");
     }
 
-    return new Response(JSON.stringify(parsedAtlas), {
+    return new Response(JSON.stringify(parsedAtlas.data), {
       status: 200,
       headers: {
         "Content-Type": "application/json",
@@ -1035,7 +1116,7 @@ app.get("/weapon-icon-frames", async (c) => {
  */
 app.get("/ship-type-icon-frames", async (c) => {
   const envCtx = createEnvContext(c);
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Asset storage not configured" }, 503);
@@ -1061,12 +1142,17 @@ app.get("/ship-type-icon-frames", async (c) => {
 
     const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
     let decodedJson = new TextDecoder().decode(atlasRaw);
+    let atlasCandidate: unknown;
     try {
-      JSON.parse(decodedJson);
+      atlasCandidate = JSON.parse(decodedJson);
     } catch {
       const decompressed = await brotliDecompressAsync(atlasRaw);
       decodedJson = decompressed.toString("utf8");
-      JSON.parse(decodedJson);
+      atlasCandidate = JSON.parse(decodedJson);
+    }
+    const parsedAtlas = SpriteAtlasSchema.safeParse(atlasCandidate);
+    if (!parsedAtlas.success) {
+      throw new Error("Invalid ship type sprite atlas shape");
     }
 
     return new Response(decodedJson, {
@@ -1136,7 +1222,7 @@ app.get("/image-proxy", async (c) => {
   // ── R2 direct access (primary path on Cloudflare Workers) ────────────────
   // The ASSET_SYNC_BUCKET binding serves the same bucket that backs ASSET_BASE_URL.
   // Using the binding avoids an outbound HTTP request and all associated QUIC issues.
-  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const bucket = envCtx.runtime["ASSET_SYNC_BUCKET"];
   if (bucket) {
     const r2Key = target.pathname.replace(/^\//, "");
     if (!r2Key) {
@@ -1151,7 +1237,7 @@ app.get("/image-proxy", async (c) => {
     try {
       const r2Object = await bucket.get(r2Key);
       if (r2Object) {
-        return new Response(r2Object.body, {
+        return new Response(r2Object.body as unknown as ReadableStream, {
           status: 200,
           headers: {
             "Content-Type": contentType,

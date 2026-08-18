@@ -1,6 +1,6 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Bindings, R2ObjectLite } from "../types";
 import {
   createEnvContext,
@@ -19,6 +19,12 @@ import {
   SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
+import {
+  FleetMemberMapRowSchema,
+  FleetRotationRowsSchema,
+  parseFleetSnapshotPayload,
+} from "../schemas/fleet";
+import { FleetSnapshotTokenPayloadSchema } from "../schemas/tokens";
 
 const DATASET_ID_PATTERN = /^[a-f0-9]{64}$/;
 const MAX_ROTATION_HOPS = 5;
@@ -36,7 +42,7 @@ type FleetAuthResolution = {
   actorUserId: string;
   authSource: AuthSource;
   canonicalDatasetId: string | null;
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
 };
 
 type FleetAuthFailure = {
@@ -92,10 +98,10 @@ async function listAllObjectsByPrefix(
   for (let page = 0; page < MAX_R2_LIST_PAGES; page += 1) {
     const listed = await bucket.list({
       prefix,
-      cursor,
+      ...(cursor === undefined ? {} : { cursor }),
       limit: R2_LIST_PAGE_LIMIT,
     });
-    out.push(...((listed.objects ?? []) as R2ObjectLite[]));
+    out.push(...(listed.objects ?? []));
 
     if (!listed.truncated) {
       return { objects: out, pagesScanned: page + 1 };
@@ -113,7 +119,7 @@ async function listAllObjectsByPrefix(
 }
 
 async function resolveCanonicalDatasetIdBestEffort(options: {
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
   actorUserId: string;
   fallbackDatasetId?: string | null;
 }): Promise<string | null> {
@@ -138,7 +144,10 @@ async function resolveCanonicalDatasetIdBestEffort(options: {
       return fallback;
     }
 
-    return normalizeDatasetId(data?.member_id_hash) ?? fallback;
+    const parsedData = FleetMemberMapRowSchema.safeParse(data);
+    return normalizeDatasetId(
+      parsedData.success ? parsedData.data.member_id_hash : null,
+    ) ?? fallback;
   } catch (err) {
     console.warn(
       "[fleet] canonical dataset lookup threw; falling back to current dataset",
@@ -149,7 +158,7 @@ async function resolveCanonicalDatasetIdBestEffort(options: {
 }
 
 async function resolveFleetDatasetCandidates(options: {
-  supabaseAdmin: any | null;
+  supabaseAdmin: SupabaseClient | null;
   actorUserId: string;
   currentDatasetId: string;
   canonicalDatasetId: string | null;
@@ -184,8 +193,10 @@ async function resolveFleetDatasetCandidates(options: {
     visited.size < MAX_CANDIDATE_DATASET_IDS;
     hop += 1
   ) {
-    const rows: Array<{ pid_from?: string | null; pid_to?: string | null }> =
-      [];
+    const rows: Array<{
+      pid_from?: string | null | undefined;
+      pid_to?: string | null | undefined;
+    }> = [];
     let queryFailed = false;
 
     for (let page = 0; page < MAX_ROTATION_QUERY_PAGES; page += 1) {
@@ -225,9 +236,8 @@ async function resolveFleetDatasetCandidates(options: {
         break;
       }
 
-      const pageRows = Array.isArray(data)
-        ? (data as Array<{ pid_from?: string | null; pid_to?: string | null }>)
-        : [];
+      const parsedPageRows = FleetRotationRowsSchema.safeParse(data);
+      const pageRows = parsedPageRows.success ? parsedPageRows.data : [];
       rows.push(...pageRows);
 
       if ((dataFrom?.length || 0) < ROTATION_QUERY_PAGE_SIZE && (dataTo?.length || 0) < ROTATION_QUERY_PAGE_SIZE) {
@@ -285,7 +295,7 @@ async function resolveFleetDatasetCandidates(options: {
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
  */
 async function resolveDatasetId(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
 ): Promise<FleetAuthResolution | FleetAuthFailure> {
   const env = createEnvContext(c);
 
@@ -308,7 +318,7 @@ async function resolveDatasetId(
     }
 
     const actorUserId = tokenValidation.token.user_id;
-    let supabaseAdmin: any | null = null;
+    let supabaseAdmin: SupabaseClient | null = null;
     const envCtx = createEnvContext(c);
     const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
     if (url && serviceRoleKey) {
@@ -368,7 +378,7 @@ async function resolveDatasetId(
       const resolvedMember = await resolveLinkedMemberIdHashForUser({
         supabaseAdmin,
         userId: user.id,
-        jwtPayload: user.payload,
+        ...(user.payload === undefined ? {} : { jwtPayload: user.payload }),
       });
 
       console.log("[fleet] dataset resolution result:", {
@@ -434,7 +444,7 @@ app.options(
 // POST /snapshot
 app.post("/snapshot", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
   const signingSecret = getEnv(env, "FLEET_SNAPSHOT_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
@@ -444,14 +454,18 @@ app.post("/snapshot", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
+    tokenPayloadSchema: FleetSnapshotTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _user, authContext) => {
-      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const rawTag =
+        typeof body?.["tag"] === "string" ? body["tag"].trim() : "";
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+        typeof body?.["dataset_id"] === "string"
+          ? body["dataset_id"].trim()
+          : "";
       if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
@@ -459,7 +473,9 @@ app.post("/snapshot", async (c) => {
 
       const datasetId = datasetIdFromToken || requestedDatasetId;
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
 
       if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
@@ -490,10 +506,11 @@ app.post("/snapshot", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, _user) => {
-      const tag = tokenPayload.tag;
+      const tag =
+        typeof tokenPayload["tag"] === "string" ? tokenPayload["tag"] : "";
       const datasetId =
-        typeof tokenPayload?.dataset_id === "string"
-          ? tokenPayload.dataset_id.trim()
+        typeof tokenPayload?.["dataset_id"] === "string"
+          ? tokenPayload["dataset_id"].trim()
           : "";
 
       if (!tag) {
@@ -511,7 +528,7 @@ app.post("/snapshot", async (c) => {
       // This ensures data integrity across the two-stage upload and matches the pattern
       // used by remodel_data.ts, ship_growth.ts and master_data.ts.
       const expectedHash = String(
-        tokenPayload.content_hash ?? "",
+        tokenPayload["content_hash"] ?? "",
       ).toLowerCase();
       if (!expectedHash) {
         return c.json(
@@ -537,8 +554,21 @@ app.post("/snapshot", async (c) => {
         );
       }
 
-      // Treat very small payloads as empty and skip upload
-      if (data && data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
+      // Parse and validate payload from data
+      let payload: ReturnType<typeof parseFleetSnapshotPayload>;
+      try {
+        const text = new TextDecoder().decode(data);
+        payload = parseFleetSnapshotPayload(JSON.parse(text));
+      } catch {
+        return c.json({ error: "Invalid JSON payload" }, 400);
+      }
+
+      if (!payload) {
+        return c.json({ error: "Invalid fleet snapshot payload" }, 400);
+      }
+
+      // Treat very small valid payloads as empty and skip upload
+      if (data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
         return {
           response: {
             ok: true,
@@ -547,26 +577,6 @@ app.post("/snapshot", async (c) => {
             tag,
           },
         };
-      }
-
-      // Parse and validate payload from data
-      let payload: any;
-      try {
-        const text = new TextDecoder().decode(data);
-        payload = JSON.parse(text);
-      } catch {
-        return c.json({ error: "Invalid JSON payload" }, 400);
-      }
-
-      const isEmptyObject =
-        payload !== null &&
-        typeof payload === "object" &&
-        !Array.isArray(payload) &&
-        Object.keys(payload).length === 0;
-      const isEmptyArray = Array.isArray(payload) && payload.length === 0;
-
-      if (isEmptyObject || isEmptyArray) {
-        return c.json({ error: "Empty payload is not allowed" }, 400);
       }
 
       // Compress JSON payload
@@ -618,12 +628,12 @@ app.post("/snapshot", async (c) => {
         const toKeep = new Set(
           sorted
             .slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1))
-            .map((o: any) => o.key),
+            .map((o) => o.key),
         );
         // Ensure the just-uploaded file is always kept
         toKeep.add(fileName);
         const keysToDelete = sorted
-          .map((o: any) => o.key)
+          .map((o) => o.key)
           .filter((key: string) => !toKeep.has(key));
 
         if (typeof bucket.delete !== "function") {
@@ -650,7 +660,7 @@ app.post("/snapshot", async (c) => {
 app.get("/snapshot/:tag", async (c) => {
   c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -716,7 +726,11 @@ app.get("/snapshot/:tag", async (c) => {
     // Sort by uploaded time descending to get the latest
     const sorted = allObjects.sort(compareSnapshotRecency);
 
-    const latestKey = sorted[0].key;
+    const latest = sorted[0];
+    if (latest === undefined) {
+      return c.json({ error: "No snapshots found for this tag" }, 404);
+    }
+    const latestKey = latest.key;
     const object = await bucket.get(latestKey);
 
     if (!object) {
@@ -735,7 +749,13 @@ app.get("/snapshot/:tag", async (c) => {
       jsonText = new TextDecoder().decode(compressed);
     }
 
-    const data = JSON.parse(jsonText);
+    const data = parseFleetSnapshotPayload(JSON.parse(jsonText));
+    if (!data) {
+      console.error("[fleet-snapshot] Stored payload failed schema validation", {
+        key: latestKey,
+      });
+      return c.json({ error: "Stored fleet snapshot is invalid" }, 502);
+    }
     return c.json({
       ok: true,
       tag,
@@ -751,7 +771,7 @@ app.get("/snapshot/:tag", async (c) => {
 app.get("/snapshots/list", async (c) => {
   c.header("Cache-Control", "no-cache, no-store, must-revalidate");
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -856,7 +876,7 @@ app.get("/snapshots/list", async (c) => {
 // DELETE /snapshot/:tag - Delete all fleet snapshots for a tag
 app.delete("/snapshot/:tag", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
+  const bucket = env.runtime["FLEET_SNAPSHOT_BUCKET"];
 
   if (!bucket || typeof bucket.delete !== "function") {
     return c.json({ error: "Server misconfiguration" }, 500);

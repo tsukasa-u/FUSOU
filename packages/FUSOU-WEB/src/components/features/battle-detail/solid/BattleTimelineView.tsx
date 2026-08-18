@@ -3,6 +3,8 @@ import { For, Show, createSignal, createMemo } from "solid-js";
 import type { JSX } from "solid-js";
 import type {
   BattleFleets,
+  MstShipRecord,
+  MstSlotItemRecord,
   TimelineEvent,
   TimelineStep,
 } from "@/features/battles/types";
@@ -40,8 +42,8 @@ function yStep(si: number): number {
 
 function buildSteps(
   events: TimelineEvent[],
-  fInit: number[],
-  eInit: number[],
+  fInit: Array<number | null>,
+  eInit: Array<number | null>,
 ): TimelineStep[] {
   const steps: TimelineStep[] = [];
   const fCur = fInit.length > 0 ? [...fInit] : [];
@@ -49,16 +51,17 @@ function buildSteps(
   steps.push({ fHps: [...fCur], eHps: [...eCur], eventIdx: -1 });
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
+    if (!ev) continue;
     if (ev.defenderSide === "friend" && ev.defenderIdx !== null) {
-      fCur[ev.defenderIdx] = Math.max(
-        0,
-        (fCur[ev.defenderIdx] ?? 0) - ev.damage,
-      );
+      const current = fCur[ev.defenderIdx];
+      if (current !== null && current !== undefined) {
+        fCur[ev.defenderIdx] = Math.max(0, current - ev.damage);
+      }
     } else if (ev.defenderSide === "enemy" && ev.defenderIdx !== null) {
-      eCur[ev.defenderIdx] = Math.max(
-        0,
-        (eCur[ev.defenderIdx] ?? 0) - ev.damage,
-      );
+      const current = eCur[ev.defenderIdx];
+      if (current !== null && current !== undefined) {
+        eCur[ev.defenderIdx] = Math.max(0, current - ev.damage);
+      }
     }
     steps.push({ fHps: [...fCur], eHps: [...eCur], eventIdx: i });
   }
@@ -72,9 +75,11 @@ function buildPhaseRegions(
   let ph = "";
   let phStart = 0;
   for (let i = 0; i < events.length; i++) {
-    if (events[i].phase !== ph) {
+    const event = events[i];
+    if (!event) continue;
+    if (event.phase !== ph) {
       if (ph !== "") regions.push({ phase: ph, start: phStart, end: i });
-      ph = events[i].phase;
+      ph = event.phase;
       phStart = i;
     }
   }
@@ -103,31 +108,60 @@ function buildShipLine(
   colors: string[],
   dashed: boolean,
   steps: TimelineStep[],
-  fInit: number[],
-  eInit: number[],
+  fInit: Array<number | null>,
+  eInit: Array<number | null>,
   fleets: BattleFleets | null,
 ): ShipLineData {
   const ship = (
     side === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
   )?.[si];
   const initArr = side === "friend" ? fInit : eInit;
-  const initHp = Math.max(0, Number(initArr[si] ?? 0) || 0);
-  const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
-  const color = colors[si % colors.length];
+  const initHp = initArr[si];
+  const maxHp = ship?.maxhp ?? initHp ?? null;
+  const color = colors[si % colors.length] ?? "currentColor";
+
+  if (maxHp === null || maxHp <= 0) {
+    return {
+      d: "",
+      color,
+      dashed,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      sunk: false,
+    };
+  }
 
   const points = steps.map((step, s) => {
-    const hp = Math.max(0, Number(step[hpKey][si] ?? maxHp) || 0);
+    const hp = step[hpKey][si];
+    if (hp === null || hp === undefined) {
+      return null;
+    }
     const pct = Math.min(100, (hp / maxHp) * 100);
     return { x: xHP(pct), y: yStep(s) };
   });
 
-  const p0 = points[0];
-  const pLast = points[points.length - 1];
+  const p0 = points.find((point) => point !== null) ?? null;
+  const pLast = [...points].reverse().find((point) => point !== null) ?? null;
+  if (!p0 || !pLast) {
+    return {
+      d: "",
+      color,
+      dashed,
+      startX: 0,
+      startY: 0,
+      endX: 0,
+      endY: 0,
+      sunk: initHp !== null && initHp !== undefined && initHp <= 0,
+    };
+  }
 
   let d = `M ${p0.x.toFixed(1)} ${(p0.y - EXTEND).toFixed(1)} L ${p0.x.toFixed(1)} ${p0.y.toFixed(1)}`;
   for (let p = 1; p < points.length; p++) {
     const prev = points[p - 1];
     const curr = points[p];
+    if (!prev || !curr) continue;
     const dx = Math.abs(curr.x - prev.x);
     if (dx < 0.1) {
       d += ` L ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
@@ -142,20 +176,22 @@ function buildShipLine(
   const endY = pLast.y + EXTEND;
   d += ` L ${endX.toFixed(1)} ${endY.toFixed(1)}`;
 
-  const lastHp = Math.max(
-    0,
-    Number(steps[steps.length - 1][hpKey][si] ?? maxHp) || 0,
-  );
+  const lastStep = steps.at(-1);
+  const lastHp = lastStep?.[hpKey]?.[si] ?? null;
 
   return {
     d,
     color,
     dashed,
-    startX: xHP(Math.min(100, (initHp / maxHp) * 100)),
+    startX: xHP(
+      maxHp > 0 && initHp !== null && initHp !== undefined
+        ? Math.min(100, (initHp / maxHp) * 100)
+        : 0,
+    ),
     startY: p0.y - EXTEND,
     endX,
     endY,
-    sunk: lastHp <= 0,
+    sunk: lastHp !== null && lastHp !== undefined && lastHp <= 0,
   };
 }
 
@@ -234,7 +270,7 @@ function LegendRow(props: {
       </span>
       <For each={Array.from({ length: props.count }, (_, i) => i)}>
         {(si) => {
-          const color = props.colors[si % props.colors.length];
+          const color = props.colors[si % props.colors.length] ?? "currentColor";
           const short = createMemo(() => {
             const name = shipNameFromIndex(props.side, si, props.fleets);
             return name.length > 6 ? name.slice(0, 5) + "…" : name;
@@ -281,30 +317,34 @@ interface HoverBandData {
 function buildHoverBands(
   events: TimelineEvent[],
   steps: TimelineStep[],
-  fInit: number[],
-  eInit: number[],
+  fInit: Array<number | null>,
+  eInit: Array<number | null>,
   fleets: BattleFleets | null,
 ): HoverBandData[] {
   const bands: HoverBandData[] = [];
   for (let i = 0; i < events.length; i++) {
     const ev = events[i];
-    if (ev.defenderIdx === null) continue;
+    if (!ev || ev.defenderIdx === null) continue;
     const hpKey: "fHps" | "eHps" =
       ev.defenderSide === "friend" ? "fHps" : "eHps";
     const ship = (
       ev.defenderSide === "friend" ? fleets?.friendlyShips : fleets?.enemyShips
     )?.[ev.defenderIdx];
     const initArr = ev.defenderSide === "friend" ? fInit : eInit;
-    const initHp = Math.max(0, Number(initArr[ev.defenderIdx] ?? 0) || 0);
-    const maxHp = Number(ship?.maxhp ?? initHp ?? 0) || initHp || 1;
-    const hpFrom = Math.max(
-      0,
-      Number(steps[i]?.[hpKey]?.[ev.defenderIdx] ?? maxHp) || 0,
-    );
-    const hpTo = Math.max(
-      0,
-      Number(steps[i + 1]?.[hpKey]?.[ev.defenderIdx] ?? hpFrom) || 0,
-    );
+    const initHp = initArr[ev.defenderIdx];
+    const maxHp = ship?.maxhp ?? initHp ?? null;
+    const hpFrom = steps[i]?.[hpKey]?.[ev.defenderIdx] ?? null;
+    const hpTo = steps[i + 1]?.[hpKey]?.[ev.defenderIdx] ?? null;
+    if (
+      initHp === null ||
+      initHp === undefined ||
+      maxHp === null ||
+      maxHp <= 0 ||
+      hpFrom === null ||
+      hpTo === null
+    ) {
+      continue;
+    }
     const xFrom = xHP(Math.min(100, (hpFrom / maxHp) * 100));
     const xTo = xHP(Math.min(100, (hpTo / maxHp) * 100));
     const yFrom = yStep(i);
@@ -326,8 +366,8 @@ function buildHoverBands(
 export default function BattleTimelineView(props: {
   battle: Record<string, unknown>;
   fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
-  mstShipById?: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  mstShipById?: Map<number, MstShipRecord> | null;
   showPhaseSeparators?: boolean;
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
@@ -708,7 +748,7 @@ export default function BattleTimelineView(props: {
                       ev.attackerMstShipId,
                     );
                     if (mstShip)
-                      return String(mstShip.name ?? ev.attackerMstShipId);
+                      return String(mstShip["name"] ?? ev.attackerMstShipId);
                   }
                   if (
                     (ev.type === "air" || ev.type === "raigeki") &&
@@ -743,9 +783,9 @@ export default function BattleTimelineView(props: {
                       : "#ef4444";
                 const friendlyForceHp = createMemo(() => {
                   if (ev.actorRole !== "friendly_force") return null;
-                  const now = Number(ev.attackerNowHp ?? 0) || 0;
-                  const max = Number(ev.attackerMaxHp ?? 0) || 0;
-                  if (max <= 0) return null;
+                  const now = ev.attackerNowHp;
+                  const max = ev.attackerMaxHp;
+                  if (now == null || max == null || max <= 0) return null;
                   return `${now}/${max}`;
                 });
 

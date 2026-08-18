@@ -26,8 +26,8 @@ function LockIcon(props: { locked: boolean }) {
 function hasSnapshotLink(entry: ViewerEntry): boolean {
   if (entry.payloadKind === "fleetSnapshot") return true;
   const payload = entry.payload as Record<string, unknown>;
-  const snapshotShips = payload.snapshotShips;
-  const snapshotSlotItems = payload.snapshotSlotItems;
+  const snapshotShips = payload["snapshotShips"];
+  const snapshotSlotItems = payload["snapshotSlotItems"];
   return (
     (!!snapshotShips && typeof snapshotShips === "object" && Object.keys(snapshotShips).length > 0) ||
     (!!snapshotSlotItems && typeof snapshotSlotItems === "object" && Object.keys(snapshotSlotItems).length > 0)

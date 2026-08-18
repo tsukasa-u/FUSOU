@@ -3,6 +3,8 @@
  * Used by both simulator-details-catalog (detail panels) and simulator-renderer (fleet cards).
  */
 
+import { z } from "zod";
+
 export type ShipGrowthSummary = {
   ok: boolean;
   periods?: Array<{ period_tag: string; table_version: string }>;
@@ -39,6 +41,99 @@ export type ShipGrowthBoundsResponse = {
   updated_at?: number;
   updated_at_iso?: string | null;
 };
+
+const ShipGrowthPeriodSchema = z
+  .object({
+    period_tag: z.string().min(1),
+    table_version: z.string().min(1),
+  })
+  .passthrough();
+
+const ShipGrowthCapSchema = z
+  .object({
+    master_id: z.number().int().positive(),
+    kaihi_max: z.number().finite().optional(),
+    taisen_max: z.number().finite().optional(),
+    sakuteki_max: z.number().finite().optional(),
+    kaih_max: z.number().finite().optional(),
+    tais_max: z.number().finite().optional(),
+    saku_max: z.number().finite().optional(),
+  })
+  .passthrough()
+  .transform((value): ShipGrowthCaps => {
+    const result: ShipGrowthCaps = { master_id: value.master_id };
+    if (value.kaihi_max !== undefined) result.kaihi_max = value.kaihi_max;
+    if (value.taisen_max !== undefined) result.taisen_max = value.taisen_max;
+    if (value.sakuteki_max !== undefined)
+      result.sakuteki_max = value.sakuteki_max;
+    if (value.kaih_max !== undefined) result.kaih_max = value.kaih_max;
+    if (value.tais_max !== undefined) result.tais_max = value.tais_max;
+    if (value.saku_max !== undefined) result.saku_max = value.saku_max;
+    return result;
+  });
+
+const ShipGrowthBoundSchema = z
+  .object({
+    master_id: z.number().int().positive(),
+    lv: z.number().int().positive(),
+    kaihi_naked: z.number().finite(),
+    taisen_naked: z.number().finite(),
+    sakuteki_naked: z.number().finite(),
+  })
+  .passthrough();
+
+const ShipGrowthExpRowSchema = z
+  .object({
+    lv: z.number().int().positive(),
+    exp_current: z.number().int().nonnegative(),
+  })
+  .passthrough();
+
+export const ShipGrowthSummaryResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    periods: z.array(ShipGrowthPeriodSchema).optional(),
+    cumulative_available: z.boolean().optional(),
+    archive_object_count: z.number().int().nonnegative().optional(),
+  })
+  .passthrough();
+
+export const ShipGrowthExpResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    exp: z.array(ShipGrowthExpRowSchema).optional(),
+    updated_at: z.number().finite().optional(),
+    updated_at_iso: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const ShipGrowthBoundsResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    bounds: z.array(ShipGrowthBoundSchema).optional(),
+    caps: z.array(ShipGrowthCapSchema).optional(),
+    updated_at: z.number().finite().optional(),
+    updated_at_iso: z.string().nullable().optional(),
+  })
+  .passthrough();
+
+export const ShipGrowthAllPeriodsResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    entries: z
+      .array(
+        z
+          .object({
+            period_tag: z.string().min(1),
+            table_version: z.string().min(1),
+            bounds: z.array(ShipGrowthBoundSchema),
+            caps: z.array(ShipGrowthCapSchema),
+          })
+          .passthrough(),
+      )
+      .optional(),
+  })
+  .passthrough();
 
 export function normalizeShipGrowthCaps(
   raw: ShipGrowthCaps | null,

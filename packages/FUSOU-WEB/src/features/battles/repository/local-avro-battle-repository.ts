@@ -59,28 +59,48 @@ export class LocalAvroBattleRepository implements BattleDataRepository {
   async getRecords(query: RecordQuery, options?: BattleRepositoryRequestOptions): Promise<RecordResult> {
     await this.ensureReady();
     return resultAs<RecordResult>(
-      await this.client.records(workerQuery(query), { signal: query.signal, onProgress: options?.onProgress }),
+      await this.client.records(workerQuery(query), {
+        ...(query.signal === undefined ? {} : { signal: query.signal }),
+        ...(options?.onProgress === undefined
+          ? {}
+          : { onProgress: options.onProgress }),
+      }),
     );
   }
 
   async getOverview(query: OverviewQuery, options?: BattleRepositoryRequestOptions): Promise<BattleOverviewPayload> {
     await this.ensureReady();
     return resultAs<BattleOverviewPayload>(
-      await this.client.overview(workerQuery(query), { signal: query.signal, onProgress: options?.onProgress }),
+      await this.client.overview(workerQuery(query), {
+        ...(query.signal === undefined ? {} : { signal: query.signal }),
+        ...(options?.onProgress === undefined
+          ? {}
+          : { onProgress: options.onProgress }),
+      }),
     );
   }
 
   async getDrops(query: DropsQuery, options?: BattleRepositoryRequestOptions): Promise<BattleDropsPayload> {
     await this.ensureReady();
     return resultAs<BattleDropsPayload>(
-      await this.client.drops(workerQuery(query), { signal: query.signal, onProgress: options?.onProgress }),
+      await this.client.drops(workerQuery(query), {
+        ...(query.signal === undefined ? {} : { signal: query.signal }),
+        ...(options?.onProgress === undefined
+          ? {}
+          : { onProgress: options.onProgress }),
+      }),
     );
   }
 
   async getDetail(query: BattleDetailQuery, options?: BattleRepositoryRequestOptions): Promise<BattleDetailPayload> {
     await this.ensureReady();
     return resultAs<BattleDetailPayload>(
-      await this.client.detail(workerQuery(query), { signal: query.signal, onProgress: options?.onProgress }),
+      await this.client.detail(workerQuery(query), {
+        ...(query.signal === undefined ? {} : { signal: query.signal }),
+        ...(options?.onProgress === undefined
+          ? {}
+          : { onProgress: options.onProgress }),
+      }),
     );
   }
 

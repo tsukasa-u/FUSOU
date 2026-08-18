@@ -1,8 +1,26 @@
+import { z } from "zod";
+
+export const TableOffsetMetadataSchema = z
+  .object({
+    table_name: z.string(),
+    start_byte: z.number(),
+    byte_length: z.number(),
+    format: z.string().optional().default("avro"),
+  })
+  .passthrough();
+
 export interface TableOffsetMetadata {
   table_name: string;
   start_byte: number;
   byte_length: number;
   format: string;
+}
+
+export function parseOffsetMetadata(
+  value: unknown,
+): TableOffsetMetadata[] | null {
+  const result = TableOffsetMetadataSchema.array().safeParse(value);
+  return result.success ? result.data : null;
 }
 
 export function validateOffsetMetadata(
@@ -16,8 +34,7 @@ export function validateOffsetMetadata(
     return { valid: false, errors };
   }
 
-  for (let i = 0; i < offsets.length; i++) {
-    const current = offsets[i];
+  for (const [i, current] of offsets.entries()) {
 
     if (typeof current.start_byte !== 'number' || typeof current.byte_length !== 'number') {
       errors.push(`Table '${current.table_name}' has non-numeric offsets`);
@@ -39,6 +56,7 @@ export function validateOffsetMetadata(
 
     for (let j = i + 1; j < offsets.length; j++) {
       const other = offsets[j];
+      if (!other) continue;
       const otherEnd = other.start_byte + other.byte_length;
 
       const overlap = !(endByte <= other.start_byte || current.start_byte >= otherEnd);

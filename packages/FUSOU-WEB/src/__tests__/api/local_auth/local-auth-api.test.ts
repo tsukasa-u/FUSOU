@@ -137,13 +137,17 @@ describe("local_auth API handlers", () => {
       body: new URLSearchParams({ provider: "google" }),
     });
 
-    const res = await signInPost({ request, cookies, redirect } as any);
+    const res = await signInPost(
+      { request, cookies, redirect } as unknown as Parameters<
+        typeof signInPost
+      >[0],
+    );
 
     expect(res.status).toBe(500);
   });
 
   it("POST /api/local_auth/signin redirects to provider when request is valid", async () => {
-    (mockWorkersEnv as Record<string, unknown>).PUBLIC_SITE_URL =
+    (mockWorkersEnv as Record<string, unknown>)["PUBLIC_SITE_URL"] =
       "https://fusou.dev";
 
     const cookies = createCookieJar();
@@ -155,7 +159,11 @@ describe("local_auth API handlers", () => {
       },
     );
 
-    const res = await signInPost({ request, cookies, redirect } as any);
+    const res = await signInPost(
+      { request, cookies, redirect } as unknown as Parameters<
+        typeof signInPost
+      >[0],
+    );
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
@@ -170,7 +178,7 @@ describe("local_auth API handlers", () => {
   });
 
   it("POST /api/local_auth/signin rejects unsupported provider", async () => {
-    (mockWorkersEnv as Record<string, unknown>).PUBLIC_SITE_URL =
+    (mockWorkersEnv as Record<string, unknown>)["PUBLIC_SITE_URL"] =
       "https://fusou.dev";
 
     const cookies = createCookieJar();
@@ -179,7 +187,11 @@ describe("local_auth API handlers", () => {
       body: new URLSearchParams({ provider: "github" }),
     });
 
-    const res = await signInPost({ request, cookies, redirect } as any);
+    const res = await signInPost(
+      { request, cookies, redirect } as unknown as Parameters<
+        typeof signInPost
+      >[0],
+    );
 
     expect(res.status).toBe(400);
   });
@@ -190,7 +202,7 @@ describe("local_auth API handlers", () => {
       url: new URL("https://fusou.dev/api/local_auth/callback"),
       cookies,
       redirect,
-    } as any);
+    } as unknown as Parameters<typeof callbackGet>[0]);
 
     expect(res.status).toBe(400);
   });
@@ -203,7 +215,7 @@ describe("local_auth API handlers", () => {
       ),
       cookies,
       redirect,
-    } as any);
+    } as unknown as Parameters<typeof callbackGet>[0]);
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toContain("/auth/local/callback");
@@ -225,7 +237,7 @@ describe("local_auth API handlers", () => {
     const res = await appRedirectGet({
       cookies,
       url: new URL("https://fusou.dev/api/local_auth/app-redirect"),
-    } as any);
+    } as unknown as Parameters<typeof appRedirectGet>[0]);
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
@@ -243,7 +255,7 @@ describe("local_auth API handlers", () => {
     const res = await appRedirectGet({
       cookies,
       url: new URL("https://fusou.dev/api/local_auth/app-redirect"),
-    } as any);
+    } as unknown as Parameters<typeof appRedirectGet>[0]);
 
     expect(res.status).toBe(400);
     expect(cookies.delete).toHaveBeenCalledWith("sb-app-redirect-url", {
@@ -260,7 +272,7 @@ describe("local_auth API handlers", () => {
     const res = await appRedirectGet({
       cookies,
       url: new URL("https://fusou.dev/api/local_auth/app-redirect"),
-    } as any);
+    } as unknown as Parameters<typeof appRedirectGet>[0]);
 
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(redirectTarget);

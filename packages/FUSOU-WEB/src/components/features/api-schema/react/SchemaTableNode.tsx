@@ -1,32 +1,13 @@
 /** @jsxImportSource react */
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { Node } from "@xyflow/react";
+import type { SchemaTableNodeData } from "./schemaGraphTypes";
 
-export interface SchemaField {
-  name: string;
-  type: string;
-  isUuid?: boolean;
-  isKey?: boolean;
-  isFk?: boolean;
-  isEnvRef?: boolean;
-  diffStatus?: "added" | "removed" | "changed" | null;
-}
+export type { SchemaField, SchemaTableNodeData } from "./schemaGraphTypes";
 
-export interface SchemaTableNodeData {
-  tableName: string;
-  recordName: string;
-  structName?: string;
-  fields: SchemaField[];
-  highlighted?: boolean;
-  diffStatus?: "added" | "removed" | "changed" | null;
-  /** ノード選択時の関係タイプ */
-  relationType?: "selected" | "ancestor" | "descendant" | null;
-  /** 関係の深さ (1=直接, 2=孫, ...) */
-  relationDepth?: number;
-}
-
-function SchemaTableNode({ data, id }: NodeProps) {
-  const d = data as unknown as SchemaTableNodeData;
+function SchemaTableNode({ data, id }: NodeProps<Node<SchemaTableNodeData>>) {
+  const d = data;
   const displayName = d.recordName || d.structName || d.tableName;
 
   // relation ハイライトが優先、次に diffStatus、最後にデフォルト
@@ -48,11 +29,7 @@ function SchemaTableNode({ data, id }: NodeProps) {
                   : "border-base-300";
 
   // 非関連ノードは暗くする
-  const opacity =
-    typeof (data as any).relationType !== "undefined" &&
-    (data as any).relationType === null
-      ? "opacity-30"
-      : "";
+  const opacity = d.relationType === null ? "opacity-30" : "";
 
   return (
     <div

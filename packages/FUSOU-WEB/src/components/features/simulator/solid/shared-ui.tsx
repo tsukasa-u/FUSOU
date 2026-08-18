@@ -89,7 +89,7 @@ export function LazyRender(props: { children: JSX.Element }) {
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0]?.isIntersecting) {
           setIsVisible(true);
           observer.disconnect();
         }
@@ -128,7 +128,7 @@ export function ProgressiveGrid<T>(props: {
   onMount(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0]?.isIntersecting) {
           setLimit((l) => l + 40);
         }
       },
@@ -519,8 +519,8 @@ export function EquipListRow(props: {
 export function EquipSlotGroup(props: {
   slotItems: MstSlotItemData[];
   onOpenEquip: (id: number) => void;
-  currentEquipId?: number;
-  suppressedComponents?: number[];
+  currentEquipId?: number | undefined;
+  suppressedComponents?: number[] | undefined;
 }) {
   const [expanded, setExpanded] = createSignal(false);
   
@@ -541,6 +541,7 @@ export function EquipSlotGroup(props: {
 
   if (props.slotItems.length === 1) {
     const equip = props.slotItems[0];
+    if (!equip) return null;
     return (
       <span class="inline-flex items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
         <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-300/50 shrink-0">
@@ -591,11 +592,14 @@ export function EquipSlotGroup(props: {
 
   if (iconGroups.length === 1) {
     const group = iconGroups[0];
+    if (!group) return null;
+    const firstEquip = group[0];
+    if (!firstEquip) return null;
     const threshold = 4;
     return (
       <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-0.5">
         <span class="inline-flex w-5 h-5 items-center justify-center rounded bg-base-300/50 shrink-0">
-          <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+          <WeaponIcon iconNum={firstEquip.type?.[3] ?? 0} />
         </span>
         <span class="inline-flex flex-wrap items-center gap-1 min-w-0">
           {renderGroup(group, threshold)}
@@ -616,6 +620,8 @@ export function EquipSlotGroup(props: {
     <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300 bg-base-200/30 rounded-md px-1.5 py-1">
       <For each={iconGroups}>
         {(group, idx) => {
+          const firstEquip = group[0];
+          if (!firstEquip) return null;
           const threshold = 3;
           return (
             <>
@@ -624,7 +630,7 @@ export function EquipSlotGroup(props: {
               )}
               <span class="inline-flex flex-wrap items-center gap-1 min-w-0 border border-base-300/50 bg-base-100 rounded px-1.5 py-0.5 shadow-sm">
                 <span class="inline-flex w-4 h-4 items-center justify-center rounded bg-base-200/70 shrink-0">
-                  <WeaponIcon iconNum={group[0].type?.[3] ?? 0} />
+                  <WeaponIcon iconNum={firstEquip.type?.[3] ?? 0} />
                 </span>
                 <span class="inline-flex flex-wrap items-center gap-0.5 min-w-0">
                   {renderGroup(group, threshold)}
@@ -750,7 +756,7 @@ export function MultiEntryDisplay(props: {
             const pools = (props.entry as MultiCategoryEntry).pools;
             const grouped = new Map<
               string,
-              { pool: (typeof pools)[0]; count: number }
+              { pool: MstSlotItemData[]; count: number }
             >();
             for (const p of pools) {
               const k = p.map((i) => i.id).join(",");
@@ -790,7 +796,12 @@ export function MultiEntryDisplay(props: {
               );
             }
 
-            const fixedItems = fixedGroups.flatMap((g) => Array.from({ length: g.count }, () => g.pool[0]));
+            const fixedItems = fixedGroups.flatMap((g) => {
+              const firstItem = g.pool[0];
+              return firstItem
+                ? Array.from({ length: g.count }, () => firstItem)
+                : [];
+            });
             return (
               <>
                 <span class="text-[10px] text-warning font-bold shrink-0">
@@ -835,7 +846,7 @@ export function MultiEntryDisplay(props: {
                 .groupedPools;
               const grouped = new Map<
                 string,
-                { pool: (typeof pools)[0]; count: number }
+                { pool: MstSlotItemData[]; count: number }
               >();
               for (const p of pools) {
                 const k = p.map((i) => i.id).join(",");

@@ -91,6 +91,10 @@ function isCacheableResponse(response: Response): boolean {
   return true;
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
 function shouldCacheResponseBody(url: string, bodyText: string): boolean {
   try {
     const parsed =
@@ -101,16 +105,17 @@ function shouldCacheResponseBody(url: string, bodyText: string): boolean {
       return true;
     }
 
-    const payload = JSON.parse(bodyText) as {
-      count?: unknown;
-      records?: unknown;
-    };
-    const count = Number(payload?.count ?? Number.NaN);
+    const payload: unknown = JSON.parse(bodyText);
+    if (!isJsonRecord(payload)) return true;
+    const countValue = payload["count"];
+    const count =
+      typeof countValue === "number" ? countValue : Number.NaN;
     if (Number.isFinite(count)) {
       return count > 0;
     }
-    if (Array.isArray(payload?.records)) {
-      return payload.records.length > 0;
+    const records = payload["records"];
+    if (Array.isArray(records)) {
+      return records.length > 0;
     }
   } catch {
     return true;

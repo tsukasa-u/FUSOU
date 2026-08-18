@@ -1,4 +1,5 @@
-import type { R2BucketBinding } from "../types";
+import { z } from "zod";
+import type { AppContext, R2BucketBinding } from "../types";
 import { SIGNED_URL_TTL_SECONDS } from "../constants";
 
 /**
@@ -11,12 +12,17 @@ import { SIGNED_URL_TTL_SECONDS } from "../constants";
  */
 
 export interface PrepareResult {
-  tokenPayload?: Record<string, any>;
-  fields?: Record<string, any>;
+  tokenPayload?: Record<string, unknown>;
+  fields?: Record<string, unknown>;
 }
 
 export interface ExecuteResult {
-  response: any; // Custom response data to return
+  response: Record<string, unknown>;
+}
+
+export interface UploadUser {
+  id: string;
+  payload?: Record<string, unknown>;
 }
 
 export interface UploadAuthContext {
@@ -29,18 +35,19 @@ export interface UploadAuthContext {
 export interface UploadConfig {
   bucket: R2BucketBinding;
   signingSecret: string;
+  tokenPayloadSchema?: z.ZodType<Record<string, unknown>>;
   tokenTTL?: number;
   maxBodySize?: number;
   requireDatasetToken?: boolean;
   preparationValidator: (
-    body: any,
-    user: { id: string; [key: string]: any },
+    body: Record<string, unknown>,
+    user: UploadUser,
     authContext: UploadAuthContext,
   ) => Promise<PrepareResult | Response>;
   executionProcessor: (
-    tokenPayload: any,
+    tokenPayload: Record<string, unknown>,
     data: Uint8Array,
-    user: { id: string; [key: string]: any },
+    user: UploadUser,
   ) => Promise<ExecuteResult | Response>;
 }
 
@@ -66,7 +73,7 @@ function extractBearerToken(request: Request): string | null {
  *   - Uploads to R2 bucket
  */
 export async function handleTwoStageUpload(
-  c: any,
+  c: AppContext,
   config: UploadConfig,
 ): Promise<Response> {
   const { bucket, signingSecret } = config;
@@ -89,7 +96,7 @@ export async function handleTwoStageUpload(
 }
 
 async function handlePreparation(
-  c: any,
+  c: AppContext,
   request: Request,
   url: URL,
   config: UploadConfig,
@@ -112,9 +119,13 @@ async function handlePreparation(
   }
 
   // Parse body
-  let body: any;
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    const parsedBody = z.record(z.unknown()).safeParse(await request.json());
+    if (!parsedBody.success) {
+      return c.json({ error: "Invalid JSON body" }, 400);
+    }
+    body = parsedBody.data;
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
@@ -129,7 +140,7 @@ async function handlePreparation(
     const env = createEnvContext(c);
     const datasetToken = resolveDatasetToken(
       request.headers.get("X-Dataset-Token"),
-      body?.dataset_token,
+      body?.["dataset_token"],
     );
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetToken,
@@ -139,7 +150,7 @@ async function handlePreparation(
       // JWT user_id と一致することを要求するとマルチデバイスで 403 になる。
       // データ帰属はdataset_id (member_id_hash) の照合で担保する。
     });
-    if (!tokenValidation.ok) {
+    if (!tokenValidation.ok || !tokenValidation.token) {
       return c.json(
         { error: tokenValidation.error },
         tokenValidation.status ?? 401,
@@ -151,8 +162,11 @@ async function handlePreparation(
   // actingUserId: dataset_token が存在する場合はその sub を使用（全端末で一貫した帰属者）。
   // そうでない場合は JWT user_id を使用。
   const actingUserId = authContext.datasetToken?.user_id ?? supabaseUser.id;
+  if (!actingUserId) {
+    return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
 
-  const actingUser = { id: actingUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: actingUserId };
 
   // Run custom validation
   const validationResult = await preparationValidator(
@@ -177,10 +191,10 @@ async function handlePreparation(
 
   // If declared_size is provided in tokenPayload, calculate dynamic TTL
   if (
-    tokenPayload.declared_size &&
-    typeof tokenPayload.declared_size === "number"
+    tokenPayload["declared_size"] &&
+    typeof tokenPayload["declared_size"] === "number"
   ) {
-    const expectedSizeMB = tokenPayload.declared_size / (1024 * 1024);
+    const expectedSizeMB = tokenPayload["declared_size"] / (1024 * 1024);
     const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
     effectiveTTL = Math.min(
       3600, // max 1 hour
@@ -223,12 +237,12 @@ async function handlePreparation(
 }
 
 async function handleExecution(
-  c: any,
+  c: AppContext,
   request: Request,
   _url: URL,
   config: UploadConfig,
 ): Promise<Response> {
-  const { signingSecret, executionProcessor } = config;
+  const { signingSecret, executionProcessor, tokenPayloadSchema } = config;
 
   const { verifySignedToken, validateJWT } = await import("../utils");
   const jwtToken = extractBearerToken(request);
@@ -257,15 +271,30 @@ async function handleExecution(
   }
 
   // Verify signed upload token
-  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
-  if (!tokenPayload) {
+  const rawTokenPayload = await verifySignedToken(uploadToken, signingSecret);
+  const tokenPayloadValidation = z
+    .record(z.unknown())
+    .safeParse(rawTokenPayload);
+  if (!tokenPayloadValidation.success) {
     return c.json({ error: "Invalid or expired upload token" }, 401);
   }
+  const rawTokenPayloadRecord = tokenPayloadValidation.data;
+  const typedTokenPayload = tokenPayloadSchema?.safeParse(rawTokenPayloadRecord);
+  if (typedTokenPayload && !typedTokenPayload.success) {
+    return c.json({ error: "Invalid token payload" }, 400);
+  }
+  const tokenPayload = typedTokenPayload?.success
+    ? typedTokenPayload.data
+    : rawTokenPayloadRecord;
 
-  const expectedHash = tokenPayload.content_hash;
-  const tokenUserId = tokenPayload.user_id;
+  const expectedHash =
+    typeof tokenPayload["content_hash"] === "string"
+      ? tokenPayload["content_hash"]
+      : "";
+  const tokenUserId =
+    typeof tokenPayload["user_id"] === "string" ? tokenPayload["user_id"] : "";
 
-  if (!expectedHash) {
+  if (!expectedHash || !tokenUserId) {
     return c.json({ error: "Invalid token payload" }, 400);
   }
 
@@ -286,7 +315,7 @@ async function handleExecution(
     );
   }
   // actingUser は upload token 内の user_id（dataset_token.sub）を使用する。
-  const actingUser = { id: tokenUserId } as { id: string; [key: string]: any };
+  const actingUser: UploadUser = { id: tokenUserId };
 
   // Read body
   const bodyStream = request.body;

@@ -10,7 +10,10 @@ import {
   For,
 } from "solid-js";
 import { cachedFetch, clearFetchCache } from "@/utils/fetchCache";
-import type { PeriodSummary, MasterDataStatusItem } from "./types";
+import type {
+  PeriodSummary,
+  MasterDataStatusItem,
+} from "./types";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
 import { MasterDataLoadStatusAlert } from "@/components/common/solid/MasterDataLoadStatusAlert";
 
@@ -37,6 +40,26 @@ import type {
   BattleDataRepository,
 } from "@/features/battles/repository/types";
 import type { LocalAvroLoadLimits } from "@/features/battles/local-directory/limits";
+import { MasterDataJsonResponseSchema } from "@/features/simulator/api-response-schemas";
+import type {
+  BattleRecord,
+  CellRecord,
+  EnemyDeckRecord,
+  EnemyShipRecord,
+  EnemySlotItemRecord,
+  MstShipRecord,
+  MstSlotItemRecord,
+} from "../../map-flow/solid/battle-map-flow/types";
+import type { WeaponIconFrame } from "@/features/battles/types";
+import {
+  parseBattleRecords,
+  parseCellRecords,
+  parseEnemyDeckRecords,
+  parseEnemyShipRecords,
+  parseEnemySlotItemRecords,
+  parseMasterShipRecords,
+  parseMasterSlotItemRecords,
+} from "../../map-flow/solid/battle-map-flow/recordParsers";
 
 function formatLocalProgress(
   progress: BattleDataProgress | null,
@@ -83,15 +106,22 @@ function formatLoadError(
     url?: unknown;
   } | null;
   const details = candidate?.details ?? {};
-  const table = typeof details.table === "string" ? details.table : progress?.label;
-  const periodTag = typeof details.periodTag === "string" ? details.periodTag : period.period_tag;
-  const relativePath = typeof details.relativePath === "string" ? details.relativePath : null;
-  const phase = typeof details.phase === "string"
-    ? details.phase === "file-discovery"
+  const table =
+    typeof details["table"] === "string" ? details["table"] : progress?.label;
+  const periodTag =
+    typeof details["periodTag"] === "string"
+      ? details["periodTag"]
+      : period.period_tag;
+  const relativePath =
+    typeof details["relativePath"] === "string"
+      ? details["relativePath"]
+      : null;
+  const phase = typeof details["phase"] === "string"
+    ? details["phase"] === "file-discovery"
       ? "ファイル確認"
-      : details.phase === "decode"
+      : details["phase"] === "decode"
         ? "AVRO展開"
-        : details.phase
+        : details["phase"]
     : progress?.phase === "decode"
       ? "AVRO展開"
       : progress?.phase;
@@ -133,6 +163,7 @@ export default function BattlesDashboard(props: {
 
   const [activeTab, setActiveTab] = createSignal<"list" | "detail" | "map-flow" | "stats" | "drops">("list");
   const [selectedDetailId, setSelectedDetailId] = createSignal("");
+  const [selectedDatasetId, setSelectedDatasetId] = createSignal("");
   const [selectedBattleIndex, setSelectedBattleIndex] = createSignal<number | null>(null);
   
   const [periods, setPeriods] = createSignal<PeriodSummary[]>([]);
@@ -162,14 +193,14 @@ export default function BattlesDashboard(props: {
   const [mapFilter, setMapFilter] = createSignal("");
   const [resultFilter, setResultFilter] = createSignal("");
 
-  const [battleRecords, setBattleRecords] = createSignal<any[]>([]);
-  const [cellRecords, setCellRecords] = createSignal<any[]>([]);
-  const [enemyDecks, setEnemyDecks] = createSignal<any[]>([]);
-  const [enemyShips, setEnemyShips] = createSignal<any[]>([]);
-  const [enemySlotItems, setEnemySlotItems] = createSignal<any[]>([]);
-  const [mstShips, setMstShips] = createSignal<any[]>([]);
-  const [mstSlotItems, setMstSlotItems] = createSignal<any[]>([]);
-  const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, any>>({});
+  const [battleRecords, setBattleRecords] = createSignal<BattleRecord[]>([]);
+  const [cellRecords, setCellRecords] = createSignal<CellRecord[]>([]);
+  const [enemyDecks, setEnemyDecks] = createSignal<EnemyDeckRecord[]>([]);
+  const [enemyShips, setEnemyShips] = createSignal<EnemyShipRecord[]>([]);
+  const [enemySlotItems, setEnemySlotItems] = createSignal<EnemySlotItemRecord[]>([]);
+  const [mstShips, setMstShips] = createSignal<MstShipRecord[]>([]);
+  const [mstSlotItems, setMstSlotItems] = createSignal<MstSlotItemRecord[]>([]);
+  const [weaponIconFrames, setWeaponIconFrames] = createSignal<Record<number, WeaponIconFrame>>({});
   const [weaponIconMeta, setWeaponIconMeta] = createSignal<{ width: number; height: number }>({ width: 0, height: 0 });
   const [loadedDatasetKind, setLoadedDatasetKind] = createSignal<"overview" | "drops" | null>(null);
 
@@ -187,11 +218,12 @@ export default function BattlesDashboard(props: {
   const dataLoadItems = () => {
     const items = [...masterDataStatus()];
     if (repository.kind === "local-avro") {
+      const diagnostic = errorDetail();
       items.push({
         name: "ローカル AVRO",
         status: loading() ? "pending" : error() ? "failed" : "success",
-        detail: errorDetail() ?? formatLocalProgress(localProgress(), false),
-        diagnostic: errorDetail() ?? undefined,
+        detail: diagnostic ?? formatLocalProgress(localProgress(), false),
+        ...(diagnostic === null ? {} : { diagnostic }),
       });
     } else if (queryErrorStatus()) {
       items.push(queryErrorStatus()!);
@@ -231,7 +263,7 @@ export default function BattlesDashboard(props: {
     const values = new Set<string>();
     for (const b of battleRecords()) {
       const label = mapKeyOf(b);
-      if (label !== "-") values.add(label);
+      if (label !== "-" && label !== "unknown") values.add(label);
     }
     return [...values].sort((a, b) => a.localeCompare(b, "ja"));
   };
@@ -315,18 +347,17 @@ export default function BattlesDashboard(props: {
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
         }
-        const masterShipPayload = (await masterShipResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
-        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
+        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
+          await masterShipResponse.json(),
+        );
+        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
+          await masterSlotItemResponse.json(),
+        );
+        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
+          throw new Error("Invalid master data response");
+        }
+        const masterShipPayload = parsedMasterShip.data;
+        const masterSlotItemPayload = parsedMasterSlotItem.data;
         setMasterDataStatus([
           {
             name: "mst_ship",
@@ -348,24 +379,36 @@ export default function BattlesDashboard(props: {
         masterDataLoaded = true;
         const payload = await repository.getOverview({
           periodTag: requestedPeriodTag,
-          tableVersion: requestedPeriod.table_version ?? undefined,
+          ...(requestedPeriod.table_version
+            ? { tableVersion: requestedPeriod.table_version }
+            : {}),
           masterShips: masterShipPayload.records || [],
           limitBlocks: limitBlocks(),
           limitRecords: limitRecords(),
           signal,
           forceRefresh,
-        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined });
+        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
-        setBattleRecords(payload.battles || []);
-        setCellRecords(payload.cells || []);
-        setEnemyDecks(payload.enemy_decks || []);
-        setEnemyShips(payload.enemy_ships || []);
-        setEnemySlotItems([]);
-        setMstShips(masterShipPayload.records || []);
-        setMstSlotItems(masterSlotItemPayload.records || []);
+        setBattleRecords(parseBattleRecords(payload.battles));
+        setCellRecords(parseCellRecords(payload.cells));
+        setEnemyDecks(parseEnemyDeckRecords(payload.enemy_decks));
+        setEnemyShips(parseEnemyShipRecords(payload.enemy_ships));
+        setEnemySlotItems(parseEnemySlotItemRecords([]));
+        setMstShips(parseMasterShipRecords(masterShipPayload.records));
+        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
         setWeaponIconFrames({});
         setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataMeta({
+          ...(masterShipPayload.period_tag !== undefined
+            ? { period_tag: masterShipPayload.period_tag }
+            : {}),
+          ...(masterShipPayload.period_revision !== undefined
+            ? { period_revision: masterShipPayload.period_revision }
+            : {}),
+          ...(masterShipPayload.table_version !== undefined
+            ? { table_version: masterShipPayload.table_version }
+            : {}),
+        });
         setLoadedDatasetKind("overview");
       } else {
         const [masterShipResponse, masterSlotItemResponse] = await Promise.all([
@@ -375,18 +418,17 @@ export default function BattlesDashboard(props: {
         if (!masterShipResponse.ok || !masterSlotItemResponse.ok) {
           throw new Error(`HTTP ${masterShipResponse.ok ? masterSlotItemResponse.status : masterShipResponse.status}`);
         }
-        const masterShipPayload = (await masterShipResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
-        const masterSlotItemPayload = (await masterSlotItemResponse.json()) as {
-          period_tag?: string;
-          period_revision?: number;
-          table_version?: string;
-          records?: any[];
-        };
+        const parsedMasterShip = MasterDataJsonResponseSchema.safeParse(
+          await masterShipResponse.json(),
+        );
+        const parsedMasterSlotItem = MasterDataJsonResponseSchema.safeParse(
+          await masterSlotItemResponse.json(),
+        );
+        if (!parsedMasterShip.success || !parsedMasterSlotItem.success) {
+          throw new Error("Invalid master data response");
+        }
+        const masterShipPayload = parsedMasterShip.data;
+        const masterSlotItemPayload = parsedMasterSlotItem.data;
         setMasterDataStatus([
           {
             name: "mst_ship",
@@ -408,31 +450,45 @@ export default function BattlesDashboard(props: {
         masterDataLoaded = true;
         const payload = await repository.getDrops({
           periodTag: requestedPeriodTag,
-          tableVersion: requestedPeriod.table_version ?? undefined,
+          ...(requestedPeriod.table_version
+            ? { tableVersion: requestedPeriod.table_version }
+            : {}),
           masterShips: masterShipPayload.records || [],
           limitBlocks: limitBlocks(),
           limitRecords: limitRecords(),
           signal,
           forceRefresh,
-        }, { onProgress: repository.kind === "local-avro" ? setLocalProgress : undefined });
+        }, repository.kind === "local-avro" ? { onProgress: setLocalProgress } : {});
         if (signal.aborted || loadDataAbortController !== abortController) return;
-        setBattleRecords(payload.battles || []);
+        setBattleRecords(parseBattleRecords(payload.battles));
         setCellRecords([]);
         setEnemyDecks([]);
         setEnemyShips([]);
         setEnemySlotItems([]);
-        setMstShips(masterShipPayload.records || []);
-        setMstSlotItems(masterSlotItemPayload.records || []);
+        setMstShips(parseMasterShipRecords(masterShipPayload.records));
+        setMstSlotItems(parseMasterSlotItemRecords(masterSlotItemPayload.records));
         setWeaponIconFrames({});
         setWeaponIconMeta({ width: 0, height: 0 });
-        setMasterDataMeta(masterShipPayload || payload.master_data || null);
+        setMasterDataMeta({
+          ...(masterShipPayload.period_tag !== undefined
+            ? { period_tag: masterShipPayload.period_tag }
+            : {}),
+          ...(masterShipPayload.period_revision !== undefined
+            ? { period_revision: masterShipPayload.period_revision }
+            : {}),
+          ...(masterShipPayload.table_version !== undefined
+            ? { table_version: masterShipPayload.table_version }
+            : {}),
+        });
         setLoadedDatasetKind("drops");
       }
 
-    } catch (e: any) {
+    } catch (e: unknown) {
+      const errorRecord =
+        e && typeof e === "object" ? (e as Record<string, unknown>) : {};
       if (
-        e.name === "AbortError" ||
-        e.code === "CANCELLED" ||
+        errorRecord["name"] === "AbortError" ||
+        errorRecord["code"] === "CANCELLED" ||
         signal.aborted ||
         loadDataAbortController !== abortController
       ) return;
@@ -444,7 +500,9 @@ export default function BattlesDashboard(props: {
             repository.kind === "local-avro" ? "ローカル AVRO" : "R2",
           )
         : `データソース: R2 / 対象: マスターデータ（mst_ship, mst_slotitem） / 原因: ${
-            e.message ?? "原因不明のエラー"
+            typeof errorRecord["message"] === "string"
+              ? errorRecord["message"]
+              : "原因不明のエラー"
           }`;
       setError(
         masterDataLoaded
@@ -506,6 +564,8 @@ export default function BattlesDashboard(props: {
       setActiveTab(initialTab);
     }
     const initialDetailId = params.get("detail_id");
+    const initialDatasetId = params.get("dataset_id")?.trim() ?? "";
+    setSelectedDatasetId(initialDatasetId);
     if (initialDetailId) {
       setSelectedDetailId(initialDetailId);
       if (!initialTab) setActiveTab("detail");
@@ -573,6 +633,12 @@ export default function BattlesDashboard(props: {
       url.searchParams.delete("detail_id");
     }
 
+    if (currentTab === "detail" && selectedDatasetId()) {
+      url.searchParams.set("dataset_id", selectedDatasetId());
+    } else {
+      url.searchParams.delete("dataset_id");
+    }
+
     if (currentTab === "detail" && selectedBattleIndex() !== null) {
       url.searchParams.set("battle_index", String(selectedBattleIndex()));
     } else {
@@ -631,6 +697,8 @@ export default function BattlesDashboard(props: {
     setResultFilter,
     selectedDetailId,
     setSelectedDetailId,
+    selectedDatasetId,
+    setSelectedDatasetId,
     selectedBattleIndex,
     setSelectedBattleIndex,
   };
@@ -814,6 +882,7 @@ export default function BattlesDashboard(props: {
               <BattleDetailPanel
                 battleId={selectedDetailId()}
                 battleIndex={selectedBattleIndex()}
+                datasetId={selectedDatasetId()}
                 repository={repository}
                 onBattleIndexChange={(index) => setSelectedBattleIndex(index)}
                 onLoadStatusChange={setDetailLoadStatus}

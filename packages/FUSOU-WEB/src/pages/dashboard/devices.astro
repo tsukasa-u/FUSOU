@@ -6,7 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -87,7 +87,7 @@ function providerInitial(provider?: string): string {
             </span>
             <div>
               <div class="font-bold text-sm">
-                {user.user_metadata?.name || "User"}
+                {user.user_metadata?.["name"] || "User"}
               </div>
               <div class="text-xs opacity-60 font-mono">{user.email}</div>
             </div>
@@ -153,41 +153,97 @@ function providerInitial(provider?: string): string {
 </dialog>
 
 <script>
-  // @ts-nocheck
   const ANON_V2_BASE = "/api/auth/anonymous-sync/v2/devices";
-  let pendingRevokeAction = null;
+  type AnonymousDevice = {
+    device_id: string | number;
+    pid_masked?: string | null;
+    created_at?: string | null;
+    last_seen_at?: string | null;
+    revoked_at?: string | null;
+    revoked_reason?: string | null;
+  };
 
-  function showRevokeModal(message, onConfirm) {
-    const modal = document.getElementById("revoke-modal");
-    document.getElementById("revoke-modal-message").textContent = message;
+  let pendingRevokeAction: (() => void | Promise<void>) | null = null;
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function byId<T extends HTMLElement = HTMLElement>(id: string): T {
+    const element = document.getElementById(id);
+    if (!element) throw new Error(`Missing expected element: ${id}`);
+    return element as T;
+  }
+
+  function parseAnonymousDevices(value: unknown): AnonymousDevice[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((item) => {
+      if (!isRecord(item)) return [];
+      const deviceId = item["device_id"];
+      if (typeof deviceId !== "string" && typeof deviceId !== "number") {
+        return [];
+      }
+      return [
+        {
+          device_id: deviceId,
+          pid_masked:
+            typeof item["pid_masked"] === "string" ? item["pid_masked"] : null,
+          created_at:
+            typeof item["created_at"] === "string" ? item["created_at"] : null,
+          last_seen_at:
+            typeof item["last_seen_at"] === "string"
+              ? item["last_seen_at"]
+              : null,
+          revoked_at:
+            typeof item["revoked_at"] === "string" ? item["revoked_at"] : null,
+          revoked_reason:
+            typeof item["revoked_reason"] === "string"
+              ? item["revoked_reason"]
+              : null,
+        },
+      ];
+    });
+  }
+
+  function showRevokeModal(
+    message: string,
+    onConfirm: () => void | Promise<void>,
+  ) {
+    const modal = byId<HTMLDialogElement>("revoke-modal");
+    byId("revoke-modal-message").textContent = message;
     pendingRevokeAction = onConfirm;
     modal.showModal();
   }
 
   function setContainerMessage(
-    containerId,
-    message,
+    containerId: string,
+    message: string,
     className = "text-center py-4 text-base-content/60",
   ) {
-    const container = document.getElementById(containerId);
+    const container = byId(containerId);
     const div = document.createElement("div");
     div.className = className;
     div.textContent = message;
     container.replaceChildren(div);
   }
 
-  function createDangerButton(title, onClick) {
+  function createDangerButton(
+    title: string,
+    onClick: () => void | Promise<void>,
+  ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
     button.className =
       "btn btn-sm btn-ghost btn-error border border-error-content";
     button.title = title;
     button.textContent = "Revoke";
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", () => {
+      void onClick();
+    });
     return button;
   }
 
-  function formatDate(dateStr) {
+  function formatDate(dateStr: string | null | undefined) {
     if (!dateStr) return "N/A";
     const date = new Date(dateStr);
     return date.toLocaleDateString("ja-JP", {
@@ -197,8 +253,8 @@ function providerInitial(provider?: string): string {
     });
   }
 
-  function renderAnonymousDevices(devices) {
-    const container = document.getElementById("anon-devices-list");
+  function renderAnonymousDevices(devices: AnonymousDevice[]) {
+    const container = byId("anon-devices-list");
     if (devices.length === 0) {
       setContainerMessage(
         "anon-devices-list",
@@ -213,7 +269,7 @@ function providerInitial(provider?: string): string {
       const row = document.createElement("div");
       row.className =
         "flex items-center justify-between p-3 bg-base-200 rounded-md";
-      row.dataset.deviceId = String(device.device_id ?? "");
+      row.dataset["deviceId"] = String(device.device_id);
 
       const content = document.createElement("div");
       content.className = "flex-1 min-w-0";
@@ -265,9 +321,9 @@ function providerInitial(provider?: string): string {
         return;
       }
 
-      const data = await response.json();
-      if (response.ok && Array.isArray(data.devices)) {
-        renderAnonymousDevices(data.devices);
+      const data: unknown = await response.json();
+      if (response.ok && isRecord(data)) {
+        renderAnonymousDevices(parseAnonymousDevices(data["devices"]));
       } else {
         setContainerMessage(
           "anon-devices-list",
@@ -284,7 +340,7 @@ function providerInitial(provider?: string): string {
     }
   }
 
-  async function revokeAnonymousDevice(deviceId) {
+  async function revokeAnonymousDevice(deviceId: string) {
     try {
       const response = await fetch(`${ANON_V2_BASE}/${deviceId}`, {
         method: "DELETE",
@@ -301,21 +357,19 @@ function providerInitial(provider?: string): string {
   document.addEventListener("DOMContentLoaded", () => {
     fetchAnonymousDevices();
 
-    document
-      .getElementById("refresh-devices-btn")
-      .addEventListener("click", fetchAnonymousDevices);
+    byId("refresh-devices-btn").addEventListener("click", () => {
+      void fetchAnonymousDevices();
+    });
 
-    document
-      .getElementById("revoke-modal-cancel")
+    byId("revoke-modal-cancel")
       .addEventListener("click", () => {
-        document.getElementById("revoke-modal").close();
+        byId<HTMLDialogElement>("revoke-modal").close();
         pendingRevokeAction = null;
       });
 
-    document
-      .getElementById("revoke-modal-confirm")
+    byId("revoke-modal-confirm")
       .addEventListener("click", async () => {
-        document.getElementById("revoke-modal").close();
+        byId<HTMLDialogElement>("revoke-modal").close();
         if (pendingRevokeAction) {
           await pendingRevokeAction();
           pendingRevokeAction = null;

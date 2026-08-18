@@ -1,9 +1,13 @@
 /** @jsxImportSource react */
-import type { Node } from "@xyflow/react";
 import type { GraphMode } from "./SchemaGraph";
+import type {
+  GraphNode,
+  GraphNodeData,
+  SchemaField,
+} from "./schemaGraphTypes";
 
 interface NodeDetailPanelProps {
-  node: Node;
+  node: GraphNode;
   mode: GraphMode;
   onClose: () => void;
 }
@@ -13,8 +17,13 @@ export default function NodeDetailPanel({
   mode,
   onClose,
 }: NodeDetailPanelProps) {
-  const data = node.data as any;
-  const title = data.recordName || data.structName || data.tableName || node.id;
+  const data: GraphNodeData = node.data;
+  const title =
+    ("recordName" in data ? data.recordName : data.structName) || node.id;
+  const tableName = "tableName" in data ? data.tableName : undefined;
+
+  const isSchemaField = (field: typeof data.fields[number]): field is SchemaField =>
+    "isKey" in field || "isFk" in field || "isEnvRef" in field;
 
   return (
     <div className="absolute top-2 right-2 w-80 max-h-[calc(100%-1rem)] bg-base-100 border border-base-300 rounded-xl shadow-lg overflow-hidden flex flex-col z-10">
@@ -35,10 +44,10 @@ export default function NodeDetailPanel({
       </div>
 
       {/* Subtitle / badges */}
-      {mode === "database" && data.tableName && (
+      {mode === "database" && tableName && (
         <div className="px-4 py-1 text-xs text-base-content/50 bg-base-200/50 border-b border-base-300 flex items-center gap-2">
           <span>
-            Table: <code className="font-mono">{data.tableName}</code>
+            Table: <code className="font-mono">{tableName}</code>
           </span>
           {data.diffStatus && (
             <span
@@ -57,13 +66,13 @@ export default function NodeDetailPanel({
       )}
       {mode === "endpoints" && (
         <div className="px-4 py-1 bg-base-200/50 border-b border-base-300">
-          {data.isReq && (
+          {"isReq" in data && data.isReq && (
             <span className="badge badge-info badge-sm">Request</span>
           )}
-          {data.isRes && (
+          {"isRes" in data && data.isRes && (
             <span className="badge badge-success badge-sm">Response</span>
           )}
-          {data.isDataType && (
+          {"isDataType" in data && data.isDataType && (
             <span className="badge badge-neutral badge-sm">Data Type</span>
           )}
         </div>
@@ -81,7 +90,8 @@ export default function NodeDetailPanel({
           </thead>
           <tbody>
             {data.fields && data.fields.length > 0 ? (
-              data.fields.map((field: any, i: number) => {
+              data.fields.map((field, i) => {
+                const schemaField = isSchemaField(field);
                 const diffClass =
                   field.diffStatus === "added"
                     ? "bg-success/10"
@@ -94,13 +104,13 @@ export default function NodeDetailPanel({
                   <tr key={i} className={`hover ${diffClass}`}>
                     {mode === "database" && (
                       <td className="text-xs w-8 text-center">
-                        {field.isKey && (
+                        {schemaField && field.isKey && (
                           <span className="text-warning font-bold">PK</span>
                         )}
-                        {field.isFk && (
+                        {schemaField && field.isFk && (
                           <span className="text-secondary font-bold">FK</span>
                         )}
-                        {field.isEnvRef && (
+                        {schemaField && field.isEnvRef && (
                           <span className="text-info font-bold">EV</span>
                         )}
                       </td>
@@ -135,7 +145,9 @@ export default function NodeDetailPanel({
         {data.fields && (
           <>
             {(() => {
-              const fkCount = data.fields.filter((f: any) => f.isFk).length;
+              const fkCount = data.fields.filter(
+                (field) => isSchemaField(field) && field.isFk,
+              ).length;
               return fkCount > 0 ? ` / ${fkCount} FK references` : "";
             })()}
           </>

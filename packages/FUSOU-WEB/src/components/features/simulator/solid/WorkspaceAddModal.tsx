@@ -2,7 +2,7 @@
 import { createSignal, createEffect } from "solid-js";
 import { useStore } from "@nanostores/solid";
 import { workspaceStore, addEntry, upsertEntry, type ViewerEntry } from "@/features/simulator/viewer-workspace";
-import { createOwnDeckFromCurrentState, saveCurrentStateToEntry, activateWorkspaceEntry } from "@/features/simulator/io-handlers";
+import { saveCurrentStateToEntry, activateWorkspaceEntry } from "@/features/simulator/io-handlers";
 import { resolveShareInput } from "@/features/simulator/share-resolver";
 
 export const workspaceAddModalRef: { current: HTMLDialogElement | null } = { current: null };

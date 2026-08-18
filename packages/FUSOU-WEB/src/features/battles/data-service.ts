@@ -1,11 +1,28 @@
-import type { ShipInfo, WeaponIconFrame } from "./types";
-import { toGroupIds, hpScoreForDeck } from "./helpers";
+import type {
+  MstShipRecord,
+  MstSlotItemRecord,
+  ShipInfo,
+  WeaponIconFrame,
+} from "./types";
+import {
+  battleRowIndexForSort,
+  normalizeNullableNumber,
+  toGroupIds,
+  hpScoreForDeck,
+} from "./helpers";
+import {
+  jsonRecordOf,
+  jsonRecordsOf,
+  safeNumberArray,
+  unknownArrayOf,
+} from "./payload-guards";
 import { bannerUrl } from "@/features/simulator/equip-calc";
 import { cachedFetch } from "@/utils/fetchCache";
 import type { BattleDataRepository } from "./repository/types";
+import { SpriteAtlasSchema } from "@/server/schemas/assets";
 
-let mstShipByIdCache: Map<number, Record<string, unknown>> | null = null;
-let mstSlotItemByIdCache: Map<number, Record<string, unknown>> | null = null;
+let mstShipByIdCache: Map<number, MstShipRecord> | null = null;
+let mstSlotItemByIdCache: Map<number, MstSlotItemRecord> | null = null;
 let weaponIconFramesCache: Record<number, WeaponIconFrame> | null = null;
 let weaponIconMetaCache = { width: 0, height: 0 };
 
@@ -18,6 +35,14 @@ const ENV_DECK_LOOKUP_LIMIT = 200;
 const ENV_SHIP_LOOKUP_LIMIT = 2000;
 const ENV_SLOTITEM_LOOKUP_LIMIT = 4000;
 const DIRECT_SLOT_LOOKUP_LIMIT = 64;
+
+function hpDistanceOrMax(left: unknown, right: unknown): number {
+  const leftHp = normalizeNullableNumber(left);
+  const rightHp = normalizeNullableNumber(right);
+  return leftHp === null || rightHp === null
+    ? Number.MAX_SAFE_INTEGER
+    : Math.abs(leftHp - rightHp);
+}
 const BATTLE_LOOKUP_LIMIT = 50;
 const WEAPON_ICON_FRAMESET_VERSION = 2;
 
@@ -29,7 +54,62 @@ export type BattleDataQueryOptions = {
 async function fetchJson(url: string, signal?: AbortSignal): Promise<unknown> {
   const response = await cachedFetch(url, signal ? { signal } : undefined);
   if (!response.ok) return null;
-  return response.json();
+  const payload: unknown = await response.json();
+  return payload;
+}
+
+function masterDataId(row: Record<string, unknown>): number | null {
+  const id = typeof row["id"] === "number" ? row["id"] : Number(row["id"]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+export function parseMstShipMap(value: unknown): Map<number, MstShipRecord> {
+  return new Map(
+    jsonRecordsOf(value).flatMap((row) => {
+      const id = masterDataId(row);
+      if (id === null) return [];
+      const name = typeof row["name"] === "string" ? row["name"] : undefined;
+      const { id: _rawId, name: _rawName, ...fields } = row;
+      return [
+        [id, { ...fields, id, ...(name === undefined ? {} : { name }) }] as [
+          number,
+          MstShipRecord,
+        ],
+      ];
+    }),
+  );
+}
+
+export function parseMstSlotItemMap(
+  value: unknown,
+): Map<number, MstSlotItemRecord> {
+  return new Map(
+    jsonRecordsOf(value).flatMap((row) => {
+      const id = masterDataId(row);
+      if (id === null) return [];
+      const name = typeof row["name"] === "string" ? row["name"] : undefined;
+      const type = Array.isArray(row["type"])
+        ? safeNumberArray(row["type"])
+        : undefined;
+      const {
+        id: _rawId,
+        name: _rawName,
+        type: _rawType,
+        ...fields
+      } = row;
+      return [
+        [
+          id,
+          {
+            ...fields,
+            id,
+            ...(name === undefined ? {} : { name }),
+            ...(type === undefined ? {} : { type }),
+          },
+        ],
+      ] as [number, MstSlotItemRecord][];
+    }),
+  );
 }
 
 async function fetchRecordsFromRepository(
@@ -43,7 +123,9 @@ async function fetchRecordsFromRepository(
 ): Promise<Array<Record<string, unknown>>> {
   const payload = await options.repository.getRecords({
     ...query,
-    tableVersion: options.tableVersion,
+    ...(options.tableVersion === undefined
+      ? {}
+      : { tableVersion: options.tableVersion }),
     limitBlocks: GLOBAL_RECORD_LIMIT_BLOCKS,
   });
   return payload.records;
@@ -60,11 +142,11 @@ export async function fetchBattleResultByUuid(
     limitRecords: BATTLE_RESULT_LOOKUP_LIMIT,
     filter: { uuid },
   });
-  const item = records.find((r) => r?.uuid === uuid && r?.win_rank);
-  if (!item?.win_rank) return null;
+  const item = records.find((r) => r?.["uuid"] === uuid && r?.["win_rank"]);
+  if (!item?.["win_rank"]) return null;
   return {
-    win_rank: String(item.win_rank),
-    drop_ship_id: item.drop_ship_id ?? null,
+    win_rank: String(item["win_rank"]),
+    drop_ship_id: item["drop_ship_id"] ?? null,
   };
 }
 
@@ -102,8 +184,10 @@ export async function fetchRecordsByUuids(
   const unique = [...new Set(uuids.filter(Boolean))];
   if (!table || unique.length === 0) return new Map();
   if (unique.length === 1) {
-    const rows = await fetchRecordsByUuid(table, unique[0], options);
-    return new Map([[unique[0], rows]]);
+    const uuid = unique[0];
+    if (uuid === undefined) return new Map();
+    const rows = await fetchRecordsByUuid(table, uuid, options);
+    return new Map([[uuid, rows]]);
   }
   const records = await fetchRecordsFromRepository(options, {
     table,
@@ -114,7 +198,7 @@ export async function fetchRecordsByUuids(
   const result = new Map<string, Array<Record<string, unknown>>>();
   for (const id of unique) result.set(id, []);
   for (const row of records) {
-    const id = String(row?.uuid ?? "");
+    const id = String(row?.["uuid"] ?? "");
     if (result.has(id)) result.get(id)!.push(row);
   }
   return result;
@@ -151,17 +235,15 @@ export async function fetchRecentRecords(
 }
 
 export async function getMstShipById(signal?: AbortSignal): Promise<
-  Map<number, Record<string, unknown>>
+  Map<number, MstShipRecord>
 > {
   if (mstShipByIdCache) return mstShipByIdCache;
   try {
-    const payload = (await fetchJson(
+    const payload = jsonRecordOf(await fetchJson(
       `/api/master-data/json?table_name=mst_ship`,
       signal,
-    )) as { records?: Array<Record<string, unknown>> } | null;
-    const resolved = new Map(
-      (payload?.records || []).map((row) => [Number(row.id), row]),
-    );
+    ));
+    const resolved = parseMstShipMap(payload?.["records"]);
     if (resolved.size > 0) {
       mstShipByIdCache = resolved;
     }
@@ -172,17 +254,15 @@ export async function getMstShipById(signal?: AbortSignal): Promise<
 }
 
 export async function getMstSlotItemById(signal?: AbortSignal): Promise<
-  Map<number, Record<string, unknown>>
+  Map<number, MstSlotItemRecord>
 > {
   if (mstSlotItemByIdCache) return mstSlotItemByIdCache;
   try {
-    const payload = (await fetchJson(
+    const payload = jsonRecordOf(await fetchJson(
       `/api/master-data/json?table_name=mst_slotitem`,
       signal,
-    )) as { records?: Array<Record<string, unknown>> } | null;
-    const resolved = new Map(
-      (payload?.records || []).map((row) => [Number(row.id), row]),
-    );
+    ));
+    const resolved = parseMstSlotItemMap(payload?.["records"]);
     if (resolved.size > 0) {
       mstSlotItemByIdCache = resolved;
     }
@@ -200,31 +280,30 @@ export async function getWeaponIconFrames(signal?: AbortSignal): Promise<{
     return { frames: weaponIconFramesCache, meta: weaponIconMetaCache };
   }
   try {
-    const payload = (await fetchJson(
+    const parsedPayload = SpriteAtlasSchema.safeParse(await fetchJson(
       `/api/asset-sync/weapon-icon-frames?v=${WEAPON_ICON_FRAMESET_VERSION}`,
       signal,
-    )) as {
-      frames?: Record<string, { frame?: Record<string, unknown> }>;
-      meta?: { size?: { w?: number; h?: number } };
-    } | null;
+    ));
+    if (!parsedPayload.success) throw new Error("Invalid weapon sprite atlas");
+    const payload = parsedPayload.data;
     const frames: Record<number, WeaponIconFrame> = {};
-    for (const [name, entry] of Object.entries(payload?.frames || {})) {
+    for (const [name, entry] of Object.entries(payload.frames)) {
       const m = String(name).match(/_id_(\d+)$/);
       if (!m) continue;
       const id = Number(m[1]);
       const frame = entry?.frame;
       if (!Number.isFinite(id) || !frame) continue;
       frames[id] = {
-        x: Number(frame.x ?? 0),
-        y: Number(frame.y ?? 0),
-        w: Number(frame.w ?? 0),
-        h: Number(frame.h ?? 0),
+        x: frame.x,
+        y: frame.y,
+        w: frame.w,
+        h: frame.h,
       };
     }
     weaponIconFramesCache = frames;
     weaponIconMetaCache = {
-      width: Number(payload?.meta?.size?.w ?? 0) || 0,
-      height: Number(payload?.meta?.size?.h ?? 0) || 0,
+      width: payload.meta.size.w,
+      height: payload.meta.size.h,
     };
   } catch {
     // Keep cache unset so callers can retry on the next invocation.
@@ -253,7 +332,7 @@ export async function fetchBattleRecordsByUuid(
     limitRecords: BATTLE_LOOKUP_LIMIT,
     filter: { uuid },
   });
-  return records.filter((r) => String(r?.uuid || "") === uuid);
+  return records.filter((r) => String(r?.["uuid"] || "") === uuid);
 }
 
 export async function resolveDestructionBattleByBattleUuid(
@@ -272,13 +351,13 @@ export async function resolveDestructionBattleByBattleUuid(
   );
 
   const cellWithDestruction = cellRows.find((row) =>
-    typeof row?.destruction_battles === "string"
-      ? row.destruction_battles.length > 0
+    typeof row?.["destruction_battles"] === "string"
+      ? row["destruction_battles"].length > 0
       : false,
   );
   if (!cellWithDestruction) return null;
 
-  const destructionUuid = String(cellWithDestruction.destruction_battles ?? "");
+  const destructionUuid = String(cellWithDestruction["destruction_battles"] ?? "");
   if (!destructionUuid) return null;
 
   const rows = await fetchRecordsByUuid("destruction_battle", destructionUuid, options);
@@ -286,12 +365,15 @@ export async function resolveDestructionBattleByBattleUuid(
 
   if (Number.isFinite(Number(battleIndex))) {
     const byIndex = rows.find(
-      (row) => Number(row?.index ?? Number.NaN) === Number(battleIndex),
+      (row) => Number(row?.["index"] ?? Number.NaN) === Number(battleIndex),
     );
     if (byIndex) return byIndex;
   }
 
-  return [...rows].sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))[0] ?? null;
+  return [...rows].sort(
+    (a, b) =>
+      battleRowIndexForSort(a["index"]) - battleRowIndexForSort(b["index"]),
+  )[0] ?? null;
 }
 
 export async function resolveMidnightHougeki(
@@ -304,7 +386,7 @@ export async function resolveMidnightHougeki(
     raw,
     options,
   );
-  const detailUuid = (listRows[0] as Record<string, unknown>)?.midnight_hougeki;
+  const detailUuid = listRows[0]?.["midnight_hougeki"];
   if (!detailUuid || typeof detailUuid !== "string") return raw;
   const detailRows = await fetchRecordsByUuid(
     "midnight_hougeki",
@@ -320,7 +402,7 @@ export async function resolveOpeningTaisen(
 ): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("opening_taisen_list", raw, options);
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.opening_taisen;
+  const detailUuid = listRows?.[0]?.["opening_taisen"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("opening_taisen", String(detailUuid), options)
     : await fetchRecordsByUuid("opening_taisen", raw, options);
@@ -333,7 +415,7 @@ export async function resolveHougeki(
 ): Promise<unknown> {
   if (!raw || typeof raw !== "string") return raw;
   const listRows = await fetchRecordsByUuid("hougeki_list", raw, options);
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)?.hougeki;
+  const detailUuid = listRows?.[0]?.["hougeki"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("hougeki", String(detailUuid), options)
     : await fetchRecordsByUuid("hougeki", raw, options);
@@ -350,8 +432,7 @@ export async function resolveOpeningAirAttack(
     raw,
     options,
   );
-  const detailUuid = (listRows?.[0] as Record<string, unknown>)
-    ?.opening_air_attack;
+  const detailUuid = listRows?.[0]?.["opening_air_attack"];
   const rows = detailUuid
     ? await fetchRecordsByUuid("opening_airattack", String(detailUuid), options)
     : await fetchRecordsByUuid("opening_airattack", raw, options);
@@ -380,7 +461,7 @@ export async function resolveFriendlyFleet(
   battle: Record<string, unknown>,
   options: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
-  const envUuid = battle?.env_uuid;
+  const envUuid = battle?.["env_uuid"];
   if (!envUuid) return [];
 
   const ownDecks = await fetchRecordsByField(
@@ -390,14 +471,14 @@ export async function resolveFriendlyFleet(
     ENV_DECK_LOOKUP_LIMIT,
     options,
   );
-  const hpSnapshot = (battle.f_nowhps ??
-    battle.midnight_f_nowhps ??
-    []) as unknown[];
+  const hpSnapshot = unknownArrayOf(
+    battle["f_nowhps"] ?? battle["midnight_f_nowhps"],
+  );
 
   // Collect all unique ship group IDs from all decks
   const allGroupIds: string[] = [];
   for (const deck of ownDecks) {
-    for (const gid of toGroupIds(deck.ship_ids)) {
+    for (const gid of toGroupIds(deck["ship_ids"])) {
       if (!allGroupIds.includes(gid)) allGroupIds.push(gid);
     }
   }
@@ -412,7 +493,7 @@ export async function resolveFriendlyFleet(
   let bestGroupId: string | null = null;
   let bestScore = Number.MAX_SAFE_INTEGER;
   for (const deck of ownDecks) {
-    for (const groupId of toGroupIds(deck.ship_ids)) {
+    for (const groupId of toGroupIds(deck["ship_ids"])) {
       const ships = ownShipsByGroup.get(groupId) || [];
       const score = hpScoreForDeck(
         ships as Array<{ index?: unknown; nowhp?: unknown; maxhp?: unknown }>,
@@ -438,7 +519,7 @@ export async function resolveFriendlyFleet(
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of ownShipRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
@@ -470,7 +551,7 @@ export async function resolveFriendlyFleet(
     );
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of nearbyOwnShipRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
@@ -494,17 +575,13 @@ export async function resolveFriendlyFleet(
   }
 
   if (!selectedShips.length) {
-    const fallbackHps = Array.isArray(hpSnapshot)
-      ? hpSnapshot.map((v) => Number(v ?? 0) || 0)
-      : [];
-    return fallbackHps
-      .filter((hp) => hp > 0)
-      .map((hp, idx) => ({
+    const fallbackHps = unknownArrayOf(hpSnapshot).map(normalizeNullableNumber);
+    return fallbackHps.map((hp, idx) => ({
         name: `味方${idx + 1}番艦`,
         shipId: null,
         level: null,
         nowhp: hp,
-        maxhp: hp,
+        maxhp: null,
         karyoku: null,
         raisou: null,
         taiku: null,
@@ -519,10 +596,11 @@ export async function resolveFriendlyFleet(
 
   // Collect all slot UUIDs and batch-fetch them in one request
   const sortedShips = [...selectedShips].sort(
-    (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
+    (a, b) =>
+      battleRowIndexForSort(a["index"]) - battleRowIndexForSort(b["index"]),
   );
   const slotUuids = sortedShips
-    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .map((s) => (typeof s["slot"] === "string" ? s["slot"] : ""))
     .filter(Boolean);
   const slotRowsByUuid = await fetchRecordsByUuids(
     "own_slotitem",
@@ -532,7 +610,7 @@ export async function resolveFriendlyFleet(
 
   const slotRowsByEnvUuid = new Map<string, Array<Record<string, unknown>>>();
   const friendlyEnvUuid =
-    String(sortedShips[0]?.env_uuid ?? battle?.env_uuid ?? "") || "";
+    String(sortedShips[0]?.["env_uuid"] ?? battle?.["env_uuid"] ?? "") || "";
   if (friendlyEnvUuid) {
     const envSlotRows = await fetchRecordsByField(
       "own_slotitem",
@@ -542,7 +620,7 @@ export async function resolveFriendlyFleet(
       options,
     );
     for (const row of envSlotRows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!slotRowsByEnvUuid.has(groupId)) slotRowsByEnvUuid.set(groupId, []);
       slotRowsByEnvUuid.get(groupId)!.push(row);
@@ -590,7 +668,7 @@ export async function resolveFriendlyFleet(
         options,
       );
       for (const row of envOwnShipRows) {
-        const key = `${Number(row.index ?? -1)}|${Number(row.ship_id ?? 0)}`;
+        const key = `${battleRowIndexForSort(row["index"])}|${Number(row["ship_id"] ?? 0)}`;
         if (!envShipCandidatesByIndexShip.has(key)) {
           envShipCandidatesByIndexShip.set(key, []);
         }
@@ -602,9 +680,9 @@ export async function resolveFriendlyFleet(
   }
 
   return sortedShips.map((ship) => {
-    const shipId = Number(ship.ship_id ?? 0) || null;
+    const shipId = Number(ship["ship_id"] ?? 0) || null;
     const mstShip = shipId ? mstShipById.get(shipId) : null;
-    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotGroupId = typeof ship["slot"] === "string" ? ship["slot"] : null;
     let slotRows = slotGroupId
       ? (slotRowsByUuid.get(slotGroupId) ||
         slotRowsByEnvUuid.get(slotGroupId) ||
@@ -613,16 +691,16 @@ export async function resolveFriendlyFleet(
       : [];
 
     if (slotRows.length === 0) {
-      const candidateKey = `${Number(ship.index ?? -1)}|${Number(ship.ship_id ?? 0)}`;
+      const candidateKey = `${battleRowIndexForSort(ship["index"])}|${Number(ship["ship_id"] ?? 0)}`;
       const slotCandidates = envShipCandidatesByIndexShip.get(candidateKey) || [];
       const sortedCandidates = [...slotCandidates].sort((a, b) => {
-        const da = Math.abs(Number(a.nowhp ?? 0) - Number(ship.nowhp ?? 0));
-        const db = Math.abs(Number(b.nowhp ?? 0) - Number(ship.nowhp ?? 0));
+        const da = hpDistanceOrMax(a["nowhp"], ship["nowhp"]);
+        const db = hpDistanceOrMax(b["nowhp"], ship["nowhp"]);
         return da - db;
       });
       for (const candidate of sortedCandidates) {
         const candidateSlot =
-          typeof candidate.slot === "string" ? candidate.slot : "";
+          typeof candidate["slot"] === "string" ? candidate["slot"] : "";
         if (!candidateSlot) continue;
         const candidateRows =
           slotRowsByUuid.get(candidateSlot) ||
@@ -637,24 +715,25 @@ export async function resolveFriendlyFleet(
     }
 
     const equips = slotRows
-      .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .filter((row) => Number(row["mst_slotitem_id"] ?? -1) > 0)
+      .sort(
+        (a, b) =>
+          battleRowIndexForSort(a["index"]) -
+          battleRowIndexForSort(b["index"]),
+      )
       .map((row) => {
-        const slotId = Number(row.mst_slotitem_id ?? 0) || null;
+        const slotId = Number(row["mst_slotitem_id"] ?? 0) || null;
         const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
         const iconType =
-          Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
-          ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
+          mstSlot?.type &&
+          mstSlot.type.length >= 4
             ? Number(
-                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ??
-                  0,
+                mstSlot.type[3] ?? 0,
               ) || null
             : null;
         return {
-          name: (mstSlot as Record<string, unknown>)?.name
-            ? String((mstSlot as Record<string, unknown>).name)
-            : `装備ID:${slotId}`,
-          level: (row.level as number) ?? null,
+          name: mstSlot?.name ?? `装備ID:${slotId}`,
+          level: (row["level"] as number) ?? null,
           iconType,
           slotItemId: slotId,
         };
@@ -662,19 +741,16 @@ export async function resolveFriendlyFleet(
 
     return {
       name: mstShip
-        ? String(
-            (mstShip as Record<string, unknown>).name ??
-              `艦ID:${shipId ?? "-"}`,
-          )
+        ? mstShip.name ?? `艦ID:${shipId ?? "-"}`
         : `艦ID:${shipId ?? "-"}`,
       shipId,
-      level: Number(ship.lv ?? 0) || null,
-      nowhp: Number(ship.nowhp ?? 0) || 0,
-      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-      karyoku: ship.karyoku ?? null,
-      raisou: ship.raisou ?? null,
-      taiku: ship.taiku ?? null,
-      soukou: ship.soukou ?? null,
+      level: normalizeNullableNumber(ship["lv"]),
+      nowhp: normalizeNullableNumber(ship["nowhp"]),
+      maxhp: normalizeNullableNumber(ship["maxhp"]),
+      karyoku: normalizeNullableNumber(ship["karyoku"]),
+      raisou: normalizeNullableNumber(ship["raisou"]),
+      taiku: normalizeNullableNumber(ship["taiku"]),
+      soukou: normalizeNullableNumber(ship["soukou"]),
       bannerUrl: shipId ? bannerUrl(shipId, { f: "auto" }) : "",
       equipments: equips,
     } satisfies ShipInfo;
@@ -685,22 +761,20 @@ export async function resolveEnemyFleet(
   battle: Record<string, unknown>,
   options: BattleDataQueryOptions,
 ): Promise<ShipInfo[]> {
-  const enemyHpSnapshot = Array.isArray(battle?.e_nowhps)
-    ? (battle.e_nowhps as unknown[])
-    : Array.isArray(battle?.midnight_e_nowhps)
-      ? (battle.midnight_e_nowhps as unknown[])
-      : [];
+  const enemyHpSnapshot = unknownArrayOf(
+    Array.isArray(battle?.["e_nowhps"])
+      ? battle["e_nowhps"]
+      : battle?.["midnight_e_nowhps"],
+  );
 
   const fallbackEnemyByHp = (): ShipInfo[] => {
-    const hps = enemyHpSnapshot.map((v) => Number(v ?? 0) || 0);
-    return hps
-      .filter((hp) => hp > 0)
-      .map((hp, idx) => ({
+    const hps = enemyHpSnapshot.map(normalizeNullableNumber);
+    return hps.map((hp, idx) => ({
         name: `敵${idx + 1}番艦`,
         shipId: null,
         level: null,
         nowhp: hp,
-        maxhp: hp,
+        maxhp: null,
         karyoku: null,
         raisou: null,
         taiku: null,
@@ -711,7 +785,7 @@ export async function resolveEnemyFleet(
   };
 
   const inferEnemyByEnv = async (): Promise<ShipInfo[]> => {
-    const envUuid = String(battle?.env_uuid ?? "");
+    const envUuid = String(battle?.["env_uuid"] ?? "");
     if (!envUuid) return [];
 
     const hpSnapshot = enemyHpSnapshot;
@@ -726,7 +800,7 @@ export async function resolveEnemyFleet(
 
     const byGroup = new Map<string, Array<Record<string, unknown>>>();
     for (const row of rows) {
-      const groupId = String(row.uuid ?? "");
+      const groupId = String(row["uuid"] ?? "");
       if (!groupId) continue;
       if (!byGroup.has(groupId)) byGroup.set(groupId, []);
       byGroup.get(groupId)!.push(row);
@@ -737,11 +811,7 @@ export async function resolveEnemyFleet(
     let bestScore = Number.MAX_SAFE_INTEGER;
     for (const groupRows of byGroup.values()) {
       const score = hpScoreForDeck(
-        groupRows as Array<{
-          index?: unknown;
-          nowhp?: unknown;
-          maxhp?: unknown;
-        }>,
+        groupRows,
         hpSnapshot,
       );
       if (score < bestScore) {
@@ -753,32 +823,33 @@ export async function resolveEnemyFleet(
 
     const mstShipById = await getMstShipById();
     return [...bestRows]
-      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .sort(
+        (a, b) =>
+          battleRowIndexForSort(a["index"]) -
+          battleRowIndexForSort(b["index"]),
+      )
       .map((ship) => {
-        const mstId = Number(ship.mst_ship_id ?? 0) || null;
+        const mstId = Number(ship["mst_ship_id"] ?? 0) || null;
         const mstShip = mstId ? mstShipById.get(mstId) : null;
         return {
           name: mstShip
-            ? String(
-                (mstShip as Record<string, unknown>).name ??
-                  `敵艦ID:${mstId ?? "-"}`,
-              )
+            ? mstShip.name ?? `敵艦ID:${mstId ?? "-"}`
             : `敵艦ID:${mstId ?? "-"}`,
           shipId: mstId,
-          level: Number(ship.lv ?? 0) || null,
-          nowhp: Number(ship.nowhp ?? 0) || 0,
-          maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-          karyoku: ship.karyoku ?? null,
-          raisou: ship.raisou ?? null,
-          taiku: ship.taiku ?? null,
-          soukou: ship.soukou ?? null,
+          level: normalizeNullableNumber(ship["lv"]),
+          nowhp: normalizeNullableNumber(ship["nowhp"]),
+          maxhp: normalizeNullableNumber(ship["maxhp"]),
+          karyoku: normalizeNullableNumber(ship["karyoku"]),
+          raisou: normalizeNullableNumber(ship["raisou"]),
+          taiku: normalizeNullableNumber(ship["taiku"]),
+          soukou: normalizeNullableNumber(ship["soukou"]),
           bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
           equipments: [],
         } satisfies ShipInfo;
       });
   };
 
-  const deckId = battle?.e_deck_id;
+  const deckId = battle?.["e_deck_id"];
   if (!deckId) {
     const inferred = await inferEnemyByEnv();
     return inferred.length > 0 ? inferred : fallbackEnemyByHp();
@@ -795,7 +866,7 @@ export async function resolveEnemyFleet(
   const mstSlotItemById = await getMstSlotItemById();
 
   // Batch-fetch all enemy ship groups in one request
-  const groupIds = toGroupIds(deck.ship_ids);
+  const groupIds = toGroupIds(deck["ship_ids"]);
   const shipsByGroup = await fetchRecordsByUuids(
     "enemy_ship",
     groupIds,
@@ -806,14 +877,16 @@ export async function resolveEnemyFleet(
   const allShips: Array<Record<string, unknown>> = [];
   for (const groupId of groupIds) {
     const groupShips = [...(shipsByGroup.get(groupId) || [])].sort(
-      (a, b) => Number(a.index ?? 0) - Number(b.index ?? 0),
+      (a, b) =>
+        battleRowIndexForSort(a["index"]) -
+        battleRowIndexForSort(b["index"]),
     );
     allShips.push(...groupShips);
   }
 
   // Batch-fetch all enemy slot items in one request
   const slotUuids = allShips
-    .map((s) => (typeof s.slot === "string" ? s.slot : ""))
+    .map((s) => (typeof s["slot"] === "string" ? s["slot"] : ""))
     .filter(Boolean);
   const slotRowsByUuid = await fetchRecordsByUuids(
     "enemy_slotitem",
@@ -823,28 +896,29 @@ export async function resolveEnemyFleet(
 
   const ships: ShipInfo[] = [];
   for (const ship of allShips) {
-    const mstId = Number(ship.mst_ship_id ?? 0) || null;
+    const mstId = Number(ship["mst_ship_id"] ?? 0) || null;
     const mstShip = mstId ? mstShipById.get(mstId) : null;
-    const slotGroupId = typeof ship.slot === "string" ? ship.slot : null;
+    const slotGroupId = typeof ship["slot"] === "string" ? ship["slot"] : null;
     const slotRows = slotGroupId ? slotRowsByUuid.get(slotGroupId) || [] : [];
     const equips = slotRows
-      .filter((row) => Number(row.mst_slotitem_id ?? -1) > 0)
-      .sort((a, b) => Number(a.index ?? 0) - Number(b.index ?? 0))
+      .filter((row) => Number(row["mst_slotitem_id"] ?? -1) > 0)
+      .sort(
+        (a, b) =>
+          battleRowIndexForSort(a["index"]) -
+          battleRowIndexForSort(b["index"]),
+      )
       .map((row) => {
-        const slotId = Number(row.mst_slotitem_id ?? 0) || null;
+        const slotId = Number(row["mst_slotitem_id"] ?? 0) || null;
         const mstSlot = slotId ? mstSlotItemById.get(slotId) : null;
         const iconType =
-          Array.isArray((mstSlot as Record<string, unknown>)?.type) &&
-          ((mstSlot as Record<string, unknown>).type as unknown[]).length >= 4
+          mstSlot?.type &&
+          mstSlot.type.length >= 4
             ? Number(
-                ((mstSlot as Record<string, unknown>).type as unknown[])[3] ??
-                  0,
+                mstSlot.type[3] ?? 0,
               ) || null
             : null;
         return {
-          name: (mstSlot as Record<string, unknown>)?.name
-            ? String((mstSlot as Record<string, unknown>).name)
-            : `装備ID:${slotId}`,
+          name: mstSlot?.name ?? `装備ID:${slotId}`,
           level: null,
           iconType,
           slotItemId: slotId,
@@ -853,19 +927,16 @@ export async function resolveEnemyFleet(
 
     ships.push({
       name: mstShip
-        ? String(
-            (mstShip as Record<string, unknown>).name ??
-              `敵艦ID:${mstId ?? "-"}`,
-          )
+        ? mstShip.name ?? `敵艦ID:${mstId ?? "-"}`
         : `敵艦ID:${mstId ?? "-"}`,
       shipId: mstId,
-      level: Number(ship.lv ?? 0) || null,
-      nowhp: Number(ship.nowhp ?? 0) || 0,
-      maxhp: Number(ship.maxhp ?? ship.nowhp ?? 0) || 0,
-      karyoku: ship.karyoku ?? null,
-      raisou: ship.raisou ?? null,
-      taiku: ship.taiku ?? null,
-      soukou: ship.soukou ?? null,
+      level: normalizeNullableNumber(ship["lv"]),
+      nowhp: normalizeNullableNumber(ship["nowhp"]),
+      maxhp: normalizeNullableNumber(ship["maxhp"]),
+      karyoku: normalizeNullableNumber(ship["karyoku"]),
+      raisou: normalizeNullableNumber(ship["raisou"]),
+      taiku: normalizeNullableNumber(ship["taiku"]),
+      soukou: normalizeNullableNumber(ship["soukou"]),
       bannerUrl: mstId ? bannerUrl(mstId, { f: "auto" }) : "",
       equipments: equips,
     });
@@ -880,22 +951,19 @@ export async function resolveEnemyFleet(
     return inferred;
   }
 
-  return Array.isArray(battle?.e_nowhps)
-    ? (battle.e_nowhps as unknown[])
-        .map((v) => Number(v ?? 0) || 0)
-        .filter((hp) => hp > 0)
-        .map((hp, idx) => ({
+  return unknownArrayOf(battle?.["e_nowhps"])
+      .map(normalizeNullableNumber)
+    .map((hp, idx) => ({
           name: `敵${idx + 1}番艦`,
           shipId: null,
           level: null,
           nowhp: hp,
-          maxhp: hp,
+        maxhp: null,
           karyoku: null,
           raisou: null,
           taiku: null,
           soukou: null,
           bannerUrl: "",
           equipments: [],
-        }))
-    : [];
+      }));
 }

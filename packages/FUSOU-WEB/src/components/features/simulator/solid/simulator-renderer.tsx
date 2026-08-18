@@ -67,12 +67,11 @@ import {
   isWorkspaceReadOnly,
 } from "@/features/simulator/simulator-selectors";
 import type {
-  ShipGrowthSummary,
-  ShipGrowthCaps,
   NormalizedShipGrowthCaps,
-  ShipGrowthBoundRow,
 } from "@/features/simulator/ship-growth-utils";
 import {
+  ShipGrowthBoundsResponseSchema,
+  ShipGrowthSummaryResponseSchema,
   normalizeShipGrowthCaps,
   deriveShipGrowthCapsFromBounds,
   mergeShipGrowthCaps,
@@ -99,7 +98,9 @@ async function getLatestShipGrowthPeriod(): Promise<{
   shipGrowthPeriodPromise = (async () => {
     const res = await cachedFetch("/api/ship-growth/summary");
     if (!res.ok) return null;
-    const json = (await res.json()) as ShipGrowthSummary;
+    const parsed = ShipGrowthSummaryResponseSchema.safeParse(await res.json());
+    if (!parsed.success || !parsed.data.ok) return null;
+    const json = parsed.data;
     const latest = json.periods?.[0];
     return latest
       ? { period_tag: latest.period_tag, table_version: latest.table_version }
@@ -126,10 +127,14 @@ async function getShipGrowthCaps(
       shipGrowthCapsCache.set(masterId, null);
       return null;
     }
-    const boundsJson = (await boundsRes.json()) as {
-      caps?: ShipGrowthCaps[];
-      bounds?: ShipGrowthBoundRow[];
-    };
+    const parsed = ShipGrowthBoundsResponseSchema.safeParse(
+      await boundsRes.json(),
+    );
+    if (!parsed.success || !parsed.data.ok) {
+      shipGrowthCapsCache.set(masterId, null);
+      return null;
+    }
+    const boundsJson = parsed.data;
     const capFromCaps = normalizeShipGrowthCaps(
       (boundsJson.caps ?? []).find((row) => row.master_id === masterId) ?? null,
     );
@@ -313,11 +318,19 @@ function getLiveFleet(fleetIndex: 1 | 2 | 3 | 4): FleetSlot[] {
 }
 
 function getLiveFleetSlot(fleetIndex: 1 | 2 | 3 | 4, idx: number): FleetSlot {
-  return getLiveFleet(fleetIndex)[idx];
+  const slot = getLiveFleet(fleetIndex)[idx];
+  if (!slot) {
+    throw new Error(`Fleet slot ${fleetIndex}:${idx} is unavailable`);
+  }
+  return slot;
 }
 
 function getLiveAirBase(index: number): AirBaseSlot {
-  return getAirBaseState()[index];
+  const base = getAirBaseState()[index];
+  if (!base) {
+    throw new Error(`Air base ${index} is unavailable`);
+  }
+  return base;
 }
 
 function applyShipSelectionAt(
@@ -595,14 +608,14 @@ function ShipCard(props: {
       [
         "装甲",
         "souk",
-        ist?.souk ?? s.souk?.[0] ?? null,
-        s.souk?.[1] ?? null,
+        ist?.["souk"] ?? s["souk"]?.[0] ?? null,
+        s["souk"]?.[1] ?? null,
         true,
       ],
       [
         "回避",
         "kaih",
-        ist?.kaih ?? null,
+        ist?.["kaih"] ?? null,
         null,
         true,
         shipGrowthCap()?.kaihi_max ?? null,
@@ -622,36 +635,36 @@ function ShipCard(props: {
       [
         "火力",
         "houg",
-        ist?.houg ?? s.houg?.[0] ?? null,
-        s.houg?.[1] ?? null,
+        ist?.["houg"] ?? s["houg"]?.[0] ?? null,
+        s["houg"]?.[1] ?? null,
         true,
       ],
       [
         "雷装",
         "raig",
-        ist?.raig ?? s.raig?.[0] ?? null,
-        s.raig?.[1] ?? null,
+        ist?.["raig"] ?? s["raig"]?.[0] ?? null,
+        s["raig"]?.[1] ?? null,
         true,
       ],
       [
         "対空",
         "tyku",
-        ist?.tyku ?? s.tyku?.[0] ?? null,
-        s.tyku?.[1] ?? null,
+        ist?.["tyku"] ?? s["tyku"]?.[0] ?? null,
+        s["tyku"]?.[1] ?? null,
         true,
       ],
       [
         "対潜",
         "tais",
-        ist?.tais ?? s.tais?.[0] ?? null,
-        s.tais?.[1] ?? null,
+        ist?.["tais"] ?? s["tais"]?.[0] ?? null,
+        s["tais"]?.[1] ?? null,
         true,
         shipGrowthCap()?.taisen_max ?? null,
       ],
       [
         "索敵",
         "saku",
-        ist?.saku ?? null,
+        ist?.["saku"] ?? null,
         null,
         true,
         shipGrowthCap()?.sakuteki_max ?? null,
@@ -659,8 +672,8 @@ function ShipCard(props: {
       [
         "運",
         "luck",
-        ist?.luck ?? s.luck?.[0] ?? null,
-        s.luck?.[1] ?? null,
+        ist?.["luck"] ?? s["luck"]?.[0] ?? null,
+        s["luck"]?.[1] ?? null,
         true,
       ],
     ];
@@ -944,7 +957,7 @@ function ShipCard(props: {
                           style={
                             {
                               background: `linear-gradient(to right, var(--color-primary) 0%, var(--color-primary) ${pct()}%, var(--color-base-300) ${pct()}%, var(--color-base-300) 100%)`,
-                            } as any
+                            }
                           }
                           onInput={(e) => {
                             const next = Number(
@@ -1118,7 +1131,7 @@ function ShipCard(props: {
                             onMouseLeave={() => setRowHovered(false)}
                             onClick={() => {
                               if (!isActive) return;
-                              const current = liveSlot().equipIds[i];
+                              const current = liveSlot().equipIds[i] ?? null;
                               if (isReadOnly() && current == null) return;
                               setEquipModalTargetForFleet(
                                 props.fleetIndex,
@@ -1319,6 +1332,7 @@ function ShipCard(props: {
                   <div class="grid grid-cols-[5.9rem_0.25rem_5.9rem] gap-x-0 gap-y-0 px-1.5 py-0 text-[10px] border-t border-base-200/50 leading-none w-fit">
                     {d.leftStats.map((ls, r) => {
                       const rs = d.rightStats[r];
+                      if (!rs) return null;
                       return (
                         <>
                           <StatCell
@@ -1499,7 +1513,7 @@ function AirBaseCard(props: { index: number }): JSX.Element {
                 onMouseEnter={() => setRowHovered(true)}
                 onMouseLeave={() => setRowHovered(false)}
                 onClick={() => {
-                  const current = getLiveAirBase(props.index).equipIds[i];
+                  const current = getLiveAirBase(props.index).equipIds[i] ?? null;
                   if (isReadOnly() && current == null) return;
                   setEquipModalTargetForAirBase(props.index, i);
                   openEquipModal(current, (selection) => {

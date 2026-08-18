@@ -19,8 +19,8 @@ import { MasterDataStatusAlert } from "./MasterDataStatusAlert";
 export function SimulatorTabManager(props: { initialTab: string, accessToken: string | null }) {
   const [activeTab, setActiveTab] = createSignal(props.initialTab || "fleet");
 
-  let ensureOptimizerMounted: any;
-  let mountSimulatorDetailsCatalog: any;
+  let ensureOptimizerMounted: ((container?: HTMLElement) => void) | undefined;
+  let mountSimulatorDetailsCatalog: ((root: HTMLElement) => void) | undefined;
   let detailsMounted = false;
   let detailsRootRef: HTMLDivElement | undefined;
   let optimizerMountRef: HTMLDivElement | undefined;
@@ -61,7 +61,7 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
   });
 
   onMount(() => {
-    (window as any).__fusouAccessToken = props.accessToken;
+    window.__fusouAccessToken = props.accessToken;
 
     initShipModalEvents();
     initEquipModalEvents();
@@ -73,8 +73,9 @@ export function SimulatorTabManager(props: { initialTab: string, accessToken: st
     window.addEventListener("resize", handleResize);
     onCleanup(() => window.removeEventListener("resize", handleResize));
 
-    const handleTabChangeSync = (e: any) => {
-      setActiveTab(e.detail);
+    const handleTabChangeSync = (e: Event) => {
+      const detail = (e as CustomEvent<string>).detail;
+      setActiveTab(detail);
     };
     window.addEventListener("simulator-tab-changed-sync", handleTabChangeSync);
     onCleanup(() => window.removeEventListener("simulator-tab-changed-sync", handleTabChangeSync));

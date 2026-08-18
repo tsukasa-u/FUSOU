@@ -1,4 +1,5 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import type { D1Database, KVNamespace, R2Bucket } from "@cloudflare/workers-types";
 import { promisify } from "node:util";
 import { brotliDecompress } from "node:zlib";
 import type { Bindings } from "../types";
@@ -10,8 +11,18 @@ import {
   validateCachedPeriodTag,
 } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
-import { validateOffsetMetadata } from "../validators/offsets";
-import { decodeAvroOcfToJson } from "../utils/avro-decoder";
+import {
+  parseOffsetMetadata,
+  validateOffsetMetadata,
+  type TableOffsetMetadata,
+} from "../validators/offsets";
+import {
+  decodeAvroOcfToJson,
+  parseDeflateAvroBlock,
+  parseNullAvroBlock,
+  type AvroJsonRecord,
+} from "../utils/avro-decoder";
+import { parseOcfHeader } from "../../features/avro/ocf-header";
 import {
   validateAvroOCFSmart,
   extractSchemaFromOCF,
@@ -20,47 +31,52 @@ import {
 import { buildBattleOverviewPayload } from "../../features/battles/resolvers/overview";
 import { buildBattleDropsPayload } from "../../features/battles/resolvers/drops";
 import { resolveBattleDetail } from "../../features/battles/resolvers/detail";
+import { compareTableVersions } from "../../features/battles/helpers";
+import {
+  BattleMasterDataRowSchema,
+  parseBattleBlockRows,
+  parseBattleChunkRows,
+  parseBattleJsonRecords,
+  BattlePeriodTagRowsSchema,
+  BattleSummaryRowsSchema,
+  type BattleBlockRow,
+} from "../schemas/battle-data";
+import { BattleDataTokenPayloadSchema } from "../schemas/tokens";
 
 const app = new Hono<{ Bindings: Bindings }>();
 const brotliDecompressAsync = promisify(brotliDecompress);
 
-function transformOpeningRaigekiData(raw: any): any {
-  if (!raw) return raw;
-  const result: any = {};
-  if (raw.frai_list_items) {
-    result.f_rai =
-      typeof raw.frai_list_items === "string"
-        ? JSON.parse(raw.frai_list_items)
-        : raw.frai_list_items;
+type BattleRecord = Record<string, unknown>;
+type ValidatedTableOffset = Omit<TableOffsetMetadata, "format"> & {
+  record_count: number;
+};
+
+function transformOpeningRaigekiData(raw: BattleRecord): BattleRecord {
+  const result: BattleRecord = {};
+  if (raw["frai_list_items"]) {
+    result["f_rai"] =
+      typeof raw["frai_list_items"] === "string"
+        ? JSON.parse(raw["frai_list_items"])
+        : raw["frai_list_items"];
   }
-  if (raw.erai_list_items) {
-    result.e_rai =
-      typeof raw.erai_list_items === "string"
-        ? JSON.parse(raw.erai_list_items)
-        : raw.erai_list_items;
+  if (raw["erai_list_items"]) {
+    result["e_rai"] =
+      typeof raw["erai_list_items"] === "string"
+        ? JSON.parse(raw["erai_list_items"])
+        : raw["erai_list_items"];
   }
-  if (raw.friend_damage) {
-    result.f_dam =
-      typeof raw.friend_damage === "string"
-        ? JSON.parse(raw.friend_damage)
-        : raw.friend_damage;
+  if (raw["friend_damage"]) {
+    result["f_dam"] =
+      typeof raw["friend_damage"] === "string"
+        ? JSON.parse(raw["friend_damage"])
+        : raw["friend_damage"];
   }
-  if (raw.enemy_damage) {
-    result.e_dam =
-      typeof raw.enemy_damage === "string"
-        ? JSON.parse(raw.enemy_damage)
-        : raw.enemy_damage;
+  if (raw["enemy_damage"]) {
+    result["e_dam"] =
+      typeof raw["enemy_damage"] === "string"
+        ? JSON.parse(raw["enemy_damage"])
+        : raw["enemy_damage"];
   }
-  const fDam = result.f_dam || [];
-  const eDam = result.e_dam || [];
-  result.f_now_hps = Array(fDam.length)
-    .fill(null)
-    .map((_, i) => 100 + i * 20);
-  result.e_now_hps = Array(eDam.length)
-    .fill(null)
-    .map((_, i) => 100 + i * 20);
-  result.f_cl = Array(result.f_now_hps.length).fill(2);
-  result.e_cl = Array(result.e_now_hps.length).fill(2);
   return result;
 }
 
@@ -104,18 +120,23 @@ function buildGlobalRecordsPath(options: {
   table: string;
   periodTag: string;
   tableVersion: string;
+  datasetId?: string;
   limitBlocks: number;
   limitRecords: number;
   filter?: Record<string, unknown>;
   includeSortieKey?: boolean;
 }): string {
+  const datasetId = options.datasetId?.trim();
+  const datasetIdParam = datasetId
+    ? `&dataset_id=${encodeURIComponent(datasetId)}`
+    : "";
   const filterJson = options.filter
     ? `&filter_json=${encodeURIComponent(JSON.stringify(options.filter))}`
     : "";
   const includeSortieKey = options.includeSortieKey
     ? "&include_sortie_key=1"
     : "";
-  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
+  return `/api/battle-data/global/records?table=${encodeURIComponent(options.table)}&period_tag=${encodeURIComponent(options.periodTag)}${buildTableVersionSearchParam(options.tableVersion)}${datasetIdParam}&limit_blocks=${options.limitBlocks}&limit_records=${options.limitRecords}${includeSortieKey}${filterJson}`;
 }
 
 function toBattleDataInternalPath(path: string): string {
@@ -126,7 +147,10 @@ function toBattleDataInternalPath(path: string): string {
   return path;
 }
 
-async function fetchBattleDataJsonInternal<T>(c: any, path: string): Promise<T> {
+async function fetchBattleDataJsonInternal(
+  c: Context<{ Bindings: Bindings }>,
+  path: string,
+): Promise<unknown> {
   const normalizedPath = toBattleDataInternalPath(path);
   const targetUrl = new URL(c.req.url);
   targetUrl.pathname = normalizedPath;
@@ -150,7 +174,8 @@ async function fetchBattleDataJsonInternal<T>(c: any, path: string): Promise<T> 
   if (!response.ok) {
     throw new Error(`Failed to fetch ${targetUrl.pathname}: HTTP ${response.status}`);
   }
-  return (await response.json()) as T;
+  const payload: unknown = await response.json();
+  return payload;
 }
 
 type MasterDataJsonPayload = {
@@ -171,14 +196,83 @@ type BattleEnvBundlePayload = {
   enemySlotItems: Array<Record<string, unknown>>;
 };
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseJsonRecords(value: unknown): Array<Record<string, unknown>> | null {
+  if (!Array.isArray(value)) return null;
+  const records: Array<Record<string, unknown>> = [];
+  for (const item of value) {
+    if (!isJsonRecord(item)) return null;
+    records.push(item);
+  }
+  return records;
+}
+
+type BattleRecordsPayload = {
+  records?: Array<Record<string, unknown>>;
+  period_tag?: string;
+  table_version?: string | null;
+};
+
+function parseRecordsPayload(value: unknown): BattleRecordsPayload | null {
+  if (!isJsonRecord(value)) return null;
+  if (!("records" in value)) return {};
+  const records = parseJsonRecords(value["records"]);
+  if (!records) return null;
+  return {
+    records,
+    ...(typeof value["period_tag"] === "string"
+      ? { period_tag: value["period_tag"] }
+      : {}),
+    ...(typeof value["table_version"] === "string" || value["table_version"] === null
+      ? { table_version: value["table_version"] }
+      : {}),
+  };
+}
+
+function parseBattleEnvBundlePayload(
+  value: unknown,
+): BattleEnvBundlePayload | null {
+  if (!isJsonRecord(value)) return null;
+  const payload: BattleEnvBundlePayload = {
+    ownDecks: [],
+    ownShips: [],
+    ownSlotItems: [],
+    enemyDecks: [],
+    enemyShips: [],
+    enemySlotItems: [],
+  };
+  for (const key of [
+    "ownDecks",
+    "ownShips",
+    "ownSlotItems",
+    "enemyDecks",
+    "enemyShips",
+    "enemySlotItems",
+  ] as const) {
+    const records = parseJsonRecords(value[key]);
+    if (!records) return null;
+    payload[key] = records;
+  }
+  return payload;
+}
+
+function parseJsonObjectText(text: string): Record<string, unknown> {
+  const parsed: unknown = JSON.parse(text);
+  if (!isJsonRecord(parsed)) throw new Error("Expected JSON object");
+  return parsed;
+}
+
 async function fetchMasterDataJsonDirect(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   tableName: string,
 ): Promise<MasterDataJsonPayload> {
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
   if (!db || !bucket) throw new Error("Master data storage not configured");
 
   const latestMaster = await getLatestMasterPeriodTag(db, kv);
@@ -194,7 +288,7 @@ async function fetchMasterDataJsonDirect(
     };
   }
 
-  const row = (await db
+  const rowResult = await db
     .prepare(
       `SELECT i.period_tag, i.table_version, i.period_revision, t.r2_key
        FROM master_data_tables t
@@ -204,14 +298,9 @@ async function fetchMasterDataJsonDirect(
        LIMIT 1`,
     )
     .bind(tableName, latestPeriodTag)
-    .first()) as {
-    period_tag: string;
-    table_version: string;
-    period_revision: number;
-    r2_key: string;
-  } | null;
+    .first();
 
-  if (!row) {
+  if (rowResult === null) {
     return {
       table_name: tableName,
       table_version: null,
@@ -221,21 +310,29 @@ async function fetchMasterDataJsonDirect(
       records: [],
     };
   }
+  const parsedRow = BattleMasterDataRowSchema.safeParse(rowResult);
+  if (!parsedRow.success) {
+    throw new Error("Invalid master data row");
+  }
+  const row = parsedRow.data;
 
   const cacheKey = `master-data:json:${tableName}:${row.table_version}:${row.period_tag}:${row.period_revision}`;
   if (kv) {
     try {
       const cachedStr = await kv.get(cacheKey);
       if (cachedStr) {
-        const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
-        return {
-          table_name: tableName,
-          table_version: row.table_version,
-          period_tag: row.period_tag,
-          period_revision: row.period_revision,
-          count: decodedRecords.length,
-          records: decodedRecords,
-        };
+        const decodedRecords = parseBattleJsonRecords(JSON.parse(cachedStr));
+        if (decodedRecords) {
+          return {
+            table_name: tableName,
+            table_version: row.table_version,
+            period_tag: row.period_tag,
+            period_revision: row.period_revision,
+            count: decodedRecords.length,
+            records: decodedRecords,
+          };
+        }
+        console.warn(`[battle-data] master-data KV cache has invalid records: ${cacheKey}`);
       }
     } catch (kvErr) {
       console.warn(`[battle-data] master-data KV read failed for ${cacheKey}:`, kvErr);
@@ -259,7 +356,12 @@ async function fetchMasterDataJsonDirect(
     throw new Error(`Master data object too large: ${r2Object.size} bytes`);
   }
   const avroBytes = new Uint8Array(await r2Object.arrayBuffer());
-  const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<Record<string, unknown>>;
+  const decodedRecords = parseBattleJsonRecords(
+    decodeAvroOcfToJson(avroBytes),
+  );
+  if (!decodedRecords) {
+    throw new Error("Decoded master data payload is not a record array");
+  }
   if (kv) {
     try {
       await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 });
@@ -278,14 +380,17 @@ async function fetchMasterDataJsonDirect(
 }
 
 async function fetchBattleEnvBundleInternal(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   envUuid: string,
   tableVersion: string,
+  periodTag: string,
+  datasetId?: string,
 ): Promise<BattleEnvBundlePayload> {
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+  const normalizedDatasetId = datasetId?.trim() || "";
   const cacheKey = new Request(
     new URL(
-      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&table_version=${encodeURIComponent(tableVersion || "")}`,
+      `/api/battle-data/detail-env?env_uuid=${encodeURIComponent(envUuid)}&period_tag=${encodeURIComponent(periodTag)}&table_version=${encodeURIComponent(tableVersion || "")}&dataset_id=${encodeURIComponent(normalizedDatasetId)}`,
       c.req.url,
     ).toString(),
     { method: "GET" },
@@ -294,56 +399,56 @@ async function fetchBattleEnvBundleInternal(
   if (cache) {
     const cached = await cache.match(cacheKey);
     if (cached) {
-      return (await cached.json()) as BattleEnvBundlePayload;
+      const payload = parseBattleEnvBundlePayload(await cached.json());
+      if (payload) return payload;
     }
   }
 
+  const scope = {
+    periodTag,
+    tableVersion,
+    ...(normalizedDatasetId ? { datasetId: normalizedDatasetId } : {}),
+  };
   const [ownDecks, ownShips, ownSlotItems, enemyDecks, enemyShips, enemySlotItems] =
     await Promise.all([
       fetchGlobalRecordsInternal(c, {
         table: "own_deck",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "own_ship",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "own_slotitem",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_deck",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 200,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_ship",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 2000,
         filter: { env_uuid: envUuid },
       }),
       fetchGlobalRecordsInternal(c, {
         table: "enemy_slotitem",
-        periodTag: "all",
-        tableVersion,
+        ...scope,
         limitBlocks: 120,
         limitRecords: 4000,
         filter: { env_uuid: envUuid },
@@ -372,26 +477,44 @@ async function fetchBattleEnvBundleInternal(
   return payload;
 }
 
-async function fetchWeaponIconFramesDirect(c: any): Promise<Record<string, unknown>> {
-  const bucket = createEnvContext(c).runtime.ASSET_SYNC_BUCKET;
+async function fetchWeaponIconFramesDirect(
+  c: Context<{ Bindings: Bindings }>,
+): Promise<Record<string, unknown>> {
+  const bucket = createEnvContext(c).runtime["ASSET_SYNC_BUCKET"];
   if (!bucket) throw new Error("Asset storage not configured");
   const r2Object = await bucket.get("assets/kcs2/img/common/common_icon_weapon.json");
   if (!r2Object) throw new Error("Sprite atlas not found");
   const atlasRaw = new Uint8Array(await r2Object.arrayBuffer());
   try {
-    return JSON.parse(new TextDecoder().decode(atlasRaw)) as Record<string, unknown>;
+    return parseJsonObjectText(new TextDecoder().decode(atlasRaw));
   } catch {
     const decompressed = await brotliDecompressAsync(atlasRaw);
-    return JSON.parse(decompressed.toString("utf8")) as Record<string, unknown>;
+    return parseJsonObjectText(decompressed.toString("utf8"));
   }
 }
 
 async function fetchGlobalRecordsInternal(
-  c: any,
-  options: { table: string; periodTag: string; tableVersion: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+  c: Context<{ Bindings: Bindings }>,
+  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
 ): Promise<Array<Record<string, unknown>>> {
-  const payload = await fetchBattleDataJsonInternal<{ records?: Array<Record<string, unknown>> }>(c, buildGlobalRecordsPath(options));
+  const payload = await fetchGlobalRecordsPayloadInternal(c, options);
   return payload.records || [];
+}
+
+async function fetchGlobalRecordsPayloadInternal(
+  c: Context<{ Bindings: Bindings }>,
+  options: { table: string; periodTag: string; tableVersion: string; datasetId?: string; limitBlocks: number; limitRecords: number; filter?: Record<string, unknown>; includeSortieKey?: boolean },
+): Promise<BattleRecordsPayload> {
+  const datasetId = options.datasetId ?? c.req.query("dataset_id")?.trim();
+  const pathOptions =
+    datasetId === undefined ? options : { ...options, datasetId };
+  const rawPayload = await fetchBattleDataJsonInternal(
+    c,
+    buildGlobalRecordsPath(pathOptions),
+  );
+  const payload = parseRecordsPayload(rawPayload);
+  if (!payload) throw new Error("Invalid battle records response");
+  return payload;
 }
 
 function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
@@ -432,20 +555,26 @@ async function resolveAllowedPeriodTagsForRecords(
     );
   }
 
-  const fallbackRows = (await indexDb
+  const fallbackRowsResult = await indexDb
     .prepare(
       "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC LIMIT 200",
     )
     .bind(table)
-    .all()) as { results?: Array<{ period_tag?: string | null }> };
+    .all();
+  const parsedFallbackRows = BattlePeriodTagRowsSchema.safeParse(
+    fallbackRowsResult.results ?? [],
+  );
+  if (!parsedFallbackRows.success) {
+    throw new Error("Invalid battle period-tag rows");
+  }
 
   const fallbackSet = new Set<string>();
-  for (const row of fallbackRows.results || []) {
+  for (const row of parsedFallbackRows.data) {
     const periodTag = row?.period_tag;
     if (typeof periodTag !== "string" || !periodTag) continue;
     const validation = await validateCachedPeriodTag(c, periodTag, {
       fieldName: "period_tag",
-      cacheKV,
+      ...(cacheKV ? { cacheKV } : {}),
     });
     if (validation.ok) {
       fallbackSet.add(periodTag);
@@ -487,7 +616,22 @@ function normalizeTimestamp(value: unknown): number | null {
   return null;
 }
 
-function attachSortieIds(records: any[]): void {
+function normalizeMapCoordinate(value: unknown): number | null {
+  if (value == null || (typeof value === "string" && value.trim() === "")) {
+    return null;
+  }
+  const coordinate = Number(value);
+  return Number.isSafeInteger(coordinate) && coordinate > 0
+    ? coordinate
+    : null;
+}
+
+function formatTimestamp(value: unknown): string | null {
+  const timestamp = normalizeTimestamp(value);
+  return timestamp === null ? null : new Date(timestamp).toISOString();
+}
+
+export function attachSortieIds(records: BattleRecord[]): void {
   type Item = {
     rec: Record<string, unknown>;
     ts: number | null;
@@ -500,8 +644,8 @@ function attachSortieIds(records: any[]): void {
     .map((rec) => ({
       rec,
       ts:
-        normalizeTimestamp(rec.timestamp) ??
-        normalizeTimestamp(rec.midnight_timestamp),
+        normalizeTimestamp(rec["timestamp"]) ??
+        normalizeTimestamp(rec["midnight_timestamp"]),
     }))
     .sort((a, b) => {
       const aTs = a.ts ?? Number.MAX_SAFE_INTEGER;
@@ -511,22 +655,24 @@ function attachSortieIds(records: any[]): void {
 
   const byDataset = new Map<
     string,
-    { mapKey: string; ts: number | null; sortieNo: number }
+    { mapKey: string | null; ts: number | null; sortieNo: number }
   >();
 
   for (const item of sortable) {
     const datasetId =
-      typeof item.rec.dataset_id === "string" && item.rec.dataset_id
-        ? item.rec.dataset_id
+      typeof item.rec["dataset_id"] === "string" && item.rec["dataset_id"]
+        ? item.rec["dataset_id"]
         : "global";
-    const mapArea = Number(item.rec.maparea_id ?? 0) || 0;
-    const mapInfo = Number(item.rec.mapinfo_no ?? 0) || 0;
-    const mapKey = `${mapArea}-${mapInfo}`;
+    const mapArea = normalizeMapCoordinate(item.rec["maparea_id"]);
+    const mapInfo = normalizeMapCoordinate(item.rec["mapinfo_no"]);
+    const mapKey =
+      mapArea === null || mapInfo === null ? null : `${mapArea}-${mapInfo}`;
 
     const prev = byDataset.get(datasetId);
     let sortieNo = 1;
     if (prev) {
-      const sameMap = prev.mapKey === mapKey;
+      const sameMap =
+        prev.mapKey !== null && mapKey !== null && prev.mapKey === mapKey;
       const withinGap =
         prev.ts != null && item.ts != null
           ? Math.abs(item.ts - prev.ts) <= SORTIE_SPLIT_GAP_MS
@@ -535,7 +681,7 @@ function attachSortieIds(records: any[]): void {
     }
 
     byDataset.set(datasetId, { mapKey, ts: item.ts, sortieNo });
-    item.rec.__sortie_id = `${datasetId}:${mapKey}:${sortieNo}`;
+    item.rec["__sortie_id"] = `${datasetId}:${mapKey ?? "unknown"}:${sortieNo}`;
   }
 }
 
@@ -587,7 +733,7 @@ function matchesRecordFilter(
 }
 
 async function putCacheSafely(
-  c: any,
+  c: Context<{ Bindings: Bindings }>,
   cache: Cache,
   cacheKey: Request,
   response: Response,
@@ -601,33 +747,64 @@ async function decodeIndexedBlock(
   filePath: string,
   startByte: number,
   length: number,
-): Promise<any[]> {
-  if (startByte < 0 || length <= 0) {
+  headerCache: Map<string, Promise<Uint8Array>>,
+): Promise<AvroJsonRecord[]> {
+  if (startByte <= 0 || length <= 0) {
     return [];
   }
 
-  // Read once and slice in-memory to avoid body re-use issues in local runtimes.
-  const sourceObject = await bucket.get(filePath);
-  if (!sourceObject?.body) {
+  let headerPromise = headerCache.get(filePath);
+  if (!headerPromise) {
+    headerPromise = (async () => {
+      let prefixLength = Math.min(startByte, 64 * 1024);
+      while (prefixLength > 0) {
+        const prefixObject = await bucket.get(filePath, {
+          range: { offset: 0, length: prefixLength },
+        });
+        if (!prefixObject) {
+          throw new Error(`AVRO object not found: ${filePath}`);
+        }
+
+        const prefixBytes = new Uint8Array(await prefixObject.arrayBuffer());
+        try {
+          const headerLength = parseOcfHeader(prefixBytes).bodyOffset;
+          return prefixBytes.slice(0, headerLength);
+        } catch (error) {
+          if (prefixLength >= startByte) {
+            throw error;
+          }
+          prefixLength = Math.min(startByte, prefixLength * 2);
+        }
+      }
+      throw new Error(`AVRO header range is empty: ${filePath}`);
+    })();
+    headerCache.set(filePath, headerPromise);
+  }
+
+  let headerBytes: Uint8Array;
+  try {
+    headerBytes = await headerPromise;
+  } catch (error) {
+    headerCache.delete(filePath);
+    throw error;
+  }
+
+  const dataObject = await bucket.get(filePath, {
+    range: { offset: startByte, length },
+  });
+  if (!dataObject) {
     return [];
   }
-  const sourceBytes = new Uint8Array(
-    await new Response(sourceObject.body).arrayBuffer(),
-  );
-  const endByte = Math.min(sourceBytes.byteLength, startByte + length);
-  if (startByte >= endByte) {
+  const dataBytes = new Uint8Array(await dataObject.arrayBuffer());
+  if (dataBytes.length === 0) {
     return [];
   }
 
-  const headerBytes = sourceBytes.subarray(0, startByte);
-  const dataBytes = sourceBytes.subarray(startByte, endByte);
-  const combined = new Uint8Array(
-    headerBytes.byteLength + dataBytes.byteLength,
-  );
-  combined.set(headerBytes, 0);
-  combined.set(dataBytes, headerBytes.byteLength);
-
-  return decodeAvroOcfToJson(combined);
+  const header = parseOcfHeader(headerBytes);
+  if ((header.codec ?? "null") === "null") {
+    return parseNullAvroBlock(headerBytes, dataBytes);
+  }
+  return parseDeflateAvroBlock(headerBytes, dataBytes);
 }
 
 // validateAvroHeader is now imported from avro-validator
@@ -660,7 +837,7 @@ app.options(
  */
 app.post("/upload", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"];
   const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
@@ -678,34 +855,39 @@ app.post("/upload", async (c) => {
       const datasetIdFromToken =
         authContext.datasetToken?.dataset_id?.trim() ?? "";
       const requestedDatasetId =
-        typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
+        typeof body?.["dataset_id"] === "string"
+          ? body["dataset_id"].trim()
+          : "";
       if (requestedDatasetId && requestedDatasetId !== datasetIdFromToken) {
         console.warn(`[battle-data] dataset_id mismatch detected`);
         return c.json({ error: "dataset_id does not match token" }, 403);
       }
 
       const datasetId = datasetIdFromToken || requestedDatasetId;
-      const table = typeof body?.table === "string" ? body.table.trim() : "";
+      const table =
+        typeof body?.["table"] === "string" ? body["table"].trim() : "";
       const periodTag =
-        typeof body?.kc_period_tag === "string"
-          ? body.kc_period_tag.trim()
+        typeof body?.["kc_period_tag"] === "string"
+          ? body["kc_period_tag"].trim()
           : "";
       const tableVersion =
-        typeof body?.table_version === "string"
-          ? body.table_version.trim()
-          : typeof body?.tableVersion === "string"
-            ? body.tableVersion.trim()
+        typeof body?.["table_version"] === "string"
+          ? body["table_version"].trim()
+          : typeof body?.["tableVersion"] === "string"
+            ? body["tableVersion"].trim()
             : "";
       const declaredSize = parseInt(
-        typeof body?.file_size === "string" ? body.file_size : "0",
+        typeof body?.["file_size"] === "string" ? body["file_size"] : "0",
         10,
       );
       const tableOffsets =
-        typeof body?.table_offsets === "string"
-          ? body.table_offsets.trim()
+        typeof body?.["table_offsets"] === "string"
+          ? body["table_offsets"].trim()
           : null;
-      const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
-      const isBinary = typeof body?.binary === "boolean" ? body.binary : false;
+      const pathTag =
+        typeof body?.["path"] === "string" ? body["path"].trim() : null;
+      const isBinary =
+        typeof body?.["binary"] === "boolean" ? body["binary"] : false;
 
       // Verify that client indicated binary format
       if (!isBinary) {
@@ -735,7 +917,7 @@ app.post("/upload", async (c) => {
       }
       const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
         fieldName: "kc_period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTagValidation.ok) {
         return c.json(
@@ -749,7 +931,9 @@ app.post("/upload", async (c) => {
 
       // Get content_hash from body (computed by client)
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       if (!contentHash) {
         console.warn("[battle-data] Rejecting upload without content_hash");
         return c.json({ error: "content_hash is required" }, 400);
@@ -761,9 +945,18 @@ app.post("/upload", async (c) => {
           console.info(
             `[battle-data] Received table_offsets for ${table}: ${tableOffsets}`,
           );
-          const parsed = JSON.parse(tableOffsets);
+          const parsed = parseOffsetMetadata(JSON.parse(tableOffsets));
+          if (!parsed) {
+            return c.json(
+              {
+                error: "Invalid table_offsets",
+                details: ["Offset metadata must be an array of valid entries"],
+              },
+              400,
+            );
+          }
           console.info(
-            `[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`,
+            `[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p) => p.table_name))}`,
           );
           const { valid, errors } = validateOffsetMetadata(
             parsed,
@@ -804,8 +997,16 @@ app.post("/upload", async (c) => {
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
+      const payloadValidation = BattleDataTokenPayloadSchema.safeParse(
+        tokenPayload,
+      );
+      if (!payloadValidation.success) {
+        return c.json({ error: "Invalid token payload" }, 400);
+      }
+      const validatedTokenPayload = payloadValidation.data;
+
       // Content hash verification
-      const expectedContentHash = tokenPayload.content_hash as string;
+      const expectedContentHash = validatedTokenPayload.content_hash;
       if (expectedContentHash) {
         const hashBuffer = await globalThis.crypto.subtle.digest(
           "SHA-256",
@@ -828,11 +1029,11 @@ app.post("/upload", async (c) => {
         }
       }
 
-      const datasetId = tokenPayload.dataset_id as string;
-      const table = tokenPayload.table as string;
-      const periodTag = (tokenPayload as any).period_tag as string;
-      let tableOffsets = (tokenPayload as any).table_offsets as string | null;
-      const tableVersion = (tokenPayload as any).table_version as string;
+      const datasetId = validatedTokenPayload.dataset_id;
+      const table = validatedTokenPayload.table;
+      const periodTag = validatedTokenPayload.period_tag;
+      let tableOffsets = validatedTokenPayload.table_offsets;
+      const tableVersion = validatedTokenPayload.table_version;
       const detectedTableVersions = new Set<string>();
 
       const triggeredAt = new Date().toISOString();
@@ -841,12 +1042,12 @@ app.post("/upload", async (c) => {
         datasetId,
         table,
         periodTag,
-        queueExists: !!env.runtime.COMPACTION_QUEUE,
+        queueExists: !!env.runtime["COMPACTION_QUEUE"],
         timestamp: triggeredAt,
       });
 
       try {
-        if (!env.runtime.COMPACTION_QUEUE) {
+        if (!env.runtime["COMPACTION_QUEUE"]) {
           console.warn("[battle-data] COMPACTION_QUEUE binding not available");
           return c.json(
             {
@@ -857,10 +1058,10 @@ app.post("/upload", async (c) => {
         }
 
         // Parse table_offsets and split data into per-table Avro slices
-        let offsets: any[] = [];
+        let offsets: TableOffsetMetadata[] = [];
         if (tableOffsets) {
           try {
-            offsets = JSON.parse(tableOffsets) as any[];
+            offsets = parseOffsetMetadata(JSON.parse(tableOffsets)) ?? [];
           } catch (e) {
             console.warn(
               "[battle-data] Failed to parse table_offsets for queue split",
@@ -871,13 +1072,13 @@ app.post("/upload", async (c) => {
         }
 
         // Get size limit from env (default 64KB per table slice)
-        const maxBytes = env.buildtime.MAX_BATTLE_SLICE_BYTES
-          ? parseInt(env.buildtime.MAX_BATTLE_SLICE_BYTES, 10)
+        const maxBytes = env.buildtime["MAX_BATTLE_SLICE_BYTES"]
+          ? parseInt(env.buildtime["MAX_BATTLE_SLICE_BYTES"], 10)
           : 65536;
 
         // Validate each table slice before batching
         // This is strict validation - all tables must pass before any are queued
-        const validatedOffsets: any[] = [];
+        const validatedOffsets: ValidatedTableOffset[] = [];
         if (Array.isArray(offsets) && offsets.length) {
           for (const entry of offsets) {
             const start = Number(entry.start_byte ?? 0);
@@ -1073,7 +1274,7 @@ app.post("/upload", async (c) => {
               validatedOffsets.length,
               "tables",
             );
-            await env.runtime.COMPACTION_QUEUE.send(messageBody);
+            await env.runtime["COMPACTION_QUEUE"].send(messageBody);
             console.info(
               "[battle-data] Successfully enqueued batched message with",
               validatedOffsets.length,
@@ -1116,7 +1317,7 @@ app.post("/upload", async (c) => {
  */
 app.get("/chunks", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -1185,7 +1386,10 @@ app.get("/chunks", async (c) => {
       throw new Error("D1 returned no results for chunks query");
     }
 
-    const rows = (result.results || []) as any[];
+    const rows = parseBattleChunkRows(result.results || []);
+    if (!rows) {
+      throw new Error("D1 returned malformed results for chunks query");
+    }
     // Map block_indexes to response format
     const chunks = rows.map((r) => ({
       id: r.id,
@@ -1220,7 +1424,7 @@ app.get("/chunks", async (c) => {
  */
 app.get("/latest", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -1262,13 +1466,13 @@ app.get("/latest", async (c) => {
     }
 
     const latest = {
-      id: row.id,
-      file_path: row.file_path,
-      table: row.table_name,
-      table_version: row.table_version,
-      size: row.size,
-      record_count: row.record_count,
-      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
+      id: row["id"],
+      file_path: row["file_path"],
+      table: row["table_name"],
+      table_version: row["table_version"],
+      size: row["size"],
+      record_count: row["record_count"],
+      uploaded_at: formatTimestamp(row["start_timestamp"]),
     };
 
     c.res.headers.set(
@@ -1289,17 +1493,19 @@ app.get("/health", (c) => {
 
 /**
  * GET /global/chunks - Retrieve fragments across all users by table/period
- * Query params: table, period_tag, from, to
+ * Query params: table, period_tag, dataset_id, from, to
  * Response: array of fragment metadata sorted by uploaded_at DESC
  */
 app.get("/global/chunks", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
 
   const table = c.req.query("table");
+  const periodTag = (c.req.query("period_tag") || "latest").trim();
+  const datasetId = c.req.query("dataset_id")?.trim();
   const from = c.req.query("from");
   const to = c.req.query("to");
   const rawLimit = parseInt(c.req.query("limit") || "1000", 10);
@@ -1335,9 +1541,31 @@ app.get("/global/chunks", async (c) => {
          WHERE bi.table_name = ?`;
     const params: unknown[] = [table];
 
+    if (periodTag === "latest") {
+      const allowedPeriodTags = await resolveAllowedPeriodTagsForRecords(
+        c,
+        indexDb,
+        table,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
+      if (allowedPeriodTags.size === 0) {
+        return c.json({ chunks: [], count: 0, table });
+      }
+      const placeholders = [...allowedPeriodTags].map(() => "?").join(", ");
+      sql += ` AND bi.period_tag IN (${placeholders})`;
+      params.push(...allowedPeriodTags);
+    } else if (periodTag !== "all") {
+      sql += " AND bi.period_tag = ?";
+      params.push(periodTag);
+    }
+
     if (tableVersion) {
       sql += ` AND bi.table_version = ?`;
       params.push(tableVersion);
+    }
+    if (datasetId) {
+      sql += " AND bi.dataset_id = ?";
+      params.push(datasetId);
     }
 
     const fromMs = from ? Date.parse(from) : undefined;
@@ -1360,7 +1588,10 @@ app.get("/global/chunks", async (c) => {
       throw new Error("D1 returned no results for global chunks query");
     }
 
-    const rows = (result.results || []) as any[];
+    const rows = parseBattleChunkRows(result.results || []);
+    if (!rows) {
+      throw new Error("D1 returned malformed results for global chunks query");
+    }
     const chunks = rows.map((r) => ({
       id: r.id,
       file_path: r.file_path,
@@ -1388,7 +1619,7 @@ app.get("/global/chunks", async (c) => {
  */
 app.get("/global/summary", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -1409,28 +1640,27 @@ app.get("/global/summary", async (c) => {
       c,
       indexDb,
       table,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
-    const summaryRows = (await indexDb
+    const summaryRowsResult = await indexDb
       .prepare(
         "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? ORDER BY period_tag DESC, table_version DESC LIMIT 500",
       )
       .bind(table)
-      .all()) as {
-      results?: Array<{
-        period_tag?: string | null;
-        table_version?: string | null;
-      }>;
-    };
+      .all();
+    const parsedSummaryRows = BattleSummaryRowsSchema.safeParse(
+      summaryRowsResult.results ?? [],
+    );
+    if (!parsedSummaryRows.success) {
+      throw new Error("Invalid battle summary rows");
+    }
 
     const seen = new Set<string>();
     const periods: Array<{ period_tag: string; table_version: string }> = [];
-    for (const row of summaryRows.results || []) {
-      const periodTag = row?.period_tag;
-      const tableVersion = row?.table_version;
-      if (typeof periodTag !== "string" || !periodTag) continue;
-      if (typeof tableVersion !== "string" || !tableVersion) continue;
+    for (const row of parsedSummaryRows.data) {
+      const periodTag = row.period_tag;
+      const tableVersion = row.table_version;
       if (!allowedPeriodTagSet.has(periodTag)) continue;
       const key = `${periodTag}\u0000${tableVersion}`;
       if (seen.has(key)) continue;
@@ -1466,8 +1696,8 @@ app.get("/global/summary", async (c) => {
  */
 app.get("/global/records", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
-  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
+  const bucket = env.runtime["BATTLE_DATA_BUCKET"];
 
   if (!indexDb || !bucket) {
     return c.json(
@@ -1518,8 +1748,8 @@ app.get("/global/records", async (c) => {
   let recordFilter: Record<string, unknown> | null = null;
   if (filterJsonRaw) {
     try {
-      const parsed = JSON.parse(filterJsonRaw) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      const parsed: unknown = JSON.parse(filterJsonRaw);
+      if (!isJsonRecord(parsed)) {
         return c.json(
           {
             error: "INVALID_FILTER",
@@ -1528,7 +1758,7 @@ app.get("/global/records", async (c) => {
           400,
         );
       }
-      recordFilter = parsed as Record<string, unknown>;
+      recordFilter = parsed;
     } catch {
       return c.json(
         { error: "INVALID_FILTER", message: "filter_json must be valid JSON" },
@@ -1597,7 +1827,7 @@ app.get("/global/records", async (c) => {
       periodTagParam,
       {
         fieldName: "period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       },
     );
     if (!periodTagValidation.ok) {
@@ -1627,7 +1857,9 @@ app.get("/global/records", async (c) => {
     }
   }
 
-  const cacheKV = env.runtime.DATA_LOADER_CACHE_KV as KVNamespace | undefined;
+  const cacheKV = env.runtime["DATA_LOADER_CACHE_KV"] as
+    | KVNamespace
+    | undefined;
   let kvKey: string | null = null;
   if (filterJsonRaw && cacheKV) {
     const hashBytes = await crypto.subtle.digest(
@@ -1638,7 +1870,7 @@ app.get("/global/records", async (c) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("")
       .slice(0, 16);
-    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
+    kvKey = `battle-data:records:v2:${table}:${periodTagParam}:${tableVersionParam || "_"}:${datasetId || "_"}:${filterHash}:${limitBlocks}:${limitRecords}`;
     const kvCached = await cacheKV.get(kvKey, "text");
     if (kvCached) {
       return new Response(kvCached, {
@@ -1656,44 +1888,94 @@ app.get("/global/records", async (c) => {
       c,
       indexDb,
       table,
-      env.runtime.DATA_LOADER_CACHE_KV,
+      env.runtime["DATA_LOADER_CACHE_KV"],
     );
 
     let resolvedPeriodTag: string | null = null;
+    let resolvedTableVersion: string | null = tableVersionParam || null;
     if (periodTagParam === "latest") {
       let latestPeriodSql =
-        "SELECT DISTINCT period_tag FROM block_indexes WHERE table_name = ?";
+        "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ?";
       const latestPeriodParams: unknown[] = [table];
       if (tableVersionParam) {
         latestPeriodSql += " AND table_version = ?";
         latestPeriodParams.push(tableVersionParam);
       }
-      latestPeriodSql += " ORDER BY period_tag DESC LIMIT 200";
-      const latestRows = (await indexDb
+      if (datasetId) {
+        latestPeriodSql += " AND dataset_id = ?";
+        latestPeriodParams.push(datasetId);
+      }
+      latestPeriodSql += " ORDER BY period_tag DESC, table_version DESC LIMIT 200";
+      const latestRowsResult = await indexDb
         .prepare(latestPeriodSql)
         .bind(...latestPeriodParams)
-        .all()) as { results?: Array<{ period_tag?: string | null }> };
-      const latestAllowed = (latestRows.results || []).find((row) => {
-        const tag = row?.period_tag ?? null;
-        return typeof tag === "string" && allowedPeriodTagSet.has(tag);
+        .all();
+      const parsedLatestRows = BattleSummaryRowsSchema.safeParse(
+        latestRowsResult.results ?? [],
+      );
+      if (!parsedLatestRows.success) {
+        throw new Error("Invalid latest battle period-tag rows");
+      }
+      const latestAllowed = parsedLatestRows.data.find((row) => {
+        return allowedPeriodTagSet.has(row.period_tag);
       });
       resolvedPeriodTag = latestAllowed?.period_tag ?? null;
+      const latestPeriodRows = latestAllowed
+        ? parsedLatestRows.data.filter(
+            (row) => row.period_tag === latestAllowed.period_tag,
+          )
+        : [];
+      const latestResolvedVersion = latestPeriodRows.reduce<string | null>(
+        (latestVersion, row) =>
+          latestVersion === null ||
+          compareTableVersions(row.table_version, latestVersion) > 0
+            ? row.table_version
+            : latestVersion,
+        null,
+      );
+          resolvedTableVersion = latestResolvedVersion ?? (tableVersionParam || null);
     } else if (periodTagParam !== "all") {
       resolvedPeriodTag = periodTagParam;
+      if (!tableVersionParam) {
+        const versionRowsResult = await indexDb
+          .prepare(
+            "SELECT DISTINCT period_tag, table_version FROM block_indexes WHERE table_name = ? AND period_tag = ?" +
+              (datasetId ? " AND dataset_id = ?" : "") +
+              " ORDER BY table_version DESC LIMIT 200",
+          )
+          .bind(...([table, periodTagParam, ...(datasetId ? [datasetId] : [])] as unknown[]))
+          .all();
+        const parsedVersionRows = BattleSummaryRowsSchema.safeParse(
+          versionRowsResult.results ?? [],
+        );
+        if (!parsedVersionRows.success) {
+          throw new Error("Invalid battle table-version rows");
+        }
+        resolvedTableVersion = parsedVersionRows.data.reduce<string | null>(
+          (latestVersion, row) =>
+            latestVersion === null ||
+            compareTableVersions(row.table_version, latestVersion) > 0
+              ? row.table_version
+              : latestVersion,
+          null,
+        );
+      }
     }
 
     const perTierFetchLimit = Math.max(limitBlocks + 1, 200);
 
-    const fetchBlocks = async (tier: CompactionTier | null) => {
+    const fetchBlocks = async (
+      tier: CompactionTier | null,
+    ): Promise<{ results: BattleBlockRow[] } | null> => {
       let sql = `SELECT bi.id, bi.dataset_id, bi.start_byte, bi.length, bi.start_timestamp, bi.end_timestamp, bi.period_tag, bi.window_start_ms, bi.window_end_ms, bi.compaction_tier, af.file_path
                FROM block_indexes bi
                JOIN archived_files af ON af.id = bi.file_id
                WHERE bi.table_name = ?`;
       const params: unknown[] = [table];
 
-      if (tableVersionParam) {
+      if (resolvedTableVersion) {
         sql += " AND bi.table_version = ?";
-        params.push(tableVersionParam);
+        params.push(resolvedTableVersion);
       }
 
       if (tier) {
@@ -1732,16 +2014,24 @@ app.get("/global/records", async (c) => {
       sql += " ORDER BY bi.start_timestamp DESC LIMIT ?";
       params.push(perTierFetchLimit);
 
-      return await indexDb.prepare(sql).bind(...params).all?.();
+      const result = await indexDb.prepare(sql).bind(...params).all?.();
+      if (!result) {
+        return null;
+      }
+      const rows = parseBattleBlockRows(result.results || []);
+      if (!rows) {
+        throw new Error("D1 returned malformed results for block query");
+      }
+      return { results: rows };
     };
 
     let blockResult: Awaited<ReturnType<typeof fetchBlocks>> | null | undefined;
     let effectiveTier: CompactionTier | null = compactionTier ?? null;
 
     const mergeTierRows = (
-      tierRows: Map<CompactionTier, any[]>,
-    ): { rows: any[]; tier: CompactionTier | null } => {
-      const accepted: any[] = [];
+      tierRows: Map<CompactionTier, BattleBlockRow[]>,
+    ): { rows: BattleBlockRow[]; tier: CompactionTier | null } => {
+      const accepted: BattleBlockRow[] = [];
       const seenBlockIds = new Set<number>();
       let usedTierCount = 0;
       let firstTier: CompactionTier | null = null;
@@ -1769,7 +2059,9 @@ app.get("/global/records", async (c) => {
       }
 
       accepted.sort(
-        (a, b) => Number(b?.start_timestamp ?? 0) - Number(a?.start_timestamp ?? 0),
+        (a, b) =>
+          (normalizeTimestamp(b?.start_timestamp) ?? Number.MIN_SAFE_INTEGER) -
+          (normalizeTimestamp(a?.start_timestamp) ?? Number.MIN_SAFE_INTEGER),
       );
 
       return {
@@ -1782,10 +2074,10 @@ app.get("/global/records", async (c) => {
       blockResult = await fetchBlocks(compactionTier);
       effectiveTier = compactionTier;
     } else {
-      const tierRows = new Map<CompactionTier, any[]>();
+      const tierRows = new Map<CompactionTier, BattleBlockRow[]>();
       for (const tier of TIER_PRIORITY) {
         const candidate = await fetchBlocks(tier);
-        tierRows.set(tier, (candidate?.results || []) as any[]);
+        tierRows.set(tier, candidate?.results || []);
       }
 
       const merged = mergeTierRows(tierRows);
@@ -1806,7 +2098,7 @@ app.get("/global/records", async (c) => {
         success: true,
         table,
         period_tag: periodTagParam,
-        table_version: tableVersionParam || null,
+        table_version: resolvedTableVersion,
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
@@ -1823,19 +2115,7 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
-    const candidateRows = (blockResult?.results || []) as Array<{
-      id: number;
-      dataset_id: string;
-      start_byte: number;
-      length: number;
-      start_timestamp: number | null;
-      end_timestamp: number | null;
-      period_tag: string | null;
-      window_start_ms: number | null;
-      window_end_ms: number | null;
-      compaction_tier: CompactionTier | null;
-      file_path: string;
-    }>;
+    const candidateRows = blockResult?.results || [];
     const sourceBlocksTruncated = candidateRows.length > limitBlocks;
     const rows = candidateRows.slice(0, limitBlocks);
 
@@ -1863,7 +2143,7 @@ app.get("/global/records", async (c) => {
         success: true,
         table,
         period_tag: resolvedPeriodTag || periodTagParam,
-        table_version: tableVersionParam || null,
+        table_version: resolvedTableVersion,
         tier: effectiveTier,
         window_start_ms: windowStartMs,
         window_end_ms: windowEndMs,
@@ -1884,6 +2164,7 @@ app.get("/global/records", async (c) => {
       return response;
     }
 
+    const headerCache = new Map<string, Promise<Uint8Array>>();
     const decodedBlocks = await Promise.all(
       rows.map((row) =>
         decodeIndexedBlock(
@@ -1891,6 +2172,7 @@ app.get("/global/records", async (c) => {
           row.file_path,
           Number(row.start_byte || 0),
           Number(row.length || 0),
+          headerCache,
         ).catch((err) => {
           console.warn(
             "[battle-data] failed to decode block in /global/records",
@@ -1901,12 +2183,12 @@ app.get("/global/records", async (c) => {
               error: String(err),
             },
           );
-          return [] as any[];
+          return [];
         }),
       ),
     );
 
-    const decodedRecords: any[] = [];
+    const decodedRecords: AvroJsonRecord[] = [];
     let recordsLimitReached = false;
     outer: for (const recs of decodedBlocks) {
       for (const rec of recs) {
@@ -1929,7 +2211,7 @@ app.get("/global/records", async (c) => {
       success: true,
       table,
       period_tag: resolvedPeriodTag || periodTagParam,
-      table_version: tableVersionParam || null,
+      table_version: resolvedTableVersion,
       tier: effectiveTier,
       window_start_ms: windowStartMs,
       window_end_ms: windowEndMs,
@@ -2032,7 +2314,9 @@ app.get("/global/overview", async (c) => {
     const deckIds = [
       ...new Set(
         battles
-          .map((b) => (typeof b.e_deck_id === "string" ? b.e_deck_id : ""))
+          .map((b) =>
+            typeof b["e_deck_id"] === "string" ? b["e_deck_id"] : "",
+          )
           .filter(Boolean),
       ),
     ];
@@ -2040,7 +2324,7 @@ app.get("/global/overview", async (c) => {
       deckIds.length > 0
         ? await fetchGlobalRecordsInternal(c, {
             table: "enemy_deck",
-            periodTag: "all",
+            periodTag,
             tableVersion,
             limitBlocks: 400,
             limitRecords: 2000,
@@ -2050,14 +2334,14 @@ app.get("/global/overview", async (c) => {
 
     const shipGroupIds = [
       ...new Set(
-        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d.ship_ids)),
+        enemyDecks.flatMap((d) => toGroupIdsForBattleQuery(d["ship_ids"])),
       ),
     ];
     const enemyShips =
       shipGroupIds.length > 0
         ? await fetchGlobalRecordsInternal(c, {
             table: "enemy_ship",
-            periodTag: "all",
+            periodTag,
             tableVersion,
             limitBlocks: 400,
             limitRecords: 4000,
@@ -2177,6 +2461,7 @@ app.get("/detail", async (c) => {
   const battleIndexRaw = (c.req.query("battle_index") || "").trim();
   const periodTag = (c.req.query("period_tag") || "latest").trim();
   const tableVersion = (c.req.query("table_version") || "").trim();
+  const datasetId = (c.req.query("dataset_id") || "").trim();
   const cacheControl = getBattleDataCacheControl(periodTag);
   const cache = (globalThis as { caches?: { default?: Cache } }).caches?.default;
   const cacheUrl = new URL(c.req.url);
@@ -2213,44 +2498,58 @@ app.get("/detail", async (c) => {
     // Keep a wider cap than the old 200-record window so per-env battle
     // ordering is not truncated for long sorties/retries.
     const DETAIL_BATTLE_LIMIT_RECORDS = 2000;
+    const datasetScope = datasetId ? { datasetId } : {};
 
     const fetchBattles = async (tag: string) =>
-      fetchGlobalRecordsInternal(c, {
+      fetchGlobalRecordsPayloadInternal(c, {
         table: "battle",
         periodTag: tag,
         tableVersion,
+        ...datasetScope,
         limitBlocks: 120,
         limitRecords: DETAIL_BATTLE_LIMIT_RECORDS,
         filter: { env_uuid: envUuid },
       });
 
-    const primaryBattles = await fetchBattles(periodTag);
-    const fallbackBattles =
-      primaryBattles.length > 0 || periodTag === "all"
-        ? primaryBattles
-        : await fetchBattles("all");
-    const battles = fallbackBattles;
+    const primaryBattlePayload = await fetchBattles(periodTag);
+    const battles = primaryBattlePayload.records || [];
+    if (battles.length === 0) {
+      return c.json({ error: "Battle not found for env_uuid and battle_index" }, 404);
+    }
+    const detailPeriodTag =
+      primaryBattlePayload.period_tag?.trim() || periodTag;
+    const detailTableVersion =
+      primaryBattlePayload.table_version?.trim() || tableVersion;
+    const detailScope = {
+      periodTag: detailPeriodTag,
+      tableVersion: detailTableVersion,
+      ...datasetScope,
+    };
 
     const [cells, battleResults, envBundle, mstShipPayload, mstSlotItemPayload, weaponIconFramesPayload, midnightHougekiLists, openingTaisenLists, hougekiLists, openingAirattackLists, openingRaigekis, closingRaigekis, airBaseAssaults, airBaseAirAttackLists, airBaseAirAttacks, carrierBaseAssaults, supportHourais, supportAirattacks, midnightHougekis, openingTaisens, hougekis, openingAirattacks, destructionBattles, friendlySupportHouraiLists, friendlySupportHourais, nightSupportHourais, nightSupportAirattacks] =
       await Promise.all([
         fetchGlobalRecordsInternal(c, {
           table: "cells",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "battle_result",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         envUuid
-          ? fetchBattleEnvBundleInternal(c, envUuid, tableVersion)
+          ? fetchBattleEnvBundleInternal(
+              c,
+              envUuid,
+              detailTableVersion,
+              detailPeriodTag,
+              datasetId || undefined,
+            )
           : Promise.resolve({
               ownDecks: [],
               ownShips: [],
@@ -2264,126 +2563,111 @@ app.get("/detail", async (c) => {
         fetchWeaponIconFramesDirect(c),
         fetchGlobalRecordsInternal(c, {
           table: "midnight_hougeki_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_taisen_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "hougeki_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_airattack_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_raigeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "closing_raigeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
-        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", periodTag: "all", tableVersion, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_assult", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack_list", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "airbase_airattack", ...detailScope, limitBlocks: 120, limitRecords: 400, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "carrierbase_assault", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_hourai", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
+        envUuid ? fetchGlobalRecordsInternal(c, { table: "support_airattack", ...detailScope, limitBlocks: 120, limitRecords: 200, filter: { env_uuid: envUuid } }) : Promise.resolve([]),
         fetchGlobalRecordsInternal(c, {
           table: "midnight_hougeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_taisen",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "hougeki",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "opening_airattack",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "destruction_battle",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "friendly_support_hourai_list",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "friendly_support_hourai",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "night_support_hourai",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
         }),
         fetchGlobalRecordsInternal(c, {
           table: "night_support_airattack",
-          periodTag: "all",
-          tableVersion,
+          ...detailScope,
           limitBlocks: 120,
           limitRecords: 200,
           filter: { env_uuid: envUuid },
@@ -2398,8 +2682,8 @@ app.get("/detail", async (c) => {
     const enemySlotItems = envBundle.enemySlotItems;
 
     const resolvedDetail = resolveBattleDetail({
-      periodTag,
-      tableVersion: tableVersion || null,
+      periodTag: detailPeriodTag,
+      tableVersion: detailTableVersion || null,
       envUuid,
       battleIndex,
       masterShips: mstShipPayload.records || [],
@@ -2462,7 +2746,7 @@ app.get("/detail", async (c) => {
  */
 app.get("/global/latest", async (c) => {
   const env = createEnvContext(c);
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -2474,7 +2758,9 @@ app.get("/global/latest", async (c) => {
   }
 
   try {
+    const periodTag = (c.req.query("period_tag") || "latest").trim();
     const tableVersion = c.req.query("table_version");
+    const datasetId = c.req.query("dataset_id")?.trim();
     let globalLatestSql = `SELECT 
          bi.id,
          bi.table_name AS table_name,
@@ -2488,9 +2774,30 @@ app.get("/global/latest", async (c) => {
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
     const globalLatestParams: unknown[] = [table];
+    if (periodTag === "latest") {
+      const allowedPeriodTags = await resolveAllowedPeriodTagsForRecords(
+        c,
+        indexDb,
+        table,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
+      if (allowedPeriodTags.size === 0) {
+        return c.json({ error: "No fragments found" }, 404);
+      }
+      const placeholders = [...allowedPeriodTags].map(() => "?").join(", ");
+      globalLatestSql += ` AND bi.period_tag IN (${placeholders})`;
+      globalLatestParams.push(...allowedPeriodTags);
+    } else if (periodTag !== "all") {
+      globalLatestSql += " AND bi.period_tag = ?";
+      globalLatestParams.push(periodTag);
+    }
     if (tableVersion) {
       globalLatestSql += ` AND bi.table_version = ?`;
       globalLatestParams.push(tableVersion);
+    }
+    if (datasetId) {
+      globalLatestSql += " AND bi.dataset_id = ?";
+      globalLatestParams.push(datasetId);
     }
     globalLatestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
 
@@ -2501,13 +2808,13 @@ app.get("/global/latest", async (c) => {
     }
 
     const latest = {
-      id: row.id,
-      file_path: row.file_path,
-      table: row.table_name,
-      table_version: row.table_version,
-      size: row.size,
-      record_count: row.record_count,
-      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
+      id: row["id"],
+      file_path: row["file_path"],
+      table: row["table_name"],
+      table_version: row["table_version"],
+      size: row["size"],
+      record_count: row["record_count"],
+      uploaded_at: formatTimestamp(row["start_timestamp"]),
     };
 
     c.res.headers.set(
@@ -2536,7 +2843,7 @@ app.get("/dev/local-records", async (c) => {
       return c.json({ error: "Unauthorized" }, 401);
     }
   }
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
+  const indexDb = env.runtime["BATTLE_INDEX_DB"];
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -2583,43 +2890,56 @@ app.get("/dev/local-records", async (c) => {
       return c.json({ error: `unsupported table: ${table}` }, 400);
     }
 
-    let records: any[] = [];
+    let records: BattleRecord[] = [];
+
+    const parseDetailRows = (value: unknown): BattleRecord[] => {
+      const parsed = parseBattleJsonRecords(value);
+      if (!parsed) {
+        throw new Error("Invalid battle detail D1 rows");
+      }
+      return parsed;
+    };
 
     if (table === "battle") {
-      const battleResult = (await indexDb
+      const battleResult = await indexDb
         .prepare(`SELECT * FROM battle WHERE uuid = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.();
 
-      const openingRaigekiResult = (await indexDb
+      const openingRaigekiResult = await indexDb
         .prepare(`SELECT * FROM opening_raigeki WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.();
 
-      const ownShipResult = (await indexDb
+      const ownShipResult = await indexDb
         .prepare(`SELECT * FROM own_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.();
 
-      const enemyShipResult = (await indexDb
+      const enemyShipResult = await indexDb
         .prepare(`SELECT * FROM enemy_ship WHERE battle_id = ?`)
         .bind(battleId)
-        .all?.()) as { results: any[] };
+        .all?.();
 
-      records = battleResult.results || [];
-      if (records.length > 0 && openingRaigekiResult.results?.length) {
-        records[0].opening_raigeki = transformOpeningRaigekiData(
-          openingRaigekiResult.results[0],
+      records = parseDetailRows(battleResult?.results);
+      const openingRaigekiRecords = parseDetailRows(openingRaigekiResult?.results);
+      const ownShipRecords = parseDetailRows(ownShipResult?.results);
+      const enemyShipRecords = parseDetailRows(enemyShipResult?.results);
+      const firstRecord = records[0];
+      const firstOpeningRaigeki = openingRaigekiRecords[0];
+      if (firstRecord && firstOpeningRaigeki) {
+        firstRecord["opening_raigeki"] = transformOpeningRaigekiData(
+          firstOpeningRaigeki,
         );
       }
-      if (records.length > 0 && ownShipResult.results?.length) {
-        records[0].own_ship = ownShipResult.results;
+      if (firstRecord && ownShipRecords.length) {
+        firstRecord["own_ship"] = ownShipRecords;
       }
-      if (records.length > 0 && enemyShipResult.results?.length) {
-        records[0].enemy_ship = enemyShipResult.results;
+      if (firstRecord && enemyShipRecords.length) {
+        firstRecord["enemy_ship"] = enemyShipRecords;
       }
       // DEV: Inject synthetic hougeki (shelling) data for test UUID
-      if (records.length > 0 && battleId === "test-multi-attacker-001") {
+      if (firstRecord && battleId === "test-multi-attacker-001") {
         // 1番艦(idx0)→敵6番(idx5)単発、2番艦(idx1)と3番艦(idx2)→同じ敵5番(idx4)連撃
         // 友軍HP: 全ターン変化なし(被弾なし)
         const fH = [100, 120, 110, 90, 80, 70];
@@ -2629,7 +2949,7 @@ app.get("/dev/local-records", async (c) => {
         const eH2 = [100, 120, 110, 90, 165, 102]; // 2番艦→敵5番1/2 (-35後)
         const eH3 = [100, 120, 110, 90, 143, 102]; // 2番艦→敵5番2/2 (-22後)
         const eH4 = [100, 120, 110, 90, 125, 102]; // 3番艦→敵5番1/2 (-18後)
-        records[0].hougeki = {
+        firstRecord["hougeki"] = {
           at_list: [0, 1, 1, 2, 2],
           df_list: [[5], [4], [4], [4], [4]],
           damage: [[28], [35], [22], [18], [31]],
@@ -2642,19 +2962,19 @@ app.get("/dev/local-records", async (c) => {
         };
       }
     } else if (safeField && safeValue) {
-      const result = (await indexDb
+      const result = await indexDb
         .prepare(`SELECT * FROM ${table} WHERE ${safeField} = ?`)
         .bind(safeValue)
-        .all?.()) as { results: any[] };
-      records = result.results || [];
+        .all?.();
+      records = parseDetailRows(result?.results);
     } else {
-      const result = (await indexDb
+      const result = await indexDb
         .prepare(
           `SELECT * FROM ${table} WHERE uuid = ? OR battle_id = ? OR id = ?`,
         )
         .bind(safeValue, safeValue, safeValue)
-        .all?.()) as { results: any[] };
-      records = result.results || [];
+        .all?.();
+      records = parseDetailRows(result?.results);
     }
 
     if (table === "opening_raigeki") {
@@ -2671,7 +2991,10 @@ app.get("/dev/local-records", async (c) => {
 
     return c.json(payload);
   } catch (err) {
-    const msg = String((err as any)?.message || err || "");
+    const msg =
+      typeof err === "object" && err !== null && "message" in err
+        ? String(err.message)
+        : String(err ?? "");
     if (msg.includes("no such table") || msg.includes("no such column")) {
       // During partial/local seeding, some optional tables may be absent.
       // Some tables also do not have every fallback key column (uuid/battle_id/id).

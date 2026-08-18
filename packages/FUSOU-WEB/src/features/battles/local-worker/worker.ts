@@ -41,28 +41,28 @@ workerScope.onmessage = (event: MessageEvent<WorkerRequest>) => {
       }
       if (request.type === "records") {
         const value = await session.records(request.id, request.query, (phase, completed, total, label, details) => {
-          send({ id: request.id, type: "progress", phase, completed, total, label, ...details });
+          send({ id: request.id, type: "progress", phase, completed, total, ...(label === undefined ? {} : { label }), ...details });
         });
         send({ id: request.id, type: "result", value });
         return;
       }
       if (request.type === "overview") {
         const value = await session.overview(request.id, request.query, (phase, completed, total, label, details) => {
-          send({ id: request.id, type: "progress", phase, completed, total, label, ...details });
+          send({ id: request.id, type: "progress", phase, completed, total, ...(label === undefined ? {} : { label }), ...details });
         });
         send({ id: request.id, type: "result", value });
         return;
       }
       if (request.type === "drops") {
         const value = await session.drops(request.id, request.query, (phase, completed, total, label, details) => {
-          send({ id: request.id, type: "progress", phase, completed, total, label, ...details });
+          send({ id: request.id, type: "progress", phase, completed, total, ...(label === undefined ? {} : { label }), ...details });
         });
         send({ id: request.id, type: "result", value });
         return;
       }
       if (request.type === "detail") {
         const value = await session.detail(request.id, request.query, (phase, completed, total, label, details) => {
-          send({ id: request.id, type: "progress", phase, completed, total, label, ...details });
+          send({ id: request.id, type: "progress", phase, completed, total, ...(label === undefined ? {} : { label }), ...details });
         });
         send({ id: request.id, type: "result", value });
         return;

@@ -14,6 +14,10 @@ interface ImportMeta {
 import type { Runtime } from "@astrojs/cloudflare/runtime";
 
 declare global {
+  interface Window {
+    __fusouAccessToken?: string | null;
+  }
+
   namespace App {
     interface Locals {
       runtime: Runtime;

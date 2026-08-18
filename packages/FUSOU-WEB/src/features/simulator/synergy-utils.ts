@@ -152,7 +152,9 @@ export type SynergyGroup<T> = { statKey: string; label: string; entries: T[] };
 function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
   if (group.length < 2) return group;
 
-  const comboSize = group[0].combo.length;
+  const first = group[0];
+  if (!first) return group;
+  const comboSize = first.combo.length;
   if (comboSize <= 1) return group;
   if (group.some((entry) => entry.combo.length !== comboSize)) return group;
 
@@ -243,13 +245,16 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
     const adjacency = new Map<number, Set<number>>();
 
     for (const i of memberIndexes) {
-      const residual = residualAfterFixed(countMaps[i], fixedCounts);
+      const countMap = countMaps[i];
+      if (!countMap) return null;
+      const residual = residualAfterFixed(countMap, fixedCounts);
       if (!residual) return null;
       const key = residualKeyWithoutReplacement(residual, 2);
       if (!key) return null;
       const parts = key.split(",").map(Number);
       if (parts.length !== 2) return null;
       const [a, b] = parts;
+      if (a === undefined || b === undefined) return null;
       if (a === b) return null;
       edges.push([a, b]);
       if (!adjacency.has(a)) adjacency.set(a, new Set<number>());
@@ -319,17 +324,25 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
     const mergedShips = new Set<number>();
     for (const i of memberIndexes) {
-      for (const shipId of group[i].ships ?? []) mergedShips.add(shipId);
+      const entry = group[i];
+      if (!entry) continue;
+      for (const shipId of entry.ships ?? []) mergedShips.add(shipId);
     }
 
     return {
       kind: "category",
       pools: [...fixedPools, leftPool, rightPool],
       cancels_single: false,
-      correction: group[0].netStats,
-      ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      correction: first.netStats,
+      ...(first.ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
+        : {}),
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
+        : {}),
     };
   };
 
@@ -346,7 +359,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         if (remain === 0) out.add(toSig(chosen));
         return;
       }
-      const [id, maxC] = entries[idx];
+      const entry = entries[idx];
+      if (!entry) return;
+      const [id, maxC] = entry;
       for (let take = 0; take <= Math.min(maxC, remain); take++) {
         if (take > 0) chosen.set(id, take);
         else chosen.delete(id);
@@ -367,7 +382,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
     for (let idx = 0; idx < countMaps.length; idx++) {
       if (usedComboIndexes.has(idx)) continue;
-      const fixedSigs = enumerateFixedSigs(countMaps[idx], keepCount);
+      const countMap = countMaps[idx];
+      if (!countMap) continue;
+      const fixedSigs = enumerateFixedSigs(countMap, keepCount);
       for (const sig of fixedSigs) {
         if (!families.has(sig)) families.set(sig, new Set<number>());
         families.get(sig)!.add(idx);
@@ -405,7 +422,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       const residualMaps = new Map<number, Map<number, number>>();
 
       for (const i of memberIndexes) {
-        const residual = residualAfterFixed(countMaps[i], fixedCounts);
+        const countMap = countMaps[i];
+        if (!countMap) continue;
+        const residual = residualAfterFixed(countMap, fixedCounts);
         if (!residual) continue;
         residualMaps.set(i, residual);
         const key = residualKeyWithoutReplacement(residual, freePickCount);
@@ -432,7 +451,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
         const withReplacementMembers: number[] = [];
         const withReplacementFreeSet = new Set<number>();
         for (const i of memberIndexes) {
-          const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+          const countMap = countMaps[i];
+          const residual = residualMaps.get(i) ??
+            (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
           if (!residual) continue;
           const key = residualKeyWithReplacement(residual, freePickCount);
           if (!key) continue;
@@ -457,13 +478,16 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
           const loops = new Set<number>();
           const adjacency = new Map<number, Set<number>>();
           for (const i of memberIndexes) {
-            const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+            const countMap = countMaps[i];
+            const residual = residualMaps.get(i) ??
+              (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
             if (!residual) continue;
             const key = residualKeyWithReplacement(residual, freePickCount);
             if (!key) continue;
             const parts = key.split(",").map(Number);
             if (parts.length !== 2) continue;
             const [a, b] = parts;
+            if (a === undefined || b === undefined) continue;
             if (!adjacency.has(a)) adjacency.set(a, new Set<number>());
             if (!adjacency.has(b)) adjacency.set(b, new Set<number>());
             adjacency.get(a)!.add(b);
@@ -497,7 +521,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
             const cliqueMembers: number[] = [];
             const cliqueKeys = new Set<string>();
             for (const i of memberIndexes) {
-              const residual = residualMaps.get(i) ?? residualAfterFixed(countMaps[i], fixedCounts);
+              const countMap = countMaps[i];
+              const residual = residualMaps.get(i) ??
+                (countMap ? residualAfterFixed(countMap, fixedCounts) : null);
               if (!residual) continue;
               const key = residualKeyWithReplacement(residual, freePickCount);
               if (!key) continue;
@@ -538,21 +564,29 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
 
       const mergedShips = new Set<number>();
       for (const i of matchedMembers) {
-        for (const shipId of group[i].ships ?? []) mergedShips.add(shipId);
+        const entry = group[i];
+        if (!entry) continue;
+        for (const shipId of entry.ships ?? []) mergedShips.add(shipId);
       }
 
       out.push({
         kind: "pool",
         pool: [...fixedItems, ...freePool],
         comboSize,
-        correction: group[0].netStats,
+        correction: first.netStats,
         fixed: fixedItems,
         freePool,
         freePoolWithReplacement: matchedMode === "with-replacement",
         freePickCount,
-        ships: group[0].ships != null ? [...mergedShips].sort((a, b) => a - b) : group[0].ships,
-        suppressed_components: group[0].suppressed_components,
-        placements: group[0].placements,
+        ...(first.ships !== undefined
+          ? { ships: [...mergedShips].sort((a, b) => a - b) }
+          : {}),
+        ...(first.suppressed_components !== undefined
+          ? { suppressed_components: first.suppressed_components }
+          : {}),
+        ...(first.placements !== undefined
+          ? { placements: first.placements }
+          : {}),
       });
 
       for (const i of matchedMembers) usedComboIndexes.add(i);
@@ -562,7 +596,9 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
       const remainingFamilies = new Map<string, Set<number>>();
       for (let idx = 0; idx < countMaps.length; idx++) {
         if (usedComboIndexes.has(idx)) continue;
-        const fixedSigs = enumerateFixedSigs(countMaps[idx], keepCount);
+        const countMap = countMaps[idx];
+        if (!countMap) continue;
+        const fixedSigs = enumerateFixedSigs(countMap, keepCount);
         for (const sig of fixedSigs) {
           if (!remainingFamilies.has(sig)) remainingFamilies.set(sig, new Set<number>());
           remainingFamilies.get(sig)!.add(idx);
@@ -594,7 +630,8 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
   }
 
   for (let i = 0; i < group.length; i++) {
-    if (!usedComboIndexes.has(i)) out.push(group[i]);
+    const entry = group[i];
+    if (!usedComboIndexes.has(i) && entry) out.push(entry);
   }
 
   // Fallback: if many explicit combos still remain, group them into a single
@@ -612,13 +649,16 @@ function compactComboGroupToPool(group: MultiComboEntry[]): MultiEntry[] {
     nonComboEntries.push({
       kind: "grouped_combo",
       groupedPools,
-      netStats: group[0].netStats,
-      ships:
-        group[0].ships != null
-          ? [...mergedShips].sort((a, b) => a - b)
-          : group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      netStats: first.netStats,
+      ...(first.ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
+        : {}),
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
+        : {}),
     });
     return nonComboEntries;
   }
@@ -666,7 +706,8 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
 
   for (const group of poolGroups.values()) {
     if (group.length === 1) {
-      merged.push(group[0]);
+      const only = group[0];
+      if (only) merged.push(only);
       continue;
     }
 
@@ -683,26 +724,35 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
     }
 
     const sample = group[0];
+    if (!sample) continue;
     merged.push({
       ...sample,
       pool: [...mergedPoolById.values()].sort((a, b) => a.sortno - b.sortno || a.id - b.id),
-      freePool:
-        sample.freePool != null
-          ? [...mergedFreePoolById.values()].sort((a, b) => a.sortno - b.sortno || a.id - b.id)
-          : sample.freePool,
-      ships: sample.ships != null ? [...mergedShips].sort((a, b) => a - b) : sample.ships,
+      ...(sample.freePool !== undefined
+        ? {
+            freePool: [...mergedFreePoolById.values()].sort(
+              (a, b) => a.sortno - b.sortno || a.id - b.id,
+            ),
+          }
+        : {}),
+      ...(sample.ships !== undefined
+        ? { ships: [...mergedShips].sort((a, b) => a - b) }
+        : {}),
     });
   }
 
   for (const group of categoryGroups.values()) {
     if (group.length === 1) {
-      merged.push(group[0]);
+      const only = group[0];
+      if (only) merged.push(only);
       continue;
     }
-    
-    const poolCount = group[0].pools.length;
+
+    const first = group[0];
+    if (!first) continue;
+    const poolCount = first.pools.length;
     const unionedPools: MstSlotItemData[][] = Array.from({ length: poolCount }, () => []);
-    
+
     for (const entry of group) {
       const sortedPools = [...entry.pools].sort((a, b) => {
         if (a.length !== b.length) return a.length - b.length;
@@ -710,28 +760,35 @@ export function mergeMultiEntries(entries: MultiEntry[]): MultiEntry[] {
         const minB = Math.min(...b.map((x) => x.id));
         return minA - minB;
       });
-      
+
       for (let i = 0; i < poolCount; i++) {
-        for (const item of sortedPools[i]) {
-          if (!unionedPools[i].find((x) => x.id === item.id)) {
-            unionedPools[i].push(item);
+        const sortedPool = sortedPools[i];
+        const unionedPool = unionedPools[i];
+        if (!sortedPool || !unionedPool) continue;
+        for (const item of sortedPool) {
+          if (!unionedPool.find((x) => x.id === item.id)) {
+            unionedPool.push(item);
           }
         }
       }
     }
-    
+
     for (const p of unionedPools) {
       p.sort((a, b) => a.sortno - b.sortno || a.id - b.id);
     }
-    
+
     merged.push({
       kind: "category",
       pools: unionedPools,
-      cancels_single: group[0].cancels_single,
-      correction: group[0].correction,
-      ships: group[0].ships,
-      suppressed_components: group[0].suppressed_components,
-      placements: group[0].placements,
+      cancels_single: first.cancels_single,
+      correction: first.correction,
+      ...(first.ships !== undefined ? { ships: first.ships } : {}),
+      ...(first.suppressed_components !== undefined
+        ? { suppressed_components: first.suppressed_components }
+        : {}),
+      ...(first.placements !== undefined
+        ? { placements: first.placements }
+        : {}),
     });
   }
   
@@ -758,10 +815,10 @@ export function normalizeEffects(
       const entry: EquipEffect = {
         ships: rule.ships,
         b: rule.b,
-        l: rule.l,
-        i: rule.i,
-        c2: rule.c2,
-        c3: rule.c3,
+        ...(rule.l !== undefined ? { l: rule.l } : {}),
+        ...(rule.i !== undefined ? { i: rule.i } : {}),
+        ...(rule.c2 !== undefined ? { c2: rule.c2 } : {}),
+        ...(rule.c3 !== undefined ? { c3: rule.c3 } : {}),
       };
       for (const itemId of rule.items) {
         const key = String(itemId);
@@ -799,10 +856,19 @@ export function normalizeCrossEffects(
         ships: rule.ships,
         items: [Math.min(a, b), Math.max(a, b)],
         synergy: rule.synergy,
-        exclusive_group: (rule as { exclusive_group?: number }).exclusive_group,
         cancels_single: !!(rule as { cancels_single?: boolean }).cancels_single,
-        suppressed_components: (rule as { suppressed_components?: number[] }).suppressed_components,
-        placements: (rule as { placements?: SlotUsageSummary[] }).placements,
+        ...((rule as { exclusive_group?: number }).exclusive_group !== undefined
+          ? { exclusive_group: (rule as { exclusive_group?: number }).exclusive_group }
+          : {}),
+        ...((rule as { suppressed_components?: number[] }).suppressed_components !== undefined
+          ? {
+              suppressed_components: (rule as { suppressed_components?: number[] })
+                .suppressed_components,
+            }
+          : {}),
+        ...((rule as { placements?: SlotUsageSummary[] }).placements !== undefined
+          ? { placements: (rule as { placements?: SlotUsageSummary[] }).placements }
+          : {}),
       };
       if (!out[key]) out[key] = [];
       out[key].push(entry);
@@ -831,9 +897,13 @@ export function normalizeCrossEffects(
           if (implicant.length < 2) continue;
           // Register all cross-pool pairs (pool[0] x pool[1], pool[0] x pool[2], etc.)
           for (let pi = 0; pi < implicant.length; pi++) {
+            const poolA = implicant[pi];
+            if (!poolA) continue;
             for (let pj = pi + 1; pj < implicant.length; pj++) {
-              for (const a of implicant[pi]) {
-                for (const b of implicant[pj]) {
+              const poolB = implicant[pj];
+              if (!poolB) continue;
+              for (const a of poolA) {
+                for (const b of poolB) {
                   addPair(a, b, rule);
                 }
               }
@@ -844,9 +914,13 @@ export function normalizeCrossEffects(
         // AST format: pools[0] x pools[1] x ... cross pairs
         const pools = r.category_pools;
         for (let pi = 0; pi < pools.length; pi++) {
+          const poolA = pools[pi];
+          if (!poolA) continue;
           for (let pj = pi + 1; pj < pools.length; pj++) {
-            for (const a of pools[pi]) {
-              for (const b of pools[pj]) {
+            const poolB = pools[pj];
+            if (!poolB) continue;
+            for (const a of poolA) {
+              for (const b of poolB) {
                 addPair(a, b, rule);
               }
             }
@@ -856,7 +930,10 @@ export function normalizeCrossEffects(
         // All pairs within the pool
         for (let i = 0; i < r.item_pool.length; i++) {
           for (let j = i + 1; j < r.item_pool.length; j++) {
-            addPair(r.item_pool[i], r.item_pool[j], rule);
+            const itemA = r.item_pool[i];
+            const itemB = r.item_pool[j];
+            if (itemA === undefined || itemB === undefined) continue;
+            addPair(itemA, itemB, rule);
           }
         }
       }
@@ -878,15 +955,16 @@ export function getSingleEntriesForEquip(
 ): EquipEffect[] {
   if (effects.effect_rules_equip_index) {
     const indices = effects.effect_rules_equip_index[String(equipId)] ?? [];
-    const indexedEntries = indices.map((i) => {
-      const rule = effects.effect_rules![i];
+      const indexedEntries = indices.flatMap((i) => {
+        const rule = effects.effect_rules?.[i];
+        if (!rule) return [];
       return {
         ships: rule.ships,
         b: rule.b,
-        l: rule.l,
-        i: rule.i,
-        c2: rule.c2,
-        c3: rule.c3,
+        ...(rule.l !== undefined ? { l: rule.l } : {}),
+        ...(rule.i !== undefined ? { i: rule.i } : {}),
+        ...(rule.c2 !== undefined ? { c2: rule.c2 } : {}),
+        ...(rule.c3 !== undefined ? { c3: rule.c3 } : {}),
       };
     });
     if (indexedEntries.length > 0) {
@@ -947,7 +1025,9 @@ export function decodeCombosForDisplay(
         return;
       }
       for (let i = start; i < pool.length; i++) {
-        cur.push(pool[i]);
+        const item = pool[i];
+        if (item === undefined) continue;
+        cur.push(item);
         pick(i + 1, cur);
         cur.pop();
       }
@@ -967,7 +1047,9 @@ export function decodeCombosForDisplay(
           return;
         }
         for (let i = start; i < free.length; i++) {
-          cur.push(free[i]);
+          const item = free[i];
+          if (item === undefined) continue;
+          cur.push(item);
           pick(i, cur);
           cur.pop();
         }
@@ -980,7 +1062,9 @@ export function decodeCombosForDisplay(
           return;
         }
         for (let i = start; i < free.length; i++) {
-          cur.push(free[i]);
+          const item = free[i];
+          if (item === undefined) continue;
+          cur.push(item);
           pick(i + 1, cur);
           cur.pop();
         }
@@ -992,9 +1076,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos_u16_b64 && rule.items) {
     const raw = Uint8Array.from(atob(rule.combos_u16_b64), (c) => c.charCodeAt(0));
@@ -1002,9 +1097,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos_u32_b64 && rule.items) {
     const raw = Uint8Array.from(atob(rule.combos_u32_b64), (c) => c.charCodeAt(0));
@@ -1012,9 +1118,20 @@ export function decodeCombosForDisplay(
     const totalCount = buf.length / comboSize;
     for (let ci = 0; ci < totalCount; ci++) {
       const combo: number[] = [];
-      for (let j = 0; j < comboSize; j++)
-        combo.push(rule.items[buf[ci * comboSize + j]]);
-      result.push(combo);
+      for (let j = 0; j < comboSize; j++) {
+        const itemIndex = buf[ci * comboSize + j];
+        if (itemIndex === undefined) {
+          combo.length = 0;
+          break;
+        }
+        const item = rule.items[itemIndex];
+        if (item === undefined) {
+          combo.length = 0;
+          break;
+        }
+        combo.push(item);
+      }
+      if (combo.length === comboSize) result.push(combo);
     }
   } else if (rule.combos) {
     result = rule.combos;
@@ -1046,8 +1163,11 @@ export function comboBaseBonus(
 
   for (let i = 0; i < comboIds.length; i++) {
     for (let j = i + 1; j < comboIds.length; j++) {
-      const a = Math.min(comboIds[i], comboIds[j]);
-      const b = Math.max(comboIds[i], comboIds[j]);
+      const firstId = comboIds[i];
+      const secondId = comboIds[j];
+      if (firstId === undefined || secondId === undefined) continue;
+      const a = Math.min(firstId, secondId);
+      const b = Math.max(firstId, secondId);
       const crossEntry = (crossMap[`${a}:${b}`] ?? []).find((e) =>
         appliesToShip(e.ships),
       );
@@ -1156,7 +1276,8 @@ export function improvementSynergyRows(
 
     // Keep last transition when multiple entries have same star.
     for (const [star, stats] of normalized) {
-      if (points.length > 0 && points[points.length - 1].star === star) {
+      const previous = points.at(-1);
+      if (previous?.star === star) {
         points[points.length - 1] = { star, stats };
         continue;
       }
@@ -1178,6 +1299,7 @@ export function improvementSynergyRows(
   const rows: ImprovementSynergyRow[] = [];
   for (let i = 0; i < points.length; i++) {
     const current = points[i];
+    if (!current) continue;
     const next = points[i + 1];
     const start = current.star;
     const end = Math.min(10, next ? next.star - 1 : 10);
@@ -1215,7 +1337,7 @@ export function groupByMultiStat(entries: MultiEntry[]): MultiGroup[] {
     else map.set(key, [entry]);
   }
   const result: MultiGroup[] = [];
-  const ordered = [...(SYNERGY_STAT_ORDER as unknown as string[]), "other"];
+  const ordered = [...SYNERGY_STAT_ORDER, "other"];
   for (const k of ordered) {
     const list = map.get(k);
     if (!list) continue;
@@ -1262,7 +1384,7 @@ export function groupByGenericStat<T>(
     else map.set(key, [entry]);
   }
   const result: SynergyGroup<T>[] = [];
-  const ordered = [...(SYNERGY_STAT_ORDER as unknown as string[]), "other"];
+  const ordered = [...SYNERGY_STAT_ORDER, "other"];
   for (const k of ordered) {
     const list = map.get(k);
     if (!list) continue;
@@ -1365,9 +1487,11 @@ export function buildMultiEntries(
         kind: "category",
         pools,
         cancels_single: !!rule.cancels_single,
-        suppressed_components: rule.suppressed_components,
         correction: rule.synergy,
-        placements: rule.placements,
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
       });
     } else if (rule.item_pool) {
       const pool = rule.item_pool
@@ -1378,7 +1502,16 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
+      all.push({
+        kind: "pool",
+        pool,
+        comboSize,
+        correction: rule.synergy,
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+      });
     } else if (rule.fixed_items && rule.free_pool) {
       const allPoolIds = [...rule.fixed_items, ...rule.free_pool];
       const pool = allPoolIds
@@ -1389,7 +1522,16 @@ export function buildMultiEntries(
         );
       if (pool.length < comboSize) continue;
       if (scoreSynergy(rule.synergy) === 0) continue;
-      all.push({ kind: "pool", pool, comboSize, correction: rule.synergy, placements: rule.placements, suppressed_components: rule.suppressed_components });
+      all.push({
+        kind: "pool",
+        pool,
+        comboSize,
+        correction: rule.synergy,
+        ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
+        ...(rule.suppressed_components !== undefined
+          ? { suppressed_components: rule.suppressed_components }
+          : {}),
+      });
     } else if (rule.implicants) {
       for (const implicant of rule.implicants) {
         const pools = implicant.map((p) =>
@@ -1406,10 +1548,12 @@ export function buildMultiEntries(
           kind: "category",
           pools,
           cancels_single: !!rule.cancels_single,
-          suppressed_components: rule.suppressed_components,
           correction: rule.synergy,
           is_implicant: true,
-          placements: rule.placements,
+          ...(rule.suppressed_components !== undefined
+            ? { suppressed_components: rule.suppressed_components }
+            : {}),
+          ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
         });
       }
     } else {
@@ -1426,8 +1570,10 @@ export function buildMultiEntries(
           combo: items as MstSlotItemData[],
           netStats: rule.synergy,
           cancels_single: !!rule.cancels_single,
-          suppressed_components: rule.suppressed_components,
-          placements: rule.placements,
+          ...(rule.suppressed_components !== undefined
+            ? { suppressed_components: rule.suppressed_components }
+            : {}),
+          ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
         });
       }
     }

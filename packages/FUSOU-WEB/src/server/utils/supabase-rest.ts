@@ -7,6 +7,7 @@
 
 import type { Bindings } from "../types";
 import { createEnvContext, resolveSupabaseConfig } from "../utils";
+import { MemberIdHashRowsSchema } from "../schemas/member-lookup";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -31,9 +32,11 @@ export function getSupabaseRestConfig(c: {
 // ─── Generic REST Request ───────────────────────────────────────────────────
 
 /**
- * Make a typed request to the Supabase REST API (PostgREST).
+ * Make a raw request to the Supabase REST API (PostgREST).
+ *
+ * Callers must validate table-specific responses with their Zod schema.
  */
-export async function supabaseRestRequest<T = unknown[]>(
+export async function supabaseRestRequest(
   config: SupabaseRestConfig,
   table: string,
   options: {
@@ -42,7 +45,7 @@ export async function supabaseRestRequest<T = unknown[]>(
     body?: object | null;
     headers?: Record<string, string>;
   } = {},
-): Promise<T | null> {
+): Promise<unknown | null> {
   const { method = "GET", query = "", body = null, headers = {} } = options;
   const { url, key } = config;
 
@@ -70,10 +73,11 @@ export async function supabaseRestRequest<T = unknown[]>(
   if (
     method === "GET" ||
     (
-      headers.Prefer || (method === "POST" ? "return=representation" : "")
+      headers["Prefer"] || (method === "POST" ? "return=representation" : "")
     ).includes("return=representation")
   ) {
-    return response.json() as Promise<T>;
+    const payload: unknown = await response.json();
+    return payload;
   }
 
   return null;
@@ -93,16 +97,20 @@ export async function resolveMemberIdHashForUser(
 ): Promise<string | null> {
   const userIdQuery = encodeURIComponent(userId);
 
-  const link = await supabaseRestRequest<{ member_id_hash?: string }[]>(
-    config,
-    "user_member_map",
-    {
-      query: `?user_id=eq.${userIdQuery}&select=member_id_hash&limit=1`,
-    },
-  );
+  const link = await supabaseRestRequest(config, "user_member_map", {
+    query: `?user_id=eq.${userIdQuery}&select=member_id_hash&limit=1`,
+  });
+  const parsedLink = MemberIdHashRowsSchema.safeParse(link);
+  if (!parsedLink.success) {
+    console.warn("[supabase-rest] invalid member id hash response", {
+      userId,
+      error: parsedLink.error,
+    });
+    return null;
+  }
 
-  if (Array.isArray(link) && link[0]?.member_id_hash) {
-    return link[0].member_id_hash;
+  if (parsedLink.data[0]?.member_id_hash) {
+    return parsedLink.data[0].member_id_hash;
   }
 
   return null;

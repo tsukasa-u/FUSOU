@@ -98,11 +98,19 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
     );
   }
 
-  const periodTag = parsePeriodTag(layout[0]);
   const storageKind = layout[1];
+  const periodValue = layout[0];
+  if (!periodValue || !storageKind) {
+    throw new LocalAvroPathError(
+      "INVALID_DIRECTORY_LAYOUT",
+      "AVRO path does not match the APP layout",
+    );
+  }
+  const periodTag = parsePeriodTag(periodValue);
 
   if (storageKind === "master_data") {
-    if (layout.length !== 3 || !layout[2].endsWith(".avro")) {
+    const masterFile = layout[2];
+    if (layout.length !== 3 || !masterFile || !masterFile.endsWith(".avro")) {
       throw new LocalAvroPathError(
         "INVALID_DIRECTORY_LAYOUT",
         "AVRO master path does not match the APP layout",
@@ -113,7 +121,7 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
       relativePath: parts.join("/"),
       periodTag,
       storageKind,
-      table: parseTable(layout[2].slice(0, -5), storageKind),
+      table: parseTable(masterFile.slice(0, -5), storageKind),
     };
   }
 
@@ -124,22 +132,42 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
     );
   }
 
-  const mapMatch = MAP_FOLDER_PATTERN.exec(layout[2]);
-  const fileMatch = /^(\d+)_([^/]+)\.avro$/.exec(layout[4]);
-  if (!mapMatch || !fileMatch || !UUID_PATTERN.test(fileMatch[2])) {
+  const mapFolder = layout[2];
+  const tableName = layout[3];
+  const fileName = layout[4];
+  const mapMatch = mapFolder ? MAP_FOLDER_PATTERN.exec(mapFolder) : null;
+  const fileMatch = fileName
+    ? /^(\d+)_([^/]+)\.avro$/.exec(fileName)
+    : null;
+  const mapAreaValue = mapMatch?.[1];
+  const mapInfoValue = mapMatch?.[2];
+  const fileTimestampValue = fileMatch?.[1];
+  const fileUuidValue = fileMatch?.[2];
+  if (
+    !mapMatch ||
+    !fileMatch ||
+    !tableName ||
+    !mapAreaValue ||
+    !mapInfoValue ||
+    !fileTimestampValue ||
+    !fileUuidValue ||
+    !UUID_PATTERN.test(fileUuidValue)
+  ) {
     throw new LocalAvroPathError(
       "INVALID_DIRECTORY_LAYOUT",
       "AVRO transaction path contains an invalid map or filename",
     );
   }
 
-  const fileTimestamp = Number(fileMatch[1]);
-  const mapAreaId = Number(mapMatch[1]);
-  const mapInfoNo = Number(mapMatch[2]);
+  const fileTimestamp = Number(fileTimestampValue);
+  const mapAreaId = Number(mapAreaValue);
+  const mapInfoNo = Number(mapInfoValue);
   if (
     !Number.isSafeInteger(fileTimestamp) ||
     !Number.isSafeInteger(mapAreaId) ||
-    !Number.isSafeInteger(mapInfoNo)
+    !Number.isSafeInteger(mapInfoNo) ||
+    mapAreaId <= 0 ||
+    mapInfoNo <= 0
   ) {
     throw new LocalAvroPathError(
       "INVALID_DIRECTORY_LAYOUT",
@@ -154,8 +182,8 @@ export function parseLocalAvroPath(relativePath: string): ParsedLocalAvroPath {
     mapAreaId,
     mapInfoNo,
     fileTimestamp,
-    fileUuid: fileMatch[2].toLowerCase(),
-    table: parseTable(layout[3], storageKind),
+    fileUuid: fileUuidValue.toLowerCase(),
+    table: parseTable(tableName, storageKind),
   };
 }
 

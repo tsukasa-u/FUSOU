@@ -19,7 +19,7 @@ app.options(
 app.get("/latest", async (c) => {
   const now = Date.now();
   const envCtx = createEnvContext(c);
-  const kv = envCtx.runtime.DATA_LOADER_CACHE_KV;
+  const kv = envCtx.runtime["DATA_LOADER_CACHE_KV"];
 
   try {
     const latest = await getLatestAllowedPeriodTagWithSource(c, {

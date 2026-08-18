@@ -42,12 +42,13 @@ app.get("/member-map", async (c) => {
   const cookieMatch = cookieHeader?.match(
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
-  const cookieToken = cookieMatch
+  const cookieValue = cookieMatch?.[1];
+  const cookieToken = cookieValue !== undefined
     ? (() => {
         try {
-          return decodeURIComponent(cookieMatch[1]);
+          return decodeURIComponent(cookieValue);
         } catch {
-          return cookieMatch[1];
+          return cookieValue;
         }
       })()
     : null;
@@ -78,8 +79,10 @@ app.get("/member-map", async (c) => {
     const currentUserId = supabaseUser.id;
     const resolved = await resolveLinkedMemberIdHashForUser({
       supabaseAdmin,
-      userId: currentUserId,
-      jwtPayload: supabaseUser.payload,
+      ...(currentUserId === undefined ? {} : { userId: currentUserId }),
+      ...(supabaseUser.payload === undefined
+        ? {}
+        : { jwtPayload: supabaseUser.payload }),
     });
     const memberIdHash = resolved.memberIdHash;
     const linked = Boolean(memberIdHash);

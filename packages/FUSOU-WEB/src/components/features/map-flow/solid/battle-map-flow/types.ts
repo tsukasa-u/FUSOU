@@ -8,6 +8,19 @@ export type BattleResultData = {
   win_rank: WinRank;
   drop_ship_id: number | null;
   drop_ship_name?: string | null;
+  mvp_ship_indexes?: unknown[];
+  [key: string]: unknown;
+};
+
+export type AirAttackData = {
+  f_damages?: unknown;
+  e_damages?: unknown;
+  f_plane_from?: unknown;
+  e_plane_from?: unknown;
+  air_superiority?: number | string | null;
+  attacks?: unknown;
+  squadron_plane?: unknown;
+  [key: string]: unknown;
 };
 
 export type BattleRecord = {
@@ -19,15 +32,30 @@ export type BattleRecord = {
   maparea_id?: number | null;
   mapinfo_no?: number | null;
   cell_id: number;
+  f_formation?: number | null;
+  e_formation?: number | null;
+  formation?: number[] | null;
+  opening_air_attack?: AirAttackData | AirAttackData[] | null;
+  air_base_air_attacks?: AirAttackData | AirAttackData[] | null;
+  air_base_assault?: AirAttackData | null;
+  carrier_base_assault?: AirAttackData | null;
+  support_attack?: Record<string, unknown> | null;
+  friendly_force_attack?: Record<string, unknown> | null;
+  hougeki?: Record<string, unknown> | Record<string, unknown>[] | null;
+  opening_taisen?: Record<string, unknown> | Record<string, unknown>[] | null;
+  opening_raigeki?: Record<string, unknown> | null;
+  closing_raigeki?: Record<string, unknown> | null;
   battle_result?: BattleResultData | string | null;
   e_deck_id?: string | null;
   __sortie_id?: string;
+  [key: string]: unknown;
 };
 
 export type BattleResultRecord = {
   uuid?: string;
   win_rank?: WinRank | null;
   drop_ship_id?: number | null;
+  [key: string]: unknown;
 };
 
 export type CellRecord = {
@@ -38,11 +66,13 @@ export type CellRecord = {
   mapinfo_no?: number | null;
   cell_index?: Array<number | null> | null;
   battle_index?: Array<number | null> | null;
+  [key: string]: unknown;
 };
 
 export type EnemyDeckRecord = {
   uuid: string;
   ship_ids?: Array<string | null> | string | null;
+  [key: string]: unknown;
 };
 
 export type EnemyShipRecord = {
@@ -54,23 +84,29 @@ export type EnemyShipRecord = {
   raisou?: number | null;
   taiku?: number | null;
   soukou?: number | null;
+  [key: string]: unknown;
 };
 
 export type EnemySlotItemRecord = {
   uuid: string;
   index?: number | null;
   mst_slotitem_id?: number | null;
+  [key: string]: unknown;
 };
 
 export type MstShipRecord = {
   id: number;
   name: string;
+  stype?: number | null;
+  backs?: number | null;
+  [key: string]: unknown;
 };
 
 export type MstSlotItemRecord = {
   id: number;
   name: string;
   type?: Array<number | null> | null;
+  [key: string]: unknown;
 };
 
 export type Transition = {

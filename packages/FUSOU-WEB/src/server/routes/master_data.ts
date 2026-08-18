@@ -12,6 +12,18 @@ import {
 import { validateCachedPeriodTag, getLatestMasterPeriodTag } from "../utils/period-tags";
 import { handleTwoStageUpload } from "../utils/upload";
 import { decodeAvroOcfToJson } from "../utils/avro-decoder";
+import { MasterDataTokenPayloadSchema } from "../schemas/tokens";
+import {
+  MasterDataDedupeRowSchema,
+  MasterDataDownloadRowSchema,
+  MasterDataInsertedRevisionRowSchema,
+  MasterDataJsonLookupRowSchema,
+  MasterDataMetadataRowSchema,
+  MasterDataNextRevisionRowSchema,
+  parseMasterDataJsonRecords,
+  parseMasterDataTableOffsets,
+  parseMasterDataJsonRecordsText,
+} from "../schemas/master-data";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -97,8 +109,8 @@ app.post("/upload", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
   const signingSecret = getEnv(env, "MASTER_DATA_SIGNING_SECRET");
 
   if (!bucket || !db || !signingSecret) {
@@ -120,25 +132,27 @@ app.post("/upload", async (c) => {
     // Preparation phase: claim ownership for entire period
     preparationValidator: async (body, user) => {
       const periodTag =
-        typeof body?.kc_period_tag === "string"
-          ? body.kc_period_tag.trim()
+        typeof body?.["kc_period_tag"] === "string"
+          ? body["kc_period_tag"].trim()
           : "";
       const tableVersion =
-        typeof body?.table_version === "string"
-          ? body.table_version.trim()
-          : typeof body?.tableVersion === "string"
-            ? body.tableVersion.trim()
+        typeof body?.["table_version"] === "string"
+          ? body["table_version"].trim()
+          : typeof body?.["tableVersion"] === "string"
+            ? body["tableVersion"].trim()
             : "";
       const contentHash =
-        typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+        typeof body?.["content_hash"] === "string"
+          ? body["content_hash"].trim()
+          : "";
       const tableOffsetsStr =
-        typeof body?.table_offsets === "string"
-          ? body.table_offsets.trim()
+        typeof body?.["table_offsets"] === "string"
+          ? body["table_offsets"].trim()
           : "";
 
       const periodTagValidation = await validateCachedPeriodTag(c, periodTag, {
         fieldName: "kc_period_tag",
-        cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+        cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
       });
       if (!periodTagValidation.ok) {
         return c.json(
@@ -193,7 +207,7 @@ app.post("/upload", async (c) => {
 
       // Handle both number and string types (Rust sends as number, other clients may send as string)
       let declaredSize: number;
-      const fileSizeRaw = body?.file_size;
+      const fileSizeRaw = body?.["file_size"];
 
       if (typeof fileSizeRaw === "number") {
         declaredSize = fileSizeRaw;
@@ -228,22 +242,21 @@ app.post("/upload", async (c) => {
         start: number;
         end: number;
       }> = [];
-      try {
-        tableOffsets = JSON.parse(tableOffsetsStr);
-        if (!Array.isArray(tableOffsets) || tableOffsets.length === 0) {
-          return c.json(
-            { error: "table_offsets must be a non-empty array" },
-            400,
-          );
-        }
-      } catch (e) {
-        return c.json({ error: "table_offsets must be valid JSON" }, 400);
+      tableOffsets = parseMasterDataTableOffsets(tableOffsetsStr);
+      if (tableOffsets.length === 0) {
+        return c.json(
+          { error: "table_offsets must be a non-empty array of valid offsets" },
+          400,
+        );
       }
 
       // Validate all tables are present and valid
       const providedTables = new Set<string>();
       for (let i = 0; i < tableOffsets.length; i++) {
         const offset = tableOffsets[i];
+        if (!offset) {
+          return c.json({ error: `table_offsets[${i}] is required` }, 400);
+        }
 
         if (!offset.table_name || typeof offset.table_name !== "string") {
           return c.json(
@@ -325,14 +338,24 @@ app.post("/upload", async (c) => {
 
       // Validate offsets are contiguous and cover entire file
       const sortedOffsets = [...tableOffsets].sort((a, b) => a.start - b.start);
-      if (sortedOffsets[0].start !== 0) {
+      const firstOffset = sortedOffsets[0];
+      const lastOffset = sortedOffsets.at(-1);
+      if (!firstOffset || !lastOffset) {
+        return c.json({ error: "table_offsets must be a non-empty array" }, 400);
+      }
+      if (firstOffset.start !== 0) {
         return c.json({ error: "table_offsets must start at offset 0" }, 400);
       }
-      if (sortedOffsets[sortedOffsets.length - 1].end !== declaredSize) {
+      if (lastOffset.end !== declaredSize) {
         return c.json({ error: "table_offsets must cover entire file" }, 400);
       }
       for (let i = 1; i < sortedOffsets.length; i++) {
-        if (sortedOffsets[i].start !== sortedOffsets[i - 1].end) {
+        const current = sortedOffsets[i];
+        const previous = sortedOffsets[i - 1];
+        if (!current || !previous) {
+          return c.json({ error: "table_offsets must be a non-empty array" }, 400);
+        }
+        if (current.start !== previous.end) {
           return c.json(
             { error: "table_offsets must be contiguous (no gaps or overlaps)" },
             400,
@@ -352,13 +375,18 @@ app.post("/upload", async (c) => {
           ORDER BY period_revision DESC
           LIMIT 1
         `);
-        const sameHashRecord = (await sameHashStmt
+        const sameHashResult = await sameHashStmt
           .bind(periodTag, tableVersion, contentHash)
-          .first()) as {
-          id?: number;
-          period_revision?: number;
-          upload_status?: string;
-        } | null;
+          .first();
+        const parsedSameHashRecord = MasterDataDedupeRowSchema.safeParse(
+          sameHashResult,
+        );
+        if (sameHashResult !== null && !parsedSameHashRecord.success) {
+          throw new Error("Invalid master data dedupe row");
+        }
+        const sameHashRecord = parsedSameHashRecord.success
+          ? parsedSameHashRecord.data
+          : null;
 
         if (sameHashRecord && sameHashRecord.upload_status === "completed") {
           console.info(
@@ -386,10 +414,14 @@ app.post("/upload", async (c) => {
             FROM master_data_index
             WHERE period_tag = ? AND table_version = ?
           `);
-          const nextRevisionRow = (await nextRevisionStmt
+          const nextRevisionRow = await nextRevisionStmt
             .bind(periodTag, tableVersion)
-            .first()) as { next_revision?: number } | null;
-          const nextRevision = Number(nextRevisionRow?.next_revision ?? 1);
+            .first();
+          const parsedNextRevisionRow =
+            MasterDataNextRevisionRowSchema.safeParse(nextRevisionRow);
+          const nextRevision = parsedNextRevisionRow.success
+            ? (parsedNextRevisionRow.data.next_revision ?? 1)
+            : 1;
 
           const insertStmt = db.prepare(`
             INSERT INTO master_data_index
@@ -400,7 +432,7 @@ app.post("/upload", async (c) => {
           `);
 
           const now = Date.now();
-          const inserted = (await insertStmt
+          const insertedResult = await insertStmt
             .bind(
               periodTag,
               tableVersion,
@@ -409,7 +441,14 @@ app.post("/upload", async (c) => {
               user.id,
               now,
             )
-            .first()) as { id?: number; period_revision?: number } | null;
+            .first();
+          const parsedInserted = MasterDataInsertedRevisionRowSchema.safeParse(
+            insertedResult,
+          );
+          if (insertedResult !== null && !parsedInserted.success) {
+            throw new Error("Invalid inserted master data revision row");
+          }
+          const inserted = parsedInserted.success ? parsedInserted.data : null;
 
           if (inserted?.id) {
             claimedId = Number(inserted.id);
@@ -419,13 +458,21 @@ app.post("/upload", async (c) => {
         }
 
         if (!claimedId || !claimedRevision) {
-          const conflictSameHash = (await sameHashStmt
+          const conflictSameHashResult = await sameHashStmt
             .bind(periodTag, tableVersion, contentHash)
-            .first()) as {
-            id?: number;
-            period_revision?: number;
-            upload_status?: string;
-          } | null;
+            .first();
+          const parsedConflictSameHash = MasterDataDedupeRowSchema.safeParse(
+            conflictSameHashResult,
+          );
+          if (
+            conflictSameHashResult !== null &&
+            !parsedConflictSameHash.success
+          ) {
+            throw new Error("Invalid conflicting master data dedupe row");
+          }
+          const conflictSameHash = parsedConflictSameHash.success
+            ? parsedConflictSameHash.data
+            : null;
           if (
             conflictSameHash &&
             conflictSameHash.upload_status === "completed"
@@ -489,17 +536,11 @@ app.post("/upload", async (c) => {
     // Execution phase: split data by table_offsets, upload all to R2, mark D1 as completed
     executionProcessor: async (tokenPayload, data, user) => {
       // [Issue #19] Validate token payload with type safety
-      const { validateTokenPayload } = await import("../utils");
-      const payloadValidation = validateTokenPayload(tokenPayload, [
-        "record_id",
-        "period_tag",
-        "table_version",
-        "period_revision",
-        "content_hash",
-        "table_offsets",
-        "table_count",
-        "declared_size", // [Bug Fix #3] Add missing required field
-      ]);
+      const { validateTokenPayloadWithSchema } = await import("../utils");
+      const payloadValidation = validateTokenPayloadWithSchema(
+        tokenPayload,
+        MasterDataTokenPayloadSchema,
+      );
 
       if (!payloadValidation.valid) {
         console.error(
@@ -517,12 +558,13 @@ app.post("/upload", async (c) => {
         );
       }
 
-      const recordId = tokenPayload.record_id as number;
-      const periodTag = tokenPayload.period_tag as string;
-      const tableVersion = tokenPayload.table_version as string;
-      const periodRevision = Number(tokenPayload.period_revision ?? 1);
-      const expectedContentHash = tokenPayload.content_hash as string;
-      const tableOffsetsStr = tokenPayload.table_offsets as string;
+      const validatedPayload = payloadValidation.data;
+      const recordId = validatedPayload.record_id;
+      const periodTag = validatedPayload.period_tag;
+      const tableVersion = validatedPayload.table_version;
+      const periodRevision = validatedPayload.period_revision;
+      const expectedContentHash = validatedPayload.content_hash;
+      const tableOffsetsStr = validatedPayload.table_offsets;
 
       if (!Number.isInteger(periodRevision) || periodRevision < 1) {
         return new Response(
@@ -535,11 +577,11 @@ app.post("/upload", async (c) => {
       }
 
       // [Bug Fix #2] Verify uploaded data size matches declared size
-      if (data.byteLength !== tokenPayload.declared_size) {
+      if (data.byteLength !== validatedPayload.declared_size) {
         return new Response(
           JSON.stringify({
             error: "Data size mismatch",
-            expected: tokenPayload.declared_size,
+            expected: validatedPayload.declared_size,
             actual: data.byteLength,
           }),
           {
@@ -603,16 +645,10 @@ app.post("/upload", async (c) => {
         }
 
         // Parse table_offsets and split data
-        let tableOffsets: Array<{
-          table_name: string;
-          start: number;
-          end: number;
-        }> = [];
-        try {
-          tableOffsets = JSON.parse(tableOffsetsStr);
-        } catch (e) {
+        const tableOffsets = parseMasterDataTableOffsets(tableOffsetsStr);
+        if (tableOffsets.length === 0) {
           console.error(
-            `[master-data] Failed to parse table_offsets: ${String(e)}`,
+            "[master-data] Failed to parse table_offsets",
           );
           return new Response(
             JSON.stringify({ error: "Invalid table_offsets in token" }),
@@ -845,19 +881,25 @@ app.post("/upload", async (c) => {
           );
         }
         // Cache Warming (Write-Through)
-        const kv = env.runtime.DATA_LOADER_CACHE_KV;
+        const kv = env.runtime["DATA_LOADER_CACHE_KV"];
         if (kv) {
           safeWaitUntil(c, (async () => {
             console.info(`[master-data] Starting cache warming for ${tableOffsets.length} tables`);
             for (let i = 0; i < tableOffsets.length; i++) {
               const offset = tableOffsets[i];
+              if (!offset) continue;
               const tableData = data.slice(offset.start, offset.end);
               try {
                 const bytes =
                   tableData.buffer instanceof ArrayBuffer && tableData.byteOffset === 0
                     ? tableData
                     : new Uint8Array(tableData);
-                const decodedRecords = decodeAvroOcfToJson(bytes as Uint8Array) as Array<Record<string, unknown>>;
+                const decodedRecords = parseMasterDataJsonRecords(
+                  decodeAvroOcfToJson(bytes as Uint8Array),
+                );
+                if (!decodedRecords) {
+                  throw new Error("Decoded master data payload is not a record array");
+                }
                 const cacheKey = `master-data:json:${offset.table_name}:${tableVersion}:${periodTag}:${periodRevision}`;
                 await kv.put(cacheKey, JSON.stringify(decodedRecords), { expirationTtl: 86400 * 30 }); // 30 days
                 console.info(`[master-data] Warmed cache for ${cacheKey}`);
@@ -922,9 +964,9 @@ app.post("/upload", async (c) => {
  */
 app.get("/json", async (c) => {
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
-  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
+  const kv = env.runtime["DATA_LOADER_CACHE_KV"];
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -962,7 +1004,7 @@ app.get("/json", async (c) => {
   if (requestedPeriodTag) {
     const periodTagValidation = await validateCachedPeriodTag(c, requestedPeriodTag, {
       fieldName: "period_tag",
-      cacheKV: env.runtime.DATA_LOADER_CACHE_KV,
+      cacheKV: env.runtime["DATA_LOADER_CACHE_KV"],
     });
     if (!periodTagValidation.ok) {
       return c.json({ error: periodTagValidation.error }, periodTagValidation.status);
@@ -999,7 +1041,10 @@ app.get("/json", async (c) => {
     let effectiveParams = [...params];
 
     if (!requestedPeriodTag) {
-      const latestMaster = await getLatestMasterPeriodTag(db, env.runtime.DATA_LOADER_CACHE_KV);
+      const latestMaster = await getLatestMasterPeriodTag(
+        db,
+        env.runtime["DATA_LOADER_CACHE_KV"],
+      );
       const latestPeriodTag = latestMaster?.period_tag;
 
       if (!latestPeriodTag) {
@@ -1019,17 +1064,17 @@ app.get("/json", async (c) => {
       effectiveParams.push(latestPeriodTag);
     }
 
-    let record = (await db
+    const rawLookupResult = await db
       .prepare(`${effectiveSql} ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1`)
       .bind(...effectiveParams)
-      .first()) as {
-      period_tag: string;
-      table_version: string;
-      period_revision: number;
-      r2_key: string;
-    } | null;
+      .first();
+    const parsedLookup = MasterDataJsonLookupRowSchema.safeParse(rawLookupResult);
+    if (!parsedLookup.success && rawLookupResult !== null) {
+      throw new Error("Invalid master data lookup row");
+    }
+    const lookupResult = parsedLookup.success ? parsedLookup.data : null;
 
-    if (!record) {
+    if (!lookupResult) {
       return c.json(
         {
           table_name: tableName,
@@ -1048,7 +1093,7 @@ app.get("/json", async (c) => {
       table_version,
       period_revision,
       r2_key: r2Key,
-    } = record;
+    } = lookupResult;
 
     const cacheKey = `master-data:json:${tableName}:${table_version}:${period_tag}:${period_revision}`;
     const cacheControl = requestedVersion
@@ -1060,35 +1105,38 @@ app.get("/json", async (c) => {
       try {
         const cachedStr = await kv.get(cacheKey);
         if (cachedStr) {
-          const decodedRecords = JSON.parse(cachedStr) as Array<Record<string, unknown>>;
-          const records =
-            requestedRecordId == null
-              ? decodedRecords
-              : decodedRecords.filter((row) => {
-                  const rowId =
-                    typeof row.id === "number"
-                      ? row.id
-                      : typeof row.api_id === "number"
-                        ? row.api_id
-                        : null;
-                  return rowId === requestedRecordId;
-                });
-          
-          return c.json(
-            {
-              table_name: tableName,
-              table_version,
-              period_tag,
-              period_revision,
-              count: records.length,
-              records,
-            },
-            200,
-            {
-              "Cache-Control": cacheControl,
-              ...CORS_HEADERS,
-            },
-          );
+          const decodedRecords = parseMasterDataJsonRecordsText(cachedStr);
+          if (decodedRecords) {
+            const records =
+              requestedRecordId == null
+                ? decodedRecords
+                : decodedRecords.filter((row) => {
+                    const rowId =
+                      typeof row["id"] === "number"
+                        ? row["id"]
+                        : typeof row["api_id"] === "number"
+                          ? row["api_id"]
+                          : null;
+                    return rowId === requestedRecordId;
+                  });
+
+            return c.json(
+              {
+                table_name: tableName,
+                table_version,
+                period_tag,
+                period_revision,
+                count: records.length,
+                records,
+              },
+              200,
+              {
+                "Cache-Control": cacheControl,
+                ...CORS_HEADERS,
+              },
+            );
+          }
+          console.warn(`[master-data] KV cache has invalid records: ${cacheKey}`);
         }
       } catch (kvErr) {
         console.warn(`[master-data] KV read failed for ${cacheKey}:`, kvErr);
@@ -1127,18 +1175,21 @@ app.get("/json", async (c) => {
     // Read full body into ArrayBuffer, then decode
     const arrayBuffer = await r2Object.arrayBuffer();
     const avroBytes = new Uint8Array(arrayBuffer);
-    const decodedRecords = decodeAvroOcfToJson(avroBytes) as Array<
-      Record<string, unknown>
-    >;
+    const decodedRecords = parseMasterDataJsonRecords(
+      decodeAvroOcfToJson(avroBytes),
+    );
+    if (!decodedRecords) {
+      throw new Error("Decoded master data payload is not a record array");
+    }
     const records =
       requestedRecordId == null
         ? decodedRecords
         : decodedRecords.filter((row) => {
             const rowId =
-              typeof row.id === "number"
-                ? row.id
-                : typeof row.api_id === "number"
-                  ? row.api_id
+              typeof row["id"] === "number"
+                ? row["id"]
+                : typeof row["api_id"] === "number"
+                  ? row["api_id"]
                   : null;
             return rowId === requestedRecordId;
           });
@@ -1193,7 +1244,7 @@ app.get("/exists", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1236,20 +1287,24 @@ app.get("/exists", async (c) => {
       return c.json({ exists: false }, 404);
     }
 
+    const parsedResult = MasterDataMetadataRowSchema.safeParse(result);
+    if (!parsedResult.success) {
+      return c.json({ error: "Invalid master data metadata row" }, 500);
+    }
+    const metadata = parsedResult.data;
+
     return c.json({
       exists: true,
       data: {
-        id: result.id,
-        period_tag: result.period_tag,
-        table_version: result.table_version,
-        period_revision: result.period_revision,
-        table_count: result.table_count,
-        table_offsets: result.table_offsets
-          ? JSON.parse(result.table_offsets)
-          : [],
-        upload_status: result.upload_status,
-        created_at: result.created_at,
-        completed_at: result.completed_at,
+        id: metadata.id,
+        period_tag: metadata.period_tag,
+        table_version: metadata.table_version,
+        period_revision: metadata.period_revision,
+        table_count: metadata.table_count,
+        table_offsets: parseMasterDataTableOffsets(metadata.table_offsets),
+        upload_status: metadata.upload_status,
+        created_at: metadata.created_at,
+        completed_at: metadata.completed_at,
       },
     });
   } catch (err) {
@@ -1279,7 +1334,7 @@ app.get("/latest", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
 
   if (!db) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1315,20 +1370,24 @@ app.get("/latest", async (c) => {
       return c.json({ exists: false }, 404);
     }
 
+    const parsedResult = MasterDataMetadataRowSchema.safeParse(result);
+    if (!parsedResult.success) {
+      return c.json({ error: "Invalid master data metadata row" }, 500);
+    }
+    const metadata = parsedResult.data;
+
     return c.json({
       exists: true,
       data: {
-        id: result.id,
-        period_tag: result.period_tag,
-        table_version: result.table_version,
-        period_revision: result.period_revision,
-        table_count: result.table_count,
-        table_offsets: result.table_offsets
-          ? JSON.parse(result.table_offsets)
-          : [],
-        upload_status: result.upload_status,
-        created_at: result.created_at,
-        completed_at: result.completed_at,
+        id: metadata.id,
+        period_tag: metadata.period_tag,
+        table_version: metadata.table_version,
+        period_revision: metadata.period_revision,
+        table_count: metadata.table_count,
+        table_offsets: parseMasterDataTableOffsets(metadata.table_offsets),
+        upload_status: metadata.upload_status,
+        created_at: metadata.created_at,
+        completed_at: metadata.completed_at,
       },
     });
   } catch (err) {
@@ -1359,8 +1418,8 @@ app.get("/download", async (c) => {
   }
 
   const env = createEnvContext(c);
-  const db = env.runtime.MASTER_DATA_INDEX_DB;
-  const bucket = env.runtime.MASTER_DATA_BUCKET;
+  const db = env.runtime["MASTER_DATA_INDEX_DB"];
+  const bucket = env.runtime["MASTER_DATA_BUCKET"];
 
   if (!db || !bucket) {
     return c.json({ error: "Master data storage not configured" }, 503);
@@ -1428,10 +1487,14 @@ app.get("/download", async (c) => {
     sql += " ORDER BY i.completed_at DESC, i.period_revision DESC LIMIT 1";
     const stmt = db.prepare(sql);
 
-    const record = (await stmt.bind(...params).first()) as {
-      period_revision: number;
-      r2_key: string;
-    } | null;
+    const rawRecord = await stmt.bind(...params).first();
+    const parsedRecord = MasterDataDownloadRowSchema.nullable().safeParse(
+      rawRecord,
+    );
+    if (!parsedRecord.success) {
+      return c.json({ error: "Invalid master data download row" }, 500);
+    }
+    const record = parsedRecord.data;
 
     if (!record?.r2_key) {
       return c.json({ error: "Master data not found for this period" }, 404);
@@ -1447,7 +1510,7 @@ app.get("/download", async (c) => {
     }
 
     // Stream from R2
-    return new Response(r2Object.body, {
+    return new Response(r2Object.body as unknown as ReadableStream, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Length": r2Object.size.toString(),

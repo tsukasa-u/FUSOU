@@ -2,6 +2,10 @@
 import { For, Show, createMemo, createSignal, onMount } from "solid-js";
 import { cachedFetch } from "@/utils/fetchCache";
 import { AlertMessage } from "@/components/common/solid/AlertMessage";
+import {
+  QuestGraphResponseSchema,
+  QuestRulesResponseSchema,
+} from "@/features/simulator/api-response-schemas";
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -178,9 +182,10 @@ export default function QuestTreePanel() {
       const url = `/api/quest-tree/graph?period_tag=${encodeURIComponent(periodTag())}&table_version=${encodeURIComponent(tableVersion())}`;
       const res = await cachedFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as GraphData;
-      if (!json.ok) throw new Error("Unexpected response");
-      setGraphData(json);
+      const parsed = QuestGraphResponseSchema.safeParse(await res.json());
+      if (!parsed.success || !parsed.data.ok)
+        throw new Error("Unexpected response");
+      setGraphData(parsed.data);
     } catch (e) {
       setError(
         `グラフデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,
@@ -203,9 +208,10 @@ export default function QuestTreePanel() {
       const url = `/api/quest-tree/rules?target=${target}&period_tag=${encodeURIComponent(periodTag())}&table_version=${encodeURIComponent(tableVersion())}`;
       const res = await cachedFetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = (await res.json()) as RulesData;
-      if (!json.ok) throw new Error("Unexpected response");
-      setRulesData(json);
+      const parsed = QuestRulesResponseSchema.safeParse(await res.json());
+      if (!parsed.success || !parsed.data.ok)
+        throw new Error("Unexpected response");
+      setRulesData(parsed.data);
     } catch (e) {
       setError(
         `ルールデータの取得に失敗しました: ${e instanceof Error ? e.message : String(e)}`,

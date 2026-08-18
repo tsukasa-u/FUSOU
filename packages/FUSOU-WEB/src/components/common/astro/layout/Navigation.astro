@@ -1,6 +1,6 @@
 ---
 import ThemeToggle from "@/components/common/astro/ui/ThemeToggle.astro";
-const filled: boolean = Astro.props.filled;
+const filled: boolean = Astro.props["filled"];
 const css_filled = filled ? "bg-navbar" : "bg-base-100";
 ---
 

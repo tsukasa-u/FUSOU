@@ -270,6 +270,7 @@ function EquipDetailPanel(props: {
 
       for (const idx of candidateIndices) {
         const rule = rules[idx];
+        if (!rule) continue;
         if (rule.cancels_single) continue;
 
         if (rule.category_pools) {
@@ -293,8 +294,10 @@ function EquipDetailPanel(props: {
             cancels_single: !!rule.cancels_single,
             correction: rule.synergy,
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else if (rule.item_pool) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -313,8 +316,10 @@ function EquipDetailPanel(props: {
             comboSize,
             correction: rule.synergy,
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else if (rule.implicants) {
           if (scoreSynergy(rule.synergy) === 0) continue;
@@ -330,8 +335,10 @@ function EquipDetailPanel(props: {
               cancels_single: !!rule.cancels_single,
               correction: rule.synergy,
               ships: rule.ships,
-              suppressed_components: rule.suppressed_components,
-              placements: rule.placements,
+              ...(rule.suppressed_components !== undefined
+                ? { suppressed_components: rule.suppressed_components }
+                : {}),
+              ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
             });
           }
         } else if (rule.fixed_items && rule.free_pool) {
@@ -362,13 +369,14 @@ function EquipDetailPanel(props: {
             fixed,
             freePool,
             freePoolWithReplacement: !!rule.free_pool_with_replacement,
-            freePickCount:
-              typeof rule.free_pick_count === "number"
-                ? rule.free_pick_count
-                : undefined,
+            ...(typeof rule.free_pick_count === "number"
+              ? { freePickCount: rule.free_pick_count }
+              : {}),
             ships: rule.ships,
-            suppressed_components: rule.suppressed_components,
-            placements: rule.placements,
+            ...(rule.suppressed_components !== undefined
+              ? { suppressed_components: rule.suppressed_components }
+              : {}),
+            ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
           });
         } else {
           // Explicit combos: decode all, filter those containing this equip
@@ -392,8 +400,10 @@ function EquipDetailPanel(props: {
               combo: items as MstSlotItemData[],
               netStats: rule.synergy,
               ships: rule.ships,
-              suppressed_components: rule.suppressed_components,
-              placements: rule.placements,
+              ...(rule.suppressed_components !== undefined
+                ? { suppressed_components: rule.suppressed_components }
+                : {}),
+              ...(rule.placements !== undefined ? { placements: rule.placements } : {}),
             });
           }
         }
@@ -523,9 +533,13 @@ function EquipDetailPanel(props: {
           }
 
           for (const [sokuTier, idArrays] of tierMap) {
-            let required = [...idArrays[0]];
+            const firstIds = idArrays[0];
+            if (!firstIds) continue;
+            let required = [...firstIds];
             for (let k = 1; k < idArrays.length; k++) {
-              required = intersectSorted(required, idArrays[k]);
+              const ids = idArrays[k];
+              if (!ids) continue;
+              required = intersectSorted(required, ids);
             }
 
             const isReliable =
@@ -575,10 +589,10 @@ function EquipDetailPanel(props: {
     const singleLengByShip = new Map<number, number>();
     for (const entry of singleEntries) {
       const maxLeng = Math.max(
-        entry.b?.leng ?? 0,
-        entry.l?.leng ?? 0,
-        entry.c2?.leng ?? 0,
-        entry.c3?.leng ?? 0,
+        entry.b?.["leng"] ?? 0,
+        entry.l?.["leng"] ?? 0,
+        entry.c2?.["leng"] ?? 0,
+        entry.c3?.["leng"] ?? 0,
       );
       if (maxLeng === 0) continue;
       for (const shipId of entry.ships) {
@@ -595,7 +609,7 @@ function EquipDetailPanel(props: {
       if (!e.single) e.single = { before: ship.leng, after };
     }
     for (const { partnerId, entry } of crossEntriesByPartner) {
-      const leng = entry.synergy.leng ?? 0;
+      const leng = entry.synergy["leng"] ?? 0;
       if (leng === 0) continue;
       const partner = getMasterSlotItem(partnerId);
       if (!partner || partner.id >= ENEMY_ID_THRESHOLD) continue;
@@ -611,7 +625,9 @@ function EquipDetailPanel(props: {
             equip: partner,
             before: ship.leng,
             after,
-            placements: entry.placements,
+            ...(entry.placements !== undefined
+              ? { placements: entry.placements }
+              : {}),
           });
         }
       }
@@ -619,7 +635,12 @@ function EquipDetailPanel(props: {
     const allSingleLengEntries: Array<{ equipId: number; entry: EquipEffect; maxLeng: number }> = [];
     if (effects.effect_rules) {
       for (const rule of effects.effect_rules) {
-        const maxLeng = Math.max(rule.b?.leng ?? 0, rule.l?.leng ?? 0, rule.c2?.leng ?? 0, rule.c3?.leng ?? 0);
+        const maxLeng = Math.max(
+          rule.b?.["leng"] ?? 0,
+          rule.l?.["leng"] ?? 0,
+          rule.c2?.["leng"] ?? 0,
+          rule.c3?.["leng"] ?? 0,
+        );
         if (maxLeng === 0) continue;
         for (const itemId of rule.items) {
            allSingleLengEntries.push({ equipId: itemId, entry: rule, maxLeng });
@@ -649,7 +670,7 @@ function EquipDetailPanel(props: {
           : normalizeCrossEffects(effects)[pairKey]?.find((e) =>
               e.ships.includes(shipId),
             );
-        const crossLeng = crossEntryLocal?.synergy.leng ?? 0;
+        const crossLeng = crossEntryLocal?.synergy["leng"] ?? 0;
         const effectiveBase = Math.max(
           ship.leng,
           equipLeng,

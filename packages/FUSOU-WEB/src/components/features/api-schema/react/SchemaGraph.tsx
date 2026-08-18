@@ -9,8 +9,6 @@ import {
   MarkerType,
   useNodesState,
   useEdgesState,
-  type Node,
-  type Edge,
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
 import ELK from "elkjs/lib/elk.bundled.js";
@@ -22,6 +20,15 @@ import ApiGroupNav from "./ApiGroupNav";
 import NodeDetailPanel from "./NodeDetailPanel";
 import ExpandableContainer from "@/components/common/react/ExpandableContainer";
 import "./css/reactflow.css";
+import {
+  parseDbVersions,
+  parseEndpointGraph,
+  parseGraphData,
+  type GraphData,
+  type GraphEdge,
+  type GraphNode,
+  type RelationType,
+} from "./schemaGraphTypes";
 
 // Import pre-generated graph data (db versions loaded dynamically via glob)
 import dbVersionsData from "@/data/graphs/db_versions.json";
@@ -32,41 +39,34 @@ const nodeTypes = {
   endpointNode: EndpointNode,
 };
 
-interface GraphData {
-  nodes: Node[];
-  edges: Edge[];
-}
-
 // Dynamically import all version JSON files at build time
 const dbVersionModules = import.meta.glob("../../../../data/graphs/db_v*.json", {
   eager: true,
-}) as Record<string, { default: any }>;
+}) as Record<string, { default: unknown }>;
 
-const DB_VERSIONS: Record<string, any> = {};
+const DB_VERSIONS: Record<string, GraphData> = {};
 for (const [path, mod] of Object.entries(dbVersionModules)) {
   const match = path.match(/db_(v\d+_\d+(?:_\d+)?)\.json$/);
   if (match) {
-    DB_VERSIONS[match[1]] = mod.default;
+    const version = match[1];
+    if (version !== undefined) DB_VERSIONS[version] = parseGraphData(mod.default);
   }
 }
 
 // Extract version metadata from generated db_versions.json
-const dbVersionsMeta = dbVersionsData as {
-  versions: Record<string, { tableCount: number; version: string }>;
-  sortedVersions: string[];
-  majorVersions: Record<string, { versions: string[]; latest: string }>;
-  diffs: Record<string, any>;
-};
+const dbVersionsMeta = parseDbVersions(dbVersionsData);
+const endpointGraphData = parseEndpointGraph(endpointData);
 
 const ALL_DB_VERSIONS = dbVersionsMeta.sortedVersions;
 const MAJOR_VERSIONS = dbVersionsMeta.majorVersions;
 const SORTED_MAJOR_KEYS = Object.keys(MAJOR_VERSIONS).sort(
   (a, b) => parseInt(a.replace("v", ""), 10) - parseInt(b.replace("v", ""), 10),
 );
-const DEFAULT_MAJOR = SORTED_MAJOR_KEYS[SORTED_MAJOR_KEYS.length - 1];
+const DEFAULT_MAJOR = SORTED_MAJOR_KEYS[SORTED_MAJOR_KEYS.length - 1] ?? "";
 const DEFAULT_VERSION =
   MAJOR_VERSIONS[DEFAULT_MAJOR]?.latest ??
-  ALL_DB_VERSIONS[ALL_DB_VERSIONS.length - 1];
+  ALL_DB_VERSIONS[ALL_DB_VERSIONS.length - 1] ??
+  "";
 
 const NODE_WIDTH = 300;
 const NODE_HEIGHT_BASE = 52;
@@ -97,8 +97,8 @@ const ELK_SPACING_MAP: Record<
 
 const elk = new ELK();
 
-function estimateNodeHeight(node: Node): number {
-  const fields = (node.data as any)?.fields;
+function estimateNodeHeight(node: GraphNode): number {
+  const fields = node.data.fields;
   if (Array.isArray(fields)) {
     return NODE_HEIGHT_BASE + fields.length * NODE_HEIGHT_PER_FIELD;
   }
@@ -106,11 +106,11 @@ function estimateNodeHeight(node: Node): number {
 }
 
 function applyDagreLayout(
-  nodes: Node[],
-  edges: Edge[],
+  nodes: GraphNode[],
+  edges: GraphEdge[],
   direction: LayoutDir = "LR",
   spacing: LayoutSpacing = "normal",
-): Node[] {
+): GraphNode[] {
   if (nodes.length === 0) return nodes;
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
@@ -149,12 +149,12 @@ function applyDagreLayout(
  * ELK は非同期なので Promise を返す。
  */
 async function applyElkLayout(
-  nodes: Node[],
-  edges: Edge[],
+  nodes: GraphNode[],
+  edges: GraphEdge[],
   algo: "elk-layered" | "elk-mrtree",
   direction: LayoutDir,
   spacing: LayoutSpacing,
-): Promise<Node[]> {
+): Promise<GraphNode[]> {
   if (nodes.length === 0) return nodes;
   const s = ELK_SPACING_MAP[spacing];
   const elkDir = direction === "LR" ? "RIGHT" : "DOWN";
@@ -201,7 +201,7 @@ async function applyElkLayout(
 const EDGE_BASE_COLOR = "oklch(0.65 0.15 250)";
 
 /** Add arrow marker to edges */
-function enrichEdges(edges: Edge[], edgeStyle: EdgeStyle): Edge[] {
+function enrichEdges(edges: GraphEdge[], edgeStyle: EdgeStyle): GraphEdge[] {
   return edges.map((edge) => ({
     ...edge,
     type: edgeStyle === "bezier" ? undefined : edgeStyle,
@@ -229,24 +229,32 @@ function enrichEdges(edges: Edge[], edgeStyle: EdgeStyle): Edge[] {
  *
  * Any non-genesis version: keep data as-is.
  */
-function computeEndpointVersionView(nodes: Node[], version: string): Node[] {
+function computeEndpointVersionView(nodes: GraphNode[], version: string): GraphNode[] {
   if (version !== "genesis") return nodes;
 
   return nodes.map((node) => {
-    const data = { ...(node.data as any) };
+    const data = { ...node.data };
     data.fields = data.fields
-      .filter((f: any) => f.diffStatus !== "added")
-      .map((f: any) => {
-        if (f.diffStatus === "changed" && f.diffDetail?.withoutFeature) {
+      .filter((f) => f.diffStatus !== "added")
+      .map((f) => {
+        if (
+          f.diffStatus === "changed" &&
+          "diffDetail" in f &&
+          f.diffDetail?.withoutFeature
+        ) {
+          const { diffDetail: _diffDetail, ...field } = f;
           return {
-            ...f,
+            ...field,
             type: f.diffDetail.withoutFeature,
             diffStatus: null,
-            diffDetail: undefined,
           };
         }
         if (f.diffStatus) {
-          return { ...f, diffStatus: null, diffDetail: undefined };
+          if ("diffDetail" in f) {
+            const { diffDetail: _diffDetail, ...field } = f;
+            return { ...field, diffStatus: null };
+          }
+          return { ...f, diffStatus: null };
         }
         return f;
       });
@@ -255,22 +263,23 @@ function computeEndpointVersionView(nodes: Node[], version: string): Node[] {
 }
 
 /** Apply version diff highlighting to nodes */
-function applyDiffToNodes(nodes: Node[], version: string): Node[] {
-  const diffs = (dbVersionsData as any).diffs || {};
+function applyDiffToNodes(nodes: GraphNode[], version: string): GraphNode[] {
+  const diffs = dbVersionsMeta.diffs;
   const diffKeys = Object.keys(diffs);
   const relevantKey = diffKeys.find((k) => k.endsWith(`_to_${version}`));
   if (!relevantKey) return nodes;
 
   const diff = diffs[relevantKey];
+  if (!diff) return nodes;
   return nodes.map((node) => {
     const tableDiff = diff[node.id];
     if (!tableDiff) return node;
 
-    const data = { ...(node.data as any) };
+    const data = { ...node.data };
     data.diffStatus = tableDiff.status;
 
     if (data.fields) {
-      data.fields = data.fields.map((f: any) => ({
+      data.fields = data.fields.map((f) => ({
         ...f,
         diffStatus: tableDiff.addedFields?.includes(f.name)
           ? "added"
@@ -300,7 +309,7 @@ function applyDiffToNodes(nodes: Node[], version: string): Node[] {
  */
 function computeRelatedNodes(
   nodeId: string,
-  edges: Edge[],
+  edges: GraphEdge[],
 ): { ancestors: Map<string, number>; descendants: Map<string, number> } {
   const ancestors = new Map<string, number>();
   const descendants = new Map<string, number>();
@@ -340,10 +349,10 @@ function getEndpointGraphData(
   groupName: string,
   endpointName: string,
 ): GraphData | null {
-  const groups = (endpointData as any).groups;
+  const groups = endpointGraphData.groups;
   const group = groups[groupName];
   if (!group) return null;
-  const ep = group.endpoints.find((e: any) => e.name === endpointName);
+  const ep = group.endpoints.find((e) => e.name === endpointName);
   if (!ep) return null;
 
   return { nodes: ep.nodes, edges: ep.edges };
@@ -362,13 +371,12 @@ export default function SchemaGraph({
   const [selectedMajor, setSelectedMajor] = useState(DEFAULT_MAJOR);
   const [dbVersion, setDbVersion] = useState(DEFAULT_VERSION);
   const [endpointVersion, setEndpointVersion] = useState<string>(() => {
-    const features =
-      (endpointData as any).featureVariants?.activeFeatures || [];
-    return features.length > 0 ? features[features.length - 1] : "";
+    const features = endpointGraphData.featureVariants.activeFeatures;
+    return features[features.length - 1] ?? "";
   });
   const [selectedGroup, setSelectedGroup] = useState<string>("");
   const [selectedEndpoint, setSelectedEndpoint] = useState<string>("");
-  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   // Layout controls
   const [edgeStyle, setEdgeStyle] = useState<EdgeStyle>("bezier");
@@ -381,35 +389,37 @@ export default function SchemaGraph({
     null,
   );
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<GraphNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<GraphEdge>([]);
 
   const groupList = useMemo(() => {
-    const groups = (endpointData as any).groups;
+    const groups = endpointGraphData.groups;
     return Object.keys(groups).sort();
   }, []);
 
   const minorVersionsForMajor = useMemo(
-    () => MAJOR_VERSIONS[selectedMajor]?.versions ?? [],
+    () =>
+      selectedMajor === ""
+        ? []
+        : MAJOR_VERSIONS[selectedMajor]?.versions ?? [],
     [selectedMajor],
   );
 
   const endpointList = useMemo(() => {
     if (!selectedGroup) return [];
-    const groups = (endpointData as any).groups;
+    const groups = endpointGraphData.groups;
     const group = groups[selectedGroup];
     if (!group) return [];
-    return group.endpoints.map((e: any) => e.name).sort();
+    return group.endpoints.map((e) => e.name).sort();
   }, [selectedGroup]);
 
   const endpointVersionList = useMemo(() => {
-    const features = (endpointData as any).featureVariants?.allFeatures || [];
-    return features;
+    return endpointGraphData.featureVariants.allFeatures;
   }, []);
 
   const endpointVersionLabels = useMemo((): Record<string, string> => {
     const labels: Record<string, string> = {};
-    for (const f of (endpointData as any).featureVariants?.allFeatures || []) {
+    for (const f of endpointGraphData.featureVariants.allFeatures) {
       labels[f] = f;
     }
     return labels;
@@ -422,7 +432,8 @@ export default function SchemaGraph({
       return;
     }
     if (!endpointVersionList.includes(endpointVersion)) {
-      setEndpointVersion(endpointVersionList[0]);
+      const firstVersion = endpointVersionList[0];
+      if (firstVersion !== undefined) setEndpointVersion(firstVersion);
     }
   }, [mode, endpointVersion, endpointVersionList]);
 
@@ -513,13 +524,15 @@ export default function SchemaGraph({
 
   useEffect(() => {
     if (mode === "endpoints" && !selectedGroup && groupList.length > 0) {
-      setSelectedGroup(groupList[0]);
+      const firstGroup = groupList[0];
+      if (firstGroup !== undefined) setSelectedGroup(firstGroup);
     }
   }, [mode, selectedGroup, groupList]);
 
   useEffect(() => {
     if (endpointList.length > 0 && !endpointList.includes(selectedEndpoint)) {
-      setSelectedEndpoint(endpointList[0]);
+      const firstEndpoint = endpointList[0];
+      if (firstEndpoint !== undefined) setSelectedEndpoint(firstEndpoint);
     }
   }, [endpointList, selectedEndpoint]);
 
@@ -528,14 +541,14 @@ export default function SchemaGraph({
     if (!highlightedNodeId) {
       // ハイライト解除 — relationType を undefined に戻す（null だと opacity-30 が適用される）
       setNodes((nds) =>
-        nds.map((n) => ({
-          ...n,
-          data: {
-            ...(n.data as any),
-            relationType: undefined,
-            relationDepth: undefined,
-          },
-        })),
+        nds.map((n) => {
+          const {
+            relationType: _relationType,
+            relationDepth: _relationDepth,
+            ...data
+          } = n.data;
+          return { ...n, data };
+        }),
       );
       setEdges((eds) =>
         eds.map((e) => ({
@@ -557,7 +570,7 @@ export default function SchemaGraph({
     setNodes((nds) => {
       const related = computeRelatedNodes(highlightedNodeId, edges);
       return nds.map((n) => {
-        let relationType: string | null = null;
+        let relationType: RelationType | null = null;
         let relationDepth = 0;
         if (n.id === highlightedNodeId) {
           relationType = "selected";
@@ -570,7 +583,7 @@ export default function SchemaGraph({
         }
         return {
           ...n,
-          data: { ...(n.data as any), relationType, relationDepth },
+          data: { ...n.data, relationType, relationDepth },
         };
       });
     });
@@ -621,7 +634,7 @@ export default function SchemaGraph({
   }, [highlightedNodeId]);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node) => {
+    (_: React.MouseEvent, node: GraphNode) => {
       setSelectedNode(node);
       setHighlightedNodeId((prev) => (prev === node.id ? null : node.id));
     },
@@ -665,7 +678,7 @@ export default function SchemaGraph({
         {mode === "database" && (
           <VersionSelector
             majorVersions={SORTED_MAJOR_KEYS}
-            selectedMajor={selectedMajor}
+            {...(selectedMajor === "" ? {} : { selectedMajor })}
             onMajorChange={(major) => {
               setSelectedMajor(major);
               setDbVersion(MAJOR_VERSIONS[major]?.latest ?? "");

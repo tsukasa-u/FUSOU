@@ -17,9 +17,34 @@ describe("local worker table indexes", () => {
     expect(index.byBattleId.get("legacy-2")).toEqual([1]);
   });
 
+  it("skips missing rows when resolving indexed positions", () => {
+    const index = buildTableIndex("battle", [{ uuid: "battle-1", index: 1 }]);
+    index.rows.length = 2;
+
+    expect(rowsForIndexes(index, [1, -1, 99, 0])).toEqual([
+      { uuid: "battle-1", index: 1 },
+    ]);
+  });
+
   it("sorts a selected row set without mutating the index", () => {
     const rows = [{ index: 3 }, { index: 1 }, { index: 2 }];
     expect(sortRowsByIndex(rows)).toEqual([{ index: 1 }, { index: 2 }, { index: 3 }]);
     expect(rows).toEqual([{ index: 3 }, { index: 1 }, { index: 2 }]);
+  });
+
+  it("keeps valid zero before missing indexes", () => {
+    expect(
+      sortRowsByIndex([
+        { label: "missing", index: null },
+        { label: "zero", index: 0 },
+        { label: "empty", index: "" },
+        { label: "one", index: 1 },
+      ]),
+    ).toEqual([
+      { label: "zero", index: 0 },
+      { label: "one", index: 1 },
+      { label: "missing", index: null },
+      { label: "empty", index: "" },
+    ]);
   });
 });

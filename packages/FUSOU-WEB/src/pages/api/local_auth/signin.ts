@@ -17,7 +17,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   // Use configured canonical site URL as trusted origin anchor to prevent Host-header spoofing.
   // Do not fall back to request.url; fail loudly on misconfiguration.
-  const envCtx = createEnvContext({ env: cfEnv as any });
+  const envCtx = createEnvContext({
+    env: cfEnv as Record<string, unknown>,
+  });
   const siteUrl = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!siteUrl) {
     console.error("[local_auth/signin] PUBLIC_SITE_URL is not configured");

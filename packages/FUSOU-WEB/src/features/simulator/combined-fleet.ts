@@ -48,6 +48,14 @@ function initCounts(): FleetCounts {
   return Array.from({ length: 100 }, () => 0);
 }
 
+function countAt(counts: FleetCounts, index: number): number {
+  return counts[index] ?? 0;
+}
+
+function incrementCount(counts: FleetCounts, index: number): void {
+  counts[index] = countAt(counts, index) + 1;
+}
+
 // ── counts 配列の仮想インデックス定義 ──────────────────────────────────
 // counts[1..22]  : stype 別の艦数（mst_stype の id に直接対応）
 // counts[51]     : 駆逐艦のみ (DD_ONLY)
@@ -66,18 +74,18 @@ function initCounts(): FleetCounts {
 // counts[64]     : 対潜値>0の軽空母（輸送護衛部隊で軽空母枠に算入される艦）
 function countShip(counts: FleetCounts, ship: MstShipData): void {
   const stype = ship.stype;
-  counts[stype]++;
-  if (DD_CLASS.has(stype)) counts[60]++;
-  if (DD_ONLY.has(stype)) counts[51]++;
-  if (CL_CLASS.has(stype)) counts[52]++;
-  if (HEAVY_CRUISER_CLASS.has(stype)) counts[53]++;
-  if (BATTLESHIP_CLASS.has(stype)) counts[54]++;
-  if (CARRIER_CLASS.has(stype)) counts[55]++;
-  if (REGULAR_CARRIER_CLASS.has(stype)) counts[57]++;
-  if (SEAPLANE_TENDER_CLASS.has(stype)) counts[56]++;
-  if (BATTLESHIP_NO_AVIATION.has(stype)) counts[59]++;
-  if (SUBMARINE_CLASS.has(stype)) counts[61]++;
-  if (CRUISER_OR_ABOVE.has(stype)) counts[58]++;
+  incrementCount(counts, stype);
+  if (DD_CLASS.has(stype)) incrementCount(counts, 60);
+  if (DD_ONLY.has(stype)) incrementCount(counts, 51);
+  if (CL_CLASS.has(stype)) incrementCount(counts, 52);
+  if (HEAVY_CRUISER_CLASS.has(stype)) incrementCount(counts, 53);
+  if (BATTLESHIP_CLASS.has(stype)) incrementCount(counts, 54);
+  if (CARRIER_CLASS.has(stype)) incrementCount(counts, 55);
+  if (REGULAR_CARRIER_CLASS.has(stype)) incrementCount(counts, 57);
+  if (SEAPLANE_TENDER_CLASS.has(stype)) incrementCount(counts, 56);
+  if (BATTLESHIP_NO_AVIATION.has(stype)) incrementCount(counts, 59);
+  if (SUBMARINE_CLASS.has(stype)) incrementCount(counts, 61);
+  if (CRUISER_OR_ABOVE.has(stype)) incrementCount(counts, 58);
 
   const speedType = speedBucket(ship.soku);
   const isBattleship = stype === 8 || stype === 9 || stype === 10;
@@ -95,14 +103,14 @@ function countShip(counts: FleetCounts, ship: MstShipData): void {
     [2, 3, 4].includes(speedType) &&
     !isSpecialFast;
   if (isFastBattleship) {
-    counts[63]++;
+    incrementCount(counts, 63);
   }
   if (isSlowBattleship) {
-    counts[62]++;
+    incrementCount(counts, 62);
   }
   // 軽空母(stype=7)のうち対潜値を持つ艦のみ輸送護衛部隊の「軽空母」枠に算入。
   if (stype === 7 && (ship.tais?.[0] ?? 0) > 0) {
-    counts[64]++;
+    incrementCount(counts, 64);
   }
 }
 
@@ -130,37 +138,38 @@ function validateEscortFleet(type: CombinedFleetType, fleet2: FleetSlot[]): stri
   }
 
   const counts = buildCounts(fleet2);
+  const c = (index: number): number => countAt(counts, index);
   const flagship = firstShip(fleet2);
   if (!flagship) return ["第2艦隊が空です。"];
 
   if (type === 1 || type === 2) {
-    if (counts[3] < 1) errors.push("軽巡洋艦の配備が必要です。");
-    if (counts[3] > 1) errors.push("軽巡洋艦を２隻以上配備できません。");
-    if (counts[51] < 2) errors.push("駆逐艦２隻以上の配備が必要です。");
-    if (counts[53] > 2) errors.push("重巡級を３隻以上配備できません。");
-    if (counts[56] > 1) errors.push("水上機母艦を２隻以上配備できません。");
-    if (counts[62] > 0) errors.push("低速戦艦は配備できません。");
-    if (counts[63] > 2) errors.push("高速戦艦を３隻以上配備できません。");
-    if (counts[57] > 0) errors.push("正規空母は配備できません。");
-    if (counts[7] > 1) errors.push("軽空母を２隻以上配備できません。");
+    if (c(3) < 1) errors.push("軽巡洋艦の配備が必要です。");
+    if (c(3) > 1) errors.push("軽巡洋艦を２隻以上配備できません。");
+    if (c(51) < 2) errors.push("駆逐艦２隻以上の配備が必要です。");
+    if (c(53) > 2) errors.push("重巡級を３隻以上配備できません。");
+    if (c(56) > 1) errors.push("水上機母艦を２隻以上配備できません。");
+    if (c(62) > 0) errors.push("低速戦艦は配備できません。");
+    if (c(63) > 2) errors.push("高速戦艦を３隻以上配備できません。");
+    if (c(57) > 0) errors.push("正規空母は配備できません。");
+    if (c(7) > 1) errors.push("軽空母を２隻以上配備できません。");
     if (flagship.stype === 13 || flagship.stype === 14) errors.push("連合艦隊旗艦は潜水艦不可です。");
     return errors;
   }
 
   if (type === 3) {
-    if (counts[60] < 3) errors.push("警戒隊は3隻以上の駆逐級が必要です。");
+    if (c(60) < 3) errors.push("警戒隊は3隻以上の駆逐級が必要です。");
     if (flagship.stype !== 3 && flagship.stype !== 21) errors.push("警戒隊は軽巡/練巡の旗艦が必要です。");
-    if (counts[4] > 0) errors.push("警戒隊に重雷装艦は配備できません。");
-    if (counts[55] > 0) errors.push("警戒隊に航空母艦は配備できません。");
-    if (counts[54] > 0) errors.push("警戒隊に戦艦は配備できません。");
-    if (counts[61] > 0) errors.push("警戒隊に潜水艦は配備できません。");
-    if (counts[16] > 0) errors.push("警戒隊に水上機母艦は配備できません。");
-    if (counts[17] > 0) errors.push("警戒隊に揚陸艦は配備できません。");
-    if (counts[19] > 0) errors.push("警戒隊に工作艦は配備できません。");
-    if (counts[20] > 0) errors.push("警戒隊に潜水母艦は配備できません。");
-    if (counts[22] > 0) errors.push("警戒隊に補給艦は配備できません。");
-    if (counts[5] + counts[6] > 2) errors.push("重巡/航巡を計３隻以上配備できません。");
-    if (counts[3] + counts[21] > 2) errors.push("警戒隊への軽巡級配備は最大２隻！");
+    if (c(4) > 0) errors.push("警戒隊に重雷装艦は配備できません。");
+    if (c(55) > 0) errors.push("警戒隊に航空母艦は配備できません。");
+    if (c(54) > 0) errors.push("警戒隊に戦艦は配備できません。");
+    if (c(61) > 0) errors.push("警戒隊に潜水艦は配備できません。");
+    if (c(16) > 0) errors.push("警戒隊に水上機母艦は配備できません。");
+    if (c(17) > 0) errors.push("警戒隊に揚陸艦は配備できません。");
+    if (c(19) > 0) errors.push("警戒隊に工作艦は配備できません。");
+    if (c(20) > 0) errors.push("警戒隊に潜水母艦は配備できません。");
+    if (c(22) > 0) errors.push("警戒隊に補給艦は配備できません。");
+    if (c(5) + c(6) > 2) errors.push("重巡/航巡を計３隻以上配備できません。");
+    if (c(3) + c(21) > 2) errors.push("警戒隊への軽巡級配備は最大２隻！");
   }
   return errors;
 }
@@ -169,38 +178,39 @@ function validateMainFleet(type: CombinedFleetType, fleet1: FleetSlot[]): string
   const errors: string[] = [];
   if (type === 0) return errors;
   const counts = buildCounts(fleet1);
+  const c = (index: number): number => countAt(counts, index);
   const flagship = firstShip(fleet1);
   if (!flagship) return errors;
 
   if (type === 1) {
-    if (counts[55] < 2) errors.push("空母２隻以上の配備が必要です。");
-    if (counts[55] > 4) errors.push("空母５隻以上は配備できません。");
-    if (counts[54] > 2) errors.push("戦艦３隻以上は配備できません。");
+    if (c(55) < 2) errors.push("空母２隻以上の配備が必要です。");
+    if (c(55) > 4) errors.push("空母５隻以上は配備できません。");
+    if (c(54) > 2) errors.push("戦艦３隻以上は配備できません。");
     if (flagship.stype === 13 || flagship.stype === 14) errors.push("連合艦隊旗艦は潜水艦不可です。");
     return errors;
   }
 
   if (type === 2) {
-    if (counts[54] > 4) errors.push("戦艦５隻以上は配備できません。");
-    if (counts[53] > 4) errors.push("重巡級５隻以上は配備できません。");
-    if (counts[58] < 2) errors.push("複数の巡洋艦以上の艦艇が必要です。");
-    if (counts[57] > 1) errors.push("複数の正規空母は配備できません。");
-    if (counts[57] === 1 && counts[7] > 0) errors.push("正規空母を含む２隻以上の航空母艦を配備できません。");
-    if (counts[57] === 0 && counts[7] > 2) errors.push("３隻以上の航空母艦は配備できません。");
+    if (c(54) > 4) errors.push("戦艦５隻以上は配備できません。");
+    if (c(53) > 4) errors.push("重巡級５隻以上は配備できません。");
+    if (c(58) < 2) errors.push("複数の巡洋艦以上の艦艇が必要です。");
+    if (c(57) > 1) errors.push("複数の正規空母は配備できません。");
+    if (c(57) === 1 && c(7) > 0) errors.push("正規空母を含む２隻以上の航空母艦を配備できません。");
+    if (c(57) === 0 && c(7) > 2) errors.push("３隻以上の航空母艦は配備できません。");
     if (flagship.stype === 13 || flagship.stype === 14) errors.push("連合艦隊旗艦は潜水艦不可です。");
     return errors;
   }
 
   if (type === 3) {
-    if (counts[60] < 4) errors.push("輸送本隊は駆逐級４隻以上が必要です。");
-    if (counts[4] > 0) errors.push("輸送本隊に重雷装艦は配備できません。");
-    if (counts[5] > 0) errors.push("輸送本隊に重巡洋艦は配備できません。");
-    if (counts[57] > 0) errors.push("輸送本隊に航空母艦は配備できません。");
-    if (counts[7] - counts[64] > 0) errors.push("輸送本隊に航空母艦は配備できません。");
-    if (counts[59] > 0) errors.push("輸送本隊に戦艦は配備できません。");
-    if (counts[61] > 0) errors.push("輸送本隊に潜水艦は配備できません。");
-    if (counts[19] > 1) errors.push("工作艦を2隻以上配備できません。");
-    if (counts[64] > 1) errors.push("輸送本隊への軽空母配備は最大１隻！");
+    if (c(60) < 4) errors.push("輸送本隊は駆逐級４隻以上が必要です。");
+    if (c(4) > 0) errors.push("輸送本隊に重雷装艦は配備できません。");
+    if (c(5) > 0) errors.push("輸送本隊に重巡洋艦は配備できません。");
+    if (c(57) > 0) errors.push("輸送本隊に航空母艦は配備できません。");
+    if (c(7) - c(64) > 0) errors.push("輸送本隊に航空母艦は配備できません。");
+    if (c(59) > 0) errors.push("輸送本隊に戦艦は配備できません。");
+    if (c(61) > 0) errors.push("輸送本隊に潜水艦は配備できません。");
+    if (c(19) > 1) errors.push("工作艦を2隻以上配備できません。");
+    if (c(64) > 1) errors.push("輸送本隊への軽空母配備は最大１隻！");
   }
 
   return errors;
@@ -224,6 +234,7 @@ function buildCountsWithCandidate(
   const counts = initCounts();
   for (let index = 0; index < fleet.length; index++) {
     const slot = fleet[index];
+    if (!slot) continue;
     const effectiveShipId = index === shipSlotIndex ? shipId : slot.shipId;
     if (effectiveShipId == null) continue;
     const ship = getMasterShip(effectiveShipId);
@@ -248,18 +259,19 @@ export function canAssignShipWithoutWorseningCombinedRules(
   const ship = getMasterShip(shipId);
   if (!ship) return false;
   const counts = buildCountsWithCandidate(fleetIndex === 1 ? fleet1 : fleet2, shipSlotIndex, shipId);
+  const c = (index: number): number => countAt(counts, index);
   const isFlagship = shipSlotIndex === 0;
 
   if (fleetIndex === 2) {
     if ((type === 1 || type === 2)) {
       if (isFlagship && (ship.stype === 13 || ship.stype === 14)) return false;
-      if (counts[3] > 1) return false;
-      if (counts[53] > 2) return false;
-      if (counts[56] > 1) return false;
-      if (counts[62] > 0) return false;
-      if (counts[63] > 2) return false;
-      if (counts[57] > 0) return false;
-      if (counts[7] > 1) return false;
+      if (c(3) > 1) return false;
+      if (c(53) > 2) return false;
+      if (c(56) > 1) return false;
+      if (c(62) > 0) return false;
+      if (c(63) > 2) return false;
+      if (c(57) > 0) return false;
+      if (c(7) > 1) return false;
       return true;
     }
     if (type === 3) {
@@ -269,8 +281,8 @@ export function canAssignShipWithoutWorseningCombinedRules(
       if (BATTLESHIP_CLASS.has(ship.stype)) return false;
       if (SUBMARINE_CLASS.has(ship.stype)) return false;
       if ([16, 17, 19, 20, 22].includes(ship.stype)) return false;
-      if (counts[5] + counts[6] > 2) return false;
-      if (counts[3] + counts[21] > 2) return false;
+      if (c(5) + c(6) > 2) return false;
+      if (c(3) + c(21) > 2) return false;
       return true;
     }
   }
@@ -278,17 +290,17 @@ export function canAssignShipWithoutWorseningCombinedRules(
   if (fleetIndex === 1) {
     if (type === 1) {
       if (isFlagship && (ship.stype === 13 || ship.stype === 14)) return false;
-      if (counts[55] > 4) return false;
-      if (counts[54] > 2) return false;
+      if (c(55) > 4) return false;
+      if (c(54) > 2) return false;
       return true;
     }
     if (type === 2) {
       if (isFlagship && (ship.stype === 13 || ship.stype === 14)) return false;
-      if (counts[54] > 4) return false;
-      if (counts[53] > 4) return false;
-      if (counts[57] > 1) return false;
-      if (counts[57] === 1 && counts[7] > 0) return false;
-      if (counts[57] === 0 && counts[7] > 2) return false;
+      if (c(54) > 4) return false;
+      if (c(53) > 4) return false;
+      if (c(57) > 1) return false;
+      if (c(57) === 1 && c(7) > 0) return false;
+      if (c(57) === 0 && c(7) > 2) return false;
       return true;
     }
     if (type === 3) {
@@ -298,8 +310,8 @@ export function canAssignShipWithoutWorseningCombinedRules(
       if (ship.stype === 7 && (ship.tais?.[0] ?? 0) <= 0) return false;
       if (BATTLESHIP_NO_AVIATION.has(ship.stype)) return false;
       if (SUBMARINE_CLASS.has(ship.stype)) return false;
-      if (counts[19] > 1) return false;
-      if (counts[64] > 1) return false;
+      if (c(19) > 1) return false;
+      if (c(64) > 1) return false;
       return true;
     }
   }

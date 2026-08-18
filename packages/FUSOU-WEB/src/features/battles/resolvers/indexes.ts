@@ -1,3 +1,5 @@
+import { battleRowIndexForSort } from "../helpers";
+
 export type BattleRecord = Record<string, unknown>;
 
 export function normalizeTimestamp(value: unknown): number | null {
@@ -13,6 +15,8 @@ export function normalizeTimestamp(value: unknown): number | null {
   }
   return null;
 }
+
+export { battleRowIndexForSort } from "../helpers";
 
 export function toGroupIdsForBattleQuery(rawIds: unknown): string[] {
   if (Array.isArray(rawIds)) {
@@ -32,31 +36,38 @@ export function buildEnemySummaryResolver(args: {
   mstShips: BattleRecord[];
 }): (deckId?: string | null) => string {
   const deckById = new Map(
-    args.enemyDecks.map((deck) => [String(deck.uuid ?? ""), deck]),
+    args.enemyDecks.map((deck) => [String(deck["uuid"] ?? ""), deck]),
   );
   const shipsByGroupId = new Map<string, BattleRecord[]>();
   for (const ship of args.enemyShips) {
-    const groupId = String(ship.uuid ?? "");
+    const groupId = String(ship["uuid"] ?? "");
     if (!groupId) continue;
     if (!shipsByGroupId.has(groupId)) shipsByGroupId.set(groupId, []);
     shipsByGroupId.get(groupId)!.push(ship);
   }
   for (const ships of shipsByGroupId.values()) {
-    ships.sort((left, right) => Number(left.index ?? 0) - Number(right.index ?? 0));
+    ships.sort(
+      (left, right) =>
+        battleRowIndexForSort(left["index"]) -
+        battleRowIndexForSort(right["index"]),
+    );
   }
   const mstNameById = new Map(
-    args.mstShips.map((ship) => [Number(ship.id ?? 0), String(ship.name ?? "")]),
+    args.mstShips.map((ship) => [
+      Number(ship["id"] ?? 0),
+      String(ship["name"] ?? ""),
+    ]),
   );
 
   return (deckId?: string | null): string => {
     if (!deckId) return "-";
     const deck = deckById.get(deckId);
-    if (!deck?.ship_ids) return "-";
+    if (!deck?.["ship_ids"]) return "-";
 
     const names: string[] = [];
-    for (const groupId of toGroupIdsForBattleQuery(deck.ship_ids)) {
+    for (const groupId of toGroupIdsForBattleQuery(deck["ship_ids"])) {
       for (const ship of shipsByGroupId.get(groupId) || []) {
-        const mstId = Number(ship.mst_ship_id ?? 0);
+        const mstId = Number(ship["mst_ship_id"] ?? 0);
         if (mstId > 0) names.push(mstNameById.get(mstId) || `艦ID:${mstId}`);
       }
     }

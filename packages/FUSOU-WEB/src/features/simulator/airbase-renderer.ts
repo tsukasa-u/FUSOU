@@ -15,9 +15,22 @@ import {
   getFleetSlotLayoutMode,
 } from "./simulator-selectors";
 import { rerenderSolidSimulator } from "@/components/features/simulator/solid/simulator-renderer";
+import { z } from "zod";
+import { combinedFleetTypeOrDefault } from "./payload-codec";
 
 const DISPLAY_SETTINGS_KEY = "__fusouDisplaySettingsV1";
 let displaySettingsLoaded = false;
+
+const DisplaySettingsSchema = z
+  .object({
+    fleets: z.record(z.boolean()).optional(),
+    showAirbase: z.boolean().optional(),
+    airbaseCount: z.number().finite().optional(),
+    fleetSlotLayout: z.enum(["2x3", "3x2"]).optional(),
+    combinedFleetType: z.number().finite().optional(),
+    singleFleetGrid3x2: z.boolean().optional(),
+  })
+  .passthrough();
 
 type DisplaySettings = {
   fleets: Record<number, boolean>;
@@ -43,14 +56,10 @@ function readDisplaySettings(): DisplaySettings | null {
   try {
     const raw = localStorage.getItem(DISPLAY_SETTINGS_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<DisplaySettings> & {
-      singleFleetGrid3x2?: boolean;
-    };
-    const rawCombined = parsed.combinedFleetType;
-    const combinedFleetType: 0 | 1 | 2 | 3 =
-      typeof rawCombined === "number" && [0, 1, 2, 3].includes(rawCombined)
-        ? (rawCombined as 0 | 1 | 2 | 3)
-        : 0;
+    const result = DisplaySettingsSchema.safeParse(JSON.parse(raw));
+    if (!result.success) return null;
+    const parsed = result.data;
+    const combinedFleetType = combinedFleetTypeOrDefault(parsed.combinedFleetType);
     return {
       fleets: {
         1: parsed.fleets?.[1] !== false,
@@ -109,10 +118,10 @@ function loadDisplaySettingsOnce(): void {
     setCombinedFleetType(0);
     return;
   }
-  setFleetSectionVisible(1, settings.fleets[1]);
-  setFleetSectionVisible(2, settings.fleets[2]);
-  setFleetSectionVisible(3, settings.fleets[3]);
-  setFleetSectionVisible(4, settings.fleets[4]);
+  setFleetSectionVisible(1, settings.fleets[1] ?? false);
+  setFleetSectionVisible(2, settings.fleets[2] ?? false);
+  setFleetSectionVisible(3, settings.fleets[3] ?? false);
+  setFleetSectionVisible(4, settings.fleets[4] ?? false);
   setAirbaseSectionVisible(settings.showAirbase);
   setVisibleAirbaseCount(settings.airbaseCount);
   setFleetSlotLayoutMode(settings.fleetSlotLayout);

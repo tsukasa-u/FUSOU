@@ -1,15 +1,13 @@
+import type { QueueMessage } from "./buffer-consumer";
+
 export interface IngestRecord {
   table: string;
   data: Record<string, unknown>;
 }
 
-export interface QueueMessageBody {
-  table: string;
-  records: Record<string, unknown>[];
-  // optional metadata
-  datasetId?: string;
-  uploadedBy?: string;
-}
+export type { QueueMessage };
+
+export type QueueMessageBody = QueueMessage;
 
 export type QueueSendBatchItem = { body: QueueMessageBody };
 

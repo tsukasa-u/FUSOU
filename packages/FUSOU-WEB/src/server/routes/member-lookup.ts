@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
+import { MemberLookupRequestSchema } from "../schemas/member-lookup";
 import { createEnvContext, resolveSupabaseConfig } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -48,8 +49,19 @@ function jsonResponse(data: object, status = 200): Response {
  */
 app.post("/check-hash", async (c) => {
   try {
-    const body = await c.req.json<{ member_id_hash: string }>();
-    const { member_id_hash } = body;
+    const rawBody: unknown = await c.req.json();
+    const parsedBody = MemberLookupRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return jsonResponse(
+        {
+          error: "INVALID_FORMAT",
+          message: "member_id_hash must be a string",
+        },
+        400,
+      );
+    }
+
+    const { member_id_hash } = parsedBody.data;
 
     if (!member_id_hash) {
       return jsonResponse(

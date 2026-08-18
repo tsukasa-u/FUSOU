@@ -56,6 +56,8 @@ If you only deploy scheduled tasks and do not enqueue backfill from the terminal
 - `pnpm run battle-data:recover`: dry-run full recovery (`bootstrap + reindex`).
 - `pnpm run battle-data:recover:apply`: apply full recovery (`bootstrap + reindex`).
 - `pnpm run battle-data:verify`: print completion counters via `--phase d1-verify` (`archived_files_count`, `block_indexes_count`, `missing_index_rows`).
+- `pnpm run battle-data:reconcile`: dry-run D1/R2 durability reconciliation.
+- `pnpm run battle-data:reconcile:apply`: apply stale-output, R2-only-output, and verified-source cleanup repairs.
 
 The old one-off migration entry points were intentionally removed. Ongoing maintenance is limited to the bootstrap/reindex flows that remain relevant after cutover:
 

@@ -29,8 +29,26 @@
  */
 
 import { Hono } from "hono";
+import type { KVNamespace } from "@cloudflare/workers-types";
+import {
+  firstSchemaError,
+  RefreshRequestSchema,
+  RegisterRequestSchema,
+  RevokeRequestSchema,
+  UserIdentityAnchorRowSchema,
+  UserMemberMapRowSchema,
+  UserDeviceInsertRowSchema,
+  UserDeviceLookupRowSchema,
+  UserDeviceListRowSchema,
+  UserDeviceRefreshRowSchema,
+  UserDeviceRevokeTargetRowSchema,
+  SupabaseAccessTokenUserSchema,
+  type UserIdentityAnchorRow,
+  type UserMemberMapRow,
+  type UserDeviceLookupRow,
+} from "../schemas/anonymous-sync-v2";
 import { SignJWT } from "jose";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createEnvContext, getEnv, resolveSupabaseConfig } from "../utils";
 import {
   CHALLENGE_BUCKET_SECONDS,
@@ -131,11 +149,13 @@ function extractAccessToken(c: {
     /(?:^|;\s*)(?:sb-access-token|__Secure-sb-access-token)=([^;]+)/,
   );
   if (!match) return null;
+  const token = match[1];
+  if (!token) return null;
 
   try {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(token);
   } catch {
-    return match[1];
+    return token;
   }
 }
 
@@ -183,9 +203,16 @@ async function verifySupabaseAccessToken(options: {
     });
 
     if (!response.ok) return null;
-    const user = (await response.json()) as { id?: string; email?: string };
-    if (!user?.id || typeof user.id !== "string") return null;
-    return { id: user.id, email: user.email };
+    const parsedUser = SupabaseAccessTokenUserSchema.safeParse(
+      await response.json(),
+    );
+    if (!parsedUser.success) return null;
+    return {
+      id: parsedUser.data.id,
+      ...(typeof parsedUser.data.email !== "string"
+        ? {}
+        : { email: parsedUser.data.email }),
+    };
   } catch (err) {
     console.warn("[anonymous-sync-v2] verifySupabaseAccessToken failed:", err);
     return null;
@@ -282,7 +309,7 @@ function resolveChallengeSecret(c: { env: Bindings }): SecretResult {
  */
 async function resolvePepperBundle(options: {
   base: BaseConfig;
-  supabaseAdmin?: any;
+  supabaseAdmin?: SupabaseClient;
 }) {
   const supabaseAdmin =
     options.supabaseAdmin ??
@@ -306,7 +333,7 @@ async function resolvePepperBundle(options: {
 
 async function resolveRecoveryBundle(options: {
   base: BaseConfig;
-  supabaseAdmin?: any;
+  supabaseAdmin?: SupabaseClient;
 }) {
   const supabaseAdmin =
     options.supabaseAdmin ??
@@ -338,6 +365,28 @@ function isSchemaObjectMissingError(error: unknown): boolean {
   return /does not exist/i.test(message);
 }
 
+function getErrorField(error: unknown, field: string): unknown {
+  if (typeof error !== "object" || error === null || !(field in error)) {
+    return undefined;
+  }
+  return Reflect.get(error, field);
+}
+
+function getErrorCode(error: unknown): string | null {
+  const code = getErrorField(error, "code");
+  return typeof code === "string" ? code : null;
+}
+
+function getErrorMessage(error: unknown): string | undefined {
+  const message = getErrorField(error, "message");
+  return typeof message === "string" ? message : undefined;
+}
+
+function getErrorStatus(error: unknown): number | undefined {
+  const status = getErrorField(error, "status");
+  return typeof status === "number" ? status : undefined;
+}
+
 export function isSupabaseUserNotFoundError(error: unknown): boolean {
   const err = error as {
     status?: unknown;
@@ -360,7 +409,7 @@ export function isSupabaseUserNotFoundError(error: unknown): boolean {
 }
 
 async function consumeDeviceNonce(options: {
-  supabaseAdmin: any;
+  supabaseAdmin: SupabaseClient;
   deviceId: string;
   nonce: string;
   context: "refresh" | "revoke";
@@ -414,7 +463,7 @@ async function consumeDeviceNonce(options: {
 }
 
 async function insertRecoveryRelinkAudit(options: {
-  supabaseAdmin: any;
+  supabaseAdmin: SupabaseClient;
   canonicalUserId: string;
   deviceId: string;
   outcome: string;
@@ -454,12 +503,17 @@ async function insertRecoveryRelinkAudit(options: {
 
 app.post("/anonymous-sync/v2/register", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RegisterRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
+    const apiMemberId = normalizeApiMemberId(body.api_member_id);
     if (!apiMemberId) {
       return c.json(
         {
@@ -469,7 +523,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       );
     }
 
-    const pubkey = normalizePubkey((body as any).device_pub);
+    const pubkey = normalizePubkey(body.device_pub);
     if (!pubkey) {
       return c.json(
         { error: "device_pub must be base64-encoded Ed25519 raw 32 bytes" },
@@ -477,10 +531,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       );
     }
 
-    const attestation = (body as any).attestation;
-    if (typeof attestation !== "string" || attestation.length === 0) {
-      return c.json({ error: "attestation is required" }, 400);
-    }
+    const attestation = body.attestation;
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -576,7 +627,9 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     // Rate limit (pid 単位)。ローテーション中も current pid で一貫して制御する。
     const rateOk = await consumeRateLimit({
-      kv: c.env.DATA_LOADER_CACHE_KV,
+      ...(c.env.DATA_LOADER_CACHE_KV === undefined
+        ? {}
+        : { kv: c.env.DATA_LOADER_CACHE_KV }),
       pid: pidCurrent,
     });
     if (!rateOk) {
@@ -591,14 +644,6 @@ app.post("/anonymous-sync/v2/register", async (c) => {
 
     // user_member_map を accept_versions 全候補 pid で LOOKUP。
     // ローテーション途中 (旧世代 pid 残存) でも canonical owner を継承する。
-    type MappingRow = {
-      user_id: string;
-      member_id_hash: string;
-      salt_version: string | null;
-      recovery_id_hash: string | null;
-      recovery_version: string | null;
-    };
-
     const mappingWithRecovery = await supabaseAdmin
       .from("user_member_map")
       .select(
@@ -606,7 +651,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       )
       .in("member_id_hash", acceptedPids);
 
-    let mappingRows: MappingRow[] = [];
+    let mappingRows: UserMemberMapRow[] = [];
     let mappingError: unknown = mappingWithRecovery.error;
     if (isSchemaObjectMissingError(mappingWithRecovery.error)) {
       const fallbackLookup = await supabaseAdmin
@@ -615,23 +660,23 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .in("member_id_hash", acceptedPids);
 
       mappingError = fallbackLookup.error;
-      if (Array.isArray(fallbackLookup.data)) {
-        mappingRows = fallbackLookup.data.map(
-          (row: {
-            user_id: string;
-            member_id_hash: string;
-            salt_version: string | null;
-          }) => ({
-            user_id: row.user_id,
-            member_id_hash: row.member_id_hash,
-            salt_version: row.salt_version,
-            recovery_id_hash: null,
-            recovery_version: null,
-          }),
-        );
+      const parsedRows = UserMemberMapRowSchema.array().safeParse(
+        fallbackLookup.data,
+      );
+      if (parsedRows.success) {
+        mappingRows = parsedRows.data;
+      } else if (!mappingError) {
+        mappingError = parsedRows.error;
       }
-    } else if (Array.isArray(mappingWithRecovery.data)) {
-      mappingRows = mappingWithRecovery.data as MappingRow[];
+    } else {
+      const parsedRows = UserMemberMapRowSchema.array().safeParse(
+        mappingWithRecovery.data,
+      );
+      if (parsedRows.success) {
+        mappingRows = parsedRows.data;
+      } else {
+        mappingError = parsedRows.error;
+      }
     }
 
     if (mappingError) {
@@ -643,7 +688,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
     }
 
     const mappings = mappingRows;
-    let mapping: MappingRow | null = null;
+    let mapping: UserMemberMapRow | null = null;
     if (mappings.length > 0) {
       mapping =
         mappings.find((row) => row.member_id_hash === pidCurrent) ??
@@ -661,13 +706,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       }
     }
 
-    type AnchorRow = {
-      canonical_user_id: string;
-      recovery_id_hash: string;
-      recovery_version: string | null;
-    };
-
-    let anchor: AnchorRow | null = null;
+    let anchor: UserIdentityAnchorRow | null = null;
     let resolvedRecoveryVersion: string | null =
       recoveryConfig?.current.version ?? null;
     if (recoveryConfig && acceptedRids.length > 0) {
@@ -689,9 +728,17 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           return c.json({ error: "Database error" }, 500);
         }
       } else {
-        const anchors = Array.isArray(anchorRows)
-          ? (anchorRows as AnchorRow[])
-          : [];
+        const parsedAnchors = UserIdentityAnchorRowSchema.array().safeParse(
+          anchorRows,
+        );
+        if (!parsedAnchors.success) {
+          console.error(
+            "[anonymous-sync-v2/register] user_identity_anchor response shape invalid:",
+            parsedAnchors.error,
+          );
+          return c.json({ error: "Database error" }, 500);
+        }
+        const anchors = parsedAnchors.data;
         anchor =
           anchors.find((row) => row.recovery_id_hash === ridCurrent) ??
           anchors[0] ??
@@ -797,8 +844,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         console.error(
           "[anonymous-sync-v2/register] signInAnonymously failed:",
           {
-            message: (sessionError as any)?.message,
-            status: (sessionError as any)?.status,
+            message: getErrorMessage(sessionError),
+            status: getErrorStatus(sessionError),
           },
         );
         return c.json({ error: "Failed to create session" }, 500);
@@ -812,8 +859,8 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           hash_algorithm: "hmac-sha256",
         };
         if (recoveryConfig && ridCurrent) {
-          mappingUpdatePayload.recovery_id_hash = ridCurrent;
-          mappingUpdatePayload.recovery_version =
+          mappingUpdatePayload["recovery_id_hash"] = ridCurrent;
+          mappingUpdatePayload["recovery_version"] =
             resolvedRecoveryVersion ?? recoveryConfig.current.version;
         }
 
@@ -849,7 +896,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           );
         if (insertError) {
           // 23505 = unique_violation. 並行 register でレース敗北したケースを救う。
-          if ((insertError as any).code === "23505") {
+          if (getErrorCode(insertError) === "23505") {
             const { data: winner, error: winnerErr } = await supabaseAdmin
               .from("user_member_map")
               .select("user_id, member_id_hash")
@@ -930,7 +977,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         );
 
       if (ensureUpsertError) {
-        if ((ensureUpsertError as any).code === "23505") {
+        if (getErrorCode(ensureUpsertError) === "23505") {
           const { data: winner, error: winnerErr } = await supabaseAdmin
             .from("user_member_map")
             .select("user_id, member_id_hash")
@@ -1045,7 +1092,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           console.warn(
             "[anonymous-sync-v2/register] user_identity_anchor unavailable; skipping upsert",
           );
-        } else if ((anchorUpsertError as any).code === "23505") {
+        } else if (getErrorCode(anchorUpsertError) === "23505") {
           console.warn(
             "[anonymous-sync-v2/register] recovery id conflict during anchor upsert",
             { canonical_user_id: canonicalUserId },
@@ -1066,8 +1113,6 @@ app.post("/anonymous-sync/v2/register", async (c) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("")}`;
 
-    type DeviceRow = { device_id: string; revoked_at: string | null };
-
     const { data: existingDeviceRaw, error: existingDeviceError } =
       await supabaseAdmin
         .from("user_devices")
@@ -1075,13 +1120,27 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .eq("pid", pid)
         .eq("device_pubkey", pubkeyHex)
         .maybeSingle();
-    const existingDevice = (existingDeviceRaw ?? null) as DeviceRow | null;
     if (existingDeviceError) {
       console.error(
         "[anonymous-sync-v2/register] user_devices lookup failed:",
         existingDeviceError,
       );
       return c.json({ error: "Database error" }, 500);
+    }
+
+    let existingDevice: UserDeviceLookupRow | null = null;
+    if (existingDeviceRaw !== null && existingDeviceRaw !== undefined) {
+      const parsedExistingDevice = UserDeviceLookupRowSchema.safeParse(
+        existingDeviceRaw,
+      );
+      if (!parsedExistingDevice.success) {
+        console.error(
+          "[anonymous-sync-v2/register] user_devices lookup response shape invalid:",
+          parsedExistingDevice.error,
+        );
+        return c.json({ error: "Database error" }, 500);
+      }
+      existingDevice = parsedExistingDevice.data;
     }
 
     let deviceId: string;
@@ -1109,7 +1168,7 @@ app.post("/anonymous-sync/v2/register", async (c) => {
         .select("device_id")
         .single();
       if (insertDeviceError) {
-        if ((insertDeviceError as any).code === "23505") {
+        if (getErrorCode(insertDeviceError) === "23505") {
           const { data: winnerDevice, error: winnerDeviceErr } =
             await supabaseAdmin
               .from("user_devices")
@@ -1118,17 +1177,20 @@ app.post("/anonymous-sync/v2/register", async (c) => {
               .eq("device_pubkey", pubkeyHex)
               .maybeSingle();
 
-          if (winnerDeviceErr || !winnerDevice) {
+          const parsedWinnerDevice = UserDeviceLookupRowSchema.safeParse(
+            winnerDevice,
+          );
+          if (winnerDeviceErr || !parsedWinnerDevice.success) {
             console.error(
               "[anonymous-sync-v2/register] user_devices race recovery failed:",
-              winnerDeviceErr,
+              winnerDeviceErr ?? parsedWinnerDevice.error,
             );
             return c.json({ error: "Failed to register device" }, 500);
           }
-          if (winnerDevice.revoked_at) {
+          if (parsedWinnerDevice.data.revoked_at) {
             return c.json({ error: "device_revoked" }, 409);
           }
-          deviceId = winnerDevice.device_id;
+          deviceId = parsedWinnerDevice.data.device_id;
         } else {
           console.error(
             "[anonymous-sync-v2/register] user_devices INSERT failed:",
@@ -1136,16 +1198,16 @@ app.post("/anonymous-sync/v2/register", async (c) => {
           );
           return c.json({ error: "Failed to register device" }, 500);
         }
-      } else if (
-        !inserted ||
-        typeof (inserted as { device_id?: unknown }).device_id !== "string"
-      ) {
-        console.error(
-          "[anonymous-sync-v2/register] user_devices INSERT missing row",
-        );
-        return c.json({ error: "Failed to register device" }, 500);
       } else {
-        deviceId = (inserted as { device_id: string }).device_id;
+        const parsedInserted = UserDeviceInsertRowSchema.safeParse(inserted);
+        if (!parsedInserted.success) {
+          console.error(
+            "[anonymous-sync-v2/register] user_devices INSERT response shape invalid:",
+            parsedInserted.error,
+          );
+          return c.json({ error: "Failed to register device" }, 500);
+        }
+        deviceId = parsedInserted.data.device_id;
       }
     }
 
@@ -1221,22 +1283,22 @@ app.get("/anonymous-sync/v2/devices", async (c) => {
       query = query.is("revoked_at", null);
     }
 
-    type DeviceRow = {
-      device_id: string;
-      pid: string;
-      created_at: string;
-      last_seen_at: string | null;
-      revoked_at: string | null;
-      revoked_reason: string | null;
-    };
-
     const { data, error } = await query;
     if (error) {
       console.error("[anonymous-sync-v2/devices] lookup failed:", error);
       return c.json({ error: "Database error" }, 500);
     }
 
-    const devices = ((data as DeviceRow[]) ?? []).map((row) => ({
+    const parsedDevices = UserDeviceListRowSchema.array().safeParse(data);
+    if (!parsedDevices.success) {
+      console.error(
+        "[anonymous-sync-v2/devices] response shape invalid:",
+        parsedDevices.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+
+    const devices = parsedDevices.data.map((row) => ({
       device_id: row.device_id,
       pid_masked: maskPid(row.pid),
       created_at: row.created_at,
@@ -1309,17 +1371,22 @@ type RefreshCachedResult = {
 
 app.post("/anonymous-sync/v2/refresh", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RefreshRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const deviceId = normalizeDeviceId((body as any).device_id);
+    const deviceId = normalizeDeviceId(body.device_id);
     if (!deviceId) {
       return c.json({ error: "device_id must be a UUID" }, 400);
     }
 
-    const apiMemberId = normalizeApiMemberId((body as any).api_member_id);
+    const apiMemberId = normalizeApiMemberId(body.api_member_id);
     if (!apiMemberId) {
       return c.json(
         {
@@ -1329,18 +1396,12 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       );
     }
 
-    const nonce =
-      typeof (body as any).nonce === "string"
-        ? (body as any).nonce.trim().toLowerCase()
-        : "";
+    const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) {
       return c.json({ error: "nonce malformed" }, 400);
     }
 
-    const sig = (body as any).sig;
-    if (typeof sig !== "string" || sig.length === 0) {
-      return c.json({ error: "sig is required" }, 400);
-    }
+    const sig = body.sig;
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -1383,17 +1444,11 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    type DeviceLookup = {
-      canonical_user_id: string;
-      pid: string;
-      device_pubkey: string; // bytea => "\xABCD..." の hex 文字列
-      revoked_at: string | null;
-    };
-    const { data: device, error: deviceErr } = await supabaseAdmin
+    const { data: deviceRaw, error: deviceErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, pid, device_pubkey, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<DeviceLookup>();
+      .maybeSingle();
     if (deviceErr) {
       console.error(
         "[anonymous-sync-v2/refresh] user_devices lookup failed:",
@@ -1401,7 +1456,19 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!device || device.revoked_at) {
+    if (!deviceRaw) {
+      return c.json({ error: "device_unknown_or_revoked" }, 404);
+    }
+    const parsedDevice = UserDeviceRefreshRowSchema.safeParse(deviceRaw);
+    if (!parsedDevice.success) {
+      console.error(
+        "[anonymous-sync-v2/refresh] user_devices response shape invalid:",
+        parsedDevice.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const device = parsedDevice.data;
+    if (device.revoked_at) {
       return c.json({ error: "device_unknown_or_revoked" }, 404);
     }
 
@@ -1593,8 +1660,8 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
         hash_algorithm: "hmac-sha256",
       };
       if (recoveryResolved.ok && recoveryCurrentId) {
-        mapUpsertPayload.recovery_id_hash = recoveryCurrentId;
-        mapUpsertPayload.recovery_version =
+        mapUpsertPayload["recovery_id_hash"] = recoveryCurrentId;
+        mapUpsertPayload["recovery_version"] =
           recoveryResolved.recoveryConfig.current.version;
       }
 
@@ -1665,7 +1732,7 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
           console.warn(
             "[anonymous-sync-v2/refresh] user_identity_anchor unavailable; skipping upsert",
           );
-        } else if ((anchorUpsertErr as any).code === "23505") {
+        } else if (getErrorCode(anchorUpsertErr) === "23505") {
           return c.json({ error: "recovery_id_conflict" }, 409);
         } else {
           console.error(
@@ -1740,13 +1807,18 @@ app.post("/anonymous-sync/v2/refresh", async (c) => {
 
 app.post("/anonymous-sync/v2/revoke", async (c) => {
   try {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body !== "object") {
+    const rawBody = await c.req.json().catch(() => null);
+    if (rawBody === null) {
       return c.json({ error: "invalid_json" }, 400);
     }
+    const parsedBody = RevokeRequestSchema.safeParse(rawBody);
+    if (!parsedBody.success) {
+      return c.json({ error: firstSchemaError(parsedBody.error) }, 400);
+    }
+    const body = parsedBody.data;
 
-    const deviceId = normalizeDeviceId((body as any).device_id);
-    const targetDeviceId = normalizeDeviceId((body as any).target_device_id);
+    const deviceId = normalizeDeviceId(body.device_id);
+    const targetDeviceId = normalizeDeviceId(body.target_device_id);
     if (!deviceId || !targetDeviceId) {
       return c.json(
         { error: "device_id and target_device_id must be UUIDs" },
@@ -1754,23 +1826,14 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
     }
 
-    const nonce =
-      typeof (body as any).nonce === "string"
-        ? (body as any).nonce.trim().toLowerCase()
-        : "";
+    const nonce = body.nonce.trim().toLowerCase();
     if (!/^[a-f0-9]{64}$/.test(nonce)) {
       return c.json({ error: "nonce malformed" }, 400);
     }
 
-    const sig = (body as any).sig;
-    if (typeof sig !== "string" || sig.length === 0) {
-      return c.json({ error: "sig is required" }, 400);
-    }
+    const sig = body.sig;
 
-    const reason =
-      typeof (body as any).reason === "string"
-        ? (body as any).reason.trim().slice(0, 200)
-        : "user_revoke";
+    const reason = body.reason?.trim().slice(0, 200) || "user_revoke";
 
     const base = resolveBaseConfig(c);
     if (!base.ok) {
@@ -1802,17 +1865,11 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    type DeviceLookup = {
-      canonical_user_id: string;
-      pid: string;
-      device_pubkey: string;
-      revoked_at: string | null;
-    };
-    const { data: caller, error: callerErr } = await supabaseAdmin
+    const { data: callerRaw, error: callerErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, pid, device_pubkey, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<DeviceLookup>();
+      .maybeSingle();
     if (callerErr) {
       console.error(
         "[anonymous-sync-v2/revoke] caller lookup failed:",
@@ -1820,7 +1877,19 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!caller || caller.revoked_at) {
+    if (!callerRaw) {
+      return c.json({ error: "device_unknown_or_revoked" }, 404);
+    }
+    const parsedCaller = UserDeviceRefreshRowSchema.safeParse(callerRaw);
+    if (!parsedCaller.success) {
+      console.error(
+        "[anonymous-sync-v2/revoke] caller response shape invalid:",
+        parsedCaller.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const caller = parsedCaller.data;
+    if (caller.revoked_at) {
       return c.json({ error: "device_unknown_or_revoked" }, 404);
     }
 
@@ -1860,11 +1929,11 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
     }
 
     // 自分自身の canonical_user_id 配下の端末しか失効できない
-    const { data: target, error: targetErr } = await supabaseAdmin
+    const { data: targetRaw, error: targetErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, revoked_at")
       .eq("device_id", targetDeviceId)
-      .maybeSingle<{ canonical_user_id: string; revoked_at: string | null }>();
+      .maybeSingle();
     if (targetErr) {
       console.error(
         "[anonymous-sync-v2/revoke] target lookup failed:",
@@ -1872,9 +1941,18 @@ app.post("/anonymous-sync/v2/revoke", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!target) {
+    if (!targetRaw) {
       return c.json({ error: "target_unknown" }, 404);
     }
+    const parsedTarget = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw);
+    if (!parsedTarget.success) {
+      console.error(
+        "[anonymous-sync-v2/revoke] target response shape invalid:",
+        parsedTarget.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const target = parsedTarget.data;
     if (target.canonical_user_id !== caller.canonical_user_id) {
       return c.json({ error: "forbidden" }, 403);
     }
@@ -1950,11 +2028,11 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
       base.config.serviceRoleKey,
     );
 
-    const { data: target, error: targetErr } = await supabaseAdmin
+    const { data: targetRaw, error: targetErr } = await supabaseAdmin
       .from("user_devices")
       .select("canonical_user_id, revoked_at")
       .eq("device_id", deviceId)
-      .maybeSingle<{ canonical_user_id: string; revoked_at: string | null }>();
+      .maybeSingle();
 
     if (targetErr) {
       console.error(
@@ -1963,7 +2041,19 @@ app.delete("/anonymous-sync/v2/devices/:deviceId", async (c) => {
       );
       return c.json({ error: "Database error" }, 500);
     }
-    if (!target || target.canonical_user_id !== user.id) {
+    if (!targetRaw) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    const parsedTarget = UserDeviceRevokeTargetRowSchema.safeParse(targetRaw);
+    if (!parsedTarget.success) {
+      console.error(
+        "[anonymous-sync-v2/devices/:id] response shape invalid:",
+        parsedTarget.error,
+      );
+      return c.json({ error: "Database error" }, 500);
+    }
+    const target = parsedTarget.data;
+    if (target.canonical_user_id !== user.id) {
       return c.json({ error: "not_found" }, 404);
     }
     if (target.revoked_at) {

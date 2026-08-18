@@ -13,6 +13,7 @@ export type ShareBattleSelection = {
   battleIndex?: number | null;
   periodTag?: string;
   tableVersion?: string;
+  datasetId?: string;
   view?: "phase" | "timeline";
   separators?: boolean;
 };
@@ -51,6 +52,9 @@ export function buildShareBattleUrl(
   }
   if (selection.tableVersion) {
     shareUrl.searchParams.set("table_version", selection.tableVersion);
+  }
+  if (selection.datasetId) {
+    shareUrl.searchParams.set("dataset_id", selection.datasetId);
   }
   if (selection.view) {
     shareUrl.searchParams.set("view", selection.view);

@@ -24,10 +24,10 @@ describe("anonymous-sync legacy v1 endpoint", () => {
     };
 
     expect(json.code).toBe("legacy_anonymous_sync_v1_disabled");
-    expect(json.replacement?.register).toBe(
+    expect(json.replacement?.["register"]).toBe(
       "/api/auth/anonymous-sync/v2/register",
     );
-    expect(json.replacement?.refresh).toBe(
+    expect(json.replacement?.["refresh"]).toBe(
       "/api/auth/anonymous-sync/v2/refresh",
     );
   });

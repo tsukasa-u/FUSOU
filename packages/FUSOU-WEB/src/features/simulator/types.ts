@@ -125,7 +125,7 @@ export interface CrossRule {
  *  (when all C(|pool|, combo_size) are present — the dominant case), as
  *  fixed_items + free_pool (when some items appear in every combo), or as explicit
  *  combos for partial/irregular patterns. */
-interface MultiItemRule {
+export interface MultiItemRule {
   ships: number[];
   synergy: Record<string, number>;
   /** All C(item_pool.length, combo_size) combinations share this ships+synergy.

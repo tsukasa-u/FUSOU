@@ -3,15 +3,12 @@ import {
   buildSocialPreviewHtml,
   isSocialPreviewBot,
 } from "@/server/utils/share-preview";
+import { ShareRecordResponseSchema } from "@/server/schemas/shortener";
+import { isAllowedHost, parseAllowedHosts } from "@/server/utils/host-allowlist";
 import { env as cfEnv } from "cloudflare:workers";
 
 const KEY_RE = /^[0-9a-f]{16}$/;
 const SHARED_SNAPSHOT_SESSION_KEY = "__fusouSharedSnapshot";
-
-type ShareRecordResponse = {
-  originalUrl?: string;
-  snapshotPayload?: Record<string, unknown> | null;
-};
 
 type ShareRecordFetchResult =
   | {
@@ -30,25 +27,6 @@ function escHtml(s: string): string {
     .replace(/"/g, "&quot;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
-}
-
-function parseAllowedHosts(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => {
-      if (entry.includes("://")) {
-        try {
-          return new URL(entry).hostname.toLowerCase();
-        } catch {
-          return "";
-        }
-      }
-      return entry.replace(/^\*\./, "");
-    })
-    .filter((entry) => entry.length > 0);
 }
 
 function resolveSiteOrigin(requestUrl: string): string {
@@ -76,12 +54,6 @@ function resolveAllowedHosts(requestUrl: string): Set<string> {
     // Ignore parse error.
   }
 
-  try {
-    allowed.add(new URL(requestUrl).hostname.toLowerCase());
-  } catch {
-    // Ignore parse error.
-  }
-
   for (const host of parseAllowedHosts(workerEnv?.PUBLIC_SITE_ALLOWED_HOSTS)) {
     allowed.add(host);
   }
@@ -89,23 +61,18 @@ function resolveAllowedHosts(requestUrl: string): Set<string> {
   return allowed;
 }
 
-function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
-  const normalized = hostname.toLowerCase();
-  if (allowedHosts.has(normalized)) return true;
-  for (const allowed of allowedHosts) {
-    if (normalized.endsWith(`.${allowed}`)) return true;
-  }
-  return false;
-}
-
 function normalizeShareUrl(
   value: string,
   allowedHosts: Set<string>,
-  requestProtocol: string,
 ): string | null {
   try {
     const parsed = new URL(value);
-    if (parsed.protocol !== "https:" && parsed.protocol !== requestProtocol)
+    const isLocalHttp =
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "[::1]");
+    if (parsed.protocol !== "https:" && !isLocalHttp)
       return null;
     if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
 
@@ -207,8 +174,10 @@ export function buildDescription(dataParam: string): string {
     const fleetLabels = ["第一艦隊", "第二艦隊", "第三艦隊", "第四艦隊"];
     const parts: string[] = [];
     for (let i = 0; i < fleetCounts.length; i++) {
-      if (fleetCounts[i] > 0) {
-        parts.push(`${fleetLabels[i]}: ${fleetCounts[i]}隻`);
+      const count = fleetCounts[i];
+      const label = fleetLabels[i];
+      if (count !== undefined && label !== undefined && count > 0) {
+        parts.push(`${label}: ${count}隻`);
       }
     }
 
@@ -235,7 +204,6 @@ async function fetchShareRecord(
   key: string,
   allowedHosts: Set<string>,
   siteOrigin: string,
-  requestProtocol: string,
 ): Promise<ShareRecordFetchResult> {
   const workerEnv = cfEnv as unknown as Bindings;
   const shortenerService = workerEnv?.SHORTENER_SERVICE as Fetcher | undefined;
@@ -298,9 +266,26 @@ async function fetchShareRecord(
     };
   }
 
-  let data: ShareRecordResponse;
+  let data: import("@/server/schemas/shortener").ShareRecordResponse;
   try {
-    data = (await upstream.json()) as ShareRecordResponse;
+    const parsedResponse = ShareRecordResponseSchema.safeParse(
+      await upstream.json(),
+    );
+    if (!parsedResponse.success) {
+      return {
+        ok: false,
+        response: new Response("Service unavailable", {
+          status: 503,
+          headers: {
+            "Content-Type": "text/plain; charset=utf-8",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "strict-origin-when-cross-origin",
+          },
+        }),
+      };
+    }
+    data = parsedResponse.data;
   } catch {
     return {
       ok: false,
@@ -319,7 +304,7 @@ async function fetchShareRecord(
   const originalUrl =
     typeof data.originalUrl === "string" ? data.originalUrl : "";
   const safeOriginalUrl = originalUrl
-    ? normalizeShareUrl(originalUrl, allowedHosts, requestProtocol)
+    ? normalizeShareUrl(originalUrl, allowedHosts)
     : null;
   if (!safeOriginalUrl) {
     return {
@@ -349,7 +334,6 @@ export async function handleShareShortRequest(
 ): Promise<Response> {
   const siteOrigin = resolveSiteOrigin(request.url);
   const allowedHosts = resolveAllowedHosts(request.url);
-  const requestProtocol = new URL(request.url).protocol;
   const ua = request.headers.get("User-Agent") ?? "";
   const isBotRequest = isSocialPreviewBot(ua);
 
@@ -396,7 +380,6 @@ export async function handleShareShortRequest(
     key,
     allowedHosts,
     siteOrigin,
-    requestProtocol,
   );
   if (!recordResult.ok) {
     if (isBotRequest) {

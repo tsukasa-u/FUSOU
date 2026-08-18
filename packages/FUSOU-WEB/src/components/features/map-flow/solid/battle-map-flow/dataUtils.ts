@@ -3,14 +3,24 @@ import type {
   BattleResultData,
   FrameRect,
   MapFrameMeta,
-  MapImageMetaPayload,
+  MapInfoPayload,
+  MapLabelsPayload,
   MapSpot,
   OfficialMapThemeMode,
   RouteSpriteFrame,
 } from "./types";
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function finiteNumberOrNull(value: unknown): number | null {
+  if (typeof value !== "number") return null;
+  return Number.isFinite(value) ? value : null;
+}
+
 export function formatTimestamp(ts: number | null): string {
-  if (!ts) return "-";
+  if (ts === null) return "-";
   return new Date(ts).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
 }
 
@@ -19,13 +29,40 @@ export function parseOfficialMapThemeMode(raw: unknown): OfficialMapThemeMode {
 }
 
 export function mapKeyOf(rec: { maparea_id?: number | null; mapinfo_no?: number | null }): string {
-  if (!rec.maparea_id || !rec.mapinfo_no) return "0-0";
+  if (
+    rec.maparea_id === null ||
+    rec.maparea_id === undefined ||
+    !Number.isFinite(rec.maparea_id) ||
+    rec.maparea_id <= 0
+  ) {
+    return "unknown";
+  }
+  if (
+    rec.mapinfo_no === null ||
+    rec.mapinfo_no === undefined ||
+    !Number.isFinite(rec.mapinfo_no) ||
+    rec.mapinfo_no <= 0
+  ) {
+    return "unknown";
+  }
   return `${rec.maparea_id}-${rec.mapinfo_no}`;
 }
 
 export function normalizeEpochMs(value: number | null | undefined): number | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
   return value < 1_000_000_000_000 ? value * 1000 : value;
+}
+
+export function compareNullableTimestamps(
+  left: number | null | undefined,
+  right: number | null | undefined,
+  direction: "asc" | "desc" = "asc",
+): number {
+  if (left === null || left === undefined) {
+    return right === null || right === undefined ? 0 : 1;
+  }
+  if (right === null || right === undefined) return -1;
+  return direction === "asc" ? left - right : right - left;
 }
 
 export function resolveBattleResult(
@@ -53,18 +90,21 @@ export function resolveRouteCellsWithPort(
 ): number[] {
   if (cells.length === 0) return cells;
   if (ports.length === 0) return cells;
-  if (ports.includes(cells[0])) return cells;
+  const firstCell = cells[0];
+  const firstPort = ports[0];
+  if (firstCell === undefined || firstPort === undefined) return cells;
+  if (ports.includes(firstCell)) return cells;
 
   if (ports.length === 1) {
-    return [ports[0], ...cells];
+    return [firstPort, ...cells];
   }
 
-  const firstCellSpot = spots.find((spot) => spot.cellId === cells[0]);
+  const firstCellSpot = spots.find((spot) => spot.cellId === firstCell);
   if (!firstCellSpot) {
-    return [ports[0], ...cells];
+    return [firstPort, ...cells];
   }
 
-  let nearestPort = ports[0];
+  let nearestPort = firstPort;
   let nearestDistance = Number.POSITIVE_INFINITY;
   for (const portCellId of ports) {
     const portSpot = spots.find((spot) => spot.cellId === portCellId);
@@ -116,20 +156,27 @@ function alphaCellFallbackLabel(cellId: number): string {
 }
 
 export function parseFrameRect(value: unknown): FrameRect | null {
-  if (!value || typeof value !== "object") return null;
-  const frame = value as { x?: unknown; y?: unknown; w?: unknown; h?: unknown };
-  const x = Number(frame.x ?? NaN);
-  const y = Number(frame.y ?? NaN);
-  const width = Number(frame.w ?? NaN);
-  const height = Number(frame.h ?? NaN);
+  if (!isJsonRecord(value)) return null;
+  const x = Number(value["x"] ?? NaN);
+  const y = Number(value["y"] ?? NaN);
+  const width = Number(value["w"] ?? NaN);
+  const height = Number(value["h"] ?? NaN);
   if (![x, y, width, height].every((num) => Number.isFinite(num))) return null;
   return { x, y, width, height };
 }
 
-export function parseMapFrameMeta(payload: MapImageMetaPayload): MapFrameMeta | null {
-  const frames = payload.frames || {};
+export function parseMapFrameMeta(payload: unknown): MapFrameMeta | null {
+  if (!isJsonRecord(payload)) return null;
+  const frames = isJsonRecord(payload["frames"])
+    ? payload["frames"]
+    : {};
   const frameEntries = Object.entries(frames)
-    .map(([key, frameObj]) => ({ key, rect: parseFrameRect(frameObj.frame) }))
+    .map(([key, frameObj]) => ({
+      key,
+      rect: parseFrameRect(
+        isJsonRecord(frameObj) ? frameObj["frame"] : null,
+      ),
+    }))
     .filter((entry): entry is { key: string; rect: FrameRect } => !!entry.rect);
 
   if (frameEntries.length === 0) return null;
@@ -146,14 +193,17 @@ export function parseMapFrameMeta(payload: MapImageMetaPayload): MapFrameMeta | 
   const routeFrames: Record<number, RouteSpriteFrame> = {};
   for (const entry of frameEntries) {
     const matched = /_route_(\d+)$/i.exec(entry.key);
-    if (!matched) continue;
-    const routeId = Number(matched[1]);
+    const routeIdText = matched?.[1];
+    if (routeIdText === undefined) continue;
+    const routeId = Number(routeIdText);
     if (!Number.isFinite(routeId)) continue;
     routeFrames[routeId] = { ...entry.rect, routeId };
   }
 
-  const sheetW = Number(payload.meta?.size?.w ?? NaN);
-  const sheetH = Number(payload.meta?.size?.h ?? NaN);
+  const meta = isJsonRecord(payload["meta"]) ? payload["meta"] : null;
+  const size = meta && isJsonRecord(meta["size"]) ? meta["size"] : null;
+  const sheetW = Number(size?.["w"] ?? NaN);
+  const sheetH = Number(size?.["h"] ?? NaN);
   const spriteSheetSize =
     Number.isFinite(sheetW) && Number.isFinite(sheetH)
       ? { width: sheetW, height: sheetH }
@@ -168,4 +218,40 @@ export function parseMapFrameMeta(payload: MapImageMetaPayload): MapFrameMeta | 
     seaMapFrame: seaCandidate.rect,
     routeFrames,
   };
+}
+
+export function parseMapInfoPayload(value: unknown): MapInfoPayload | null {
+  if (!isJsonRecord(value)) return null;
+  const rawSpots = value["spots"];
+  if (rawSpots === undefined) return { spots: [] };
+  if (!Array.isArray(rawSpots)) return null;
+
+  return {
+    spots: rawSpots.flatMap((rawSpot) => {
+      if (!isJsonRecord(rawSpot)) return [];
+      const line = isJsonRecord(rawSpot["line"])
+        ? {
+            x: finiteNumberOrNull(rawSpot["line"]["x"]),
+            y: finiteNumberOrNull(rawSpot["line"]["y"]),
+          }
+        : null;
+      return [
+        {
+          no: finiteNumberOrNull(rawSpot["no"]),
+          x: finiteNumberOrNull(rawSpot["x"]),
+          y: finiteNumberOrNull(rawSpot["y"]),
+          line,
+        },
+      ];
+    }),
+  };
+}
+
+export function parseMapLabelsPayload(value: unknown): MapLabelsPayload | null {
+  if (!isJsonRecord(value)) return null;
+  const labels: MapLabelsPayload = {};
+  for (const [key, label] of Object.entries(value)) {
+    if (typeof label === "string") labels[key] = label;
+  }
+  return labels;
 }

@@ -65,8 +65,12 @@ async function resolveTargetTables(params: {
   const client = buildInternalClient();
   return await client.listSourceTables({
     tier: params.sourceTier,
-    window_start_ms: params.window?.start,
-    window_end_ms: params.window?.end,
+    ...(params.window?.start !== undefined
+      ? { window_start_ms: params.window.start }
+      : {}),
+    ...(params.window?.end !== undefined
+      ? { window_end_ms: params.window.end }
+      : {}),
   });
 }
 
@@ -359,8 +363,8 @@ export const backfillCompaction = task({
       tier,
       sourceTier,
       tableNames,
-      startMs: payload.start_ms,
-      endMs: payload.end_ms,
+      ...(payload.start_ms !== undefined ? { startMs: payload.start_ms } : {}),
+      ...(payload.end_ms !== undefined ? { endMs: payload.end_ms } : {}),
     });
 
     if (!resolvedWindow) {

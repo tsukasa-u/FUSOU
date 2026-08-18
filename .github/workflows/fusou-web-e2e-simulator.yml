@@ -17,7 +17,6 @@ on:
   pull_request:
     paths:
       - packages/FUSOU-WEB/**
-      - packages/shared-ui/**
       - pnpm-lock.yaml
       - .github/workflows/fusou-web-e2e-simulator.yml
 
@@ -49,6 +48,9 @@ jobs:
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
 
+      - name: Build compaction core
+        run: pnpm --filter @fusou/compaction-core run build
+
       - name: Run DOM security check
         run: pnpm --dir packages/FUSOU-WEB run check:security:dom
 
@@ -69,6 +71,12 @@ jobs:
 
       - name: Run Astro check
         run: pnpm --dir packages/FUSOU-WEB exec astro check
+
+      - name: Run server tests
+        run: pnpm --dir packages/FUSOU-WEB exec vitest run src/server
+
+      - name: Verify battle data contracts
+        run: pnpm --dir packages/FUSOU-WEB run verify:battle-data
 
   simulator-e2e-smoke:
     needs: web-quality-check
@@ -101,6 +109,9 @@ jobs:
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
+
+      - name: Build compaction core
+        run: pnpm --filter @fusou/compaction-core run build
 
       - name: Install Playwright Chromium
         run: pnpm --dir packages/FUSOU-WEB exec playwright install --with-deps chromium
@@ -150,6 +161,9 @@ jobs:
 
       - name: Build avro-wasm
         run: pnpm --filter @fusou/avro-wasm run build
+
+      - name: Build compaction core
+        run: pnpm --filter @fusou/compaction-core run build
 
       - name: Seed local D1/R2 for simulator
         run: pnpm --dir packages/FUSOU-WEB run seed:master-data

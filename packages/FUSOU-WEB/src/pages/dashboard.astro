@@ -12,7 +12,7 @@ const STORED_TOKEN_COOKIE_OPTIONS = {
 };
 
 const cookies = Astro.cookies;
-const runtimeEnv = cfEnv as Record<string, any>;
+const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
 const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
@@ -119,14 +119,19 @@ let validSessionList: AuthResponse[] = [];
 const tokenListLength = accessTokenList.length;
 for (let i = 0; i < tokenListLength; i++) {
   try {
+    const accessTokenValue = accessTokenList[i];
+    const refreshTokenValue = refreshTokenList[i];
+    if (accessTokenValue === undefined || refreshTokenValue === undefined) {
+      continue;
+    }
     let session = await supabase.auth.setSession({
-      refresh_token: refreshTokenList[i],
-      access_token: accessTokenList[i],
+      refresh_token: refreshTokenValue,
+      access_token: accessTokenValue,
     });
     if (session.error) {
       try {
         const refreshedSession = await supabase.auth.refreshSession({
-          refresh_token: refreshTokenList[i],
+          refresh_token: refreshTokenValue,
         });
         if (refreshedSession.error || !refreshedSession.data.session) continue;
         session = refreshedSession;
@@ -137,14 +142,19 @@ for (let i = 0; i < tokenListLength; i++) {
         continue;
       }
     }
+    const validAccessToken = accessTokenList[i];
+    const validRefreshToken = refreshTokenList[i];
+    if (validAccessToken === undefined || validRefreshToken === undefined) {
+      continue;
+    }
     if (currentSession) {
       if (session.data.user?.email == currentSession.data.user?.email) continue;
     }
-    validAccessTokenList.push(accessTokenList[i]);
-    validRefreshTokenList.push(refreshTokenList[i]);
+    validAccessTokenList.push(validAccessToken);
+    validRefreshTokenList.push(validRefreshToken);
     validSessionList.push(session);
-    validProviderTokenList.push(providerTokenList[i]);
-    validProviderRefreshTokenList.push(providerRefreshTokenList[i]);
+    validProviderTokenList.push(providerTokenList[i] ?? "");
+    validProviderRefreshTokenList.push(providerRefreshTokenList[i] ?? "");
   } catch (error) {
     continue;
   }
@@ -266,7 +276,7 @@ cookies.set(
                         </span>
                         <div>
                           <div>
-                            {session?.data.session?.user.user_metadata.name}
+                            {session?.data.session?.user.user_metadata["name"]}
                           </div>
                           <div class="text-xs font-semibold opacity-60">
                             {session?.data.user?.email}

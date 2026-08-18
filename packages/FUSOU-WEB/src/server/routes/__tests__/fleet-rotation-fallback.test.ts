@@ -37,6 +37,7 @@ vi.mock("@supabase/supabase-js", () => ({
 }));
 
 import fleetApp from "../fleet";
+import type { Bindings } from "../../types";
 
 type ListPage = {
   objects: Array<{ key: string; uploaded: Date; size: number }>;
@@ -107,8 +108,7 @@ function createSupabaseAdminMock(options: {
       if (table === "member_id_hash_rotations") {
         return {
           select: vi.fn(() => ({
-            eq: vi.fn(() => ({
-              or: vi.fn(() => ({
+              in: vi.fn(() => ({
                 range: vi.fn(async (from: number, to: number) => {
                   if (options.rotationsError) {
                     return {
@@ -132,7 +132,6 @@ function createSupabaseAdminMock(options: {
                   };
                 }),
               })),
-            })),
           })),
         };
       }
@@ -146,20 +145,25 @@ describe("fleet route rotation fallback", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockCreateEnvContext.mockImplementation((c: any) => ({
+    mockCreateEnvContext.mockImplementation(
+      (c: { env?: Record<string, unknown> }) => ({
       runtime: c?.env ?? {},
       buildtime: {},
       isDev: false,
-    }));
+      }),
+    );
     mockGetEnv.mockImplementation(
-      (ctx: any, key: string) => ctx.runtime?.[key],
+      (ctx: { runtime?: Record<string, unknown> }, key: string) =>
+        ctx.runtime?.[key],
     );
 
-    mockResolveSupabaseConfig.mockImplementation((ctx: any) => ({
-      url: ctx.runtime?.PUBLIC_SUPABASE_URL ?? null,
-      serviceRoleKey: ctx.runtime?.SUPABASE_SECRET_KEY ?? null,
-      publishableKey: ctx.runtime?.PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? null,
-    }));
+    mockResolveSupabaseConfig.mockImplementation(
+      (ctx: { runtime?: Record<string, unknown> }) => ({
+      url: ctx.runtime?.["PUBLIC_SUPABASE_URL"] ?? null,
+      serviceRoleKey: ctx.runtime?.["SUPABASE_SECRET_KEY"] ?? null,
+      publishableKey: ctx.runtime?.["PUBLIC_SUPABASE_PUBLISHABLE_KEY"] ?? null,
+      }),
+    );
 
     mockValidateJWT.mockResolvedValue(null);
     mockResolveLinkedMemberIdHashForUser.mockResolvedValue({
@@ -198,7 +202,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [key]: { source: "dataset-token-fallback" },
+        [key]: { s3s: [], source: "dataset-token-fallback" },
       },
     });
 
@@ -214,7 +218,7 @@ describe("fleet route rotation fallback", () => {
       {
         FLEET_SNAPSHOT_BUCKET: bucket,
         DATASET_TOKEN_SECRET: "x".repeat(32),
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -280,7 +284,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [oldKey2]: { source: "historical-latest" },
+        [oldKey2]: { s3s: [], source: "historical-latest" },
       },
     });
 
@@ -298,7 +302,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -341,7 +345,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [key]: { source: "current-only" },
+        [key]: { s3s: [], source: "current-only" },
       },
     });
 
@@ -359,7 +363,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     expect(res.status).toBe(200);
@@ -418,7 +422,7 @@ describe("fleet route rotation fallback", () => {
         ],
       },
       payloadByKey: {
-        [oldKey]: { source: "paged-rotation" },
+        [oldKey]: { s3s: [], source: "paged-rotation" },
       },
     });
 
@@ -436,7 +440,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -511,7 +515,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -520,8 +524,10 @@ describe("fleet route rotation fallback", () => {
     };
     expect(res.status).toBe(200);
     expect(body.count).toBe(1);
-    expect(body.tags[0].tag).toBe("latest");
-    expect(body.tags[0].size).toBe(20);
+    const firstTag = body.tags[0];
+    if (firstTag === undefined) throw new Error("Expected one snapshot tag");
+    expect(firstTag.tag).toBe("latest");
+    expect(firstTag.size).toBe(20);
   });
 
   it("delete endpoint removes snapshots across rotation candidates", async () => {
@@ -598,7 +604,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {
@@ -614,7 +620,7 @@ describe("fleet route rotation fallback", () => {
 
     const deletedKeys = new Set(
       (bucket.delete as ReturnType<typeof vi.fn>).mock.calls.map(
-        (args: [string]) => args[0],
+        (args) => args[0] as string,
       ),
     );
     expect(deletedKeys).toEqual(
@@ -675,7 +681,7 @@ describe("fleet route rotation fallback", () => {
         PUBLIC_SUPABASE_URL: "https://example.supabase.co",
         SUPABASE_SECRET_KEY: "service-role",
         PUBLIC_SUPABASE_PUBLISHABLE_KEY: "anon-key",
-      } as any,
+      } as unknown as Bindings,
     );
 
     const body = (await res.json()) as {

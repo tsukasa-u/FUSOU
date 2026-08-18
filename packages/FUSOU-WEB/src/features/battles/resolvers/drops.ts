@@ -21,7 +21,7 @@ export function buildBattleDropsPayload(args: {
   const dropShipIds = new Set<number>();
   for (const battle of summaries) {
     const dropShipId = Number(
-      (battle.battle_result as BattleRecord | null)?.drop_ship_id ?? 0,
+      (battle["battle_result"] as BattleRecord | null)?.["drop_ship_id"] ?? 0,
     );
     if (dropShipId > 0) dropShipIds.add(dropShipId);
   }
@@ -30,8 +30,10 @@ export function buildBattleDropsPayload(args: {
     success: true,
     period_tag: args.periodTag,
     table_version: args.tableVersion || null,
-    master_data: args.masterData,
+    ...(args.masterData === undefined ? {} : { master_data: args.masterData }),
     battles: summaries,
-    mst_ships: args.mstShips.filter((ship) => dropShipIds.has(Number(ship.id ?? 0))),
+    mst_ships: args.mstShips.filter((ship) =>
+      dropShipIds.has(Number(ship["id"] ?? 0)),
+    ),
   };
 }

@@ -530,7 +530,9 @@ export async function captureAndSaveImage(options: CaptureImageOptions): Promise
             skipFonts: true,
             imagePlaceholder: TRANSPARENT_PIXEL,
           };
-          if (!transparentBackground) renderOpts.backgroundColor = "#eceff3";
+          if (!transparentBackground) {
+            renderOpts["backgroundColor"] = "#eceff3";
+          }
           blob = await toBlobImpl(prepared.node, renderOpts);
         } catch (e) {
           primaryError = e;
@@ -569,8 +571,9 @@ export async function captureAndSaveImage(options: CaptureImageOptions): Promise
             imagePlaceholder: TRANSPARENT_PIXEL,
             filter: (n: Node) => !(n instanceof HTMLImageElement),
           };
-          if (!transparentBackground)
-            retryRenderOpts.backgroundColor = "#eceff3";
+          if (!transparentBackground) {
+            retryRenderOpts["backgroundColor"] = "#eceff3";
+          }
           blob = await toBlobImpl(retry.node, retryRenderOpts);
         }
         if (!blob) throw new Error("png conversion failed");

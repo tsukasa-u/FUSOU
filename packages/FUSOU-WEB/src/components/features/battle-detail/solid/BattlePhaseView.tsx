@@ -1,10 +1,15 @@
 /** @jsxImportSource solid-js */
 import { For, Show, createMemo } from "solid-js";
 import type { JSX } from "solid-js";
-import type { BattleFleets } from "@/features/battles/types";
+import type {
+  BattleFleets,
+  MstShipRecord,
+  MstSlotItemRecord,
+} from "@/features/battles/types";
 import { PHASE_NAMES, AIR_STATE } from "@/features/battles/constants";
-import { transitionState } from "@/features/battles/helpers";
+import { normalizeNullableNumber, transitionState } from "@/features/battles/helpers";
 import { buildTimelineEvents } from "@/features/battles/timeline";
+import { jsonRecordOf } from "@/features/battles/payload-guards";
 import {
   shipNameFromIndex,
   maxHpForShip,
@@ -27,13 +32,13 @@ function isAirbaseInvolvedPhaseKey(key: string): boolean {
 }
 
 function mstShipNameFromId(
-  mstShipById: Map<number, Record<string, unknown>> | null | undefined,
+  mstShipById: Map<number, MstShipRecord> | null | undefined,
   id: number | null | undefined,
 ): string | null {
   const n = Number(id ?? 0);
   if (!Number.isFinite(n) || n <= 0) return null;
   const row = mstShipById?.get(n);
-  const name = row ? String(row.name ?? "") : "";
+  const name = row?.name ?? "";
   return name.length > 0 ? name : null;
 }
 
@@ -48,7 +53,7 @@ function pickHougekiRowsByRound(
 
   const rows = data as Array<Record<string, unknown>>;
   const byIndex1 = rows.filter(
-    (row) => Number(row.index_1 ?? Number.NaN) === roundIdx,
+    (row) => Number(row["index_1"] ?? Number.NaN) === roundIdx,
   );
   if (byIndex1.length > 0) return byIndex1;
 
@@ -58,18 +63,18 @@ function pickHougekiRowsByRound(
 function normalizeNightSupportAttackData(
   battle: Record<string, unknown>,
 ): Record<string, unknown> | null {
-  const nested = battle.night_support_attack as
+  const nested = battle["night_support_attack"] as
     | Record<string, unknown>
     | null
     | undefined;
-  const hourai = (nested?.hourai ?? battle.night_support_hourai) as
+  const hourai = (nested?.["hourai"] ?? battle["night_support_hourai"]) as
     | Record<string, unknown>
     | null
     | undefined;
-  const airatack = (nested?.airatack ??
-    nested?.airattack ??
-    battle.night_support_airatack ??
-    battle.night_support_airattack) as
+  const airatack = (nested?.["airatack"] ??
+    nested?.["airattack"] ??
+    battle["night_support_airatack"] ??
+    battle["night_support_airattack"]) as
     | Record<string, unknown>
     | null
     | undefined;
@@ -82,7 +87,7 @@ function hasRaigekiActivity(data: unknown): boolean {
   if (!data || typeof data !== "object") return false;
   const d = data as Record<string, unknown>;
 
-  const raiCandidates = [d.frai, d.f_rai, d.frai_list_items, d.erai, d.e_rai, d.erai_list_items];
+  const raiCandidates = [d["frai"], d["f_rai"], d["frai_list_items"], d["erai"], d["e_rai"], d["erai_list_items"]];
   const hasTarget = raiCandidates.some((candidate) => {
     if (!Array.isArray(candidate)) return false;
     return candidate.some((row) => {
@@ -98,7 +103,7 @@ function hasRaigekiActivity(data: unknown): boolean {
   });
   if (hasTarget) return true;
 
-  const damages = [d.fdam, d.f_dam, d.edam, d.e_dam];
+  const damages = [d["fdam"], d["f_dam"], d["edam"], d["e_dam"]];
   return damages.some(
     (arr) =>
       Array.isArray(arr) &&
@@ -122,9 +127,9 @@ function RaigekiRows(props: {
     defenderIdx: number;
     dmg: number;
     crit: boolean;
-    beforeHp: number;
-    afterHp: number;
-    atkHp: number;
+    beforeHp: number | null;
+    afterHp: number | null;
+    atkHp: number | null;
     sunk: boolean;
   }
 
@@ -132,11 +137,12 @@ function RaigekiRows(props: {
     const evs = props.events;
     if (evs.length === 0) return [];
     const first = evs[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => Number(v ?? 0) || 0)
+      ? first.fHps.map((v) => normalizeNullableNumber(v))
       : [];
     const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => Number(v ?? 0) || 0)
+      ? first.eHps.map((v) => normalizeNullableNumber(v))
       : [];
 
     return evs
@@ -149,12 +155,13 @@ function RaigekiRows(props: {
         const defPool = ev.defenderSide === "friend" ? fState : eState;
         const atkHp =
           ev.attackerIdx !== null
-            ? Number(atkPool[ev.attackerIdx] ?? 0) || 0
-            : 0;
+            ? atkPool[ev.attackerIdx] ?? null
+            : null;
         const defIdx = ev.defenderIdx as number;
-        const beforeHp = Number(defPool[defIdx] ?? 0) || 0;
-        const afterHp = Math.max(0, beforeHp - Math.max(0, ev.damage));
-        defPool[defIdx] = afterHp;
+        const beforeHp = defPool[defIdx] ?? null;
+        const afterHp =
+          beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+        if (afterHp !== null) defPool[defIdx] = afterHp;
         return {
           attackerSide: ev.attackerSide,
           attackerIdx: ev.attackerIdx,
@@ -300,8 +307,8 @@ function RaigekiRows(props: {
 function AirAttackBatchRows(props: {
   events: TimelineEvent[];
   fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
-  mstShipById: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  mstShipById: Map<number, MstShipRecord> | null;
 }): JSX.Element {
   const batches = createMemo(() => {
     const map = new Map<number, TimelineEvent[]>();
@@ -327,11 +334,12 @@ function AirAttackBatchRows(props: {
       afterHp: number | null;
     }>;
     const first = rows[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => Number(v ?? 0) || 0)
+      ? first.fHps.map((v) => normalizeNullableNumber(v))
       : [];
     const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => Number(v ?? 0) || 0)
+      ? first.eHps.map((v) => normalizeNullableNumber(v))
       : [];
 
     return rows.map((ev) => {
@@ -339,9 +347,10 @@ function AirAttackBatchRows(props: {
         return { event: ev, beforeHp: null, afterHp: null };
       }
       const defPool = ev.defenderSide === "friend" ? fState : eState;
-      const beforeHp = Number(defPool[ev.defenderIdx] ?? 0) || 0;
-      const afterHp = Math.max(0, beforeHp - Math.max(0, ev.damage));
-      defPool[ev.defenderIdx] = afterHp;
+      const beforeHp = defPool[ev.defenderIdx] ?? null;
+      const afterHp =
+        beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+      if (afterHp !== null) defPool[ev.defenderIdx] = afterHp;
       return { event: ev, beforeHp, afterHp };
     });
   };
@@ -391,7 +400,7 @@ function AirAttackBatchRows(props: {
             {(shipIdx) => {
               const idx = Number(shipIdx);
               const hpPool = ev.attackerSide === "friend" ? ev.fHps : ev.eHps;
-              const h = Number(hpPool[idx] ?? 0) || 0;
+              const h = hpPool[idx] ?? null;
               return (
                 <PhaseParticipant
                   name={shipNameFromIndex(ev.attackerSide, idx, props.fleets)}
@@ -538,25 +547,26 @@ function UnifiedAttackRows(props: {
   events: TimelineEvent[];
   title: string;
   fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
-  mstShipById: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  mstShipById: Map<number, MstShipRecord> | null;
 }): JSX.Element {
   interface ResolvedEventRow {
     event: TimelineEvent;
     beforeHp: number | null;
     afterHp: number | null;
-    atkHp: number;
+    atkHp: number | null;
   }
 
   const resolvedRows = (): ResolvedEventRow[] => {
     const evs = props.events.filter((ev) => ev.separator !== true);
     if (evs.length === 0) return [];
     const first = evs[0];
+    if (!first) return [];
     const fState = Array.isArray(first.fHps)
-      ? first.fHps.map((v) => Number(v ?? 0) || 0)
+      ? first.fHps.map((v) => normalizeNullableNumber(v))
       : [];
     const eState = Array.isArray(first.eHps)
-      ? first.eHps.map((v) => Number(v ?? 0) || 0)
+      ? first.eHps.map((v) => normalizeNullableNumber(v))
       : [];
 
     return evs.map((ev) => {
@@ -564,14 +574,15 @@ function UnifiedAttackRows(props: {
       const defPool = ev.defenderSide === "friend" ? fState : eState;
       const atkHp =
         ev.attackerIdx !== null
-          ? Number(atkPool[ev.attackerIdx] ?? 0) || 0
-          : 0;
+          ? atkPool[ev.attackerIdx] ?? null
+          : null;
       if (ev.defenderIdx === null) {
         return { event: ev, beforeHp: null, afterHp: null, atkHp };
       }
-      const beforeHp = Number(defPool[ev.defenderIdx] ?? 0) || 0;
-      const afterHp = Math.max(0, beforeHp - Math.max(0, ev.damage));
-      defPool[ev.defenderIdx] = afterHp;
+      const beforeHp = defPool[ev.defenderIdx] ?? null;
+      const afterHp =
+        beforeHp === null ? null : Math.max(0, beforeHp - Math.max(0, ev.damage));
+      if (afterHp !== null) defPool[ev.defenderIdx] = afterHp;
       return { event: ev, beforeHp, afterHp, atkHp };
     });
   };
@@ -766,7 +777,7 @@ function readDestructionValue(
     const n = Number(direct);
     return Number.isFinite(n) ? n : null;
   }
-  const nested = (source.air_base_attack as Record<string, unknown> | undefined)?.[key];
+  const nested = (source["air_base_attack"] as Record<string, unknown> | undefined)?.[key];
   if (nested != null) {
     const n = Number(nested);
     return Number.isFinite(n) ? n : null;
@@ -842,8 +853,8 @@ function PhaseCard(props: {
   phaseType: Record<string, unknown>;
   phaseData: unknown;
   fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
-  mstShipById: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  mstShipById: Map<number, MstShipRecord> | null;
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
   const phaseKey = () => Object.keys(props.phaseType)[0] ?? "";
@@ -1036,49 +1047,50 @@ function extractPhaseEntries(
   ): unknown => {
     switch (key) {
       case "AirBaseAssult":
-        return battle.air_base_assault;
+        return battle["air_base_assault"];
       case "CarrierBaseAssault":
-        return battle.carrier_base_assault;
+        return battle["carrier_base_assault"];
       case "AirBaseAirAttack":
-        return Array.isArray(battle.air_base_air_attacks)
-          ? battle.air_base_air_attacks
-          : (battle.air_base_air_attacks as any)?.attacks;
+        return Array.isArray(battle["air_base_air_attacks"])
+          ? battle["air_base_air_attacks"]
+          : jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
       case "OpeningAirAttack":
-        return Array.isArray(battle.opening_air_attack)
-          ? (battle.opening_air_attack as unknown[])[idx ?? 0]
-          : battle.opening_air_attack;
+        return Array.isArray(battle["opening_air_attack"])
+          ? (battle["opening_air_attack"] as unknown[])[idx ?? 0]
+          : battle["opening_air_attack"];
       case "SupportAttack":
         return {
-          support_hourai: battle.support_hourai,
-          support_airatack: battle.support_airattack,
+          support_hourai: battle["support_hourai"],
+          support_airatack: battle["support_airattack"],
         };
       case "OpeningTaisen":
-        return battle.opening_taisen;
+        return battle["opening_taisen"];
       case "OpeningRaigeki":
-        return battle.opening_raigeki;
+        return battle["opening_raigeki"];
       case "Hougeki":
-        return pickHougekiRowsByRound(battle.hougeki, idx);
+        return pickHougekiRowsByRound(battle["hougeki"], idx);
       case "ClosingRaigeki":
-        return battle.closing_raigeki;
+        return battle["closing_raigeki"];
       case "FriendlyForceAttack":
-        return battle.friendly_force_attack;
+        return battle["friendly_force_attack"];
       case "NightSupportAttack":
         return normalizeNightSupportAttackData(battle);
       case "MidnightHougeki":
-        return battle.midnight_hougeki;
+        return battle["midnight_hougeki"];
       default:
         return null;
     }
   };
 
   if (
-    Array.isArray(battle.battle_order) &&
-    (battle.battle_order as unknown[]).length > 0 &&
-    typeof (battle.battle_order as unknown[])[0] === "object"
+    Array.isArray(battle["battle_order"]) &&
+    (battle["battle_order"] as unknown[]).length > 0 &&
+    typeof (battle["battle_order"] as unknown[])[0] === "object"
   ) {
     const presentKeys = new Set<string>();
-    for (const phaseType of battle.battle_order as Record<string, unknown>[]) {
+    for (const phaseType of battle["battle_order"] as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
+      if (key === undefined) continue;
       presentKeys.add(key);
       const idx = phaseType[key] as number | null;
       entries.push({
@@ -1086,28 +1098,30 @@ function extractPhaseEntries(
         data: phaseDataForKey(battle, key, idx),
       });
     }
-    if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle.opening_raigeki)) {
+    if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle["opening_raigeki"])) {
       entries.push({
         type: { OpeningRaigeki: 0 },
-        data: battle.opening_raigeki,
+        data: battle["opening_raigeki"],
       });
     }
-    if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle.closing_raigeki)) {
+    if (!presentKeys.has("ClosingRaigeki") && hasRaigekiActivity(battle["closing_raigeki"])) {
       entries.push({
         type: { ClosingRaigeki: 0 },
-        data: battle.closing_raigeki,
+        data: battle["closing_raigeki"],
       });
     }
   } else {
     // Fallback for compact/legacy records
     const hasAirBaseAssault =
-      !!battle.air_base_assault && typeof battle.air_base_assault === "object";
+      !!battle["air_base_assault"] && typeof battle["air_base_assault"] === "object";
     const hasCarrierBaseAssault =
-      !!battle.carrier_base_assault &&
-      typeof battle.carrier_base_assault === "object";
+      !!battle["carrier_base_assault"] &&
+      typeof battle["carrier_base_assault"] === "object";
+    const airBaseAttacks =
+      jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
     const hasAirBaseAirAttacks =
-      !!(battle.air_base_air_attacks as any)?.attacks?.length ||
-      Array.isArray(battle.air_base_air_attacks);
+      (Array.isArray(airBaseAttacks) && airBaseAttacks.length > 0) ||
+      Array.isArray(battle["air_base_air_attacks"]);
 
     // Legacy (<0.6.0) data can lose air_base_air_attacks while assault is present.
     // Keep phase list explicit by showing a placeholder phase card for the unresolved segment.
@@ -1122,15 +1136,15 @@ function extractPhaseEntries(
       });
     }
 
-    if (battle.air_base_assault && typeof battle.air_base_assault === "object")
+    if (battle["air_base_assault"] && typeof battle["air_base_assault"] === "object")
       entries.push({
         type: { AirBaseAssult: 0 },
-        data: battle.air_base_assault,
+        data: battle["air_base_assault"],
       });
-    if (battle.carrier_base_assault && typeof battle.carrier_base_assault === "object")
+    if (battle["carrier_base_assault"] && typeof battle["carrier_base_assault"] === "object")
       entries.push({
         type: { CarrierBaseAssault: 0 },
-        data: battle.carrier_base_assault,
+        data: battle["carrier_base_assault"],
       });
     if (hasAirBaseAirAttacks)
       entries.push({
@@ -1138,49 +1152,54 @@ function extractPhaseEntries(
         data: phaseDataForKey(battle, "AirBaseAirAttack", 0),
       });
     if (
-      (battle.opening_air_attack as any)?.length ||
-      Array.isArray(battle.opening_air_attack)
+      Array.isArray(battle["opening_air_attack"]) &&
+      battle["opening_air_attack"].length > 0
     )
       entries.push({
         type: { OpeningAirAttack: 0 },
         data: phaseDataForKey(battle, "OpeningAirAttack", 0),
       });
-    if (battle.support_hourai || battle.support_airattack)
+    if (battle["support_hourai"] || battle["support_airattack"])
       entries.push({
         type: { SupportAttack: 0 },
         data: phaseDataForKey(battle, "SupportAttack", null),
       });
-    if (battle.opening_taisen)
-      entries.push({ type: { OpeningTaisen: 0 }, data: battle.opening_taisen });
-    if (battle.opening_raigeki && typeof battle.opening_raigeki === "object")
+    if (battle["opening_taisen"])
+      entries.push({ type: { OpeningTaisen: 0 }, data: battle["opening_taisen"] });
+    if (battle["opening_raigeki"] && typeof battle["opening_raigeki"] === "object")
       entries.push({
         type: { OpeningRaigeki: 0 },
-        data: battle.opening_raigeki,
+        data: battle["opening_raigeki"],
       });
-    if (battle.hougeki && (Array.isArray(battle.hougeki) || (battle.hougeki as any).length))
+    if (
+      battle["hougeki"] &&
+      (Array.isArray(battle["hougeki"]) ||
+        (jsonRecordOf(battle["hougeki"]) !== null &&
+          Object.keys(jsonRecordOf(battle["hougeki"]) ?? {}).length > 0))
+    )
       entries.push({
         type: { Hougeki: 0 },
         data: phaseDataForKey(battle, "Hougeki", 0),
       });
-    if (battle.closing_raigeki && typeof battle.closing_raigeki === "object")
+    if (battle["closing_raigeki"] && typeof battle["closing_raigeki"] === "object")
       entries.push({
         type: { ClosingRaigeki: 0 },
-        data: battle.closing_raigeki,
+        data: battle["closing_raigeki"],
       });
-    if (battle.friendly_force_attack)
+    if (battle["friendly_force_attack"])
       entries.push({
         type: { FriendlyForceAttack: 0 },
-        data: battle.friendly_force_attack,
+        data: battle["friendly_force_attack"],
       });
     if (normalizeNightSupportAttackData(battle))
       entries.push({
         type: { NightSupportAttack: 0 },
         data: phaseDataForKey(battle, "NightSupportAttack", null),
       });
-    if (battle.midnight_hougeki)
+    if (battle["midnight_hougeki"])
       entries.push({
         type: { MidnightHougeki: 0 },
-        data: battle.midnight_hougeki,
+        data: battle["midnight_hougeki"],
       });
   }
   return entries;
@@ -1191,16 +1210,18 @@ function extractPhaseEntries(
 export default function BattlePhaseView(props: {
   battle: Record<string, unknown>;
   fleets: BattleFleets | null;
-  mstSlotItemById: Map<number, Record<string, unknown>> | null;
-  mstShipById: Map<number, Record<string, unknown>> | null;
+  mstSlotItemById: Map<number, MstSlotItemRecord> | null;
+  mstShipById: Map<number, MstShipRecord> | null;
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
   const phases = () =>
     extractPhaseEntries(props.battle, {
-      legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning,
+      ...(props.showLegacyAirbasePhaseWarning === undefined
+        ? {}
+        : { legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning }),
     });
   const destructionBattle = () =>
-    (props.battle.destruction_battle as Record<string, unknown> | null) ?? null;
+    (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
   return (
     <Show
       when={phases().length > 0 || !!destructionBattle()}
@@ -1221,9 +1242,12 @@ export default function BattlePhaseView(props: {
               fleets={props.fleets}
               mstSlotItemById={props.mstSlotItemById}
               mstShipById={props.mstShipById}
-              showLegacyAirbasePhaseWarning={
-                props.showLegacyAirbasePhaseWarning
-              }
+              {...(props.showLegacyAirbasePhaseWarning === undefined
+                ? {}
+                : {
+                    showLegacyAirbasePhaseWarning:
+                      props.showLegacyAirbasePhaseWarning,
+                  })}
             />
           )}
         </For>

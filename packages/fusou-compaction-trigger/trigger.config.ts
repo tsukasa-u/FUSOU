@@ -18,8 +18,16 @@ function requireEnv(name: (typeof REQUIRED_RUNTIME_ENVS)[number]): string {
   return value;
 }
 
+function requireProjectRef(): string {
+  const value = process.env["TRIGGER_PROJECT_REF"];
+  if (!value || !String(value).trim()) {
+    throw new Error("Missing required deploy env for Trigger project: TRIGGER_PROJECT_REF");
+  }
+  return value;
+}
+
 export default defineConfig({
-  project: process.env.TRIGGER_PROJECT_REF,
+  project: requireProjectRef(),
   runtime: "node-22",
   maxDuration: timeout.None,
   dirs: ["./src/trigger"],

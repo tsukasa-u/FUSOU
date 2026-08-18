@@ -49,7 +49,11 @@ export function buildAutoLabelLayouts(
     const label = labels.get(anchor.key) ?? anchor.key;
     const width = estimateLabelWidth(label);
     const duplicateIndex = duplicateIndexByKey.get(anchor.key) ?? 0;
-    const rotatedAngles = angles.map((_, index) => angles[(index + duplicateIndex) % angles.length]);
+    const rotatedAngles: number[] = [];
+    for (let index = 0; index < angles.length; index += 1) {
+      const angle = angles[(index + duplicateIndex) % angles.length];
+      if (angle !== undefined) rotatedAngles.push(angle);
+    }
     let bestLayout: LabelLayout | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
 

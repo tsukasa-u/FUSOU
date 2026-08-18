@@ -31,16 +31,10 @@ const createCookieStorage = (cookies: CookieStore) => {
 
 export const createSupabaseServerClient = (
   cookies: CookieStore,
-  runtimeEnv?: Record<string, any>,
+  runtimeEnv?: Record<string, unknown>,
 ) => {
   // Create env context from runtime env or use buildtime env
-  const envCtx: EnvContext = runtimeEnv
-    ? createEnvContext({ env: runtimeEnv })
-    : {
-        runtime: {},
-        buildtime: import.meta.env as Record<string, any>,
-        isDev: import.meta.env.DEV,
-      };
+  const envCtx: EnvContext = createEnvContext({ env: runtimeEnv ?? {} });
 
   const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
   const serviceKey = getEnv(envCtx, "SUPABASE_SECRET_KEY");

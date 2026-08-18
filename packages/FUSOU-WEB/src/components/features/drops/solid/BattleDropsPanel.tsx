@@ -4,7 +4,11 @@ import type { SharedDashboardState } from "../../battles/solid/types";
 import { getBattleMapAsset, resolveBattleMapSpriteUrl } from "@/data/battleMapAssets";
 import { mapKeyOf, cellLabel as pureCellLabel, parseMapFrameMeta } from "../../map-flow/solid/battle-map-flow/dataUtils";
 import { inferRouteOverlays } from "../../map-flow/solid/battle-map-flow/routeInference";
-import type { InferredRouteOverlay } from "../../map-flow/solid/battle-map-flow/types";
+import { battleResultOf } from "../../map-flow/solid/battle-map-flow/recordParsers";
+import type {
+  InferredRouteOverlay,
+  MapImageMetaPayload,
+} from "../../map-flow/solid/battle-map-flow/types";
 
 import { STYPE_NAMES } from "@/features/simulator/constants";
 import {
@@ -13,6 +17,43 @@ import {
 } from "@/features/battles/map-labels";
 
 type MapSpot = { cellId: number; x: number; y: number; lineOffsetX?: number; lineOffsetY?: number };
+type JsonRecord = Record<string, unknown>;
+type MapAreaRecord = { id: string | number; name: string };
+type MapInfoRecord = { maparea_id: string | number; no: string | number; name: string };
+
+function isJsonRecord(value: unknown): value is JsonRecord {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isMapAreaRecord(value: unknown): value is MapAreaRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["id"] === "string" || typeof value["id"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function isMapInfoRecord(value: unknown): value is MapInfoRecord {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (typeof value["maparea_id"] === "string" || typeof value["maparea_id"] === "number") &&
+    (typeof value["no"] === "string" || typeof value["no"] === "number") &&
+    typeof value["name"] === "string"
+  );
+}
+
+function recordsMatching<T>(payload: unknown, predicate: (value: unknown) => value is T): T[] {
+  if (!isJsonRecord(payload) || !Array.isArray(payload["records"])) return [];
+  return payload["records"].filter(predicate);
+}
+
+function isMapImageMetaPayload(value: unknown): value is MapImageMetaPayload {
+  if (!isJsonRecord(value)) return false;
+  return (
+    (value["frames"] === undefined || isJsonRecord(value["frames"])) &&
+    (value["meta"] === undefined || isJsonRecord(value["meta"]))
+  );
+}
 
 import { ShipDropCard } from "./ShipDropCard";
 
@@ -25,17 +66,17 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
   const [mapRouteFrames, setMapRouteFrames] = createSignal<Record<number, { x: number; y: number; width: number; height: number; routeId: number }>>({});
   const [selectedCellId, setSelectedCellId] = createSignal<number | null>(null);
 
-  const [mstMapareas, setMstMapareas] = createSignal<any[]>([]);
-  const [mstMapinfos, setMstMapinfos] = createSignal<any[]>([]);
+  const [mstMapareas, setMstMapareas] = createSignal<MapAreaRecord[]>([]);
+  const [mstMapinfos, setMstMapinfos] = createSignal<MapInfoRecord[]>([]);
 
   createEffect(() => {
     fetch("/api/master-data/json?table_name=mst_map_area")
       .then(res => res.json())
-      .then((payload: any) => setMstMapareas(payload.records || []))
+      .then((payload: unknown) => setMstMapareas(recordsMatching(payload, isMapAreaRecord)))
       .catch(() => {});
     fetch("/api/master-data/json?table_name=mst_map_info")
       .then(res => res.json())
-      .then((payload: any) => setMstMapinfos(payload.records || []))
+      .then((payload: unknown) => setMstMapinfos(recordsMatching(payload, isMapInfoRecord)))
       .catch(() => {});
   });
 
@@ -50,6 +91,7 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const getMapInfoName = (mapKey: string) => {
     const [area, no] = mapKey.split("-");
+    if (area === undefined || no === undefined) return resolveMapInfoName(mapKey);
     const fromApi = mstMapinfos().find(m => String(m.maparea_id) === area && String(m.no) === no);
     if (fromApi?.name) return fromApi.name;
     return resolveMapInfoName(mapKey);
@@ -69,21 +111,27 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
     fetch(asset.infoUrl)
       .then((res) => res.json())
-      .then((payload: any) => {
-        const spots = (payload.spots || [])
-          .map((s: any) => {
-            const cellId = Number(s.no);
-            const x = Number(s.x);
-            const y = Number(s.y);
+      .then((payload: unknown) => {
+        const rawSpots = isJsonRecord(payload) && Array.isArray(payload["spots"])
+          ? payload["spots"]
+          : [];
+        const spots = rawSpots
+          .map((value: unknown) => {
+            const s = isJsonRecord(value) ? value : null;
+            if (!s) return null;
+            const line = isJsonRecord(s["line"]) ? s["line"] : {};
+            const cellId = Number(s["no"]);
+            const x = Number(s["x"]);
+            const y = Number(s["y"]);
             if (!Number.isFinite(cellId) || !Number.isFinite(x) || !Number.isFinite(y)) return null;
-            const lineOffsetX = Number(s.line?.x ?? NaN);
-            const lineOffsetY = Number(s.line?.y ?? NaN);
+            const lineOffsetX = Number(line["x"] ?? NaN);
+            const lineOffsetY = Number(line["y"] ?? NaN);
             return {
               cellId,
               x,
               y,
-              lineOffsetX: Number.isFinite(lineOffsetX) ? lineOffsetX : undefined,
-              lineOffsetY: Number.isFinite(lineOffsetY) ? lineOffsetY : undefined,
+              ...(Number.isFinite(lineOffsetX) ? { lineOffsetX } : {}),
+              ...(Number.isFinite(lineOffsetY) ? { lineOffsetY } : {}),
             } satisfies MapSpot;
           })
           .filter((s: MapSpot | null): s is MapSpot => s !== null);
@@ -93,8 +141,10 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
     fetch(asset.imageMetaUrl)
       .then((res) => res.json())
-      .then((payload: any) => {
-        const meta = parseMapFrameMeta(payload);
+      .then((payload: unknown) => {
+        const meta = parseMapFrameMeta(
+          isMapImageMetaPayload(payload) ? payload : {},
+        );
         setMapRouteFrames(meta?.routeFrames ?? {});
       })
       .catch(() => setMapRouteFrames({}));
@@ -102,7 +152,11 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     if (asset.labelsUrl) {
       fetch(asset.labelsUrl)
         .then((res) => res.json())
-        .then((payload: any) => {
+        .then((payload: unknown) => {
+          if (!isJsonRecord(payload)) {
+            setMapLabels({});
+            return;
+          }
           const labels: Record<number, string> = {};
           for (const [k, v] of Object.entries(payload)) {
             labels[Number(k)] = String(v);
@@ -125,24 +179,25 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
 
   const allDrops = createMemo(() => {
     return d.battleRecords()
-      .filter((r) => r.battle_result?.drop_ship_id)
+      .map((r) => ({ record: r, result: battleResultOf(r) }))
+      .filter((entry) => entry.result?.drop_ship_id)
       .map((r) => {
-        const shipId = r.battle_result.drop_ship_id;
+        const shipId = r.result!.drop_ship_id!;
         const info = mstShipInfoById().get(shipId);
         const name = info?.name || `艦#${shipId}`;
         const stype = info?.stype || 0;
         const backs = info?.backs || 1;
-        const mapKey = mapKeyOf(r);
-        const winRank = r.battle_result.win_rank || "不明";
+        const mapKey = mapKeyOf(r.record);
+        const winRank = r.result!.win_rank || "不明";
         return {
-          id: r.uuid || `${r.timestamp}-${shipId}`,
+          id: r.record.uuid || `${r.record.timestamp}-${shipId}`,
           shipId,
           stype,
           backs,
           shipName: name,
           mapKey,
-          cellId: r.cell_id,
-          timestamp: r.timestamp,
+          cellId: r.record.cell_id,
+          timestamp: r.record.timestamp,
           winRank,
         };
       })
@@ -251,8 +306,9 @@ export default function BattleDropsPanel(props: { dashboardState: SharedDashboar
     
     const grouped = new Map<string, { areaId: string; maps: { mapKey: string; drops: number }[]; totalAreaDrops: number }>();
     for (const [mapKey, stats] of mapStats.entries()) {
-      if (mapKey === "-" || mapKey === "0-0") continue;
+      if (mapKey === "-" || mapKey === "unknown") continue;
       const areaId = mapKey.split("-")[0];
+      if (areaId === undefined) continue;
       if (!grouped.has(areaId)) {
         grouped.set(areaId, { areaId, maps: [], totalAreaDrops: 0 });
       }

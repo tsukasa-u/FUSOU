@@ -33,10 +33,10 @@ export function MasterDataLoadStatusAlert(props: {
     if (copiedTimer !== undefined) window.clearTimeout(copiedTimer);
   });
 
-  const copyItemDetail = (item: MasterDataLoadStatusItem): void => {
+  const copyItemDetail = async (item: MasterDataLoadStatusItem): Promise<void> => {
     const text = item.diagnostic ?? item.detail;
     if (!text) return;
-    const copied = copyToClipboard(text);
+    const copied = await copyToClipboard(text);
     if (!copied) return;
     setCopiedItemName(item.name);
     if (copiedTimer !== undefined) window.clearTimeout(copiedTimer);

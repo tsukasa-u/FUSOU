@@ -1,6 +1,12 @@
 import { Hono } from "hono";
 import type { Bindings } from "@/server/types";
+import {
+  ShareRecordResponseSchema,
+  ShortenerRequestSchema,
+} from "@/server/schemas/shortener";
+import type { SnapshotPayload } from "@/server/schemas/shortener";
 import { createEnvContext, getEnv } from "@/server/utils";
+import { isAllowedHost, parseAllowedHosts } from "@/server/utils/host-allowlist";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -13,16 +19,6 @@ type UpstreamAttempt = {
   detail?: string;
 };
 
-type SnapshotPayload = {
-  snapshotShips?: Record<string, unknown>;
-  snapshotSlotItems?: Record<string, unknown>;
-};
-
-type ShareRecordResponse = {
-  originalUrl?: string;
-  snapshotPayload?: Record<string, unknown> | null;
-};
-
 const JSON_NO_STORE_HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
@@ -30,6 +26,10 @@ const JSON_NO_STORE_HEADERS = {
 
 const MAX_SHARE_URL_LENGTH = 16_000;
 const MAX_SNAPSHOT_PAYLOAD_BYTES = 1_000_000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 async function requestShortener(
   fetcher: () => Promise<Response>,
@@ -71,7 +71,8 @@ async function requestShortener(
 
   let json: Record<string, unknown> | null = null;
   try {
-    json = JSON.parse(text) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(text);
+    json = isRecord(parsed) ? parsed : null;
   } catch {
     json = null;
   }
@@ -82,11 +83,15 @@ async function requestShortener(
       ok: false,
       status: response.status,
       error: "Shortener upstream error",
-      detail: typeof json?.error === "string" ? json.error : text.slice(0, 300),
+      detail:
+        typeof json?.["error"] === "string"
+          ? json["error"]
+          : text.slice(0, 300),
     };
   }
 
-  const key = json && typeof json.key === "string" ? json.key.trim() : "";
+  const key =
+    json && typeof json["key"] === "string" ? json["key"].trim() : "";
   if (!key) {
     return {
       source: "service-binding",
@@ -105,28 +110,8 @@ async function requestShortener(
   };
 }
 
-function parseAllowedHosts(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((entry) => entry.trim().toLowerCase())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => {
-      if (entry.includes("://")) {
-        try {
-          return new URL(entry).hostname.toLowerCase();
-        } catch {
-          return "";
-        }
-      }
-      return entry.replace(/^\*\./, "");
-    })
-    .filter((entry) => entry.length > 0);
-}
-
 function resolveAllowedHosts(
   envCtx: ReturnType<typeof createEnvContext>,
-  requestUrl: string,
 ): Set<string> {
   const allowed = new Set<string>();
 
@@ -139,12 +124,6 @@ function resolveAllowedHosts(
     }
   }
 
-  try {
-    allowed.add(new URL(requestUrl).hostname.toLowerCase());
-  } catch {
-    // Ignore parse error.
-  }
-
   for (const host of parseAllowedHosts(
     getEnv(envCtx, "PUBLIC_SITE_ALLOWED_HOSTS"),
   )) {
@@ -154,29 +133,18 @@ function resolveAllowedHosts(
   return allowed;
 }
 
-function isAllowedHost(hostname: string, allowedHosts: Set<string>): boolean {
-  const normalized = hostname.toLowerCase();
-  if (allowedHosts.has(normalized)) return true;
-  for (const allowed of allowedHosts) {
-    if (normalized.endsWith(`.${allowed}`)) return true;
-  }
-  return false;
-}
-
 function normalizeShareTargetUrl(
   value: string,
   allowedHosts: Set<string>,
-  siteOrigin: string,
 ): string | null {
   try {
     const parsed = new URL(value);
-    let siteProtocol = "https:";
-    try {
-      siteProtocol = new URL(siteOrigin).protocol;
-    } catch {
-      /* ignore */
-    }
-    if (parsed.protocol !== "https:" && parsed.protocol !== siteProtocol)
+    const isLocalHttp =
+      parsed.protocol === "http:" &&
+      (parsed.hostname === "localhost" ||
+        parsed.hostname === "127.0.0.1" ||
+        parsed.hostname === "[::1]");
+    if (parsed.protocol !== "https:" && !isLocalHttp)
       return null;
     if (!isAllowedHost(parsed.hostname, allowedHosts)) return null;
 
@@ -208,11 +176,11 @@ function decodePayloadBase64(data: string): unknown {
 
 app.post("/", async (c) => {
   const envCtx = createEnvContext(c);
-  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
+  const shortenerService = envCtx.runtime["SHORTENER_SERVICE"] as
     | Fetcher
     | undefined;
   const currentOrigin = new URL(c.req.url).origin;
-  const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
+  const allowedHosts = resolveAllowedHosts(envCtx);
 
   const originHeader = c.req.header("Origin");
   if (!originHeader || originHeader !== currentOrigin) {
@@ -264,16 +232,16 @@ app.post("/", async (c) => {
     );
   }
 
-  const url = (body as { url?: unknown })?.url;
-  const snapshotPayload = (body as { snapshotPayload?: unknown })
-    ?.snapshotPayload;
-  if (typeof url !== "string" || url.length === 0) {
+  const parsedBody = ShortenerRequestSchema.safeParse(body);
+  if (!parsedBody.success) {
     return c.json(
       { ok: false, error: "url is required" },
       400,
       JSON_NO_STORE_HEADERS,
     );
   }
+
+  const { url, snapshotPayload } = parsedBody.data;
   if (url.length > MAX_SHARE_URL_LENGTH) {
     return c.json(
       { ok: false, error: "url is too long" },
@@ -284,14 +252,6 @@ app.post("/", async (c) => {
 
   let validatedSnapshotPayload: SnapshotPayload | null = null;
   if (snapshotPayload != null) {
-    if (typeof snapshotPayload !== "object") {
-      return c.json(
-        { ok: false, error: "snapshotPayload must be an object" },
-        400,
-        JSON_NO_STORE_HEADERS,
-      );
-    }
-
     try {
       const encoded = JSON.stringify(snapshotPayload);
       if (typeof encoded !== "string") {
@@ -308,7 +268,7 @@ app.post("/", async (c) => {
           JSON_NO_STORE_HEADERS,
         );
       }
-      validatedSnapshotPayload = snapshotPayload as SnapshotPayload;
+      validatedSnapshotPayload = snapshotPayload;
     } catch {
       return c.json(
         { ok: false, error: "snapshotPayload is invalid" },
@@ -321,7 +281,6 @@ app.post("/", async (c) => {
   const normalizedUrl = normalizeShareTargetUrl(
     url,
     allowedHosts,
-    currentOrigin,
   );
   if (!normalizedUrl) {
     return c.json(
@@ -375,8 +334,8 @@ app.post("/", async (c) => {
 
 app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
   const envCtx = createEnvContext(c);
-  const allowedHosts = resolveAllowedHosts(envCtx, c.req.url);
-  const shortenerService = envCtx.runtime.SHORTENER_SERVICE as
+  const allowedHosts = resolveAllowedHosts(envCtx);
+  const shortenerService = envCtx.runtime["SHORTENER_SERVICE"] as
     | Fetcher
     | undefined;
 
@@ -422,9 +381,19 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
     );
   }
 
-  let data: ShareRecordResponse;
+  let data: import("@/server/schemas/shortener").ShareRecordResponse;
   try {
-    data = (await upstream.json()) as ShareRecordResponse;
+    const parsedResponse = ShareRecordResponseSchema.safeParse(
+      await upstream.json(),
+    );
+    if (!parsedResponse.success) {
+      return c.json(
+        { ok: false, error: "Invalid upstream response" },
+        503,
+        JSON_NO_STORE_HEADERS,
+      );
+    }
+    data = parsedResponse.data;
   } catch {
     return c.json(
       { ok: false, error: "Invalid upstream response" },
@@ -439,7 +408,6 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
     ? normalizeShareTargetUrl(
         originalUrl,
         allowedHosts,
-        new URL(c.req.url).origin,
       )
     : null;
   if (!safeOriginalUrl) {
@@ -470,7 +438,14 @@ app.get("/resolve/:key{[0-9a-f]{16}}", async (c) => {
         JSON_NO_STORE_HEADERS,
       );
     }
-    dataPayload = decoded as Record<string, unknown>;
+    if (!isRecord(decoded)) {
+      return c.json(
+        { ok: false, error: "Invalid data payload" },
+        422,
+        JSON_NO_STORE_HEADERS,
+      );
+    }
+    dataPayload = decoded;
   } catch {
     return c.json(
       { ok: false, error: "Invalid data payload" },

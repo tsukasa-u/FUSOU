@@ -106,7 +106,7 @@ export function serializeLocalBattleError(
     return {
       code: error.code,
       message: error.message,
-      details: error.details,
+      ...(error.details === undefined ? {} : { details: error.details }),
     };
   }
   return {
