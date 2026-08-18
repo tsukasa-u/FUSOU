@@ -1,7 +1,10 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import * as ocfDecoder from "@/features/avro/ocf-decoder";
+import {
+  battleFixtureBytes,
+  enemyDeckFixtureBytes,
+  enemyShipFixtureBytes,
+} from "@/features/avro/test-fixtures";
 import {
   createLocalAvroFileEntry,
   parseLocalAvroPath,
@@ -10,7 +13,6 @@ import {
 import { LocalBattleError } from "../protocol";
 import { LocalWorkerSession } from "../session";
 
-const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
 const relativePath =
   "fusou/2026-07-08/transaction_data/5-4/battle/1785499200_4c78c801-1d64-4e66-bcac-82025884b215.avro";
 const enemyDeckPath = relativePath.replace("/battle/", "/enemy_deck/");
@@ -55,7 +57,7 @@ function handleEntryFor(
 
 describe("LocalWorkerSession", () => {
   it("selects one latest table version when the query omits it", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const expectedCount = ocfDecoder.decodeAvroOcfToJson(bytes).length;
     const secondPath = relativePath.replace("1785499200_", "1785499201_");
     const decodeSpy = vi.spyOn(ocfDecoder, "decodeAvroOcfToJson");
@@ -81,13 +83,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("does not decode enemy relations from another period in overview", async () => {
-    const battleBytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
-    const enemyDeckBytes = new Uint8Array(
-      readFileSync(resolve(databaseRoot, enemyDeckPath)),
-    );
-    const enemyShipBytes = new Uint8Array(
-      readFileSync(resolve(databaseRoot, enemyShipPath)),
-    );
+    const battleBytes = battleFixtureBytes;
     const previousPeriodDeckPath = enemyDeckPath.replace("2026-07-08", "2026-06-26");
     const previousPeriodShipPath = enemyShipPath.replace("2026-07-08", "2026-06-26");
     const decodeSpy = vi.spyOn(ocfDecoder, "decodeAvroOcfToJson");
@@ -97,10 +93,10 @@ describe("LocalWorkerSession", () => {
         fingerprint: "period-scoped-overview-fixture",
         entries: [
           entryFor(relativePath, battleBytes),
-          entryFor(enemyDeckPath, enemyDeckBytes),
-          entryFor(previousPeriodDeckPath, enemyDeckBytes),
-          entryFor(enemyShipPath, enemyShipBytes),
-          entryFor(previousPeriodShipPath, enemyShipBytes),
+          entryFor(enemyDeckPath, enemyDeckFixtureBytes),
+          entryFor(previousPeriodDeckPath, enemyDeckFixtureBytes),
+          entryFor(enemyShipPath, enemyShipFixtureBytes),
+          entryFor(previousPeriodShipPath, enemyShipFixtureBytes),
         ],
       });
 
@@ -117,7 +113,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("filters records by the requested embedded table version", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const secondPath = relativePath.replace("1785499200_", "1785499201_");
     const session = new LocalWorkerSession();
     session.initialize({
@@ -144,7 +140,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("keeps table version unresolved when metadata is incomplete", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const secondPath = relativePath.replace("1785499200_", "1785499201_");
     const session = new LocalWorkerSession();
     session.initialize({
@@ -165,7 +161,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("enforces the configured query record limit", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const session = new LocalWorkerSession();
     session.initialize({
       fingerprint: "limited-fixture",
@@ -183,7 +179,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("checks actual bytes read from persistent file handles", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const session = new LocalWorkerSession();
     session.initialize({
       fingerprint: "persistent-size-fixture",
@@ -200,8 +196,8 @@ describe("LocalWorkerSession", () => {
     ).rejects.toMatchObject({ code: "OUT_OF_MEMORY_GUARD" });
   });
 
-  it("decodes and filters a real APP AVRO table in worker memory", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+  it("decodes and filters a local AVRO table in worker memory", async () => {
+    const bytes = battleFixtureBytes;
     const session = new LocalWorkerSession();
     session.initialize({
       fingerprint: "fixture",
@@ -230,8 +226,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("rejects an embedded schema that does not match the path table", async () => {
-    const battlePath = resolve(databaseRoot, relativePath);
-    const bytes = new Uint8Array(readFileSync(battlePath));
+    const bytes = battleFixtureBytes;
     const cellsPath = relativePath.replace("/battle/", "/cells/");
     const session = new LocalWorkerSession();
     session.initialize({
@@ -260,7 +255,7 @@ describe("LocalWorkerSession", () => {
   });
 
   it("filters oversized all-period detail tables before applying the record guard", async () => {
-    const bytes = new Uint8Array(readFileSync(resolve(databaseRoot, relativePath)));
+    const bytes = battleFixtureBytes;
     const target = ocfDecoder.decodeAvroOcfToJson(bytes)[0];
     if (!target) throw new Error("fixture AVRO file has no records");
     const envUuid = String(target["env_uuid"]);

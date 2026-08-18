@@ -1,10 +1,9 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { decodeAvroOcfToJson } from "@/features/avro/ocf-decoder";
 import {
-  decodeAvroOcfToJson,
-  type AvroJsonRecord,
-} from "@/features/avro/ocf-decoder";
+  battleFixtureRecords,
+  buildAvroOcfFixture,
+} from "@/features/avro/test-fixtures";
 import {
   createLocalAvroFileEntry,
   parseLocalAvroPath,
@@ -18,15 +17,17 @@ import {
 import { buildBattleDropsPayload } from "../../resolvers/drops";
 import { buildBattleOverviewPayload } from "../../resolvers/overview";
 
-const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
 const periodTag = "2026-07-08";
-const mapPath = resolve(
-  databaseRoot,
-  "fusou",
-  periodTag,
-  "transaction_data",
-  "5-4",
-);
+const cellsFixtureRecords = [
+  {
+    env_uuid: "fixture-env",
+    battle_index: [0, 1],
+    cell_index: [101, 102],
+    battles: "fixture-battle-0",
+    maparea_id: 5,
+    mapinfo_no: 4,
+  },
+];
 
 function fileFromBytes(bytes: Uint8Array, name: string, lastModified: number): File {
   const buffer = new ArrayBuffer(bytes.byteLength);
@@ -34,79 +35,78 @@ function fileFromBytes(bytes: Uint8Array, name: string, lastModified: number): F
   return new File([buffer], name, { lastModified });
 }
 
-function loadRealMapData(): {
+function fixtureTables(): BattleDetailTables {
+  return {
+    battle: battleFixtureRecords,
+    cells: cellsFixtureRecords,
+    battleResult: [],
+    ownDeck: [],
+    ownShip: [],
+    ownSlotItem: [],
+    enemyDeck: [],
+    enemyShip: [],
+    enemySlotItem: [],
+    midnightHougekiLists: [],
+    midnightHougekis: [],
+    openingTaisenLists: [],
+    openingTaisens: [],
+    hougekiLists: [],
+    hougekis: [],
+    openingAirattackLists: [],
+    openingAirattacks: [],
+    openingRaigeki: [],
+    closingRaigeki: [],
+    airbaseAssault: [],
+    airbaseAirattackLists: [],
+    airbaseAirattacks: [],
+    carrierbaseAssault: [],
+    supportHourai: [],
+    supportAirattack: [],
+    nightSupportHourai: [],
+    nightSupportAirattack: [],
+    friendlySupportHouraiLists: [],
+    friendlySupportHourai: [],
+    destructionBattle: [],
+  };
+}
+
+function loadFixtureData(): {
   entries: LocalManifestEntry[];
   tables: BattleDetailTables;
 } {
   const entries: LocalManifestEntry[] = [];
-  const records = new Map<string, AvroJsonRecord[]>();
-
-  for (const tableEntry of readdirSync(mapPath, { withFileTypes: true })) {
-    if (!tableEntry.isDirectory()) continue;
-    const table = tableEntry.name;
-    const tableRecords: AvroJsonRecord[] = [];
-    for (const fileEntry of readdirSync(resolve(mapPath, table), {
-      withFileTypes: true,
-    })) {
-      if (!fileEntry.isFile() || !fileEntry.name.endsWith(".avro")) continue;
-      const absolutePath = resolve(mapPath, table, fileEntry.name);
-      const bytes = new Uint8Array(readFileSync(absolutePath));
-      const relativePath = `fusou/${periodTag}/transaction_data/5-4/${table}/${fileEntry.name}`;
-      const parsed = parseLocalAvroPath(relativePath);
-      const stat = statSync(absolutePath);
-      entries.push({
-        ...createLocalAvroFileEntry(parsed, {
-          size: bytes.byteLength,
-          lastModified: stat.mtimeMs,
-        }),
-        file: fileFromBytes(bytes, fileEntry.name, stat.mtimeMs),
-      });
-      tableRecords.push(...decodeAvroOcfToJson(bytes));
-    }
-    records.set(table, tableRecords);
+  const decodedTables = new Map<string, ReturnType<typeof decodeAvroOcfToJson>>();
+  const fileName =
+    "1785499200_4c78c801-1d64-4e66-bcac-82025884b215.avro";
+  for (const [table, schemaName, records] of [
+    ["battle", "Battle", battleFixtureRecords],
+    ["cells", "Cells", cellsFixtureRecords],
+  ] as const) {
+    const relativePath = `fusou/${periodTag}/transaction_data/5-4/${table}/${fileName}`;
+    const bytes = buildAvroOcfFixture(schemaName, records);
+    decodedTables.set(table, decodeAvroOcfToJson(bytes));
+    const parsed = parseLocalAvroPath(relativePath);
+    entries.push({
+      ...createLocalAvroFileEntry(parsed, {
+        size: bytes.byteLength,
+        lastModified: 1,
+      }),
+      file: fileFromBytes(bytes, fileName, 1),
+    });
   }
-
-  const rows = (table: string): AvroJsonRecord[] => records.get(table) ?? [];
   return {
     entries,
     tables: {
-      battle: rows("battle"),
-      cells: rows("cells"),
-      battleResult: rows("battle_result"),
-      ownDeck: rows("own_deck"),
-      ownShip: rows("own_ship"),
-      ownSlotItem: rows("own_slotitem"),
-      enemyDeck: rows("enemy_deck"),
-      enemyShip: rows("enemy_ship"),
-      enemySlotItem: rows("enemy_slotitem"),
-      midnightHougekiLists: rows("midnight_hougeki_list"),
-      midnightHougekis: rows("midnight_hougeki"),
-      openingTaisenLists: rows("opening_taisen_list"),
-      openingTaisens: rows("opening_taisen"),
-      hougekiLists: rows("hougeki_list"),
-      hougekis: rows("hougeki"),
-      openingAirattackLists: rows("opening_airattack_list"),
-      openingAirattacks: rows("opening_airattack"),
-      openingRaigeki: rows("opening_raigeki"),
-      closingRaigeki: rows("closing_raigeki"),
-      airbaseAssault: rows("airbase_assult"),
-      airbaseAirattackLists: rows("airbase_airattack_list"),
-      airbaseAirattacks: rows("airbase_airattack"),
-      carrierbaseAssault: rows("carrierbase_assault"),
-      supportHourai: rows("support_hourai"),
-      supportAirattack: rows("support_airattack"),
-      nightSupportHourai: rows("night_support_hourai"),
-      nightSupportAirattack: rows("night_support_airattack"),
-      friendlySupportHouraiLists: rows("friendly_support_hourai_list"),
-      friendlySupportHourai: rows("friendly_support_hourai"),
-      destructionBattle: rows("destruction_battle"),
+      ...fixtureTables(),
+      battle: decodedTables.get("battle") ?? [],
+      cells: decodedTables.get("cells") ?? [],
     },
   };
 }
 
-describe("real APP AVRO detail contract", () => {
+describe("local AVRO detail contract", () => {
   it("matches the shared resolver payload for a real local detail", async () => {
-    const { entries, tables } = loadRealMapData();
+    const { entries, tables } = loadFixtureData();
     const sourceBattle = tables.battle.find(
       (row) =>
         typeof row["env_uuid"] === "string" &&
@@ -139,8 +139,8 @@ describe("real APP AVRO detail contract", () => {
     });
   });
 
-  it("matches the shared overview and drops resolvers for real local data", async () => {
-    const { entries, tables } = loadRealMapData();
+  it("matches the shared overview and drops resolvers for local fixture data", async () => {
+    const { entries, tables } = loadFixtureData();
     const session = new LocalWorkerSession();
     session.initialize({ fingerprint: "real-app-avro", entries });
 

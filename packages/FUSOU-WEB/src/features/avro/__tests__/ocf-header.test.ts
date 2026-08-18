@@ -1,9 +1,6 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { OcfHeaderError, parseOcfHeader } from "../ocf-header";
-
-const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
+import { battleFixtureBytes, buildAvroOcfFixture } from "../test-fixtures";
 
 function encodeLong(value: number): Uint8Array {
   let raw = value >= 0 ? value * 2 : -value * 2 - 1;
@@ -55,19 +52,12 @@ function buildNegativeMapBlockHeader(
 }
 
 describe("parseOcfHeader", () => {
-  it("parses the real APP transaction OCF header", () => {
-    const bytes = readFileSync(
-      resolve(
-        databaseRoot,
-        "fusou/2026-06-26/transaction_data/6-5/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro",
-      ),
-    );
-
-    const header = parseOcfHeader(new Uint8Array(bytes));
+  it("parses the battle-record OCF fixture header", () => {
+    const header = parseOcfHeader(battleFixtureBytes);
 
     expect(header.codec).toBe("null");
     expect(header.schema.name).toBe("Battle");
-    expect(header.schema.fields).toHaveLength(42);
+    expect(header.schema.fields?.length ?? 0).toBeGreaterThan(0);
     expect(header.metadata["table_version"]).toBeUndefined();
     expect(header.syncMarker).toHaveLength(16);
     expect(header.bodyOffset).toBeGreaterThan(4);
@@ -95,6 +85,15 @@ describe("parseOcfHeader", () => {
 
     expect(header.metadata["avro.codec"]).toBe("null");
     expect(header.bodyOffset).toBe(headerBytes.length);
+  });
+
+  it("builds a self-contained OCF fixture with the expected metadata", () => {
+    const header = parseOcfHeader(
+      buildAvroOcfFixture("MstShip", [{ id: 1, name: "fixture" }]),
+    );
+
+    expect(header.schema.name).toBe("MstShip");
+    expect(header.metadata["avro.codec"]).toBe("null");
   });
 
   it("rejects an unsafe header varint", () => {

@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import type { R2Bucket } from "@cloudflare/workers-types";
 import { parseOcfHeader } from "../../../features/avro/ocf-header";
+import { battleFixtureBytes } from "../../../features/avro/test-fixtures";
 
 vi.mock("@fusou/avro-wasm", () => ({
 	initWasm: vi.fn(),
@@ -153,14 +152,7 @@ describe("battle-data route integration", () => {
 	});
 
 	it("reads indexed AVRO blocks with R2 ranges", async () => {
-		const avroBytes = new Uint8Array(
-			readFileSync(
-				resolve(
-					process.cwd(),
-					"../FUSOU-DATABASE/fusou/2026-06-26/transaction_data/6-5/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro",
-				),
-			),
-		);
+				const avroBytes = battleFixtureBytes;
 		const headerLength = parseOcfHeader(avroBytes).bodyOffset;
 		const ranges: Array<{ offset: number; length: number }> = [];
 		const bucket = {
@@ -224,14 +216,7 @@ describe("battle-data route integration", () => {
 	});
 
 	it("prunes latest R2 blocks by dataset and resolved table version", async () => {
-		const avroBytes = new Uint8Array(
-			readFileSync(
-				resolve(
-					process.cwd(),
-					"../FUSOU-DATABASE/fusou/2026-06-26/transaction_data/6-5/battle/1783429200_049fe173-e1d1-4ac1-b55d-41a1b0aed8ec.avro",
-				),
-			),
-		);
+				const avroBytes = battleFixtureBytes;
 		const headerLength = parseOcfHeader(avroBytes).bodyOffset;
 		const ranges: Array<{ offset: number; length: number }> = [];
 		const blockRow = {

@@ -1,14 +1,11 @@
-import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseOcfHeader } from "../../../avro/ocf-header";
+import { buildAvroOcfFixture } from "../../../avro/test-fixtures";
 import {
   createLocalAvroFileEntry,
   LocalAvroPathError,
   parseLocalAvroPath,
 } from "../manifest";
-
-const databaseRoot = resolve(process.cwd(), "../FUSOU-DATABASE");
 
 describe("APP local AVRO manifest paths", () => {
   it("parses a transaction path and keeps table version unresolved", () => {
@@ -66,24 +63,23 @@ describe("APP local AVRO manifest paths", () => {
     ).toThrow(LocalAvroPathError);
   });
 
-  it("matches the real database path and OCF header together", () => {
+  it("matches the local fixture path and OCF header together", () => {
     const relativePath =
       "fusou/2026-02-13/master_data/mst_ships.avro";
     const parsed = parseLocalAvroPath(relativePath);
-    const filePath = resolve(databaseRoot, relativePath);
-    const stat = statSync(filePath);
-    const header = parseOcfHeader(
-      new Uint8Array(readFileSync(filePath)),
-    );
+    const bytes = buildAvroOcfFixture("MstShip", [
+      { id: 1, name: "fixture" },
+    ]);
+    const header = parseOcfHeader(bytes);
 
     expect(parsed.table).toBe("mst_ships");
     expect(header.codec).toBe("null");
     expect(header.schema.name).toBe("MstShip");
     expect(
       createLocalAvroFileEntry(parsed, {
-        size: stat.size,
-        lastModified: stat.mtimeMs,
+        size: bytes.byteLength,
+        lastModified: 1,
       }).size,
-    ).toBe(stat.size);
+    ).toBe(bytes.byteLength);
   });
 });
