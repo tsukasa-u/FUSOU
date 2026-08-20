@@ -1,5 +1,6 @@
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
 
 #[cfg(schema_since = "0.6.0")]
@@ -104,8 +105,9 @@ impl Cells {
         env_uuid: EnvInfoId,
     ) {
         let new_battle = Uuid::new_v7(ts);
-        data.battles
-            .values()
+        let battles = data.battles.values().cloned().collect::<Vec<_>>();
+        battles
+            .iter()
             .enumerate()
             .for_each(|(battle_index, battle)| {
                 Battle::new_ret_option(
@@ -123,12 +125,21 @@ impl Cells {
         let new_destruction_battles = {
             let destruction_battle_uuid = Uuid::new_v7(ts);
             let mut has_destruction_battle = false;
+            let battle_index_by_cell_no: HashMap<i64, usize> = battles
+                .iter()
+                .enumerate()
+                .map(|(battle_index, battle)| (battle.cell_id, battle_index))
+                .collect();
 
-            for (destruction_battle_index, cell_no) in data.cell_index.iter().enumerate() {
+            for cell_no in &data.cell_index {
                 let Some(cell) = data.cells.get(cell_no) else {
                     continue;
                 };
                 let Some(destruction_battle) = cell.destruction_battle.clone() else {
+                    continue;
+                };
+                let Some(&destruction_battle_index) = battle_index_by_cell_no.get(cell_no)
+                else {
                     continue;
                 };
 

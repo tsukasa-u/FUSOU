@@ -1081,6 +1081,8 @@ pub struct AirBaseAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackId,
     pub index: i32,
+    #[cfg(schema_since = "0.6.0")]
+    pub air_superiority: Option<i32>,
     pub f_plane_from: Option<Vec<i32>>,
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
@@ -1158,6 +1160,8 @@ impl AirBaseAirAttack {
             env_uuid,
             uuid,
             index: index as i32,
+            #[cfg(schema_since = "0.6.0")]
+            air_superiority: data.air_superiority.map(|value| value as i32),
             f_plane_from: data.f_damage.plane_from.into_i32(),
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,
@@ -1249,6 +1253,8 @@ pub struct AirBaseAssult {
     pub squadron_plane: Vec<i32>,
     #[cfg(schema_since = "0.6.0")]
     pub airbase_base_nos: Option<Vec<i32>>,
+    #[cfg(schema_since = "0.6.0")]
+    pub air_superiority: Option<i32>,
     pub f_plane_from: Option<Vec<i32>>,
     pub f_touch_plane: Option<i32>,
     pub f_loss_plane1: i32,
@@ -1328,6 +1334,8 @@ impl AirBaseAssult {
                 .collect(),
             #[cfg(schema_since = "0.6.0")]
             airbase_base_nos: new_airbase_base_nos,
+            #[cfg(schema_since = "0.6.0")]
+            air_superiority: data.air_superiority.map(|value| value as i32),
             f_plane_from: data.f_damage.plane_from.into_i32(),
             f_touch_plane: data.f_damage.touch_plane.into_i32(),
             f_loss_plane1: data.f_damage.loss_plane1 as i32,

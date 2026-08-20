@@ -852,6 +852,10 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for InterfaceWrapper<AirBa
         );
         let squadron_plane_src = air_base_air_attack.api_squadron_plane.clone();
         Self(AirBaseAirAttack {
+            air_superiority: air_base_air_attack
+                .api_stage1
+                .clone()
+                .and_then(|stage1| stage1.api_disp_seiku),
             stage_flag: air_base_air_attack.api_stage_flag,
             squadron_plane: squadron_plane_src.clone().map(|squadron_planes| {
                 squadron_planes
@@ -1543,6 +1547,7 @@ impl From<kcapi_common::common_air::ApiAirBaseInjection> for InterfaceWrapper<Ai
             air_base_injection.api_stage3_combined.clone(),
         );
         Self(AirBaseAssult {
+            air_superiority: Some(air_base_injection.api_stage1.api_disp_seiku).flatten(),
             squadron_plane: air_base_injection
                 .api_air_base_data
                 .iter()

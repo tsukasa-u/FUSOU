@@ -525,6 +525,7 @@ pub struct CarrierBaseAssault {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAssult {
+    pub air_superiority: Option<i64>,
     pub squadron_plane: Vec<i64>,
     pub squadron_count: Vec<i64>,
     pub f_damage: AirDamage,
@@ -561,6 +562,7 @@ pub struct AirBaseAirAttacks {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAirAttack {
+    pub air_superiority: Option<i64>,
     pub stage_flag: Vec<i64>,
     pub squadron_plane: Option<Vec<Option<i64>>>,
     pub squadron_count: Option<Vec<Option<i64>>>,
