@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import { Show } from "solid-js";
+import type { Component } from "solid-js";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
 import type { MstSlotItem } from "@ipc-bindings/get_data";
@@ -153,17 +154,37 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
     ) : null;
   };
 
-  if ((props.mst_slot_item && props.slot_item) || props.empty_flag) {
-    const category_number = props.mst_slot_item ? props.mst_slot_item.type[1] : 0;
-    const icon_number = props.mst_slot_item ? props.mst_slot_item.type[3] : 0;
-
-    return (
+  return (
+    <Show
+      when={(props.mst_slot_item && props.slot_item) || props.empty_flag}
+      fallback={
+        <div class="flex flex-nowarp w-full">
+          <div class="outline-error outline-2 rounded bg-error-content">
+            <IconError size={props.size} ratio={1} />
+          </div>
+          {!props.ex_flag ? (
+            <>
+              <div
+                class={[
+                  "flex-none",
+                  class_size[props.size].proficiency_onslot_pl,
+                  class_size[props.size].proficiency_onslot_mt,
+                ].join(" ")}
+              >
+                {proficiencyOnslotTemplete()}
+              </div>
+              {nameTemplete()}
+            </>
+          ) : null}
+        </div>
+      }
+    >
       <div class="flex flex-nowarp w-full">
         <div class="indicator">
           <span class="indicator-item">{levelTemplate()}</span>
           <IconEquipment
-            category_number={category_number}
-            icon_number={icon_number}
+            category_number={props.mst_slot_item?.type[1] ?? 0}
+            icon_number={props.mst_slot_item?.type[3] ?? 0}
             size={props.size}
             empty_flag={props.empty_flag}
           />
@@ -184,28 +205,6 @@ export const ComponentEquipment: Component<ComponentEquipmentProps> = (props) =>
           </>
         ) : null}
       </div>
-    );
-  } else {
-    return (
-      <div class="flex flex-nowarp w-full">
-        <div class="outline-error outline-2 rounded bg-error-content">
-          <IconError size={props.size} ratio={1} />
-        </div>
-        {!props.ex_flag ? (
-          <>
-            <div
-              class={[
-                "flex-none",
-                class_size[props.size].proficiency_onslot_pl,
-                class_size[props.size].proficiency_onslot_mt,
-              ].join(" ")}
-            >
-              {proficiencyOnslotTemplete()}
-            </div>
-            {nameTemplete()}
-          </>
-        ) : null}
-      </div>
-    );
-  }
+    </Show>
+  );
 };

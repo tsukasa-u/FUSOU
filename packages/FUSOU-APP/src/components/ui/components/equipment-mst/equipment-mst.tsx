@@ -1,10 +1,8 @@
-import { Component, Show } from "solid-js";
+import { Show, type Component } from "solid-js";
 
 import type { MstSlotItem } from "@ipc-bindings/get_data";
-import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import { IconEquipment } from "../../icons/equipment";
-import { IconPlaneProficiency } from "../../icons/plane-proficiency";
 import { IconError } from "../../icons/error";
 
 export interface ComponentEquipmentMstProps {
@@ -53,8 +51,6 @@ const class_size = {
 };
 
 export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (props) => {
-  const mst_slot_item = () => props.mst_slot_item ?? default_mst_slot_item;
-
   const proficiencyOnslotTemplete = () => {
     return (
       <div
@@ -83,30 +79,29 @@ export const ComponentEquipmentMst: Component<ComponentEquipmentMstProps> = (pro
     ) : null;
   };
 
-  if (props.mst_slot_item || props.empty_flag) {
-    const category_number = props.mst_slot_item ? props.mst_slot_item.type[1] : 0;
-    const icon_number = props.mst_slot_item ? props.mst_slot_item.type[3] : 0;
-    return (
+  return (
+    <Show
+      when={props.mst_slot_item || props.empty_flag}
+      fallback={
+        <div class="flex flex-nowarp w-full">
+          <div class="outline-error outline-2 rounded bg-error-content">
+            <IconError size={props.size} ratio={1} />
+          </div>
+          {proficiencyOnslotTemplete()} {nameTemplete()}
+        </div>
+      }
+    >
       <div class="flex flex-nowarp w-full">
         <div>
           <IconEquipment
-            category_number={category_number}
-            icon_number={icon_number}
+            category_number={props.mst_slot_item?.type[1] ?? 0}
+            icon_number={props.mst_slot_item?.type[3] ?? 0}
             size={props.size}
             empty_flag={props.empty_flag}
           />
         </div>
         {proficiencyOnslotTemplete()} {nameTemplete()}
       </div>
-    );
-  } else {
-    return (
-      <div class="flex flex-nowarp w-full">
-        <div class="outline-error outline-2 rounded bg-error-content">
-          <IconError size={props.size} ratio={1} />
-        </div>
-        {proficiencyOnslotTemplete()} {nameTemplete()}
-      </div>
-    );
-  }
+    </Show>
+  );
 };

@@ -516,13 +516,14 @@ interface WrapEnemyShipHPProps {
 }
 
 export function ConnectedEnemyShipHP(props: WrapEnemyShipHPProps) {
-  let destruction_e_now_hps = props.store_data_set_param_ship().e_destruction_ship_max_hp[props.idx] ?? 0;
   return (
     <ComponentColorBarLabel
       size="xs"
       v_max={
         props.destruction_flag
-          ? destruction_e_now_hps
+          ? props.store_data_set_param_ship().e_destruction_ship_max_hp[
+              props.idx
+            ] ?? 0
           : props.store_data_set_param_ship().e_ship_max_hp[props.idx] ?? 0
       }
       v_now={
