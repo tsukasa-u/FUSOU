@@ -8,7 +8,7 @@ import {
   useSlotItems,
 } from "../../utility/provider.tsx";
 import type { JSX } from "solid-js";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, For, Show } from "solid-js";
 
 import "../../css/divider.css";
 import "../../css/back_slash.css";
