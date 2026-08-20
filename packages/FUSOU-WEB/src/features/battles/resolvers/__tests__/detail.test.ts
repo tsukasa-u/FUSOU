@@ -95,6 +95,47 @@ describe("resolveBattleDetail", () => {
     expect(result).toBeNull();
   });
 
+  it("attaches a destruction battle only to its matching battle index", () => {
+    const result = resolveBattleDetail({
+      periodTag: "2026-08-11",
+      envUuid: "target-env",
+      battleIndex: 1,
+      tables: tables({
+        battle: [
+          { env_uuid: "target-env", index: 0, cell_id: 101 },
+          { env_uuid: "target-env", index: 1, cell_id: 102 },
+        ],
+        cells: [
+          {
+            env_uuid: "target-env",
+            battle_index: [0, 1],
+            cell_index: [101, 102],
+            destruction_battles: "destruction-group",
+          },
+        ],
+        destructionBattle: [
+          {
+            env_uuid: "target-env",
+            uuid: "destruction-group",
+            index: 0,
+            cell_no: 101,
+          },
+          {
+            env_uuid: "target-env",
+            uuid: "destruction-group",
+            index: 1,
+            cell_no: 102,
+          },
+        ],
+      }),
+    });
+
+    expect(result?.payload.battle?.["destruction_battle"]).toMatchObject({
+      index: 1,
+      cell_no: 102,
+    });
+  });
+
   it("preserves the cell traversal order when resolving battle indexes", () => {
     const result = resolveBattleDetail({
       periodTag: "2026-08-11",

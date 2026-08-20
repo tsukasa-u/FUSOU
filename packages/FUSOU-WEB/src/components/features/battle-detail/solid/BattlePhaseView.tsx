@@ -31,6 +31,13 @@ function isAirbaseInvolvedPhaseKey(key: string): boolean {
   );
 }
 
+function hasAirbasePhaseData(key: string, data: unknown): boolean {
+  if (key === "AirBaseAirAttack") {
+    return Array.isArray(data) && data.some((entry) => jsonRecordOf(entry));
+  }
+  return jsonRecordOf(data) !== null;
+}
+
 function mstShipNameFromId(
   mstShipById: Map<number, MstShipRecord> | null | undefined,
   id: number | null | undefined,
@@ -1035,10 +1042,8 @@ function PhaseCard(props: {
 
 function extractPhaseEntries(
   battle: Record<string, unknown>,
-  opts?: { legacyAirbaseWarning?: boolean },
 ): Array<{ type: Record<string, unknown>; data: unknown }> {
   const entries: Array<{ type: Record<string, unknown>; data: unknown }> = [];
-  const legacyAirbaseWarning = !!opts?.legacyAirbaseWarning;
 
   const phaseDataForKey = (
     battle: Record<string, unknown>,
@@ -1091,11 +1096,15 @@ function extractPhaseEntries(
     for (const phaseType of battle["battle_order"] as Record<string, unknown>[]) {
       const key = Object.keys(phaseType)[0];
       if (key === undefined) continue;
-      presentKeys.add(key);
       const idx = phaseType[key] as number | null;
+      const data = phaseDataForKey(battle, key, idx);
+      if (isAirbaseInvolvedPhaseKey(key) && !hasAirbasePhaseData(key, data)) {
+        continue;
+      }
+      presentKeys.add(key);
       entries.push({
         type: phaseType,
-        data: phaseDataForKey(battle, key, idx),
+        data,
       });
     }
     if (!presentKeys.has("OpeningRaigeki") && hasRaigekiActivity(battle["opening_raigeki"])) {
@@ -1112,29 +1121,11 @@ function extractPhaseEntries(
     }
   } else {
     // Fallback for compact/legacy records
-    const hasAirBaseAssault =
-      !!battle["air_base_assault"] && typeof battle["air_base_assault"] === "object";
-    const hasCarrierBaseAssault =
-      !!battle["carrier_base_assault"] &&
-      typeof battle["carrier_base_assault"] === "object";
     const airBaseAttacks =
       jsonRecordOf(battle["air_base_air_attacks"])?.["attacks"];
     const hasAirBaseAirAttacks =
       (Array.isArray(airBaseAttacks) && airBaseAttacks.length > 0) ||
       Array.isArray(battle["air_base_air_attacks"]);
-
-    // Legacy (<0.6.0) data can lose air_base_air_attacks while assault is present.
-    // Keep phase list explicit by showing a placeholder phase card for the unresolved segment.
-    if (
-      legacyAirbaseWarning &&
-      (hasAirBaseAssault || hasCarrierBaseAssault) &&
-      !hasAirBaseAirAttacks
-    ) {
-      entries.push({
-        type: { AirBaseAirAttack: 0 },
-        data: null,
-      });
-    }
 
     if (battle["air_base_assault"] && typeof battle["air_base_assault"] === "object")
       entries.push({
@@ -1215,11 +1206,7 @@ export default function BattlePhaseView(props: {
   showLegacyAirbasePhaseWarning?: boolean;
 }): JSX.Element {
   const phases = () =>
-    extractPhaseEntries(props.battle, {
-      ...(props.showLegacyAirbasePhaseWarning === undefined
-        ? {}
-        : { legacyAirbaseWarning: props.showLegacyAirbasePhaseWarning }),
-    });
+    extractPhaseEntries(props.battle);
   const destructionBattle = () =>
     (props.battle["destruction_battle"] as Record<string, unknown> | null) ?? null;
   return (

@@ -412,6 +412,19 @@ export function resolveBattleDetail(
     if (!value && reference) unresolvedReferences += 1;
     return value;
   };
+  const resolveDestructionBattle = (reference: unknown): JsonRecord | null => {
+    const referencedRows =
+      typeof reference === "string" ? rowsByUuid(scopedTables.destructionBattle, reference) : [];
+    const value = referencedRows.find(
+      (row) => Number(row["index"] ?? Number.NaN) === options.battleIndex,
+    );
+    if (value) return value;
+    if (referencedRows.length === 0 && !reference) {
+      return firstByIndex(scopedTables.destructionBattle, options.battleIndex);
+    }
+    if (!value && reference && referencedRows.length === 0) unresolvedReferences += 1;
+    return null;
+  };
   const battleResult = resolve(scopedTables.battleResult, battle["battle_result"]);
   const openingRaigeki = resolve(scopedTables.openingRaigeki, battle["opening_raigeki"]);
   const closingRaigeki = resolve(scopedTables.closingRaigeki, battle["closing_raigeki"]);
@@ -426,7 +439,7 @@ export function resolveBattleDetail(
   const supportAirattack = resolve(scopedTables.supportAirattack, battle["support_airattack"]);
   const nightSupportHourai = resolve(scopedTables.nightSupportHourai, battle["night_support_hourai"]);
   const nightSupportAirattack = resolve(scopedTables.nightSupportAirattack, battle["night_support_airattack"]);
-  const destructionBattle = resolve(scopedTables.destructionBattle, cell?.["destruction_battles"]);
+  const destructionBattle = resolveDestructionBattle(cell?.["destruction_battles"]);
   const friendlyList = resolve(scopedTables.friendlySupportHouraiLists, battle["friendly_force_attack"]);
   const friendlySupport = resolve(scopedTables.friendlySupportHourai, friendlyList?.["friendly_support_hourai"]);
 
