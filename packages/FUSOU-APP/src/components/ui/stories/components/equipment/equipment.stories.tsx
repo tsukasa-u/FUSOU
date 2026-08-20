@@ -1,4 +1,5 @@
-import { ComponentEquipmentProps, ComponentEquipment } from "ui";
+import { ComponentEquipment } from "ui";
+import type { ComponentEquipmentProps } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 import { default_slotitem } from "@ipc-bindings/default_state/require_info";
@@ -15,8 +16,8 @@ const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
     attr_onslot={args.attr_onslot}
     size={args.size}
     empty_flag={args.empty_flag}
-    ex_flag={args.empty_flag}
-  ></ComponentEquipment>);
+    ex_flag={args.ex_flag}
+   />);
 };
 
 const meta = {

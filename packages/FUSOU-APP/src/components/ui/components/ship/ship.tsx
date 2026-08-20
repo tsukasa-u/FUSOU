@@ -1,10 +1,10 @@
-import { Component, Show } from "solid-js";
+import { Show } from "solid-js";
+import type { Component } from "solid-js";
 
 import type { MstShip } from "@ipc-bindings/get_data";
 import { default_mst_ship } from "@ipc-bindings/default_state/get_data";
 
 import { IconShip, error_ratio } from "../../icons/ship";
-import { IconPlaneProficiency } from "../../icons/plane-proficiency";
 import { IconError } from "../../icons/error";
 
 export interface ComponentShipProps {

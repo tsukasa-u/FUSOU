@@ -1,4 +1,4 @@
-import { ComponentShipTableProps } from "ui";
+import type { ComponentShipTableProps } from "ui";
 import { ComponentShipTable } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
@@ -12,7 +12,7 @@ const ComponentShipTableBasic = (args: ComponentShipTableProps) => {
     ship={args.ship}
     mst_ship={args.mst_ship}
     size={args.size}
-  ></ComponentShipTable>);
+   />);
 };
 
 const meta = {
@@ -80,6 +80,7 @@ export const basic: Story = {
         },
       },
       sally_area: 0,
+      sortie_tag_id: null,
     },
     mst_ship: {
       id: 668,

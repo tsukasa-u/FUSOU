@@ -1,9 +1,6 @@
-import { IconErrorProps } from "ui";
 import { IconError } from "ui";
+import type { IconErrorProps } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
-
-
-import { ifDefined } from "lit-html/directives/if-defined.js";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
@@ -11,7 +8,7 @@ const IconErrorBasic = (args: IconErrorProps) => {
   return (<IconError
     size={args.size}
     ratio={args.ratio}
-  ></IconError>);
+   />);
 };
 
 const meta = {

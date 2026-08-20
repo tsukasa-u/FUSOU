@@ -1,4 +1,5 @@
-import { Component, Show } from "solid-js";
+import { Show } from "solid-js";
+import type { Component } from "solid-js";
 
 import { default_mst_ship } from "@ipc-bindings/default_state/get_data";
 import type { MstShip } from "@ipc-bindings/get_data";
@@ -81,8 +82,9 @@ export const ComponentShipMstTable: Component<ComponentShipMstTableProps> = (pro
   const size = () => props.size ?? "sm";
 
   const maxEq = () => {
-    return mst_ship() && mst_ship().maxeq
-      ? mst_ship().maxeq.reduce((a, b) => a + b, 0)
+    const ship = mst_ship();
+    return ship?.maxeq
+      ? ship.maxeq.reduce((a, b) => a + b, 0)
       : 0;
   };
 
@@ -172,7 +174,7 @@ export const ComponentShipMstTable: Component<ComponentShipMstTableProps> = (pro
               <tr class="flex rounded">
                 <th class="truncate flex-1 w-2">Range</th>
                 <td class="flex-none w-12 flex justify-end pr-4">
-                  {mst_ship().leng ? range_list[mst_ship().leng] : "-"}
+                  {mst_ship().leng ? range_list[mst_ship().leng ?? 0] : "-"}
                 </td>
                 <th class="truncate flex-1 w-2">Luck</th>
                 <td class="flex-none w-12 flex justify-end pr-4">

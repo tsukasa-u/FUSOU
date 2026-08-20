@@ -1,16 +1,11 @@
-import { Component, Show } from "solid-js";
+import { Show } from "solid-js";
+import type { Component } from "solid-js";
 
-import {
-  default_mst_ship,
-  default_mst_slot_items,
-} from "@ipc-bindings/default_state/get_data";
 import type { MstShip, MstSlotItems } from "@ipc-bindings/get_data";
 
 import type { Ship } from "@ipc-bindings/port";
-import { default_ship } from "@ipc-bindings/default_state/port";
 
 import type { SlotItems } from "@ipc-bindings/require_info";
-import { default_slotitems } from "@ipc-bindings/default_state/require_info";
 
 import { ComponentEquipmentModal } from "../equipment/equipment-modal";
 import { IconError } from "../../icons/error";
@@ -248,7 +243,7 @@ export const ComponentShipTable: Component<ComponentShipTableProps> = (props) =>
               {slotExTemplete()}
             </tbody>
           </table>
-          <div class="h-2"></div>
+          <div class="h-2" />
           <table class={["table", class_size[size()].table].join(" ")}>
             <caption
               class={["truncate", class_size[size()].caption_text].join(" ")}

@@ -1,4 +1,5 @@
-import { ComponentEquipmentModalProps, ComponentEquipmentModal } from "ui";
+import { ComponentEquipmentModal } from "ui";
+import type { ComponentEquipmentModalProps } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 import { default_slotitem } from "@ipc-bindings/default_state/require_info";
@@ -12,10 +13,10 @@ const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
     mst_slot_item={args.mst_slot_item}
     ex_flag={args.ex_flag}
     name_flag={args.name_flag}
-    attr:onslot={args[attr_onslot]}
+    attr_onslot={args.attr_onslot}
     size={args.size}
     empty_flag={args.empty_flag}
-  ></ComponentEquipmentModal>);
+   />);
 };
 
 const meta = {

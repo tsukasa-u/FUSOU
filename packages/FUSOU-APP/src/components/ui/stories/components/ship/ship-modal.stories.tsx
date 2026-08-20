@@ -1,4 +1,4 @@
-import { ComponentShipModalProps } from "ui";
+import type { ComponentShipModalProps } from "ui";
 import { ComponentShipModal } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
@@ -15,7 +15,7 @@ const ComponentShipModalBasic = (args: ComponentShipModalProps) => {
     color={args.color}
     empty_flag={args.empty_flag}
     name_flag={args.name_flag}
-  ></ComponentShipModal>);
+   />);
 };
 
 const meta = {
@@ -96,6 +96,7 @@ export const basic: Story = {
         },
       },
       sally_area: 0,
+      sortie_tag_id: null,
     },
     mst_ship: {
       id: 668,

@@ -1,4 +1,5 @@
-import { ComponentEquipmentMstModalProps, ComponentEquipmentMstModal } from "ui";
+import { ComponentEquipmentMstModal } from "ui";
+import type { ComponentEquipmentMstModalProps } from "ui";
 import type { Meta, StoryObj } from "storybook-solidjs-vite";
 
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
@@ -13,10 +14,10 @@ const ComponentEquipmentMstModalBasic = (
     name_flag={args.name_flag}
     show_name={args.show_name}
     show_param={args.show_param}
-    comapct={args.compact}
+    compact={args.compact}
     size={args.size}
     empty_flag={args.empty_flag}
-  ></ComponentEquipmentMstModal>);
+   />);
 };
 
 const meta = {
