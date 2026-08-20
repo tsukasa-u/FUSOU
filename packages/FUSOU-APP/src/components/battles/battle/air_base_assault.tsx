@@ -4,6 +4,7 @@ import type { Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles, useSlotItems } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { AirStateComponent } from "../shared/air_state";
 import {
   ConnectedEnemyShipHP,
   ConnectedNumberedEnemyShip,
@@ -20,19 +21,6 @@ interface AirDamageProps {
 export function AirBaseAssaultComponent(props: AirDamageProps) {
   const [slotitems] = useSlotItems();
   const [air_bases] = useAirBasesBattles();
-
-  const air_base_attack_list = createMemo<
-    Array<{ base_id: number | string }>
-  >(() => {
-    const raw_attacks = props.battle_selected()?.air_base_air_attacks as
-      | Array<{ base_id: number | string }>
-      | { attacks?: Array<{ base_id: number | string }> }
-      | undefined;
-    if (!raw_attacks) return [];
-    if (Array.isArray(raw_attacks)) return raw_attacks;
-    if (Array.isArray(raw_attacks.attacks)) return raw_attacks.attacks;
-    return [];
-  });
 
   const show_air_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;
@@ -63,48 +51,34 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
   });
 
   const plane_info = createMemo<number[]>(() => {
-    if (!props.battle_selected()?.air_base_assault) return [];
+    const air_base_assault = props.battle_selected()?.air_base_assault;
+    if (!air_base_assault) return [];
 
-    const set_base_id: Set<number> = new Set(
-      air_base_attack_list()
-        .map((attack) => Number(attack.base_id ?? NaN))
-        .filter((base_id) => Number.isFinite(base_id) && base_id > 0)
+    const squadron_count = air_base_assault.squadron_count ?? [];
+    const base_ids = Array.from(
+      { length: Math.max(1, squadron_count.length) },
+      (_, index) => index + 1,
     );
-    let plane_info = Array.from(set_base_id.values())
+    const plane_info = base_ids
       .map(
         (base_id) =>
           air_bases.bases[(props.area_id << 16) | base_id]?.plane_info
       )
       .reduce((acc, val) => (acc && val ? acc.concat(val) : acc), [] as any[]);
 
-    if (!plane_info || plane_info.length === 0) {
-      plane_info = Object.entries(air_bases.bases)
-        .filter(([base_key]) => {
-          const key_num = Number(base_key);
-          return Number.isFinite(key_num) && (key_num >> 16) === props.area_id;
-        })
-        .map(([, base]) => base?.plane_info ?? [])
-        .reduce((acc, val) => acc.concat(val), [] as any[]);
-    }
-
     const ret: number[] = [];
-    if (plane_info) {
-      props
-        .battle_selected()
-        ?.air_base_assault?.squadron_plane.filter(
-          (squadron_plane) => squadron_plane != 0
-        )
-        .forEach((squadron_plane) => {
-          const idx = plane_info.findIndex(
-            (plane) =>
-              slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
-          );
-          if (idx != -1) {
-            ret.push(plane_info[idx].slotid);
-            delete plane_info[idx];
-          }
-        });
-    }
+    (air_base_assault.squadron_plane ?? [])
+      .filter((squadron_plane) => squadron_plane != 0)
+      .forEach((squadron_plane) => {
+        const idx = plane_info.findIndex(
+          (plane) =>
+            slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
+        );
+        if (idx != -1) {
+          ret.push(plane_info[idx].slotid);
+          plane_info.splice(idx, 1);
+        }
+      });
     return ret;
   });
 
@@ -255,6 +229,11 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Air Base Assault</summary>
           <ul class="pl-0">
+            <AirStateComponent
+              air_state={
+                props.battle_selected()?.air_base_assault?.air_superiority
+              }
+            />
             {display_sprite_counts()}
             <table class="table table-xs">
               <thead>

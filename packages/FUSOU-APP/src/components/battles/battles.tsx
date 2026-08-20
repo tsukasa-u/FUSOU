@@ -42,6 +42,7 @@ import { CarrierBaseAssaultComponent } from "./battle/carrier_base_assault";
 import { BattleSummaryComponent } from "./battle/battle_summary";
 import { DestructionBattleComponent } from "./cell_events/destruction_battle";
 import { DestructionBattleSummaryComponent } from "./cell_events/destruction_battle_summary";
+import { FormationComponent } from "./shared/formation.tsx";
 import type { DeckShipIds } from "../../utility/battles";
 import {
   get_deck_ship_id,
@@ -322,54 +323,7 @@ export function BattlesComponent() {
   };
 
   const display_formation = () => {
-    return (
-      <>
-        Formation : <span class="w-1" />
-        <For each={battle_selected()?.formation?.slice(0, 2)}>
-          {(formation, index) => (
-            <>
-              <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
-                <Switch fallback={<div>___</div>}>
-                  <Match when={formation == 1}>
-                    <div>Line Ahead</div>
-                  </Match>
-                  <Match when={formation == 2}>
-                    <div>Double Line</div>
-                  </Match>
-                  <Match when={formation == 3}>
-                    <div>Diamond</div>
-                  </Match>
-                  <Match when={formation == 4}>
-                    <div>Echelon</div>
-                  </Match>
-                  <Match when={formation == 5}>
-                    <div>Line Abreast</div>
-                  </Match>
-                  <Match when={formation == 6}>
-                    <div>Vanguard</div>
-                  </Match>
-                  <Match when={formation == 11}>
-                    <div>1st cruising formation</div>
-                  </Match>
-                  <Match when={formation == 12}>
-                    <div>2nd cruising formation</div>
-                  </Match>
-                  <Match when={formation == 13}>
-                    <div>3rd cruising formation</div>
-                  </Match>
-                  <Match when={formation == 14}>
-                    <div>4th cruising formation</div>
-                  </Match>
-                </Switch>
-              </div>
-              <Show when={index() == 0}>
-                <div class="w-3 text-center">/</div>
-              </Show>
-            </>
-          )}
-        </For>
-      </>
-    );
+    return <FormationComponent formation={battle_selected()?.formation} />;
   };
 
   const display_form = () => {

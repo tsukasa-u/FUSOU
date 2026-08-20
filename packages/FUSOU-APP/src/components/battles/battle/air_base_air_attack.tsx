@@ -4,6 +4,7 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { AirStateComponent } from "../shared/air_state.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   ConnectedCIMstEquip,
@@ -228,6 +229,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   {(attack, attack_idx) => (
                     <>
                       <div class="flex flex-nowrap pl-2 items-center text-xs">
+                        <AirStateComponent air_state={attack.air_superiority} />
                         {display_touch(attack)}
                         {display_sprite_counts(attack)}
                       </div>

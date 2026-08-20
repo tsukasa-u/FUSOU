@@ -1,4 +1,4 @@
-import { createMemo, For, Match, Show, Switch } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 
 import "../../../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
@@ -8,6 +8,7 @@ import type {
   DataSetParamShip,
   DataSetShip,
 } from "../../../utility/get_data_set";
+import { AirStateComponent } from "../shared/air_state";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   ConnectedCIMstEquip,
@@ -69,26 +70,6 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     });
     return show_damage;
   });
-
-  const display_air_state = () => {
-    const air_state = airattack()?.air_superiority;
-    return (
-      <>
-        Air State :{" "}
-        <Switch fallback={<div />}>
-          <Match when={air_state == 0}>
-            <div class="text-lime-500 pl-1">Air Supremacy</div>
-          </Match>
-          <Match when={air_state == 1}>
-            <div class="text-lime-500 pl-1">Air Superiority</div>
-          </Match>
-          <Match when={air_state == 4}>
-            <div class="text-red-500 pl-1">Air Incapability</div>
-          </Match>
-        </Switch>
-      </>
-    );
-  };
 
   const display_touch = () => {
     const f_touch_plane = airattack()?.f_damage.touch_plane;
@@ -445,7 +426,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
           <summary>Opening Air Attack</summary>
           <ul class="pl-0">
             <div class="pl-2 text-xs flex flex-nowrap items-center">
-              {display_air_state()}
+              <AirStateComponent air_state={airattack()?.air_superiority} />
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_touch()}
               <div class="divider divider-horizontal mr-0 ml-0" />

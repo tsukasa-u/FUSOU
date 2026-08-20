@@ -4,6 +4,8 @@ import "../../../css/divider.css";
 import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
+import { AirStateComponent } from "../shared/air_state.tsx";
+import { FormationComponent } from "../shared/formation.tsx";
 import { SpriteMotionCounts } from "../shared/sprite_motion_counts";
 import {
   ConnectedBaseHP,
@@ -27,8 +29,6 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     if (!props.cell()) return false;
 
     if (!props.cell()?.destruction_battle) return false;
-    if (!props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane)
-      return false;
 
     return true;
   });
@@ -67,78 +67,10 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
   });
 
   const display_formation = () => {
-    const destruction_battle = props.cell()?.destruction_battle;
     return (
-      <>
-        Formation : <span class="w-1" />
-        <For each={destruction_battle?.formation.slice(0, 2)}>
-          {(formation, index) => (
-            <>
-              <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
-                <Switch fallback={<div>___</div>}>
-                  <Match when={formation == 1}>
-                    <div>Line Ahead</div>
-                  </Match>
-                  <Match when={formation == 2}>
-                    <div>Double Line</div>
-                  </Match>
-                  <Match when={formation == 3}>
-                    <div>Diamond</div>
-                  </Match>
-                  <Match when={formation == 4}>
-                    <div>Echelon</div>
-                  </Match>
-                  <Match when={formation == 5}>
-                    <div>Line Abreast</div>
-                  </Match>
-                  <Match when={formation == 6}>
-                    <div>Vanguard</div>
-                  </Match>
-                </Switch>
-              </div>
-              <Show when={index() == 0}>
-                <span class="w-3 text-center">/</span>
-              </Show>
-            </>
-          )}
-        </For>
-      </>
-    );
-  };
-
-  const display_air_state = () => {
-    const destruction_battle = props.cell()?.destruction_battle;
-    return (
-      <>
-        Air State :{" "}
-        <Switch fallback={<div class="w-6 flex justify-center">_</div>}>
-          <Match
-            when={destruction_battle?.air_base_attack.air_superiority == 0}
-          >
-            <div class="text-lime-500 pl-1">Air Supremacy</div>
-          </Match>
-          <Match
-            when={destruction_battle?.air_base_attack.air_superiority == 1}
-          >
-            <div class="text-lime-500 pl-1">Air Superiority</div>
-          </Match>
-          {/* <Match
-            when={destruction_battle?.air_base_attack.air_superiority == 2}
-          >
-            <div class="text-grey-500 pl-1">Air Parity</div>
-          </Match>
-          <Match
-            when={destruction_battle?.air_base_attack.air_superiority == 3}
-          >
-            <div class="text-red-500 pl-1">Air Denial</div>
-          </Match> */}
-          <Match
-            when={destruction_battle?.air_base_attack.air_superiority == 4}
-          >
-            <div class="text-red-500 pl-1">Air Incapability</div>
-          </Match>
-        </Switch>
-      </>
+      <FormationComponent
+        formation={props.cell()?.destruction_battle?.formation}
+      />
     );
   };
 
@@ -474,7 +406,13 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
           <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
             {display_formation()}
             <div class="divider divider-horizontal mr-0 ml-0" />
-            {display_air_state()}
+            <AirStateComponent
+              air_state={
+                props.cell()?.destruction_battle?.air_base_attack
+                  .air_superiority
+              }
+              fallback={<div class="w-6 flex justify-center">_</div>}
+            />
             <div class="divider divider-horizontal mr-0 ml-0" />
             {display_touch()}
           </div>
