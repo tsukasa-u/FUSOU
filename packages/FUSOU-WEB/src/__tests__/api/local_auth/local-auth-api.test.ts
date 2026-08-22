@@ -4,6 +4,7 @@ import { env as mockWorkersEnv } from "cloudflare:workers";
 const {
   mockValidateOriginDetailed,
   mockValidateRedirectUrl,
+  mockValidateInternalReturnPath,
   mockSanitizeErrorMessage,
   mockSignInWithOAuth,
   mockExchangeCodeForSession,
@@ -12,6 +13,13 @@ const {
 } = vi.hoisted(() => {
   const mockValidateOriginDetailed = vi.fn();
   const mockValidateRedirectUrl = vi.fn();
+  const mockValidateInternalReturnPath = vi.fn(
+    (
+      value: string | null | undefined,
+      _allowedOrigin: string,
+      fallback = "/auth/signin",
+    ) => (value?.startsWith("/") && !value.startsWith("//") ? value : fallback),
+  );
   const mockSanitizeErrorMessage = vi.fn((error: unknown) =>
     error instanceof Error ? error.message : String(error),
   );
@@ -25,6 +33,7 @@ const {
   return {
     mockValidateOriginDetailed,
     mockValidateRedirectUrl,
+    mockValidateInternalReturnPath,
     mockSanitizeErrorMessage,
     mockSignInWithOAuth,
     mockExchangeCodeForSession,
@@ -37,6 +46,7 @@ const {
 vi.mock("@/utils/security", () => ({
   validateOriginDetailed: mockValidateOriginDetailed,
   validateRedirectUrl: mockValidateRedirectUrl,
+  validateInternalReturnPath: mockValidateInternalReturnPath,
   sanitizeErrorMessage: mockSanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS: {
     path: "/",
@@ -155,7 +165,10 @@ describe("local_auth API handlers", () => {
       "https://fusou.dev/api/local_auth/signin?app_origin=tauri",
       {
         method: "POST",
-        body: new URLSearchParams({ provider: "google" }),
+        body: new URLSearchParams({
+          provider: "google",
+          return_to: "/dashboard/api-keys",
+        }),
       },
     );
 
@@ -168,6 +181,19 @@ describe("local_auth API handlers", () => {
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe(
       "https://example.com/oauth/google",
+    );
+    expect(mockValidateInternalReturnPath).toHaveBeenCalledWith(
+      "/dashboard/api-keys",
+      "https://fusou.dev",
+    );
+    expect(mockSignInWithOAuth).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "google",
+        options: expect.objectContaining({
+          redirectTo:
+            "https://fusou.dev/api/local_auth/callback?app_origin=tauri&return_to=%2Fdashboard%2Fapi-keys",
+        }),
+      }),
     );
     expect(mockSignInWithOAuth).toHaveBeenCalledTimes(1);
     expect(cookies.set).toHaveBeenCalledWith(
@@ -228,6 +254,26 @@ describe("local_auth API handlers", () => {
     expect(cookies.set).toHaveBeenCalledWith(
       "sb-local-refresh-token",
       "refresh-token",
+      expect.any(Object),
+    );
+    expect(cookies.set).toHaveBeenCalledWith(
+      "sb-access-token",
+      "access-token",
+      expect.any(Object),
+    );
+    expect(cookies.set).toHaveBeenCalledWith(
+      "sb-refresh-token",
+      "refresh-token",
+      expect.any(Object),
+    );
+    expect(cookies.set).toHaveBeenCalledWith(
+      "sb-provider-token",
+      "provider-token",
+      expect.any(Object),
+    );
+    expect(cookies.set).toHaveBeenCalledWith(
+      "sb-provider-refresh-token",
+      "provider-refresh-token",
       expect.any(Object),
     );
   });

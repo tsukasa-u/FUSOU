@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
+  validateInternalReturnPath,
 } from "@/utils/security";
 
 // Use consistent cookie options with supabaseServer.ts
@@ -18,6 +19,10 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
   const appOriginParam = url.searchParams.get("app_origin");
+  const returnTo = validateInternalReturnPath(
+    url.searchParams.get("return_to"),
+    url.origin,
+  );
   const provider = cookies.get("sb-local-provider")?.value;
 
   if (!authCode) {
@@ -45,6 +50,20 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     provider_refresh_token,
   } = data.session;
 
+  cookies.set("sb-access-token", access_token, COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", refresh_token, COOKIE_OPTIONS);
+  if (provider_token && provider_refresh_token) {
+    cookies.set("sb-provider-token", provider_token, COOKIE_OPTIONS);
+    cookies.set(
+      "sb-provider-refresh-token",
+      provider_refresh_token,
+      COOKIE_OPTIONS,
+    );
+  } else {
+    cookies.delete("sb-provider-token", { path: "/" });
+    cookies.delete("sb-provider-refresh-token", { path: "/" });
+  }
+
   const userId = data.session.user?.id;
   if (!userId) {
     console.error("Session missing user id");
@@ -52,9 +71,8 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     return new Response("Session missing user id", { status: 500 });
   }
 
-  // For local app flow: store tokens in cookies for returnLocalApp page to use
-  // Do NOT overwrite global auth tokens - those are for web app
-  // Instead, store in temporary cookies that returnLocalApp will read
+  // Keep temporary copies for the desktop return page. The regular sb-*
+  // cookies above are the Web session and remain available after this flow.
   cookies.set("sb-local-access-token", access_token, COOKIE_OPTIONS);
   cookies.set("sb-local-refresh-token", refresh_token, COOKIE_OPTIONS);
   // expires_at is a Unix timestamp (seconds) from Supabase session
@@ -121,5 +139,6 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   if (appOriginParam) {
     target.searchParams.set("app_origin", appOriginParam);
   }
+  target.searchParams.set("return_to", returnTo);
   return redirect(target.toString());
 };

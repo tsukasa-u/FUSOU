@@ -63,6 +63,33 @@ export function validateRedirectUrl(
   }
 }
 
+export function validateInternalReturnPath(
+  value: string | null | undefined,
+  allowedOrigin: string,
+  fallback = "/auth/signin",
+): string {
+  if (!value) return fallback;
+
+  try {
+    const allowed = new URL(allowedOrigin);
+    const candidate = new URL(value, allowed);
+
+    if (
+      candidate.origin !== allowed.origin ||
+      !candidate.pathname.startsWith("/") ||
+      candidate.pathname.startsWith("/api/") ||
+      candidate.pathname === "/auth/local/signin" ||
+      candidate.pathname === "/auth/local/callback"
+    ) {
+      return fallback;
+    }
+
+    return `${candidate.pathname}${candidate.search}${candidate.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * Validates Origin or Referer header for CSRF protection
  */

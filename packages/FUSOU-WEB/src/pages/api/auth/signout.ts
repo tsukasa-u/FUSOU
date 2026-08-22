@@ -30,10 +30,6 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     "sb-provider-refresh-token",
     "sb-provider",
     "oauth_state",
-    "stored-sb-access-token",
-    "stored-sb-refresh-token",
-    "stored-sb-provider-token",
-    "stored-sb-provider-refresh-token",
   ];
 
   for (const name of cookieNames) {

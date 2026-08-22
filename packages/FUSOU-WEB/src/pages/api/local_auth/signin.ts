@@ -4,6 +4,7 @@ import type { Provider } from "@supabase/supabase-js";
 import {
   validateOriginDetailed,
   validateRedirectUrl,
+  validateInternalReturnPath,
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utils/security";
@@ -86,6 +87,10 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   // Get app_origin from form data (passed from signin page)
   const appOriginFormParam =
     formData.get("app_origin")?.toString() || appOriginParam;
+  const returnTo = validateInternalReturnPath(
+    formData.get("return_to")?.toString(),
+    canonicalOrigin,
+  );
 
   const validProviders = ["google"];
 
@@ -104,6 +109,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   if (appOriginFormParam) {
     callbackUrl.searchParams.set("app_origin", appOriginFormParam);
   }
+  callbackUrl.searchParams.set("return_to", returnTo);
 
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), url_origin)) {
