@@ -1,5 +1,9 @@
 
 
+-- Historical pre-cutover schema evidence.
+-- The authoritative UUID-only schema is the applied migration:
+-- packages/FUSOU-WEB/supabase/migrations/20260822120000_destructive_uuid_public_id_cutover.sql
+-- Regenerate this dump after the approved remote cutover and postflight.
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
