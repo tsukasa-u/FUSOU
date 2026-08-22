@@ -395,7 +395,7 @@ async function resolveDatasetId(
         return {
           ok: false,
           error:
-            "No game account linked to this FUSOU account. Please link your game account via FUSOU-APP first.",
+            "ゲームアカウントが未連携です。FUSOU-APPでゲームアカウントを同期し、FUSOU-APPと連携してサインインを完了してください。連携時のGoogle認証でWebサインインも同時に完了します。",
           status: 403,
         };
       }

@@ -50,7 +50,11 @@ export function LoadFleetModal() {
         const body = ErrorResponseSchema.safeParse(
           await res.json().catch(() => ({})),
         );
-        setErrorMsg(body.success ? body.data.error ?? "認証エラー" : "認証エラー");
+        setErrorMsg(
+          body.success
+            ? body.data.error ?? "Authentication required. Please check your FUSOU-APP connection."
+            : "Authentication required. Please check your FUSOU-APP connection.",
+        );
         return;
       }
       if (!res.ok) {
@@ -111,9 +115,9 @@ export function LoadFleetModal() {
       }}
     >
       <div class="modal-box rounded-xl">
-        <h3 class="font-bold text-lg mb-2">R2から自分のデッキを読込</h3>
+        <h3 class="font-bold text-lg mb-2">Load My Deck from R2</h3>
         <p class="text-xs text-base-content/60 mb-4">
-          選択したデッキはワークスペースに追加されます。
+          The selected deck will be added to the workspace.
         </p>
 
         <div class="space-y-2 max-h-80 overflow-y-auto">
@@ -122,13 +126,13 @@ export function LoadFleetModal() {
           </Show>
 
           <Show when={requiresAuth()}>
-            <p class="text-base-content/60 text-sm">
-              この機能を利用するにはFUSOU-APPのスナップショット機能と
-              <a href="/auth/local/signin" class="link link-primary mx-1">ローカルアプリ連携</a>
-              と
-              <a href="/auth/signin" class="link link-primary mx-1">Webサービス連携</a>
-              が必要です
-            </p>
+            <div class="alert alert-info items-start text-sm leading-relaxed">
+              <div>
+                <p>Using saved fleet data requires FUSOU-APP linking and web service sign-in.</p>
+                <p class="mt-2">Authenticating with Google during FUSOU-APP linking also completes web sign-in.</p>
+                <a href="/auth/local/signin?return_to=%2Fsimulator" class="link link-primary mt-2 inline-block">Link FUSOU-APP and sign in</a>
+              </div>
+            </div>
           </Show>
 
           <Show when={errorMsg()}>

@@ -688,7 +688,7 @@ app.get("/data/:table", async (c) => {
           {
             error: "NO_LINKED_MEMBER",
             message:
-              "No member account linked. Please link your game account first.",
+              "ゲームアカウントが未連携です。FUSOU-APPでゲームアカウントを同期し、FUSOU-APPと連携してサインインを完了してください。",
           },
           400,
           ruStatus,
