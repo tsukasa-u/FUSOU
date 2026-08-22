@@ -10,7 +10,7 @@
  *   node scripts/seed-local-fleet-data.mjs --all
  *
  * Examples:
- *   # Seed snapshots for a specific dataset_id (member_id_hash)
+ *   # Seed snapshots for a specific UUID v4 public_id dataset_id
  *   node scripts/seed-local-fleet-data.mjs 73b5d4e465c258e0be1da2a541401abea10c20e0d2b83a0e5ed0cc41b6a89ab1
  *
  *   # Seed all datasets found in remote R2
