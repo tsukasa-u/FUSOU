@@ -6,13 +6,13 @@ import {
   extractBearer,
   validateJWT,
   createEnvContext,
-  resolveLinkedMemberIdHashForUser,
+  resolvePublicIdForUser,
   resolveSupabaseConfig,
 } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-function maskMemberIdHash(value: string): string {
+function maskPublicId(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (normalized.length <= 10) {
     return normalized;
@@ -77,23 +77,20 @@ app.get("/member-map", async (c) => {
 
   try {
     const currentUserId = supabaseUser.id;
-    const resolved = await resolveLinkedMemberIdHashForUser({
+    const resolved = await resolvePublicIdForUser({
       supabaseAdmin,
       ...(currentUserId === undefined ? {} : { userId: currentUserId }),
-      ...(supabaseUser.payload === undefined
-        ? {}
-        : { jwtPayload: supabaseUser.payload }),
     });
-    const memberIdHash = resolved.memberIdHash;
-    const linked = Boolean(memberIdHash);
+    const publicId = resolved.publicId;
+    const linked = Boolean(publicId);
 
     return c.json({
       ok: true,
       linked,
-      map: memberIdHash
+      map: publicId
         ? {
             linked: true,
-            member_id_hash_masked: maskMemberIdHash(memberIdHash),
+            public_id_masked: maskPublicId(publicId),
             source: resolved.source,
           }
         : null,

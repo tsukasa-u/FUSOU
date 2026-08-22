@@ -531,7 +531,7 @@ app.post("/ingest", async (c) => {
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(

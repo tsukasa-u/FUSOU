@@ -1,12 +1,15 @@
 use crate::error::AuthError;
 use crate::storage::Storage;
 use crate::types::{DatasetToken, DatasetTokenStore, Session};
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use base64::Engine as _;
 use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing;
+use uuid::{Uuid, Variant};
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
 const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
@@ -94,7 +97,9 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    async fn read_dataset_token_store_from_disk(&self) -> Result<DatasetTokenStore, AuthError> {
+    async fn read_dataset_token_store_from_disk(
+        &self,
+    ) -> Result<(DatasetTokenStore, bool), AuthError> {
         let path = self
             .dataset_token_path
             .lock()
@@ -102,28 +107,39 @@ impl<S: Storage> AuthManager<S> {
             .and_then(|guard| guard.clone());
 
         let Some(path) = path else {
-            return Ok(DatasetTokenStore::default());
+            return Ok((DatasetTokenStore::default(), false));
         };
 
         match tokio::fs::read_to_string(&path).await {
             Ok(s) => {
-                if let Ok(store) = serde_json::from_str::<DatasetTokenStore>(&s) {
-                    return Ok(store);
+                if let Ok(mut store) = serde_json::from_str::<DatasetTokenStore>(&s) {
+                    let original_len = store.tokens.len();
+                    store.tokens.retain(|dataset_id, token| {
+                        is_valid_public_id(dataset_id)
+                            && token.dataset_id.as_deref() == Some(dataset_id.as_str())
+                    });
+                    let dirty = store.tokens.len() != original_len;
+                    return Ok((store, dirty));
                 }
 
                 if let Ok(single) = serde_json::from_str::<DatasetToken>(&s) {
                     let mut store = DatasetTokenStore::default();
-                    if let Some(dataset_id) = single.dataset_id.clone() {
+                    if let Some(dataset_id) = single
+                        .dataset_id
+                        .clone()
+                        .filter(|dataset_id| is_valid_public_id(dataset_id))
+                    {
                         store.tokens.insert(dataset_id, single);
+                        return Ok((store, false));
                     }
-                    return Ok(store);
+                    return Ok((store, true));
                 }
 
-                Ok(DatasetTokenStore::default())
+                Ok((DatasetTokenStore::default(), false))
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
-                    Ok(DatasetTokenStore::default())
+                    Ok((DatasetTokenStore::default(), false))
                 } else {
                     Err(AuthError::Other(e.to_string()))
                 }
@@ -463,9 +479,14 @@ impl<S: Storage> AuthManager<S> {
 impl<S: Storage> AuthManager<S> {
     /// dataset_tokenを dataset_id 単位で保存する。
     pub async fn save_dataset_token(&self, token: &DatasetToken) -> Result<(), AuthError> {
-        let Some(dataset_id) = token.dataset_id.clone() else {
-            tracing::warn!("Skipping dataset_token persistence because dataset_id is missing");
-            return Ok(());
+        let Some(dataset_id) = token
+            .dataset_id
+            .clone()
+            .filter(|dataset_id| is_valid_public_id(dataset_id))
+        else {
+            return Err(AuthError::Other(
+                "dataset_token dataset_id must be a UUID v4 public_id".to_string(),
+            ));
         };
 
         let mut cache = self.dataset_token_cache.lock().await;
@@ -497,6 +518,10 @@ impl<S: Storage> AuthManager<S> {
         &self,
         dataset_id: &str,
     ) -> Result<Option<DatasetToken>, AuthError> {
+        if !is_valid_public_id(dataset_id) {
+            return Ok(None);
+        }
+
         {
             let cache = self.dataset_token_cache.lock().await;
             if let Some(token) = cache.tokens.get(dataset_id) {
@@ -504,7 +529,10 @@ impl<S: Storage> AuthManager<S> {
             }
         }
 
-        let store = self.read_dataset_token_store_from_disk().await?;
+        let (store, dirty) = self.read_dataset_token_store_from_disk().await?;
+        if dirty {
+            self.persist_dataset_token_store(&store).await?;
+        }
         if let Some(token) = store.tokens.get(dataset_id).cloned() {
             let mut cache = self.dataset_token_cache.lock().await;
             *cache = store;
@@ -525,11 +553,8 @@ impl<S: Storage> AuthManager<S> {
         &self,
         preferred_dataset_id: Option<&str>,
     ) -> Option<String> {
-        if let Some(preferred) = preferred_dataset_id
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
-            return Some(preferred.to_string());
+        if let Some(preferred) = preferred_dataset_id.map(str::trim).filter(|v| !v.is_empty()) {
+            return is_valid_public_id(preferred).then(|| preferred.to_string());
         }
 
         let now = Utc::now();
@@ -538,7 +563,10 @@ impl<S: Storage> AuthManager<S> {
             let cache = self.dataset_token_cache.lock().await;
             let mut best: Option<(String, DateTime<Utc>)> = None;
             for (dataset_id, token) in cache.tokens.iter() {
-                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                if !is_valid_public_id(dataset_id)
+                    || token.dataset_id.as_deref() != Some(dataset_id.as_str())
+                    || token.expires_at <= now
+                {
                     continue;
                 }
                 let replace = match &best {
@@ -554,10 +582,16 @@ impl<S: Storage> AuthManager<S> {
             }
         }
 
-        if let Ok(store) = self.read_dataset_token_store_from_disk().await {
+        if let Ok((store, dirty)) = self.read_dataset_token_store_from_disk().await {
+            if dirty {
+                self.persist_dataset_token_store(&store).await.ok();
+            }
             let mut best: Option<(String, DateTime<Utc>)> = None;
             for (dataset_id, token) in store.tokens.iter() {
-                if dataset_id.trim().is_empty() || token.expires_at <= now {
+                if !is_valid_public_id(dataset_id)
+                    || token.dataset_id.as_deref() != Some(dataset_id.as_str())
+                    || token.expires_at <= now
+                {
                     continue;
                 }
                 let replace = match &best {
@@ -581,14 +615,12 @@ impl<S: Storage> AuthManager<S> {
 }
 
 // ============================================================
-// v2 anonymous-sync (pepper + Ed25519 device key)
+// v2 anonymous-sync (random UUID public_id + Ed25519 device key)
 // ============================================================
 //
-// 旧 /anonymous-sync (v1) は salt をクライアントに埋め込んで member_id_hash を
-// 計算する設計だったが、salt 流出で任意の api_member_id から dataset_token を
-// 取得できる弱点があった。v2 では以下のように責務を再配置する:
-//   - サーバーは pepper (Wrangler secret) を保持し pid = HMAC(pepper, api_member_id) を
-//     内部で計算する。クライアントは生 api_member_id だけを TLS で送る。
+// 旧 /anonymous-sync (v1) は廃止済み。現行フローは UUID v4 public_id を利用する。
+// 現行v2ではサーバーが api_member_id の所有マッピングを一度だけ作成し、
+// クライアントは署名済み token の UUID v4 public_id を利用する:
 //   - クライアントは Ed25519 keypair を端末で生成・保管し、その公開鍵を register で
 //     登録する。以降の refresh/revoke は challenge nonce への署名で本人性を担保する。
 //
@@ -600,7 +632,6 @@ use crate::device_key::DeviceKey;
 #[derive(Debug, Deserialize)]
 struct RegisterV2Response {
     device_id: String,
-    pid: String,
     dataset_token: String,
 }
 
@@ -617,13 +648,57 @@ struct ChallengeV2Response {
 #[derive(Debug, Deserialize)]
 struct RefreshV2Response {
     dataset_token: String,
-    pid: String,
-    /// 現行 pepper のバージョンタグ ("v1", "v2" ...)。
-    /// 直前の refresh と比較してローテーション検知に使う想定だが、
-    /// クライアントは旧値を保持していないので情報用ログ出力のみ。
-    #[serde(default)]
-    #[allow(dead_code)]
-    salt_version: Option<String>,
+}
+
+fn is_valid_public_id(value: &str) -> bool {
+    let Ok(uuid) = Uuid::parse_str(value.trim()) else {
+        return false;
+    };
+    uuid.get_version_num() == 4 && uuid.get_variant() == Variant::RFC4122
+}
+
+#[derive(Debug, Deserialize)]
+struct DatasetTokenClaims {
+    dataset_id: String,
+    exp: i64,
+    typ: String,
+    aud: String,
+}
+
+fn parse_dataset_token_metadata(token: &str) -> Result<(String, DateTime<Utc>), AuthError> {
+    let mut segments = token.split('.');
+    let _header = segments.next();
+    let payload = segments.next().ok_or_else(|| {
+        AuthError::Other("dataset_token payload is missing".to_string())
+    })?;
+    let _signature = segments.next().ok_or_else(|| {
+        AuthError::Other("dataset_token signature is missing".to_string())
+    })?;
+    if segments.next().is_some() {
+        return Err(AuthError::Other("dataset_token has invalid JWT shape".to_string()));
+    }
+
+    let payload_bytes = URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| AuthError::Other("dataset_token payload is not base64url".to_string()))?;
+    let claims: DatasetTokenClaims = serde_json::from_slice(&payload_bytes)?;
+    if claims.typ != "dataset" || claims.aud != "fusou-upload" {
+        return Err(AuthError::Other("dataset_token claims are invalid".to_string()));
+    }
+
+    let uuid = Uuid::parse_str(claims.dataset_id.trim())
+        .map_err(|_| AuthError::Other("dataset_token dataset_id is not a UUID".to_string()))?;
+    if uuid.get_version_num() != 4 || uuid.get_variant() != Variant::RFC4122 {
+        return Err(AuthError::Other("dataset_token dataset_id is not a UUID v4".to_string()));
+    }
+
+    let expires_at = DateTime::from_timestamp(claims.exp, 0)
+        .ok_or_else(|| AuthError::Other("dataset_token exp is invalid".to_string()))?;
+    if expires_at <= Utc::now() {
+        return Err(AuthError::Other("dataset_token is expired".to_string()));
+    }
+
+    Ok((uuid.to_string(), expires_at))
 }
 
 impl<S: Storage> AuthManager<S> {
@@ -639,12 +714,6 @@ impl<S: Storage> AuthManager<S> {
         let api_member_id = api_member_id.trim();
         validate_api_member_id(api_member_id)?;
 
-        // attestation = Ed25519(secret, "register|" + api_member_id)
-        // サーバーは受け取った device_pub で同じメッセージを検証し、
-        // 公開鍵が秘密鍵と整合していることを確認する。
-        let attestation_message = format!("register|{}", api_member_id);
-        let attestation_b64 = device_key.sign_b64(attestation_message.as_bytes());
-
         let url = configs::get_user_configs_for_app()
             .auth
             .get_anonymous_sync_v2_register_endpoint()
@@ -655,7 +724,6 @@ impl<S: Storage> AuthManager<S> {
         let body = serde_json::json!({
             "api_member_id": api_member_id,
             "device_pub": device_key.public_key_b64(),
-            "attestation": attestation_b64,
         });
 
         let resp = self
@@ -690,12 +758,11 @@ impl<S: Storage> AuthManager<S> {
             "anonymous-sync v2 register completed"
         );
 
+        let (dataset_id, expires_at) = parse_dataset_token_metadata(&parsed.dataset_token)?;
         Ok(DatasetToken {
             token: parsed.dataset_token,
-            // サーバー側 TTL (7 日) に合わせる。サーバーが返す exp と乖離しても
-            // クライアント側は 1 日前に refresh するので大きな問題にはならない。
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
+            expires_at,
+            dataset_id: Some(dataset_id),
         })
     }
 
@@ -794,19 +861,12 @@ impl<S: Storage> AuthManager<S> {
         }
 
         let parsed: RefreshV2Response = resp.json().await?;
-
-        if let Some(version) = parsed.salt_version.as_deref() {
-            tracing::debug!(
-                device_id = %device_id,
-                salt_version = %version,
-                "anonymous-sync v2 refresh: dataset_token issued"
-            );
-        }
+        let (dataset_id, expires_at) = parse_dataset_token_metadata(&parsed.dataset_token)?;
 
         Ok(DatasetToken {
             token: parsed.dataset_token,
-            expires_at: Utc::now() + Duration::days(7),
-            dataset_id: Some(parsed.pid),
+            expires_at,
+            dataset_id: Some(dataset_id),
         })
     }
 

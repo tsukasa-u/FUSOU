@@ -3,6 +3,7 @@ import type { Context } from "hono";
 import { env as cfEnv } from "cloudflare:workers";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
+import { PublicIdSchema } from "./schemas/public-id";
 import { z } from "zod";
 
 type TokenPayloadSchema = z.ZodType<Record<string, unknown>>;
@@ -535,34 +536,11 @@ export async function validateJWT(token: string): Promise<{
   }
 }
 
-function isValidMemberIdHash(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    /^[a-f0-9]{64}$/.test(value.trim().toLowerCase())
-  );
+export function isValidPublicId(value: unknown): value is string {
+  return typeof value === "string" && PublicIdSchema.safeParse(value.trim()).success;
 }
 
-export function extractMemberIdHashFromJwtPayload(
-  payload?: Record<string, unknown>,
-): string | null {
-  const userMetadata = asEnvRecord(payload?.["user_metadata"]);
-  const appMetadata = asEnvRecord(payload?.["app_metadata"]);
-  const candidates = [
-    payload?.["member_id_hash"],
-    userMetadata["member_id_hash"],
-    appMetadata["member_id_hash"],
-  ];
-
-  for (const candidate of candidates) {
-    if (isValidMemberIdHash(candidate)) {
-      return candidate.trim().toLowerCase();
-    }
-  }
-
-  return null;
-}
-
-type MemberLookupQuery = {
+type PublicIdLookupQuery = {
   select(columns: string): {
     eq(column: string, value: string): {
       maybeSingle(): PromiseLike<{ data: unknown; error: unknown }>;
@@ -574,29 +552,23 @@ type MemberLookupClient = {
   from(table: string): unknown;
 };
 
-export async function resolveLinkedMemberIdHashForUser(options: {
+export async function resolvePublicIdForUser(options: {
   supabaseAdmin: MemberLookupClient;
   userId?: string;
-  jwtPayload?: Record<string, unknown>;
 }): Promise<{
-  memberIdHash: string | null;
-  source: "jwt_metadata" | "canonical_owner" | null;
+  publicId: string | null;
+  source: "canonical_owner" | null;
 }> {
-  const { supabaseAdmin, userId, jwtPayload } = options;
-
-  const fromJwtMetadata = extractMemberIdHashFromJwtPayload(jwtPayload);
+  const { supabaseAdmin, userId } = options;
   if (!userId) {
-    if (fromJwtMetadata) {
-      return { memberIdHash: fromJwtMetadata, source: "jwt_metadata" };
-    }
-    return { memberIdHash: null, source: null };
+    return { publicId: null, source: null };
   }
 
   // Canonical owner mapping is the source of truth for user->dataset binding.
-  const memberLookupQuery = supabaseAdmin.from("user_member_map") as MemberLookupQuery;
+  const memberLookupQuery = supabaseAdmin.from("user_member_map") as PublicIdLookupQuery;
   const { data: canonicalMappingData, error: canonicalMappingError } =
     await memberLookupQuery
-      .select("member_id_hash")
+      .select("public_id")
       .eq("user_id", userId)
       .maybeSingle();
 
@@ -605,41 +577,12 @@ export async function resolveLinkedMemberIdHashForUser(options: {
   }
 
   const canonicalMapping = asEnvRecord(canonicalMappingData);
-  const fromCanonicalOwner = isValidMemberIdHash(
-    canonicalMapping["member_id_hash"],
-  )
-    ? canonicalMapping["member_id_hash"].trim().toLowerCase()
+  const publicId = isValidPublicId(canonicalMapping["public_id"])
+    ? canonicalMapping["public_id"].trim().toLowerCase()
     : null;
-
-  if (fromJwtMetadata) {
-    if (!fromCanonicalOwner) {
-      console.warn(
-        "resolveLinkedMemberIdHashForUser: ignoring unverified JWT member_id_hash (no canonical mapping)",
-        {
-          user_id: userId,
-        },
-      );
-      return { memberIdHash: null, source: null };
-    }
-
-    if (fromJwtMetadata !== fromCanonicalOwner) {
-      console.warn(
-        "resolveLinkedMemberIdHashForUser: JWT member_id_hash mismatch; falling back to canonical mapping",
-        {
-          user_id: userId,
-        },
-      );
-      return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
-    }
-
-    return { memberIdHash: fromCanonicalOwner, source: "jwt_metadata" };
-  }
-
-  if (fromCanonicalOwner) {
-    return { memberIdHash: fromCanonicalOwner, source: "canonical_owner" };
-  }
-
-  return { memberIdHash: null, source: null };
+  return publicId
+    ? { publicId, source: "canonical_owner" }
+    : { publicId: null, source: null };
 }
 
 /**
@@ -670,12 +613,12 @@ export async function validateDatasetToken(
     // 必須フィールド検証
     if (payload["typ"] !== "dataset") return null;
     if (typeof payload["sub"] !== "string") return null;
-    if (typeof payload["dataset_id"] !== "string") return null;
+    if (!isValidPublicId(payload["dataset_id"])) return null;
     if (payload["aud"] !== "fusou-upload") return null;
 
     // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
     return {
-      dataset_id: payload["dataset_id"],
+      dataset_id: payload["dataset_id"].trim().toLowerCase(),
       user_id: payload["sub"],
     };
   } catch (error) {
@@ -734,7 +677,7 @@ export async function validateDatasetTokenWithConstraints(
   if (
     typeof expectedDatasetId === "string" &&
     expectedDatasetId.trim() &&
-    validated.dataset_id !== expectedDatasetId.trim()
+    validated.dataset_id !== expectedDatasetId.trim().toLowerCase()
   ) {
     return { ok: false, status: 403, error: "dataset_id does not match token" };
   }

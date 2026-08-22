@@ -38,7 +38,6 @@ function returnLabel(path: string): string {
   const pathname = new URL(path, Astro.url.origin).pathname;
   if (pathname === "/simulator") return "編成ページへ戻る";
   if (pathname === "/dashboard/api-keys") return "APIキー管理へ戻る";
-  if (pathname === "/account/conflict") return "アカウント競合ページへ戻る";
   if (pathname === "/dashboard") return "ダッシュボードへ戻る";
   return "連携元のページへ戻る";
 }

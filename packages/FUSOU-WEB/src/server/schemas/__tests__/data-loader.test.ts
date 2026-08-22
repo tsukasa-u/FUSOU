@@ -193,7 +193,7 @@ describe("ArchivedBlockRowsSchema", () => {
     const result = ArchivedBlockRowsSchema.safeParse([
       {
         id: 1,
-        dataset_id: "dataset-1",
+        dataset_id: "00000000-0000-4000-8000-000000000001",
         table_name: "battle",
         table_version: "v1",
         compaction_tier: "hourly",
@@ -226,7 +226,7 @@ describe("DataLoaderBlockInfoRowSchema", () => {
         id: 1,
         start_byte: 0,
         length: 100,
-        dataset_id: "dataset-1",
+        dataset_id: "00000000-0000-4000-8000-000000000001",
         file_path: "archive/file.avro",
       }).success,
     ).toBe(true);
@@ -238,7 +238,7 @@ describe("DataLoaderBlockInfoRowSchema", () => {
         id: 1,
         start_byte: "0",
         length: 100,
-        dataset_id: "dataset-1",
+        dataset_id: "00000000-0000-4000-8000-000000000001",
         file_path: "archive/file.avro",
       }).success,
     ).toBe(false);

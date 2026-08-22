@@ -148,7 +148,7 @@ async function handlePreparation(
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
       // dataset_token.sub は最初にマッピングを作成した端末の user_id であり、
       // JWT user_id と一致することを要求するとマルチデバイスで 403 になる。
-      // データ帰属はdataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok || !tokenValidation.token) {
       return c.json(

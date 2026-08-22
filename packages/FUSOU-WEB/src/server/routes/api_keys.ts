@@ -21,7 +21,7 @@ import {
 import {
   getSupabaseRestConfig,
   supabaseRestRequest,
-  resolveMemberIdHashForUser,
+  resolvePublicIdForUser,
 } from "../utils/supabase-rest";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -294,12 +294,12 @@ app.post("/", async (c) => {
 
     // Verify Member ID linkage (Anti-Sybil)
     try {
-      const linkedMemberIdHash = await resolveMemberIdHashForUser(
+      const linkedPublicId = await resolvePublicIdForUser(
         config,
         user.id,
       );
 
-      if (!linkedMemberIdHash) {
+      if (!linkedPublicId) {
         return jsonResponse(
           {
             error: "Game account verification required",

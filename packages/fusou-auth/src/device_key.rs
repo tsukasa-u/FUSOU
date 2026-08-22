@@ -189,6 +189,14 @@ impl DeviceKey {
         self.persist().await
     }
 
+    /// Clear the server-issued device ID before registering this key to a new public ID.
+    pub async fn clear_device_id(&mut self) -> Result<(), AuthError> {
+        if self.record.device_id.take().is_some() {
+            self.persist().await?;
+        }
+        Ok(())
+    }
+
     /// 任意のメッセージに署名して base64 で返す。
     pub fn sign_b64(&self, message: &[u8]) -> String {
         let sig = self.signing_key.sign(message);
@@ -291,6 +299,23 @@ mod tests {
             .set_device_id("11111111-1111-4111-8111-111111111111".to_string())
             .await;
         assert!(result.is_err());
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn device_id_can_be_cleared_and_reloaded() {
+        let path = temp_path();
+        let mut key = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        key.set_device_id("00000000-0000-4000-8000-000000000000".to_string())
+            .await
+            .unwrap();
+
+        key.clear_device_id().await.unwrap();
+        assert!(key.device_id().is_none());
+
+        let reloaded = DeviceKey::load_or_create(path.clone()).await.unwrap();
+        assert!(reloaded.device_id().is_none());
 
         let _ = tokio::fs::remove_file(&path).await;
     }

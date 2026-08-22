@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublicIdSchema } from "./public-id";
 
 const ALLOWED_EVENT_TYPES = new Set(["snapshot", "start", "stop", "complete"]);
 
@@ -195,11 +196,11 @@ export const ValidatedQuestTreeIngestBodySchema =
         path: ["dataset_id"],
         message: "dataset_id is required",
       });
-    } else if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+    } else if (!PublicIdSchema.safeParse(datasetId).success) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["dataset_id"],
-        message: "dataset_id must be a 64-character SHA-256 hex string",
+        message: "dataset_id must be a UUID v4 public_id",
       });
     }
 

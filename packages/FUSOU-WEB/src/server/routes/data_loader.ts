@@ -34,7 +34,7 @@ import {
   type SupabaseRestConfig,
   getSupabaseRestConfig,
   supabaseRestRequest,
-  resolveMemberIdHashForUser,
+  resolvePublicIdForUser,
 } from "../utils/supabase-rest";
 import {
   getLatestAllowedPeriodTag,
@@ -675,11 +675,11 @@ app.get("/data/:table", async (c) => {
       periodTag = periodTagParam;
     }
 
-    // For scope=own, resolve user's dataset_id (member_id_hash)
+    // For scope=own, resolve the user's public_id dataset.
     // via social link first, then canonical owner fallback.
     let userDatasetId: string | null = null;
     if (scopeParam === "own") {
-      userDatasetId = await resolveMemberIdHashForUser(
+      userDatasetId = await resolvePublicIdForUser(
         getSupabaseRestConfig(c),
         apiKeyData.user_id,
       );
@@ -1067,7 +1067,7 @@ app.get("/download", async (c) => {
       const blockInfo = parsedBlockInfo.data;
 
       // Ownership check: verify this block belongs to the authenticated user
-      const userDatasetId = await resolveMemberIdHashForUser(
+      const userDatasetId = await resolvePublicIdForUser(
         getSupabaseRestConfig(c),
         apiKeyData.user_id,
       );

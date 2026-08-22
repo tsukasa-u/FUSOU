@@ -263,6 +263,15 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         }
     };
 
+    if member_id_changed {
+        if let Err(e) = device_key.clear_device_id().await {
+            tracing::error!("Failed to reset device identity for member switch: {}", e);
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
+            return;
+        }
+    }
+
     // 既存 token があれば refresh 判定に利用する。
     let current_token = if member_id_changed {
         None

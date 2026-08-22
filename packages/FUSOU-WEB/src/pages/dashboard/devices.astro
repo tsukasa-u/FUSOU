@@ -131,7 +131,7 @@ function providerInitial(provider?: string): string {
   const ANON_V2_BASE = "/api/auth/anonymous-sync/v2/devices";
   type AnonymousDevice = {
     device_id: string | number;
-    pid_masked?: string | null;
+    public_id_masked?: string | null;
     created_at?: string | null;
     last_seen_at?: string | null;
     revoked_at?: string | null;
@@ -161,8 +161,10 @@ function providerInitial(provider?: string): string {
       return [
         {
           device_id: deviceId,
-          pid_masked:
-            typeof item["pid_masked"] === "string" ? item["pid_masked"] : null,
+          public_id_masked:
+            typeof item["public_id_masked"] === "string"
+              ? item["public_id_masked"]
+              : null,
           created_at:
             typeof item["created_at"] === "string" ? item["created_at"] : null,
           last_seen_at:
@@ -253,9 +255,9 @@ function providerInitial(provider?: string): string {
       title.className = "font-medium font-mono text-sm";
       title.textContent = String(device.device_id ?? "");
 
-      const pid = document.createElement("div");
-      pid.className = "text-sm text-base-content/60 font-mono";
-      pid.textContent = `PID: ${String(device.pid_masked ?? "")}`;
+      const publicId = document.createElement("div");
+      publicId.className = "text-sm text-base-content/60 font-mono";
+      publicId.textContent = `Public ID: ${String(device.public_id_masked ?? "")}`;
 
       const active = !device.revoked_at;
       const meta = document.createElement("div");
@@ -265,7 +267,7 @@ function providerInitial(provider?: string): string {
         : `Revoked ${formatDate(device.revoked_at)}${device.revoked_reason ? ` · ${String(device.revoked_reason)}` : ""}`;
 
       content.appendChild(title);
-      content.appendChild(pid);
+      content.appendChild(publicId);
       content.appendChild(meta);
       row.appendChild(content);
 

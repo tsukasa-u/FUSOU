@@ -71,7 +71,7 @@ describe("ship-growth D1 projection schemas", () => {
 describe("ShipGrowthIngestBodySchema", () => {
   it("accepts a producer-shaped snapshot payload", () => {
     const result = ShipGrowthIngestBodySchema.safeParse({
-      dataset_id: "a".repeat(64),
+      dataset_id: "11111111-1111-4111-8111-111111111111",
       request_id: "request-1",
       payload_hash: "b".repeat(64),
       event_type: "snapshot",

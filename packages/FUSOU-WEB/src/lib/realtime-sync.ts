@@ -1,5 +1,5 @@
 /**
- * member_id_hash sync utility using Supabase Realtime (v2 - Security enhanced version)
+ * public_id sync utility using Supabase Realtime (v2 - Security enhanced version)
  *
  * Improvements:
  * - Enhanced error handling
@@ -32,11 +32,11 @@ function getSupabase(): SupabaseClient {
 }
 
 /**
- * Member ID hash sync result
+ * Public ID sync result
  */
-export interface MemberIdSyncResult {
+export interface PublicIdSyncResult {
   success: boolean;
-  memberIdHash?: string;
+  publicId?: string;
   error?: string;
   reason?:
     | "timeout"
@@ -54,7 +54,7 @@ export interface MemberIdSyncResult {
 interface RealtimeSyncPayload {
   id: string;
   token: string;
-  member_id_hash: string | null;
+  public_id: string | null;
   app_instance_id: string | null;
   created_at: string;
   expires_at: string;
@@ -70,14 +70,14 @@ interface ActiveSyncSession {
   startTime: number;
   timeoutHandle: ReturnType<typeof setTimeout> | null;
   resolved: boolean;
-  resolve: ((result: MemberIdSyncResult) => void) | null;
+  resolve: ((result: PublicIdSyncResult) => void) | null;
 }
 
 // Global session management (prevents multiple simultaneous executions)
 const activeSessions = new Map<string, ActiveSyncSession>();
 
 /**
- * Member ID hash sync (security enhanced version)
+ * Public ID sync (security enhanced version)
  *
  * Flow:
  * 1. Generate UUID v4 token
@@ -90,9 +90,9 @@ const activeSessions = new Map<string, ActiveSyncSession>();
  * @param timeoutMs - Timeout duration (default 5000ms)
  * @returns Sync result
  */
-export async function syncMemberIdHashWithApp(
+export async function syncPublicIdWithApp(
   timeoutMs: number = 5000,
-): Promise<MemberIdSyncResult> {
+): Promise<PublicIdSyncResult> {
   const syncToken = crypto.randomUUID();
   const channelName = `member-id-sync-${syncToken}`;
   let channel: RealtimeChannel | null = null;
@@ -154,7 +154,7 @@ export async function syncMemberIdHashWithApp(
     });
 
     // 3. Wrap in Promise (wait for UPDATE + timeout)
-    return new Promise<MemberIdSyncResult>((resolve) => {
+    return new Promise<PublicIdSyncResult>((resolve) => {
       // Session record
       activeSessions.set(syncToken, {
         token: syncToken,
@@ -185,8 +185,8 @@ export async function syncMemberIdHashWithApp(
             return;
           }
 
-          // member_id_hash と synced_at が設定されていれば成功
-          if (data.member_id_hash && data.synced_at) {
+          // public_id と synced_at が設定されていれば成功
+          if (data.public_id && data.synced_at) {
             if (resolved) {
               console.warn(
                 "[Realtime Sync v2] Already resolved, ignoring duplicate",
@@ -202,7 +202,7 @@ export async function syncMemberIdHashWithApp(
 
             resolve({
               success: true,
-              memberIdHash: data.member_id_hash,
+              publicId: data.public_id,
             });
           }
         },

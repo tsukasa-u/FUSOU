@@ -53,7 +53,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::Basic(data) => {
                 data.restore();
-                // Baseline flow: member_id_hash is managed via anonymous session.
+                // Baseline flow: the dataset public_id is managed via anonymous session.
                 // Social-link upsert is handled separately in OAuth callback handling.
                 let handle_clone = handle.clone();
                 tokio::task::spawn(async move {

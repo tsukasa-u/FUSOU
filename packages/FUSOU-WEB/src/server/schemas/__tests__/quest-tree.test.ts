@@ -247,7 +247,7 @@ describe("QuestTreeIngestBodySchema", () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error.issues[0]?.message).toBe(
-        "dataset_id must be a 64-character SHA-256 hex string",
+        "dataset_id must be a UUID v4 public_id",
       );
     }
   });

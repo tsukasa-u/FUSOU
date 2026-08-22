@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublicIdSchema } from "./public-id";
 
 export const VerifyDeviceRequestSchema = z
   .object({
@@ -98,7 +99,7 @@ export const ArchivedBlockRowsSchema = z.array(
   z
     .object({
       id: z.number().int(),
-      dataset_id: z.string(),
+      dataset_id: PublicIdSchema,
       table_name: z.string(),
       table_version: z.string(),
       compaction_tier: z.string(),
@@ -120,7 +121,7 @@ export const DataLoaderBlockInfoRowSchema = z
     id: z.number().int(),
     start_byte: z.number().int(),
     length: z.number().int(),
-    dataset_id: z.string().min(1),
+    dataset_id: PublicIdSchema,
     file_path: z.string().min(1),
   })
   .passthrough();

@@ -35,7 +35,7 @@ try {
 
 let memberMap: {
   linked?: boolean;
-  member_id_hash_masked?: string;
+  public_id_masked?: string;
   source?: string;
 } | null = null;
 function providerInitial(provider?: string): string {
@@ -57,7 +57,7 @@ try {
     linked?: boolean;
     map?: {
       linked?: boolean;
-      member_id_hash_masked?: string;
+      public_id_masked?: string;
       source?: string;
     } | null;
     error?: string;

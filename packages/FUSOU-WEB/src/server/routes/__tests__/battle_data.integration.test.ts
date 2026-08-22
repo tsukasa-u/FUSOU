@@ -27,6 +27,8 @@ type D1Options = {
 	resultsForSql?: (sql: string) => QueryResult["results"];
 };
 
+const TEST_DATASET_ID = "11111111-1111-4111-8111-111111111111";
+
 function createD1(
 	results: QueryResult["results"] = [],
 	options: D1Options = {},
@@ -87,7 +89,7 @@ describe("battle-data route integration", () => {
 	it("scopes global latest to the requested period and dataset", async () => {
 		const calls: D1QueryCall[] = [];
 		const response = await request(
-			"/global/latest?table=battle&period_tag=2026-06-26&dataset_id=dataset-a",
+			`/global/latest?table=battle&period_tag=2026-06-26&dataset_id=${TEST_DATASET_ID}`,
 			{
 				BATTLE_INDEX_DB: createD1(
 					[
@@ -112,14 +114,14 @@ describe("battle-data route integration", () => {
 		expect(calls[0]?.params).toEqual([
 			"battle",
 			"2026-06-26",
-			"dataset-a",
+				TEST_DATASET_ID,
 		]);
 	});
 
 	it("scopes global chunks to the requested period and dataset", async () => {
 		const calls: D1QueryCall[] = [];
 		const response = await request(
-			"/global/chunks?table=battle&period_tag=2026-06-26&dataset_id=dataset-a",
+			`/global/chunks?table=battle&period_tag=2026-06-26&dataset_id=${TEST_DATASET_ID}`,
 			{
 				BATTLE_INDEX_DB: createD1(
 					[
@@ -145,7 +147,7 @@ describe("battle-data route integration", () => {
 		expect(calls[0]?.params).toEqual([
 			"battle",
 			"2026-06-26",
-			"dataset-a",
+				TEST_DATASET_ID,
 			1000,
 			0,
 		]);
@@ -182,7 +184,7 @@ describe("battle-data route integration", () => {
 				BATTLE_INDEX_DB: createD1([
 					{
 						id: 1,
-						dataset_id: "dataset",
+						dataset_id: TEST_DATASET_ID,
 						start_byte: headerLength,
 						length: avroBytes.byteLength - headerLength,
 						start_timestamp: 1783429200000,
@@ -221,7 +223,7 @@ describe("battle-data route integration", () => {
 		const ranges: Array<{ offset: number; length: number }> = [];
 		const blockRow = {
 			id: 2,
-			dataset_id: "dataset-a",
+			dataset_id: TEST_DATASET_ID,
 			table_version: "v2",
 			start_byte: headerLength,
 			length: avroBytes.byteLength - headerLength,
@@ -253,7 +255,7 @@ describe("battle-data route integration", () => {
 			},
 		} as unknown as R2Bucket;
 		const response = await request(
-			"/global/records?table=battle&period_tag=latest&dataset_id=dataset-a",
+			`/global/records?table=battle&period_tag=latest&dataset_id=${TEST_DATASET_ID}`,
 			{
 				BATTLE_INDEX_DB: createD1([], {
 					calls,
@@ -279,12 +281,12 @@ describe("battle-data route integration", () => {
 			call.sql.includes("SELECT DISTINCT period_tag, table_version"),
 		);
 		expect(latestQuery?.sql).toContain("AND dataset_id = ?");
-		expect(latestQuery?.params).toEqual(["battle", "dataset-a"]);
+			expect(latestQuery?.params).toEqual(["battle", TEST_DATASET_ID]);
 		const blockQuery = calls.find((call) =>
 			call.sql.includes("bi.table_version = ?"),
 		);
 		expect(blockQuery?.params).toContain("v2");
-		expect(blockQuery?.params).toContain("dataset-a");
+			expect(blockQuery?.params).toContain(TEST_DATASET_ID);
 	});
 
 	it("does not widen a missing detail battle to all periods", async () => {

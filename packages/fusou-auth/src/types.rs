@@ -38,7 +38,7 @@ pub struct DatasetToken {
     pub token: String,
     /// トークンの有効期限
     pub expires_at: DateTime<Utc>,
-    /// このトークンが紐づく dataset_id (member_id_hash)
+    /// このトークンが紐づく UUID v4 の dataset_id (public_id)
     #[serde(default)]
     pub dataset_id: Option<String>,
 }

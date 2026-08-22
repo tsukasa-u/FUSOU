@@ -30,6 +30,7 @@ import {
 } from "../utils/period-tags";
 import { validateSynergyPayload } from "../utils/synergy-payload";
 import { UploadTokenPayloadSchema } from "../schemas/tokens";
+import { PublicIdSchema } from "../schemas/public-id";
 import {
   MasterDataR2KeyRowSchema,
   ShipGrowthArchiveBoundsRowSchema,
@@ -1113,10 +1114,10 @@ function validateIngestBody(
 
   const datasetId = String(body.dataset_id ?? "").trim();
   if (!datasetId) return { ok: false, error: "dataset_id is required" };
-  if (!/^[a-f0-9]{64}$/i.test(datasetId)) {
+  if (!PublicIdSchema.safeParse(datasetId).success) {
     return {
       ok: false,
-      error: "dataset_id must be a 64-character SHA-256 hex string",
+      error: "dataset_id must be a UUID v4 public_id",
     };
   }
 
@@ -3546,7 +3547,7 @@ app.post("/ingest", async (c) => {
       secret: datasetTokenSecret,
       expectedDatasetId: validated.datasetId,
       // expectedUserId は検証しない: 複数端末では端末ごとの匿名 user_id が異なるため。
-      // データ帰属は dataset_id (member_id_hash) の照合で担保する。
+      // データ帰属は dataset_id (public_id) の照合で担保する。
     });
     if (!tokenValidation.ok) {
       return c.json(

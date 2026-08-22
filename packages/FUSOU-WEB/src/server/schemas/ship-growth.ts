@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PublicIdSchema } from "./public-id";
 
 const IntegerSchema = z.number().int();
 const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i);
@@ -142,7 +143,7 @@ export type SpEffectItem = z.infer<typeof SpEffectItemSchema>;
 
 export const ShipGrowthIngestBodySchema = z
   .object({
-    dataset_id: Sha256Schema,
+    dataset_id: PublicIdSchema,
     dataset_token: z.string().optional(),
     request_id: z.string().min(1),
     payload_hash: Sha256Schema,

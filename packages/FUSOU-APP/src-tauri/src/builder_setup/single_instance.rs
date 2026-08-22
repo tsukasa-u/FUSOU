@@ -2,7 +2,7 @@ use fusou_auth::{AuthManager, FileStorage};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 use tauri::{Manager, Url};
-use uuid::Uuid;
+use uuid::{Uuid, Variant};
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
     // Initialization code for single instance
@@ -17,10 +17,10 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             }
         };
 
-        // Check if this is a Realtime-based member_id_hash sync request
+        // Check if this is a Realtime-based public_id sync request
         // fusou://sync?token=xxx
         if url.scheme() == "fusou" && url.host_str() == Some("sync") {
-            handle_realtime_member_id_sync(&url, app);
+            handle_realtime_public_id_sync(&url, app);
             return;
         }
 
@@ -70,16 +70,16 @@ fn goto_restore_window(app: &tauri::AppHandle, argv: &[String]) {
 
 /// Handle fusou://sync?token=xxx
 ///
-/// Realtime-based member_id_hash sync handler
+/// Realtime-based public_id sync handler
 ///
 /// Flow:
 /// 1. WEB generates passphrase token and launches fusou://sync?token=xxx
 /// 2. APP reaches here
-/// 3. APP loads member_id_hash
+/// 3. APP loads public_id from AuthManager
 /// 4. Updates pending_member_syncs table in Supabase
 /// 5. Realtime automatically notifies WEB
 /// 6. WEB processes data in-page (no navigation)
-fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
+fn handle_realtime_public_id_sync(url: &Url, app: &tauri::AppHandle) {
     // 1. Extract token
     let token = match url
         .query_pairs()
@@ -112,18 +112,18 @@ fn handle_realtime_member_id_sync(url: &Url, app: &tauri::AppHandle) {
     });
 }
 
-/// Async: Load member_id_hash and save to Supabase (with retry functionality)
+/// Async: Load public_id and save to Supabase (with retry functionality)
 async fn handle_realtime_sync_async(
     token: &str,
     app_instance_id: &str,
     app: &tauri::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash: prefer AuthManager dataset_id (v2), then legacy fallback.
-    let member_id_hash = resolve_member_id_hash_for_sync(app)
+    // 1. The AuthManager token is the sole source for the current public_id.
+    let public_id = resolve_public_id_for_sync(app)
         .await
         .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
 
-    tracing::info!("[Realtime Sync] Loaded member_id_hash");
+    tracing::info!("[Realtime Sync] Loaded public_id");
 
     // 2. Get Supabase configuration (with clear error messages)
     // Try compile-time embedded values first (set via option_env! during build with dotenvx),
@@ -157,7 +157,7 @@ async fn handle_realtime_sync_async(
         match send_supabase_update(
             token,
             app_instance_id,
-            &member_id_hash,
+            &public_id,
             &supabase_url,
             &supabase_anon_key,
         )
@@ -196,16 +196,7 @@ async fn handle_realtime_sync_async(
         .into())
 }
 
-fn normalize_member_id_hash(value: &str) -> Option<String> {
-    let normalized = value.trim().to_ascii_lowercase();
-    if normalized.len() == 64 && normalized.as_bytes().iter().all(|b| b.is_ascii_hexdigit()) {
-        Some(normalized)
-    } else {
-        None
-    }
-}
-
-async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<String, String> {
+async fn resolve_public_id_for_sync(app: &tauri::AppHandle) -> Result<String, String> {
     if let Some(auth_manager_state) = app.try_state::<Arc<Mutex<AuthManager<FileStorage>>>>() {
         // Clone to avoid holding the lock across await.
         let auth_manager_clone = {
@@ -216,25 +207,26 @@ async fn resolve_member_id_hash_for_sync(app: &tauri::AppHandle) -> Result<Strin
         };
 
         if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
-            if let Some(normalized) = normalize_member_id_hash(&dataset_id) {
-                tracing::info!("[Realtime Sync] Using AuthManager dataset_id as member_id_hash");
-                return Ok(normalized);
+            let normalized = dataset_id.trim().to_ascii_lowercase();
+            if let Ok(uuid) = Uuid::parse_str(&normalized) {
+                if uuid.get_version_num() == 4 && uuid.get_variant() == Variant::RFC4122 {
+                    tracing::info!("[Realtime Sync] Using AuthManager dataset_id as public_id");
+                    return Ok(normalized);
+                }
             }
 
-            tracing::warn!(
-                "[Realtime Sync] AuthManager dataset_id has invalid hash format; falling back to legacy source"
-            );
+            tracing::warn!("[Realtime Sync] AuthManager dataset_id is not a UUID v4");
         }
     }
 
-    crate::auth::auth_server::get_member_id_hash_with_cache()
+    Err("public_id is not available; complete anonymous v2 auth first".into())
 }
 
 /// Send PATCH request to Supabase
 async fn send_supabase_update(
     token: &str,
     app_instance_id: &str,
-    member_id_hash: &str,
+    public_id: &str,
     supabase_url: &str,
     supabase_anon_key: &str,
 ) -> Result<(), String> {
@@ -249,13 +241,13 @@ async fn send_supabase_update(
     let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     let update_body = json!({
-        "member_id_hash": member_id_hash,
+        "public_id": public_id,
         "app_instance_id": app_instance_id,
         "synced_at": now
     });
 
     tracing::debug!(
-        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/member_id_hash redacted)"
+        "[Realtime Sync] Sending PATCH to pending_member_syncs (token/public_id redacted)"
     );
 
     let response = client
