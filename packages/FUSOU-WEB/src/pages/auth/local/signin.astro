@@ -1,7 +1,30 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
+import AuthLinkSteps from "@/components/common/astro/layout/AuthLinkSteps.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
+import { validateInternalReturnPath } from "@/utils/security";
+
+const requestedReturnTo = Astro.url.searchParams.get("return_to");
+const referer = Astro.request.headers.get("referer");
+let refererReturnTo: string | null = null;
+if (!requestedReturnTo && referer) {
+  try {
+    const refererUrl = new URL(referer);
+    if (refererUrl.origin === Astro.url.origin) {
+      refererReturnTo = `${refererUrl.pathname}${refererUrl.search}`;
+    }
+  } catch {
+    refererReturnTo = null;
+  }
+}
+
+const returnTo = validateInternalReturnPath(
+  requestedReturnTo || refererReturnTo,
+  Astro.url.origin,
+);
 
 // const { cookies, redirect } = Astro;
 
@@ -16,195 +39,36 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
 // }
 ---
 
-<Layout
-  title="Account Setup - Link Game to Social Account"
-  tutorial={{
-    id: "auth-local-signin",
-    openOnFirstVisit: false,
-    title: "ローカル連携セットアップの使い方",
-    summary: "ゲームアカウント同期とSNS連携を段階的に進めます。",
-    controls: [
-      {
-        sourceSelector: "#sync_member_id_button",
-        description: "FUSOUアプリと連携してゲームアカウントを取得します。",
-        tone: "primary",
-      },
-      {
-        sourceSelector: "#local-signin-google-btn",
-        description: "SNSアカウント連携を実行します。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#skip_step_1",
-        description: "現在のステップをスキップして進みます。",
-        tone: "ghost",
-      },
-      {
-        sourceSelector: "#back_to_step_1",
-        description: "前のステップに戻ります。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#skip_all",
-        description: "全ステップをスキップします。",
-        tone: "ghost",
-      },
-    ],
-    steps: [
-      "Step 1 でゲームアカウントを同期します。FUSOUアプリを起動して、ゲームアカウントの識別子をこのウェブアカウントに紐付けます。FUSOUアプリのシステムトレイアイコンからも同期操作が可能です。",
-      "Step 2 で Google 認証などの SNS 認証を行いアカウントを紐付けます。",
-      "完了後に Step 3 で成功状態を確認してください。",
-    ],
-  }}
->
-  <Navigation />
-  <div class="h-16"></div>
-  <div class="min-h-screen flex items-center justify-center px-4 py-8">
-    <div class="w-full max-w-2xl">
-      <!-- Header -->
-      <div class="bg-base-100 rounded-md p-6 mb-6">
-        <div class="flex items-center gap-2">
-          <span class="flex-1 flex justify-end">
-            <KeyIcon class="w-8 h-8" />
-          </span>
-          <h1 class="text-center text-2xl font-semibold">Account Setup</h1>
-          <span class="flex-1"><div class="h-8 w-8"></div></span>
-        </div>
-      </div>
+<Layout title="Account Setup - Link Game to Social Account">
+  <AuthPageShell>
+    <AuthPageHeader
+      title="アカウント連携"
+      description="FUSOUアプリのゲームアカウントを、Webアカウントに連携します。"
+    />
 
-      <!-- Step Indicator -->
-      <div class="bg-base-100 rounded-md p-6 mb-6">
-        <div
-          class="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-2"
-        >
-          <!-- Step 1 -->
-          <button class="step-indicator flex-1 w-full sm:w-auto" data-step="1">
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle"
-              >
-                1
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Sync Game</div>
-                <div class="text-xs opacity-70">Connect account</div>
-              </div>
-            </div>
-          </button>
-
-          <!-- Arrow -->
-          <div class="hidden sm:block text-base-content/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"></path>
-            </svg>
-          </div>
-
-          <!-- Step 2 -->
-          <button
-            class="step-indicator flex-1 w-full sm:w-auto"
-            data-step="2"
-            disabled
-          >
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle"
-              >
-                2
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Link Social</div>
-                <div class="text-xs opacity-70">Social account</div>
-              </div>
-            </div>
-          </button>
-
-          <!-- Arrow -->
-          <div class="hidden sm:block text-base-content/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"></path>
-            </svg>
-          </div>
-
-          <!-- Step 3 -->
-          <button
-            class="step-indicator flex-1 w-full sm:w-auto"
-            data-step="3"
-            disabled
-          >
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle"
-              >
-                3
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Complete</div>
-                <div class="text-xs opacity-70">Ready to use</div>
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
+    <AuthPageSection
+      title="連携ステップ"
+      description="ゲームアカウントの同期、Googleアカウントの連携、完了確認の順に進みます。"
+    >
+      <AuthLinkSteps />
+    </AuthPageSection>
 
       <!-- Step Content -->
-      <div class="bg-base-100 rounded-md p-6">
+      <div class="rounded-lg border border-base-300 bg-base-100 p-6">
         <!-- Step 1: Sync Game Account -->
         <div id="step-1-content" class="step-content">
-          <h2 class="text-xl font-bold mb-3">Sync Your Game Account</h2>
-          <p class="text-sm text-base-content/70 mb-4">
-            Connect your game account to this web account using the FUSOU app.
-            This will retrieve your unique game account identifier.
+          <h2 class="text-xl font-bold mb-3">ゲームアカウントを同期</h2>
+          <p class="text-sm text-base-content/70 mb-4 leading-relaxed">
+            FUSOUアプリを使ってゲームアカウントをこのWebアカウントに連携します。ゲームアカウントを識別する情報を取得します。
           </p>
 
-          <div class="alert bg-info/10 border border-info text-sm mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="w-6 h-6 shrink-0 text-info stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-            <span class="text-base-content"
-              >Click the button to open the FUSOU app. The app will
-              automatically detect your game account.</span
-            >
-          </div>
+          <AlertBox type="info" title="同期する前に" class="mb-4 text-sm">
+            ボタンを押してFUSOUアプリを開きます。アプリがゲームアカウントを自動的に検出します。
+          </AlertBox>
 
           <button
             id="sync_member_id_button"
-            class="btn btn-primary w-full mb-4 border border-primary-content"
+            class="btn btn-primary w-full mb-4"
           >
             <svg
               class="w-5 h-5"
@@ -220,101 +84,36 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               ></path>
             </svg>
-            Sync with Game App
+            FUSOUアプリと同期
           </button>
 
-          <div
-            id="sync_success"
-            class="hidden alert bg-success/10 border border-success text-sm mb-4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-6 h-6 shrink-0 text-success"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <div>
-              <div class="font-semibold text-success">Sync Successful</div>
-              <div class="leading-snug text-base-content">
-                Game account synced successfully!
-              </div>
-              <div
-                id="member_id_display"
-                class="text-xs opacity-70 mt-1 font-mono"
-              >
-              </div>
-            </div>
+          <div id="sync_success" class="hidden mb-4">
+            <AlertBox type="success" title="同期しました" class="text-sm">
+              ゲームアカウントの同期が完了しました。
+              <div id="member_id_display" class="mt-1 text-xs font-mono opacity-70"></div>
+            </AlertBox>
           </div>
 
-          <div
-            id="sync_error"
-            class="hidden alert bg-error/10 border border-error text-sm mb-4"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-6 h-6 shrink-0 text-error"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              ></path>
-            </svg>
-            <div>
-              <div class="font-semibold text-error">Sync Failed</div>
-              <div class="leading-snug text-base-content" id="error_message">
-              </div>
-            </div>
+          <div id="sync_error" class="hidden mb-4">
+            <AlertBox type="error" title="同期に失敗しました" class="text-sm">
+              <p>
+                FUSOUアプリが起動していることを確認し、「もう一度同期」ボタンを押してください。
+              </p>
+              <p id="error_message" class="mt-2"></p>
+            </AlertBox>
           </div>
-
-          <div class="divider">OR</div>
-
-          <button
-            id="skip_step_1"
-            class="btn btn-ghost w-full border border-base-300"
-          >
-            Skip This Step
-          </button>
         </div>
 
         <!-- Step 2: Link Social Account -->
         <div id="step-2-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">Link Your Social Account</h2>
+          <h2 class="text-xl font-bold mb-3">Googleアカウントを連携</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            Sign in with Google to link your game account with your social
-            account. This allows you to sync your progress across devices.
+            Googleアカウントで認証し、ゲームアカウントとWebアカウントを連携します。複数の端末から同じデータを利用できます。
           </p>
 
-          <div class="alert bg-info/10 border border-info text-sm mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              class="w-6 h-6 shrink-0 text-info stroke-current"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              ></path>
-            </svg>
-            <span class="text-base-content"
-              >Click the button below to authenticate with Google. Your accounts
-              will be linked automatically.</span
-            >
-          </div>
+          <AlertBox type="info" title="Google認証について" class="mb-4 text-sm">
+            下のボタンからGoogle認証を行うと、アカウントが自動的に連携されます。
+          </AlertBox>
 
           <form action="/api/local_auth/signin" method="post" class="mb-4">
             <input
@@ -322,12 +121,13 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
               name="app_origin"
               value={Astro.url.searchParams.get("app_origin") ?? ""}
             />
+            <input type="hidden" name="return_to" value={returnTo} />
             <button
               id="local-signin-google-btn"
               type="submit"
               name="provider"
               value="google"
-              class="btn btn-ghost border border-base-300 w-full flex items-center gap-2 bg-white text-black hover:bg-gray-50"
+              class="btn btn-primary h-12 w-full flex items-center gap-2 font-semibold"
             >
               <svg
                 aria-label="Google logo"
@@ -355,75 +155,38 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
                   ></path>
                 </g>
               </svg>
-              <span>Sign in with Google</span>
+              <span>Googleで連携</span>
             </button>
           </form>
 
           <button
             id="back_to_step_1"
-            class="btn btn-ghost w-full border border-base-300"
+            class="btn btn-ghost w-full"
           >
-            ← Back to Step 1
+            ← 前のステップへ戻る
           </button>
         </div>
 
         <!-- Step 3: Complete -->
         <div id="step-3-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">Setup Complete</h2>
+          <h2 class="text-xl font-bold mb-3">連携が完了しました</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            Your game account has been successfully linked to your social
-            account. You can now access your account from any device.
+            ゲームアカウントとWebアカウントの連携が完了しました。複数の端末から同じアカウントを利用できます。
           </p>
 
-          <div class="alert bg-success/10 border border-success text-sm mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-6 h-6 shrink-0 text-success"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <div>
-              <div class="font-semibold text-success">Account Linked</div>
-              <div class="leading-snug text-base-content">
-                Your account is ready to use!
-              </div>
-            </div>
-          </div>
+          <AlertBox type="success" title="アカウント連携済み" class="mb-4 text-sm">
+            アカウントを利用できる状態になりました。
+          </AlertBox>
 
           <button
-            onclick="window.location.href = '/'"
-            class="btn btn-primary w-full border border-primary-content"
+            onclick="window.location.href = '/dashboard'"
+            class="btn btn-primary w-full"
           >
-            → Continue to Dashboard
+            → ダッシュボードへ進む
           </button>
         </div>
       </div>
-
-      <!-- Skip Option -->
-      <div class="p-6">
-        <p class="text-sm text-base-content/70 mb-3 text-center">
-          Want to skip account setup for now?
-        </p>
-        <button
-          id="skip_all"
-          class="btn btn-ghost w-full border border-base-300"
-        >
-          Continue as Guest
-        </button>
-      </div>
-
-      <div class="my-6 text-center text-sm text-base-content/70">
-        Your game account and social profile will be securely linked
-      </div>
-    </div>
-  </div>
+  </AuthPageShell>
 
   <script>
     import { syncMemberIdHashWithApp } from "@/lib/realtime-sync";
@@ -530,12 +293,12 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
       if (step1Box && step1Circle) {
         if (stepNum === 1) {
           step1Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-primary bg-primary/10";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-1-box border-primary bg-primary/10";
           step1Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-primary text-primary-content";
         } else if (stepNum > 1) {
           step1Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-success bg-success/10";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-1-box border-success bg-success/10";
           step1Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-success text-success-content";
           setElementContent(step1Circle, createStatusIcon("M5 13l4 4L19 7"));
@@ -548,18 +311,18 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
       if (step2Box && step2Circle) {
         if (stepNum === 2) {
           step2Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-primary bg-primary/10";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-2-box border-primary bg-primary/10";
           step2Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-primary text-primary-content";
         } else if (stepNum > 2) {
           step2Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-success bg-success/10";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-2-box border-success bg-success/10";
           step2Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-success text-success-content";
           setElementContent(step2Circle, createStatusIcon("M5 13l4 4L19 7"));
         } else {
           step2Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-base-300 bg-base-200 opacity-50";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-2-box border-transparent bg-base-200 opacity-50";
           step2Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-base-300 text-base-content";
           setElementContent(step2Circle, "2");
@@ -572,13 +335,13 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
       if (step3Box && step3Circle) {
         if (stepNum === 3) {
           step3Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-3-box border-success bg-success/10";
           step3Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content";
           setElementContent(step3Circle, createStatusIcon("M5 13l4 4L19 7"));
         } else {
           step3Box.className =
-            "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-base-300 bg-base-200 opacity-50";
+            "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-3-box border-transparent bg-base-200 opacity-50";
           step3Circle.className =
             "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-base-300 text-base-content";
           setElementContent(step3Circle, "3");
@@ -688,6 +451,13 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
         );
       }
 
+      function setButtonRetry(button: HTMLButtonElement) {
+        button.replaceChildren(
+          createButtonIcon("M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"),
+          document.createTextNode(" もう一度同期"),
+        );
+      }
+
       // Step buttons - prevent default click on disabled items
       document.querySelectorAll(".step-indicator").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -754,9 +524,9 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
               if (errorMessage) errorMessage.textContent = msg;
               if (syncError) syncError.classList.remove("hidden");
 
-              // Restore original button
               restoreButtonContent(syncButton, originalNodes);
               syncButton.classList.add("btn-primary");
+              setButtonRetry(syncButton);
               syncButton.disabled = false;
             }
           } catch (err) {
@@ -767,19 +537,11 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
             if (errorMessage) errorMessage.textContent = msg;
             if (syncError) syncError.classList.remove("hidden");
 
-            // Restore original button
             restoreButtonContent(syncButton, originalNodes);
             syncButton.classList.add("btn-primary");
+            setButtonRetry(syncButton);
             syncButton.disabled = false;
           }
-        });
-      }
-
-      // Skip Step 1
-      const skipStep1 = document.getElementById("skip_step_1");
-      if (skipStep1) {
-        skipStep1.addEventListener("click", () => {
-          nextStep();
         });
       }
 
@@ -788,14 +550,6 @@ import KeyIcon from "@/components/common/astro/icons/KeyIcon.astro";
       if (backToStep1) {
         backToStep1.addEventListener("click", () => {
           window.showStep("1");
-        });
-      }
-
-      // Skip All
-      const skipAll = document.getElementById("skip_all");
-      if (skipAll) {
-        skipAll.addEventListener("click", () => {
-          window.location.href = "/";
         });
       }
 

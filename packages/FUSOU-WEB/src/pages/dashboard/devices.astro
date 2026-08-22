@@ -1,6 +1,9 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import type { User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
@@ -39,44 +42,30 @@ function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
 ---
+<Layout title="Device Management - FUSOU">
+  <AuthPageShell>
+    <AuthPageHeader
+      title="Device Management"
+      description="FUSOU-APPと連携した端末を確認・失効します。"
+    />
 
-<Layout
-  title="Device Management - FUSOU"
-  tutorial={{
-    id: "dashboard-devices",
-    title: "端末管理ページの使い方",
-    summary: "anonymous-sync v2 の端末状態確認と失効操作を行います。",
-    controls: [
-      {
-        sourceSelector: "#refresh-devices-btn",
-        description: "端末一覧を再読み込みします。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#back-to-dashboard-btn",
-        description: "ダッシュボードへ戻ります。",
-        tone: "outline",
-      },
-    ],
-    steps: [
-      "現在の端末一覧と失効済み端末を確認します。",
-      "不要な active 端末は Revoke で失効できます。",
-      "失効した端末は次回同期時に再登録が必要です。",
-    ],
-  }}
->
-  <div class="min-h-screen flex flex-col">
-    <div class="flex justify-center flex-1 pt-24 sm:pt-28 pb-8">
-      <div class="w-full max-w-2xl px-4">
-        <div class="bg-base-100 rounded-md px-6 py-5">
-          <h1 class="text-2xl font-bold text-center py-2">Device Management</h1>
-          <p class="text-center text-sm text-base-content/70">
-            Anonymous sync v2 の端末一覧と失効操作
-          </p>
-        </div>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+      <AuthPageSection
+        title="端末の登録条件"
+        description="匿名同期の端末一覧に表示される条件を確認します。"
+      >
+        <AlertBox type="info" title="When devices are registered" class="text-sm">
+          Devices are registered on this page when FUSOU-APP syncs a dataset. If a device does not appear, complete FUSOU-APP linking and Google authentication, then sync again in the app.
+        </AlertBox>
+      </AuthPageSection>
 
+      <AuthPageSection
+        title="現在のアカウント"
+        description="端末同期に使うアカウントを確認し、端末情報を更新します。"
+        class="mt-6"
+      >
         <div
-          class="mt-5 mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
+          class="p-4 bg-base-200 rounded-lg flex items-center justify-between"
         >
           <div class="flex items-center gap-3">
             <span
@@ -101,34 +90,20 @@ function providerInitial(provider?: string): string {
             Refresh
           </button>
         </div>
+      </AuthPageSection>
 
-        <div class="mb-6">
-          <h2 class="text-lg font-semibold mb-3">Anonymous Sync Devices</h2>
-          <p class="text-sm text-base-content/60 mb-3">
-            active
-            端末は失効できます。失効すると次回同期時に再登録が必要になります。
-          </p>
-
+      <AuthPageSection
+        title="Anonymous Sync Devices"
+        description="使用中の端末を失効できます。失効した端末は次回同期時に再登録が必要です。"
+        class="mt-6"
+      >
           <div id="anon-devices-list" class="space-y-2">
             <div class="text-center py-4 text-base-content/60">Loading...</div>
           </div>
-        </div>
+      </AuthPageSection>
 
-        <div class="divider my-5"></div>
-
-        <div class="text-center">
-          <a
-            id="back-to-dashboard-btn"
-            href="/dashboard"
-            class="btn btn-ghost border border-base-300"
-          >
-            ← Back to Dashboard
-          </a>
-        </div>
-      </div>
     </div>
-    <Navigation />
-  </div>
+  </AuthPageShell>
 </Layout>
 
 <dialog id="revoke-modal" class="modal">

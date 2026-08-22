@@ -1,6 +1,8 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
 import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import { env as cfEnv } from "cloudflare:workers";
@@ -53,33 +55,12 @@ if (!memberIdHash) {
 ---
 
 <Layout title="Account Conflict - FUSOU">
-  <Navigation />
-  <!-- <div class="h-16"></div> -->
-  <div class="min-h-screen flex items-center justify-center px-4 py-8">
-    <div class="w-full max-w-2xl">
-      <div class="bg-base-100 rounded-md p-6">
-        <div class="flex items-center gap-2 mb-6">
-          <span class="flex-1 flex justify-end">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-8 w-8 text-warning"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              ></path>
-            </svg>
-          </span>
-          <span class="text-center text-2xl font-semibold"
-            >Account Conflict</span
-          >
-          <span class="flex-1"><div class="h-8 w-8"></div></span>
-        </div>
+  <AuthPageShell>
+    <AuthPageHeader
+      title="Account Conflict"
+      description="連携済みアカウントを確認し、続ける方法を選択してください。"
+    />
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
 
         {
           error ? (
@@ -101,6 +82,9 @@ if (!memberIdHash) {
 
                   <div class="bg-base-200 rounded-lg p-4">
                     <h3 class="font-semibold mb-3 text-sm">Existing Account</h3>
+                    <p class="mb-3 text-xs text-base-content/60">
+                      Review the masked account details before choosing a resolution.
+                    </p>
                     <div class="space-y-2 text-sm">
                       <div class="flex items-center gap-2">
                         <svg
@@ -166,9 +150,11 @@ if (!memberIdHash) {
                     </div>
                   </div>
 
-                  <div class="divider">Resolution Options</div>
-
-                  <div class="space-y-4">
+                  <AuthPageSection
+                    title="Resolution Options"
+                    description="元のアカウントへ切り替えるか、データ移行について確認します。"
+                  >
+                    <div class="space-y-4">
                     <div class="card bg-base-200 border-2 border-primary">
                       <div class="card-body p-4">
                         <h3 class="card-title text-sm">
@@ -195,7 +181,7 @@ if (!memberIdHash) {
                         <div class="card-actions justify-end mt-3">
                           <a
                             id="switch-account-btn"
-                            href="/auth/local/signin"
+                            href="/auth/local/signin?return_to=%2Faccount%2Fconflict"
                             class="btn btn-primary btn-wide btn-sm"
                           >
                             Switch Account
@@ -264,18 +250,18 @@ if (!memberIdHash) {
                         </a>
                       </div>
                     </AlertBox>
-                  </div>
+                    </div>
+                  </AuthPageSection>
                 </div>
               </>
             )
           )
         }
-      </div>
+    </div>
 
-      <div class="my-6 text-center text-sm text-base-content/70">
+    <div class="my-6 text-center text-sm text-base-content/70">
         Your game account can only be linked to one FUSOU account. Switch to the
         correct account or transfer ownership.
-      </div>
     </div>
-  </div>
+  </AuthPageShell>
 </Layout>

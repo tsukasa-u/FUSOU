@@ -1,0 +1,119 @@
+---
+type StepId = "1" | "2" | "3";
+type StepStatus = "active" | "complete" | "pending" | "error";
+
+interface Props {
+  statuses?: Partial<Record<StepId, StepStatus>>;
+  enabledSteps?: StepId[];
+}
+
+const {
+  statuses = { "1": "active", "2": "pending", "3": "pending" },
+  enabledSteps = ["1"],
+} = Astro.props;
+
+const steps: Array<{
+  id: StepId;
+  title: string;
+  description: string;
+}> = [
+  { id: "1", title: "ゲーム同期", description: "ゲームアカウントを接続" },
+  { id: "2", title: "Google連携", description: "Webアカウントを接続" },
+  { id: "3", title: "完了", description: "利用準備完了" },
+];
+
+function boxClass(status: StepStatus, id: StepId): string {
+  const stateClass = {
+    active: "border-primary bg-primary/10",
+    complete: "border-success bg-success/10",
+    pending: "border-transparent bg-base-200 opacity-50",
+    error: "border-error bg-error/10",
+  }[status];
+
+  return `flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-${id}-box ${stateClass}`;
+}
+
+function circleClass(status: StepStatus, id: StepId): string {
+  const stateClass = {
+    active: "bg-primary text-primary-content",
+    complete: "bg-success text-success-content",
+    pending: "bg-base-300 text-base-content",
+    error: "bg-error text-error-content",
+  }[status];
+
+  return `flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-bold step-${id}-circle ${stateClass}`;
+}
+
+function statusIconPath(status: StepStatus): string | null {
+  if (status === "complete") return "M5 13l4 4L19 7";
+  if (status === "error") return "M6 18L18 6M6 6l12 12";
+  return null;
+}
+---
+
+<div class="rounded-lg border border-base-300 bg-base-100 p-6">
+  <div class="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-stretch sm:gap-2">
+    {steps.map((step, index) => {
+      const status = statuses[step.id] ?? "pending";
+      const enabled = enabledSteps.includes(step.id);
+
+      return (
+        <>
+          <button
+            type="button"
+            class="step-indicator w-full min-w-0 sm:w-0 sm:flex-1"
+            data-step={step.id}
+            disabled={!enabled}
+          >
+            <div class={boxClass(status, step.id)}>
+              <div class={circleClass(status, step.id)}>
+                {statusIconPath(status) ? (
+                  <svg
+                    class="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="3"
+                      d={statusIconPath(status) ?? ""}
+                    ></path>
+                  </svg>
+                ) : (
+                  step.id
+                )}
+              </div>
+              <div class="min-w-0 flex-1 text-left">
+                <div class="text-sm font-semibold leading-5">{step.title}</div>
+                <div class="text-xs leading-4 opacity-70">{step.description}</div>
+              </div>
+            </div>
+          </button>
+
+          {index < steps.length - 1 && (
+            <div class="hidden shrink-0 self-center text-base-content/30 sm:block">
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                class="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M9 5l7 7-7 7"
+                ></path>
+              </svg>
+            </div>
+          )}
+        </>
+      );
+    })}
+  </div>
+</div>

@@ -1,6 +1,9 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
 import type { User } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
@@ -73,52 +76,37 @@ if (!user) {
 }
 ---
 
-<Layout
-  title="API Keys - FUSOU"
-  tutorial={{
-    id: "dashboard-api-keys",
-    title: "APIキー管理ページの使い方",
-    summary: "APIキーの発行・確認・削除とデバイス確認を行います。",
-    controls: [
-      {
-        sourceSelector: "#create-key-btn",
-        description: "新しいAPIキーを発行します。",
-        tone: "primary",
-      },
-      {
-        sourceSelector: "#copy-key-btn",
-        label: "Copy",
-        description: "発行直後のキー文字列をコピーします。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#back-to-dashboard-btn",
-        description: "ダッシュボードへ戻ります。",
-        tone: "outline",
-      },
-    ],
-    steps: [
-      "Create New Key でキーを作成します。",
-      "表示されたキーは一度だけなので、すぐにコピーして保管します。",
-      "不要なキーやデバイスは一覧から削除してください。",
-    ],
-  }}
->
-  <div class="min-h-screen flex flex-col">
-    <div class="flex justify-center flex-1 pt-20 sm:pt-24 pb-8">
-      <div class="w-full max-w-2xl px-4">
-        <div class="bg-base-100 rounded-md px-6 py-4">
-          <h1 class="text-2xl font-bold text-center py-1">
-            API Key Management
-          </h1>
-          <p class="text-center text-sm text-base-content/70">
-            Manage your API keys for fusou-datasets
-          </p>
-        </div>
+<Layout title="API Keys - FUSOU">
+  <AuthPageShell>
+    <AuthPageHeader
+      title="API Key Management"
+      description="fusou-datasetsで使うAPIキーを管理します。"
+    />
 
-        <!-- Account Info Section -->
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+      <AuthPageSection
+        title="利用開始前の確認"
+        description="APIキーを作成する前に、次の準備を完了してください。"
+      >
+          <AlertBox type="info" title="Before using datasets" class="mb-5 text-sm">
+            <ol class="list-decimal space-y-1 pl-5">
+              <li>Sync your game account with FUSOU-APP.</li>
+              <li>Authenticate with Google. FUSOU-APP linking and web sign-in will complete together.</li>
+              <li>Create an API key on this page and use it with fusou-datasets.</li>
+            </ol>
+            <p class="mt-3 text-xs opacity-75">
+              If your game account is not linked, complete FUSOU-APP linking first.
+            </p>
+          </AlertBox>
+      </AuthPageSection>
+
+      <AuthPageSection
+        title="アカウント情報"
+        description="サインイン中のアカウントとゲームアカウントの連携状態を確認します。"
+        class="mt-6"
+      >
         <div
-          class="mb-5 p-4 bg-base-200 rounded-lg flex items-center justify-between border border-base-300"
+          class="p-4 bg-base-200 rounded-lg flex items-center justify-between"
         >
           <div class="flex items-center gap-3">
             <span
@@ -176,51 +164,34 @@ if (!user) {
             }
           </div>
         </div>
+      </AuthPageSection>
 
-        <!-- Unverified Warning -->
         {
           !memberMap && (
-            <div class="mb-5 p-4 bg-warning/10 border border-warning rounded-md">
-              <div class="flex items-center gap-2 mb-2">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="size-5 text-warning"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
-                <span class="font-bold text-warning">
-                  Game Account Verification Required
-                </span>
-              </div>
-              <p class="text-sm text-base-content/70 mb-2">
-                You must link your KanColle game account to create API keys.
-              </p>
-              <a
-                href="/auth/local/signin"
-                class="btn btn-sm btn-warning btn-outline"
-              >
-                Link Account →
-              </a>
-            </div>
+            <AuthPageSection
+              title="ゲームアカウントの連携"
+              description="APIキーを作成するには、先にゲームアカウントを連携してください。"
+              class="mt-6"
+            >
+              <AlertBox type="warning" title="Game Account Verification Required" class="text-sm">
+                <p>
+                  You must link your KanColle game account to create API keys.
+                </p>
+                <a href="/auth/local/signin?return_to=%2Fdashboard%2Fapi-keys" class="btn btn-sm btn-warning btn-outline mt-3">
+                  Link Account →
+                </a>
+              </AlertBox>
+            </AuthPageSection>
           )
         }
 
-        <!-- Usage Status Section (New) -->
-        <div class="mb-6 p-4 bg-base-200/50 rounded-lg border border-base-300">
+      <AuthPageSection
+        title="Resource Units (RU)"
+        description="APIリクエストに利用できるリソース残量を確認します。"
+        class="mt-6"
+      >
+        <div class="p-4 bg-base-200/50 rounded-lg">
           <div class="flex justify-between items-center mb-2">
-            <h2
-              class="text-sm font-semibold uppercase tracking-wider text-base-content/70"
-            >
-              Resource Units (RU)
-            </h2>
             <span id="ru-status-text" class="text-xs font-mono font-bold"
               >Checking...</span
             >
@@ -234,11 +205,14 @@ if (!user) {
             Refills automatically at 10 RU/sec. Max 1000.
           </p>
         </div>
+      </AuthPageSection>
 
-        <!-- API Keys Section -->
-        <div class="mb-6">
+      <AuthPageSection
+        title="API Keys"
+        description="fusou-datasetsで使うAPIキーの作成・コピー・削除を行います。"
+        class="mt-6"
+      >
           <div class="flex justify-between items-center mb-4">
-            <h2 class="text-lg font-semibold">Your API Keys</h2>
             <button
               id="create-key-btn"
               class="btn btn-sm btn-primary border border-primary-content"
@@ -264,15 +238,13 @@ if (!user) {
           <!-- Error Alert -->
           <div
             id="api-key-error"
-            class="hidden mb-4 p-4 text-sm text-error bg-error/10 border border-error rounded-md text-center"
+            class="hidden alert alert-error mb-4 text-sm"
           >
           </div>
-        </div>
 
-        <!-- New Key Display (hidden by default) -->
         <div
           id="new-key-display"
-          class="hidden mb-8 p-4 bg-success/10 border border-success rounded-md"
+          class="hidden alert alert-success mb-8 items-start"
         >
           <div class="flex items-center gap-2 mb-2">
             <svg
@@ -329,37 +301,20 @@ if (!user) {
             </button>
           </div>
         </div>
+      </AuthPageSection>
 
-        <div class="divider"></div>
-
-        <!-- Trusted Devices Section -->
-        <div class="mb-6">
-          <h2 class="text-lg font-semibold mb-4">Trusted Devices</h2>
-          <p class="text-sm text-base-content/60 mb-4">
-            Devices that have been verified for API access
-          </p>
-
+      <AuthPageSection
+        title="Trusted Devices"
+        description="APIアクセスを許可した端末を確認します。"
+        class="mt-6"
+      >
           <div id="devices-list" class="space-y-2">
             <div class="text-center py-4 text-base-content/60">Loading...</div>
           </div>
-        </div>
+      </AuthPageSection>
 
-        <div class="divider my-5"></div>
-
-        <!-- Back to Dashboard -->
-        <div class="text-center">
-          <a
-            id="back-to-dashboard-btn"
-            href="/dashboard"
-            class="btn btn-ghost border border-base-300"
-          >
-            ← Back to Dashboard
-          </a>
-        </div>
-      </div>
     </div>
-  </div>
-  <Navigation />
+  </AuthPageShell>
 </Layout>
 
 <!-- Delete Confirmation Modal -->

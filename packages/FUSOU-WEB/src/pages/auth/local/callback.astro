@@ -1,9 +1,15 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
-import CheckIcon from "@/components/common/astro/icons/CheckIcon.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
+import AuthLinkSteps from "@/components/common/astro/layout/AuthLinkSteps.astro";
+import AlertBox from "@/components/common/astro/ui/AlertBox.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { validateRedirectUrl } from "@/utils/security";
+import {
+  validateInternalReturnPath,
+  validateRedirectUrl,
+} from "@/utils/security";
 import { createEnvContext, getEnv } from "@/server/utils";
 import { env as cfEnv } from "cloudflare:workers";
 
@@ -22,10 +28,31 @@ const expiresAtCookie = cookies.get("sb-local-expires-at");
 // Get allowed origin using unified env API
 const envCtx = createEnvContext({ env: runtimeEnv });
 const allowedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim()!;
+const appOriginParam = Astro.url.searchParams.get("app_origin");
+const returnTo = validateInternalReturnPath(
+  Astro.url.searchParams.get("return_to"),
+  allowedOrigin,
+);
+
+function returnLabel(path: string): string {
+  const pathname = new URL(path, Astro.url.origin).pathname;
+  if (pathname === "/simulator") return "編成ページへ戻る";
+  if (pathname === "/dashboard/api-keys") return "APIキー管理へ戻る";
+  if (pathname === "/account/conflict") return "アカウント競合ページへ戻る";
+  if (pathname === "/dashboard") return "ダッシュボードへ戻る";
+  return "連携元のページへ戻る";
+}
+
+const returnLinkLabel = returnLabel(returnTo);
+const retryUrl = new URL("/auth/local/signin", Astro.url);
+if (appOriginParam) {
+  retryUrl.searchParams.set("app_origin", appOriginParam);
+}
+retryUrl.searchParams.set("return_to", returnTo);
+const retryHref = `${retryUrl.pathname}${retryUrl.search}`;
 
 // Detect if request originated from Tauri app
 // Check for: app origin parameter, fusou:// referer, or fusou:// deep link indicator
-const appOriginParam = Astro.url.searchParams.get("app_origin");
 const referer = Astro.request.headers.get("referer") || "";
 const isFromTauriApp =
   appOriginParam === "tauri" ||
@@ -50,6 +77,7 @@ if (refreshToken?.value && accessToken?.value) {
     });
 
     if (sessionResult.error) {
+      console.error("[local_auth/callback] Session setup failed", sessionResult.error);
       error_message = sessionResult.error.message;
       set_session_error_flag = true;
     } else {
@@ -103,6 +131,7 @@ if (refreshToken?.value && accessToken?.value) {
       // No need to upsert here - tokens are already persisted
     }
   } catch (error) {
+    console.error("[local_auth/callback] Authentication processing failed", error);
     error_message = error instanceof Error ? error.message : String(error);
     set_session_error_flag = true;
   }
@@ -125,300 +154,91 @@ cookies.delete("sb-local-provider", { path: "/" });
 cookies.delete("sb-local-expires-at", { path: "/" });
 ---
 
-<Layout
-  title="Account Setup - Link Game to Social Account"
-  tutorial={{
-    id: "auth-local-callback",
-    openOnFirstVisit: false,
-    title: "連携完了ページの使い方",
-    summary: "認証結果を確認し、アプリまたはダッシュボードへ戻れます。",
-    controls: [
-      {
-        sourceSelector: "#dashboard-btn",
-        description: "Web側ダッシュボードへ進みます。",
-        tone: "primary",
-      },
-      {
-        sourceSelector: "#app-return-link",
-        description: "デスクトップアプリへ戻ります。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#retry-link",
-        description:
-          "認証に失敗した場合、サインインページへ戻ってやり直します。",
-        tone: "primary",
-      },
-      {
-        sourceSelector: "#continue-guest-btn",
-        description: "連携なしでゲストとして続行します。",
-        tone: "ghost",
-      },
-    ],
-    steps: [
-      "Web継続時は Continue to Dashboard、アプリ復帰は Return to App を使います。",
-      "失敗時はRetry Sign-in で認証をやり直すか、または Continue as Guest で一時的にローカル連携をスキップできます。",
-    ],
-  }}
->
-  <div class="min-h-screen flex items-center justify-center px-4 py-8">
-    <div class="w-full max-w-2xl">
-      <!-- Header -->
-      <div class="bg-base-100 rounded-md p-6 mb-6">
-        <div class="flex items-center gap-2">
-          <span class="flex-1 flex justify-end">
-            <CheckIcon class="w-8 h-8" />
-          </span>
-          <h1 class="text-center text-2xl font-semibold">Account Setup</h1>
-          <span class="flex-1"><div class="h-8 w-8"></div></span>
-        </div>
-      </div>
+<Layout title="Account Setup - Link Game to Social Account">
+  <AuthPageShell>
+    <AuthPageHeader
+      title="連携結果"
+      description="アカウント連携の結果を確認して、FUSOUを続けます。"
+    />
 
-      <!-- Step Indicator -->
-      <div class="bg-base-100 rounded-md p-6 mb-6">
-        <div
-          class="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-2"
-        >
-          <!-- Step 1 -->
-          <button
-            class="step-indicator flex-1 w-full sm:w-auto"
-            data-step="1"
-            disabled
-          >
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-success bg-success/10"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-success text-success-content"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M5 13l4 4L19 7"></path></svg
-                >
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Sync Game</div>
-                <div class="text-xs opacity-70">Connect account</div>
-              </div>
-            </div>
-          </button>
-
-          <!-- Arrow -->
-          <div class="hidden sm:block text-base-content/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"></path>
-            </svg>
-          </div>
-
-          <!-- Step 2 -->
-          <button
-            class="step-indicator flex-1 w-full sm:w-auto"
-            data-step="2"
-            disabled
-          >
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-success bg-success/10"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-success text-success-content"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M5 13l4 4L19 7"></path></svg
-                >
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Link Social</div>
-                <div class="text-xs opacity-70">Social account</div>
-              </div>
-            </div>
-          </button>
-
-          <!-- Arrow -->
-          <div class="hidden sm:block text-base-content/30">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="h-5 w-5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 5l7 7-7 7"></path>
-            </svg>
-          </div>
-
-          <!-- Step 3 -->
-          <button
-            class="step-indicator flex-1 w-full sm:w-auto"
-            data-step="3"
-            disabled
-          >
-            <div
-              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10"
-            >
-              <div
-                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  ><path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="3"
-                    d="M5 13l4 4L19 7"></path></svg
-                >
-              </div>
-              <div class="flex-1 text-left">
-                <div class="font-semibold text-sm">Complete</div>
-                <div class="text-xs opacity-70">Ready to use</div>
-              </div>
-            </div>
-          </button>
-        </div>
-      </div>
+    <AuthPageSection
+      title="連携ステップ"
+      description="連携処理が完了しました。結果を確認して、次の操作を選択してください。"
+    >
+      <AuthLinkSteps
+        statuses={{
+          "1": "complete",
+          "2": "complete",
+          "3": set_session_error_flag ? "error" : "complete",
+        }}
+        enabledSteps={[]}
+      />
+    </AuthPageSection>
 
       <!-- Step Content -->
-      <div class="bg-base-100 rounded-md p-6">
+      <div class="rounded-lg border border-base-300 bg-base-100 p-6">
         <!-- Error State -->
         <div id="error-content" class="step-content hidden">
           <h2 class="text-xl font-bold mb-3 text-error">
-            Authentication Failed
+            認証に失敗しました
           </h2>
           <p class="text-sm text-base-content/70 mb-4">
-            We encountered an issue while processing your authentication. Please
-            try again.
+            認証処理中に問題が発生しました。もう一度お試しください。
           </p>
 
-          <div class="alert bg-error/10 border border-error text-sm mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-6 h-6 shrink-0 text-error"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              ></path>
-            </svg>
-            <div>
-              <div class="font-semibold text-error">Error Details</div>
-              <div class="leading-snug text-base-content" id="error-message">
-              </div>
-            </div>
-          </div>
+          <AlertBox type="error" title="エラーの詳細" class="mb-4 text-sm">
+            <span id="error-message"></span>
+          </AlertBox>
 
           <div class="flex flex-col gap-3">
             <a
               id="retry-link"
-              href={`/auth/local/signin${appOriginParam ? `?app_origin=${encodeURIComponent(appOriginParam)}` : ""}`}
-              class="btn btn-primary w-full border border-primary-content"
+              href={retryHref}
+              class="btn btn-primary w-full flex items-center gap-2"
             >
-              ← Retry Sign-in
+              <svg
+                aria-hidden="true"
+                class="h-5 w-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                ></path>
+              </svg>
+              サインインをやり直す
             </a>
-            <button
-              id="continue-guest-btn"
-              onclick="window.location.href = '/'"
-              class="btn btn-ghost w-full border border-base-300"
-            >
-              Continue as Guest
-            </button>
           </div>
         </div>
 
         <!-- Success State (Step 3) -->
         <div id="success-content" class="step-content hidden">
-          <h2 class="text-xl font-bold mb-3">Setup Complete</h2>
+          <h2 class="text-xl font-bold mb-3">連携が完了しました</h2>
           <p class="text-sm text-base-content/70 mb-4">
-            Your game account has been successfully linked to your social
-            account. You can now access your account from any device.
+            ゲームアカウントとWebアカウントの連携が完了しました。複数の端末から同じアカウントを利用できます。
           </p>
 
-          <div class="alert bg-success/10 border border-success text-sm mb-4">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              class="w-6 h-6 shrink-0 text-success"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-            </svg>
-            <div>
-              <div class="font-semibold text-success">Account Linked</div>
-              <div class="leading-snug text-base-content">
-                Your account is ready to use!
-              </div>
-            </div>
-          </div>
+          <AlertBox type="success" title="アカウント連携済み" class="mb-4 text-sm">
+            アカウントを利用できる状態になりました。
+          </AlertBox>
 
-          <div class="flex flex-col gap-3">
-            <button
-              id="dashboard-btn"
-              onclick="window.location.href = '/'"
-              class="btn btn-primary w-full border border-primary-content"
-            >
-              → Continue to Dashboard
-            </button>
+          {!isDesktopApp && (
             <a
-              id="app-return-link"
-              href="fusou://auth?status=success"
-              class="btn btn-ghost w-full border border-base-300"
+              id="return-link"
+              href={returnTo}
+              class="btn btn-primary w-full"
             >
-              ← Return to App
+              ← {returnLinkLabel}
             </a>
-          </div>
+          )}
         </div>
       </div>
 
-      <!-- Skip Option -->
-      <div class="p-6">
-        <p class="text-sm text-base-content/70 mb-3 text-center">
-          Your game account and social profile have been securely linked
-        </p>
-      </div>
-    </div>
-  </div>
-
-  <Navigation />
+  </AuthPageShell>
 </Layout>
 
 <astro-data-callback
@@ -476,7 +296,7 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           // Update Step 3 to error state
           if (step3Box && step3Circle) {
             step3Box.className =
-              "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
+              "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-3-box border-error bg-error/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
             step3Circle.replaceChildren(
@@ -495,55 +315,10 @@ cookies.delete("sb-local-expires-at", { path: "/" });
           // Update Step 3 to success state
           if (step3Box && step3Circle) {
             step3Box.className =
-              "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10";
+              "flex h-20 w-full min-w-0 items-center gap-3 rounded-lg border-2 p-3 transition-all duration-200 step-3-box border-success bg-success/10";
             step3Circle.className =
               "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content";
             step3Circle.replaceChildren(createStepStatusIcon("M5 13l4 4L19 7"));
-          }
-
-          // Set manual return-to-app link (fetches actual redirect from API).
-          const appReturnLink = document.getElementById("app-return-link");
-          if (appReturnLink) {
-            if (hasAppRedirect) {
-              appReturnLink.setAttribute(
-                "href",
-                "/api/local_auth/app-redirect",
-              );
-            } else {
-              appReturnLink.setAttribute("href", "fusou://auth?status=success");
-            }
-          }
-
-          // Switch primary accent depending on app vs web
-          const dashboardBtn = document.getElementById("dashboard-btn");
-          if (dashboardBtn && appReturnLink) {
-            if (isDesktopApp) {
-              // App is primary action
-              dashboardBtn.classList.remove(
-                "btn-primary",
-                "border-primary-content",
-              );
-              dashboardBtn.classList.add("btn-ghost", "border-base-300");
-
-              appReturnLink.classList.remove("btn-ghost", "border-base-300");
-              appReturnLink.classList.add(
-                "btn-primary",
-                "border-primary-content",
-              );
-            } else {
-              // Web is primary action
-              dashboardBtn.classList.add(
-                "btn-primary",
-                "border-primary-content",
-              );
-              dashboardBtn.classList.remove("btn-ghost", "border-base-300");
-
-              appReturnLink.classList.add("btn-ghost", "border-base-300");
-              appReturnLink.classList.remove(
-                "btn-primary",
-                "border-primary-content",
-              );
-            }
           }
 
           // Auto-redirect to app on success via the one-time server endpoint.

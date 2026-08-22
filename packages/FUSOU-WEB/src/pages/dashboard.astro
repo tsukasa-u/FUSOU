@@ -1,15 +1,11 @@
 ---
 import Layout from "@/layouts/Layout.astro";
-import Navigation from "@/components/common/astro/layout/Navigation.astro";
+import AuthPageHeader from "@/components/common/astro/layout/AuthPageHeader.astro";
+import AuthPageShell from "@/components/common/astro/layout/AuthPageShell.astro";
+import AuthPageSection from "@/components/common/astro/layout/AuthPageSection.astro";
 import { createSupabaseServerClient } from "@/lib/supabaseServer";
-import { SECURE_COOKIE_OPTIONS } from "@/utils/security";
 import type { AuthResponse } from "@supabase/supabase-js";
 import { env as cfEnv } from "cloudflare:workers";
-
-const STORED_TOKEN_COOKIE_OPTIONS = {
-  ...SECURE_COOKIE_OPTIONS,
-  sameSite: "lax" as const,
-};
 
 const cookies = Astro.cookies;
 const runtimeEnv = cfEnv as unknown as Record<string, unknown>;
@@ -17,364 +13,121 @@ const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
-const providerToken = cookies.get("sb-provider-token");
-const providerRefreshToken = cookies.get("sb-provider-refresh-token");
-
-let storedAccessToken = cookies.get("stored-sb-access-token");
-let storedRefreshToken = cookies.get("stored-sb-refresh-token");
-let storedProviderToken = cookies.get("stored-sb-provider-token");
-let storedProviderRefreshToken = cookies.get(
-  "stored-sb-provider-refresh-token",
-);
-
-function readStoredTokenList(
-  cookie: { json: () => unknown } | undefined,
-): string[] {
-  if (!cookie) return [];
-  try {
-    const parsed = cookie.json() as { data?: unknown };
-    return Array.isArray(parsed.data)
-      ? parsed.data.filter(
-          (value): value is string => typeof value === "string",
-        )
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-if (
-  !storedAccessToken ||
-  !storedRefreshToken ||
-  !storedProviderToken ||
-  !storedProviderRefreshToken
-) {
-  cookies.set(
-    "stored-sb-access-token",
-    { data: [] },
-    STORED_TOKEN_COOKIE_OPTIONS,
-  );
-  cookies.set(
-    "stored-sb-refresh-token",
-    { data: [] },
-    STORED_TOKEN_COOKIE_OPTIONS,
-  );
-  cookies.set(
-    "stored-sb-provider-token",
-    { data: [] },
-    STORED_TOKEN_COOKIE_OPTIONS,
-  );
-  cookies.set(
-    "stored-sb-provider-refresh-token",
-    { data: [] },
-    STORED_TOKEN_COOKIE_OPTIONS,
-  );
-  storedAccessToken = cookies.get("stored-sb-access-token");
-  storedRefreshToken = cookies.get("stored-sb-refresh-token");
-  storedProviderToken = cookies.get("stored-sb-provider-token");
-  storedProviderRefreshToken = cookies.get("stored-sb-provider-refresh-token");
-}
-
-let accessTokenList = readStoredTokenList(storedAccessToken);
-const refreshTokenList = readStoredTokenList(storedRefreshToken);
-const providerTokenList = readStoredTokenList(storedProviderToken);
-const providerRefreshTokenList = readStoredTokenList(
-  storedProviderRefreshToken,
-);
 
 function providerInitial(provider?: string): string {
   return (provider?.trim()?.charAt(0) || "?").toUpperCase();
 }
 
 let currentSession: AuthResponse | null = null;
-if (refreshToken && accessToken && providerToken && providerRefreshToken) {
-  try {
-    const session = await supabase.auth.setSession({
-      refresh_token: refreshToken.value,
-      access_token: accessToken.value,
-    });
-    if (session.error) {
-      cookies.delete("sb-access-token", { path: "/" });
-      cookies.delete("sb-refresh-token", { path: "/" });
-      cookies.delete("sb-provider-token", { path: "/" });
-      cookies.delete("sb-provider-refresh-token", { path: "/" });
-      return Astro.redirect("/auth/signin");
-    }
-    currentSession = session;
-  } catch (error) {
+if (!refreshToken || !accessToken) {
+  return Astro.redirect("/auth/signin");
+}
+
+try {
+  const session = await supabase.auth.setSession({
+    refresh_token: refreshToken.value,
+    access_token: accessToken.value,
+  });
+  if (session.error) {
     cookies.delete("sb-access-token", { path: "/" });
     cookies.delete("sb-refresh-token", { path: "/" });
     cookies.delete("sb-provider-token", { path: "/" });
     cookies.delete("sb-provider-refresh-token", { path: "/" });
     return Astro.redirect("/auth/signin");
   }
+  currentSession = session;
+} catch (_error) {
+  cookies.delete("sb-access-token", { path: "/" });
+  cookies.delete("sb-refresh-token", { path: "/" });
+  cookies.delete("sb-provider-token", { path: "/" });
+  cookies.delete("sb-provider-refresh-token", { path: "/" });
+  return Astro.redirect("/auth/signin");
 }
 
-let validAccessTokenList: string[] = [];
-let validRefreshTokenList: string[] = [];
-let validProviderTokenList: string[] = [];
-let validProviderRefreshTokenList: string[] = [];
-let validSessionList: AuthResponse[] = [];
-
-const tokenListLength = accessTokenList.length;
-for (let i = 0; i < tokenListLength; i++) {
-  try {
-    const accessTokenValue = accessTokenList[i];
-    const refreshTokenValue = refreshTokenList[i];
-    if (accessTokenValue === undefined || refreshTokenValue === undefined) {
-      continue;
-    }
-    let session = await supabase.auth.setSession({
-      refresh_token: refreshTokenValue,
-      access_token: accessTokenValue,
-    });
-    if (session.error) {
-      try {
-        const refreshedSession = await supabase.auth.refreshSession({
-          refresh_token: refreshTokenValue,
-        });
-        if (refreshedSession.error || !refreshedSession.data.session) continue;
-        session = refreshedSession;
-        currentSession = refreshedSession;
-        accessTokenList[i] = refreshedSession.data.session.access_token;
-        refreshTokenList[i] = refreshedSession.data.session.refresh_token;
-      } catch (error) {
-        continue;
-      }
-    }
-    const validAccessToken = accessTokenList[i];
-    const validRefreshToken = refreshTokenList[i];
-    if (validAccessToken === undefined || validRefreshToken === undefined) {
-      continue;
-    }
-    if (currentSession) {
-      if (session.data.user?.email == currentSession.data.user?.email) continue;
-    }
-    validAccessTokenList.push(validAccessToken);
-    validRefreshTokenList.push(validRefreshToken);
-    validSessionList.push(session);
-    validProviderTokenList.push(providerTokenList[i] ?? "");
-    validProviderRefreshTokenList.push(providerRefreshTokenList[i] ?? "");
-  } catch (error) {
-    continue;
-  }
+const accountUser = currentSession.data.user;
+if (!accountUser) {
+  return Astro.redirect("/auth/signin");
 }
 
-if (
-  currentSession &&
-  accessToken &&
-  refreshToken &&
-  providerToken &&
-  providerRefreshToken
-) {
-  validSessionList.push(currentSession);
-  validAccessTokenList.push(accessToken.value);
-  validRefreshTokenList.push(refreshToken.value);
-  validProviderTokenList.push(providerToken.value);
-  validProviderRefreshTokenList.push(providerRefreshToken.value);
-} else {
-  if (
-    validAccessTokenList.length == 0 ||
-    validRefreshTokenList.length == 0 ||
-    validSessionList.length == 0 ||
-    validProviderTokenList.length == 0 ||
-    validProviderRefreshTokenList.length == 0
-  ) {
-    return Astro.redirect("/auth/signin");
-  }
-}
-
-cookies.set(
-  "stored-sb-access-token",
-  { data: validAccessTokenList },
-  STORED_TOKEN_COOKIE_OPTIONS,
-);
-cookies.set(
-  "stored-sb-refresh-token",
-  { data: validRefreshTokenList },
-  STORED_TOKEN_COOKIE_OPTIONS,
-);
-cookies.set(
-  "stored-sb-provider-token",
-  { data: validProviderTokenList },
-  STORED_TOKEN_COOKIE_OPTIONS,
-);
-cookies.set(
-  "stored-sb-provider-refresh-token",
-  { data: validProviderRefreshTokenList },
-  STORED_TOKEN_COOKIE_OPTIONS,
-);
 ---
 
-<Layout
-  title="dashboard"
-  tutorial={{
-    id: "dashboard",
-    title: "ダッシュボードの使い方",
-    summary: "接続済みアカウントの切り替えと追加ができます。",
-    controls: [
-      {
-        label: "Switch",
-        sourceSelector: ".btn-switch-account",
-        description: "選択したアカウントへ切り替えます。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#dashboard-signin-google-btn",
-        description: "追加アカウントを連携します。",
-        tone: "outline",
-      },
-      {
-        sourceSelector: "#dashboard-signout-btn",
-        description: "現在のセッションからサインアウトします。",
-        tone: "outline",
-      },
-    ],
-    steps: [
-      "Your accounts で現在の利用可能アカウントを確認します。",
-      "別アカウントを使う場合は Switch を押します。",
-      "新規追加は Sign in with Google、終了は Sign out を使います。",
-    ],
-  }}
->
-  <div class="min-h-screen flex flex-col">
-    <div class="flex justify-center flex-1 items-start pt-20 sm:pt-24 pb-8">
-      <div class="w-full max-w-md">
-        <div class="mb-6 text-center space-y-2">
-          <h1 class="text-3xl font-bold tracking-tight">
-            Account is authorized
-          </h1>
-          <p class="text-sm text-base-content/60">
-            いま認証されているアカウントの切り替えと追加を行います。
-          </p>
-        </div>
+<Layout title="dashboard">
+  <AuthPageShell>
+    <AuthPageHeader
+      title="Account is authorized"
+      description="認証済みアカウントの情報を確認します。"
+    />
 
-        <div class="bg-base-100 rounded-md p-6">
-          <div class="space-y-4">
-            <ul class="list bg-base-100 rounded-box border border-base-200">
-              <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
-                Your accounts
-              </li>
-              {
-                validSessionList.map((session, idx) => {
-                  const isCurrent =
-                    session?.data.session?.user?.email ===
-                    currentSession?.data.user?.email;
-                  return (
-                    <li class="list-row flex items-center justify-between gap-4 p-4 border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors">
-                      <div class="flex items-center gap-4">
-                        <span
-                          class="size-10 rounded-full bg-base-300 text-base-content font-bold text-sm grid place-items-center"
-                          title={
-                            session?.data.session?.user.app_metadata.provider ||
-                            "provider"
-                          }
-                        >
-                          {providerInitial(
-                            session?.data.session?.user.app_metadata.provider,
-                          )}
-                        </span>
-                        <div>
-                          <div>
-                            {session?.data.session?.user.user_metadata["name"]}
-                          </div>
-                          <div class="text-xs font-semibold opacity-60">
-                            {session?.data.user?.email}
-                          </div>
-                        </div>
-                      </div>
-                      <div class="w-24 flex justify-end">
-                        {isCurrent ? (
-                          <div class="h-8 flex items-center text-xs text-base-content/60">
-                            現在使用中
-                          </div>
-                        ) : (
-                          <form action="/api/auth/switch" method="POST">
-                            <input type="hidden" name="index" value={idx} />
-                            <button
-                              type="submit"
-                              class="btn btn-sm btn-ghost border border-base-300 w-20 btn-switch-account"
-                            >
-                              Switch
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })
-              }
-            </ul>
-
-            <div class="space-y-2">
-              <div class="text-center text-lg">Add another account</div>
-              <form action="/api/auth/signin" method="post">
-                <button
-                  id="dashboard-signin-google-btn"
-                  class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
-                  value="google"
-                  name="provider"
-                  type="submit"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    class="size-6"
-                    viewBox="0 0 24 24"
-                    fill="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.2.8 3.9 1.5l2.7-2.6C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"
-                    ></path>
-                  </svg>
-                  <div class="w-36 text-start">Sign in with Google</div>
-                </button>
-              </form>
-
-              <form action="/api/auth/signout" method="post">
-                <div class="divider">OR</div>
-                <button
-                  id="dashboard-signout-btn"
-                  class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
-                  type="submit">Sign out</button
-                >
-              </form>
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+      <AuthPageSection
+        title="アカウント情報"
+        description="現在サインインしているアカウントを確認できます。"
+      >
+        <div class="rounded-lg bg-base-200/50 p-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-center gap-4">
+              <span
+                class="grid size-10 place-items-center rounded-full bg-base-300 text-sm font-bold text-base-content"
+                title={accountUser.app_metadata.provider || "provider"}
+              >
+                {providerInitial(accountUser.app_metadata.provider)}
+              </span>
+              <div>
+                <div>{accountUser.user_metadata?.["name"] || "User"}</div>
+                <div class="text-xs font-semibold opacity-60">
+                  {accountUser.email}
+                </div>
+              </div>
             </div>
           </div>
 
-          <div
-            class="mt-6 mb-3 text-center text-sm font-medium text-base-content/60"
-          >
-            管理
+          <div class="mt-5">
+            <form action="/api/auth/signout" method="post">
+              <button
+                id="dashboard-signout-btn"
+                class="btn btn-ghost h-12 min-h-12 w-full"
+                type="submit"
+              >
+                サインアウト
+              </button>
+            </form>
           </div>
+        </div>
+      </AuthPageSection>
+    </div>
+
+    <div class="rounded-lg border border-base-300 bg-base-100 p-6">
+      <AuthPageSection
+        title="管理"
+        description="連携端末の確認・失効や、APIキーの管理を行います。"
+      >
           <div class="space-y-3">
-            <p class="text-center text-sm text-base-content/60">
-              端末の失効や APIキーの確認はここから開きます。
-            </p>
             <div class="grid gap-3">
               <a
                 href="/dashboard/devices"
-                class="rounded-lg border border-base-300 bg-base-100 p-4 transition-colors hover:bg-base-200/70"
+                class="group block rounded-lg bg-base-100 p-4 transition-colors hover:bg-base-200/70"
               >
-                <div class="font-semibold">端末管理</div>
+                <div class="font-semibold text-link underline underline-offset-2 group-hover:text-link-hover">
+                  端末管理
+                </div>
                 <div class="text-sm text-base-content/60 mt-1">
                   連携済み端末の確認と失効
                 </div>
               </a>
               <a
                 href="/dashboard/api-keys"
-                class="rounded-lg border border-base-300 bg-base-100 p-4 transition-colors hover:bg-base-200/70"
+                class="group block rounded-lg bg-base-100 p-4 transition-colors hover:bg-base-200/70"
               >
-                <div class="font-semibold">APIキー管理</div>
+                <div class="font-semibold text-link underline underline-offset-2 group-hover:text-link-hover">
+                  APIキー管理
+                </div>
                 <div class="text-sm text-base-content/60 mt-1">
                   fusou-datasets の APIキーを管理します
                 </div>
               </a>
             </div>
           </div>
-        </div>
-      </div>
+          </AuthPageSection>
     </div>
-    <Navigation />
-  </div>
+  </AuthPageShell>
 </Layout>
