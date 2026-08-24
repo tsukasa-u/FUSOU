@@ -29,12 +29,16 @@ import {
 } from "../schemas/data-loader";
 import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
 
-import { createEnvContext, getEnv, type EnvContext } from "../utils";
+import {
+  createEnvContext,
+  getEnv,
+  type EnvContext,
+} from "../utils";
 import {
   type SupabaseRestConfig,
   getSupabaseRestConfig,
+  resolvePublicIdsForUser,
   supabaseRestRequest,
-  resolvePublicIdForUser,
 } from "../utils/supabase-rest";
 import {
   getLatestAllowedPeriodTag,
@@ -358,14 +362,15 @@ app.get("/period-tags", async (c) => {
  * Query params:
  *   - period_tag: specific period tag, "latest", or "all" (default: "latest")
  *   - limit: max number of files (default: 100)
- *   - scope: "own" (user's data only) or "all" (all users' data, default)
+ *   - scope: "all" (all public data, default)
  */
 app.get("/data/:table", async (c) => {
   const tableName = c.req.param("table");
   const apiKey = c.req.header("X-API-KEY");
   const clientId = c.req.header("X-CLIENT-ID");
   const periodTagParam = c.req.query("period_tag") || "latest";
-  const scopeParam = c.req.query("scope") || "all";
+  const scopeParamRaw = c.req.query("scope") || "all";
+  const scopeParam: "own" | "all" = scopeParamRaw === "own" ? "own" : "all";
   const tableVersionParam = c.req.query("table_version") || undefined;
   const tierParamRaw = c.req.query("tier")?.trim();
   const compactionTier = parseCompactionTier(tierParamRaw);
@@ -407,7 +412,7 @@ app.get("/data/:table", async (c) => {
   }
 
   // Validate scope parameter
-  if (scopeParam !== "own" && scopeParam !== "all") {
+  if (scopeParamRaw !== "own" && scopeParamRaw !== "all") {
     return jsonResponse(
       { error: "INVALID_SCOPE", message: "scope must be 'own' or 'all'" },
       400,
@@ -655,6 +660,24 @@ app.get("/data/:table", async (c) => {
     }
 
     // Original battle-data logic below
+    let userDatasetIds: string[] = [];
+    if (scopeParam === "own") {
+      userDatasetIds = await resolvePublicIdsForUser(
+        getSupabaseRestConfig(c),
+        apiKeyData.user_id,
+      );
+      if (userDatasetIds.length === 0) {
+        return jsonResponse(
+          {
+            error: "NO_LINKED_MEMBER",
+            message: "Link a game identifier before requesting own-scope data.",
+          },
+          400,
+          ruStatus,
+        );
+      }
+    }
+
     // Resolve period tag
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
@@ -673,27 +696,6 @@ app.get("/data/:table", async (c) => {
       }
     } else if (periodTagParam !== "all") {
       periodTag = periodTagParam;
-    }
-
-    // For scope=own, resolve the user's public_id dataset.
-    // via social link first, then canonical owner fallback.
-    let userDatasetId: string | null = null;
-    if (scopeParam === "own") {
-      userDatasetId = await resolvePublicIdForUser(
-        getSupabaseRestConfig(c),
-        apiKeyData.user_id,
-      );
-      if (!userDatasetId) {
-        return jsonResponse(
-          {
-            error: "NO_LINKED_MEMBER",
-            message:
-              "ゲームアカウントが未連携です。FUSOU-APPでゲームアカウントを同期し、FUSOU-APPと連携してサインインを完了してください。",
-          },
-          400,
-          ruStatus,
-        );
-      }
     }
 
     const includeBuffer = c.req.query("include_buffer") === "true";
@@ -720,11 +722,6 @@ app.get("/data/:table", async (c) => {
        WHERE bi.table_name = ?`;
       const params: unknown[] = [tableName];
 
-      if (scopeParam === "own" && userDatasetId) {
-        sql += ` AND bi.dataset_id = ?`;
-        params.push(userDatasetId);
-      }
-
       if (periodTag && periodTagParam !== "all") {
         sql += ` AND bi.period_tag = ?`;
         params.push(periodTag);
@@ -738,6 +735,11 @@ app.get("/data/:table", async (c) => {
       if (tier) {
         sql += ` AND bi.compaction_tier = ?`;
         params.push(tier);
+      }
+
+      if (scopeParam === "own" && userDatasetIds.length > 0) {
+        sql += ` AND bi.dataset_id IN (${userDatasetIds.map(() => "?").join(", ")})`;
+        params.push(...userDatasetIds);
       }
 
       if (windowStartMs != null) {
@@ -856,7 +858,6 @@ app.get("/data/:table", async (c) => {
       record_count: r.record_count,
       start_timestamp: r.start_timestamp,
       end_timestamp: r.end_timestamp,
-      // Use block_id for own scope (partial download), file path for all scope (full file)
       download_url:
         scopeParam === "own"
           ? `/api/data-loader/download?block_id=${r.id}`
@@ -966,7 +967,7 @@ app.get("/usage", async (c) => {
  * GET /data-loader/download - Download file from R2
  * Query params:
  *   - file: Full file path (for scope=all, downloads entire file)
- *   - block_id: Block index ID (for scope=own, downloads Header + specific data block)
+ *   - block_id: Block index ID (for scope=own, downloads header + one data block)
  */
 app.get("/download", async (c) => {
   const apiKey = c.req.header("X-API-KEY");
@@ -1028,7 +1029,6 @@ app.get("/download", async (c) => {
       );
     }
 
-    // Block-based download (for scope=own)
     if (blockIdParam) {
       const blockId = parseInt(blockIdParam, 10);
       if (isNaN(blockId)) {
@@ -1038,15 +1038,12 @@ app.get("/download", async (c) => {
         );
       }
 
-      // Get block info from D1
       const blockInfoResult = await indexDb
         .prepare(
-          `
-        SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
-        FROM block_indexes bi
-        JOIN archived_files af ON af.id = bi.file_id
-        WHERE bi.id = ?
-      `,
+          `SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
+           FROM block_indexes bi
+           JOIN archived_files af ON af.id = bi.file_id
+           WHERE bi.id = ?`,
         )
         .bind(blockId)
         .first();
@@ -1056,37 +1053,30 @@ app.get("/download", async (c) => {
           404,
         );
       }
-      const parsedBlockInfo =
-        DataLoaderBlockInfoRowSchema.safeParse(blockInfoResult);
+
+      const parsedBlockInfo = DataLoaderBlockInfoRowSchema.safeParse(blockInfoResult);
       if (!parsedBlockInfo.success) {
         return jsonResponse(
           { error: "INTERNAL_ERROR", message: "Invalid block metadata" },
           500,
         );
       }
-      const blockInfo = parsedBlockInfo.data;
 
-      // Ownership check: verify this block belongs to the authenticated user
-      const userDatasetId = await resolvePublicIdForUser(
+      const userDatasetIds = await resolvePublicIdsForUser(
         getSupabaseRestConfig(c),
         apiKeyData.user_id,
       );
-      if (!userDatasetId || blockInfo.dataset_id !== userDatasetId) {
+      if (!userDatasetIds.includes(parsedBlockInfo.data.dataset_id)) {
         return jsonResponse(
           { error: "FORBIDDEN", message: "Access to this block is not authorized" },
           403,
         );
       }
 
-      // Extract Avro header and data block
-      // Note: start_byte is the accurate position where the dataset's data block starts
-      // (after the Avro OCF header). This is correctly set by mergeAvroOCFWithBoundaries
-      // in the compaction workflow when multiple datasets are merged into a single file.
-
+      const blockInfo = parsedBlockInfo.data;
       const headerObject = await bucket.get(blockInfo.file_path, {
-        range: { offset: 0, length: blockInfo.start_byte }, // Fetches header (everything before data block)
+        range: { offset: 0, length: blockInfo.start_byte },
       });
-
       if (!headerObject?.body) {
         return jsonResponse(
           { error: "FILE_NOT_FOUND", message: "File not found in storage" },
@@ -1097,20 +1087,16 @@ app.get("/download", async (c) => {
       const dataObject = await bucket.get(blockInfo.file_path, {
         range: { offset: blockInfo.start_byte, length: blockInfo.length },
       });
-
       if (!dataObject?.body) {
         return jsonResponse(
-          { error: "DATA_NOT_FOUND", message: "Data block not found" },
+          { error: "DATA_NOT_FOUND", message: "Data block not found in storage" },
           404,
         );
       }
 
       const headerBytes = await headerObject.arrayBuffer();
       const dataBytes = await dataObject.arrayBuffer();
-
-      const combined = new Uint8Array(
-        headerBytes.byteLength + dataBytes.byteLength,
-      );
+      const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
       combined.set(new Uint8Array(headerBytes), 0);
       combined.set(new Uint8Array(dataBytes), headerBytes.byteLength);
 
@@ -1124,7 +1110,6 @@ app.get("/download", async (c) => {
       });
     }
 
-    // File-based download (for scope=all fallback)
     if (filePath) {
       // Security check: Verify file exists in registry to prevent IDOR
       const fileRecord = await indexDb

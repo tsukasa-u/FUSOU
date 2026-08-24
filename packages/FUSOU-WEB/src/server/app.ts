@@ -186,7 +186,7 @@ app.route("/master-data", synergyApp); // synergyApp declares /synergy-manifest,
 app.route("/ship-growth", shipGrowthApp); // shipGrowthApp declares /ingest
 app.route("/api-keys", apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
 app.route("/auth", anonymousSyncApp); // anonymousSyncApp declares legacy /anonymous-sync (deprecated and access denied)
-app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares /anonymous-sync/v2/{register,challenge,refresh,revoke}
+app.route("/auth", anonymousSyncV2App); // anonymousSyncV2App declares identity, device lifecycle, and pending handoff endpoints
 app.route("/shorten", shortenerApp); // shortener app declares POST /
 app.route("/quest-tree", questTreeApp); // questTreeApp declares /ingest, /rules, /graph, /changes
 app.route("/remodel-data", remodelDataApp); // remodelDataApp declares /ingest

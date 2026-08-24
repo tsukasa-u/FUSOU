@@ -1,22 +1,24 @@
 import { Hono, type Context } from "hono";
-import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { createClient } from "@supabase/supabase-js";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Bindings, R2ObjectLite } from "../types";
 import {
   createEnvContext,
-  getEnv,
   extractBearer,
+  getEnv,
   resolvePublicIdForUser,
+  validateDatasetTokenWithConstraints,
+  resolveDatasetTokenRevocationConfig,
+  timingSafeEqual,
   validateJWT,
   resolveSupabaseConfig,
-  validateDatasetTokenWithConstraints,
-  timingSafeEqual,
 } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
   SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES,
   SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
+  MAX_UPLOAD_BYTES,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
 import {
@@ -94,9 +96,8 @@ async function listAllObjectsByPrefix(
 
 /**
  * 認証情報から UUID の dataset_id を解決する。
- * 優先順位:
- *   1. Authorization: Bearer <supabase_jwt> → canonical user_member_map
- *   2. X-Dataset-Token → JWT ペイロードの dataset_id
+ * JWT の Web mapping は、本人確認ではなく Web アカウントと
+ * 疑似匿名 dataset の関連付けとして利用する。
  *
  * @returns { datasetId: string } on success, or { error: string, status: number } on failure
  */
@@ -114,6 +115,7 @@ async function resolveDatasetId(
     const tokenValidation = await validateDatasetTokenWithConstraints({
       token: datasetTokenHeader,
       secret: getEnv(env, "DATASET_TOKEN_SECRET"),
+      revocation: resolveDatasetTokenRevocationConfig(env),
     });
     if (!tokenValidation.ok || !tokenValidation.token) {
       return {
@@ -134,82 +136,58 @@ async function resolveDatasetId(
     };
   };
 
-  // 1. Bearer JWT → canonical owner map
-  const authHeader = c.req.header("Authorization");
-  const accessToken = extractBearer(authHeader);
+  if (c.req.header("X-Dataset-Token")) {
+    const tokenResolution = await tryResolveFromDatasetToken();
+    if (tokenResolution) return tokenResolution;
+  }
+
+  const accessToken = extractBearer(c.req.header("Authorization"));
   if (accessToken) {
     const user = await validateJWT(accessToken);
     if (!user?.id) {
-      console.warn("[fleet] JWT validation failed for provided access token");
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback) return tokenFallback;
-      return {
-        ok: false,
-        error: "Invalid or expired access token",
-        status: 401,
-      };
+      return { ok: false, error: "Invalid or expired access token", status: 401 };
     }
 
-    const envCtx = createEnvContext(c);
-    const { url, serviceRoleKey } = resolveSupabaseConfig(envCtx);
+    const { url, serviceRoleKey } = resolveSupabaseConfig(env);
     if (!url || !serviceRoleKey) {
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback?.ok) return tokenFallback;
-      console.error(
-        "[fleet] Supabase configuration missing for user_member_map lookup",
-      );
       return { ok: false, error: "Server misconfiguration", status: 500 };
     }
 
-    const supabaseAdmin = createClient(url, serviceRoleKey);
-
     try {
       const resolvedMember = await resolvePublicIdForUser({
-        supabaseAdmin,
+        supabaseAdmin: createClient(url, serviceRoleKey),
         userId: user.id,
       });
-
-      console.log("[fleet] dataset resolution result:", {
-        user_id: user.id,
-        source: resolvedMember.source,
-        public_id: resolvedMember.publicId
-          ? `${resolvedMember.publicId.slice(0, 8)}...`
-          : null,
-      });
-
-      if (!resolvedMember.publicId) {
-        const tokenFallback = await tryResolveFromDatasetToken();
-        if (tokenFallback?.ok) return tokenFallback;
+      if (resolvedMember.publicId) {
         return {
-          ok: false,
-          error:
-            "ゲームアカウントが未連携です。FUSOU-APPでゲームアカウントを同期し、FUSOU-APPと連携してサインインを完了してください。連携時のGoogle認証でWebサインインも同時に完了します。",
-          status: 403,
+          ok: true,
+          datasetId: resolvedMember.publicId,
+          authSource: "jwt",
         };
       }
-
+      const tokenFallback = await tryResolveFromDatasetToken();
+      if (tokenFallback?.ok) return tokenFallback;
       return {
-        ok: true,
-        datasetId: resolvedMember.publicId,
-        authSource: "jwt",
+        ok: false,
+        error: "No game identifier is linked to this Web account",
+        status: 403,
       };
-    } catch (err) {
-      console.error("[fleet] Unexpected error while resolving dataset:", err);
+    } catch (error) {
+      console.error("[fleet] dataset association lookup failed:", error);
       const tokenFallback = await tryResolveFromDatasetToken();
       if (tokenFallback?.ok) return tokenFallback;
       return { ok: false, error: "Failed to resolve dataset", status: 500 };
     }
   }
 
-  // 2. X-Dataset-Token → dataset_id from JWT payload
-  const tokenFallback = await tryResolveFromDatasetToken();
-  if (tokenFallback) return tokenFallback;
+  const tokenResolution = await tryResolveFromDatasetToken();
+  if (tokenResolution) return tokenResolution;
 
-  return {
-    ok: false,
-    error: "Authentication required. Please sign in first.",
-    status: 401,
-  };
+  return { ok: false, error: "Authentication required. Please sign in first.", status: 401 };
 }
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -236,6 +214,7 @@ app.post("/snapshot", async (c) => {
     tokenPayloadSchema: FleetSnapshotTokenPayloadSchema,
     requireDatasetToken: true,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
+    maxBodySize: MAX_UPLOAD_BYTES,
     preparationValidator: async (body, _user, authContext) => {
       const rawTag =
         typeof body?.["tag"] === "string" ? body["tag"].trim() : "";
