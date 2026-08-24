@@ -34,5 +34,3 @@ END;
 $$;
 
 COMMIT;
-
-COMMIT;

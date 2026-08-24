@@ -300,54 +300,9 @@ CREATE INDEX idx_pending_syncs_app_instance
 CREATE INDEX idx_pending_syncs_expires
     ON public.pending_member_syncs (expires_at);
 
-CREATE OR REPLACE FUNCTION public.delete_synced_pending_member_syncs()
-RETURNS trigger
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public, pg_temp
-AS $$
-BEGIN
-    IF NEW.synced_at IS NOT NULL AND NEW.public_id IS NOT NULL THEN
-        DELETE FROM public.pending_member_syncs WHERE id = NEW.id;
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-REVOKE ALL ON FUNCTION public.delete_synced_pending_member_syncs() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.delete_synced_pending_member_syncs() TO service_role;
-
-CREATE TRIGGER trg_auto_delete_synced_pending_syncs
-    AFTER UPDATE ON public.pending_member_syncs
-    FOR EACH ROW
-    EXECUTE FUNCTION public.delete_synced_pending_member_syncs();
-
 ALTER TABLE public.pending_member_syncs ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.pending_member_syncs FROM PUBLIC;
-GRANT SELECT, INSERT, UPDATE ON TABLE public.pending_member_syncs TO anon, authenticated;
+REVOKE ALL ON TABLE public.pending_member_syncs FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.pending_member_syncs TO service_role;
-
-CREATE POLICY pending_member_syncs_insert
-    ON public.pending_member_syncs
-    FOR INSERT
-    TO anon, authenticated
-    WITH CHECK (public_id IS NULL AND token <> '');
-
-CREATE POLICY pending_member_syncs_select
-    ON public.pending_member_syncs
-    FOR SELECT
-    TO anon, authenticated
-    USING (true);
-
-CREATE POLICY pending_member_syncs_update
-    ON public.pending_member_syncs
-    FOR UPDATE
-    TO anon, authenticated
-    USING (synced_at IS NULL AND expires_at > now())
-    WITH CHECK (
-        public_id IS NOT NULL
-        AND synced_at IS NOT NULL
-    );
 
 DO $$
 BEGIN
@@ -456,6 +411,26 @@ GRANT EXECUTE ON FUNCTION public.rpc_get_registered_public_id(text) TO service_r
 
 DO $$
 BEGIN
+    IF to_regprocedure('public.handle_new_user()') IS NOT NULL THEN
+        RAISE EXCEPTION 'cutover postflight failed: legacy handle_new_user function remains';
+    END IF;
+    IF EXISTS (
+        SELECT 1
+          FROM pg_trigger
+         WHERE tgrelid = 'auth.users'::regclass
+           AND tgname = 'on_auth_user_created'
+           AND NOT tgisinternal
+    ) THEN
+        RAISE EXCEPTION 'cutover postflight failed: legacy auth user trigger remains';
+    END IF;
+    IF has_table_privilege('anon', 'public.pending_member_syncs', 'SELECT')
+       OR has_table_privilege('anon', 'public.pending_member_syncs', 'INSERT')
+       OR has_table_privilege('anon', 'public.pending_member_syncs', 'UPDATE')
+       OR has_table_privilege('authenticated', 'public.pending_member_syncs', 'SELECT')
+       OR has_table_privilege('authenticated', 'public.pending_member_syncs', 'INSERT')
+       OR has_table_privilege('authenticated', 'public.pending_member_syncs', 'UPDATE') THEN
+        RAISE EXCEPTION 'cutover postflight failed: pending sync client grants remain';
+    END IF;
     IF EXISTS (SELECT 1 FROM public.member_id_mapping) THEN
         RAISE EXCEPTION 'cutover postflight failed: member_id_mapping is not empty';
     END IF;
