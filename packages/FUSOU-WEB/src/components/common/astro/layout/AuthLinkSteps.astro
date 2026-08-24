@@ -17,9 +17,9 @@ const steps: Array<{
   title: string;
   description: string;
 }> = [
-  { id: "1", title: "ゲーム同期", description: "ゲームアカウントを接続" },
-  { id: "2", title: "Google連携", description: "Webアカウントを接続" },
-  { id: "3", title: "完了", description: "利用準備完了" },
+  { id: "1", title: "ゲーム識別子", description: "公開用 UUID に変換" },
+  { id: "2", title: "Google認証", description: "Webアカウントを認証" },
+  { id: "3", title: "関連付け完了", description: "同期を利用可能" },
 ];
 
 function boxClass(status: StepStatus, id: StepId): string {
