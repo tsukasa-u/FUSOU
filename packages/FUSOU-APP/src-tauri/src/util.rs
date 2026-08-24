@@ -29,6 +29,8 @@ static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 static ANONYMOUS_AUTH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
 static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<Mutex<Option<String>>> =
     LazyLock::new(Mutex::default);
+static ANONYMOUS_AUTH_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// Load the auth attempt flag from disk if available (multi-device consistency).
 /// Returns (attempted_before, last_member_id)
@@ -83,7 +85,7 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
 /// Deprecated: Returns an environment-scoped ID (ENV_UNIQ_ID). Do not use for user identification.
 ///
 /// Use [`get_user_member_id()`] instead. It returns the game-provided `api_member_id`
-/// and user ownership is verified by the v2 anonymous-sync protocol (device key + challenge).
+/// and the v2 anonymous-sync protocol keeps the dataset mapping pseudonymous.
 ///
 /// Tracking issue: <https://github.com/tsukasa-u/FUSOU/issues/TBD>
 #[allow(dead_code)]
@@ -126,6 +128,18 @@ pub async fn get_user_member_id() -> String {
     basic.member_id
 }
 
+pub async fn resolve_dataset_id_for_current_member(
+    auth_manager: &fusou_auth::AuthManager<fusou_auth::FileStorage>,
+) -> Option<String> {
+    let api_member_id = get_user_member_id().await;
+    if api_member_id.trim().is_empty() {
+        auth_manager.set_active_api_member_id(None);
+        return None;
+    }
+    auth_manager.set_active_api_member_id(Some(&api_member_id));
+    auth_manager.resolve_dataset_id_for_upload(None).await
+}
+
 /// Non-sensitive local fallback identity used only when dataset_id is unavailable.
 /// This value is environment-scoped (per app install), not account-scoped.
 pub async fn get_local_fallback_id() -> String {
@@ -153,7 +167,7 @@ async fn check_session_usable(app: &tauri::AppHandle) -> bool {
         auth_manager_state.lock().unwrap().clone()
     };
 
-    let Some(dataset_id) = auth_manager.resolve_dataset_id_for_upload(None).await else {
+    let Some(dataset_id) = resolve_dataset_id_for_current_member(&auth_manager).await else {
         return false;
     };
 
@@ -180,6 +194,27 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         return;
     }
 
+    let _auth_guard = ANONYMOUS_AUTH_LOCK.lock().await;
+
+    let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
+    let Some(auth_manager_state) = auth_manager_state else {
+        tracing::warn!("AuthManager not available, skipping anonymous auth");
+        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+        save_auth_attempt_flag(false, &None);
+        return;
+    };
+    let auth_manager_clone = {
+        let manager = auth_manager_state.lock().unwrap();
+        manager.clone()
+    };
+    auth_manager_clone.set_active_api_member_id(Some(&api_member_id));
+
+    let current_member_id = get_user_member_id().await;
+    if current_member_id != api_member_id {
+        auth_manager_clone.set_active_api_member_id(Some(&current_member_id));
+        return;
+    }
+
     // Load persisted flag from disk (multi-device consistency)
     let (disk_attempted, disk_last_member_id) = load_auth_attempt_flag();
 
@@ -202,7 +237,12 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
                 // actually usable. If token is expired or missing, allow re-auth.
                 let session_still_valid = check_session_usable(app).await;
                 if session_still_valid {
-                    tracing::debug!("anonymous auth already attempted for this member_id (from disk) and token is valid, skipping");
+                    let current_member_id = get_user_member_id().await;
+                    if current_member_id == api_member_id {
+                        tracing::debug!("anonymous auth already attempted for this member_id (from disk) and token is valid, skipping");
+                        return;
+                    }
+                    auth_manager_clone.set_active_api_member_id(Some(&current_member_id));
                     return;
                 }
                 tracing::info!("session expired or missing despite auth flag; allowing re-auth");
@@ -229,27 +269,11 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
 
     tracing::info!("Starting background anonymous authentication");
 
-    // fusou-authのAuthManagerを取得
-    let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
-    if auth_manager_state.is_none() {
-        tracing::warn!("AuthManager not available, skipping anonymous auth");
-        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
-        save_auth_attempt_flag(false, &None);
-        return;
-    }
-
-    let auth_manager = auth_manager_state.unwrap();
-    
-    // Clone to avoid holding lock across await
-    let auth_manager_clone = {
-        let manager = auth_manager.lock().unwrap();
-        manager.clone()
-    };
-
     if member_id_changed {
-        tracing::info!("member_id changed; clearing cached dataset tokens before v2 auth");
-        if let Err(e) = auth_manager_clone.clear_dataset_tokens().await {
-            tracing::warn!("failed to clear cached dataset tokens on member switch: {}", e);
+        if get_user_member_id().await != api_member_id {
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
+            return;
         }
     }
 
@@ -264,6 +288,11 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     };
 
     if member_id_changed {
+        if get_user_member_id().await != api_member_id {
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
+            return;
+        }
         if let Err(e) = device_key.clear_device_id().await {
             tracing::error!("Failed to reset device identity for member switch: {}", e);
             ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
@@ -275,7 +304,9 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
     // 既存 token があれば refresh 判定に利用する。
     let current_token = if member_id_changed {
         None
-    } else if let Some(dataset_id) = auth_manager_clone.resolve_dataset_id_for_upload(None).await {
+    } else if let Some(dataset_id) =
+        resolve_dataset_id_for_current_member(&auth_manager_clone).await
+    {
         auth_manager_clone
             .load_dataset_token_for_dataset(&dataset_id)
             .await
@@ -285,25 +316,62 @@ pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
         None
     };
 
+    if current_token.is_none() && device_key.device_id().is_some() {
+        if let Err(e) = auth_manager_clone
+            .clear_dataset_tokens_for_member(&api_member_id)
+            .await
+        {
+            tracing::warn!("failed to clear unbound dataset tokens: {}", e);
+        }
+        if let Err(e) = device_key.clear_device_id().await {
+            tracing::error!("Failed to clear unbound device identity: {}", e);
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            save_auth_attempt_flag(false, &None);
+            return;
+        }
+    }
+
+    let current_member_id = get_user_member_id().await;
+    if current_member_id != api_member_id {
+        auth_manager_clone.set_active_api_member_id(Some(&current_member_id));
+        ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+        return;
+    }
+
     // 匿名認証 v2 を実行して dataset_token を取得
     match auth_manager_clone
         .ensure_dataset_token_v2(&api_member_id, &mut device_key, current_token.as_ref())
         .await
     {
         Ok(dataset_token) => {
+            let current_member_id = get_user_member_id().await;
+            if current_member_id != api_member_id {
+                auth_manager_clone.set_active_api_member_id(Some(&current_member_id));
+                let _ = auth_manager_clone
+                    .clear_dataset_tokens_for_member(&api_member_id)
+                    .await;
+                if let Some(device_id) = dataset_token.device_id.as_deref() {
+                    if let Err(error) = device_key.clear_device_id_if_matches(device_id).await {
+                        tracing::warn!("failed to clear stale device identity: {}", error);
+                    }
+                }
+                ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                return;
+            }
+
             tracing::info!("Anonymous authentication successful");
 
-            {
-                let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
-                *guard = Some(api_member_id.clone());
-            }
-            
-            // Persist flag to disk for multi-device consistency
-            save_auth_attempt_flag(true, &Some(api_member_id.clone()));
-            
             if let Err(e) = auth_manager_clone.save_dataset_token(&dataset_token).await {
                 tracing::error!("Failed to save dataset_token: {}", e);
+                ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                save_auth_attempt_flag(false, &None);
             } else {
+                {
+                    let mut guard = LAST_AUTHENTICATED_MEMBER_ID.lock().unwrap();
+                    *guard = Some(api_member_id.clone());
+                }
+                // Persist flag to disk for multi-device consistency only after the token is saved.
+                save_auth_attempt_flag(true, &Some(api_member_id.clone()));
                 tracing::info!("dataset_token obtained and stored");
             }
         }

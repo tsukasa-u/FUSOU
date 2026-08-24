@@ -41,6 +41,12 @@ pub struct DatasetToken {
     /// このトークンが紐づく UUID v4 の dataset_id (public_id)
     #[serde(default)]
     pub dataset_id: Option<String>,
+    /// The game-provided member key used to obtain this token.
+    #[serde(default)]
+    pub api_member_id: Option<String>,
+    /// サーバー発行の device_id。JWT の device_id claim と一致する。
+    #[serde(default)]
+    pub device_id: Option<String>,
 }
 
 /// 端末ローカルに保持する dataset_token 群。

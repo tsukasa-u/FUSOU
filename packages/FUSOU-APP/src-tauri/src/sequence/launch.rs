@@ -94,7 +94,9 @@ pub async fn launch_with_options(
 
                         let file_prefix = {
                             let manager = auth_manager.lock().unwrap().clone();
-                            if let Some(dataset_id) = manager.resolve_dataset_id_for_upload(None).await {
+                            if let Some(dataset_id) =
+                                crate::util::resolve_dataset_id_for_current_member(&manager).await
+                            {
                                 dataset_id
                             } else {
                                 util::get_local_fallback_id().await

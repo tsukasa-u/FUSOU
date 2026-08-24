@@ -217,8 +217,7 @@ pub async fn run() {
                 move || {
                     let auth_manager = auth_manager.clone();
                     async move {
-                        auth_manager
-                            .resolve_dataset_id_for_upload(None)
+                        crate::util::resolve_dataset_id_for_current_member(&auth_manager)
                             .await
                             .unwrap_or_default()
                     }

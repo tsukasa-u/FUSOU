@@ -122,7 +122,9 @@ impl QuestTreeSender {
     async fn resolve_dataset_id(&self) -> Option<String> {
         let mut attempts = 0;
         while attempts < 15 {
-            if let Some(dataset_id) = self.auth_manager.resolve_dataset_id_for_upload(None).await {
+            if let Some(dataset_id) =
+                crate::util::resolve_dataset_id_for_current_member(&self.auth_manager).await
+            {
                 if !dataset_id.trim().is_empty() {
                     return Some(dataset_id);
                 }
